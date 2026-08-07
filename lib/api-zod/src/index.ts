@@ -27,6 +27,8 @@ export const Project = z.object({
   thumbnailUrl: z.string().nullable(),
   videoUrl: z.string().nullable(),
   editedVideoUrl: z.string().nullable(),
+  videoPath: z.string().nullable(),
+  editedVideoPath: z.string().nullable(),
   duration: z.number().nullable(),
   platform: Platform.nullable(),
   createdAt: z.string(),
@@ -115,6 +117,8 @@ export const UpdateProjectBody = z.object({
   thumbnailUrl: z.string().optional(),
   videoUrl: z.string().optional(),
   editedVideoUrl: z.string().optional(),
+  videoPath: z.string().optional(),
+  editedVideoPath: z.string().optional(),
   duration: z.number().optional(),
   platform: Platform.optional(),
 });

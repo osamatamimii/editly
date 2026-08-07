@@ -13,6 +13,13 @@ export const projectsTable = pgTable(
     thumbnailUrl: text("thumbnail_url"),
     videoUrl: text("video_url"),
     editedVideoUrl: text("edited_video_url"),
+    /**
+     * Storage object keys in the private "videos" bucket, always shaped
+     * "<userId>/<projectId>/<name>". Signed URLs expire, so the durable key
+     * is what gets stored; the client mints a URL when it needs to play.
+     */
+    videoPath: text("video_path"),
+    editedVideoPath: text("edited_video_path"),
     duration: real("duration"),
     platform: text("platform"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

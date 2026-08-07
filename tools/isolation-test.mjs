@@ -11,9 +11,16 @@
  */
 import http from "node:http";
 import { createRequire } from "node:module";
-import { generateKeyPair, exportJWK, SignJWT } from "jose";
+import { pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const require = createRequire(import.meta.url);
+
+// jose is a dependency of the API server, not of this repo's root, so it is
+// resolved from there rather than assumed to be hoisted.
+const { generateKeyPair, exportJWK, SignJWT } = await import(
+  pathToFileURL(require.resolve("jose", { paths: ["artifacts/api-server"] })).href
+);
 
 const JWKS_PORT = 4022;
 const API_PORT = 4021;
@@ -37,8 +44,26 @@ const jwksServer = http.createServer((req, res) => {
 });
 await new Promise((r) => jwksServer.listen(JWKS_PORT, r));
 
-// The middleware reads SUPABASE_URL at import time, so this must be set first.
+// The middleware reads SUPABASE_URL at import time, and build-vercel.mjs bakes
+// that value into the bundle. So the bundle has to be rebuilt pointing at the
+// local JWKS above — otherwise every request here is checked against the real
+// Supabase project and fails as unauthorised.
 process.env.SUPABASE_URL = ISSUER_BASE;
+process.env.DATABASE_URL ??= "postgresql://postgres:postgres@127.0.0.1:5432/editly_test";
+
+console.log("Rebuilding the API bundle against the local test issuer...");
+const buildResult = spawnSync(
+  process.execPath,
+  ["artifacts/api-server/build-vercel.mjs"],
+  {
+    stdio: ["ignore", "ignore", "inherit"],
+    env: { ...process.env, SUPABASE_URL: ISSUER_BASE },
+  },
+);
+if (buildResult.status !== 0) {
+  console.error("Bundle build failed; cannot run the isolation test.");
+  process.exit(1);
+}
 
 async function tokenFor(userId, overrides = {}) {
   return new SignJWT({ role: "authenticated", ...overrides })
@@ -178,6 +203,51 @@ let aliceProjectId;
 
   const expStatus = await call(BOB, `/api/projects/${aliceProjectId}/export/status`);
   check("Bob cannot poll Alice's export status", expStatus.status === 404, `got ${expStatus.status}`);
+}
+
+console.log("\nStorage path ownership");
+{
+  const good = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", {
+    videoPath: `${ALICE}/${aliceProjectId}/source.mp4`,
+  });
+  check("owner can record a key inside their own folder", good.status === 200, `got ${good.status} ${good.text.slice(0, 100)}`);
+  check(
+    "the key is stored verbatim",
+    good.json?.videoPath === `${ALICE}/${aliceProjectId}/source.mp4`,
+    JSON.stringify(good.json?.videoPath),
+  );
+
+  const otherUser = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", {
+    videoPath: `${BOB}/${aliceProjectId}/source.mp4`,
+  });
+  check("a key in another user's folder is refused", otherUser.status === 400, `got ${otherUser.status}`);
+
+  const otherProject = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", {
+    videoPath: `${ALICE}/some-other-project/source.mp4`,
+  });
+  check("a key from another project is refused", otherProject.status === 400, `got ${otherProject.status}`);
+
+  const traversal = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", {
+    videoPath: `${ALICE}/${aliceProjectId}/../../${BOB}/x.mp4`,
+  });
+  check("a traversing key is refused", traversal.status === 400, `got ${traversal.status}`);
+
+  const shallow = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", {
+    videoPath: `${ALICE}/source.mp4`,
+  });
+  check("a key missing the project segment is refused", shallow.status === 400, `got ${shallow.status}`);
+
+  const edited = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", {
+    editedVideoPath: `${BOB}/${aliceProjectId}/edited.mp4`,
+  });
+  check("editedVideoPath is validated too", edited.status === 400, `got ${edited.status}`);
+
+  const intact = await call(ALICE, `/api/projects/${aliceProjectId}`);
+  check(
+    "refused writes left the stored key untouched",
+    intact.json?.videoPath === `${ALICE}/${aliceProjectId}/source.mp4` && intact.json?.editedVideoPath === null,
+    JSON.stringify({ v: intact.json?.videoPath, e: intact.json?.editedVideoPath }),
+  );
 }
 
 console.log("\nPer-user statistics and quota");

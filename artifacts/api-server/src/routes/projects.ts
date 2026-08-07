@@ -15,6 +15,7 @@ import {
 import { serializeProject } from "../lib/transformers";
 import { PLAN_LIMITS, isPlanKey } from "../lib/plan-limits";
 import { currentUserId } from "../middlewares/auth";
+import { deleteProjectObjects, isOwnedObjectPath } from "../lib/storage";
 
 const router: IRouter = Router();
 
@@ -125,6 +126,16 @@ router.patch("/projects/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  // Storage keys come from the browser, so the server confirms they point
+  // inside this user's folder for this project before recording them.
+  for (const field of ["videoPath", "editedVideoPath"] as const) {
+    const value = parsed.data[field];
+    if (value !== undefined && !isOwnedObjectPath(value, userId, params.data.id)) {
+      res.status(400).json({ error: `${field} must be inside this project's own storage folder` });
+      return;
+    }
+  }
+
   const [project] = await db
     .update(projectsTable)
     .set(parsed.data)
@@ -167,6 +178,9 @@ router.delete("/projects/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Project not found" });
     return;
   }
+
+  // The row is gone either way; reclaiming the bytes is best-effort.
+  await deleteProjectObjects(userId, project.id);
 
   res.sendStatus(204);
 });

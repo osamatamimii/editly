@@ -46,6 +46,12 @@ export interface Project {
   videoUrl: string | null;
   /** @nullable */
   editedVideoUrl: string | null;
+  /** Storage object key for the uploaded source video.
+   * @nullable */
+  videoPath: string | null;
+  /** Storage object key for the rendered output, once one exists.
+   * @nullable */
+  editedVideoPath: string | null;
   /** @nullable */
   duration: number | null;
   /** @nullable */
@@ -84,6 +90,8 @@ export interface UpdateProjectBody {
   thumbnailUrl?: string;
   videoUrl?: string;
   editedVideoUrl?: string;
+  videoPath?: string;
+  editedVideoPath?: string;
   duration?: number;
   platform?: UpdateProjectBodyPlatform;
 }

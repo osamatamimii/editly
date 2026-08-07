@@ -299,6 +299,12 @@ components:
           type: ["string", "null"]
         editedVideoUrl:
           type: ["string", "null"]
+        videoPath:
+          description: Storage object key for the uploaded source video.
+          type: ["string", "null"]
+        editedVideoPath:
+          description: Storage object key for the rendered output, once one exists.
+          type: ["string", "null"]
         duration:
           type: ["number", "null"]
         platform:
@@ -315,6 +321,8 @@ components:
         - thumbnailUrl
         - videoUrl
         - editedVideoUrl
+        - videoPath
+        - editedVideoPath
         - duration
         - platform
         - createdAt
@@ -341,6 +349,10 @@ components:
         videoUrl:
           type: string
         editedVideoUrl:
+          type: string
+        videoPath:
+          type: string
+        editedVideoPath:
           type: string
         duration:
           type: number

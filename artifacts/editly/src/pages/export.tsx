@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronLeft, Download, Smartphone, PlaySquare, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { usePlayableVideo } from "@/lib/video-storage";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 
@@ -29,6 +30,12 @@ export default function ExportPage() {
   const { data: project, isLoading: isProjectLoading } = useGetProject(id, {
     query: { enabled: !!id, queryKey: getGetProjectQueryKey(id) }
   });
+
+  // The bucket is private, so playback and download need a signed URL.
+  const { url: playbackUrl } = usePlayableVideo(
+    project?.editedVideoPath ?? project?.videoPath ?? project?.editedVideoUrl ?? project?.videoUrl,
+  );
+  const hasVideo = Boolean(project?.videoPath ?? project?.videoUrl);
 
   const { data: exportStatus } = useGetExportStatus(id, {
     query: { 
@@ -118,9 +125,9 @@ export default function ExportPage() {
         {/* Preview Container */}
         <div className="lg:col-span-5 flex justify-center">
           <div className="w-full max-w-[360px] aspect-[9/16] bg-black rounded-3xl overflow-hidden glass-panel border-4 border-white/10 relative shadow-[0_0_50px_rgba(108,59,255,0.2)]">
-            {project.editedVideoUrl || project.videoUrl ? (
+            {playbackUrl ? (
               <video 
-                src={project.editedVideoUrl ?? project.videoUrl ?? undefined} 
+                src={playbackUrl} 
                 className="w-full h-full object-cover"
                 controls
                 autoPlay
@@ -206,7 +213,7 @@ export default function ExportPage() {
                 size="lg" 
                 className="w-full h-16 text-lg font-bold rounded-xl glow-btn bg-primary text-primary-foreground hover:bg-primary/90"
                 onClick={handleStartExport}
-                disabled={!project.videoUrl}
+                disabled={!hasVideo}
                 data-testid="button-start-export"
               >
                 Render & Export
@@ -266,7 +273,7 @@ export default function ExportPage() {
                   onClick={() => {
                     // Simulate download
                     const link = document.createElement('a');
-                    link.href = exportStatus?.downloadUrl || project.editedVideoUrl || project.videoUrl || '#';
+                    link.href = exportStatus?.downloadUrl || playbackUrl || '#';
                     link.download = `${project.title.replace(/\s+/g, '-').toLowerCase()}-${platform}.mp4`;
                     document.body.appendChild(link);
                     link.click();

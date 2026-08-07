@@ -19,6 +19,15 @@ import {
   Video
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
+import {
+  uploadProjectVideo,
+  usePlayableVideo,
+  ACCEPTED_VIDEO_TYPES,
+  MAX_UPLOAD_BYTES,
+  formatBytes,
+} from "@/lib/video-storage";
 import { ToastAction } from "@/components/ui/toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -34,7 +43,10 @@ export default function ProjectEditor() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadedBytes, setUploadedBytes] = useState(0);
+  const [totalBytes, setTotalBytes] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  const cancelUploadRef = useRef<(() => void) | null>(null);
   const [isProcessingEdit, setIsProcessingEdit] = useState(false);
   const [editSteps, setEditSteps] = useState<string[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -51,6 +63,13 @@ export default function ProjectEditor() {
 
   const updateProject = useUpdateProject();
   const sendMessage = useSendMessage();
+  const { user } = useAuth();
+
+  // The bucket is private, so playback needs a freshly signed URL.
+  const { url: playbackUrl } = usePlayableVideo(
+    project?.editedVideoPath ?? project?.videoPath ?? project?.editedVideoUrl ?? project?.videoUrl,
+  );
+  const hasVideo = Boolean(project?.videoPath ?? project?.videoUrl);
 
   useEffect(() => {
     // Scroll to bottom of chat
@@ -62,38 +81,73 @@ export default function ProjectEditor() {
     }
   }, [messages, isProcessingEdit, editSteps, isNoahThinking]);
 
-  const ACCEPTED_TYPES = ["video/mp4", "video/quicktime", "video/mov"];
-  const MAX_SIZE_BYTES = 1024 * 1024 * 1024; // 1GB
-
-  const validateAndUpload = (file: File) => {
-    if (!ACCEPTED_TYPES.includes(file.type) && !file.name.match(/\.(mp4|mov)$/i)) {
+  const validateAndUpload = async (file: File) => {
+    if (!ACCEPTED_VIDEO_TYPES.includes(file.type) && !file.name.match(/\.(mp4|mov|webm)$/i)) {
       toast({
         title: "Invalid file type",
-        description: "Please upload an mp4 or mov file.",
+        description: "Please upload an mp4, mov, or webm file.",
         variant: "destructive"
       });
       return;
     }
-    if (file.size > MAX_SIZE_BYTES) {
+    if (file.size > MAX_UPLOAD_BYTES) {
       toast({
         title: "File too large",
-        description: "Maximum upload size is 1GB.",
+        description: `That file is ${formatBytes(file.size)}. The current limit is ${formatBytes(MAX_UPLOAD_BYTES)} per video.`,
         variant: "destructive"
       });
       return;
     }
+
+    // Read the token fresh — Supabase rotates it roughly hourly and the copy
+    // held in context may already be past its expiry on a long-open tab.
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!user || !accessToken) {
+      toast({ title: "Please sign in again", variant: "destructive" });
+      return;
+    }
+
     setIsUploading(true);
     setUploadProgress(0);
-    const interval = setInterval(() => {
-      setUploadProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          completeUpload(file);
-          return 100;
-        }
-        return prev + 10;
+    setUploadedBytes(0);
+    setTotalBytes(file.size);
+
+    // Real bytes on the wire, not a timer pretending to be one.
+    const handle = uploadProjectVideo({
+      file,
+      userId: user.id,
+      projectId: id,
+      accessToken,
+      onProgress: (percent, loaded, total) => {
+        setUploadProgress(percent);
+        setUploadedBytes(loaded);
+        setTotalBytes(total);
+      },
+    });
+    cancelUploadRef.current = handle.cancel;
+
+    try {
+      const videoPath = await handle.done;
+      await updateProject.mutateAsync({
+        id,
+        data: { status: "ready", videoPath }
       });
-    }, 200);
+      queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
+      toast({
+        title: "Video uploaded",
+        description: "Your video is stored and ready for editing."
+      });
+    } catch (error) {
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive"
+      });
+    } finally {
+      cancelUploadRef.current = null;
+      setIsUploading(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -121,31 +175,6 @@ export default function ProjectEditor() {
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
     validateAndUpload(file);
-  };
-
-  const completeUpload = async (file: File) => {
-    const objectUrl = URL.createObjectURL(file);
-    try {
-      await updateProject.mutateAsync({
-        id,
-        data: {
-          status: 'ready',
-          videoUrl: objectUrl
-        }
-      });
-      queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
-      setIsUploading(false);
-      toast({
-        title: "Video uploaded",
-        description: "Your video is ready for editing."
-      });
-    } catch (error) {
-      setIsUploading(false);
-      toast({
-        title: "Upload failed",
-        variant: "destructive"
-      });
-    }
   };
 
   const handleSendChat = async () => {
@@ -214,7 +243,9 @@ export default function ProjectEditor() {
         id,
         data: {
           status: 'done',
-          editedVideoUrl: project?.videoUrl ?? undefined // In a real app this would be a new URL
+          // Until the render worker exists there is no separate output file,
+          // so the source stays the thing that plays. Setting editedVideoPath
+          // here would claim a render happened that did not.
         }
       });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
@@ -285,7 +316,7 @@ export default function ProjectEditor() {
           <Button 
             variant="outline" 
             className="border-white/10"
-            disabled={!project.videoUrl}
+            disabled={!hasVideo}
             onClick={() => setLocation(`/export/${project.id}`)}
             data-testid="button-export"
           >
@@ -294,7 +325,7 @@ export default function ProjectEditor() {
           </Button>
           <Button 
             className="glow-btn btn-gradient-cta text-white border-0"
-            disabled={!project.videoUrl || isProcessingEdit || project.status === 'uploading'}
+            disabled={!hasVideo || isProcessingEdit || project.status === 'uploading'}
             onClick={handleGenerateEdit}
             data-testid="button-generate-edit"
           >
@@ -309,7 +340,7 @@ export default function ProjectEditor() {
         <div className="flex-1 flex flex-col relative p-4 lg:p-6 pb-0 overflow-hidden">
           
           <div className="flex-1 relative rounded-2xl overflow-hidden glass-panel border border-white/10 bg-black/40 flex flex-col">
-            {!project.videoUrl ? (
+            {!hasVideo ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
                 {isUploading ? (
                   <div className="flex flex-col items-center w-full max-w-sm">
@@ -318,7 +349,9 @@ export default function ProjectEditor() {
                     <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden mb-2">
                       <div className="h-full bg-primary transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
                     </div>
-                    <p className="text-sm text-muted-foreground">{uploadProgress}%</p>
+                    <p className="text-sm text-muted-foreground" data-testid="text-upload-progress">
+                      {uploadProgress}%{totalBytes > 0 && ` · ${formatBytes(uploadedBytes)} of ${formatBytes(totalBytes)}`}
+                    </p>
                   </div>
                 ) : (
                   <div 
@@ -367,7 +400,7 @@ export default function ProjectEditor() {
                   />
                   <video 
                     ref={videoRef}
-                    src={project.editedVideoUrl || project.videoUrl} 
+                    src={playbackUrl ?? undefined} 
                     className="relative z-10 w-full h-full object-contain"
                     controls={false}
                     onEnded={() => setIsPlaying(false)}
@@ -404,7 +437,7 @@ export default function ProjectEditor() {
               </div>
             </div>
             <div className="flex-1 bg-black/30 rounded border border-white/5 relative overflow-hidden">
-              {project.videoUrl ? (
+              {hasVideo ? (
                 <div className="absolute inset-0 flex">
                   {/* Fake clips */}
                   <div className="h-full bg-primary/20 border-r border-black/50 w-1/4"></div>
@@ -561,13 +594,13 @@ export default function ProjectEditor() {
                 onChange={e => setChatInput(e.target.value)}
                 placeholder="Describe your edit..."
                 className="input-chat-glow pr-12 bg-white/5 border-white/10 rounded-full h-12"
-                disabled={!project.videoUrl || isNoahThinking || sendMessage.isPending || isProcessingEdit}
+                disabled={!hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 data-testid="input-chat"
               />
               <Button 
                 type="submit"
                 size="icon"
-                disabled={!chatInput.trim() || !project.videoUrl || isNoahThinking || sendMessage.isPending || isProcessingEdit}
+                disabled={!chatInput.trim() || !hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 className="absolute right-1 top-1 h-10 w-10 rounded-full bg-secondary text-white hover:bg-secondary/90 hover:shadow-[0_0_15px_rgba(155,107,255,0.6)] transition-all"
                 data-testid="button-send-message"
               >

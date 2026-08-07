@@ -23,6 +23,8 @@ import {
   Trash2, AlertCircle, Loader2, Sparkles, Activity, TrendingUp
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
+import { deleteProjectVideos } from "@/lib/video-storage";
 import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 
@@ -47,6 +49,7 @@ export default function Dashboard() {
 
   const createProject = useCreateProject();
   const deleteProject = useDeleteProject();
+  const { user } = useAuth();
 
   const handleCreate = async () => {
     if (!newTitle.trim()) return;
@@ -86,6 +89,9 @@ export default function Dashboard() {
     e.preventDefault();
     e.stopPropagation();
     try {
+      // Drop the stored bytes first: once the row is gone we no longer know
+      // that this project existed, and the objects would linger unreferenced.
+      if (user) await deleteProjectVideos(user.id, id);
       await deleteProject.mutateAsync({ id });
       queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
