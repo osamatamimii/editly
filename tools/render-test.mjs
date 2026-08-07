@@ -1,15 +1,18 @@
 /**
- * Runs the worker's ffmpeg pipeline against a generated clip and checks the
+ * Runs the worker's ffmpeg pipeline against generated clips and checks the
  * output is what the plan asked for.
  *
- * This is the test that catches the difference between "ffmpeg exited 0" and
- * "the video is actually shorter, actually 9:16, actually has the caption
- * burned in". It builds the real module rather than reimplementing any of it.
+ * These check the picture and the sound, not ffmpeg's exit code: that the clip
+ * is shorter by the silent part specifically, that the loudness really lands on
+ * target, that captions really put pixels on the frame, and that a whole plan
+ * survives a single encode rather than four. It builds the real module rather
+ * than reimplementing any of it.
  *
  * Usage: node tools/render-test.mjs
  * Requires: ffmpeg and ffprobe on PATH.
  */
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -17,13 +20,10 @@ import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-
 const repoRoot = process.cwd();
 const buildDir = await mkdtemp(path.join(tmpdir(), "editly-render-test-"));
 const modulePath = path.join(buildDir, "ffmpeg.mjs");
 
-// Bundle the worker's ffmpeg module on its own so the test exercises the real
-// code without starting the polling loop in index.ts.
 // esbuild is a dependency of the worker package, not of the repo root, and its
 // bin is a native executable rather than a script — run it directly.
 const esbuild = spawnSync(
@@ -44,7 +44,8 @@ if (esbuild.status !== 0) {
   process.exit(1);
 }
 
-const { renderPlan, probeDuration, keepSegmentsFrom, remapTime } = await import(pathToFileURL(modulePath).href);
+const { renderPlan, probeSource, keepSegmentsFrom, remapTime, zoomExpression, writeSubtitleFile } =
+  await import(pathToFileURL(modulePath).href);
 
 let checks = 0;
 let failures = 0;
@@ -58,14 +59,45 @@ const check = (name, ok, detail = "") => {
   }
 };
 
-function ffprobe(file, entries) {
-  const r = spawnSync("ffprobe", ["-v", "error", "-show_entries", entries, "-of", "default=nw=1:nk=1", file], {
-    encoding: "utf8",
-  });
+const scratch = () => mkdtemp(path.join(tmpdir(), "editly-r-"));
+
+function ffprobe(file, entries, extra = []) {
+  const r = spawnSync(
+    "ffprobe",
+    ["-v", "error", ...extra, "-show_entries", entries, "-of", "default=nw=1:nk=1", file],
+    { encoding: "utf8" },
+  );
   return r.stdout.trim().split("\n");
 }
 
-// ── Pure segment maths, no ffmpeg involved ──────────────────────────────────
+/** Measured integrated loudness of a file, in LUFS. */
+function measureLoudness(file) {
+  const r = spawnSync(
+    "ffmpeg",
+    ["-hide_banner", "-i", file, "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json", "-f", "null", "-"],
+    { encoding: "utf8" },
+  );
+  const json = r.stderr.slice(r.stderr.lastIndexOf("{"), r.stderr.lastIndexOf("}") + 1);
+  try {
+    return Number.parseFloat(JSON.parse(json).input_i);
+  } catch {
+    return NaN;
+  }
+}
+
+/** PSNR between two files, in dB. Infinity when they are identical. */
+function psnr(a, b) {
+  const r = spawnSync(
+    "ffmpeg",
+    ["-hide_banner", "-i", a, "-i", b, "-filter_complex", "psnr", "-f", "null", "-"],
+    { encoding: "utf8" },
+  );
+  const m = r.stderr.match(/average:([\d.]+|inf)/);
+  if (!m) return NaN;
+  return m[1] === "inf" ? Infinity : Number.parseFloat(m[1]);
+}
+
+// ── Pure maths, no ffmpeg involved ──────────────────────────────────────────
 console.log("\nSegment arithmetic");
 {
   const kept = keepSegmentsFrom(20, [{ start: 3, end: 7 }, { start: 10, end: 14 }], 0);
@@ -76,24 +108,69 @@ console.log("\nSegment arithmetic");
   );
 
   const padded = keepSegmentsFrom(20, [{ start: 3, end: 7 }], 0.5);
-  check(
-    "padding widens what is kept on both sides of a cut",
-    padded[0].end === 3.5 && padded[1].start === 6.5,
-    JSON.stringify(padded),
-  );
+  check("padding widens what is kept on both sides of a cut", padded[0].end === 3.5 && padded[1].start === 6.5, JSON.stringify(padded));
 
   const trailing = keepSegmentsFrom(10, [{ start: 8, end: 10 }], 0);
   check("a silence running to the end truncates the clip", trailing.length === 1 && trailing[0].end === 8, JSON.stringify(trailing));
 
-  // With 3–7 removed, a caption at t=8 in the original belongs at t=4.
   check("a moment after a cut moves earlier by the cut length", remapTime(8, kept) === 4, String(remapTime(8, kept)));
-  // A moment inside the removed stretch collapses onto the cut point.
   check("a moment inside a cut lands on the seam", remapTime(5, kept) === 3, String(remapTime(5, kept)));
   check("a moment before any cut is unmoved", remapTime(2, kept) === 2, String(remapTime(2, kept)));
 }
 
+console.log("\nZoom expressions");
+{
+  const still = zoomExpression({ base: 1.15, fps: 30, totalFrames: 300 });
+  check("with nothing moving the zoom is a constant", still === "1.15", still);
+
+  const push = zoomExpression({ base: 1.15, fps: 30, totalFrames: 300, kenBurns: { to: 1.08 } });
+  check("a push ramps with the frame counter", /on\/300/.test(push) && push.startsWith("1.15+"), push);
+
+  const punched = zoomExpression({
+    base: 1.15,
+    fps: 30,
+    totalFrames: 300,
+    punches: [{ at: 4, duration: 1.2, amount: 0.12 }],
+  });
+  // Both ramps clamp to [0,1] and combine with min, so the term is zero outside
+  // the punch and never overshoots inside it.
+  check("a punch is clamped at both ends", /max\(0,min\(1,/.test(punched) && punched.includes("min(max"), punched);
+  check("the punch is scaled by the base zoom", punched.includes((0.12 * 1.15).toFixed(4)), punched);
+}
+
+console.log("\nCaption files");
+{
+  const dir = await scratch();
+  const withWords = path.join(dir, "k.ass");
+  await writeSubtitleFile(
+    withWords,
+    [{
+      startMs: 0, endMs: 1000, text: "hello there",
+      words: [{ startMs: 0, endMs: 400, text: "hello" }, { startMs: 400, endMs: 1000, text: "there" }],
+    }],
+    "karaoke-box",
+    "karaoke",
+    { width: 1080, height: 1920 },
+  );
+  const k = readFileSync(withWords, "utf8");
+  check("karaoke emits a wipe per word", (k.match(/\\kf\d+/g) ?? []).length === 2, k.split("\n").pop());
+  check("each wipe lasts that word's own duration", /\\kf40[^\d]/.test(k) && /\\kf60[^\d]/.test(k), k.split("\n").pop());
+
+  const withoutWords = path.join(dir, "n.ass");
+  await writeSubtitleFile(withoutWords, [{ startMs: 0, endMs: 1000, text: "hello there" }], "karaoke-box", "karaoke", { width: 1080, height: 1920 });
+  check("without word timings it does not fake a rhythm", !/\\kf/.test(readFileSync(withoutWords, "utf8")), "");
+
+  const popped = path.join(dir, "p.ass");
+  await writeSubtitleFile(popped, [{ startMs: 0, endMs: 900, text: "hi" }], "bold-yellow", "pop", { width: 1080, height: 1920 });
+  const pText = readFileSync(popped, "utf8");
+  check("pop overshoots then settles", /\\t\(0,120,\\fscx108/.test(pText) && /\\t\(120,200,\\fscx100/.test(pText), pText.split("\n").pop());
+  check("the frame size is written into the script", /PlayResY: 1920/.test(pText), "");
+
+  await rm(dir, { recursive: true, force: true });
+}
+
 // ── The real pipeline ───────────────────────────────────────────────────────
-const workDir = await mkdtemp(path.join(tmpdir(), "editly-render-work-"));
+const workDir = await scratch();
 const source = path.join(workDir, "source.mp4");
 
 // 20 seconds, audible only during 0–3, 7–10 and 14–17 — so 9 seconds of sound
@@ -117,81 +194,217 @@ console.log("\nSilence removal");
   const { output, notes } = await renderPlan(
     source,
     { version: 1, operations: [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 }] },
-    { workDir },
+    { workDir: await scratch() },
   );
-  const duration = await probeDuration(output);
-  check("the clip actually got shorter", duration < 19, `${duration.toFixed(2)}s`);
-  // 9s of sound, plus 80ms of padding either side of each of the cuts.
-  check("what is left is the audible part, not an arbitrary trim", duration > 9 && duration < 11, `${duration.toFixed(2)}s`);
+  const info = await probeSource(output);
+  check("the clip actually got shorter", info.duration < 19, `${info.duration.toFixed(2)}s`);
+  // 9s of sound, plus 80ms of padding either side of each cut.
+  check("what is left is the audible part, not an arbitrary trim", info.duration > 9 && info.duration < 11, `${info.duration.toFixed(2)}s`);
   check("the worker reports what it did", notes.some((n) => /removed [\d.]+s of silence/.test(n)), JSON.stringify(notes));
-  check("the output still has both streams", ffprobe(output, "stream=codec_type").sort().join(",") === "audio,video", ffprobe(output, "stream=codec_type").join(","));
+  check("both streams survive", ffprobe(output, "stream=codec_type").sort().join(",") === "audio,video", "");
 }
 
-console.log("\nReframing");
+console.log("\nReframing and encode quality");
 {
   const { output } = await renderPlan(
     source,
     { version: 1, operations: [{ type: "formatForPlatform", platform: "tiktok" }] },
-    { workDir },
+    { workDir: await scratch() },
   );
   const [width, height] = ffprobe(output, "stream=width,height");
   check("the frame is 1080x1920", width === "1080" && height === "1920", `${width}x${height}`);
-  const duration = await probeDuration(output);
-  check("reframing does not change the length", Math.abs(duration - 20) < 0.5, `${duration.toFixed(2)}s`);
+  check("reframing does not change the length", Math.abs((await probeSource(output)).duration - 20) < 0.5, "");
+
+  const [profile] = ffprobe(output, "stream=profile", ["-select_streams", "v:0"]);
+  check("encoded at High profile, not the default", profile === "High", profile);
+
+  const head = readFileSync(output).subarray(0, 4096);
+  const moov = head.indexOf(Buffer.from("moov"));
+  const mdat = head.indexOf(Buffer.from("mdat"));
+  check("the moov atom is at the front so it streams", moov !== -1 && (mdat === -1 || moov < mdat), `moov@${moov} mdat@${mdat}`);
 }
 
-console.log("\nWatermark and captions");
+console.log("\nOne encode, not four");
 {
-  const { output, notes } = await renderPlan(
+  // The whole point of compiling a plan into a single graph. If any operation
+  // were still its own pass, this output would carry an extra generation of
+  // loss and would not match a hand-written single-pass reference.
+  const dir = await scratch();
+  const { output } = await renderPlan(
     source,
     {
       version: 1,
       operations: [
+        { type: "formatForPlatform", platform: "tiktok" },
         { type: "watermark", text: "Edited with Editly", position: "bottom-right" },
-        { type: "burnCaptions", style: "bold-yellow", cues: [{ startMs: 0, endMs: 2000, text: "Hello there" }] },
       ],
     },
-    { workDir },
+    { workDir: dir },
   );
-  check("both operations ran", notes.length === 2, JSON.stringify(notes));
-  check("a playable file came out", (await probeDuration(output)) > 19, "");
+
+  const reference = path.join(dir, "reference.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error", "-i", source,
+    "-vf",
+    "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,setsar=1," +
+      "drawtext=text='Edited with Editly':fontcolor=white@0.85:fontsize=h/32:box=1:boxcolor=black@0.35:boxborderw=12:x=w-tw-40:y=h-th-40",
+    "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-profile:v", "high", "-level", "4.2",
+    "-pix_fmt", "yuv420p", "-g", "60", "-keyint_min", "30", "-sc_threshold", "0",
+    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+    reference,
+  ]);
+
+  const quality = psnr(output, reference);
+  check("the pipeline matches a hand-written single-pass command", quality > 45, `PSNR ${quality}`);
 }
 
-console.log("\nOrdering and safety");
+console.log("\nMotion");
 {
-  // Captions given in original-timeline coordinates must survive a silence cut.
+  const dir = await scratch();
+  const { output, notes } = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "formatForPlatform", platform: "tiktok" }, { type: "kenBurns", to: 1.1 }] },
+    { workDir: dir },
+  );
+  check("a push still lands on the target frame size", ffprobe(output, "stream=width,height").join("x") === "1080x1920", "");
+  check("and does not change the length", Math.abs((await probeSource(output)).duration - 20) < 0.8, "");
+  check("the note says what it did", notes.some((n) => /slow push to 110%/.test(n)), JSON.stringify(notes));
+
+  // The frame really moves: compare against the same reframe with no motion.
+  const still = path.join(dir, "still.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error", "-i", source,
+    "-vf", "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920",
+    "-c:v", "libx264", "-crf", "18", "-an", still,
+  ]);
+  const moved = psnr(output, still);
+  check("the picture genuinely moves relative to a static reframe", Number.isFinite(moved) && moved < 40, `PSNR ${moved}`);
+}
+
+{
   const { output, notes } = await renderPlan(
     source,
     {
       version: 1,
       operations: [
-        { type: "burnCaptions", style: "bold-white", cues: [{ startMs: 15000, endMs: 16000, text: "Late caption" }] },
-        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+        { type: "formatForPlatform", platform: "reels" },
+        { type: "zoomPunch", at: [5, 12], amount: 0.15, holdMs: 1000 },
       ],
     },
-    { workDir },
+    { workDir: await scratch() },
   );
-  check("silence removal runs before captions regardless of plan order", /removed/.test(notes[0] ?? ""), JSON.stringify(notes));
-  const duration = await probeDuration(output);
-  check("the caption did not outlive the shortened clip", duration < 14, `${duration.toFixed(2)}s`);
+  check("punches render", notes.some((n) => /2 punch-ins/.test(n)), JSON.stringify(notes));
+  check("with the frame size intact", ffprobe(output, "stream=width,height").join("x") === "1080x1920", "");
+}
+
+console.log("\nAudio levelling");
+{
+  const dir = await scratch();
+  const quiet = path.join(dir, "quiet.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=8",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=8",
+    "-filter_complex", "[1:a]volume=0.05[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", quiet,
+  ]);
+
+  const before = measureLoudness(quiet);
+  check("the test clip really is too quiet to start with", before < -25, `${before} LUFS`);
+
+  const { output, notes } = await renderPlan(
+    quiet,
+    { version: 1, operations: [{ type: "normalizeLoudness", targetLufs: -14 }] },
+    { workDir: dir },
+  );
+  const after = measureLoudness(output);
+  check("levelling lands within 2 LU of the target", Math.abs(after + 14) < 2, `${after} LUFS`);
+  check("and says so", notes.some((n) => /-14 LUFS/.test(n)), JSON.stringify(notes));
+}
+
+console.log("\nCaptions on the frame");
+{
+  const base = { type: "formatForPlatform", platform: "tiktok" };
+  const plain = await renderPlan(source, { version: 1, operations: [base] }, { workDir: await scratch() });
+  const captioned = await renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        base,
+        {
+          type: "burnCaptions",
+          style: "bold-yellow",
+          animation: "karaoke",
+          cues: [{
+            startMs: 0, endMs: 4000, text: "this really is on the frame",
+            words: [
+              { startMs: 0, endMs: 800, text: "this" },
+              { startMs: 800, endMs: 1600, text: "really" },
+              { startMs: 1600, endMs: 2400, text: "is" },
+              { startMs: 2400, endMs: 4000, text: "on the frame" },
+            ],
+          }],
+        },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+
+  const difference = psnr(plain.output, captioned.output);
+  check("burning captions changes the picture", Number.isFinite(difference) && difference < 45, `PSNR ${difference}`);
+  check("and reports the animation used", captioned.notes.some((n) => /captions \(karaoke\)/.test(n)), JSON.stringify(captioned.notes));
+}
+
+console.log("\nEverything at once");
+{
+  const { output, notes } = await renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        // Deliberately out of order: the pipeline fixes the order itself,
+        // because only one order is correct.
+        { type: "watermark", text: "Edited with Editly", position: "bottom-right" },
+        { type: "burnCaptions", style: "bold-white", animation: "pop", cues: [{ startMs: 500, endMs: 2500, text: "hook line" }] },
+        { type: "zoomPunch", at: [3], amount: 0.12, holdMs: 900 },
+        { type: "formatForPlatform", platform: "tiktok" },
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+        { type: "normalizeLoudness", targetLufs: -14 },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  const info = await probeSource(output);
+  check("a full plan renders", info.width === 1080 && info.height === 1920, `${info.width}x${info.height}`);
+  check("with the silence still removed", info.duration > 9 && info.duration < 11, `${info.duration.toFixed(2)}s`);
+  check("and every operation reported", notes.length >= 5, JSON.stringify(notes));
+  check("audio levelled even inside a full plan", Math.abs(measureLoudness(output) + 14) < 3, `${measureLoudness(output)} LUFS`);
 }
 
 console.log("\nDegenerate input");
 {
-  const silent = path.join(workDir, "silent.mp4");
+  const dir = await scratch();
+  const silent = path.join(dir, "silent.mp4");
   spawnSync("ffmpeg", [
     "-y", "-loglevel", "error",
     "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=4",
-    "-c:v", "libx264", "-pix_fmt", "yuv420p",
-    silent,
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", silent,
   ]);
   const { output, notes } = await renderPlan(
     silent,
-    { version: 1, operations: [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 }] },
-    { workDir },
+    {
+      version: 1,
+      operations: [
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+        { type: "normalizeLoudness", targetLufs: -14 },
+      ],
+    },
+    { workDir: dir },
   );
-  check("a clip with no audio track is left alone, not destroyed", notes.some((n) => /no audio track/.test(n)), JSON.stringify(notes));
-  check("it still produces a playable file", (await probeDuration(output)) > 3, "");
+  check("a clip with no audio is left alone, not destroyed", notes.some((n) => /no audio track/.test(n)), JSON.stringify(notes));
+  check("it still produces a playable file", (await probeSource(output)).duration > 3, "");
 }
 
 await rm(workDir, { recursive: true, force: true });

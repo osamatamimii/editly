@@ -267,15 +267,18 @@ console.log("\nThe assistant only promises what it can build");
     JSON.stringify(understood.json?.plan),
   );
 
-  const unsupported = await call(ALICE, `/api/projects/${aliceProjectId}/messages`, "POST", {
+  // Zooms became real, so they must now appear in the plan. Emojis and colour
+  // grading did not, so they must still be named as things it will not do.
+  const mixed = await call(ALICE, `/api/projects/${aliceProjectId}/messages`, "POST", {
     content: "add some zooms and emojis and a cinematic colour grade",
   });
-  const unsupportedTypes = (unsupported.json?.plan?.operations ?? []).map((o) => o.type);
-  check("nothing is invented for operations that do not exist", unsupportedTypes.length === 0, JSON.stringify(unsupportedTypes));
+  const mixedTypes = (mixed.json?.plan?.operations ?? []).map((o) => o.type);
+  check("a request it can now honour becomes a real operation", mixedTypes.includes("zoomPunch"), JSON.stringify(mixedTypes));
+  check("nothing is invented for the rest", !mixedTypes.includes("colourGrade"), JSON.stringify(mixedTypes));
   check(
     "and it says so rather than promising",
-    /can't|cannot/i.test(unsupported.json?.aiMessage?.content ?? ""),
-    unsupported.json?.aiMessage?.content,
+    /can't|cannot/i.test(mixed.json?.aiMessage?.content ?? "") && /emoji/i.test(mixed.json?.aiMessage?.content ?? ""),
+    mixed.json?.aiMessage?.content,
   );
 
   // Both of these were missed by the first cut of the matcher: "emojis" did not
@@ -298,6 +301,49 @@ console.log("\nThe assistant only promises what it can build");
     /not sure/i.test(nonsense.json?.aiMessage?.content ?? "") && nonsense.json?.plan === null,
     nonsense.json?.aiMessage?.content,
   );
+}
+
+console.log("\nNamed looks");
+{
+  const list = await call(ALICE, "/api/templates");
+  check("the catalogue is served", Array.isArray(list.json) && list.json.length >= 3, `got ${list.status}`);
+  check(
+    "every entry says what it does",
+    (list.json ?? []).every((t) => t.id && t.name && t.description && t.bestFor),
+    JSON.stringify(list.json?.[0]),
+  );
+
+  const anonymous = await fetch(`${BASE}/api/templates`);
+  check("but not to a stranger", anonymous.status === 401, `got ${anonymous.status}`);
+
+  const created = await call(ALICE, "/api/projects", "POST", { title: "Template check" });
+  const templateProjectId = created.json?.id;
+  await call(ALICE, `/api/projects/${templateProjectId}`, "PATCH", {
+    videoPath: `${ALICE}/${templateProjectId}/source.mp4`,
+    duration: 42,
+  });
+
+  const unknown = await call(ALICE, `/api/projects/${templateProjectId}/render`, "POST", { templateId: "does-not-exist" });
+  check("an unknown template is refused", unknown.status === 400, `got ${unknown.status}`);
+
+  const applied = await call(ALICE, `/api/projects/${templateProjectId}/render`, "POST", { templateId: "high-energy" });
+  check("a template starts a render", applied.status === 202, `got ${applied.status} ${applied.text.slice(0, 120)}`);
+  const ops = (applied.json?.plan?.operations ?? []);
+  check(
+    "and expands into the operations it promises",
+    ops.some((o) => o.type === "removeSilence") &&
+      ops.some((o) => o.type === "zoomPunch") &&
+      ops.some((o) => o.type === "normalizeLoudness"),
+    JSON.stringify(ops.map((o) => o.type)),
+  );
+  const punch = ops.find((o) => o.type === "zoomPunch");
+  check(
+    "punches are placed inside the clip, not at fixed times",
+    punch && punch.at.length > 0 && punch.at.every((t) => t > 0 && t < 42),
+    JSON.stringify(punch?.at),
+  );
+
+  await call(ALICE, `/api/projects/${templateProjectId}`, "DELETE");
 }
 
 console.log("\nExports are real renders");

@@ -8,6 +8,7 @@ import {
   useGetSubscription,
   useStartRender,
   useRenderStatus,
+  useTemplates,
   isRenderInFlight,
   getGetProjectQueryKey,
   getListMessagesQueryKey,
@@ -73,6 +74,7 @@ export default function ProjectEditor() {
   const sendMessage = useSendMessage();
   const startRender = useStartRender();
   const { data: subscription } = useGetSubscription();
+  const { data: templates } = useTemplates();
   const { user } = useAuth();
 
   // The worker is the source of truth for what is happening to this video.
@@ -250,6 +252,21 @@ export default function ProjectEditor() {
    * returns as soon as the job is written — `renderJob` below carries the
    * truth from then on.
    */
+  const handleApplyTemplate = async (templateId: string) => {
+    try {
+      await startRender.mutateAsync({ id, templateId });
+      queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
+      toast({ title: "Render queued", description: "You can leave this page — we'll keep working." });
+    } catch (error: unknown) {
+      const status = (error as { status?: number })?.status;
+      toast({
+        title: status === 409 ? "Already rendering" : "Could not start the render",
+        description: status === 409 ? "This project has a render in progress." : (error as { data?: { error?: string } })?.data?.error,
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleGenerateEdit = async () => {
     // Whatever the conversation settled on, falling back to the sensible
     // default when nobody has said anything specific.
@@ -462,6 +479,32 @@ export default function ProjectEditor() {
               </div>
             )}
           </div>
+
+          {/* One-click looks. Each is a saved edit plan, so what you get is
+              exactly what the name says, every time. */}
+          {hasVideo && templates && templates.length > 0 && (
+            <div className="mt-4 rounded-xl glass-panel border border-white/10 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Wand2 className="w-3.5 h-3.5 text-secondary" />
+                <span className="text-xs font-medium text-muted-foreground">One-click looks</span>
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                {templates.map((template) => (
+                  <button
+                    key={template.id}
+                    onClick={() => handleApplyTemplate(template.id)}
+                    disabled={isProcessingEdit || startRender.isPending}
+                    title={template.bestFor}
+                    className="text-left rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5 transition-all hover:border-primary/40 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed"
+                    data-testid={`button-template-${template.id}`}
+                  >
+                    <div className="text-sm font-semibold">{template.name}</div>
+                    <div className="text-[11px] leading-snug text-muted-foreground mt-0.5">{template.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Timeline Strip */}
           <div className="h-32 mt-4 rounded-xl glass-panel border border-white/10 p-4 flex flex-col mb-4 lg:mb-6">

@@ -9,7 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query";
 import { customFetch } from "./custom-fetch";
-import type { EditPlan, RenderJob } from "./generated/api.schemas";
+import type { EditPlan, RenderJob, TemplateSummary } from "./generated/api.schemas";
 
 export const getStartRenderUrl = (projectId: string) => `/api/projects/${projectId}/render`;
 export const getRenderStatusUrl = (projectId: string) => `/api/projects/${projectId}/render/status`;
@@ -17,10 +17,26 @@ export const getRenderStatusUrl = (projectId: string) => `/api/projects/${projec
 export const getRenderStatusQueryKey = (projectId: string) =>
   [`/api/projects/${projectId}/render/status`] as const;
 
-export async function startRender(projectId: string, plan: EditPlan): Promise<RenderJob> {
+/** Either a plan built here, or the id of one saved on the server. */
+export type RenderRequest = { plan: EditPlan } | { templateId: string };
+
+export async function startRender(projectId: string, request: RenderRequest): Promise<RenderJob> {
   return customFetch<RenderJob>(getStartRenderUrl(projectId), {
     method: "POST",
-    body: JSON.stringify({ plan }),
+    body: JSON.stringify(request),
+  });
+}
+
+export async function listTemplates(options?: RequestInit): Promise<TemplateSummary[]> {
+  return customFetch<TemplateSummary[]>("/api/templates", { ...options, method: "GET" });
+}
+
+/** The named looks. They never change within a session, so they never refetch. */
+export function useTemplates(): UseQueryResult<TemplateSummary[], Error> {
+  return useQuery({
+    queryKey: ["/api/templates"],
+    queryFn: ({ signal }) => listTemplates({ signal }),
+    staleTime: Infinity,
   });
 }
 
@@ -31,11 +47,11 @@ export async function getRenderStatus(projectId: string, options?: RequestInit):
 export function useStartRender(): UseMutationResult<
   RenderJob,
   Error,
-  { id: string; plan: EditPlan }
+  { id: string } & RenderRequest
 > {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, plan }) => startRender(id, plan),
+    mutationFn: ({ id, ...request }) => startRender(id, request as RenderRequest),
     onSuccess: (_job, { id }) => {
       // The job exists now; start polling immediately rather than after the
       // next interval, so the UI does not sit on a stale "not rendering".

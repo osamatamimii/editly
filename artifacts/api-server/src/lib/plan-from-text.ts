@@ -30,7 +30,6 @@ const PLATFORM_WORDS: Array<{ platform: Platform; patterns: RegExp }> = [
 /** Asked-for things that are real product ideas but have no operation yet. */
 const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
   { patterns: /\bcaption|subtitle|text on screen\b/i, label: "burn in captions (needs transcription, coming next)" },
-  { patterns: /\bzoom|punch in\b/i, label: "add zooms" },
   { patterns: /\bemoji/i, label: "add emojis" },
   { patterns: /\bmusic|beat|sound ?track\b/i, label: "add music or sync to a beat" },
   { patterns: /\bcolou?r|grade|cinematic|filter\b/i, label: "colour grade" },
@@ -43,6 +42,10 @@ const SILENCE_WORDS =
   /\bsilence|silent|quiet|pause|dead air|um+s?\b|\bfiller|tighten|trim|short|fast|snapp|pace|boring|drag/i;
 
 const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b/i;
+
+const PUNCH_WORDS = /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b/i;
+const PUSH_WORDS = /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b/i;
+const LOUDNESS_WORDS = /\bloud|volume|quiet|audio level|sound level|normali[sz]/i;
 
 export function planFromText(text: string, options: { defaultPlatform?: Platform | null } = {}): ParsedIntent {
   const operations: EditOperation[] = [];
@@ -64,6 +67,22 @@ export function planFromText(text: string, options: { defaultPlatform?: Platform
     willDo.push(`reframe it to 9:16 for ${target}`);
   }
 
+  // Punches need timestamps and nothing here knows where the interesting
+  // moments are yet, so they are spread evenly. Naming that in the reply keeps
+  // it honest about how the placement was chosen.
+  if (PUNCH_WORDS.test(text)) {
+    operations.push({ type: "zoomPunch", at: [], amount: 0.13, holdMs: 1000 });
+    willDo.push("punch in at a few points for emphasis");
+  } else if (PUSH_WORDS.test(text)) {
+    operations.push({ type: "kenBurns", to: 1.08 });
+    willDo.push("add a slow push so the frame is not static");
+  }
+
+  if (LOUDNESS_WORDS.test(text)) {
+    operations.push({ type: "normalizeLoudness", targetLufs: -14 });
+    willDo.push("level the audio to what these platforms expect");
+  }
+
   for (const { patterns, label } of NOT_YET) {
     if (patterns.test(text)) cannotYet.push(label);
   }
@@ -77,7 +96,7 @@ export function planFromText(text: string, options: { defaultPlatform?: Platform
  */
 export function replyFor(intent: ParsedIntent, context: { hasVideo: boolean }): string {
   if (!context.hasVideo) {
-    return "Upload a video first and I'll get to work — I can cut the silences out and reframe it for TikTok, Reels or Shorts.";
+    return "Upload a video first and I'll get to work — I can cut the silences out, reframe it for TikTok, Reels or Shorts, add motion, and level the audio.";
   }
 
   const parts: string[] = [];
@@ -94,9 +113,9 @@ export function replyFor(intent: ParsedIntent, context: { hasVideo: boolean }): 
 
   if (parts.length === 0) {
     return (
-      "I'm not sure what to change from that. Right now I can cut the silences out of a clip " +
-      "and reframe it to 9:16 for TikTok, Reels or Shorts — try something like " +
-      '"remove the dead air and make it vertical for TikTok".'
+      "I'm not sure what to change from that. Right now I can cut the silences out of a clip, " +
+      "reframe it to 9:16, add punch-in zooms or a slow push, and level the audio — try " +
+      'something like "remove the dead air, make it vertical for TikTok and add some zooms".'
     );
   }
 

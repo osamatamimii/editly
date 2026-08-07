@@ -232,19 +232,34 @@ export const FormatForPlatformOperation = z.object({
   platform: Platform,
 });
 
-/** Burn subtitles into the picture. Cues come from transcription (phase 4). */
+export const CaptionWord = z.object({
+  startMs: z.number().min(0),
+  endMs: z.number().min(0),
+  text: z.string().min(1).max(60),
+});
+export type CaptionWord = z.infer<typeof CaptionWord>;
+
+/**
+ * Burn subtitles into the picture.
+ *
+ * `words` is optional because not every source of cues knows per-word timing —
+ * but karaoke is only honest with it, so the renderer falls back to a plain
+ * fade when it is absent rather than faking a rhythm.
+ */
 export const BurnCaptionsOperation = z.object({
   type: z.literal("burnCaptions"),
   cues: z
     .array(
       z.object({
-        startMs: z.number().int().min(0),
-        endMs: z.number().int().min(0),
+        startMs: z.number().min(0),
+        endMs: z.number().min(0),
         text: z.string().min(1).max(300),
+        words: z.array(CaptionWord).optional(),
       }),
     )
     .min(1),
   style: z.enum(["bold-white", "bold-yellow", "karaoke-box"]).default("bold-white"),
+  animation: z.enum(["none", "pop", "karaoke"]).default("pop"),
 });
 
 /** The growth loop: free-plan renders carry a mark. */
@@ -254,17 +269,50 @@ export const WatermarkOperation = z.object({
   position: z.enum(["bottom-right", "bottom-center", "top-right"]).default("bottom-right"),
 });
 
+/**
+ * A slow continuous push. On a locked-off talking head this is the difference
+ * between "a video" and "a shot" — it costs nothing and stops the frame reading
+ * as a still image.
+ */
+export const KenBurnsOperation = z.object({
+  type: z.literal("kenBurns"),
+  /** Zoom reached by the end of the clip. 1.08 is a push you feel but do not notice. */
+  to: z.number().min(1.01).max(1.5).default(1.08),
+});
+
+/** Punch in at chosen moments — emphasis on a line, or on a cut. */
+export const ZoomPunchOperation = z.object({
+  type: z.literal("zoomPunch"),
+  /** Seconds into the *edited* clip. */
+  /** Seconds into the *edited* clip. Empty means "choose for me". */
+  at: z.array(z.number().min(0)).max(40),
+  amount: z.number().min(0.02).max(0.6).default(0.12),
+  holdMs: z.number().int().min(200).max(6000).default(1200),
+});
+
+/**
+ * Bring the audio to the level every social platform normalises to, so they
+ * leave it alone instead of pulling it around on upload.
+ */
+export const NormalizeLoudnessOperation = z.object({
+  type: z.literal("normalizeLoudness"),
+  targetLufs: z.number().min(-30).max(-8).default(-14),
+});
+
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
   FormatForPlatformOperation,
   BurnCaptionsOperation,
   WatermarkOperation,
+  KenBurnsOperation,
+  ZoomPunchOperation,
+  NormalizeLoudnessOperation,
 ]);
 export type EditOperation = z.infer<typeof EditOperation>;
 
 export const EditPlan = z.object({
   version: z.literal(1),
-  operations: z.array(EditOperation).min(1).max(10),
+  operations: z.array(EditOperation).min(1).max(12),
 });
 export type EditPlan = z.infer<typeof EditPlan>;
 
@@ -288,7 +336,14 @@ export type RenderJob = z.infer<typeof RenderJob>;
 export const StartRenderParams = z.object({ id: z.string() });
 export type StartRenderParams = z.infer<typeof StartRenderParams>;
 
-export const StartRenderBody = z.object({ plan: EditPlan });
+/**
+ * Either a plan built by the caller, or the id of a saved one. A template is
+ * resolved on the server so the numbers behind a named look live in one place.
+ */
+export const StartRenderBody = z.union([
+  z.object({ plan: EditPlan }),
+  z.object({ templateId: z.string().min(1) }),
+]);
 export type StartRenderBody = z.infer<typeof StartRenderBody>;
 
 export const StartRenderResponse = RenderJob;
@@ -308,3 +363,14 @@ export type GetRenderStatusResponse = z.infer<typeof GetRenderStatusResponse>;
 export function isPlanKeyGuard(value: string): value is z.infer<typeof SubscriptionPlan> {
   return SubscriptionPlan.safeParse(value).success;
 }
+
+export const TemplateSummary = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  bestFor: z.string(),
+});
+export type TemplateSummary = z.infer<typeof TemplateSummary>;
+
+export const ListTemplatesResponse = z.array(TemplateSummary);
+export type ListTemplatesResponse = z.infer<typeof ListTemplatesResponse>;

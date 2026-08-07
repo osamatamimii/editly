@@ -11,6 +11,9 @@ import {
 } from "@workspace/api-zod";
 import { currentUserId } from "../middlewares/auth";
 import { serializeJob } from "../lib/transformers";
+import { TEMPLATES, findTemplate, evenlySpacedPunches } from "../lib/templates";
+import { isPlanKey } from "../lib/plan-limits";
+import { subscriptionsTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
@@ -82,6 +85,43 @@ router.post("/projects/:id/render", async (req, res): Promise<void> => {
     return;
   }
 
+  let plan;
+  if ("templateId" in body.data) {
+    const template = findTemplate(body.data.templateId);
+    if (!template) {
+      res.status(400).json({ error: `Unknown template "${body.data.templateId}".` });
+      return;
+    }
+    const [sub] = await db
+      .select()
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.userId, userId))
+      .limit(1);
+    const planKey = sub && isPlanKey(sub.plan) ? sub.plan : "starter";
+
+    plan = {
+      version: 1 as const,
+      operations: template.build({
+        platform: (project.platform ?? "tiktok") as "tiktok" | "reels" | "shorts",
+        // Templates place their punches proportionally, so they need a length.
+        durationSeconds: project.duration ?? 30,
+        watermark: planKey === "starter",
+      }),
+    };
+  } else {
+    // A plan can arrive with punch timestamps left empty — the chat knows you
+    // want emphasis but not where the interesting moments are. Space them out
+    // over whatever the clip actually is.
+    plan = {
+      ...body.data.plan,
+      operations: body.data.plan.operations.map((op) =>
+        op.type === "zoomPunch" && op.at.length === 0
+          ? { ...op, at: evenlySpacedPunches(project.duration ?? 30, 4) }
+          : op,
+      ),
+    };
+  }
+
   const [job] = await db
     .insert(jobsTable)
     .values({
@@ -89,7 +129,7 @@ router.post("/projects/:id/render", async (req, res): Promise<void> => {
       userId,
       projectId: project.id,
       status: "queued",
-      plan: body.data.plan,
+      plan,
       inputPath: project.videoPath,
     })
     .returning();
@@ -130,6 +170,13 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
     .limit(1);
 
   res.json(GetRenderStatusResponse.parse(job ? serializeJob(annotateStaleQueue(job)) : null));
+});
+
+/** The named looks. Public shape, no per-user data — but still behind auth. */
+router.get("/templates", async (_req, res): Promise<void> => {
+  res.json(
+    TEMPLATES.map(({ id, name, description, bestFor }) => ({ id, name, description, bestFor })),
+  );
 });
 
 export default router;

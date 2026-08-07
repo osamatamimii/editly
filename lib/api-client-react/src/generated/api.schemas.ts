@@ -232,10 +232,37 @@ export interface CaptionCue {
   text: string;
 }
 
+export interface CaptionWord {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
 export interface BurnCaptionsOperation {
   type: "burnCaptions";
-  cues: CaptionCue[];
+  cues: Array<CaptionCue & { words?: CaptionWord[] }>;
   style?: "bold-white" | "bold-yellow" | "karaoke-box";
+  animation?: "none" | "pop" | "karaoke";
+}
+
+/** A slow continuous push, so a locked-off frame does not read as a still. */
+export interface KenBurnsOperation {
+  type: "kenBurns";
+  to?: number;
+}
+
+/** Punch in at chosen moments. An empty `at` means "choose for me". */
+export interface ZoomPunchOperation {
+  type: "zoomPunch";
+  at: number[];
+  amount?: number;
+  holdMs?: number;
+}
+
+/** Bring the audio to the level every social platform normalises to. */
+export interface NormalizeLoudnessOperation {
+  type: "normalizeLoudness";
+  targetLufs?: number;
 }
 
 export interface WatermarkOperation {
@@ -248,7 +275,10 @@ export type EditOperation =
   | RemoveSilenceOperation
   | FormatForPlatformOperation
   | BurnCaptionsOperation
-  | WatermarkOperation;
+  | WatermarkOperation
+  | KenBurnsOperation
+  | ZoomPunchOperation
+  | NormalizeLoudnessOperation;
 
 export interface EditPlan {
   version: 1;
@@ -290,4 +320,11 @@ export interface MessagePairWithPlan {
   aiMessage: Message;
   /** @nullable */
   plan: EditPlan | null;
+}
+
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  description: string;
+  bestFor: string;
 }
