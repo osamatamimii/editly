@@ -15,6 +15,22 @@ import { serializeJob } from "../lib/transformers";
 const router: IRouter = Router();
 
 /**
+ * A job nobody has claimed after this long means no worker is running, not that
+ * the queue is busy. Saying so beats a progress bar that never moves.
+ */
+const NO_WORKER_AFTER_MS = 5 * 60 * 1000;
+
+function annotateStaleQueue(job: Record<string, unknown>): Record<string, unknown> {
+  if (job["status"] !== "queued") return job;
+  const createdAt = new Date(job["createdAt"] as string | Date).getTime();
+  if (Date.now() - createdAt < NO_WORKER_AFTER_MS) return job;
+  return {
+    ...job,
+    stage: "Still waiting for a render machine — nothing has picked this up yet.",
+  };
+}
+
+/**
  * Enqueue a render.
  *
  * This endpoint deliberately does no work: it validates, writes a row, and
@@ -113,7 +129,7 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
     .orderBy(desc(jobsTable.createdAt))
     .limit(1);
 
-  res.json(GetRenderStatusResponse.parse(job ? serializeJob(job) : null));
+  res.json(GetRenderStatusResponse.parse(job ? serializeJob(annotateStaleQueue(job)) : null));
 });
 
 export default router;
