@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
+import { HeroBackdrop } from "@/components/hero-backdrop";
 import { Play, Sparkles, Zap, CheckCircle2, ArrowRight, Check } from "lucide-react";
 import { useGetSubscription, useUpdateSubscription, getGetSubscriptionQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -242,6 +243,10 @@ export default function Home() {
             animation: "orb-drift 25s ease-in-out infinite reverse",
           }}
         />
+
+        {/* The looping backdrop: a waveform whose silences collapse, which is
+            the one thing the product does, shown rather than described. */}
+        <HeroBackdrop />
 
         {/* Floating particles — only in hero viewport */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
