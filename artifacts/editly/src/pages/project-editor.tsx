@@ -85,8 +85,19 @@ export default function ProjectEditor() {
   );
   const hasVideo = Boolean(project?.videoPath ?? project?.videoUrl);
 
-  // A new URL deserves a fresh attempt.
-  useEffect(() => { setPlaybackFailed(false); }, [playbackUrl]);
+  // A new URL deserves a fresh attempt. A stalled load also has to be caught:
+  // a browser that cannot decode a file often never fires `error`, it simply
+  // sits in NETWORK_LOADING forever, which on screen is just a black rectangle.
+  useEffect(() => {
+    setPlaybackFailed(false);
+    if (!playbackUrl) return;
+    const STALL_MS = 15_000;
+    const timer = setTimeout(() => {
+      const el = videoRef.current;
+      if (el && el.readyState === 0) setPlaybackFailed(true);
+    }, STALL_MS);
+    return () => clearTimeout(timer);
+  }, [playbackUrl]);
 
   useEffect(() => {
     // Scroll to bottom of chat
