@@ -226,6 +226,12 @@ export interface RenderContext {
 /** Encoder settings shared by every step that re-encodes. */
 const VIDEO_ENCODE = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"];
 const AUDIO_ENCODE = ["-c:a", "aac", "-b:a", "128k"];
+/**
+ * Moves the moov atom to the front. Without it a browser must download the
+ * whole file before it can show a single frame — which, for a video served
+ * from object storage, looks exactly like a broken player.
+ */
+const FASTSTART = ["-movflags", "+faststart"];
 
 async function applyRemoveSilence(
   input: string,
@@ -263,7 +269,7 @@ async function applyRemoveSilence(
     "-i", input,
     "-filter_complex", filters.join(";"),
     "-map", "[vout]", "-map", "[aout]",
-    ...VIDEO_ENCODE, ...AUDIO_ENCODE,
+    ...VIDEO_ENCODE, ...AUDIO_ENCODE, ...FASTSTART,
     output,
   ]);
 
@@ -291,6 +297,7 @@ async function applyFormatForPlatform(
     "-vf", filter,
     ...VIDEO_ENCODE,
     "-c:a", "copy",
+    ...FASTSTART,
     output,
   ]);
   return `reframed to ${target.w}x${target.h} for ${op.platform}`;
@@ -322,6 +329,7 @@ async function applyBurnCaptions(
     "-vf", `subtitles=${subtitlePath.replace(/[\\:]/g, "\\$&")}`,
     ...VIDEO_ENCODE,
     "-c:a", "copy",
+    ...FASTSTART,
     output,
   ]);
   return `burned ${cues.length} captions`;
@@ -353,6 +361,7 @@ async function applyWatermark(
     "-vf", drawtext,
     ...VIDEO_ENCODE,
     "-c:a", "copy",
+    ...FASTSTART,
     output,
   ]);
   return `watermarked "${op.text}"`;
@@ -397,7 +406,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     // Every operation was a no-op. Still produce a real output file so the
     // project ends up with something to play rather than a dangling key.
     const passthrough = path.join(ctx.workDir, "passthrough.mp4");
-    await run(FFMPEG, ["-hide_banner", "-y", "-i", input, "-c", "copy", passthrough]);
+    await run(FFMPEG, ["-hide_banner", "-y", "-i", input, "-c", "copy", ...FASTSTART, passthrough]);
     current = passthrough;
   }
 

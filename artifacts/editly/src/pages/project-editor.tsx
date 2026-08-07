@@ -57,6 +57,8 @@ export default function ProjectEditor() {
   const [isNoahThinking, setIsNoahThinking] = useState(false);
   /** The plan derived from the conversation, if the assistant understood one. */
   const [chatPlan, setChatPlan] = useState<EditPlan | null>(null);
+  /** Set when the browser cannot decode or reach the file behind playbackUrl. */
+  const [playbackFailed, setPlaybackFailed] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const { data: project, isLoading: isProjectLoading } = useGetProject(id, {
@@ -82,6 +84,9 @@ export default function ProjectEditor() {
     project?.editedVideoPath ?? project?.videoPath ?? project?.editedVideoUrl ?? project?.videoUrl,
   );
   const hasVideo = Boolean(project?.videoPath ?? project?.videoUrl);
+
+  // A new URL deserves a fresh attempt.
+  useEffect(() => { setPlaybackFailed(false); }, [playbackUrl]);
 
   useEffect(() => {
     // Scroll to bottom of chat
@@ -408,8 +413,23 @@ export default function ProjectEditor() {
                     src={playbackUrl ?? undefined} 
                     className="relative z-10 w-full h-full object-contain"
                     controls={false}
+                    preload="metadata"
                     onEnded={() => setIsPlaying(false)}
+                    onError={() => setPlaybackFailed(true)}
+                    data-testid="video-preview"
                   />
+
+                  {/* A black rectangle is indistinguishable from a broken app.
+                      Say what happened, and note that the render is unaffected. */}
+                  {playbackFailed && (
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/80 px-8 text-center">
+                      <p className="font-semibold">This file will not play in the browser</p>
+                      <p className="text-sm text-muted-foreground max-w-md">
+                        Your video is stored safely and can still be edited — some codecs just cannot be
+                        previewed here. The rendered result will play normally.
+                      </p>
+                    </div>
+                  )}
                   
                   {/* Play/Pause overlay */}
                   <div 

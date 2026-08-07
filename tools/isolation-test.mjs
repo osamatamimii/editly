@@ -278,6 +278,18 @@ console.log("\nThe assistant only promises what it can build");
     unsupported.json?.aiMessage?.content,
   );
 
+  // Both of these were missed by the first cut of the matcher: "emojis" did not
+  // match /\bemoji\b/, and "snappier" did not match /snappy/.
+  const plurals = await call(ALICE, `/api/projects/${aliceProjectId}/messages`, "POST", {
+    content: "make it snappier and add emojis",
+  });
+  check(
+    "word endings do not defeat the matcher",
+    (plurals.json?.plan?.operations ?? []).some((o) => o.type === "removeSilence") &&
+      /emoji/i.test(plurals.json?.aiMessage?.content ?? ""),
+    plurals.json?.aiMessage?.content,
+  );
+
   const nonsense = await call(ALICE, `/api/projects/${aliceProjectId}/messages`, "POST", {
     content: "asdfghjkl",
   });

@@ -31,16 +31,16 @@ const PLATFORM_WORDS: Array<{ platform: Platform; patterns: RegExp }> = [
 const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
   { patterns: /\bcaption|subtitle|text on screen\b/i, label: "burn in captions (needs transcription, coming next)" },
   { patterns: /\bzoom|punch in\b/i, label: "add zooms" },
-  { patterns: /\bemoji\b/i, label: "add emojis" },
+  { patterns: /\bemoji/i, label: "add emojis" },
   { patterns: /\bmusic|beat|sound ?track\b/i, label: "add music or sync to a beat" },
   { patterns: /\bcolou?r|grade|cinematic|filter\b/i, label: "colour grade" },
   { patterns: /\bhook|first (two|2|three|3) seconds\b/i, label: "build a hook from the opening" },
   { patterns: /\bb-?roll\b/i, label: "cut in B-roll" },
-  { patterns: /\btransition\b/i, label: "add transitions" },
+  { patterns: /\btransition/i, label: "add transitions" },
 ];
 
 const SILENCE_WORDS =
-  /\bsilence|silent|quiet|pause|dead air|um+s?\b|\bfiller|tighten|trim|shorter|faster|snappy|pace|boring|dragging?\b/i;
+  /\bsilence|silent|quiet|pause|dead air|um+s?\b|\bfiller|tighten|trim|short|fast|snapp|pace|boring|drag/i;
 
 const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b/i;
 
