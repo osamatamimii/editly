@@ -1,0 +1,494 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Editly API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: projects
+    description: Project management
+  - name: messages
+    description: Chat messages
+  - name: exports
+    description: Export operations
+  - name: stats
+    description: Dashboard stats
+  - name: subscription
+    description: Subscription and plan management
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List all projects
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Create a new project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectBody"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /projects/{id}:
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Get a project by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateProject
+      tags: [projects]
+      summary: Update a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectBody"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteProject
+      tags: [projects]
+      summary: Delete a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /projects/{id}/messages:
+    get:
+      operationId: listMessages
+      tags: [messages]
+      summary: List chat messages for a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+    post:
+      operationId: sendMessage
+      tags: [messages]
+      summary: Send a user message and get AI response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageBody"
+      responses:
+        "201":
+          description: AI response message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagePair"
+
+  /projects/{id}/export:
+    post:
+      operationId: startExport
+      tags: [exports]
+      summary: Kick off an export job for a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartExportBody"
+      responses:
+        "202":
+          description: Export started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportJob"
+
+  /projects/{id}/export/status:
+    get:
+      operationId: getExportStatus
+      tags: [exports]
+      summary: Get export job status for a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Export status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportJob"
+
+  /subscription:
+    get:
+      operationId: getSubscription
+      tags: [subscription]
+      summary: Get current subscription plan and usage
+      responses:
+        "200":
+          description: Subscription details with usage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionUsage"
+    patch:
+      operationId: updateSubscription
+      tags: [subscription]
+      summary: Update the current subscription plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSubscriptionBody"
+      responses:
+        "200":
+          description: Updated subscription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionUsage"
+
+  /stats/dashboard:
+    get:
+      operationId: getDashboardStats
+      tags: [stats]
+      summary: Get dashboard summary stats
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+          enum: [uploading, ready, processing, done, failed]
+        thumbnailUrl:
+          type: ["string", "null"]
+        videoUrl:
+          type: ["string", "null"]
+        editedVideoUrl:
+          type: ["string", "null"]
+        duration:
+          type: ["number", "null"]
+        platform:
+          type: ["string", "null"]
+          enum: [tiktok, reels, shorts, null]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - title
+        - status
+        - thumbnailUrl
+        - videoUrl
+        - editedVideoUrl
+        - duration
+        - platform
+        - createdAt
+        - updatedAt
+
+    CreateProjectBody:
+      type: object
+      properties:
+        title:
+          type: string
+      required:
+        - title
+
+    UpdateProjectBody:
+      type: object
+      properties:
+        title:
+          type: string
+        status:
+          type: string
+          enum: [uploading, ready, processing, done, failed]
+        thumbnailUrl:
+          type: string
+        videoUrl:
+          type: string
+        editedVideoUrl:
+          type: string
+        duration:
+          type: number
+        platform:
+          type: string
+          enum: [tiktok, reels, shorts]
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - projectId
+        - role
+        - content
+        - createdAt
+
+    SendMessageBody:
+      type: object
+      properties:
+        content:
+          type: string
+      required:
+        - content
+
+    MessagePair:
+      type: object
+      properties:
+        userMessage:
+          $ref: "#/components/schemas/Message"
+        aiMessage:
+          $ref: "#/components/schemas/Message"
+      required:
+        - userMessage
+        - aiMessage
+
+    ExportJob:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, done, failed]
+        platform:
+          type: string
+          enum: [tiktok, reels, shorts]
+        downloadUrl:
+          type: ["string", "null"]
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExportStep"
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - projectId
+        - status
+        - platform
+        - downloadUrl
+        - steps
+        - createdAt
+        - updatedAt
+
+    ExportStep:
+      type: object
+      properties:
+        label:
+          type: string
+        status:
+          type: string
+          enum: [pending, active, done]
+      required:
+        - label
+        - status
+
+    StartExportBody:
+      type: object
+      properties:
+        platform:
+          type: string
+          enum: [tiktok, reels, shorts]
+      required:
+        - platform
+
+    SubscriptionPlan:
+      type: string
+      enum: [starter, pro, scale]
+
+    SubscriptionUsage:
+      type: object
+      properties:
+        plan:
+          $ref: "#/components/schemas/SubscriptionPlan"
+        videoLimitPerMonth:
+          type: number
+        videosUsedThisMonth:
+          type: number
+        editsPerVideo:
+          type: ["number", "null"]
+        pricePerMonth:
+          type: number
+      required:
+        - plan
+        - videoLimitPerMonth
+        - videosUsedThisMonth
+        - editsPerVideo
+        - pricePerMonth
+
+    UpdateSubscriptionBody:
+      type: object
+      properties:
+        plan:
+          $ref: "#/components/schemas/SubscriptionPlan"
+      required:
+        - plan
+
+    DashboardStats:
+      type: object
+      properties:
+        totalProjects:
+          type: number
+        processingCount:
+          type: number
+        doneCount:
+          type: number
+        recentProjects:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
+      required:
+        - totalProjects
+        - processingCount
+        - doneCount
+        - recentProjects
