@@ -5,6 +5,7 @@ import messagesRouter from "./messages";
 import exportsRouter from "./exports";
 import statsRouter from "./stats";
 import subscriptionRouter from "./subscription";
+import renderRouter from "./render";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -22,5 +23,6 @@ router.use(messagesRouter);
 router.use(exportsRouter);
 router.use(statsRouter);
 router.use(subscriptionRouter);
+router.use(renderRouter);
 
 export default router;

@@ -1,0 +1,23 @@
+{
+  "name": "@workspace/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ./build.mjs",
+    "start": "node --enable-source-maps ./dist/index.mjs",
+    "dev": "pnpm run build && pnpm run start",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@workspace/api-zod": "workspace:*",
+    "@workspace/db": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "pino": "^9"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "esbuild": "^0.27.3",
+    "pino-pretty": "^13"
+  }
+}

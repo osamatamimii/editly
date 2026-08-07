@@ -1,0 +1,28 @@
+# The render worker. Deployed separately from the Vercel app, because ffmpeg
+# cannot run there: no binary, a 250 MB bundle ceiling, and a timeout that
+# expires long before any real render finishes.
+app = "editly-worker"
+primary_region = "fra"  # same region as the Supabase project, so pulling and
+                        # pushing video does not cross a continent
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  POLL_INTERVAL_MS = "5000"
+
+# No [http_service]: this process serves nothing. It polls the queue and exits
+# only when told to, so it must not be scaled to zero on inbound traffic.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"   # ffmpeg on a 1080p clip sits well under this; 512mb is tight
+  cpus = 1
+
+[deploy]
+  # One worker claims one job at a time. Rolling avoids two copies fighting over
+  # the queue during a deploy — though SKIP LOCKED would make that safe anyway.
+  strategy = "rolling"
+
+[processes]
+  worker = "node --enable-source-maps dist/index.mjs"

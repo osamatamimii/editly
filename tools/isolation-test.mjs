@@ -250,6 +250,37 @@ console.log("\nStorage path ownership");
   );
 }
 
+console.log("\nRender queue");
+{
+  const plan = { version: 1, operations: [{ type: "removeSilence" }] };
+
+  const bobStart = await call(BOB, `/api/projects/${aliceProjectId}/render`, "POST", { plan });
+  check("Bob cannot queue a render on Alice's project", bobStart.status === 404, `got ${bobStart.status}`);
+
+  const bobStatus = await call(BOB, `/api/projects/${aliceProjectId}/render/status`);
+  check("Bob cannot poll Alice's render", bobStatus.status === 404, `got ${bobStatus.status}`);
+
+  const queued = await call(ALICE, `/api/projects/${aliceProjectId}/render`, "POST", { plan });
+  check("Alice can queue a render on her own project", queued.status === 202, `got ${queued.status} ${queued.text.slice(0, 120)}`);
+  check("the queued job starts at zero progress", queued.json?.status === "queued" && queued.json?.progress === 0, JSON.stringify(queued.json));
+
+  const second = await call(ALICE, `/api/projects/${aliceProjectId}/render`, "POST", { plan });
+  check("a second concurrent render is refused", second.status === 409, `got ${second.status}`);
+
+  const bad = await call(ALICE, `/api/projects/${aliceProjectId}/render`, "POST", {
+    plan: { version: 1, operations: [{ type: "deleteEverything" }] },
+  });
+  check("an unknown operation is refused", bad.status === 400, `got ${bad.status}`);
+
+  const empty = await call(ALICE, `/api/projects/${aliceProjectId}/render`, "POST", {
+    plan: { version: 1, operations: [] },
+  });
+  check("an empty plan is refused", empty.status === 400, `got ${empty.status}`);
+
+  const status = await call(ALICE, `/api/projects/${aliceProjectId}/render/status`);
+  check("Alice sees her own job", status.json?.id === queued.json?.id, JSON.stringify(status.json?.id));
+}
+
 console.log("\nPer-user statistics and quota");
 {
   const alice = await call(ALICE, "/api/stats/dashboard");

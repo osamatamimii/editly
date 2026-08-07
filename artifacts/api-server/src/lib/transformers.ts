@@ -20,3 +20,18 @@ export function serializeExport(exportJob: Record<string, unknown>) {
     updatedAt: exportJob.updatedAt instanceof Date ? exportJob.updatedAt.toISOString() : exportJob.updatedAt,
   };
 }
+
+export function serializeJob(job: Record<string, unknown>) {
+  return {
+    id: job.id,
+    projectId: job.projectId,
+    status: job.status,
+    progress: job.progress,
+    stage: job.stage ?? null,
+    error: job.error ?? null,
+    plan: job.plan,
+    outputPath: job.outputPath ?? null,
+    createdAt: job.createdAt instanceof Date ? job.createdAt.toISOString() : job.createdAt,
+    updatedAt: job.updatedAt instanceof Date ? job.updatedAt.toISOString() : job.updatedAt,
+  };
+}

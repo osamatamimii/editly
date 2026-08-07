@@ -206,3 +206,80 @@ export interface DashboardStats {
   doneCount: number;
   recentProjects: Project[];
 }
+
+// ── render jobs ─────────────────────────────────────────────────────────────
+// The edit plan is the contract between the app and the ffmpeg worker: a list
+// of named operations with explicit parameters, never natural language.
+
+export interface RemoveSilenceOperation {
+  type: "removeSilence";
+  /** Anything quieter than this counts as silence. */
+  thresholdDb?: number;
+  /** Silences shorter than this are left alone — speech has natural gaps. */
+  minSilenceMs?: number;
+  /** Kept on each side of a cut so words are not clipped. */
+  paddingMs?: number;
+}
+
+export interface FormatForPlatformOperation {
+  type: "formatForPlatform";
+  platform: "tiktok" | "reels" | "shorts";
+}
+
+export interface CaptionCue {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
+export interface BurnCaptionsOperation {
+  type: "burnCaptions";
+  cues: CaptionCue[];
+  style?: "bold-white" | "bold-yellow" | "karaoke-box";
+}
+
+export interface WatermarkOperation {
+  type: "watermark";
+  text?: string;
+  position?: "bottom-right" | "bottom-center" | "top-right";
+}
+
+export type EditOperation =
+  | RemoveSilenceOperation
+  | FormatForPlatformOperation
+  | BurnCaptionsOperation
+  | WatermarkOperation;
+
+export interface EditPlan {
+  version: 1;
+  operations: EditOperation[];
+}
+
+export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus];
+
+export const JobStatus = {
+  queued: "queued",
+  running: "running",
+  done: "done",
+  failed: "failed",
+} as const;
+
+export interface RenderJob {
+  id: string;
+  projectId: string;
+  status: JobStatus;
+  progress: number;
+  /** @nullable */
+  stage: string | null;
+  /** @nullable */
+  error: string | null;
+  plan: EditPlan;
+  /** @nullable */
+  outputPath: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StartRenderBody {
+  plan: EditPlan;
+}

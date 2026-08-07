@@ -5,8 +5,13 @@ import {
   useUpdateProject,
   useListMessages,
   useSendMessage,
+  useGetSubscription,
+  useStartRender,
+  useRenderStatus,
+  isRenderInFlight,
   getGetProjectQueryKey,
-  getListMessagesQueryKey
+  getListMessagesQueryKey,
+  type EditOperation
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -47,8 +52,6 @@ export default function ProjectEditor() {
   const [totalBytes, setTotalBytes] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const cancelUploadRef = useRef<(() => void) | null>(null);
-  const [isProcessingEdit, setIsProcessingEdit] = useState(false);
-  const [editSteps, setEditSteps] = useState<string[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isNoahThinking, setIsNoahThinking] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -63,7 +66,13 @@ export default function ProjectEditor() {
 
   const updateProject = useUpdateProject();
   const sendMessage = useSendMessage();
+  const startRender = useStartRender();
+  const { data: subscription } = useGetSubscription();
   const { user } = useAuth();
+
+  // The worker is the source of truth for what is happening to this video.
+  const { data: renderJob } = useRenderStatus(id, { enabled: !!id });
+  const isProcessingEdit = isRenderInFlight(renderJob);
 
   // The bucket is private, so playback needs a freshly signed URL.
   const { url: playbackUrl } = usePlayableVideo(
@@ -79,7 +88,7 @@ export default function ProjectEditor() {
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
       }
     }
-  }, [messages, isProcessingEdit, editSteps, isNoahThinking]);
+  }, [messages, isProcessingEdit, renderJob?.progress, isNoahThinking]);
 
   const validateAndUpload = async (file: File) => {
     if (!ACCEPTED_VIDEO_TYPES.includes(file.type) && !file.name.match(/\.(mp4|mov|webm)$/i)) {
@@ -217,48 +226,37 @@ export default function ProjectEditor() {
     }
   };
 
+  /**
+   * Queues a real render. The work happens on the ffmpeg worker, so this
+   * returns as soon as the job is written — `renderJob` below carries the
+   * truth from then on.
+   */
   const handleGenerateEdit = async () => {
-    setIsProcessingEdit(true);
-    setEditSteps(["Analyzing video content..."]);
-    
-    // Simulate complex AI editing process
-    const steps = [
-      "Identifying silence gaps...",
-      "Generating smart cuts...",
-      "Transcribing audio...",
-      "Applying dynamic captions...",
-      "Adding cinematic color grade...",
-      "Finalizing edit..."
+    const operations: EditOperation[] = [
+      { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+      { type: "formatForPlatform", platform: (project?.platform ?? "tiktok") as "tiktok" | "reels" | "shorts" },
     ];
 
-    for (let i = 0; i < steps.length; i++) {
-      await new Promise(r => setTimeout(r, 1500));
-      setEditSteps(prev => [...prev, steps[i]]);
+    // The growth loop: free-plan renders carry the mark, paid ones do not.
+    if ((subscription?.plan ?? "starter") === "starter") {
+      operations.push({ type: "watermark", text: "Edited with Editly", position: "bottom-right" });
     }
 
-    await new Promise(r => setTimeout(r, 1000));
-    
     try {
-      await updateProject.mutateAsync({
-        id,
-        data: {
-          status: 'done',
-          // Until the render worker exists there is no separate output file,
-          // so the source stays the thing that plays. Setting editedVideoPath
-          // here would claim a render happened that did not.
-        }
-      });
+      await startRender.mutateAsync({ id, plan: { version: 1, operations } });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
-      setIsProcessingEdit(false);
-      setEditSteps([]);
       toast({
-        title: "Edit complete!",
-        description: "Your AI-edited video is ready."
+        title: "Render queued",
+        description: "You can leave this page — we'll keep working."
       });
-    } catch (error) {
-      setIsProcessingEdit(false);
+    } catch (error: unknown) {
+      const status = (error as { status?: number })?.status;
       toast({
-        title: "Edit failed",
+        title: status === 409 ? "Already rendering" : "Could not start the render",
+        description:
+          status === 409
+            ? "This project has a render in progress."
+            : (error as { data?: { error?: string } })?.data?.error,
         variant: "destructive"
       });
     }
@@ -551,8 +549,8 @@ export default function ProjectEditor() {
                 </div>
               )}
 
-              {/* Processing Edit Steps */}
-              {isProcessingEdit && (
+              {/* Live render progress, reported by the worker itself */}
+              {(isProcessingEdit || renderJob?.status === "failed") && (
                 <div className="flex gap-3 items-start">
                   <img
                     src="/noah-avatar.jpg"
@@ -562,25 +560,36 @@ export default function ProjectEditor() {
                   <div className="flex flex-col gap-1 flex-1">
                     <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
                     <div className="bg-white/5 border border-secondary/30 rounded-2xl rounded-tl-sm px-4 py-3 text-sm w-full shadow-[0_0_15px_rgba(155,107,255,0.1)]">
-                      <p className="font-semibold text-secondary mb-3 flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" /> Working on it…
-                      </p>
-                      <div className="space-y-2">
-                        {editSteps.map((step, i) => (
-                          <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
-                            {i < editSteps.length - 1 ? (
-                              <CheckCircle2 className="w-3 h-3 text-green-500" />
-                            ) : (
-                              <div className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse ml-1 mr-0.5" />
-                            )}
-                            <span className={i === editSteps.length - 1 ? "text-foreground" : ""}>{step}</span>
+                      {renderJob?.status === "failed" ? (
+                        <>
+                          <p className="font-semibold text-destructive mb-1">That render didn't finish.</p>
+                          <p className="text-xs text-muted-foreground" data-testid="text-render-error">
+                            {renderJob.error ?? "Something went wrong on our side."}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-semibold text-secondary mb-3 flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            {renderJob?.status === "queued" ? "Waiting for a free slot…" : (renderJob?.stage ?? "Working on it…")}
+                          </p>
+                          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-secondary transition-all duration-500"
+                              style={{ width: `${renderJob?.progress ?? 0}%` }}
+                              data-testid="bar-render-progress"
+                            />
                           </div>
-                        ))}
-                      </div>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            {renderJob?.progress ?? 0}% · you can close this page, it keeps going
+                          </p>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
               )}
+
             </div>
           </ScrollArea>
 

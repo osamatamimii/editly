@@ -201,3 +201,101 @@ export type DashboardStats = z.infer<typeof DashboardStats>;
 
 export const GetDashboardStatsResponse = DashboardStats;
 export type GetDashboardStatsResponse = z.infer<typeof GetDashboardStatsResponse>;
+
+// ---------------------------------------------------------------------------
+// render jobs
+//
+// The edit plan is the contract between the API and the ffmpeg worker. Keeping
+// it declarative — a list of named operations with explicit parameters — means
+// the worker never interprets natural language, and a plan can be replayed,
+// diffed, or saved as a template. Phase 4's AI produces one of these; it does
+// not get to invent new operations.
+// ---------------------------------------------------------------------------
+
+/**
+ * Drop stretches of near-silence. This is the operation that actually saves the
+ * three hours: it is what a creator would otherwise do by hand, cut by cut.
+ */
+export const RemoveSilenceOperation = z.object({
+  type: z.literal("removeSilence"),
+  /** Anything quieter than this counts as silence. */
+  thresholdDb: z.number().min(-80).max(0).default(-32),
+  /** Silences shorter than this are left alone — speech has natural gaps. */
+  minSilenceMs: z.number().int().min(100).max(10_000).default(500),
+  /** Kept on each side of a cut so words are not clipped. */
+  paddingMs: z.number().int().min(0).max(1000).default(80),
+});
+
+/** Reframe to a platform's aspect ratio by cropping to the centre. */
+export const FormatForPlatformOperation = z.object({
+  type: z.literal("formatForPlatform"),
+  platform: Platform,
+});
+
+/** Burn subtitles into the picture. Cues come from transcription (phase 4). */
+export const BurnCaptionsOperation = z.object({
+  type: z.literal("burnCaptions"),
+  cues: z
+    .array(
+      z.object({
+        startMs: z.number().int().min(0),
+        endMs: z.number().int().min(0),
+        text: z.string().min(1).max(300),
+      }),
+    )
+    .min(1),
+  style: z.enum(["bold-white", "bold-yellow", "karaoke-box"]).default("bold-white"),
+});
+
+/** The growth loop: free-plan renders carry a mark. */
+export const WatermarkOperation = z.object({
+  type: z.literal("watermark"),
+  text: z.string().min(1).max(60).default("Edited with Editly"),
+  position: z.enum(["bottom-right", "bottom-center", "top-right"]).default("bottom-right"),
+});
+
+export const EditOperation = z.discriminatedUnion("type", [
+  RemoveSilenceOperation,
+  FormatForPlatformOperation,
+  BurnCaptionsOperation,
+  WatermarkOperation,
+]);
+export type EditOperation = z.infer<typeof EditOperation>;
+
+export const EditPlan = z.object({
+  version: z.literal(1),
+  operations: z.array(EditOperation).min(1).max(10),
+});
+export type EditPlan = z.infer<typeof EditPlan>;
+
+export const JobStatus = z.enum(["queued", "running", "done", "failed"]);
+export type JobStatus = z.infer<typeof JobStatus>;
+
+export const RenderJob = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  status: JobStatus,
+  progress: z.number(),
+  stage: z.string().nullable(),
+  error: z.string().nullable(),
+  plan: EditPlan,
+  outputPath: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type RenderJob = z.infer<typeof RenderJob>;
+
+export const StartRenderParams = z.object({ id: z.string() });
+export type StartRenderParams = z.infer<typeof StartRenderParams>;
+
+export const StartRenderBody = z.object({ plan: EditPlan });
+export type StartRenderBody = z.infer<typeof StartRenderBody>;
+
+export const StartRenderResponse = RenderJob;
+export type StartRenderResponse = z.infer<typeof StartRenderResponse>;
+
+export const GetRenderStatusParams = z.object({ id: z.string() });
+export type GetRenderStatusParams = z.infer<typeof GetRenderStatusParams>;
+
+export const GetRenderStatusResponse = RenderJob.nullable();
+export type GetRenderStatusResponse = z.infer<typeof GetRenderStatusResponse>;
