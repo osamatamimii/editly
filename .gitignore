@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+.vercel-out/
+api/_bundle.js
+api/_bundle.js.map
+*.tsbuildinfo
+
+# Environment / secrets — never commit these
+.env
+.env.*
+!.env.example
+
+# Vercel
+.vercel/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
