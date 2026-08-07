@@ -283,3 +283,11 @@ export interface RenderJob {
 export interface StartRenderBody {
   plan: EditPlan;
 }
+
+/** The plan the assistant derived from the last message, if it understood one. */
+export interface MessagePairWithPlan {
+  userMessage: Message;
+  aiMessage: Message;
+  /** @nullable */
+  plan: EditPlan | null;
+}

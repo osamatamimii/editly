@@ -2,7 +2,9 @@
 
 **Stop editing. Start describing.**
 
-Editly is an AI video editing SaaS: upload a video, describe the edit you want in plain language ("Add captions, remove silence, make it TikTok-ready"), and let the AI director do the rest.
+Upload a raw take, say what you want in plain language ("cut the dead air and make it vertical for TikTok"), and get back something ready to post.
+
+**What actually works today:** silence removal, reframing to 9:16, and the free-plan watermark — all real ffmpeg, run on a dedicated worker. Requests are parsed by keyword matching, not a language model, and the assistant says plainly when it cannot do something rather than promising it. Burned-in captions are implemented and waiting on transcription. See `ROADMAP.md` for what is next and what it will cost.
 
 ## Stack
 
@@ -11,7 +13,24 @@ Editly is an AI video editing SaaS: upload a video, describe the edit you want i
 - **API** (`artifacts/api-server`): Express 5, Zod validation, Pino logging
 - **Database** (`lib/db`): PostgreSQL (Supabase) + Drizzle ORM
 - **API contract** (`lib/api-spec/openapi.yaml`): OpenAPI source of truth; `lib/api-zod` + `lib/api-client-react` implement it
-- **Hosting**: Vercel — static frontend + the Express app as a single serverless function
+- **Render worker** (`artifacts/worker`): ffmpeg in a container, claiming jobs from a Postgres queue
+- **Hosting**: Vercel — static frontend + the Express app as a single serverless function. The worker runs on Fly.io, because ffmpeg cannot run on Vercel.
+
+## Tests
+
+```bash
+# 55 checks that one user cannot see or touch another's data, against the real
+# auth middleware. Needs a local Postgres matching the production schema.
+node tools/isolation-test.mjs
+
+# 18 checks on the ffmpeg pipeline — they inspect the output, not the exit code.
+# Needs ffmpeg and ffprobe on PATH.
+node tools/render-test.mjs
+
+# Storage policies are enforced by Postgres, not by code in this repo. Paste
+# this into the browser console on the deployed app after changing them.
+# tools/storage-isolation.browser.js
+```
 
 ## Local development
 

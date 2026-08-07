@@ -11,7 +11,8 @@ import {
   isRenderInFlight,
   getGetProjectQueryKey,
   getListMessagesQueryKey,
-  type EditOperation
+  type EditOperation,
+  type EditPlan
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,8 @@ export default function ProjectEditor() {
   const cancelUploadRef = useRef<(() => void) | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isNoahThinking, setIsNoahThinking] = useState(false);
+  /** The plan derived from the conversation, if the assistant understood one. */
+  const [chatPlan, setChatPlan] = useState<EditPlan | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const { data: project, isLoading: isProjectLoading } = useGetProject(id, {
@@ -192,19 +195,17 @@ export default function ProjectEditor() {
     const content = chatInput;
     setChatInput("");
 
-    // Show Noah thinking indicator for 1.2s before dispatching
     setIsNoahThinking(true);
-    await new Promise(r => setTimeout(r, 1200));
-    setIsNoahThinking(false);
-    
     try {
-      await sendMessage.mutateAsync({
+      const result = await sendMessage.mutateAsync({
         id,
         data: { content }
-      });
+      }) as unknown as { plan?: EditPlan | null };
+      // Whatever the reply promised is exactly what Generate Edit will build.
+      if (result?.plan) setChatPlan(result.plan);
       queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(id) });
     } catch (error: unknown) {
-      const status = (error as { response?: { status?: number } })?.response?.status;
+      const status = (error as { status?: number })?.status;
       if (status === 429) {
         toast({
           title: "Edit limit reached",
@@ -223,6 +224,8 @@ export default function ProjectEditor() {
         });
         setChatInput(content); // restore input
       }
+    } finally {
+      setIsNoahThinking(false);
     }
   };
 
@@ -232,10 +235,14 @@ export default function ProjectEditor() {
    * truth from then on.
    */
   const handleGenerateEdit = async () => {
-    const operations: EditOperation[] = [
-      { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
-      { type: "formatForPlatform", platform: (project?.platform ?? "tiktok") as "tiktok" | "reels" | "shorts" },
-    ];
+    // Whatever the conversation settled on, falling back to the sensible
+    // default when nobody has said anything specific.
+    const operations: EditOperation[] = chatPlan
+      ? [...chatPlan.operations]
+      : [
+          { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+          { type: "formatForPlatform", platform: (project?.platform ?? "tiktok") as "tiktok" | "reels" | "shorts" },
+        ];
 
     // The growth loop: free-plan renders carry the mark, paid ones do not.
     if ((subscription?.plan ?? "starter") === "starter") {

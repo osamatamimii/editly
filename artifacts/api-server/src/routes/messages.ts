@@ -11,39 +11,9 @@ import {
 import { serializeMessage } from "../lib/transformers";
 import { PLAN_LIMITS, isPlanKey } from "../lib/plan-limits";
 import { currentUserId } from "../middlewares/auth";
+import { planFromText, replyFor } from "../lib/plan-from-text";
 
 const router: IRouter = Router();
-
-// Placeholder responder. Phase 4 of ROADMAP.md replaces this with a real
-// transcription + planning pipeline; the shape of the endpoint stays the same.
-const AI_RESPONSES: Record<string, string> = {
-  caption: "Got you. I'll drop in bold captions, synced word-by-word. Keeps people watching even without sound.",
-  hook: "Smart move. I'll punch up the first two seconds — fast zoom, text hit, something that stops the scroll immediately.",
-  tiktok: "On it. I'll flip it to vertical, tighten the cuts, and give it that fast-paced TikTok energy. Should perform well.",
-  fast: "I'll cut the boring parts and make it way tighter. Jump cuts, no dead air — it'll move.",
-  silence: "Easy. I'll strip out all the silences and low-energy bits. You'll only keep the parts that actually land.",
-  zoom: "I'll throw in some dynamic zooms at the right moments. Makes it feel a lot more intense.",
-  emoji: "I'll sprinkle in some emojis where they make sense. Keeps things light and boosts engagement.",
-  reels: "I'll format this for Reels — 9:16, clean transitions, trimmed to the sweet spot. Should look native in the feed.",
-  shorts: "On it. I'll shape this up for Shorts — vertical, strong open, snappy pacing throughout.",
-  boring: "I'll go through it and cut anything that drags. You'll end up with just the good stuff.",
-  default: "Got it. Let me take a look and get those edits applied. Hit Generate Edit when you're ready to go.",
-};
-
-function generateAIResponse(userMessage: string): string {
-  const msg = userMessage.toLowerCase();
-  if (msg.includes("caption")) return AI_RESPONSES.caption;
-  if (msg.includes("hook")) return AI_RESPONSES.hook;
-  if (msg.includes("tiktok")) return AI_RESPONSES.tiktok;
-  if (msg.includes("fast") || msg.includes("pace") || msg.includes("jump")) return AI_RESPONSES.fast;
-  if (msg.includes("silence") || msg.includes("silent") || msg.includes("trim")) return AI_RESPONSES.silence;
-  if (msg.includes("zoom")) return AI_RESPONSES.zoom;
-  if (msg.includes("emoji")) return AI_RESPONSES.emoji;
-  if (msg.includes("reels") || msg.includes("instagram")) return AI_RESPONSES.reels;
-  if (msg.includes("shorts") || msg.includes("youtube")) return AI_RESPONSES.shorts;
-  if (msg.includes("boring") || msg.includes("highlight")) return AI_RESPONSES.boring;
-  return AI_RESPONSES.default;
-}
 
 router.get("/projects/:id/messages", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
@@ -129,7 +99,10 @@ router.post("/projects/:id/messages", async (req, res): Promise<void> => {
     }
   }
 
-  const aiContent = generateAIResponse(parsed.data.content);
+  // The reply is derived from a real plan, so it cannot promise an edit the
+  // worker has no operation for. See lib/plan-from-text.ts.
+  const intent = planFromText(parsed.data.content, { defaultPlatform: project.platform as never });
+  const aiContent = replyFor(intent, { hasVideo: Boolean(project.videoPath) });
 
   const [userMessage] = await db
     .insert(messagesTable)
@@ -156,6 +129,8 @@ router.post("/projects/:id/messages", async (req, res): Promise<void> => {
   res.status(201).json({
     userMessage: serializeMessage(userMessage),
     aiMessage: serializeMessage(aiMessage),
+    // The editor renders exactly this, so what gets built is what was promised.
+    plan: intent.operations.length > 0 ? { version: 1, operations: intent.operations } : null,
   });
 });
 

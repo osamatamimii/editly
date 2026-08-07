@@ -270,7 +270,7 @@ export default function Home() {
           style={{ animationDelay: "100ms" }}
         >
           <Sparkles className="w-4 h-4 text-secondary animate-sparkle" />
-          <span className="text-sm font-medium text-white/80">Editly AI Engine 2.0 is live</span>
+          <span className="text-sm font-medium text-white/80">Cuts the dead air out of any clip</span>
           <span className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]"
             style={{ animation: "glow-pulse 2s ease-in-out infinite" }} />
         </div>
@@ -280,7 +280,7 @@ export default function Home() {
           className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 max-w-4xl leading-[1.1] animate-fade-up"
           style={{ animationDelay: "200ms" }}
         >
-          <span className="glow-text">Turn any video</span>
+          <span className="glow-text">Get three hours back</span>
           <br />
           <span
             className="animate-gradient-shift"
@@ -292,10 +292,10 @@ export default function Home() {
               backgroundSize: "200% 200%",
             }}
           >
-            into viral short content
+            on every video you post
           </span>
           <br />
-          <span className="glow-text">with AI</span>
+          <span className="glow-text">&nbsp;</span>
         </h1>
 
         {/* Subtext */}
@@ -303,8 +303,9 @@ export default function Home() {
           className="text-lg md:text-xl text-muted-foreground mb-12 max-w-2xl animate-fade-up"
           style={{ animationDelay: "320ms" }}
         >
-          Describe your edit. Let AI do the rest. The ultimate creative cockpit for
-          ambitious creators wanting TikTok, Reels, and Shorts content fast.
+          Upload the raw take. Editly cuts out every silence and pause, reframes it
+          to 9:16, and hands you back something ready to post — while you go do
+          literally anything else.
         </p>
 
         {/* CTA Buttons */}
@@ -492,16 +493,16 @@ export default function Home() {
           <div className="text-center mb-16">
             <div className="reveal">
               <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">How it works</p>
-              <h2 className="text-3xl md:text-4xl font-bold mb-4">Command your edits</h2>
-              <p className="text-muted-foreground text-lg">Three steps to algorithmic perfection.</p>
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">Three steps, none of them tedious</h2>
+              <p className="text-muted-foreground text-lg">The part you dread, done while you are not looking.</p>
             </div>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
             {[
-              { num: "01", title: "Upload Raw Footage", desc: "Drop your massive 4K files or quick phone clips. We handle any format.", delay: "0ms" },
-              { num: "02", title: "Chat to Edit", desc: "Type your vision. 'Cut out silences, add captions, make it cinematic.' AI executes in seconds.", delay: "120ms" },
-              { num: "03", title: "Export to Socials", desc: "Auto-formatted for TikTok, Reels, or Shorts. One click to download your viral hit.", delay: "240ms" },
+              { num: "01", title: "Upload the raw take", desc: "The unedited one, with all the ums and restarts still in it. That is the point.", delay: "0ms" },
+              { num: "02", title: "Say what you want", desc: "\"Cut the dead air and make it vertical for TikTok.\" Editly tells you exactly what it will do before it does it.", delay: "120ms" },
+              { num: "03", title: "Post it", desc: "Framed for TikTok, Reels or Shorts, and waiting for you when you come back.", delay: "240ms" },
             ].map((step) => (
               <div
                 key={step.num}
@@ -529,15 +530,15 @@ export default function Home() {
           <div>
             <div className="reveal">
               <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">Features</p>
-              <h2 className="text-4xl font-bold mb-6 leading-tight">The ultimate creative cockpit</h2>
+              <h2 className="text-4xl font-bold mb-6 leading-tight">What it does today</h2>
             </div>
             <ul className="space-y-5">
               {[
-                "Sub-second AI response times",
-                "Cinematic color grading presets",
-                "Auto-generated viral captions",
-                "Smart silence removal",
-                "Beat-sync auto-cuts",
+                "Every silence and pause cut automatically",
+                "Reframed to 9:16 for TikTok, Reels and Shorts",
+                "Renders while you close the tab",
+                "Your footage stays private to your account",
+                "Captions and colour grading — in progress",
               ].map((feat, i) => (
                 <li
                   key={i}
@@ -597,10 +598,10 @@ export default function Home() {
       <section id="pricing" className="w-full max-w-7xl mx-auto px-6 py-24">
         <div className="text-center mb-10 reveal">
           <h2 className="text-4xl md:text-5xl font-bold mb-4 glow-text">
-            Create ready-to-post clips in minutes
+            Priced per video, not per hour of your life
           </h2>
           <p className="text-muted-foreground text-lg max-w-xl mx-auto">
-            Same powerful AI editor — choose how much you create.
+Every plan does the same editing. Pick how much you post.
           </p>
         </div>
 
@@ -753,7 +754,7 @@ export default function Home() {
         <div className="relative z-10 flex flex-col items-center reveal">
           <h2 className="text-4xl md:text-5xl font-bold mb-4 glow-text">Turn your next video into your best one.</h2>
           <p className="text-muted-foreground text-lg mb-10 max-w-lg">
-            No editing skills needed.<br />Just describe — I'll do the rest.
+The tedious part is the part a machine should do.<br />Upload one take and see how much shorter it gets.
           </p>
           <Link
             href="/dashboard"

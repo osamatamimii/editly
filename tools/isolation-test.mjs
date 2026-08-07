@@ -250,6 +250,95 @@ console.log("\nStorage path ownership");
   );
 }
 
+console.log("\nThe assistant only promises what it can build");
+{
+  const understood = await call(ALICE, `/api/projects/${aliceProjectId}/messages`, "POST", {
+    content: "cut the dead air out and make it vertical for tiktok",
+  });
+  const types = (understood.json?.plan?.operations ?? []).map((o) => o.type);
+  check(
+    "a request it understands becomes a real plan",
+    types.includes("removeSilence") && types.includes("formatForPlatform"),
+    JSON.stringify(understood.json?.plan),
+  );
+  check(
+    "the platform comes from what was actually asked for",
+    understood.json?.plan?.operations?.find((o) => o.type === "formatForPlatform")?.platform === "tiktok",
+    JSON.stringify(understood.json?.plan),
+  );
+
+  const unsupported = await call(ALICE, `/api/projects/${aliceProjectId}/messages`, "POST", {
+    content: "add some zooms and emojis and a cinematic colour grade",
+  });
+  const unsupportedTypes = (unsupported.json?.plan?.operations ?? []).map((o) => o.type);
+  check("nothing is invented for operations that do not exist", unsupportedTypes.length === 0, JSON.stringify(unsupportedTypes));
+  check(
+    "and it says so rather than promising",
+    /can't|cannot/i.test(unsupported.json?.aiMessage?.content ?? ""),
+    unsupported.json?.aiMessage?.content,
+  );
+
+  const nonsense = await call(ALICE, `/api/projects/${aliceProjectId}/messages`, "POST", {
+    content: "asdfghjkl",
+  });
+  check(
+    "an unparseable request asks for a clearer one",
+    /not sure/i.test(nonsense.json?.aiMessage?.content ?? "") && nonsense.json?.plan === null,
+    nonsense.json?.aiMessage?.content,
+  );
+}
+
+console.log("\nExports are real renders");
+{
+  // Its own project: an export queues a render, and the render-queue checks
+  // below need a project with nothing already in flight.
+  const created = await call(ALICE, "/api/projects", "POST", { title: "Export check" });
+  const exportProjectId = created.json?.id;
+  await call(ALICE, `/api/projects/${exportProjectId}`, "PATCH", {
+    videoPath: `${ALICE}/${exportProjectId}/source.mp4`,
+  });
+
+  const noVideo = await call(ALICE, "/api/projects", "POST", { title: "No video" });
+  const refused = await call(ALICE, `/api/projects/${noVideo.json?.id}/export`, "POST", { platform: "reels" });
+  check("exporting a project with no video is refused", refused.status === 409, `got ${refused.status}`);
+  await call(ALICE, `/api/projects/${noVideo.json?.id}`, "DELETE");
+
+  const exported = await call(ALICE, `/api/projects/${exportProjectId}/export`, "POST", { platform: "reels" });
+  check("an export is accepted", exported.status === 202, `got ${exported.status} ${exported.text.slice(0, 120)}`);
+  check("it does not claim to be finished already", exported.json?.status === "processing", JSON.stringify(exported.json?.status));
+  check(
+    "and it does not hand back a fabricated download URL",
+    exported.json?.downloadUrl == null,
+    JSON.stringify(exported.json?.downloadUrl),
+  );
+
+  const job = await call(ALICE, `/api/projects/${exportProjectId}/render/status`);
+  check("the export really queued a render", job.json?.status === "queued", JSON.stringify(job.json?.status));
+  check(
+    "framed for the platform that was asked for",
+    (job.json?.plan?.operations ?? []).some((o) => o.type === "formatForPlatform" && o.platform === "reels"),
+    JSON.stringify(job.json?.plan),
+  );
+  check(
+    "and carrying the free-plan watermark",
+    (job.json?.plan?.operations ?? []).some((o) => o.type === "watermark"),
+    JSON.stringify(job.json?.plan),
+  );
+
+  const status = await call(ALICE, `/api/projects/${exportProjectId}/export/status`);
+  check("its status stays processing while the worker has not run", status.json?.status === "processing", JSON.stringify(status.json?.status));
+  check(
+    "no step claims to be done before the worker did it",
+    !(status.json?.steps ?? []).every((s) => s.status === "done"),
+    JSON.stringify(status.json?.steps),
+  );
+
+  const bobExport = await call(BOB, `/api/projects/${exportProjectId}/export/status`);
+  check("Bob still cannot see it", bobExport.status === 404, `got ${bobExport.status}`);
+
+  await call(ALICE, `/api/projects/${exportProjectId}`, "DELETE");
+}
+
 console.log("\nRender queue");
 {
   const plan = { version: 1, operations: [{ type: "removeSilence" }] };

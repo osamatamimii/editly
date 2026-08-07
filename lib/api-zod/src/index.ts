@@ -299,3 +299,12 @@ export type GetRenderStatusParams = z.infer<typeof GetRenderStatusParams>;
 
 export const GetRenderStatusResponse = RenderJob.nullable();
 export type GetRenderStatusResponse = z.infer<typeof GetRenderStatusResponse>;
+
+/**
+ * Narrows a plan name read out of the database. Lives here rather than in the
+ * API server so the export route and the billing route agree on what counts as
+ * a known plan.
+ */
+export function isPlanKeyGuard(value: string): value is z.infer<typeof SubscriptionPlan> {
+  return SubscriptionPlan.safeParse(value).success;
+}

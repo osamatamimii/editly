@@ -1,25 +1,62 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { eq, desc, and } from "drizzle-orm";
-import { db, exportsTable, projectsTable } from "@workspace/db";
+import { db, exportsTable, projectsTable, jobsTable, subscriptionsTable, type Job } from "@workspace/db";
 import {
   StartExportBody,
   StartExportParams,
   GetExportStatusParams,
   GetExportStatusResponse,
+  isPlanKeyGuard,
 } from "@workspace/api-zod";
 import { serializeExport } from "../lib/transformers";
 import { currentUserId } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
-const EXPORT_STEPS = [
-  { label: "Analyzing video", status: "done" },
-  { label: "Applying edits", status: "done" },
-  { label: "Generating captions", status: "done" },
-  { label: "Formatting for platform", status: "done" },
-  { label: "Finalizing export", status: "done" },
-];
+/**
+ * An export is a render, framed for one platform.
+ *
+ * This used to invent its own progress: five hardcoded step labels and a
+ * download URL pointing at example.com, flipped to "done" five seconds after
+ * the request. It now enqueues a real job and reports what the worker is
+ * actually doing.
+ */
+type ExportStep = { label: string; status: "pending" | "active" | "done" };
+
+/**
+ * Turns the worker's single stage string into the step list the UI expects.
+ * Kept deliberately coarse — claiming finer granularity than the worker
+ * reports would put us back where we started.
+ */
+function stepsForJob(job: Job | undefined): ExportStep[] {
+  const labels = ["Queued", "Cutting and reframing", "Saving the result"];
+  if (!job) return labels.map((label) => ({ label, status: "pending" }));
+
+  if (job.status === "queued") {
+    return labels.map((label, i) => ({ label, status: i === 0 ? "active" : "pending" }));
+  }
+  if (job.status === "done") {
+    return labels.map((label) => ({ label, status: "done" }));
+  }
+  if (job.status === "failed") {
+    return labels.map((label, i) => ({ label, status: i === 0 ? "done" : "pending" }));
+  }
+
+  // running: the third step only begins once the worker starts uploading.
+  const uploading = job.progress >= 92;
+  return [
+    { label: labels[0], status: "done" },
+    { label: job.stage ?? labels[1], status: uploading ? "done" : "active" },
+    { label: labels[2], status: uploading ? "active" : "pending" },
+  ];
+}
+
+function exportStatusFor(job: Job | undefined): "pending" | "processing" | "done" | "failed" {
+  if (!job) return "pending";
+  if (job.status === "queued" || job.status === "running") return "processing";
+  return job.status === "done" ? "done" : "failed";
+}
 
 router.post("/projects/:id/export", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
@@ -39,39 +76,74 @@ router.post("/projects/:id/export", async (req, res): Promise<void> => {
   const [project] = await db
     .select()
     .from(projectsTable)
-    .where(
-      and(
-        eq(projectsTable.id, params.data.id),
-        eq(projectsTable.userId, userId),
-      ),
-    );
+    .where(and(eq(projectsTable.id, params.data.id), eq(projectsTable.userId, userId)));
 
   if (!project) {
     res.status(404).json({ error: "Project not found" });
     return;
   }
 
-  const initialSteps = EXPORT_STEPS.map((s, i) => ({
-    label: s.label,
-    status: i === 0 ? "active" : "pending",
-  }));
+  if (!project.videoPath) {
+    res.status(409).json({ error: "Upload a video before exporting." });
+    return;
+  }
+
+  const [latest] = await db
+    .select()
+    .from(jobsTable)
+    .where(and(eq(jobsTable.projectId, project.id), eq(jobsTable.userId, userId)))
+    .orderBy(desc(jobsTable.createdAt))
+    .limit(1);
+
+  if (latest && (latest.status === "queued" || latest.status === "running")) {
+    res.status(409).json({ error: "This project is already rendering.", jobId: latest.id });
+    return;
+  }
+
+  const [sub] = await db
+    .select()
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, userId))
+    .limit(1);
+
+  const operations: Array<Record<string, unknown>> = [
+    { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+    { type: "formatForPlatform", platform: parsed.data.platform },
+  ];
+  // The growth loop: free-plan exports carry the mark, paid ones do not.
+  if (!sub || !isPlanKeyGuard(sub.plan) || sub.plan === "starter") {
+    operations.push({ type: "watermark", text: "Edited with Editly", position: "bottom-right" });
+  }
+
+  const jobId = randomUUID();
+  await db.insert(jobsTable).values({
+    id: jobId,
+    userId,
+    projectId: project.id,
+    status: "queued",
+    plan: { version: 1, operations },
+    inputPath: project.videoPath,
+  });
 
   const [exportJob] = await db
     .insert(exportsTable)
     .values({
       id: randomUUID(),
       userId,
-      projectId: params.data.id,
+      projectId: project.id,
+      jobId,
       status: "processing",
       platform: parsed.data.platform,
-      steps: initialSteps,
+      steps: stepsForJob(undefined),
     })
     .returning();
 
-  // Processing is finalized lazily by the status endpoint ~5s after creation.
-  // (A setTimeout would not survive in serverless environments like Vercel.)
+  await db
+    .update(projectsTable)
+    .set({ status: "processing", platform: parsed.data.platform })
+    .where(and(eq(projectsTable.id, project.id), eq(projectsTable.userId, userId)));
 
-  res.status(202).json(GetExportStatusResponse.parse(serializeExport(exportJob)));
+  res.status(202).json(GetExportStatusResponse.parse(serializeExport({ ...exportJob, steps: stepsForJob(undefined) })));
 });
 
 router.get("/projects/:id/export/status", async (req, res): Promise<void> => {
@@ -83,15 +155,10 @@ router.get("/projects/:id/export/status", async (req, res): Promise<void> => {
     return;
   }
 
-  let [exportJob] = await db
+  const [exportJob] = await db
     .select()
     .from(exportsTable)
-    .where(
-      and(
-        eq(exportsTable.projectId, params.data.id),
-        eq(exportsTable.userId, userId),
-      ),
-    )
+    .where(and(eq(exportsTable.projectId, params.data.id), eq(exportsTable.userId, userId)))
     .orderBy(desc(exportsTable.createdAt))
     .limit(1);
 
@@ -100,51 +167,40 @@ router.get("/projects/:id/export/status", async (req, res): Promise<void> => {
     return;
   }
 
-  // Lazily finalize simulated processing ~5 seconds after the job started.
-  const PROCESSING_DURATION_MS = 5000;
-  if (
-    exportJob.status === "processing" &&
-    Date.now() - new Date(exportJob.createdAt).getTime() >= PROCESSING_DURATION_MS
-  ) {
-    const [project] = await db
-      .select()
-      .from(projectsTable)
-      .where(
-        and(
-          eq(projectsTable.id, params.data.id),
-          eq(projectsTable.userId, userId),
-        ),
-      );
+  // Older rows predate the queue and have no job to report on.
+  const [job] = exportJob.jobId
+    ? await db
+        .select()
+        .from(jobsTable)
+        .where(and(eq(jobsTable.id, exportJob.jobId), eq(jobsTable.userId, userId)))
+        .limit(1)
+    : [undefined];
 
-    const [updated] = await db
-      .update(exportsTable)
-      .set({
-        status: "done",
-        downloadUrl: project?.videoUrl || "https://example.com/edited-video.mp4",
-        steps: EXPORT_STEPS,
-      })
-      .where(
-        and(
-          eq(exportsTable.id, exportJob.id),
-          eq(exportsTable.userId, userId),
-        ),
-      )
-      .returning();
+  const status = exportStatusFor(job);
+  const steps = stepsForJob(job);
 
+  // Persist so the row is not permanently out of date, but answer from the job
+  // either way — the worker is the only thing that knows the truth here.
+  if (exportJob.status !== status) {
     await db
-      .update(projectsTable)
-      .set({ status: "done", platform: exportJob.platform })
-      .where(
-        and(
-          eq(projectsTable.id, params.data.id),
-          eq(projectsTable.userId, userId),
-        ),
-      );
-
-    if (updated) exportJob = updated;
+      .update(exportsTable)
+      .set({ status, steps })
+      .where(and(eq(exportsTable.id, exportJob.id), eq(exportsTable.userId, userId)));
   }
 
-  res.json(GetExportStatusResponse.parse(serializeExport(exportJob)));
+  res.json(
+    GetExportStatusResponse.parse(
+      serializeExport({
+        ...exportJob,
+        status,
+        steps,
+        // The output lives in a private bucket; the browser signs its own URL
+        // from the project's editedVideoPath rather than being handed one that
+        // would expire before it was used.
+        downloadUrl: null,
+      }),
+    ),
+  );
 });
 
 export default router;

@@ -9,6 +9,8 @@ export const exportsTable = pgTable(
     /** Denormalised from the parent project so ownership checks never need a join. */
     userId: uuid("user_id").notNull(),
     projectId: text("project_id").notNull(),
+    /** The render this export is reporting on. Null only for rows predating the queue. */
+    jobId: text("job_id"),
     status: text("status").notNull().default("pending"),
     platform: text("platform").notNull(),
     downloadUrl: text("download_url"),
