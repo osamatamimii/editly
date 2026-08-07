@@ -366,7 +366,7 @@ export default function ProjectEditor() {
                     </div>
                     <h3 className="text-xl font-semibold mb-2">Upload Raw Footage</h3>
                     <p className="text-muted-foreground mb-2">Drag and drop or click to browse</p>
-                    <p className="text-xs text-muted-foreground/60 mb-6">MP4 or MOV only &bull; max 1GB</p>
+                    <p className="text-xs text-muted-foreground/60 mb-6">MP4, MOV or WebM &bull; up to {formatBytes(MAX_UPLOAD_BYTES)}</p>
                     <Button variant="secondary" className="rounded-full pointer-events-none">
                       Select Video
                     </Button>
@@ -374,7 +374,7 @@ export default function ProjectEditor() {
                       type="file" 
                       ref={fileInputRef} 
                       className="hidden" 
-                      accept="video/mp4,video/quicktime,.mp4,.mov" 
+                      accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" 
                       onChange={handleFileChange}
                     />
                   </div>
