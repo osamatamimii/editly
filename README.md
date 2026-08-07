@@ -35,9 +35,16 @@ pnpm run build          # typecheck + build all packages
 pnpm run vercel:build   # build the exact artifacts Vercel deploys (dist/ + api/_bundle.js)
 ```
 
+## Live
+
+- **App**: https://editly-eta.vercel.app
+- Every push to `main` deploys automatically.
+
 ## Database
 
-The schema lives in `lib/db/src/schema/` (Drizzle). The production database is a Supabase project; the initial schema was applied as the `init_editly_schema` migration (tables: `projects`, `messages`, `exports`, `subscriptions`, all with RLS enabled — the API connects as the `editly_app` role with explicit policies).
+The schema lives in `lib/db/src/schema/` (Drizzle). The production database is a Supabase project; the initial schema was applied as the `init_editly_schema` migration (tables: `projects`, `messages`, `exports`, `subscriptions`, all with RLS enabled — the API connects as a dedicated `editly_app` role with explicit policies, never the `postgres` superuser).
+
+Connect through Supabase's **transaction pooler** (`aws-0-<region>.pooler.supabase.com:6543`) — serverless functions open many short-lived connections, which the direct database host is not sized for. `lib/db/src/index.ts` enables TLS for any non-localhost host, since the pooler serves a certificate for its own hostname.
 
 ## Deployment (Vercel)
 
