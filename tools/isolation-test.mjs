@@ -1,0 +1,241 @@
+/**
+ * Proves that one signed-in user cannot see or touch another user's data.
+ *
+ * This exercises the *real* auth middleware: it spins up a local JWKS endpoint,
+ * signs genuine ES256 tokens against it, and points SUPABASE_URL at it. So
+ * signature verification, issuer/audience checks, ownership filters and quota
+ * counting are all the production code path — nothing is stubbed out.
+ *
+ * Requires a local Postgres matching the production schema.
+ * Usage: node tools/isolation-test.mjs
+ */
+import http from "node:http";
+import { createRequire } from "node:module";
+import { generateKeyPair, exportJWK, SignJWT } from "jose";
+
+const require = createRequire(import.meta.url);
+
+const JWKS_PORT = 4022;
+const API_PORT = 4021;
+const BASE = `http://127.0.0.1:${API_PORT}`;
+const ISSUER_BASE = `http://127.0.0.1:${JWKS_PORT}`;
+
+const ALICE = "11111111-1111-4111-8111-111111111111";
+const BOB = "22222222-2222-4222-8222-222222222222";
+
+// ── Stand in for Supabase's JWKS endpoint ────────────────────────────────────
+const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
+const jwk = { ...(await exportJWK(publicKey)), alg: "ES256", use: "sig", kid: "test-key" };
+
+const jwksServer = http.createServer((req, res) => {
+  if (req.url === "/auth/v1/.well-known/jwks.json") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ keys: [jwk] }));
+    return;
+  }
+  res.writeHead(404).end();
+});
+await new Promise((r) => jwksServer.listen(JWKS_PORT, r));
+
+// The middleware reads SUPABASE_URL at import time, so this must be set first.
+process.env.SUPABASE_URL = ISSUER_BASE;
+
+async function tokenFor(userId, overrides = {}) {
+  return new SignJWT({ role: "authenticated", ...overrides })
+    .setProtectedHeader({ alg: "ES256", kid: "test-key" })
+    .setSubject(userId)
+    .setIssuer(`${ISSUER_BASE}/auth/v1`)
+    .setAudience("authenticated")
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(privateKey);
+}
+
+const bundle = require("../api/_bundle.js");
+const app = bundle.default || bundle;
+const server = http.createServer(app);
+await new Promise((r) => server.listen(API_PORT, r));
+
+const tokens = { [ALICE]: await tokenFor(ALICE), [BOB]: await tokenFor(BOB) };
+
+let failures = 0;
+let checks = 0;
+
+function check(name, condition, detail = "") {
+  checks += 1;
+  if (condition) {
+    console.log(`  ✓ ${name}`);
+  } else {
+    failures += 1;
+    console.log(`  ✗ ${name}${detail ? ` — ${detail}` : ""}`);
+  }
+}
+
+async function call(user, path, method = "GET", body) {
+  const res = await fetch(BASE + path, {
+    method,
+    headers: {
+      Authorization: `Bearer ${tokens[user]}`,
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON error page */
+  }
+  return { status: res.status, json, text };
+}
+
+console.log("\nToken enforcement");
+{
+  const none = await fetch(`${BASE}/api/projects`);
+  check("no token is rejected", none.status === 401, `got ${none.status}`);
+
+  const garbage = await fetch(`${BASE}/api/projects`, {
+    headers: { Authorization: "Bearer not-a-jwt" },
+  });
+  check("malformed token is rejected", garbage.status === 401, `got ${garbage.status}`);
+
+  // Signed correctly, but by a key the JWKS endpoint does not publish.
+  const { privateKey: rogueKey } = await generateKeyPair("ES256", { extractable: true });
+  const forged = await new SignJWT({ role: "authenticated" })
+    .setProtectedHeader({ alg: "ES256", kid: "test-key" })
+    .setSubject(ALICE)
+    .setIssuer(`${ISSUER_BASE}/auth/v1`)
+    .setAudience("authenticated")
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(rogueKey);
+  const forgedRes = await fetch(`${BASE}/api/projects`, {
+    headers: { Authorization: `Bearer ${forged}` },
+  });
+  check("token signed by an unknown key is rejected", forgedRes.status === 401, `got ${forgedRes.status}`);
+
+  const expired = await new SignJWT({ role: "authenticated" })
+    .setProtectedHeader({ alg: "ES256", kid: "test-key" })
+    .setSubject(ALICE)
+    .setIssuer(`${ISSUER_BASE}/auth/v1`)
+    .setAudience("authenticated")
+    .setIssuedAt(Math.floor(Date.now() / 1000) - 7200)
+    .setExpirationTime(Math.floor(Date.now() / 1000) - 3600)
+    .sign(privateKey);
+  const expiredRes = await fetch(`${BASE}/api/projects`, {
+    headers: { Authorization: `Bearer ${expired}` },
+  });
+  check("expired token is rejected", expiredRes.status === 401, `got ${expiredRes.status}`);
+
+  const health = await fetch(`${BASE}/api/healthz`);
+  check("health check stays public", health.status === 200, `got ${health.status}`);
+}
+
+console.log("\nOwnership isolation");
+let aliceProjectId;
+{
+  const created = await call(ALICE, "/api/projects", "POST", { title: "Alice private" });
+  check("Alice can create a project", created.status === 201, `got ${created.status} ${created.text.slice(0, 80)}`);
+  aliceProjectId = created.json?.id;
+
+  const bobList = await call(BOB, "/api/projects");
+  check(
+    "Bob's list excludes Alice's project",
+    bobList.status === 200 && !JSON.stringify(bobList.json ?? []).includes(aliceProjectId),
+    JSON.stringify(bobList.json),
+  );
+
+  const reads = await call(BOB, `/api/projects/${aliceProjectId}`);
+  check("Bob cannot read Alice's project", reads.status === 404, `got ${reads.status}`);
+
+  const patch = await call(BOB, `/api/projects/${aliceProjectId}`, "PATCH", { title: "hijacked" });
+  check("Bob cannot rename Alice's project", patch.status === 404, `got ${patch.status}`);
+
+  const del = await call(BOB, `/api/projects/${aliceProjectId}`, "DELETE");
+  check("Bob cannot delete Alice's project", del.status === 404, `got ${del.status}`);
+
+  const survived = await call(ALICE, `/api/projects/${aliceProjectId}`);
+  check(
+    "Alice's project is intact and unrenamed",
+    survived.status === 200 && survived.json?.title === "Alice private",
+    JSON.stringify(survived.json),
+  );
+
+  const inject = await call(BOB, `/api/projects/${aliceProjectId}/messages`, "POST", { content: "inject" });
+  check("Bob cannot post into Alice's chat", inject.status === 404, `got ${inject.status}`);
+
+  await call(ALICE, `/api/projects/${aliceProjectId}/messages`, "POST", { content: "add captions" });
+  const peek = await call(BOB, `/api/projects/${aliceProjectId}/messages`);
+  check(
+    "Bob cannot read Alice's messages",
+    peek.status === 200 && Array.isArray(peek.json) && peek.json.length === 0,
+    JSON.stringify(peek.json),
+  );
+
+  const exp = await call(BOB, `/api/projects/${aliceProjectId}/export`, "POST", { platform: "tiktok" });
+  check("Bob cannot export Alice's project", exp.status === 404, `got ${exp.status}`);
+
+  const expStatus = await call(BOB, `/api/projects/${aliceProjectId}/export/status`);
+  check("Bob cannot poll Alice's export status", expStatus.status === 404, `got ${expStatus.status}`);
+}
+
+console.log("\nPer-user statistics and quota");
+{
+  const alice = await call(ALICE, "/api/stats/dashboard");
+  const bob = await call(BOB, "/api/stats/dashboard");
+  check("Alice's stats count her project", alice.json?.totalProjects >= 1, JSON.stringify(alice.json));
+  check("Bob's stats are empty", bob.json?.totalProjects === 0, JSON.stringify(bob.json));
+
+  const aliceSub = await call(ALICE, "/api/subscription");
+  check(
+    "quota is counted per user, not globally",
+    aliceSub.json?.videosUsedThisMonth === alice.json?.totalProjects,
+    JSON.stringify(aliceSub.json),
+  );
+}
+
+console.log("\nBilling integrity");
+{
+  const upgrade = await call(ALICE, "/api/subscription", "PATCH", { plan: "scale" });
+  check("upgrading without payment is refused", upgrade.status === 402, `got ${upgrade.status}`);
+
+  const after = await call(ALICE, "/api/subscription");
+  check("plan unchanged after refused upgrade", after.json?.plan === "starter", JSON.stringify(after.json));
+
+  const same = await call(ALICE, "/api/subscription", "PATCH", { plan: "starter" });
+  check("staying on the same tier is allowed", same.status === 200, `got ${same.status}`);
+}
+
+console.log("\nCascade cleanup");
+{
+  const created = await call(BOB, "/api/projects", "POST", { title: "Bob temp" });
+  const id = created.json?.id;
+  await call(BOB, `/api/projects/${id}/messages`, "POST", { content: "hello" });
+
+  const del = await call(BOB, `/api/projects/${id}`, "DELETE");
+  check("owner can delete their own project", del.status === 204, `got ${del.status}`);
+
+  const msgs = await call(BOB, `/api/projects/${id}/messages`);
+  check(
+    "child messages are removed with the project",
+    Array.isArray(msgs.json) && msgs.json.length === 0,
+    JSON.stringify(msgs.json),
+  );
+}
+
+// Leave the database as we found it.
+{
+  const del = await call(ALICE, `/api/projects/${aliceProjectId}`, "DELETE");
+  check("test data cleaned up", del.status === 204, `got ${del.status}`);
+}
+
+server.close();
+jwksServer.close();
+
+console.log(`\n${checks - failures}/${checks} checks passed`);
+if (failures > 0) {
+  console.log(`${failures} FAILED`);
+  process.exit(1);
+}
+console.log("Isolation holds.");

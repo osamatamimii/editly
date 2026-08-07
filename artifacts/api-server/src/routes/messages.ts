@@ -10,9 +10,12 @@ import {
 } from "@workspace/api-zod";
 import { serializeMessage } from "../lib/transformers";
 import { PLAN_LIMITS, isPlanKey } from "../lib/plan-limits";
+import { currentUserId } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
+// Placeholder responder. Phase 4 of ROADMAP.md replaces this with a real
+// transcription + planning pipeline; the shape of the endpoint stays the same.
 const AI_RESPONSES: Record<string, string> = {
   caption: "Got you. I'll drop in bold captions, synced word-by-word. Keeps people watching even without sound.",
   hook: "Smart move. I'll punch up the first two seconds — fast zoom, text hit, something that stops the scroll immediately.",
@@ -43,6 +46,7 @@ function generateAIResponse(userMessage: string): string {
 }
 
 router.get("/projects/:id/messages", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = ListMessagesParams.safeParse({ id: raw });
   if (!params.success) {
@@ -53,13 +57,19 @@ router.get("/projects/:id/messages", async (req, res): Promise<void> => {
   const messages = await db
     .select()
     .from(messagesTable)
-    .where(eq(messagesTable.projectId, params.data.id))
+    .where(
+      and(
+        eq(messagesTable.projectId, params.data.id),
+        eq(messagesTable.userId, userId),
+      ),
+    )
     .orderBy(asc(messagesTable.createdAt));
 
   res.json(ListMessagesResponse.parse(messages.map(serializeMessage)));
 });
 
 router.post("/projects/:id/messages", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = SendMessageParams.safeParse({ id: raw });
   if (!params.success) {
@@ -76,14 +86,24 @@ router.post("/projects/:id/messages", async (req, res): Promise<void> => {
   const [project] = await db
     .select()
     .from(projectsTable)
-    .where(eq(projectsTable.id, params.data.id));
+    .where(
+      and(
+        eq(projectsTable.id, params.data.id),
+        eq(projectsTable.userId, userId),
+      ),
+    );
 
   if (!project) {
     res.status(404).json({ error: "Project not found" });
     return;
   }
 
-  const [sub] = await db.select().from(subscriptionsTable).limit(1);
+  const [sub] = await db
+    .select()
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, userId))
+    .limit(1);
+
   const planKey = sub && isPlanKey(sub.plan) ? sub.plan : "starter";
   const limits = PLAN_LIMITS[planKey];
 
@@ -94,9 +114,11 @@ router.post("/projects/:id/messages", async (req, res): Promise<void> => {
       .where(
         and(
           eq(messagesTable.projectId, params.data.id),
-          eq(messagesTable.role, "user")
-        )
+          eq(messagesTable.userId, userId),
+          eq(messagesTable.role, "user"),
+        ),
       );
+
     if (userEdits >= limits.editsPerVideo) {
       res.status(429).json({
         error: `You've reached your ${planKey} plan limit of ${limits.editsPerVideo} edits per video. Upgrade for more edits.`,
@@ -107,14 +129,13 @@ router.post("/projects/:id/messages", async (req, res): Promise<void> => {
     }
   }
 
-  const userMsgId = randomUUID();
-  const aiMsgId = randomUUID();
   const aiContent = generateAIResponse(parsed.data.content);
 
   const [userMessage] = await db
     .insert(messagesTable)
     .values({
-      id: userMsgId,
+      id: randomUUID(),
+      userId,
       projectId: params.data.id,
       role: "user",
       content: parsed.data.content,
@@ -124,7 +145,8 @@ router.post("/projects/:id/messages", async (req, res): Promise<void> => {
   const [aiMessage] = await db
     .insert(messagesTable)
     .values({
-      id: aiMsgId,
+      id: randomUUID(),
+      userId,
       projectId: params.data.id,
       role: "assistant",
       content: aiContent,

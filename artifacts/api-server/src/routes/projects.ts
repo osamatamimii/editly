@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { eq, desc, gte, count } from "drizzle-orm";
+import { eq, desc, gte, count, and } from "drizzle-orm";
 import { db, projectsTable, subscriptionsTable } from "@workspace/db";
 import {
   CreateProjectBody,
@@ -14,25 +14,37 @@ import {
 } from "@workspace/api-zod";
 import { serializeProject } from "../lib/transformers";
 import { PLAN_LIMITS, isPlanKey } from "../lib/plan-limits";
+import { currentUserId } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
 router.get("/projects", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+
   const projects = await db
     .select()
     .from(projectsTable)
+    .where(eq(projectsTable.userId, userId))
     .orderBy(desc(projectsTable.createdAt));
+
   res.json(ListProjectsResponse.parse(projects.map(serializeProject)));
 });
 
 router.post("/projects", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+
   const parsed = CreateProjectBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
 
-  const [sub] = await db.select().from(subscriptionsTable).limit(1);
+  const [sub] = await db
+    .select()
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, userId))
+    .limit(1);
+
   const planKey = sub && isPlanKey(sub.plan) ? sub.plan : "starter";
   const limits = PLAN_LIMITS[planKey];
 
@@ -40,10 +52,16 @@ router.post("/projects", async (req, res): Promise<void> => {
   startOfMonth.setUTCDate(1);
   startOfMonth.setUTCHours(0, 0, 0, 0);
 
+  // Quota is per user, not global.
   const [{ value: videosThisMonth }] = await db
     .select({ value: count() })
     .from(projectsTable)
-    .where(gte(projectsTable.createdAt, startOfMonth));
+    .where(
+      and(
+        eq(projectsTable.userId, userId),
+        gte(projectsTable.createdAt, startOfMonth),
+      ),
+    );
 
   if (videosThisMonth >= limits.videosPerMonth) {
     res.status(429).json({
@@ -57,13 +75,14 @@ router.post("/projects", async (req, res): Promise<void> => {
   const id = randomUUID();
   const [project] = await db
     .insert(projectsTable)
-    .values({ id, title: parsed.data.title, status: "ready" })
+    .values({ id, userId, title: parsed.data.title, status: "ready" })
     .returning();
 
   res.status(201).json(GetProjectResponse.parse(serializeProject(project)));
 });
 
 router.get("/projects/:id", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = GetProjectParams.safeParse({ id: raw });
   if (!params.success) {
@@ -74,8 +93,15 @@ router.get("/projects/:id", async (req, res): Promise<void> => {
   const [project] = await db
     .select()
     .from(projectsTable)
-    .where(eq(projectsTable.id, params.data.id));
+    .where(
+      and(
+        eq(projectsTable.id, params.data.id),
+        eq(projectsTable.userId, userId),
+      ),
+    );
 
+  // Someone else's project is reported as absent rather than forbidden, so the
+  // endpoint cannot be used to probe which project ids exist.
   if (!project) {
     res.status(404).json({ error: "Project not found" });
     return;
@@ -85,6 +111,7 @@ router.get("/projects/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/projects/:id", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = UpdateProjectParams.safeParse({ id: raw });
   if (!params.success) {
@@ -101,7 +128,12 @@ router.patch("/projects/:id", async (req, res): Promise<void> => {
   const [project] = await db
     .update(projectsTable)
     .set(parsed.data)
-    .where(eq(projectsTable.id, params.data.id))
+    .where(
+      and(
+        eq(projectsTable.id, params.data.id),
+        eq(projectsTable.userId, userId),
+      ),
+    )
     .returning();
 
   if (!project) {
@@ -113,6 +145,7 @@ router.patch("/projects/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/projects/:id", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = DeleteProjectParams.safeParse({ id: raw });
   if (!params.success) {
@@ -122,7 +155,12 @@ router.delete("/projects/:id", async (req, res): Promise<void> => {
 
   const [project] = await db
     .delete(projectsTable)
-    .where(eq(projectsTable.id, params.data.id))
+    .where(
+      and(
+        eq(projectsTable.id, params.data.id),
+        eq(projectsTable.userId, userId),
+      ),
+    )
     .returning();
 
   if (!project) {

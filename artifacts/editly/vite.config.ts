@@ -36,6 +36,10 @@ export default defineConfig({
     dedupe: ["react", "react-dom"],
   },
   root: path.resolve(import.meta.dirname),
+  // Env files live at the repo root, not next to this config, so a single
+  // .env holds settings for both the API server and the frontend. On Vercel
+  // there is no file at all and Vite reads VITE_* straight from process.env.
+  envDir: path.resolve(import.meta.dirname, "..", ".."),
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,

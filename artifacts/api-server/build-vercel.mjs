@@ -37,9 +37,13 @@ const define = {
   "process.env.NODE_ENV": '"production"',
 };
 
-if (process.env.DATABASE_URL) {
-  // Inline the connection string so the function is fully self-contained.
-  define["process.env.DATABASE_URL"] = JSON.stringify(process.env.DATABASE_URL);
+// Inline configuration that is known at build time so the function is fully
+// self-contained. Anything absent here still resolves from the runtime
+// environment, which is how Vercel supplies it in production.
+for (const key of ["DATABASE_URL", "SUPABASE_URL", "APP_ORIGIN"]) {
+  if (process.env[key]) {
+    define[`process.env.${key}`] = JSON.stringify(process.env[key]);
+  }
 }
 
 await esbuild({
