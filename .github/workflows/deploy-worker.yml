@@ -1,0 +1,54 @@
+# Deploys the render worker to Fly.io.
+#
+# The worker lives outside Vercel because ffmpeg cannot run there. It is built
+# and deployed from CI rather than from a laptop so the deployed image always
+# corresponds to a commit on main.
+name: Deploy worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/worker/**"
+      - "lib/db/**"
+      - "lib/api-zod/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Create the app if it does not exist yet
+        run: flyctl apps list | grep -q '^editly-worker' || flyctl apps create editly-worker
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      # Set before deploying: the worker exits immediately without these, and a
+      # deploy that cannot pass its health window is rolled back.
+      - name: Push runtime secrets
+        run: |
+          flyctl secrets set \
+            DATABASE_URL="$DATABASE_URL" \
+            SUPABASE_URL="$SUPABASE_URL" \
+            SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
+            --app editly-worker --stage
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          DATABASE_URL: ${{ secrets.WORKER_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.WORKER_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.WORKER_SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Deploy
+        run: flyctl deploy --config artifacts/worker/fly.toml --dockerfile artifacts/worker/Dockerfile --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
