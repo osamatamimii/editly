@@ -79,7 +79,7 @@ const PLANS = [
 
 const SHARED_FEATURES = [
   "All editing features included",
-  "Noah, your editing assistant",
+  "AI editor (Noah)",
   "Export ready-to-post clips",
 ];
 
@@ -447,7 +447,7 @@ export default function Home() {
               >
                 <div className="flex items-center gap-2 mb-3 pb-3 border-b border-white/10">
                   <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]" />
-                  <span className="text-xs font-semibold text-muted-foreground">Noah</span>
+                  <span className="text-xs font-semibold text-muted-foreground">Editly AI</span>
                 </div>
                 <div className="flex flex-col gap-3">
                   <div className="chat-bubble-1 self-end bg-primary/20 text-white px-3 py-2 rounded-xl rounded-br-sm text-xs border border-primary/30">

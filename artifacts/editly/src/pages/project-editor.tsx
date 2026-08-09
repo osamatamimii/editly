@@ -793,7 +793,7 @@ export default function ProjectEditor() {
                     {project.status === 'done' && (
                       <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30 text-xs font-medium flex items-center backdrop-blur-md">
                         <CheckCircle2 className="w-3 h-3 mr-1" />
-                        Edited
+                        AI Edited
                       </div>
                     )}
                 </div>
@@ -822,7 +822,7 @@ export default function ProjectEditor() {
           {hasVideo && !sideBySide && <div>{looks}</div>}
         </div>
 
-        {/* Noah, the chat sidebar */}
+        {/* AI Chat Sidebar */}
         <div className="w-full lg:w-[400px] border-l border-white/10 bg-background/80 backdrop-blur-xl flex flex-col z-20 shadow-[-20px_0_40px_rgba(0,0,0,0.5)]">
           {/* Noah header */}
           <div className="p-4 border-b border-white/10 flex items-center gap-3">
@@ -836,7 +836,7 @@ export default function ProjectEditor() {
             </div>
             <div>
               <h2 className="font-semibold text-sm leading-tight">Noah</h2>
-              <p className="text-xs text-muted-foreground">Your editing assistant</p>
+              <p className="text-xs text-muted-foreground">Your AI editor</p>
             </div>
           </div>
           
@@ -853,7 +853,7 @@ export default function ProjectEditor() {
                 <div className="flex flex-col gap-1 min-w-0">
                   <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
                   <div className="bg-white/5 border border-white/10 rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed">
-                    Hey, I'm Noah 👋<br />I do the editing for you.<br /><br />Upload your video and tell me what you want done — cut the silence, make it vertical — and I'll tell you exactly what I'm going to do before I do it.
+                    Hey, I'm Noah 👋<br />Your AI video editor.<br /><br />Upload your video and tell me the vibe — I'll turn it into a viral clip.
                   </div>
                 </div>
               </div>
