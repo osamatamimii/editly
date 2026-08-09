@@ -13,20 +13,13 @@ import { currentUserId } from "../middlewares/auth";
 import { serializeJob } from "../lib/transformers";
 import { TEMPLATES, findTemplate, evenlySpacedPunches } from "../lib/templates";
 import { isPlanKey } from "../lib/plan-limits";
+import { isUnclaimed } from "../lib/queue-health";
 import { subscriptionsTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
-/**
- * A job nobody has claimed after this long means no worker is running, not that
- * the queue is busy. Saying so beats a progress bar that never moves.
- */
-const NO_WORKER_AFTER_MS = 5 * 60 * 1000;
-
 function annotateStaleQueue(job: Record<string, unknown>): Record<string, unknown> {
-  if (job["status"] !== "queued") return job;
-  const createdAt = new Date(job["createdAt"] as string | Date).getTime();
-  if (Date.now() - createdAt < NO_WORKER_AFTER_MS) return job;
+  if (!isUnclaimed(job as unknown as { status: string; createdAt: Date | string })) return job;
   return {
     ...job,
     stage: "Still waiting for a render machine — nothing has picked this up yet.",

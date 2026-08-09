@@ -34,6 +34,12 @@ export const Project = z.object({
   width: z.number().nullable(),
   height: z.number().nullable(),
   platform: Platform.nullable(),
+  /**
+   * True when this project's render has been sitting unclaimed long enough that
+   * no worker is running. The status alone cannot say whether the queue is busy
+   * or empty, and those mean opposite things to whoever is waiting.
+   */
+  renderStalled: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

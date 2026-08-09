@@ -128,7 +128,28 @@ export default function Dashboard() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  /**
+   * The badge, with one addition: a render nobody has picked up.
+   *
+   * "Processing" with a pulsing spark says work is happening. When the queue has
+   * been unclaimed for five minutes there is no worker, and two of these have
+   * been saying "Processing" for two days. The card should say which it is —
+   * the state is not the user's fault and there is nothing for them to do about
+   * it, but a lie about it is still a lie.
+   */
+  const getStatusBadge = (status: string, renderStalled = false) => {
+    if (renderStalled) {
+      return (
+        <Badge
+          variant="outline"
+          className="bg-amber-500/10 text-amber-400 border-amber-500/20"
+          title="The render is queued, but no machine has picked it up."
+          data-testid="badge-render-stalled"
+        >
+          <Clock className="w-3 h-3 mr-1" /> Waiting for a machine
+        </Badge>
+      );
+    }
     switch (status) {
       case 'uploading':
         return <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/20"><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Uploading</Badge>;
@@ -308,7 +329,7 @@ export default function Dashboard() {
                       </div>
                     )}
                     <div className="absolute top-3 right-3">
-                      {getStatusBadge(project.status)}
+                      {getStatusBadge(project.status, project.renderStalled)}
                     </div>
                   </div>
                   <CardContent className="p-5 flex-1">

@@ -65,6 +65,8 @@ export interface Project {
   height: number | null;
   /** @nullable */
   platform: ProjectPlatform;
+  /** The render is queued but no worker has claimed it. */
+  renderStalled: boolean;
   createdAt: string;
   updatedAt: string;
 }

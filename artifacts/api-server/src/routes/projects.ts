@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { eq, desc, gte, count, and } from "drizzle-orm";
-import { db, projectsTable, subscriptionsTable } from "@workspace/db";
+import { eq, desc, gte, count, and, inArray } from "drizzle-orm";
+import { db, projectsTable, subscriptionsTable, jobsTable } from "@workspace/db";
 import {
   CreateProjectBody,
   UpdateProjectBody,
@@ -16,6 +16,32 @@ import { serializeProject } from "../lib/transformers";
 import { PLAN_LIMITS, isPlanKey } from "../lib/plan-limits";
 import { currentUserId } from "../middlewares/auth";
 import { deleteProjectObjects, isOwnedObjectPath } from "../lib/storage";
+import { isUnclaimed } from "../lib/queue-health";
+
+/**
+ * Which of these projects are waiting on a machine that is not there?
+ *
+ * A project sits at "processing" for as long as its render is unfinished, which
+ * is correct — but on the dashboard that badge has no way to say whether the
+ * queue is busy or empty. Two of these have been "processing" for two days. The
+ * card should say which it is.
+ */
+async function stalledProjectIds(userId: string, projectIds: string[]): Promise<Set<string>> {
+  if (projectIds.length === 0) return new Set();
+  const jobs = await db
+    .select({
+      projectId: jobsTable.projectId,
+      status: jobsTable.status,
+      createdAt: jobsTable.createdAt,
+      lockedAt: jobsTable.lockedAt,
+    })
+    .from(jobsTable)
+    .where(and(eq(jobsTable.userId, userId), inArray(jobsTable.projectId, projectIds)));
+
+  const stalled = new Set<string>();
+  for (const job of jobs) if (isUnclaimed(job)) stalled.add(job.projectId);
+  return stalled;
+}
 
 const router: IRouter = Router();
 
@@ -28,7 +54,12 @@ router.get("/projects", async (req, res): Promise<void> => {
     .where(eq(projectsTable.userId, userId))
     .orderBy(desc(projectsTable.createdAt));
 
-  res.json(ListProjectsResponse.parse(projects.map(serializeProject)));
+  const stalled = await stalledProjectIds(userId, projects.map((p) => p.id));
+  res.json(
+    ListProjectsResponse.parse(
+      projects.map((p) => serializeProject({ ...p, renderStalled: stalled.has(p.id) })),
+    ),
+  );
 });
 
 router.post("/projects", async (req, res): Promise<void> => {
@@ -79,7 +110,7 @@ router.post("/projects", async (req, res): Promise<void> => {
     .values({ id, userId, title: parsed.data.title, status: "ready" })
     .returning();
 
-  res.status(201).json(GetProjectResponse.parse(serializeProject(project)));
+  res.status(201).json(GetProjectResponse.parse(serializeProject({ ...project, renderStalled: false })));
 });
 
 router.get("/projects/:id", async (req, res): Promise<void> => {
@@ -108,7 +139,10 @@ router.get("/projects/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(GetProjectResponse.parse(serializeProject(project)));
+  const stalled = await stalledProjectIds(userId, [project.id]);
+  res.json(
+    GetProjectResponse.parse(serializeProject({ ...project, renderStalled: stalled.has(project.id) })),
+  );
 });
 
 router.patch("/projects/:id", async (req, res): Promise<void> => {
@@ -152,7 +186,10 @@ router.patch("/projects/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(UpdateProjectResponse.parse(serializeProject(project)));
+  const stalled = await stalledProjectIds(userId, [project.id]);
+  res.json(
+    UpdateProjectResponse.parse(serializeProject({ ...project, renderStalled: stalled.has(project.id) })),
+  );
 });
 
 router.delete("/projects/:id", async (req, res): Promise<void> => {

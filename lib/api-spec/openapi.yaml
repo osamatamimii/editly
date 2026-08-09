@@ -319,6 +319,9 @@ components:
         platform:
           type: ["string", "null"]
           enum: [tiktok, reels, shorts, null]
+        renderStalled:
+          description: The render is queued but no worker has claimed it.
+          type: boolean
         createdAt:
           type: string
         updatedAt:
@@ -337,6 +340,7 @@ components:
         - width
         - height
         - platform
+        - renderStalled
         - createdAt
         - updatedAt
 

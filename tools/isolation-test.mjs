@@ -479,6 +479,59 @@ console.log("\nRender queue");
 
   const status = await call(ALICE, `/api/projects/${aliceProjectId}/render/status`);
   check("Alice sees her own job", status.json?.id === queued.json?.id, JSON.stringify(status.json?.id));
+
+  // A busy queue and an absent one look identical — job queued, progress zero —
+  // and mean opposite things to whoever is waiting. This is the line between
+  // them, and it is the reason two projects sat at "Processing" for two days.
+  const fresh = await call(ALICE, `/api/projects/${aliceProjectId}`);
+  check("a job queued just now is not called stalled", fresh.json?.renderStalled === false, JSON.stringify(fresh.json?.renderStalled));
+
+  const backdate = spawnSync(
+    "psql",
+    [
+      process.env.DATABASE_URL,
+      "-c",
+      `update jobs set created_at = now() - interval '10 minutes' where project_id = '${aliceProjectId}'`,
+    ],
+    { encoding: "utf8" },
+  );
+  check("the job could be backdated for the test", backdate.status === 0, backdate.stderr?.slice(0, 120));
+
+  const aged = await call(ALICE, `/api/projects/${aliceProjectId}`);
+  check("ten minutes unclaimed is reported as stalled", aged.json?.renderStalled === true, JSON.stringify(aged.json?.renderStalled));
+
+  const listed = await call(ALICE, "/api/projects");
+  const listedProject = listed.json?.find?.((p) => p.id === aliceProjectId);
+  check("and the list says the same thing", listedProject?.renderStalled === true, JSON.stringify(listedProject?.renderStalled));
+
+  const stats = await call(ALICE, "/api/stats/dashboard");
+  const onCard = stats.json?.recentProjects?.find?.((p) => p.id === aliceProjectId);
+  check("so does the dashboard card", onCard?.renderStalled === true, JSON.stringify(onCard?.renderStalled));
+
+  const claimed = spawnSync(
+    "psql",
+    [
+      process.env.DATABASE_URL,
+      "-c",
+      `update jobs set locked_at = now(), locked_by = 'test-worker' where project_id = '${aliceProjectId}'`,
+    ],
+    { encoding: "utf8" },
+  );
+  check("the job could be claimed for the test", claimed.status === 0, claimed.stderr?.slice(0, 120));
+
+  const working = await call(ALICE, `/api/projects/${aliceProjectId}`);
+  check(
+    "an old job a worker has claimed is not stalled",
+    working.json?.renderStalled === false,
+    JSON.stringify(working.json?.renderStalled),
+  );
+
+  const bobsView = await call(BOB, "/api/projects");
+  check(
+    "and none of this leaks Alice's project into Bob's list",
+    Array.isArray(bobsView.json) && !bobsView.json.some((p) => p.id === aliceProjectId),
+    JSON.stringify(bobsView.json?.length),
+  );
 }
 
 console.log("\nPer-user statistics and quota");
