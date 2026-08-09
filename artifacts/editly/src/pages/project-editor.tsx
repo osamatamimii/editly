@@ -643,8 +643,11 @@ export default function ProjectEditor() {
                rounded corners now wrap the picture itself, and on a vertical
                clip the transport and the looks move into the column beside it
                rather than eating the height the clip needs. */
-            <div ref={stageRef} className="flex-1 min-h-0 flex items-stretch gap-4">
-              <div className="flex-1 min-w-0 flex items-center justify-center">
+            <div ref={stageRef} className="flex-1 min-h-0 flex items-stretch justify-center gap-4">
+              {/* Content-width, not flex-1: the frame and its controls read as
+                  one object centred in the space, rather than the frame drifting
+                  to one edge with a gap between them. */}
+              <div className="min-w-0 flex items-center justify-center">
                 <div
                   className="relative rounded-2xl overflow-hidden glass-panel border border-white/10"
                   style={{
