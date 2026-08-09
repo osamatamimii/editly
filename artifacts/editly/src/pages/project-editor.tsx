@@ -161,6 +161,13 @@ export default function ProjectEditor() {
    * back to such a tab and the video is still the wrong shape. Reading the box
    * in a layout effect settles it before the first frame is drawn; the observer
    * then only has to catch later resizes.
+   *
+   * `sideBySide` is a dependency because moving the controls out from under the
+   * frame gives the frame back their height — the row is a different size the
+   * instant that flips, and without a re-measure the picture keeps the size it
+   * had while they were still stacked. Measured live: 446px tall instead of 578.
+   * It converges after one extra pass, because the second measurement does not
+   * change which layout is in use.
    */
   useLayoutEffect(() => {
     const el = stageRef.current;
@@ -184,7 +191,7 @@ export default function ProjectEditor() {
       window.removeEventListener("resize", measure);
       observer?.disconnect();
     };
-  }, [hasVideo]);
+  }, [hasVideo, sideBySide]);
 
   // A new URL deserves a fresh attempt. A stalled load also has to be caught:
   // a browser that cannot decode a file often never fires `error`, it simply
