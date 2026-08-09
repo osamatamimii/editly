@@ -270,7 +270,11 @@ export default function Home() {
           style={{ animationDelay: "100ms" }}
         >
           <Sparkles className="w-4 h-4 text-secondary animate-sparkle" />
-          <span className="text-sm font-medium text-white/80">Cuts the dead air out of any clip</span>
+          {/* Introduces the person the headline tells you to describe to, and
+              claims nothing we have not built: no version number, nothing that
+              reads as "we shipped a model". The result is one line further down,
+              where it has room to be specific. */}
+          <span className="text-sm font-medium text-white/80">Meet Noah — tell him what you want</span>
           <span className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]"
             style={{ animation: "glow-pulse 2s ease-in-out infinite" }} />
         </div>
