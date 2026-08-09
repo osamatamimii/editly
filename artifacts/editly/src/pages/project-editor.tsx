@@ -676,6 +676,23 @@ export default function ProjectEditor() {
                       data-testid="video-preview"
                     />
 
+                    {/* The two purple edges. They were on the old wide stage and
+                        went with it; Osama asked for them back, so they now run
+                        along the frame itself — which is where they belong, since
+                        the frame is the picture. Above everything, including the
+                        failure notice, so the frame keeps its edges whatever is
+                        happening inside it. */}
+                    <div
+                      className="absolute inset-x-0 top-0 h-1 z-30 pointer-events-none"
+                      style={{ background: "linear-gradient(90deg, transparent, rgba(108,59,255,0.4), rgba(155,107,255,0.6), rgba(108,59,255,0.4), transparent)" }}
+                      data-testid="frame-edge-top"
+                    />
+                    <div
+                      className="absolute inset-x-0 bottom-0 h-1 z-30 pointer-events-none"
+                      style={{ background: "linear-gradient(90deg, transparent, rgba(108,59,255,0.3), rgba(155,107,255,0.5), rgba(108,59,255,0.3), transparent)" }}
+                      data-testid="frame-edge-bottom"
+                    />
+
                     {/* Everything below sits on the picture rather than on the
                         stage, so on a vertical clip the controls and badges are
                         over the video instead of floating in the black beside
