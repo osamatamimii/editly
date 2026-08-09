@@ -859,7 +859,9 @@ export default function ProjectEditor() {
                   />
                   <div className="flex flex-col gap-1">
                     <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
-                    <div className="bg-white/5 border border-white/10 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5">
+                    {/* Glowing only while he is actually working — see the
+                        .noah-working note in index.css. */}
+                    <div className="noah-working bg-white/5 border border-white/10 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5">
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
@@ -878,7 +880,15 @@ export default function ProjectEditor() {
                   />
                   <div className="flex flex-col gap-1 flex-1">
                     <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
-                    <div className="bg-white/5 border border-secondary/30 rounded-2xl rounded-tl-sm px-4 py-3 text-sm w-full shadow-[0_0_15px_rgba(155,107,255,0.1)]">
+                    {/* Breathing while the render runs, still when it has
+                        failed — a failure is not work in progress. */}
+                    <div
+                      className={`bg-white/5 border border-secondary/30 rounded-2xl rounded-tl-sm px-4 py-3 text-sm w-full ${
+                        renderJob?.status === "failed"
+                          ? "shadow-[0_0_15px_rgba(155,107,255,0.1)]"
+                          : "noah-working"
+                      }`}
+                    >
                       {renderJob?.status === "failed" ? (
                         <>
                           <p className="font-semibold text-destructive mb-1">That render didn't finish.</p>

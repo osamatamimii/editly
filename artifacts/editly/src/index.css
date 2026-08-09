@@ -519,3 +519,36 @@
     inset: -1px;
   }
 }
+
+/* Noah is working.
+ *
+ * A slow breath around his bubble rather than a spinner shouting: a render runs
+ * for minutes, and anything faster than this reads as urgency for that long.
+ * Only the bubble glows — the whole chat panel pulsing at this duration would
+ * be exhausting to sit next to.
+ *
+ * Two shadows: a tight one that reads as a lit edge, and a wide soft one that
+ * reads as light spilling onto what is behind it. */
+@keyframes noah-working {
+  0%, 100% {
+    box-shadow: 0 0 0 1px rgba(155,107,255,0.18),
+                0 0 18px rgba(108,59,255,0.16);
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgba(155,107,255,0.42),
+                0 0 34px rgba(108,59,255,0.42);
+  }
+}
+
+.noah-working {
+  animation: noah-working 2.4s ease-in-out infinite;
+}
+
+/* Anyone who has asked for less movement gets the lit edge without the breath —
+ * the state is still legible, it just holds still. */
+@media (prefers-reduced-motion: reduce) {
+  .noah-working {
+    animation: none;
+    box-shadow: 0 0 0 1px rgba(155,107,255,0.35), 0 0 24px rgba(108,59,255,0.28);
+  }
+}
