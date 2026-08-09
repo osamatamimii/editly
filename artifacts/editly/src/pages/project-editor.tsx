@@ -125,7 +125,19 @@ export default function ProjectEditor() {
     (project?.width && project?.height ? project.width / project.height : null);
 
   /**
-   * The picture, fitted to the stage by hand.
+   * A vertical clip leaves a wide empty column beside it. Rather than spend the
+   * height on a transport bar underneath — height being the one thing a 9:16
+   * clip has none of — the controls move into that column and the frame takes
+   * the full height.
+   *
+   * Below 720px of stage there is no column to move into, so it stays stacked.
+   */
+  const SIDE_COLUMN_WIDTH = 248;
+  const SIDE_COLUMN_GAP = 16;
+  const sideBySide = Boolean(aspect && aspect < 1 && stage.w >= 720);
+
+  /**
+   * The picture, fitted to the frame's slot by hand.
    *
    * Done in JS rather than CSS because `aspect-ratio` fights `max-width` and
    * `max-height`: whichever constraint bites, the box keeps the dimension that
@@ -134,8 +146,9 @@ export default function ProjectEditor() {
    */
   const picture = (() => {
     const ratio = aspect ?? 16 / 9;
-    if (!stage.w || !stage.h) return null;
-    const width = Math.min(stage.w, stage.h * ratio);
+    const available = stage.w - (sideBySide ? SIDE_COLUMN_WIDTH + SIDE_COLUMN_GAP : 0);
+    if (available <= 0 || !stage.h) return null;
+    const width = Math.min(available, stage.h * ratio);
     return { width, height: width / ratio };
   })();
 
@@ -450,6 +463,86 @@ export default function ProjectEditor() {
     return <div className="p-12 text-center">Project not found</div>;
   }
 
+  /**
+   * Play, scrub, timecode. Laid out in a row under a landscape clip and in a
+   * column beside a vertical one — the same controls either way, so the two
+   * layouts cannot drift apart.
+   */
+  const transport = (
+    <div className={`rounded-xl glass-panel border border-white/10 px-4 py-3 ${sideBySide ? "" : "mt-3"}`}>
+      <div className={`flex gap-3 ${sideBySide ? "flex-col" : "items-center"}`}>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={togglePlay}
+            className="w-9 h-9 flex-shrink-0 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center transition-colors"
+            aria-label={isPlaying ? "Pause" : "Play"}
+            data-testid="button-scrub-play"
+          >
+            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+          </button>
+          {sideBySide && (
+            <span className="text-xs tabular-nums text-muted-foreground" data-testid="text-timecode">
+              {formatTimecode(currentTime)} / {formatTimecode(playerDuration || project.duration || 0)}
+            </span>
+          )}
+        </div>
+
+        <input
+          type="range"
+          min={0}
+          max={playerDuration || project.duration || 0}
+          step={0.05}
+          value={currentTime}
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            setCurrentTime(next);
+            if (videoRef.current) videoRef.current.currentTime = next;
+          }}
+          className="flex-1 h-1.5 appearance-none rounded-full bg-white/10 accent-primary cursor-pointer
+                     [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5
+                     [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
+                     [&::-webkit-slider-thumb]:bg-secondary
+                     [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(155,107,255,0.8)]"
+          data-testid="input-scrubber"
+        />
+
+        {!sideBySide && (
+          <span className="text-xs tabular-nums text-muted-foreground flex-shrink-0" data-testid="text-timecode">
+            {formatTimecode(currentTime)} / {formatTimecode(playerDuration || project.duration || 0)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  /** One-click looks — each a saved edit plan, so the name is what you get. */
+  const looks = templates && templates.length > 0 && (
+    <div
+      className={`rounded-xl glass-panel border border-white/10 px-3 py-2 ${
+        sideBySide ? "flex flex-col gap-2 items-stretch" : "mt-3 flex items-center gap-2 overflow-x-auto"
+      }`}
+    >
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <Wand2 className="w-3.5 h-3.5 text-secondary flex-shrink-0" />
+        <span className="text-xs font-medium text-muted-foreground">Looks</span>
+      </div>
+      {templates.map((template) => (
+        <button
+          key={template.id}
+          onClick={() => handleApplyTemplate(template.id)}
+          disabled={isProcessingEdit || startRender.isPending}
+          title={`${template.description} — ${template.bestFor}`}
+          className={`flex-shrink-0 border border-white/10 bg-white/[0.03] text-xs font-medium transition-all hover:border-primary/40 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed ${
+            sideBySide ? "rounded-lg px-3 py-2 text-left" : "rounded-full px-3 py-1.5"
+          }`}
+          data-testid={`button-template-${template.id}`}
+        >
+          {template.name}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div className="w-full h-screen flex flex-col bg-background overflow-hidden">
       {/* Topbar */}
@@ -489,10 +582,10 @@ export default function ProjectEditor() {
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
         {/* Main Editor Area */}
-        <div className="flex-1 flex flex-col relative p-4 lg:p-6 pb-0 overflow-hidden">
+        <div className="flex-1 flex flex-col relative p-4 lg:p-6 overflow-hidden">
           
-          <div className="flex-1 relative rounded-2xl overflow-hidden glass-panel border border-white/10 bg-black/40 flex flex-col">
-            {!hasVideo ? (
+          {!hasVideo && (
+            <div className="flex-1 relative rounded-2xl overflow-hidden glass-panel border border-white/10 bg-black/40 flex flex-col">
               <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
                 {isUploading ? (
                   <div className="flex flex-col items-center w-full max-w-sm">
@@ -529,44 +622,37 @@ export default function ProjectEditor() {
                       accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" 
                       onChange={handleFileChange}
                     />
-                  </div>
-                )}
+                </div>
+              )}
               </div>
-            ) : (
-              <div className="w-full h-full flex flex-col">
-                <div ref={stageRef} className="flex-1 relative flex items-center justify-center overflow-hidden"
+            </div>
+          )}
+
+          {hasVideo && (
+            /* The frame is the video. What was here before was a wide panel
+               with the clip parked in the middle of it, so a 9:16 recording sat
+               in a landscape box surrounded by black — the frame said landscape
+               even when the footage did not. The panel border, the glow and the
+               rounded corners now wrap the picture itself, and on a vertical
+               clip the transport and the looks move into the column beside it
+               rather than eating the height the clip needs. */
+            <div ref={stageRef} className="flex-1 min-h-0 flex items-stretch gap-4">
+              <div className="flex-1 min-w-0 flex items-center justify-center">
+                <div
+                  className="relative rounded-2xl overflow-hidden glass-panel border border-white/10"
                   style={{
+                    width: picture ? `${picture.width}px` : "100%",
+                    height: picture ? `${picture.height}px` : "100%",
                     background: "linear-gradient(135deg, #06030f 0%, #0a0518 50%, #080312 100%)",
-                    boxShadow: "inset 0 0 60px rgba(108,59,255,0.12), inset 0 0 120px rgba(0,0,0,0.6)",
+                    boxShadow:
+                      "0 0 0 1px rgba(108,59,255,0.15), 0 24px 60px rgba(0,0,0,0.55), 0 0 90px rgba(108,59,255,0.18)",
                   }}
+                  data-testid="video-stage"
                 >
-                  {/* Subtle purple glow edges */}
-                  <div className="absolute inset-0 pointer-events-none"
-                    style={{ background: "radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(0,0,0,0.7) 100%)" }}
-                  />
-                  <div className="absolute inset-x-0 top-0 h-1 pointer-events-none"
-                    style={{ background: "linear-gradient(90deg, transparent, rgba(108,59,255,0.4), rgba(155,107,255,0.6), rgba(108,59,255,0.4), transparent)" }}
-                  />
-                  <div className="absolute inset-x-0 bottom-0 h-1 pointer-events-none"
-                    style={{ background: "linear-gradient(90deg, transparent, rgba(108,59,255,0.3), rgba(155,107,255,0.5), rgba(108,59,255,0.3), transparent)" }}
-                  />
-                  {/* Exactly the size of the picture: the larger of the two
-                      dimensions fills the stage, the other follows the ratio.
-                      A 9:16 clip is now full height instead of pillarboxed into
-                      a landscape box, which is what made it a stamp in the
-                      middle of a wall of black. */}
-                  <div
-                    className="relative z-10"
-                    style={{
-                      width: picture ? `${picture.width}px` : "100%",
-                      height: picture ? `${picture.height}px` : "100%",
-                    }}
-                    data-testid="video-stage"
-                  >
                     <video
                       ref={videoRef}
                       src={playbackUrl ?? undefined}
-                      className="w-full h-full object-contain rounded-lg"
+                      className="w-full h-full object-contain"
                       controls={false}
                       preload="metadata"
                       onLoadedMetadata={(e) => {
@@ -588,7 +674,7 @@ export default function ProjectEditor() {
                     {/* A black rectangle is indistinguishable from a broken app.
                         Say what happened, and note that the render is unaffected. */}
                     {playbackFailed && (
-                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-lg bg-black/80 px-6 text-center">
+                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/80 px-6 text-center">
                         <p className="font-semibold">This file will not play in the browser</p>
                         <p className="text-sm text-muted-foreground max-w-md">
                           Your video is stored safely and can still be edited — some codecs just cannot be
@@ -599,7 +685,7 @@ export default function ProjectEditor() {
 
                     {/* Play/Pause overlay */}
                     <div
-                      className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 bg-black/20 rounded-lg transition-opacity cursor-pointer"
+                      className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 bg-black/20 transition-opacity cursor-pointer"
                       onClick={togglePlay}
                     >
                       <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white">
@@ -613,76 +699,28 @@ export default function ProjectEditor() {
                         AI Edited
                       </div>
                     )}
-                  </div>
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* One-click looks. Each is a saved edit plan, so what you get is
-              exactly what the name says, every time. */}
-          {hasVideo && templates && templates.length > 0 && (
-            /* One compact row rather than a four-card grid: the grid ate about
-               a hundred pixels of height, and height is exactly what a vertical
-               clip has none of. The description lives in the tooltip. */
-            <div className="mt-3 flex items-center gap-2 overflow-x-auto rounded-xl glass-panel border border-white/10 px-3 py-2">
-              <Wand2 className="w-3.5 h-3.5 text-secondary flex-shrink-0" />
-              <span className="text-xs font-medium text-muted-foreground flex-shrink-0 mr-1">Looks</span>
-              {templates.map((template) => (
-                <button
-                  key={template.id}
-                  onClick={() => handleApplyTemplate(template.id)}
-                  disabled={isProcessingEdit || startRender.isPending}
-                  title={`${template.description} — ${template.bestFor}`}
-                  className="flex-shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium transition-all hover:border-primary/40 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed"
-                  data-testid={`button-template-${template.id}`}
+              {sideBySide && (
+                <aside
+                  className="flex-shrink-0 flex flex-col gap-3 overflow-y-auto"
+                  style={{ width: SIDE_COLUMN_WIDTH }}
+                  data-testid="side-controls"
                 >
-                  {template.name}
-                </button>
-              ))}
+                  {transport}
+                  {looks}
+                </aside>
+              )}
             </div>
           )}
 
-          {/* A real scrubber, driven by the video itself.
-              What was here before was three fixed-width purple blocks and a CSS
-              animation — it showed the same shape for a five-second clip and a
-              five-minute one, and the playhead's position meant nothing. It
-              also ate 128px of height that a vertical clip badly needs. */}
-          {hasVideo && (
-            <div className="mt-3 mb-4 lg:mb-6 rounded-xl glass-panel border border-white/10 px-4 py-3">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={togglePlay}
-                  className="w-9 h-9 flex-shrink-0 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center transition-colors"
-                  aria-label={isPlaying ? "Pause" : "Play"}
-                  data-testid="button-scrub-play"
-                >
-                  {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                </button>
-
-                <input
-                  type="range"
-                  min={0}
-                  max={playerDuration || project.duration || 0}
-                  step={0.05}
-                  value={currentTime}
-                  onChange={(e) => {
-                    const next = Number(e.target.value);
-                    setCurrentTime(next);
-                    if (videoRef.current) videoRef.current.currentTime = next;
-                  }}
-                  className="flex-1 h-1.5 appearance-none rounded-full bg-white/10 accent-primary cursor-pointer
-                             [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5
-                             [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
-                             [&::-webkit-slider-thumb]:bg-secondary
-                             [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(155,107,255,0.8)]"
-                  data-testid="input-scrubber"
-                />
-
-                <span className="text-xs tabular-nums text-muted-foreground flex-shrink-0" data-testid="text-timecode">
-                  {formatTimecode(currentTime)} / {formatTimecode(playerDuration || project.duration || 0)}
-                </span>
-              </div>
+          {/* Stacked under a landscape clip, where the width is the plentiful
+              dimension. A vertical clip puts these in the column instead. */}
+          {hasVideo && !sideBySide && (
+            <div>
+              {transport}
+              {looks}
             </div>
           )}
         </div>
