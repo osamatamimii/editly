@@ -22,7 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
 import { 
   UploadCloud, Play, Pause, ChevronLeft, Send,
-  Scissors, Type, Wand2, Download, CheckCircle2, Loader2,
+  Wand2, Download, CheckCircle2, Loader2,
   Video
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -40,6 +40,14 @@ import {
 } from "@/lib/video-storage";
 import { ToastAction } from "@/components/ui/toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
+
+/** m:ss — anything longer than an hour is not what this product is for. */
+function formatTimecode(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.floor(seconds % 60);
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
 
 export default function ProjectEditor() {
   const params = useParams();
@@ -63,6 +71,16 @@ export default function ProjectEditor() {
   const [chatPlan, setChatPlan] = useState<EditPlan | null>(null);
   /** Set when the browser cannot decode or reach the file behind playbackUrl. */
   const [playbackFailed, setPlaybackFailed] = useState(false);
+  /**
+   * The video's own aspect ratio, read from the file itself.
+   *
+   * Without it the player was a fixed landscape box, so a 9:16 clip — which is
+   * the entire point of this product — pillarboxed down to a thumbnail in the
+   * middle of a wall of black.
+   */
+  const [aspect, setAspect] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [playerDuration, setPlayerDuration] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const { data: project, isLoading: isProjectLoading } = useGetProject(id, {
@@ -95,6 +113,8 @@ export default function ProjectEditor() {
   // sits in NETWORK_LOADING forever, which on screen is just a black rectangle.
   useEffect(() => {
     setPlaybackFailed(false);
+    setAspect(null);
+    setCurrentTime(0);
     if (!playbackUrl) return;
     const STALL_MS = 15_000;
     const timer = setTimeout(() => {
@@ -462,16 +482,35 @@ export default function ProjectEditor() {
                   <div className="absolute inset-x-0 bottom-0 h-1 pointer-events-none"
                     style={{ background: "linear-gradient(90deg, transparent, rgba(108,59,255,0.3), rgba(155,107,255,0.5), rgba(108,59,255,0.3), transparent)" }}
                   />
-                  <video 
-                    ref={videoRef}
-                    src={playbackUrl ?? undefined} 
-                    className="relative z-10 w-full h-full object-contain"
-                    controls={false}
-                    preload="metadata"
-                    onEnded={() => setIsPlaying(false)}
-                    onError={() => setPlaybackFailed(true)}
-                    data-testid="video-preview"
-                  />
+                  {/* Sized to the clip's own ratio and grown to fill whatever
+                      space is going, so a vertical video is tall and a
+                      landscape one is wide — instead of both being letterboxed
+                      into the same landscape box. */}
+                  <div
+                    className="relative z-10 max-w-full max-h-full"
+                    style={{
+                      aspectRatio: String(aspect ?? 16 / 9),
+                      height: aspect && aspect < 1 ? "100%" : undefined,
+                      width: !aspect || aspect >= 1 ? "100%" : undefined,
+                    }}
+                  >
+                    <video
+                      ref={videoRef}
+                      src={playbackUrl ?? undefined}
+                      className="w-full h-full object-contain rounded-lg"
+                      controls={false}
+                      preload="metadata"
+                      onLoadedMetadata={(e) => {
+                        const el = e.currentTarget;
+                        if (el.videoWidth && el.videoHeight) setAspect(el.videoWidth / el.videoHeight);
+                        if (Number.isFinite(el.duration)) setPlayerDuration(el.duration);
+                      }}
+                      onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                      onEnded={() => setIsPlaying(false)}
+                      onError={() => setPlaybackFailed(true)}
+                      data-testid="video-preview"
+                    />
+                  </div>
 
                   {/* A black rectangle is indistinguishable from a broken app.
                       Say what happened, and note that the render is unaffected. */}
@@ -532,37 +571,48 @@ export default function ProjectEditor() {
             </div>
           )}
 
-          {/* Timeline Strip */}
-          <div className="h-32 mt-4 rounded-xl glass-panel border border-white/10 p-4 flex flex-col mb-4 lg:mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-muted-foreground">Timeline</span>
-              <div className="flex gap-2">
-                <Button variant="ghost" size="icon" className="h-6 w-6"><Scissors className="w-3 h-3" /></Button>
-                <Button variant="ghost" size="icon" className="h-6 w-6"><Type className="w-3 h-3" /></Button>
+          {/* A real scrubber, driven by the video itself.
+              What was here before was three fixed-width purple blocks and a CSS
+              animation — it showed the same shape for a five-second clip and a
+              five-minute one, and the playhead's position meant nothing. It
+              also ate 128px of height that a vertical clip badly needs. */}
+          {hasVideo && (
+            <div className="mt-3 mb-4 lg:mb-6 rounded-xl glass-panel border border-white/10 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={togglePlay}
+                  className="w-9 h-9 flex-shrink-0 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center transition-colors"
+                  aria-label={isPlaying ? "Pause" : "Play"}
+                  data-testid="button-scrub-play"
+                >
+                  {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                </button>
+
+                <input
+                  type="range"
+                  min={0}
+                  max={playerDuration || project.duration || 0}
+                  step={0.05}
+                  value={currentTime}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    setCurrentTime(next);
+                    if (videoRef.current) videoRef.current.currentTime = next;
+                  }}
+                  className="flex-1 h-1.5 appearance-none rounded-full bg-white/10 accent-primary cursor-pointer
+                             [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5
+                             [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
+                             [&::-webkit-slider-thumb]:bg-secondary
+                             [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(155,107,255,0.8)]"
+                  data-testid="input-scrubber"
+                />
+
+                <span className="text-xs tabular-nums text-muted-foreground flex-shrink-0" data-testid="text-timecode">
+                  {formatTimecode(currentTime)} / {formatTimecode(playerDuration || project.duration || 0)}
+                </span>
               </div>
             </div>
-            <div className="flex-1 bg-black/30 rounded border border-white/5 relative overflow-hidden">
-              {hasVideo ? (
-                <div className="absolute inset-0 flex">
-                  {/* Fake clips */}
-                  <div className="h-full bg-primary/20 border-r border-black/50 w-1/4"></div>
-                  <div className="h-full border-r border-black/50 w-1/2 timeline-segment-glow"
-                    style={{ background: "rgba(108,59,255,0.25)" }}
-                  ></div>
-                  <div className="h-full bg-primary/20 w-1/4"></div>
-                  
-                  {/* Animated playhead */}
-                  <div className="absolute top-0 bottom-0 w-0.5 bg-secondary shadow-[0_0_8px_rgba(155,107,255,1)] timeline-playhead-animated z-10">
-                    <div className="absolute -top-1 -translate-x-1/2 w-3 h-3 rotate-45 bg-secondary" />
-                  </div>
-                </div>
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/50">
-                  Upload video to see timeline
-                </div>
-              )}
-            </div>
-          </div>
+          )}
         </div>
 
         {/* AI Chat Sidebar */}
