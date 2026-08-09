@@ -310,6 +310,12 @@ components:
           type: ["string", "null"]
         duration:
           type: ["number", "null"]
+        width:
+          description: Source video width in pixels, measured at upload.
+          type: ["integer", "null"]
+        height:
+          description: Source video height in pixels, measured at upload.
+          type: ["integer", "null"]
         platform:
           type: ["string", "null"]
           enum: [tiktok, reels, shorts, null]
@@ -328,6 +334,8 @@ components:
         - editedVideoPath
         - thumbnailPath
         - duration
+        - width
+        - height
         - platform
         - createdAt
         - updatedAt
@@ -362,6 +370,10 @@ components:
           type: string
         duration:
           type: number
+        width:
+          type: integer
+        height:
+          type: integer
         platform:
           type: string
           enum: [tiktok, reels, shorts]

@@ -205,6 +205,37 @@ let aliceProjectId;
   check("Bob cannot poll Alice's export status", expStatus.status === 404, `got ${expStatus.status}`);
 }
 
+console.log("\nClip dimensions");
+{
+  // The player is shaped from these before a frame has decoded, so if they do
+  // not survive the round trip a vertical clip goes back to being letterboxed
+  // into a landscape box — the exact bug they were added to fix.
+  const set = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", {
+    width: 1080,
+    height: 1920,
+    duration: 42.5,
+  });
+  check("the browser's measurements are accepted", set.status === 200, `got ${set.status} ${set.text.slice(0, 120)}`);
+  check(
+    "and come back unchanged",
+    set.json?.width === 1080 && set.json?.height === 1920,
+    JSON.stringify({ width: set.json?.width, height: set.json?.height }),
+  );
+
+  const reread = await call(ALICE, `/api/projects/${aliceProjectId}`);
+  check(
+    "they are still there on a fresh read",
+    reread.json?.width === 1080 && reread.json?.height === 1920,
+    JSON.stringify({ width: reread.json?.width, height: reread.json?.height }),
+  );
+
+  const nonsense = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", { width: -4 });
+  check("a negative width is refused", nonsense.status === 400, `got ${nonsense.status}`);
+
+  const fractional = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", { height: 12.5 });
+  check("so is a fractional height", fractional.status === 400, `got ${fractional.status}`);
+}
+
 console.log("\nStorage path ownership");
 {
   const good = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", {

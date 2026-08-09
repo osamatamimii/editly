@@ -31,6 +31,8 @@ export const Project = z.object({
   editedVideoPath: z.string().nullable(),
   thumbnailPath: z.string().nullable(),
   duration: z.number().nullable(),
+  width: z.number().nullable(),
+  height: z.number().nullable(),
   platform: Platform.nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -122,6 +124,8 @@ export const UpdateProjectBody = z.object({
   editedVideoPath: z.string().optional(),
   thumbnailPath: z.string().optional(),
   duration: z.number().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
   platform: Platform.optional(),
 });
 export type UpdateProjectBody = z.infer<typeof UpdateProjectBody>;

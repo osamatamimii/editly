@@ -57,6 +57,12 @@ export interface Project {
   thumbnailPath: string | null;
   /** @nullable */
   duration: number | null;
+  /** Source video width in pixels, measured at upload.
+   * @nullable */
+  width: number | null;
+  /** Source video height in pixels, measured at upload.
+   * @nullable */
+  height: number | null;
   /** @nullable */
   platform: ProjectPlatform;
   createdAt: string;
@@ -97,6 +103,8 @@ export interface UpdateProjectBody {
   editedVideoPath?: string;
   thumbnailPath?: string;
   duration?: number;
+  width?: number;
+  height?: number;
   platform?: UpdateProjectBodyPlatform;
 }
 

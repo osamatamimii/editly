@@ -78,10 +78,13 @@ export default function ProjectEditor() {
    * the entire point of this product — pillarboxed down to a thumbnail in the
    * middle of a wall of black.
    */
-  const [aspect, setAspect] = useState<number | null>(null);
+  const [decodedAspect, setDecodedAspect] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [playerDuration, setPlayerDuration] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  /** The area the picture gets to live in, measured rather than assumed. */
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [stage, setStage] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
 
   const { data: project, isLoading: isProjectLoading } = useGetProject(id, {
     query: { enabled: !!id, queryKey: getGetProjectQueryKey(id) }
@@ -111,9 +114,48 @@ export default function ProjectEditor() {
   // A new URL deserves a fresh attempt. A stalled load also has to be caught:
   // a browser that cannot decode a file often never fires `error`, it simply
   // sits in NETWORK_LOADING forever, which on screen is just a black rectangle.
+  /**
+   * The ratio to draw at, preferring the file itself but falling back to what
+   * was measured when it was uploaded.
+   *
+   * The stored pair is what makes the player the right shape on the very first
+   * paint instead of snapping from 16:9 once the browser gets around to
+   * decoding — and it is the only thing that keeps the shape right at all for a
+   * codec the browser refuses to decode.
+   */
+  const aspect =
+    decodedAspect ??
+    (project?.width && project?.height ? project.width / project.height : null);
+
+  /**
+   * The picture, fitted to the stage by hand.
+   *
+   * Done in JS rather than CSS because `aspect-ratio` fights `max-width` and
+   * `max-height`: whichever constraint bites, the box keeps the dimension that
+   * did not, and ends up larger than the picture inside it — which puts the
+   * play button and the badges over empty black rather than over the video.
+   */
+  const picture = (() => {
+    const ratio = aspect ?? 16 / 9;
+    if (!stage.w || !stage.h) return null;
+    const width = Math.min(stage.w, stage.h * ratio);
+    return { width, height: width / ratio };
+  })();
+
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const box = entry.contentRect;
+      setStage({ w: box.width, h: box.height });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasVideo]);
+
   useEffect(() => {
     setPlaybackFailed(false);
-    setAspect(null);
+    setDecodedAspect(null);
     setCurrentTime(0);
     if (!playbackUrl) return;
     const STALL_MS = 15_000;
@@ -206,6 +248,9 @@ export default function ProjectEditor() {
           status: "ready",
           videoPath,
           ...(videoFacts ? { duration: videoFacts.duration } : {}),
+          ...(videoFacts?.width && videoFacts?.height
+            ? { width: videoFacts.width, height: videoFacts.height }
+            : {}),
           ...(thumbnailPath ? { thumbnailPath } : {}),
         }
       });
@@ -466,7 +511,7 @@ export default function ProjectEditor() {
               </div>
             ) : (
               <div className="w-full h-full flex flex-col">
-                <div className="flex-1 relative flex items-center justify-center overflow-hidden"
+                <div ref={stageRef} className="flex-1 relative flex items-center justify-center overflow-hidden"
                   style={{
                     background: "linear-gradient(135deg, #06030f 0%, #0a0518 50%, #080312 100%)",
                     boxShadow: "inset 0 0 60px rgba(108,59,255,0.12), inset 0 0 120px rgba(0,0,0,0.6)",
@@ -482,17 +527,18 @@ export default function ProjectEditor() {
                   <div className="absolute inset-x-0 bottom-0 h-1 pointer-events-none"
                     style={{ background: "linear-gradient(90deg, transparent, rgba(108,59,255,0.3), rgba(155,107,255,0.5), rgba(108,59,255,0.3), transparent)" }}
                   />
-                  {/* Sized to the clip's own ratio and grown to fill whatever
-                      space is going, so a vertical video is tall and a
-                      landscape one is wide — instead of both being letterboxed
-                      into the same landscape box. */}
+                  {/* Exactly the size of the picture: the larger of the two
+                      dimensions fills the stage, the other follows the ratio.
+                      A 9:16 clip is now full height instead of pillarboxed into
+                      a landscape box, which is what made it a stamp in the
+                      middle of a wall of black. */}
                   <div
-                    className="relative z-10 max-w-full max-h-full"
+                    className="relative z-10"
                     style={{
-                      aspectRatio: String(aspect ?? 16 / 9),
-                      height: aspect && aspect < 1 ? "100%" : undefined,
-                      width: !aspect || aspect >= 1 ? "100%" : undefined,
+                      width: picture ? `${picture.width}px` : "100%",
+                      height: picture ? `${picture.height}px` : "100%",
                     }}
+                    data-testid="video-stage"
                   >
                     <video
                       ref={videoRef}
@@ -502,7 +548,7 @@ export default function ProjectEditor() {
                       preload="metadata"
                       onLoadedMetadata={(e) => {
                         const el = e.currentTarget;
-                        if (el.videoWidth && el.videoHeight) setAspect(el.videoWidth / el.videoHeight);
+                        if (el.videoWidth && el.videoHeight) setDecodedAspect(el.videoWidth / el.videoHeight);
                         if (Number.isFinite(el.duration)) setPlayerDuration(el.duration);
                       }}
                       onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
@@ -510,36 +556,41 @@ export default function ProjectEditor() {
                       onError={() => setPlaybackFailed(true)}
                       data-testid="video-preview"
                     />
-                  </div>
 
-                  {/* A black rectangle is indistinguishable from a broken app.
-                      Say what happened, and note that the render is unaffected. */}
-                  {playbackFailed && (
-                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/80 px-8 text-center">
-                      <p className="font-semibold">This file will not play in the browser</p>
-                      <p className="text-sm text-muted-foreground max-w-md">
-                        Your video is stored safely and can still be edited — some codecs just cannot be
-                        previewed here. The rendered result will play normally.
-                      </p>
-                    </div>
-                  )}
-                  
-                  {/* Play/Pause overlay */}
-                  <div 
-                    className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 bg-black/20 transition-opacity cursor-pointer"
-                    onClick={togglePlay}
-                  >
-                    <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white">
-                      {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8 ml-1" />}
-                    </div>
-                  </div>
+                    {/* Everything below sits on the picture rather than on the
+                        stage, so on a vertical clip the controls and badges are
+                        over the video instead of floating in the black beside
+                        it. */}
 
-                  {project.status === 'done' && (
-                    <div className="absolute top-4 left-4 px-3 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30 text-xs font-medium flex items-center backdrop-blur-md">
-                      <CheckCircle2 className="w-3 h-3 mr-1" />
-                      AI Edited
+                    {/* A black rectangle is indistinguishable from a broken app.
+                        Say what happened, and note that the render is unaffected. */}
+                    {playbackFailed && (
+                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-lg bg-black/80 px-6 text-center">
+                        <p className="font-semibold">This file will not play in the browser</p>
+                        <p className="text-sm text-muted-foreground max-w-md">
+                          Your video is stored safely and can still be edited — some codecs just cannot be
+                          previewed here. The rendered result will play normally.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Play/Pause overlay */}
+                    <div
+                      className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 bg-black/20 rounded-lg transition-opacity cursor-pointer"
+                      onClick={togglePlay}
+                    >
+                      <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white">
+                        {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8 ml-1" />}
+                      </div>
                     </div>
-                  )}
+
+                    {project.status === 'done' && (
+                      <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30 text-xs font-medium flex items-center backdrop-blur-md">
+                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                        AI Edited
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -548,26 +599,24 @@ export default function ProjectEditor() {
           {/* One-click looks. Each is a saved edit plan, so what you get is
               exactly what the name says, every time. */}
           {hasVideo && templates && templates.length > 0 && (
-            <div className="mt-4 rounded-xl glass-panel border border-white/10 p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Wand2 className="w-3.5 h-3.5 text-secondary" />
-                <span className="text-xs font-medium text-muted-foreground">One-click looks</span>
-              </div>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                {templates.map((template) => (
-                  <button
-                    key={template.id}
-                    onClick={() => handleApplyTemplate(template.id)}
-                    disabled={isProcessingEdit || startRender.isPending}
-                    title={template.bestFor}
-                    className="text-left rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5 transition-all hover:border-primary/40 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed"
-                    data-testid={`button-template-${template.id}`}
-                  >
-                    <div className="text-sm font-semibold">{template.name}</div>
-                    <div className="text-[11px] leading-snug text-muted-foreground mt-0.5">{template.description}</div>
-                  </button>
-                ))}
-              </div>
+            /* One compact row rather than a four-card grid: the grid ate about
+               a hundred pixels of height, and height is exactly what a vertical
+               clip has none of. The description lives in the tooltip. */
+            <div className="mt-3 flex items-center gap-2 overflow-x-auto rounded-xl glass-panel border border-white/10 px-3 py-2">
+              <Wand2 className="w-3.5 h-3.5 text-secondary flex-shrink-0" />
+              <span className="text-xs font-medium text-muted-foreground flex-shrink-0 mr-1">Looks</span>
+              {templates.map((template) => (
+                <button
+                  key={template.id}
+                  onClick={() => handleApplyTemplate(template.id)}
+                  disabled={isProcessingEdit || startRender.isPending}
+                  title={`${template.description} — ${template.bestFor}`}
+                  className="flex-shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium transition-all hover:border-primary/40 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed"
+                  data-testid={`button-template-${template.id}`}
+                >
+                  {template.name}
+                </button>
+              ))}
             </div>
           )}
 

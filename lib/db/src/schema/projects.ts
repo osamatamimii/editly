@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, real, uuid, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, real, integer, uuid, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -23,6 +23,13 @@ export const projectsTable = pgTable(
     /** Poster frame, same key shape as the video. */
     thumbnailPath: text("thumbnail_path"),
     duration: real("duration"),
+    /**
+     * The source clip's pixel dimensions, measured in the browser at upload.
+     * Kept so the player can be the right shape before a single frame has
+     * decoded — and stay right for files the browser cannot decode at all.
+     */
+    width: integer("width"),
+    height: integer("height"),
     platform: text("platform"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
