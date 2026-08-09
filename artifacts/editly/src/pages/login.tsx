@@ -112,6 +112,12 @@ export default function Login() {
         <span className="font-bold text-xl tracking-tight">Editly</span>
       </div>
 
+      {/* The line the product is named after, at the moment someone decides
+          whether to sign up: it is the whole proposition in four words. */}
+      <p className="text-sm text-muted-foreground mb-8 -mt-6" data-testid="text-signature-login">
+        Stop editing. Start describing.
+      </p>
+
       <Card className="glass-panel border-white/10 w-full max-w-md">
         <CardContent className="pt-8 pb-8">
           <h1 className="text-2xl font-bold mb-1 text-center">

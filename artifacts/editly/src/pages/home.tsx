@@ -280,7 +280,7 @@ export default function Home() {
           className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 max-w-4xl leading-[1.1] animate-fade-up"
           style={{ animationDelay: "200ms" }}
         >
-          <span className="glow-text">Get three hours back</span>
+          <span className="glow-text">Stop editing.</span>
           <br />
           <span
             className="animate-gradient-shift"
@@ -292,7 +292,7 @@ export default function Home() {
               backgroundSize: "200% 200%",
             }}
           >
-            on every video you post
+            Start describing.
           </span>
           <br />
           <span className="glow-text">&nbsp;</span>
@@ -303,9 +303,9 @@ export default function Home() {
           className="text-lg md:text-xl text-muted-foreground mb-12 max-w-2xl animate-fade-up"
           style={{ animationDelay: "320ms" }}
         >
-          Upload the raw take. Editly cuts out every silence and pause, reframes it
-          to 9:16, and hands you back something ready to post — while you go do
-          literally anything else.
+          Upload the raw take and say what you want. Every silence cut, framed to
+          9:16, ready to post — about three hours of your evening back, on every
+          video.
         </p>
 
         {/* CTA Buttons */}

@@ -209,7 +209,11 @@ export default function Dashboard() {
           <BackButton fallback="/" className="-ml-3 mt-1" />
           <div>
           <h1 className="text-3xl font-bold tracking-tight glow-text mb-2">Projects</h1>
-          <p className="text-muted-foreground">Manage your AI video edits and exports.</p>
+          {/* Not a slogan bolted on: on this screen it is the instruction —
+              you are about to open a project and type what you want. */}
+          <p className="text-muted-foreground" data-testid="text-signature-dashboard">
+            Stop editing. Start describing.
+          </p>
           </div>
         </div>
         <Button 
@@ -357,8 +361,11 @@ export default function Dashboard() {
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 border border-primary/20">
               <Video className="w-8 h-8 text-primary" />
             </div>
-            <h3 className="text-xl font-bold mb-2">No projects yet</h3>
-            <p className="text-muted-foreground max-w-sm mb-6">Create your first project to start turning raw videos into viral content.</p>
+            <h3 className="text-xl font-bold mb-2">Nothing here yet</h3>
+            <p className="text-muted-foreground max-w-sm mb-6">
+              Upload a raw take and tell Editly what you want done with it. Stop
+              editing, start describing.
+            </p>
             <Button onClick={() => setIsCreateOpen(true)} variant="outline" className="rounded-full">
               Create Project
             </Button>
