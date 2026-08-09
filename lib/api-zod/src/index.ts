@@ -277,6 +277,30 @@ export const BurnCaptionsOperation = z.object({
   animation: z.enum(["none", "pop", "karaoke"]).default("pop"),
 });
 
+/**
+ * Captions whose words are not known yet.
+ *
+ * `burnCaptions` needs cues, and the API has none: the words live in the video,
+ * and only the worker has both the file and the recogniser. So a plan says
+ * *that* it wants captions and how they should look, and the worker replaces
+ * this with a real `burnCaptions` once it has a transcript — or drops it and
+ * says why, when no recogniser is configured.
+ *
+ * The renderer never sees this operation. Keeping the expansion in the worker
+ * rather than the renderer means a plan stays replayable: the same plan against
+ * the same video produces the same captions, and against a different video
+ * produces that video's words.
+ */
+export const AutoCaptionsOperation = z.object({
+  type: z.literal("autoCaptions"),
+  style: z.enum(["bold-white", "bold-yellow", "karaoke-box"]).default("bold-white"),
+  animation: z.enum(["none", "pop", "karaoke"]).default("pop"),
+  /** Leave "um" and "uh" out of what is burnt in. */
+  dropFillers: z.boolean().default(true),
+  /** BCP-47 hint. Omit to let the recogniser detect the language. */
+  language: z.string().min(2).max(16).optional(),
+});
+
 /** The growth loop: free-plan renders carry a mark. */
 export const WatermarkOperation = z.object({
   type: z.literal("watermark"),
@@ -318,6 +342,7 @@ export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
   FormatForPlatformOperation,
   BurnCaptionsOperation,
+  AutoCaptionsOperation,
   WatermarkOperation,
   KenBurnsOperation,
   ZoomPunchOperation,
