@@ -608,6 +608,10 @@ export function describe(op: EditOperation): string {
     case "removeSilence": return "Cutting the silences";
     case "formatForPlatform": return `Reframing for ${op.platform}`;
     case "burnCaptions": return "Burning in captions";
+    // Replaced by burnCaptions before the renderer ever sees a plan — see
+    // enrich.ts. Named here so the switch stays exhaustive and a future path
+    // that skips enrichment fails to compile rather than silently doing nothing.
+    case "autoCaptions": return "Burning in captions";
     case "watermark": return "Adding the watermark";
     case "kenBurns": return "Adding a slow push";
     case "zoomPunch": return "Adding punch-in zooms";

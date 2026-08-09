@@ -19,6 +19,8 @@ import { db, pool, jobsTable, projectsTable, type Job } from "@workspace/db";
 import { EditPlan } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
 import { renderPlan, FfmpegError } from "./ffmpeg";
+import { enrichPlan } from "./enrich";
+import { resolveProviders } from "./providers";
 
 const WORKER_ID = `${hostname()}-${randomUUID().slice(0, 8)}`;
 const POLL_INTERVAL_MS = Number(process.env["POLL_INTERVAL_MS"] ?? 5000);
@@ -33,6 +35,19 @@ const logger = pino({
 }).child({ worker: WORKER_ID });
 
 let shuttingDown = false;
+
+/**
+ * Resolved once, at startup, so the log line below is the single place anyone
+ * has to look to know what this worker can actually do.
+ */
+const providers = resolveProviders();
+
+/**
+ * Everything the plan asked for turned out to be impossible on this clip — no
+ * recogniser for the captions it wanted, no emphasis for the punches. Retrying
+ * would produce the same answer, so this is final and the message is the user's.
+ */
+class PlanEmptiedError extends Error {}
 
 /**
  * Takes the oldest queued job, atomically. SKIP LOCKED is what makes this safe
@@ -116,13 +131,31 @@ async function processJob(job: Job): Promise<void> {
     const inputFile = path.join(workDir, "input.mp4");
     await downloadObject(job.inputPath, inputFile);
 
-    const { output, notes } = await renderPlan(inputFile, plan, {
+    // Whatever the plan could not know without the file — the words, where the
+    // emphasis fell — is filled in here. It degrades rather than fails, and
+    // every degradation comes back as a note.
+    const enriched = await enrichPlan(inputFile, plan, {
+      providers,
+      onProgress: (stage) => {
+        void reportProgress(job.id, 8, stage).catch(() => {});
+      },
+    });
+    if (enriched.notes.length > 0) log.warn({ notes: enriched.notes }, "plan degraded");
+
+    if (enriched.plan.operations.length === 0) {
+      throw new PlanEmptiedError(
+        enriched.notes[0] ?? "Nothing in that request could be applied to this clip.",
+      );
+    }
+
+    const { output, notes: renderNotes } = await renderPlan(inputFile, enriched.plan, {
       workDir,
       onProgress: (fraction, stage) => {
         // Download and upload bracket the render; the middle 80% is ffmpeg.
         void reportProgress(job.id, 10 + fraction * 80, stage).catch(() => {});
       },
     });
+    const notes = [...enriched.notes, ...renderNotes];
 
     await reportProgress(job.id, 92, "Saving the result");
     const outputPath = `${job.userId}/${job.projectId}/edited-${job.id}.mp4`;
@@ -152,10 +185,13 @@ async function processJob(job: Job): Promise<void> {
     // ffmpeg's complaints are specific enough to be worth showing; anything
     // else is infrastructure and the user can do nothing with the detail.
     const message =
-      error instanceof FfmpegError
-        ? error.message.split("\n")[0].slice(0, 300)
-        : "Rendering failed. We are looking into it.";
-    const willRetry = job.attempts < job.maxAttempts;
+      error instanceof PlanEmptiedError
+        ? error.message.slice(0, 300)
+        : error instanceof FfmpegError
+          ? error.message.split("\n")[0].slice(0, 300)
+          : "Rendering failed. We are looking into it.";
+    // A plan nothing could be done with will be just as impossible next time.
+    const willRetry = !(error instanceof PlanEmptiedError) && job.attempts < job.maxAttempts;
 
     log.error({ err: error, attempt: job.attempts, willRetry }, "render failed");
 
@@ -184,7 +220,16 @@ async function processJob(job: Job): Promise<void> {
 
 async function main(): Promise<void> {
   await db.execute(sql`select 1`);
-  logger.info({ pollIntervalMs: POLL_INTERVAL_MS }, "worker ready");
+  // Names of models, never keys. If captions are missing in production, this
+  // line is the first place to look and it should answer the question outright.
+  logger.info(
+    {
+      pollIntervalMs: POLL_INTERVAL_MS,
+      transcription: providers.transcriber?.name ?? "unavailable",
+      vision: providers.sceneReader?.name ?? "unavailable",
+    },
+    "worker ready",
+  );
 
   while (!shuttingDown) {
     try {
