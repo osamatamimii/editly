@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { 
   useGetProject, 
@@ -111,9 +111,6 @@ export default function ProjectEditor() {
   );
   const hasVideo = Boolean(project?.videoPath ?? project?.videoUrl);
 
-  // A new URL deserves a fresh attempt. A stalled load also has to be caught:
-  // a browser that cannot decode a file often never fires `error`, it simply
-  // sits in NETWORK_LOADING forever, which on screen is just a black rectangle.
   /**
    * The ratio to draw at, preferring the file itself but falling back to what
    * was measured when it was uploaded.
@@ -142,17 +139,43 @@ export default function ProjectEditor() {
     return { width, height: width / ratio };
   })();
 
-  useEffect(() => {
+  /**
+   * Measured synchronously before paint, not only through ResizeObserver.
+   *
+   * A ResizeObserver on its own leaves the picture at the fallback size until
+   * the first callback arrives — and in a hidden tab that callback never
+   * arrives at all, because delivery is tied to the rendering lifecycle. Come
+   * back to such a tab and the video is still the wrong shape. Reading the box
+   * in a layout effect settles it before the first frame is drawn; the observer
+   * then only has to catch later resizes.
+   */
+  useLayoutEffect(() => {
     const el = stageRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      const box = entry.contentRect;
-      setStage({ w: box.width, h: box.height });
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
+    if (!el) return;
+
+    const measure = () => {
+      const box = el.getBoundingClientRect();
+      setStage((previous) =>
+        Math.abs(previous.w - box.width) < 0.5 && Math.abs(previous.h - box.height) < 0.5
+          ? previous
+          : { w: box.width, h: box.height },
+      );
+    };
+
+    measure();
+    window.addEventListener("resize", measure);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(el);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
   }, [hasVideo]);
 
+  // A new URL deserves a fresh attempt. A stalled load also has to be caught:
+  // a browser that cannot decode a file often never fires `error`, it simply
+  // sits in NETWORK_LOADING forever, which on screen is just a black rectangle.
   useEffect(() => {
     setPlaybackFailed(false);
     setDecodedAspect(null);
