@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Mail, Lock, ArrowLeft } from "lucide-react";
+import { Loader2, Mail, Lock } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -104,14 +105,7 @@ export default function Login() {
         />
       </div>
 
-      <button
-        onClick={() => setLocation("/")}
-        className="mb-8 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        data-testid="link-back-home"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to home
-      </button>
+      <BackButton fallback="/" label="Back" className="mb-8 -ml-4" testId="link-back-home" />
 
       <div className="flex items-center gap-2 mb-8">
         <img src="/logo.png" alt="Editly" className="w-10 h-10" />

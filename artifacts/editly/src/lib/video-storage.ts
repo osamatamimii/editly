@@ -92,66 +92,145 @@ export function readVideoFacts(file: File): Promise<VideoFacts> {
 }
 
 /**
+ * Draws whatever the element is currently showing, scaled down.
+ *
+ * The long edge is capped: a poster for a 220px card does not need to be 4K,
+ * and every one of these is stored and fetched on every dashboard load.
+ */
+function drawFrame(element: HTMLVideoElement): HTMLCanvasElement {
+  const MAX_EDGE = 640;
+  const scale = Math.min(1, MAX_EDGE / Math.max(element.videoWidth, element.videoHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(element.videoWidth * scale));
+  canvas.height = Math.max(1, Math.round(element.videoHeight * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no canvas context");
+  ctx.drawImage(element, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+/**
+ * Is this frame effectively nothing?
+ *
+ * A poster that is one flat colour — almost always black — is worse than no
+ * poster: the dashboard fills with rectangles that look like a broken app
+ * rather than like a library of work. Both tests matter. Dark alone would
+ * reject a legitimately moody shot, and flat alone would accept a white
+ * screen; a frame that is both is a frame that never arrived.
+ */
+function looksBlank(canvas: HTMLCanvasElement): boolean {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return false;
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let sum = 0;
+  let sumSquares = 0;
+  let count = 0;
+  // Every 40th pixel is plenty to characterise a frame and keeps this off the
+  // critical path for a 640px image.
+  for (let i = 0; i < data.length; i += 4 * 40) {
+    const luma = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+    sum += luma;
+    sumSquares += luma * luma;
+    count++;
+  }
+  if (count === 0) return false;
+  const mean = sum / count;
+  const variance = sumSquares / count - mean * mean;
+  return mean < 12 && variance < 24;
+}
+
+/** Resolves once the element has actually presented a frame, not merely seeked. */
+function framePresented(element: HTMLVideoElement): Promise<void> {
+  return new Promise((resolve) => {
+    // `seeked` fires when the seek completes, which on a large file can be
+    // before the new frame has been decoded and handed to the compositor — so
+    // drawImage returns the frame that was there before, usually the black one
+    // at the very start. requestVideoFrameCallback fires when a frame is
+    // genuinely on screen. Where it does not exist, a couple of animation
+    // frames is the best approximation available.
+    const withCallback = element as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+    };
+    if (typeof withCallback.requestVideoFrameCallback === "function") {
+      withCallback.requestVideoFrameCallback(() => resolve());
+      return;
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
+/**
  * Grabs a single frame as a JPEG.
  *
  * Taken a little way in rather than at zero: the first frame of a phone
  * recording is very often a black or half-exposed one, which makes for a
  * dashboard of black rectangles — which is what a missing thumbnail looked
- * like in the first place.
+ * like in the first place. And if the frame it lands on turns out blank
+ * anyway, it tries elsewhere in the clip rather than storing the black.
  */
 export function captureThumbnail(file: File, atFraction = 0.25): Promise<Blob> {
+  const url = URL.createObjectURL(file);
+  return captureFrameFrom(url, atFraction).finally(() => URL.revokeObjectURL(url));
+}
+
+/** Where in the clip to look, in order, before giving up. */
+const POSTER_FRACTIONS = [0.25, 0.5, 0.1, 0.75];
+
+/**
+ * The same capture, from a URL rather than a File — so a project whose poster
+ * is missing can be given one from the clip it already has in Storage.
+ */
+export function captureFrameFrom(src: string, atFraction = 0.25): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const element = document.createElement("video");
-    const url = URL.createObjectURL(file);
-    const cleanUp = () => URL.revokeObjectURL(url);
-
-    const timer = setTimeout(() => {
-      cleanUp();
-      reject(new Error("timed out capturing a frame"));
-    }, 20_000);
-
     element.preload = "auto";
     element.muted = true;
     element.playsInline = true;
+    element.crossOrigin = "anonymous";
 
-    element.onloadedmetadata = () => {
-      const target = Number.isFinite(element.duration) ? element.duration * atFraction : 0;
-      element.currentTime = Math.min(Math.max(target, 0.1), Math.max(0.1, element.duration - 0.1));
+    const timer = setTimeout(() => reject(new Error("timed out capturing a frame")), 30_000);
+    const finish = (result: Blob | Error) => {
+      clearTimeout(timer);
+      element.onseeked = null;
+      element.onerror = null;
+      result instanceof Blob ? resolve(result) : reject(result);
     };
 
-    element.onseeked = () => {
-      clearTimeout(timer);
+    const fractions = [atFraction, ...POSTER_FRACTIONS.filter((f) => f !== atFraction)];
+    let attempt = 0;
+
+    const seekTo = (fraction: number) => {
+      const duration = Number.isFinite(element.duration) ? element.duration : 0;
+      const target = duration > 0 ? duration * fraction : 0.1;
+      element.currentTime = Math.min(Math.max(target, 0.1), Math.max(0.1, duration - 0.1));
+    };
+
+    element.onloadedmetadata = () => seekTo(fractions[0]);
+
+    element.onseeked = async () => {
       try {
-        // Cap the long edge: a poster for a 220px card does not need to be 4K,
-        // and every one of these is stored and fetched per dashboard load.
-        const MAX_EDGE = 640;
-        const scale = Math.min(1, MAX_EDGE / Math.max(element.videoWidth, element.videoHeight));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(element.videoWidth * scale));
-        canvas.height = Math.max(1, Math.round(element.videoHeight * scale));
-        const ctx = canvas.getContext("2d");
-        if (!ctx) throw new Error("no canvas context");
-        ctx.drawImage(element, 0, 0, canvas.width, canvas.height);
+        await framePresented(element);
+        const canvas = drawFrame(element);
+        attempt++;
+        // Keep looking while there are places left to look. The last attempt is
+        // taken whatever it shows: a clip that really is black throughout
+        // should still get its own poster rather than none.
+        if (looksBlank(canvas) && attempt < fractions.length) {
+          seekTo(fractions[attempt]);
+          return;
+        }
         canvas.toBlob(
-          (blob) => {
-            cleanUp();
-            blob ? resolve(blob) : reject(new Error("could not encode the frame"));
-          },
+          (blob) => finish(blob ?? new Error("could not encode the frame")),
           "image/jpeg",
           0.82,
         );
       } catch (error) {
-        cleanUp();
-        reject(error);
+        finish(error instanceof Error ? error : new Error(String(error)));
       }
     };
 
-    element.onerror = () => {
-      clearTimeout(timer);
-      cleanUp();
-      reject(new Error("could not decode the video"));
-    };
-    element.src = url;
+    element.onerror = () => finish(new Error("could not decode the video"));
+    element.src = src;
   });
 }
 

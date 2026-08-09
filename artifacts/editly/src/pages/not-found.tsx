@@ -1,21 +1,24 @@
-import { Card, CardContent } from "@/components/ui/card";
 import { AlertCircle } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 
+/**
+ * The 404. It used to ask "Did you forget to add the page to the router?" on a
+ * light grey card — a note from a developer to themselves, shown to whoever
+ * mistyped a URL. It now says what happened and offers the two ways out.
+ */
 export default function NotFound() {
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
-      <Card className="w-full max-w-md mx-4">
-        <CardContent className="pt-6">
-          <div className="flex mb-4 gap-2">
-            <AlertCircle className="h-8 w-8 text-red-500" />
-            <h1 className="text-2xl font-bold text-gray-900">404 Page Not Found</h1>
-          </div>
-
-          <p className="mt-4 text-sm text-gray-600">
-            Did you forget to add the page to the router?
-          </p>
-        </CardContent>
-      </Card>
+    <div className="min-h-screen w-full flex flex-col items-center justify-center gap-4 px-6 text-center">
+      <div className="w-14 h-14 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+        <AlertCircle className="w-7 h-7 text-muted-foreground" />
+      </div>
+      <h1 className="text-2xl font-bold">This page does not exist</h1>
+      <p className="text-muted-foreground max-w-sm">
+        The link may be out of date, or the address slightly off.
+      </p>
+      <div className="flex items-center gap-2 mt-2">
+        <BackButton fallback="/" label="Back" variant="outline" testId="button-back-404" />
+      </div>
     </div>
   );
 }

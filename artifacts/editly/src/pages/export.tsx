@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronLeft, Download, Smartphone, PlaySquare, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { usePlayableVideo } from "@/lib/video-storage";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -112,14 +113,12 @@ export default function ExportPage() {
 
   return (
     <div className="w-full max-w-6xl mx-auto px-6 py-12 min-h-screen">
-      <Button 
-        variant="ghost" 
-        onClick={() => setLocation(`/project/${project.id}`)}
-        className="mb-8 text-muted-foreground hover:text-foreground -ml-4"
-      >
-        <ChevronLeft className="w-4 h-4 mr-2" />
-        Back to Editor
-      </Button>
+      <BackButton
+        fallback={`/project/${project.id}`}
+        label="Back"
+        className="mb-8 -ml-4"
+        testId="button-back-export"
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
         {/* Preview Container */}

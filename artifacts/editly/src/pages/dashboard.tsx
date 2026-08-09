@@ -22,6 +22,7 @@ import {
   Video, Plus, Clock, PlayCircle, CheckCircle2, 
   Trash2, AlertCircle, Loader2, Sparkles, Activity, TrendingUp
 } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { deleteProjectVideos, usePlayableVideo } from "@/lib/video-storage";
@@ -147,9 +148,12 @@ export default function Dashboard() {
   return (
     <div className="w-full max-w-7xl mx-auto px-6 py-12">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-12 gap-4">
-        <div>
+        <div className="flex items-start gap-2">
+          <BackButton fallback="/" className="-ml-3 mt-1" />
+          <div>
           <h1 className="text-3xl font-bold tracking-tight glow-text mb-2">Projects</h1>
           <p className="text-muted-foreground">Manage your AI video edits and exports.</p>
+          </div>
         </div>
         <Button 
           onClick={() => setIsCreateOpen(true)}

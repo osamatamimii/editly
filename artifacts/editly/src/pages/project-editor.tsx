@@ -25,6 +25,7 @@ import {
   Wand2, Download, CheckCircle2, Loader2,
   Video
 } from "lucide-react";
+import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
@@ -36,6 +37,7 @@ import {
   formatBytes,
   readVideoFacts,
   captureThumbnail,
+  captureFrameFrom,
   uploadThumbnail,
 } from "@/lib/video-storage";
 import { ToastAction } from "@/components/ui/toast";
@@ -201,6 +203,51 @@ export default function ProjectEditor() {
       observer?.disconnect();
     };
   }, [hasVideo, sideBySide]);
+
+  /**
+   * Projects made before posters existed have none, and the dashboard shows
+   * them as grey rectangles forever. Opening one now gives it a poster from the
+   * clip it already has — once per project, quietly, and never at the cost of
+   * anything the user is waiting on.
+   *
+   * Done here rather than on the dashboard on purpose: this page is a single
+   * project the user chose to open, so it fetches one clip. The dashboard would
+   * be pulling every clip in the library at once to draw its own cards.
+   */
+  const posterAttemptedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!project || !user || !playbackUrl) return;
+    if (project.thumbnailPath) return;
+    if (posterAttemptedFor.current === project.id) return;
+    posterAttemptedFor.current = project.id;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const blob = await captureFrameFrom(playbackUrl);
+        if (cancelled) return;
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (!accessToken) return;
+        const thumbnailPath = await uploadThumbnail({
+          blob,
+          userId: user.id,
+          projectId: project.id,
+          accessToken,
+        });
+        if (cancelled) return;
+        await updateProject.mutateAsync({ id: project.id, data: { thumbnailPath } });
+        queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(project.id) });
+      } catch {
+        // Best effort by design: a project without a poster is a duller card,
+        // not a broken one, and this must never interrupt the editor.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id, project?.thumbnailPath, playbackUrl, user?.id]);
 
   // A new URL deserves a fresh attempt. A stalled load also has to be caught:
   // a browser that cannot decode a file often never fires `error`, it simply
@@ -579,9 +626,7 @@ export default function ProjectEditor() {
       {/* Topbar */}
       <header className="h-16 flex-shrink-0 border-b border-white/10 bg-background/50 backdrop-blur-md flex items-center justify-between px-6 z-10">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => setLocation('/dashboard')} className="text-muted-foreground hover:text-foreground">
-            <ChevronLeft className="w-5 h-5" />
-          </Button>
+          <BackButton fallback="/dashboard" />
           <div className="h-6 w-px bg-white/10" />
           <h1 className="font-semibold text-lg" data-testid="text-editor-title">{project.title}</h1>
           <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-xs text-muted-foreground">
