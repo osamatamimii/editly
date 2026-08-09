@@ -166,7 +166,7 @@ export default function ExportPage() {
                 <CardHeader>
                   <CardTitle>Select Platform Format</CardTitle>
                   <CardDescription>
-                    AI will optimize the framing and resolution for your chosen platform.
+                    The framing and resolution are set for the platform you pick.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -229,7 +229,7 @@ export default function ExportPage() {
                   Rendering Video
                 </CardTitle>
                 <CardDescription>
-                  Applying final AI touches and formatting for {platform}.
+                  Framing and encoding for {platform}.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
