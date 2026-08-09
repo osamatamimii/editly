@@ -294,8 +294,6 @@ export default function Home() {
           >
             Start describing.
           </span>
-          <br />
-          <span className="glow-text">&nbsp;</span>
         </h1>
 
         {/* Subtext */}
@@ -318,7 +316,7 @@ export default function Home() {
             className="glow-btn btn-gradient-cta flex items-center justify-center gap-2 text-white h-14 px-8 rounded-full font-semibold text-lg"
           >
             <Play className="w-5 h-5 fill-current" />
-            Start Editing Now
+            Upload a raw take
           </Link>
           <button className="group flex items-center justify-center gap-2 h-14 px-8 rounded-full font-semibold text-lg bg-white/5 hover:bg-white/8 border border-white/10 transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_24px_rgba(108,59,255,0.2)] backdrop-blur-sm">
             Watch Demo
