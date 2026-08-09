@@ -71,7 +71,16 @@ export function readVideoFacts(file: File): Promise<VideoFacts> {
         height: element.videoHeight,
       };
       cleanUp();
-      facts.duration > 0 ? resolve(facts) : reject(new Error("no duration"));
+      // Resolve with whatever was learned rather than insisting on all of it.
+      // A file whose duration the browser reports as Infinity — recordings and
+      // some streamed WebMs do this — still reports its dimensions perfectly
+      // well, and those dimensions are what shape the player before a frame has
+      // decoded. Rejecting here threw them away with the duration, which cost
+      // exactly the case the stored dimensions exist for: a file this browser
+      // cannot decode at all.
+      facts.duration > 0 || (facts.width > 0 && facts.height > 0)
+        ? resolve(facts)
+        : reject(new Error("no usable metadata"));
     };
     element.onerror = () => {
       clearTimeout(timer);

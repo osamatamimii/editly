@@ -299,8 +299,11 @@ export default function ProjectEditor() {
         data: {
           status: "ready",
           videoPath,
-          ...(videoFacts ? { duration: videoFacts.duration } : {}),
-          ...(videoFacts?.width && videoFacts?.height
+          // Each fact travels on its own: a clip can have good dimensions and
+          // an unreadable duration, and losing the pair because of the one
+          // would leave the player guessing at the shape.
+          ...(videoFacts && videoFacts.duration > 0 ? { duration: videoFacts.duration } : {}),
+          ...(videoFacts && videoFacts.width > 0 && videoFacts.height > 0
             ? { width: videoFacts.width, height: videoFacts.height }
             : {}),
           ...(thumbnailPath ? { thumbnailPath } : {}),
