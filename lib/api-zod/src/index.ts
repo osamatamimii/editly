@@ -205,7 +205,10 @@ export type UpdateSubscriptionResponse = z.infer<typeof UpdateSubscriptionRespon
 
 export const DashboardStats = z.object({
   totalProjects: z.number(),
+  /** Renders a worker is actually working on. Excludes the stalled ones. */
   processingCount: z.number(),
+  /** Renders queued with nobody to run them. */
+  stalledCount: z.number(),
   doneCount: z.number(),
   recentProjects: z.array(Project),
 });

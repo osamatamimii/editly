@@ -210,7 +210,19 @@ export default function Dashboard() {
             {isStatsLoading ? (
               <Skeleton className="h-8 w-16" />
             ) : (
-              <div className="text-3xl font-bold">{stats?.processingCount || 0}</div>
+              <>
+                <div className="text-3xl font-bold" data-testid="text-processing-count">
+                  {stats?.processingCount || 0}
+                </div>
+                {/* Counted apart from the number above it. "Processing: 2" over
+                    two cards that read "waiting for a machine" is the counter
+                    contradicting the cards. */}
+                {(stats?.stalledCount ?? 0) > 0 && (
+                  <div className="text-xs text-amber-400 mt-1" data-testid="text-stalled-count">
+                    {stats?.stalledCount} waiting for a machine
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>

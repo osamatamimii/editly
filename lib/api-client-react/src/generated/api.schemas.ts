@@ -216,7 +216,10 @@ export interface UpdateSubscriptionBody {
 
 export interface DashboardStats {
   totalProjects: number;
+  /** Renders a worker is actually working on. */
   processingCount: number;
+  /** Renders queued with no worker to run them. */
+  stalledCount: number;
   doneCount: number;
   recentProjects: Project[];
 }

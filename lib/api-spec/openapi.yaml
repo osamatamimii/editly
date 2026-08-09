@@ -514,6 +514,10 @@ components:
         totalProjects:
           type: number
         processingCount:
+          description: Renders a worker is actually working on.
+          type: number
+        stalledCount:
+          description: Renders queued with no worker to run them.
           type: number
         doneCount:
           type: number
@@ -524,5 +528,6 @@ components:
       required:
         - totalProjects
         - processingCount
+        - stalledCount
         - doneCount
         - recentProjects

@@ -507,6 +507,13 @@ console.log("\nRender queue");
   const stats = await call(ALICE, "/api/stats/dashboard");
   const onCard = stats.json?.recentProjects?.find?.((p) => p.id === aliceProjectId);
   check("so does the dashboard card", onCard?.renderStalled === true, JSON.stringify(onCard?.renderStalled));
+  // The counter above the cards has to agree with them.
+  check("a stalled render is counted as waiting, not as processing", stats.json?.stalledCount >= 1, JSON.stringify(stats.json?.stalledCount));
+  check(
+    "and it is not also counted as processing",
+    stats.json?.processingCount === 0,
+    JSON.stringify(stats.json?.processingCount),
+  );
 
   const claimed = spawnSync(
     "psql",
