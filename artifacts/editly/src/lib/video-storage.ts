@@ -142,6 +142,13 @@ function looksBlank(canvas: HTMLCanvasElement): boolean {
 /** Resolves once the element has actually presented a frame, not merely seeked. */
 function framePresented(element: HTMLVideoElement): Promise<void> {
   return new Promise((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
     // `seeked` fires when the seek completes, which on a large file can be
     // before the new frame has been decoded and handed to the compositor — so
     // drawImage returns the frame that was there before, usually the black one
@@ -152,10 +159,20 @@ function framePresented(element: HTMLVideoElement): Promise<void> {
       requestVideoFrameCallback?: (cb: () => void) => number;
     };
     if (typeof withCallback.requestVideoFrameCallback === "function") {
-      withCallback.requestVideoFrameCallback(() => resolve());
-      return;
+      withCallback.requestVideoFrameCallback(done);
+    } else {
+      requestAnimationFrame(() => requestAnimationFrame(done));
     }
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+
+    // Neither of those ever fires in a background tab: both are driven by the
+    // rendering lifecycle, which is suspended while the tab is hidden. Measured
+    // on the deployed build — a tab in the background saw no callback at all,
+    // so the capture hung until its timeout and the poster was never written.
+    // Switching tabs while a project loads should not cost you the poster, so
+    // this falls through to a plain wait. Drawing slightly too early is the
+    // risk that buys, and the blank check downstream is exactly the guard for
+    // it — it will notice the black frame and try elsewhere in the clip.
+    setTimeout(done, 500);
   });
 }
 
