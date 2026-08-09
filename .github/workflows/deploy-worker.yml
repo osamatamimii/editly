@@ -37,16 +37,26 @@ jobs:
       # deploy that cannot pass its health window is rolled back.
       - name: Push runtime secrets
         run: |
-          flyctl secrets set \
-            DATABASE_URL="$DATABASE_URL" \
-            SUPABASE_URL="$SUPABASE_URL" \
-            SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
-            --app editly-worker --stage
+          set -euo pipefail
+          # The three the worker cannot run without.
+          args=(
+            DATABASE_URL="$DATABASE_URL"
+            SUPABASE_URL="$SUPABASE_URL"
+            SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY"
+          )
+          # The model keys are optional, and only sent when they exist: pushing
+          # an empty secret would look configured in `flyctl secrets list` while
+          # behaving as absent, which is the confusing half of both worlds.
+          [ -n "${DEEPGRAM_API_KEY:-}" ] && args+=(DEEPGRAM_API_KEY="$DEEPGRAM_API_KEY")
+          [ -n "${GEMINI_API_KEY:-}" ] && args+=(GEMINI_API_KEY="$GEMINI_API_KEY")
+          flyctl secrets set "${args[@]}" --app editly-worker --stage
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           DATABASE_URL: ${{ secrets.WORKER_DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.WORKER_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.WORKER_SUPABASE_SERVICE_ROLE_KEY }}
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: Deploy
         run: flyctl deploy --config artifacts/worker/fly.toml --dockerfile artifacts/worker/Dockerfile --remote-only
