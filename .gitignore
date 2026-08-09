@@ -21,3 +21,7 @@ api/_bundle.js.map
 
 # OS
 .DS_Store
+
+# Local working copies of the claude.ai project docs, kept so an update can
+# splice one section rather than rewrite the whole file. Not part of the app.
+.docs/
