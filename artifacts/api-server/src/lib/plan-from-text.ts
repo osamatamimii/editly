@@ -2,9 +2,9 @@
  * Turns what someone typed into an edit plan the worker can actually execute.
  *
  * This is not AI, and it does not pretend to be. It is a keyword matcher over
- * the four operations that exist — which is exactly what the old version was,
- * except that one replied "I'll throw in some dynamic zooms" to a system with
- * no zoom operation, and then rendered nothing at all.
+ * the operations that exist — which is exactly what the old version was, except
+ * that one replied "I'll throw in some dynamic zooms" to a system with no zoom
+ * operation, and then rendered nothing at all.
  *
  * The important property here is that the reply is derived from the plan, so it
  * cannot promise something the plan does not contain. When phase 4 puts a real
@@ -29,7 +29,6 @@ const PLATFORM_WORDS: Array<{ platform: Platform; patterns: RegExp }> = [
 
 /** Asked-for things that are real product ideas but have no operation yet. */
 const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
-  { patterns: /\bcaption|subtitle|text on screen\b/i, label: "burn in captions (needs transcription, coming next)" },
   { patterns: /\bemoji/i, label: "add emojis" },
   { patterns: /\bmusic|beat|sound ?track\b/i, label: "add music or sync to a beat" },
   { patterns: /\bcolou?r|grade|cinematic|filter\b/i, label: "colour grade" },
@@ -42,6 +41,10 @@ const SILENCE_WORDS =
   /\bsilence|silent|quiet|pause|dead air|um+s?\b|\bfiller|tighten|trim|short|fast|snapp|pace|boring|drag/i;
 
 const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b/i;
+
+const CAPTION_WORDS = /\bcaption|subtitle|sub ?titles?|text on screen|on-?screen text\b/i;
+const KARAOKE_WORDS = /\bkaraoke|word by word|word-by-word|highlight/i;
+const YELLOW_WORDS = /\byellow|gold\b/i;
 
 const PUNCH_WORDS = /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b/i;
 const PUSH_WORDS = /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b/i;
@@ -67,12 +70,24 @@ export function planFromText(text: string, options: { defaultPlatform?: Platform
     willDo.push(`reframe it to 9:16 for ${target}`);
   }
 
-  // Punches need timestamps and nothing here knows where the interesting
-  // moments are yet, so they are spread evenly. Naming that in the reply keeps
-  // it honest about how the placement was chosen.
+  // The words are in the video, not in this sentence, so the plan asks for
+  // captions and the worker fills them in once it has heard the clip. If no
+  // recogniser is configured there, the render comes back saying so.
+  if (CAPTION_WORDS.test(text)) {
+    operations.push({
+      type: "autoCaptions",
+      style: KARAOKE_WORDS.test(text) ? "karaoke-box" : YELLOW_WORDS.test(text) ? "bold-yellow" : "bold-white",
+      animation: KARAOKE_WORDS.test(text) ? "karaoke" : "pop",
+      dropFillers: true,
+    });
+    willDo.push("caption it from what is actually said");
+  }
+
+  // An empty `at` means "you choose": the worker puts the punches where the
+  // speaker leaned on a word, which it can only know after transcribing.
   if (PUNCH_WORDS.test(text)) {
     operations.push({ type: "zoomPunch", at: [], amount: 0.13, holdMs: 1000 });
-    willDo.push("punch in at a few points for emphasis");
+    willDo.push("punch in where you lean on a word");
   } else if (PUSH_WORDS.test(text)) {
     operations.push({ type: "kenBurns", to: 1.08 });
     willDo.push("add a slow push so the frame is not static");
@@ -96,7 +111,7 @@ export function planFromText(text: string, options: { defaultPlatform?: Platform
  */
 export function replyFor(intent: ParsedIntent, context: { hasVideo: boolean }): string {
   if (!context.hasVideo) {
-    return "Upload a video first and I'll get to work — I can cut the silences out, reframe it for TikTok, Reels or Shorts, add motion, and level the audio.";
+    return "Upload a video first and I'll get to work — I can cut the silences out, caption it from what you actually say, reframe it for TikTok, Reels or Shorts, add motion, and level the audio.";
   }
 
   const parts: string[] = [];
@@ -114,8 +129,8 @@ export function replyFor(intent: ParsedIntent, context: { hasVideo: boolean }): 
   if (parts.length === 0) {
     return (
       "I'm not sure what to change from that. Right now I can cut the silences out of a clip, " +
-      "reframe it to 9:16, add punch-in zooms or a slow push, and level the audio — try " +
-      'something like "remove the dead air, make it vertical for TikTok and add some zooms".'
+      "caption it, reframe it to 9:16, add punch-in zooms or a slow push, and level the audio — try " +
+      'something like "remove the dead air, caption it and make it vertical for TikTok".'
     );
   }
 
