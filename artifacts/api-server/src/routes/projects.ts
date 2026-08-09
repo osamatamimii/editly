@@ -128,7 +128,7 @@ router.patch("/projects/:id", async (req, res): Promise<void> => {
 
   // Storage keys come from the browser, so the server confirms they point
   // inside this user's folder for this project before recording them.
-  for (const field of ["videoPath", "editedVideoPath"] as const) {
+  for (const field of ["videoPath", "editedVideoPath", "thumbnailPath"] as const) {
     const value = parsed.data[field];
     if (value !== undefined && !isOwnedObjectPath(value, userId, params.data.id)) {
       res.status(400).json({ error: `${field} must be inside this project's own storage folder` });

@@ -20,6 +20,8 @@ export const projectsTable = pgTable(
      */
     videoPath: text("video_path"),
     editedVideoPath: text("edited_video_path"),
+    /** Poster frame, same key shape as the video. */
+    thumbnailPath: text("thumbnail_path"),
     duration: real("duration"),
     platform: text("platform"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

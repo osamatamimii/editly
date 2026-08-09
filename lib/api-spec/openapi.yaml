@@ -305,6 +305,9 @@ components:
         editedVideoPath:
           description: Storage object key for the rendered output, once one exists.
           type: ["string", "null"]
+        thumbnailPath:
+          description: Storage object key for the poster frame.
+          type: ["string", "null"]
         duration:
           type: ["number", "null"]
         platform:
@@ -323,6 +326,7 @@ components:
         - editedVideoUrl
         - videoPath
         - editedVideoPath
+        - thumbnailPath
         - duration
         - platform
         - createdAt
@@ -353,6 +357,8 @@ components:
         videoPath:
           type: string
         editedVideoPath:
+          type: string
+        thumbnailPath:
           type: string
         duration:
           type: number

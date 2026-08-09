@@ -33,6 +33,145 @@ function extensionFor(file: File): string {
 
 export class UploadError extends Error {}
 
+export interface VideoFacts {
+  /** Seconds. */
+  duration: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Reads what the browser already knows about a file before it is uploaded.
+ *
+ * The duration matters more than it looks: templates spread their punch-in
+ * zooms across the clip's length, and without one they fall back to a guess —
+ * so on a three-minute video every punch landed inside the first thirty
+ * seconds.
+ */
+export function readVideoFacts(file: File): Promise<VideoFacts> {
+  return new Promise((resolve, reject) => {
+    const element = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    const cleanUp = () => URL.revokeObjectURL(url);
+
+    // A file the browser cannot decode must not hang the upload; it still
+    // uploads fine, it just arrives without a length or a poster frame.
+    const timer = setTimeout(() => {
+      cleanUp();
+      reject(new Error("timed out reading the video"));
+    }, 15_000);
+
+    element.preload = "metadata";
+    element.muted = true;
+    element.onloadedmetadata = () => {
+      clearTimeout(timer);
+      const facts = {
+        duration: Number.isFinite(element.duration) ? element.duration : 0,
+        width: element.videoWidth,
+        height: element.videoHeight,
+      };
+      cleanUp();
+      facts.duration > 0 ? resolve(facts) : reject(new Error("no duration"));
+    };
+    element.onerror = () => {
+      clearTimeout(timer);
+      cleanUp();
+      reject(new Error("could not decode the video"));
+    };
+    element.src = url;
+  });
+}
+
+/**
+ * Grabs a single frame as a JPEG.
+ *
+ * Taken a little way in rather than at zero: the first frame of a phone
+ * recording is very often a black or half-exposed one, which makes for a
+ * dashboard of black rectangles — which is what a missing thumbnail looked
+ * like in the first place.
+ */
+export function captureThumbnail(file: File, atFraction = 0.25): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const element = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    const cleanUp = () => URL.revokeObjectURL(url);
+
+    const timer = setTimeout(() => {
+      cleanUp();
+      reject(new Error("timed out capturing a frame"));
+    }, 20_000);
+
+    element.preload = "auto";
+    element.muted = true;
+    element.playsInline = true;
+
+    element.onloadedmetadata = () => {
+      const target = Number.isFinite(element.duration) ? element.duration * atFraction : 0;
+      element.currentTime = Math.min(Math.max(target, 0.1), Math.max(0.1, element.duration - 0.1));
+    };
+
+    element.onseeked = () => {
+      clearTimeout(timer);
+      try {
+        // Cap the long edge: a poster for a 220px card does not need to be 4K,
+        // and every one of these is stored and fetched per dashboard load.
+        const MAX_EDGE = 640;
+        const scale = Math.min(1, MAX_EDGE / Math.max(element.videoWidth, element.videoHeight));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(element.videoWidth * scale));
+        canvas.height = Math.max(1, Math.round(element.videoHeight * scale));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("no canvas context");
+        ctx.drawImage(element, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => {
+            cleanUp();
+            blob ? resolve(blob) : reject(new Error("could not encode the frame"));
+          },
+          "image/jpeg",
+          0.82,
+        );
+      } catch (error) {
+        cleanUp();
+        reject(error);
+      }
+    };
+
+    element.onerror = () => {
+      clearTimeout(timer);
+      cleanUp();
+      reject(new Error("could not decode the video"));
+    };
+    element.src = url;
+  });
+}
+
+/** Uploads the poster frame beside the video and returns its object key. */
+export async function uploadThumbnail(options: {
+  blob: Blob;
+  userId: string;
+  projectId: string;
+  accessToken: string;
+}): Promise<string> {
+  const { blob, userId, projectId, accessToken } = options;
+  const path = `${userId}/${projectId}/thumb.jpg`;
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${path}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        "Content-Type": "image/jpeg",
+        "x-upsert": "true",
+      },
+      body: blob,
+    },
+  );
+  if (!res.ok) throw new UploadError(`Could not store the poster frame (${res.status}).`);
+  return path;
+}
+
 export interface UploadHandle {
   /** Resolves to the durable Storage object key once the bytes are committed. */
   done: Promise<string>;

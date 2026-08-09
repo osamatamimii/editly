@@ -52,6 +52,9 @@ export interface Project {
   /** Storage object key for the rendered output, once one exists.
    * @nullable */
   editedVideoPath: string | null;
+  /** Storage object key for the poster frame.
+   * @nullable */
+  thumbnailPath: string | null;
   /** @nullable */
   duration: number | null;
   /** @nullable */
@@ -92,6 +95,7 @@ export interface UpdateProjectBody {
   editedVideoUrl?: string;
   videoPath?: string;
   editedVideoPath?: string;
+  thumbnailPath?: string;
   duration?: number;
   platform?: UpdateProjectBodyPlatform;
 }

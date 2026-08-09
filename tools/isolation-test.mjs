@@ -242,6 +242,21 @@ console.log("\nStorage path ownership");
   });
   check("editedVideoPath is validated too", edited.status === 400, `got ${edited.status}`);
 
+  const thumb = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", {
+    thumbnailPath: `${BOB}/${aliceProjectId}/thumb.jpg`,
+  });
+  check("so is the poster frame", thumb.status === 400, `got ${thumb.status}`);
+
+  const ownThumb = await call(ALICE, `/api/projects/${aliceProjectId}`, "PATCH", {
+    thumbnailPath: `${ALICE}/${aliceProjectId}/thumb.jpg`,
+    duration: 187.4,
+  });
+  check(
+    "the length and poster frame are recorded",
+    ownThumb.json?.thumbnailPath === `${ALICE}/${aliceProjectId}/thumb.jpg` && ownThumb.json?.duration === 187.4,
+    JSON.stringify({ t: ownThumb.json?.thumbnailPath, d: ownThumb.json?.duration }),
+  );
+
   const intact = await call(ALICE, `/api/projects/${aliceProjectId}`);
   check(
     "refused writes left the stored key untouched",
@@ -340,6 +355,13 @@ console.log("\nNamed looks");
   check(
     "punches are placed inside the clip, not at fixed times",
     punch && punch.at.length > 0 && punch.at.every((t) => t > 0 && t < 42),
+    JSON.stringify(punch?.at),
+  );
+  // The bug this guards: with no duration recorded, placement fell back to 30
+  // seconds and every punch on a long clip landed in the first half minute.
+  check(
+    "and spread across the whole clip, not just its first 30 seconds",
+    punch && punch.at.some((t) => t > 30),
     JSON.stringify(punch?.at),
   );
 

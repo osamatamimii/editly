@@ -24,9 +24,28 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { deleteProjectVideos } from "@/lib/video-storage";
+import { deleteProjectVideos, usePlayableVideo } from "@/lib/video-storage";
 import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
+
+/**
+ * A project's poster frame. The bucket is private, so the stored key has to be
+ * signed before it can be shown — and each card signs its own rather than the
+ * dashboard signing all of them, so one failure costs one card.
+ */
+function ProjectThumbnail({ project }: { project: { title: string; thumbnailPath?: string | null; thumbnailUrl?: string | null } }) {
+  const { url } = usePlayableVideo(project.thumbnailPath ?? project.thumbnailUrl);
+  if (!url) return <Video className="w-10 h-10 text-muted-foreground/30" />;
+  return (
+    <img
+      src={url}
+      alt={project.title}
+      loading="lazy"
+      className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity group-hover:scale-105 duration-500"
+      data-testid="img-project-thumbnail"
+    />
+  );
+}
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
@@ -277,8 +296,8 @@ export default function Dashboard() {
               <Link key={project.id} href={`/project/${project.id}`}>
                 <Card className="glass-panel border-white/5 overflow-hidden hover:border-primary/50 transition-colors group cursor-pointer h-full flex flex-col">
                   <div className="w-full aspect-[16/9] bg-black/60 relative overflow-hidden flex-shrink-0">
-                    {project.thumbnailUrl ? (
-                      <img src={project.thumbnailUrl} alt={project.title} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity group-hover:scale-105 duration-500" />
+                    {project.thumbnailPath || project.thumbnailUrl ? (
+                      <ProjectThumbnail project={project} />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <Video className="w-10 h-10 text-white/20" />

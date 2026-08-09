@@ -34,6 +34,9 @@ import {
   ACCEPTED_VIDEO_TYPES,
   MAX_UPLOAD_BYTES,
   formatBytes,
+  readVideoFacts,
+  captureThumbnail,
+  uploadThumbnail,
 } from "@/lib/video-storage";
 import { ToastAction } from "@/components/ui/toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -157,11 +160,34 @@ export default function ProjectEditor() {
     });
     cancelUploadRef.current = handle.cancel;
 
+    // Read the length and grab a poster frame while the bytes are in flight,
+    // so neither costs the user any waiting. Both are best-effort: a file the
+    // browser cannot decode still uploads, it just arrives without them.
+    const facts = readVideoFacts(file).catch(() => null);
+    const poster = captureThumbnail(file).catch(() => null);
+
     try {
       const videoPath = await handle.done;
+      const [videoFacts, posterBlob] = await Promise.all([facts, poster]);
+
+      let thumbnailPath: string | undefined;
+      if (posterBlob) {
+        thumbnailPath = await uploadThumbnail({
+          blob: posterBlob,
+          userId: user.id,
+          projectId: id,
+          accessToken,
+        }).catch(() => undefined);
+      }
+
       await updateProject.mutateAsync({
         id,
-        data: { status: "ready", videoPath }
+        data: {
+          status: "ready",
+          videoPath,
+          ...(videoFacts ? { duration: videoFacts.duration } : {}),
+          ...(thumbnailPath ? { thumbnailPath } : {}),
+        }
       });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
       toast({
