@@ -36,14 +36,50 @@ import { Badge } from "@/components/ui/badge";
  */
 function ProjectThumbnail({ project }: { project: { title: string; thumbnailPath?: string | null; thumbnailUrl?: string | null } }) {
   const { url } = usePlayableVideo(project.thumbnailPath ?? project.thumbnailUrl);
-  if (!url) return <Video className="w-10 h-10 text-muted-foreground/30" />;
+  if (!url) return null;
   return (
     <img
       src={url}
       alt={project.title}
       loading="lazy"
-      className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity group-hover:scale-105 duration-500"
+      className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity group-hover:scale-105 duration-500"
       data-testid="img-project-thumbnail"
+    />
+  );
+}
+
+/**
+ * The fallback for a project that has a clip but no stored poster.
+ *
+ * Rather than a grey camera icon, the card shows the clip itself, parked on a
+ * frame a little way in via a media fragment — the browser draws that frame
+ * without playing anything and without any JavaScript. It costs a range request
+ * rather than a whole download.
+ *
+ * This matters because a poster is only written when a project is uploaded or
+ * opened. Everything made before posters existed would otherwise stay a grey
+ * rectangle until someone happened to open it, and the library is exactly the
+ * screen where you should be able to recognise your own work at a glance.
+ *
+ * The icon underneath stays put: if a browser will not decode the file, a
+ * silent black rectangle is the thing this was meant to stop.
+ */
+function ProjectClipFrame({
+  project,
+}: {
+  project: { title: string; videoPath?: string | null; videoUrl?: string | null; duration?: number | null };
+}) {
+  const { url } = usePlayableVideo(project.videoPath ?? project.videoUrl);
+  if (!url) return null;
+  const at = project.duration && project.duration > 4 ? Math.round(project.duration * 0.25) : 1;
+  return (
+    <video
+      src={`${url}#t=${at}`}
+      preload="metadata"
+      muted
+      playsInline
+      className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity group-hover:scale-105 duration-500"
+      data-testid="video-project-frame"
     />
   );
 }
@@ -333,12 +369,17 @@ export default function Dashboard() {
               <Link key={project.id} href={`/project/${project.id}`}>
                 <Card className="glass-panel border-white/5 overflow-hidden hover:border-primary/50 transition-colors group cursor-pointer h-full flex flex-col">
                   <div className="w-full aspect-[16/9] bg-black/60 relative overflow-hidden flex-shrink-0">
+                    {/* The icon is the floor, not the fallback: it sits under
+                        whatever loads, so a poster that fails to fetch or a clip
+                        the browser will not decode leaves a recognisable empty
+                        card rather than a black rectangle. */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Video className="w-10 h-10 text-white/20" />
+                    </div>
                     {project.thumbnailPath || project.thumbnailUrl ? (
                       <ProjectThumbnail project={project} />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <Video className="w-10 h-10 text-white/20" />
-                      </div>
+                      <ProjectClipFrame project={project} />
                     )}
                     <div className="absolute top-3 right-3">
                       {getStatusBadge(project.status, project.renderStalled)}
