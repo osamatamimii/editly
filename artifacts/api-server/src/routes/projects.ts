@@ -13,7 +13,8 @@ import {
   UpdateProjectResponse,
 } from "@workspace/api-zod";
 import { serializeProject } from "../lib/transformers";
-import { PLAN_LIMITS, isPlanKey } from "../lib/plan-limits";
+import { planKeyFrom } from "../lib/plan-limits";
+import { usageFor, exhaustedMessage } from "../lib/usage";
 import { currentUserId } from "../middlewares/auth";
 import { deleteProjectObjects, isOwnedObjectPath } from "../lib/storage";
 import { isUnclaimed } from "../lib/queue-health";
@@ -77,29 +78,20 @@ router.post("/projects", async (req, res): Promise<void> => {
     .where(eq(subscriptionsTable.userId, userId))
     .limit(1);
 
-  const planKey = sub && isPlanKey(sub.plan) ? sub.plan : "starter";
-  const limits = PLAN_LIMITS[planKey];
+  const planKey = planKeyFrom(sub?.plan);
 
-  const startOfMonth = new Date();
-  startOfMonth.setUTCDate(1);
-  startOfMonth.setUTCHours(0, 0, 0, 0);
-
-  // Quota is per user, not global.
-  const [{ value: videosThisMonth }] = await db
-    .select({ value: count() })
-    .from(projectsTable)
-    .where(
-      and(
-        eq(projectsTable.userId, userId),
-        gte(projectsTable.createdAt, startOfMonth),
-      ),
-    );
-
-  if (videosThisMonth >= limits.videosPerMonth) {
+  // The meter is minutes of finished video, not projects created. Creating a
+  // project costs us nothing, so it is not the thing to charge for, and
+  // refusing it is the wrong place to say no. What gets refused is a render
+  // that would go past the allowance.
+  const usage = await usageFor(userId, planKey);
+  if (usage.exhausted) {
     res.status(429).json({
-      error: `You've reached your ${planKey} plan limit of ${limits.videosPerMonth} videos this month. Upgrade to create more.`,
+      error: exhaustedMessage(planKey, usage),
       limitReached: true,
       plan: planKey,
+      minutesUsed: usage.minutesUsed,
+      minutesIncluded: usage.minutesIncluded,
     });
     return;
   }

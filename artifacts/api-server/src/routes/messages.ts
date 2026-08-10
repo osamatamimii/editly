@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { eq, asc, count, and } from "drizzle-orm";
-import { db, messagesTable, projectsTable, subscriptionsTable } from "@workspace/db";
+import { eq, asc, and } from "drizzle-orm";
+import { db, messagesTable, projectsTable } from "@workspace/db";
 import {
   SendMessageBody,
   SendMessageParams,
@@ -9,7 +9,6 @@ import {
   ListMessagesResponse,
 } from "@workspace/api-zod";
 import { serializeMessage } from "../lib/transformers";
-import { PLAN_LIMITS, isPlanKey } from "../lib/plan-limits";
 import { currentUserId } from "../middlewares/auth";
 import { replyFor } from "../lib/plan-from-text";
 import { createPlanner } from "../lib/planner";
@@ -76,36 +75,13 @@ router.post("/projects/:id/messages", async (req, res): Promise<void> => {
     return;
   }
 
-  const [sub] = await db
-    .select()
-    .from(subscriptionsTable)
-    .where(eq(subscriptionsTable.userId, userId))
-    .limit(1);
-
-  const planKey = sub && isPlanKey(sub.plan) ? sub.plan : "starter";
-  const limits = PLAN_LIMITS[planKey];
-
-  if (limits.editsPerVideo !== null) {
-    const [{ value: userEdits }] = await db
-      .select({ value: count() })
-      .from(messagesTable)
-      .where(
-        and(
-          eq(messagesTable.projectId, params.data.id),
-          eq(messagesTable.userId, userId),
-          eq(messagesTable.role, "user"),
-        ),
-      );
-
-    if (userEdits >= limits.editsPerVideo) {
-      res.status(429).json({
-        error: `You've reached your ${planKey} plan limit of ${limits.editsPerVideo} edits per video. Upgrade for more edits.`,
-        limitReached: true,
-        plan: planKey,
-      });
-      return;
-    }
-  }
+  // There is no cap on how many times you can ask for a change.
+  //
+  // The old one charged for iteration: ten messages per video on the entry
+  // plan, then a paywall mid-conversation. But iteration *is* the product —
+  // "make the intro punchier", "actually, keep that pause" — and a conversation
+  // costs us almost nothing until it becomes a render. The meter is minutes of
+  // finished video, and that is checked where the render starts.
 
   // The reply is derived from a real plan, so it cannot promise an edit the
   // worker has no operation for — whether a model or the keyword matcher chose

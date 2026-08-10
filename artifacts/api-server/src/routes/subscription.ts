@@ -2,7 +2,8 @@ import { Router, type IRouter } from "express";
 import { eq, gte, count, and } from "drizzle-orm";
 import { db, subscriptionsTable, projectsTable } from "@workspace/db";
 import { GetSubscriptionResponse, UpdateSubscriptionBody, UpdateSubscriptionResponse } from "@workspace/api-zod";
-import { PLAN_LIMITS, isPlanKey, type PlanKey } from "../lib/plan-limits";
+import { PLAN_LIMITS, planKeyFrom, type PlanKey } from "../lib/plan-limits";
+import { usageFor } from "../lib/usage";
 import { currentUserId } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -11,7 +12,7 @@ const router: IRouter = Router();
  * Cheapest first. Moving down this list costs the user nothing and can be
  * self-served; moving up must go through billing, which does not exist yet.
  */
-const PLAN_RANK: Record<PlanKey, number> = { starter: 0, pro: 1, scale: 2 };
+const PLAN_RANK: Record<PlanKey, number> = { free: 0, creator: 1, pro: 2, studio: 3 };
 
 function startOfCurrentMonth(): Date {
   const now = new Date();
@@ -46,24 +47,18 @@ async function getOrCreateSubscription(userId: string) {
 }
 
 async function buildUsageResponse(userId: string, plan: string) {
-  const validPlan = isPlanKey(plan) ? plan : "starter";
+  const validPlan = planKeyFrom(plan);
   const limits = PLAN_LIMITS[validPlan];
-
-  const [{ value: videosUsed }] = await db
-    .select({ value: count() })
-    .from(projectsTable)
-    .where(
-      and(
-        eq(projectsTable.userId, userId),
-        gte(projectsTable.createdAt, startOfCurrentMonth()),
-      ),
-    );
+  const usage = await usageFor(userId, validPlan);
 
   return {
     plan: validPlan,
-    videoLimitPerMonth: limits.videosPerMonth,
-    videosUsedThisMonth: videosUsed,
-    editsPerVideo: limits.editsPerVideo,
+    minutesIncluded: usage.minutesIncluded,
+    minutesUsedThisMonth: usage.minutesUsed,
+    minutesRemaining: usage.minutesRemaining,
+    maxUploadMinutes: limits.maxUploadMinutes,
+    watermark: limits.watermark,
+    referenceStyle: limits.referenceStyle,
     pricePerMonth: limits.pricePerMonth,
   };
 }
@@ -86,7 +81,7 @@ router.patch("/subscription", async (req, res): Promise<void> => {
 
   const { plan } = parsed.data;
   const current = await getOrCreateSubscription(userId);
-  const currentPlan: PlanKey = isPlanKey(current.plan) ? current.plan : "starter";
+  const currentPlan: PlanKey = planKeyFrom(current.plan);
 
   // Until a payment provider is wired up, an upgrade here would hand out paid
   // capacity for free. Downgrades stay self-service because they only ever

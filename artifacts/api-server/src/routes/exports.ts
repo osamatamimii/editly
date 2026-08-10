@@ -7,9 +7,10 @@ import {
   StartExportParams,
   GetExportStatusParams,
   GetExportStatusResponse,
-  isPlanKeyGuard,
 } from "@workspace/api-zod";
 import { serializeExport } from "../lib/transformers";
+import { PLAN_LIMITS, planKeyFrom } from "../lib/plan-limits";
+import { usageFor, exhaustedMessage } from "../lib/usage";
 import { currentUserId } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -110,9 +111,26 @@ router.post("/projects/:id/export", async (req, res): Promise<void> => {
     { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
     { type: "formatForPlatform", platform: parsed.data.platform },
   ];
-  // The growth loop: free-plan exports carry the mark, paid ones do not.
-  if (!sub || !isPlanKeyGuard(sub.plan) || sub.plan === "starter") {
+  // The growth loop: free exports carry the mark, paid ones do not. Asking the
+  // plan rather than comparing to a name means adding a tier cannot silently
+  // start or stop watermarking it.
+  const planKey = planKeyFrom(sub?.plan);
+  if (PLAN_LIMITS[planKey].watermark) {
     operations.push({ type: "watermark", text: "Edited with Editly", position: "bottom-right" });
+  }
+
+  // And the meter: a render is the thing that costs, so it is the thing that
+  // gets refused when the month's minutes are gone.
+  const usage = await usageFor(userId, planKey);
+  if (usage.exhausted) {
+    res.status(429).json({
+      error: exhaustedMessage(planKey, usage),
+      limitReached: true,
+      plan: planKey,
+      minutesUsed: usage.minutesUsed,
+      minutesIncluded: usage.minutesIncluded,
+    });
+    return;
   }
 
   const jobId = randomUUID();
