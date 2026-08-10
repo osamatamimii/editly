@@ -42,6 +42,11 @@ node tools/models-test.mjs
 # against slow, breathy against tight, graded against flat.
 node tools/style-test.mjs
 
+# 26 checks that nobody can forge a payment: an unsigned webhook, a real
+# signature on a tampered body, a refund that must drop access to free, and a
+# retried event that must not compound. No keys, no network, no database.
+node tools/billing-test.mjs
+
 # 24 checks that a model cannot make the product lie: invented operations are
 # discarded, out-of-range values rejected rather than clamped, and a timeout or
 # a 500 falls back to keywords instead of reaching the user.
