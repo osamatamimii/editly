@@ -4,7 +4,7 @@
 
 Upload a raw take, say what you want in plain language ("cut the dead air and make it vertical for TikTok"), and get back something ready to post.
 
-**What actually works today:** silence removal, reframing to 9:16, motion, loudness levelling, and the free-plan watermark — all real ffmpeg, run on a dedicated worker. Captions are burned from a real transcript, broken onto lines we choose, and placed clear of each platform's own on-screen furniture; punch-ins land where the speaker leaned on a word rather than on a metronome, and the 9:16 crop is placed where the picture's detail and movement actually are rather than blindly at the centre. Speech recognition and scene understanding are wired but optional — without their keys the worker still edits, and the render notes say what it could not do instead of dropping it silently. Requests are still parsed by keyword matching, not a language model, and the assistant says plainly when it cannot do something rather than promising it. See `ROADMAP.md` for what is next and what it will cost.
+**What actually works today:** silence removal, reframing to 9:16, motion, loudness levelling, and the free-plan watermark — all real ffmpeg, run on a dedicated worker. Captions are burned from a real transcript, broken onto lines we choose, and placed clear of each platform's own on-screen furniture; punch-ins land where the speaker leaned on a word rather than on a metronome, and the 9:16 crop is placed where the picture's detail and movement actually are rather than blindly at the centre. Speech recognition and scene understanding are wired but optional — without their keys the worker still edits, and the render notes say what it could not do instead of dropping it silently. Requests are turned into plans by a model when `OPENAI_API_KEY` is set and by keyword matching when it is not — either way the model chooses only from operations that exist, and the reply the user reads is generated from those operations rather than by the model, so the assistant cannot promise work the worker will not do. See `ROADMAP.md` for what is next and what it will cost.
 
 ## Stack
 
@@ -41,6 +41,11 @@ node tools/models-test.mjs
 # 25 checks that a reference clip's look is measured, not guessed: fast cuts
 # against slow, breathy against tight, graded against flat.
 node tools/style-test.mjs
+
+# 24 checks that a model cannot make the product lie: invented operations are
+# discarded, out-of-range values rejected rather than clamped, and a timeout or
+# a 500 falls back to keywords instead of reaching the user.
+node tools/planner-test.mjs
 
 # Storage policies are enforced by Postgres, not by code in this repo. Paste
 # this into the browser console on the deployed app after changing them.
