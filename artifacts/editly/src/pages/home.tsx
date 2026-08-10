@@ -43,15 +43,25 @@ const PARTICLES = Array.from({ length: 30 }, (_, i) => ({
   drift:   ((i * 23) % 60) - 30,
 }));
 
+/**
+ * The tiers, priced on minutes of finished video.
+ *
+ * The quotas come from what people publish, not from round numbers. A
+ * short-form creator posts a few times a week at half a minute, which is five
+ * to twenty minutes a month — sixty is headroom, not a leash. A long-form
+ * YouTuber lands near a hundred. What sells Pro is not its minutes but its
+ * four-hour upload: a whole podcast episode as one file.
+ */
 const PLANS = [
   {
-    key: "starter" as const,
-    name: "Starter",
+    key: "creator" as const,
+    name: "Creator",
     price: 12,
     yearlyPrice: 115,
     yearlyPerMonth: "$9.6/month billed yearly",
-    videos: 10,
-    edits: "10 edits per video",
+    minutes: 60,
+    forWho: "Short-form: TikTok, Reels, Shorts",
+    upload: "Upload up to 30 minutes",
     color: "emerald",
   },
   {
@@ -60,26 +70,29 @@ const PLANS = [
     price: 29,
     yearlyPrice: 279,
     yearlyPerMonth: "$23.25/month billed yearly",
-    videos: 40,
-    edits: "20 edits per video",
+    minutes: 400,
+    forWho: "Long-form: YouTube and podcasts",
+    upload: "Upload a 4-hour episode as one file",
     color: "violet",
     popular: true,
   },
   {
-    key: "scale" as const,
-    name: "Scale",
-    price: 59,
-    yearlyPrice: 566,
-    yearlyPerMonth: "$47.2/month billed yearly",
-    videos: 100,
-    edits: "Unlimited edits per video",
+    key: "studio" as const,
+    name: "Studio",
+    price: 79,
+    yearlyPrice: 758,
+    yearlyPerMonth: "$63.2/month billed yearly",
+    minutes: 1000,
+    forWho: "Teams and agencies",
+    upload: "3 seats, brand kit, API",
     color: "fuchsia",
   },
 ] as const;
 
 const SHARED_FEATURES = [
-  "All editing features included",
-  "AI editor (Noah)",
+  "No watermark",
+  "Unlimited edits — asking again is free",
+  "Match the style of a video you like",
   "Export ready-to-post clips",
 ];
 
@@ -133,7 +146,7 @@ export default function Home() {
     };
   }, []);
 
-  const handleSelectPlan = (plan: "starter" | "pro" | "scale") => {
+  const handleSelectPlan = (plan: "creator" | "pro" | "studio") => {
     updateSubscription.mutate(
       { data: { plan } },
       { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() }) }
@@ -690,10 +703,11 @@ Every plan does the same editing. Pick how much you post.
 
                   <div className="mb-6 space-y-2">
                     <div className="flex items-center gap-2 text-sm font-semibold">
-                      <span className="text-2xl">{plan.videos === 100 ? "100" : plan.videos}</span>
-                      <span className="text-muted-foreground">videos/month</span>
+                      <span className="text-2xl">{plan.minutes}</span>
+                      <span className="text-muted-foreground">minutes/month</span>
                     </div>
-                    <div className="text-sm text-muted-foreground">{plan.edits}</div>
+                    <div className="text-sm text-muted-foreground">{plan.upload}</div>
+                    <div className="text-xs text-muted-foreground/70 mt-1">{plan.forWho}</div>
                   </div>
 
                   <div className="h-px bg-white/5 mb-6" />

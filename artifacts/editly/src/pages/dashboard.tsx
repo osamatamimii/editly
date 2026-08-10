@@ -122,7 +122,7 @@ export default function Dashboard() {
       if (status === 429) {
         toast({
           title: "Video limit reached",
-          description: `You've used all ${subscription?.videoLimitPerMonth ?? ""} videos on your ${subscription?.plan ?? ""} plan this month.`,
+          description: `You've used all ${subscription?.minutesIncluded ?? ""} minutes on your ${subscription?.plan ?? ""} plan this month.`,
           variant: "destructive",
           action: (
             <ToastAction altText="Upgrade plan" onClick={() => window.location.href = "/#pricing"}>
@@ -284,43 +284,43 @@ export default function Dashboard() {
       {/* Usage Banner */}
       {!isSubscriptionLoading && subscription && (
         <div className={`mb-8 rounded-2xl border px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel ${
-          subscription.videosUsedThisMonth >= subscription.videoLimitPerMonth
+          subscription.minutesUsedThisMonth >= subscription.minutesIncluded
             ? "border-red-500/30 bg-red-500/5"
-            : subscription.videosUsedThisMonth / subscription.videoLimitPerMonth >= 0.8
+            : subscription.minutesUsedThisMonth / subscription.minutesIncluded >= 0.8
             ? "border-amber-500/30 bg-amber-500/5"
             : "border-white/5"
         }`}>
           <div className="flex items-center gap-3 min-w-0">
             <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
-              subscription.videosUsedThisMonth >= subscription.videoLimitPerMonth
+              subscription.minutesUsedThisMonth >= subscription.minutesIncluded
                 ? "bg-red-500/15"
-                : subscription.videosUsedThisMonth / subscription.videoLimitPerMonth >= 0.8
+                : subscription.minutesUsedThisMonth / subscription.minutesIncluded >= 0.8
                 ? "bg-amber-500/15"
                 : "bg-primary/10"
             }`}>
               <TrendingUp className={`w-4 h-4 ${
-                subscription.videosUsedThisMonth >= subscription.videoLimitPerMonth
+                subscription.minutesUsedThisMonth >= subscription.minutesIncluded
                   ? "text-red-400"
-                  : subscription.videosUsedThisMonth / subscription.videoLimitPerMonth >= 0.8
+                  : subscription.minutesUsedThisMonth / subscription.minutesIncluded >= 0.8
                   ? "text-amber-400"
                   : "text-primary"
               }`} />
             </div>
             <div>
               <div className="text-sm font-medium">
-                <span className="font-bold">{subscription.videosUsedThisMonth} / {subscription.videoLimitPerMonth}</span>
-                {" "}videos used this month
+                <span className="font-bold">{subscription.minutesUsedThisMonth} / {subscription.minutesIncluded}</span>
+                {" "}minutes used this month
               </div>
               <div className="mt-1.5 w-48 h-1.5 rounded-full bg-white/10 overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    subscription.videosUsedThisMonth >= subscription.videoLimitPerMonth
+                    subscription.minutesUsedThisMonth >= subscription.minutesIncluded
                       ? "bg-red-400"
-                      : subscription.videosUsedThisMonth / subscription.videoLimitPerMonth >= 0.8
+                      : subscription.minutesUsedThisMonth / subscription.minutesIncluded >= 0.8
                       ? "bg-amber-400"
                       : "bg-primary"
                   }`}
-                  style={{ width: `${Math.min(100, (subscription.videosUsedThisMonth / subscription.videoLimitPerMonth) * 100)}%` }}
+                  style={{ width: `${Math.min(100, (subscription.minutesUsedThisMonth / subscription.minutesIncluded) * 100)}%` }}
                 />
               </div>
             </div>
@@ -329,7 +329,7 @@ export default function Dashboard() {
             <Badge variant="outline" className="capitalize border-white/10 bg-white/5 text-xs font-semibold">
               {subscription.plan} plan
             </Badge>
-            {subscription.videosUsedThisMonth / subscription.videoLimitPerMonth >= 0.8 && (
+            {subscription.minutesUsedThisMonth / subscription.minutesIncluded >= 0.8 && (
               <Link href="/#pricing">
                 <Button size="sm" className="bg-primary hover:bg-primary/90 text-white rounded-full text-xs h-8 px-4">
                   Upgrade
