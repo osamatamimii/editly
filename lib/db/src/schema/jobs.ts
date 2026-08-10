@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, uuid, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, uuid, integer, real, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -39,6 +39,16 @@ export const jobsTable = pgTable(
 
     /** Set only on failure, and safe to show the user. */
     error: text("error"),
+
+    /**
+     * How long the finished video actually came out, in seconds, measured by
+     * the worker after encoding. This is what the plan meter counts.
+     *
+     * Null means "not measured" rather than zero: jobs that predate
+     * minute-based billing have no honest value, and a zero would tell the
+     * quota those renders were free.
+     */
+    outputSeconds: real("output_seconds"),
 
     attempts: integer("attempts").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(3),
