@@ -478,26 +478,38 @@ components:
 
     SubscriptionPlan:
       type: string
-      enum: [starter, pro, scale]
+      enum: [free, creator, pro, studio]
 
+    # The meter is minutes of finished video, not videos: counting videos
+    # charged the same for a nine-second hook and a ninety-minute episode.
+    # maxUploadMinutes is here because it is what actually separates the tiers.
     SubscriptionUsage:
       type: object
       properties:
         plan:
           $ref: "#/components/schemas/SubscriptionPlan"
-        videoLimitPerMonth:
+        minutesIncluded:
           type: number
-        videosUsedThisMonth:
+        minutesUsedThisMonth:
           type: number
-        editsPerVideo:
-          type: ["number", "null"]
+        minutesRemaining:
+          type: number
+        maxUploadMinutes:
+          type: number
+        watermark:
+          type: boolean
+        referenceStyle:
+          type: boolean
         pricePerMonth:
           type: number
       required:
         - plan
-        - videoLimitPerMonth
-        - videosUsedThisMonth
-        - editsPerVideo
+        - minutesIncluded
+        - minutesUsedThisMonth
+        - minutesRemaining
+        - maxUploadMinutes
+        - watermark
+        - referenceStyle
         - pricePerMonth
 
     UpdateSubscriptionBody:
