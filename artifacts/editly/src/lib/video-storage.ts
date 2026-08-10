@@ -11,8 +11,28 @@ import { supabase } from "./supabase";
 
 export const VIDEOS_BUCKET = "videos";
 
-/** The Supabase free plan refuses any single object above this size. */
-export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+/**
+ * The largest file we will accept.
+ *
+ * This is not our number. Supabase enforces a per-project upload ceiling, and
+ * on the free plan that ceiling is 50 MB — roughly two minutes of phone video.
+ * Raising it is a plan change on their side, not an edit here, which is why the
+ * value is configuration rather than a constant: the day the ceiling moves,
+ * nothing in this codebase needs to be touched.
+ *
+ * The uploader below is already built for what comes after: files above
+ * RESUMABLE_THRESHOLD go up in chunks and survive a dropped connection, so a
+ * two-hour podcast is a long upload rather than an impossible one.
+ */
+export const MAX_UPLOAD_BYTES = Number(import.meta.env.VITE_MAX_UPLOAD_BYTES) || 50 * 1024 * 1024;
+
+/**
+ * Above this, upload resumably. Supabase's resumable endpoint requires exactly
+ * this chunk size for every part but the last, so it doubles as the threshold:
+ * below one chunk there is nothing to resume and a single request is cheaper.
+ */
+const CHUNK_BYTES = 6 * 1024 * 1024;
+const RESUMABLE_THRESHOLD = CHUNK_BYTES;
 
 export const ACCEPTED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
 
@@ -288,6 +308,13 @@ export interface UploadHandle {
  * Sends `file` to "<userId>/<projectId>/source.<ext>" and reports real transfer
  * progress. XMLHttpRequest is used rather than fetch because it is still the
  * only browser API that exposes upload progress events.
+ *
+ * Anything worth resuming is resumed. A single POST is the right shape for a
+ * small file and the wrong shape for a large one: one dropped connection at
+ * 90% and the person starts again from zero, which on a phone is how an upload
+ * fails three times in a row and the person leaves. Above one chunk we use
+ * Supabase's resumable endpoint, remember where we were across a page reload,
+ * and pick the transfer back up.
  */
 export function uploadProjectVideo(options: {
   file: File;
@@ -298,6 +325,11 @@ export function uploadProjectVideo(options: {
 }): UploadHandle {
   const { file, userId, projectId, accessToken, onProgress } = options;
   const path = `${userId}/${projectId}/source.${extensionFor(file)}`;
+
+  if (file.size > RESUMABLE_THRESHOLD) {
+    return uploadResumably({ file, path, accessToken, onProgress });
+  }
+
   const endpoint = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${path}`;
 
   const xhr = new XMLHttpRequest();
@@ -340,6 +372,162 @@ export function uploadProjectVideo(options: {
   });
 
   return { done, cancel: () => xhr.abort() };
+}
+
+/**
+ * The resumable path, spoken in tus — the protocol Supabase's Storage exposes
+ * for large objects.
+ *
+ * Three verbs and one idea: POST creates an upload and hands back a URL, PATCH
+ * appends a chunk at a stated offset, HEAD asks where we got to. The offset is
+ * the server's answer, never ours, which is what makes resuming safe after a
+ * crash we did not see.
+ *
+ * The upload URL is kept in localStorage against this exact file, so closing
+ * the tab mid-transfer costs the current chunk rather than the whole video. It
+ * is keyed by path, size and last-modified time: a different file at the same
+ * path is a different upload, and silently appending one file's bytes onto
+ * another's would produce a video that plays for a while and then does not.
+ */
+function uploadResumably(options: {
+  file: File;
+  path: string;
+  accessToken: string;
+  onProgress?: (percent: number, loaded: number, total: number) => void;
+}): UploadHandle {
+  const { file, path, accessToken, onProgress } = options;
+  const base = import.meta.env.VITE_SUPABASE_URL;
+  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const memory = `editly:upload:${path}:${file.size}:${file.lastModified}`;
+
+  let current: XMLHttpRequest | null = null;
+  let cancelled = false;
+
+  const auth = {
+    authorization: `Bearer ${accessToken}`,
+    apikey: anon,
+    "tus-resumable": "1.0.0",
+  };
+
+  const report = (uploaded: number) => {
+    const percent = Math.min(99, Math.round((uploaded / file.size) * 100));
+    onProgress?.(percent, uploaded, file.size);
+  };
+
+  async function createUpload(): Promise<string> {
+    const meta = [
+      ["bucketName", VIDEOS_BUCKET],
+      ["objectName", path],
+      ["contentType", file.type || "video/mp4"],
+      ["cacheControl", "3600"],
+    ]
+      .map(([k, v]) => `${k} ${btoa(unescape(encodeURIComponent(v)))}`)
+      .join(",");
+
+    const response = await fetch(`${base}/storage/v1/upload/resumable`, {
+      method: "POST",
+      headers: {
+        ...auth,
+        "upload-length": String(file.size),
+        "upload-metadata": meta,
+        "x-upsert": "true",
+      },
+    });
+    if (!response.ok) throw new UploadError(await uploadErrorText(response));
+
+    const location = response.headers.get("location");
+    if (!location) throw new UploadError("Storage did not return somewhere to upload to.");
+    return location;
+  }
+
+  /** The server's offset, which is the only one that counts. */
+  async function offsetOf(url: string): Promise<number | null> {
+    const response = await fetch(url, { method: "HEAD", headers: auth });
+    if (!response.ok) return null;
+    const offset = Number(response.headers.get("upload-offset"));
+    return Number.isFinite(offset) ? offset : null;
+  }
+
+  function sendChunk(url: string, offset: number): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const chunk = file.slice(offset, Math.min(offset + CHUNK_BYTES, file.size));
+      const xhr = new XMLHttpRequest();
+      current = xhr;
+
+      xhr.open("PATCH", url, true);
+      for (const [key, value] of Object.entries(auth)) xhr.setRequestHeader(key, value);
+      xhr.setRequestHeader("upload-offset", String(offset));
+      xhr.setRequestHeader("content-type", "application/offset+octet-stream");
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) report(offset + event.loaded);
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const next = Number(xhr.getResponseHeader("upload-offset"));
+          resolve(Number.isFinite(next) ? next : offset + chunk.size);
+        } else {
+          reject(new UploadError(`Upload failed (${xhr.status})`));
+        }
+      };
+      xhr.onerror = () => reject(new UploadError("Network error during upload."));
+      xhr.onabort = () => reject(new UploadError("Upload cancelled."));
+      xhr.send(chunk);
+    });
+  }
+
+  const done = (async () => {
+    let url = localStorage.getItem(memory);
+    let offset = 0;
+
+    if (url) {
+      const resumed = await offsetOf(url);
+      // The server forgot this upload — expired, or never existed. Start over
+      // rather than trusting a URL we cannot verify.
+      if (resumed === null) {
+        localStorage.removeItem(memory);
+        url = null;
+      } else {
+        offset = resumed;
+      }
+    }
+
+    if (!url) {
+      url = await createUpload();
+      localStorage.setItem(memory, url);
+    }
+
+    report(offset);
+
+    while (offset < file.size) {
+      if (cancelled) throw new UploadError("Upload cancelled.");
+      offset = await sendChunk(url, offset);
+    }
+
+    localStorage.removeItem(memory);
+    onProgress?.(100, file.size, file.size);
+    return path;
+  })();
+
+  return {
+    done,
+    cancel: () => {
+      cancelled = true;
+      current?.abort();
+    },
+  };
+}
+
+async function uploadErrorText(response: Response): Promise<string> {
+  if (response.status === 413) {
+    return `This file is larger than the ${formatBytes(MAX_UPLOAD_BYTES)} limit your storage plan allows.`;
+  }
+  try {
+    const body = await response.json();
+    return body?.message ?? body?.error ?? `Upload failed (${response.status})`;
+  } catch {
+    return `Upload failed (${response.status})`;
+  }
 }
 
 /**
