@@ -6,12 +6,18 @@ import exportsRouter from "./exports";
 import statsRouter from "./stats";
 import subscriptionRouter from "./subscription";
 import renderRouter from "./render";
+import billingRouter, { billingWebhookRouter } from "./billing";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
 // Public: used by uptime checks, must not require a token.
 router.use(healthRouter);
+
+// Also public, and deliberately so: Freemius calls this from the open internet
+// with no session. Its authentication is the signature over the raw body, not a
+// bearer token — see routes/billing.ts. It must stay above requireAuth.
+router.use(billingWebhookRouter);
 
 // Everything below this line is per-user data. `requireAuth` populates
 // `req.userId`, and each handler filters on it — mounting a data route outside
@@ -24,5 +30,6 @@ router.use(exportsRouter);
 router.use(statsRouter);
 router.use(subscriptionRouter);
 router.use(renderRouter);
+router.use(billingRouter);
 
 export default router;
