@@ -11,9 +11,17 @@ import {
 import { serializeMessage } from "../lib/transformers";
 import { PLAN_LIMITS, isPlanKey } from "../lib/plan-limits";
 import { currentUserId } from "../middlewares/auth";
-import { planFromText, replyFor } from "../lib/plan-from-text";
+import { replyFor } from "../lib/plan-from-text";
+import { createPlanner } from "../lib/planner";
 
 const router: IRouter = Router();
+
+/**
+ * One planner for the process. It reads the key once at startup, so a
+ * deployment either has a model behind it or does not — rather than deciding
+ * per request and behaving differently on two identical messages.
+ */
+const planner = createPlanner();
 
 router.get("/projects/:id/messages", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
@@ -100,9 +108,11 @@ router.post("/projects/:id/messages", async (req, res): Promise<void> => {
   }
 
   // The reply is derived from a real plan, so it cannot promise an edit the
-  // worker has no operation for. See lib/plan-from-text.ts.
-  const intent = planFromText(parsed.data.content, { defaultPlatform: project.platform as never });
+  // worker has no operation for — whether a model or the keyword matcher chose
+  // the operations. See lib/planner.ts.
+  const intent = await planner.plan(parsed.data.content, { defaultPlatform: project.platform as never });
   const aiContent = replyFor(intent, { hasVideo: Boolean(project.videoPath) });
+  if (intent.degraded) req.log?.warn({ reason: intent.degraded }, "planner fell back to keywords");
 
   const [userMessage] = await db
     .insert(messagesTable)
