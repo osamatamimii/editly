@@ -470,10 +470,11 @@ export default function ProjectEditor() {
           { type: "formatForPlatform", platform: (project?.platform ?? "tiktok") as "tiktok" | "reels" | "shorts" },
         ];
 
-    // The growth loop: free-plan renders carry the mark, paid ones do not.
-    if ((subscription?.plan ?? "starter") === "starter") {
-      operations.push({ type: "watermark", text: "Edited with Editly", position: "bottom-right" });
-    }
+    // The mark is not sent from here, and deliberately so. It used to be, with
+    // a comparison against a plan name that no longer exists — so after the
+    // rename every free render quietly came out clean. Worse, it meant the
+    // growth loop was enforced in a browser, where anyone can edit the request.
+    // The server adds it from the subscription now, on every render path.
 
     try {
       await startRender.mutateAsync({ id, plan: { version: 1, operations } });

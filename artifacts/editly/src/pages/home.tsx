@@ -3,6 +3,8 @@ import { Link } from "wouter";
 import { Play, Sparkles, Zap, CheckCircle2, ArrowRight, Check, Upload, MessageSquareText, Send } from "lucide-react";
 import { useGetSubscription, useUpdateSubscription, getGetSubscriptionQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { fetchCheckoutConfig, openCheckout } from "@/lib/checkout";
+import { useAuth } from "@/lib/auth";
 
 function useScrollReveal() {
   const ref = useRef<HTMLDivElement>(null);
@@ -112,12 +114,16 @@ const SHARED_FEATURES = [
 export default function Home() {
   const sectionsRef = useScrollReveal();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const { data: subscription } = useGetSubscription({
     query: { queryKey: getGetSubscriptionQueryKey() }
   });
   const updateSubscription = useUpdateSubscription();
 
   const [isYearly, setIsYearly] = useState(false);
+  /** Which plan's checkout is opening, so only that button shows a spinner. */
+  const [checkoutFor, setCheckoutFor] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   /* ── Parallax refs ─────────────────────────────────────── */
   const heroRef    = useRef<HTMLElement>(null);
@@ -159,11 +165,53 @@ export default function Home() {
     };
   }, []);
 
-  const handleSelectPlan = (plan: "creator" | "pro" | "studio") => {
-    updateSubscription.mutate(
-      { data: { plan } },
-      { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() }) }
-    );
+  /**
+   * Choosing a plan.
+   *
+   * A downgrade is a request to our own API and takes effect immediately: it
+   * only ever reduces what someone is entitled to, so wanting it is proof
+   * enough. An upgrade cannot work that way — the API refuses it, and rightly,
+   * because being signed in proves who you are and not that you paid. So an
+   * upgrade opens Freemius, and the plan changes when the signed webhook
+   * arrives, which is the only evidence that exists.
+   */
+  const RANK = { free: 0, creator: 1, pro: 2, studio: 3 } as const;
+
+  const handleSelectPlan = async (plan: "creator" | "pro" | "studio") => {
+    const current = (subscription?.plan ?? "free") as keyof typeof RANK;
+
+    if (RANK[plan] < RANK[current]) {
+      updateSubscription.mutate(
+        { data: { plan } },
+        { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() }) }
+      );
+      return;
+    }
+
+    setCheckoutFor(plan);
+    setCheckoutError(null);
+    try {
+      const config = await fetchCheckoutConfig();
+      await openCheckout(config, {
+        plan,
+        billingCycle: isYearly ? "annual" : "monthly",
+        email: user?.email ?? undefined,
+        // The webhook and this callback race, and either can win. Refetching
+        // after a short delay costs one request and covers the common case
+        // where the webhook lands first; the query is invalidated either way,
+        // so a slow webhook simply shows up on the next visit.
+        onPurchase: () => {
+          setTimeout(
+            () => queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() }),
+            2500,
+          );
+        },
+      });
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : "Could not open checkout.");
+    } finally {
+      setCheckoutFor(null);
+    }
   };
 
   return (
@@ -673,6 +721,8 @@ export default function Home() {
           {PLANS.map((plan, i) => {
             const isCurrent = subscription?.plan === plan.key;
             const isPro = "popular" in plan && plan.popular;
+            const isDowngrade =
+              RANK[plan.key] < RANK[(subscription?.plan ?? "free") as keyof typeof RANK];
             return (
               <div
                 key={plan.key}
@@ -747,14 +797,21 @@ export default function Home() {
                   ) : (
                     <button
                       onClick={() => handleSelectPlan(plan.key)}
-                      disabled={updateSubscription.isPending}
+                      disabled={updateSubscription.isPending || checkoutFor !== null}
+                      data-testid={`button-plan-${plan.key}`}
                       className={`w-full rounded-full py-3 px-6 font-semibold text-sm transition-all duration-300 ${
                         isPro
                           ? "btn-gradient-cta text-white"
                           : "bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/25 hover:shadow-[0_0_20px_rgba(108,59,255,0.12)]"
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
-                      {updateSubscription.isPending ? "Switching…" : "Change Plan"}
+                      {checkoutFor === plan.key
+                        ? "Opening checkout…"
+                        : isDowngrade
+                        ? updateSubscription.isPending
+                          ? "Switching…"
+                          : `Switch to ${plan.name}`
+                        : `Get ${plan.name}`}
                     </button>
                   )}
                 </div>
@@ -762,6 +819,15 @@ export default function Home() {
             );
           })}
         </div>
+        {checkoutError && (
+          <p
+            role="alert"
+            data-testid="text-checkout-error"
+            className="text-center text-sm text-red-400 mt-6 max-w-md mx-auto"
+          >
+            {checkoutError}
+          </p>
+        )}
         <p className="text-center text-xs text-muted-foreground mt-8 opacity-60">
           No credit card required · Cancel anytime · All plans include a 7-day free trial
         </p>
