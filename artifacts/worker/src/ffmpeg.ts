@@ -16,6 +16,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { EditOperation, EditPlan } from "@workspace/api-zod";
 import { captionLayout, type CaptionLayout } from "./caption-layout";
+import { chooseCropCenter, coverScale, cropOffsetX, measureInterest } from "./framing";
 
 export interface Segment {
   /** Seconds. */
@@ -552,9 +553,33 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     const overscan = hasMotion ? MOTION_OVERSCAN : 1;
     const cropW = Math.round((target.w * overscan) / 2) * 2;
     const cropH = Math.round((target.h * overscan) / 2) * 2;
+
+    // Where the window goes. A centre crop is only right when the subject is
+    // centred; on an interview framed to one side it delivers a shoulder.
+    const scale = coverScale(source, { width: cropW, height: cropH });
+    const scaledWidth = Math.round(source.width * scale);
+    let cropX = Math.round((scaledWidth - cropW) / 4) * 2;
+
+    if (scaledWidth > cropW + 2) {
+      ctx.onProgress?.(0.08, "Finding your subject in the frame");
+      try {
+        const choice = chooseCropCenter(await measureInterest(input), cropW / scaledWidth);
+        cropX = cropOffsetX(choice, scaledWidth, cropW);
+        notes.push(
+          choice.moved
+            ? `framed on the subject rather than the centre (${Math.round(choice.center * 100)}% across)`
+            : "kept the centre — nothing in the frame argued for moving off it",
+        );
+      } catch {
+        // Measurement is an improvement, not a dependency. A centre crop is
+        // still a real edit; failing the render over it would not be.
+        notes.push("could not read the framing, so the centre was kept");
+      }
+    }
+
     videoParts.push(
       `scale=${cropW}:${cropH}:force_original_aspect_ratio=increase:flags=lanczos`,
-      `crop=${cropW}:${cropH}`,
+      `crop=${cropW}:${cropH}:${cropX}:(ih-oh)/2`,
       "setsar=1",
     );
     notes.push(`reframed to ${target.w}x${target.h} for ${reframe.platform}`);
