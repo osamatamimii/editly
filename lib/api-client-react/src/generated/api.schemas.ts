@@ -196,17 +196,20 @@ export type SubscriptionPlan =
   (typeof SubscriptionPlan)[keyof typeof SubscriptionPlan];
 
 export const SubscriptionPlan = {
-  starter: "starter",
+  free: "free",
+  creator: "creator",
   pro: "pro",
-  scale: "scale",
+  studio: "studio",
 } as const;
 
 export interface SubscriptionUsage {
   plan: SubscriptionPlan;
-  videoLimitPerMonth: number;
-  videosUsedThisMonth: number;
-  /** @nullable */
-  editsPerVideo: number | null;
+  minutesIncluded: number;
+  minutesUsedThisMonth: number;
+  minutesRemaining: number;
+  maxUploadMinutes: number;
+  watermark: boolean;
+  referenceStyle: boolean;
   pricePerMonth: number;
 }
 
