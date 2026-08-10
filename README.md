@@ -4,7 +4,7 @@
 
 Upload a raw take, say what you want in plain language ("cut the dead air and make it vertical for TikTok"), and get back something ready to post.
 
-**What actually works today:** silence removal, reframing to 9:16, motion, loudness levelling, and the free-plan watermark — all real ffmpeg, run on a dedicated worker. Captions are burned from a real transcript, broken onto lines we choose, and placed clear of each platform's own on-screen furniture; punch-ins land where the speaker leaned on a word rather than on a metronome. Speech recognition and scene understanding are wired but optional — without their keys the worker still edits, and the render notes say what it could not do instead of dropping it silently. Requests are still parsed by keyword matching, not a language model, and the assistant says plainly when it cannot do something rather than promising it. See `ROADMAP.md` for what is next and what it will cost.
+**What actually works today:** silence removal, reframing to 9:16, motion, loudness levelling, and the free-plan watermark — all real ffmpeg, run on a dedicated worker. Captions are burned from a real transcript, broken onto lines we choose, and placed clear of each platform's own on-screen furniture; punch-ins land where the speaker leaned on a word rather than on a metronome, and the 9:16 crop is placed where the picture's detail and movement actually are rather than blindly at the centre. Speech recognition and scene understanding are wired but optional — without their keys the worker still edits, and the render notes say what it could not do instead of dropping it silently. Requests are still parsed by keyword matching, not a language model, and the assistant says plainly when it cannot do something rather than promising it. See `ROADMAP.md` for what is next and what it will cost.
 
 ## Stack
 
@@ -27,10 +27,11 @@ node tools/isolation-test.mjs
 # Needs ffmpeg and ffprobe on PATH.
 node tools/render-test.mjs
 
-# 39 checks on the edit a customer actually receives: cuts that land between
+# 50 checks on the edit a customer actually receives: cuts that land between
 # words, captions that stay with the voice after the cuts and sit clear of each
-# platform's own on-screen furniture, punches on emphasis rather than on filler.
-# This is the suite that stops quality drifting quietly.
+# platform's own on-screen furniture, punches on emphasis rather than on filler,
+# and a vertical crop that keeps the subject in frame instead of delivering
+# their shoulder. This is the suite that stops quality drifting quietly.
 node tools/quality-test.mjs
 
 # 61 checks on the model layer — the requests we send, the shapes we expect
