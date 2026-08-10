@@ -72,14 +72,26 @@ export const ExportJob = z.object({
 });
 export type ExportJob = z.infer<typeof ExportJob>;
 
-export const SubscriptionPlan = z.enum(["starter", "pro", "scale"]);
+export const SubscriptionPlan = z.enum(["free", "creator", "pro", "studio"]);
 export type SubscriptionPlan = z.infer<typeof SubscriptionPlan>;
 
+/**
+ * What the meter says.
+ *
+ * Minutes of finished video, not videos: the old counter charged the same for
+ * a nine-second hook and a ninety-minute episode. `maxUploadMinutes` is here
+ * because it is the number that actually separates the tiers — a podcaster
+ * upgrades to upload a whole episode as one file, not to buy minutes they will
+ * never use.
+ */
 export const SubscriptionUsage = z.object({
   plan: SubscriptionPlan,
-  videoLimitPerMonth: z.number(),
-  videosUsedThisMonth: z.number(),
-  editsPerVideo: z.number().nullable(),
+  minutesIncluded: z.number(),
+  minutesUsedThisMonth: z.number(),
+  minutesRemaining: z.number(),
+  maxUploadMinutes: z.number(),
+  watermark: z.boolean(),
+  referenceStyle: z.boolean(),
   pricePerMonth: z.number(),
 });
 export type SubscriptionUsage = z.infer<typeof SubscriptionUsage>;
