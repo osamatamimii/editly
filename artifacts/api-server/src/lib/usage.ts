@@ -59,5 +59,5 @@ export async function usageFor(userId: string, plan: PlanKey): Promise<Usage> {
  * the way out, because "limit reached" on its own is a dead end.
  */
 export function exhaustedMessage(plan: PlanKey, usage: Usage): string {
-  return `You've used all ${usage.minutesIncluded} minutes on the ${plan} plan this month. Upgrade for more, or your allowance resets on the 1st.`;
+  return `You've used all ${usage.minutesIncluded} minutes of finished video on the ${plan} plan this month. Uploading is unlimited — it's the exported minutes that count. Upgrade for more, or your allowance resets on the 1st.`;
 }
