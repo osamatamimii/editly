@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import { bodyParsers } from "./lib/body-parsers";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
@@ -64,8 +65,10 @@ app.use(
   }),
 );
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Every route wants parsed JSON; the billing webhook must not have its body
+// touched, or the signature over the raw bytes cannot be checked. See
+// lib/body-parsers.ts — it lives there because it is testable there.
+for (const parser of bodyParsers()) app.use(parser);
 
 app.use("/api", router);
 
