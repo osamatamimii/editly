@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { Play, Sparkles, Zap, CheckCircle2, ArrowRight, Check } from "lucide-react";
+import { Play, Sparkles, Zap, CheckCircle2, ArrowRight, Check, Upload, MessageSquareText, Send } from "lucide-react";
 import { useGetSubscription, useUpdateSubscription, getGetSubscriptionQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -528,9 +528,9 @@ export default function Home() {
 
           <div className="grid md:grid-cols-3 gap-8">
             {[
-              { num: "01", title: "Upload the raw take", desc: "The unedited one, with all the ums and restarts still in it. That is the point.", delay: "0ms" },
-              { num: "02", title: "Say what you want", desc: "\"Cut the dead air and make it vertical for TikTok.\" Editly tells you exactly what it will do before it does it.", delay: "120ms" },
-              { num: "03", title: "Post it", desc: "Framed for TikTok, Reels or Shorts, and waiting for you when you come back.", delay: "240ms" },
+              { num: "01", icon: Upload, title: "Upload the raw take", desc: "The unedited one, with all the ums and restarts still in it. That is the point.", delay: "0ms" },
+              { num: "02", icon: MessageSquareText, title: "Say what you want", desc: "\"Cut the dead air and make it vertical for TikTok.\" Editly tells you exactly what it will do before it does it.", delay: "120ms" },
+              { num: "03", icon: Send, title: "Post it", desc: "Framed for TikTok, Reels or Shorts, and waiting for you when you come back.", delay: "240ms" },
             ].map((step) => (
               <div
                 key={step.num}
@@ -542,7 +542,7 @@ export default function Home() {
                   {step.num}
                 </span>
                 <div className="w-10 h-10 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center mb-4 group-hover:shadow-[0_0_15px_rgba(108,59,255,0.5)] transition-shadow">
-                  <Sparkles className="w-5 h-5 text-primary" />
+                  <step.icon className="w-5 h-5 text-primary" />
                 </div>
                 <h3 className="text-xl font-bold mb-3">{step.title}</h3>
                 <p className="text-muted-foreground leading-relaxed">{step.desc}</p>
@@ -626,10 +626,10 @@ export default function Home() {
       <section id="pricing" className="w-full max-w-7xl mx-auto px-6 py-24">
         <div className="text-center mb-10 reveal">
           <h2 className="text-4xl md:text-5xl font-bold mb-4 glow-text">
-            Priced per video, not per hour of your life
+            Priced by the minutes you publish, not the hours you record
           </h2>
           <p className="text-muted-foreground text-lg max-w-xl mx-auto">
-Every plan does the same editing. Pick how much you post.
+            Every plan does the same editing. Upload as much footage as you like.
           </p>
         </div>
 
