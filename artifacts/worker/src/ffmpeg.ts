@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { EditOperation, EditPlan } from "@workspace/api-zod";
+import { captionLayout, type CaptionLayout } from "./caption-layout";
 
 export interface Segment {
   /** Seconds. */
@@ -259,14 +260,54 @@ function toAssTime(ms: number): string {
  * *from* — ASS colours are &HAABBGGRR, which is backwards from every other
  * format and the single easiest thing to get wrong here.
  */
-const CAPTION_STYLES: Record<string, string> = {
-  "bold-white":
-    "Style: Cap,DejaVu Sans,72,&H00FFFFFF,&H00A0A0A0,&H00000000,&HA0000000,-1,0,0,0,100,100,0,0,1,5,2,2,80,80,180,1",
-  "bold-yellow":
-    "Style: Cap,DejaVu Sans,72,&H0000E5FF,&H00FFFFFF,&H00000000,&HA0000000,-1,0,0,0,100,100,0,0,1,5,2,2,80,80,180,1",
-  "karaoke-box":
-    "Style: Cap,DejaVu Sans,68,&H00FFFFFF,&H0000E5FF,&H00000000,&HC0000000,-1,0,0,0,100,100,0,0,3,0,0,2,80,80,200,1",
+interface CaptionColours {
+  /** The fill. */
+  primary: string;
+  /** What a karaoke wipe reveals from. */
+  secondary: string;
+  outline: string;
+  back: string;
+  /** 1 is outline + shadow, 3 is an opaque box behind the text. */
+  borderStyle: number;
+  outlineWidth: number;
+  shadow: number;
+}
+
+const CAPTION_COLOURS: Record<string, CaptionColours> = {
+  "bold-white": {
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&HA0000000",
+    borderStyle: 1, outlineWidth: 5, shadow: 2,
+  },
+  "bold-yellow": {
+    primary: "&H0000E5FF", secondary: "&H00FFFFFF", outline: "&H00000000", back: "&HA0000000",
+    borderStyle: 1, outlineWidth: 5, shadow: 2,
+  },
+  "karaoke-box": {
+    primary: "&H00FFFFFF", secondary: "&H0000E5FF", outline: "&H00000000", back: "&HC0000000",
+    borderStyle: 3, outlineWidth: 0, shadow: 0,
+  },
 };
+
+/**
+ * The style row, built from the layout rather than frozen in a string.
+ *
+ * The old rows hardcoded size 72 and 180 px of bottom margin, which was correct
+ * for exactly one frame size and wrong for every platform: 180 px sits inside
+ * TikTok's bottom furniture, so the last line of every caption was drawn under
+ * the username. Size and margins now come from caption-layout.ts.
+ */
+function captionStyleRow(style: string, layout: CaptionLayout): string {
+  const c = CAPTION_COLOURS[style] ?? CAPTION_COLOURS["bold-white"];
+  return [
+    "Style: Cap", "DejaVu Sans", String(layout.fontSize),
+    c.primary, c.secondary, c.outline, c.back,
+    "-1", "0", "0", "0",      // bold, italic, underline, strikeout
+    "100", "100", "0", "0",   // scale x/y, spacing, angle
+    String(c.borderStyle), String(c.outlineWidth), String(c.shadow),
+    String(layout.alignment), String(layout.marginL), String(layout.marginR), String(layout.marginV),
+    "1",
+  ].join(",");
+}
 
 /**
  * Per-cue animation. These are the effects that make short-form captions read
@@ -297,12 +338,51 @@ function animateCue(cue: CaptionCue, animation: string): string {
   return `{\\fad(60,60)}${body}`;
 }
 
+/**
+ * Breaks each cue onto lines that fit the space the platform actually leaves.
+ *
+ * libass will wrap on its own, but only at the style's margins and with no idea
+ * that the last line is about to land under a username — and its wrap point is
+ * chosen for the box, not for the sentence. Doing it here means the break lands
+ * between words we chose, and a cue that cannot fit is truncated visibly rather
+ * than pushed into the furniture.
+ */
+export function wrapToLayout(cues: CaptionCue[], layout: CaptionLayout): CaptionCue[] {
+  return cues.map((cue) => {
+    const words = cue.text.split(/\s+/).filter(Boolean);
+    const lines: string[] = [];
+    let line = "";
+
+    for (const word of words) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (candidate.length > layout.maxCharsPerLine && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line) lines.push(line);
+
+    // Beyond the allowed number of lines the caption would climb over the
+    // speaker's face. Ending on an ellipsis is honest; silently spilling is not.
+    const shown = lines.slice(0, layout.maxLines);
+    if (lines.length > layout.maxLines) shown[shown.length - 1] += "…";
+
+    return { ...cue, text: shown.join("\n") };
+  });
+}
+
 export async function writeSubtitleFile(
   file: string,
   cues: CaptionCue[],
   style: string,
   animation: string,
   frame: { width: number; height: number },
+  // Optional, and when it is absent we compute the layout that is safe on every
+  // platform rather than falling back to a constant. A caller who has not
+  // thought about placement should still not get captions under a username.
+  layout: CaptionLayout = captionLayout(frame, null),
 ): Promise<void> {
   const header = [
     "[Script Info]",
@@ -314,7 +394,7 @@ export async function writeSubtitleFile(
     "",
     "[V4+ Styles]",
     "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-    CAPTION_STYLES[style] ?? CAPTION_STYLES["bold-white"],
+    captionStyleRow(style, layout),
     "",
     "[Events]",
     "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -523,10 +603,15 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     }));
 
     const subtitlePath = path.join(ctx.workDir, "captions.ass");
-    await writeSubtitleFile(subtitlePath, cues, captions.style, captions.animation, {
-      width: frameWidth,
-      height: frameHeight,
-    });
+    const layout = captionLayout({ width: frameWidth, height: frameHeight }, reframe?.platform ?? null);
+    await writeSubtitleFile(
+      subtitlePath,
+      wrapToLayout(cues, layout),
+      captions.style,
+      captions.animation,
+      { width: frameWidth, height: frameHeight },
+      layout,
+    );
     videoParts.push(`subtitles=${subtitlePath.replace(/[\\:']/g, "\\$&")}`);
     notes.push(`burned ${cues.length} captions (${captions.animation})`);
   }

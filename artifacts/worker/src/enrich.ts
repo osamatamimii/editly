@@ -12,8 +12,9 @@
  * the edit. What it must not do is lose them silently, so every degradation
  * comes back as a note that reaches the job record and the user.
  */
-import type { EditOperation, EditPlan } from "@workspace/api-zod";
+import type { EditOperation, EditPlan, Platform } from "@workspace/api-zod";
 import { buildCaptionCues, emphasisPoints } from "./captions";
+import { captionLayout } from "./caption-layout";
 import type { Providers } from "./providers";
 import type { Transcript } from "./providers/types";
 
@@ -66,7 +67,14 @@ export async function enrichPlan(
   for (const operation of plan.operations) {
     if (operation.type === "autoCaptions") {
       if (!transcript) continue; // The reason is already in `notes`.
-      const cues = buildCaptionCues(transcript, { dropFillers: operation.dropFillers });
+      // Group the words for the space the target platform actually leaves, so
+      // the grouping and the final wrap agree instead of fighting each other.
+      const layout = captionLayout(REFERENCE_FRAME, platformOf(plan));
+      const cues = buildCaptionCues(transcript, {
+        dropFillers: operation.dropFillers,
+        maxCharsPerLine: layout.maxCharsPerLine,
+        maxLines: layout.maxLines,
+      });
       if (cues.length === 0) {
         notes.push("no speech was found in this clip, so there is nothing to caption");
         continue;
@@ -104,6 +112,18 @@ export async function enrichPlan(
   // punches with nothing to punch on. Rendering nothing is worse than not
   // rendering, so we say so and let the caller decide.
   return { plan: { version: 1, operations } as EditPlan, notes, transcript };
+}
+
+/**
+ * All three targets are 9:16, so one reference frame is enough to decide how
+ * many characters fit on a line. The renderer re-wraps against the real output
+ * size before burning, which is what catches an unusual export.
+ */
+const REFERENCE_FRAME = { width: 1080, height: 1920 };
+
+function platformOf(plan: EditPlan): Platform | null {
+  const reframe = plan.operations.find((op) => op.type === "formatForPlatform");
+  return reframe && reframe.type === "formatForPlatform" ? reframe.platform : null;
 }
 
 function short(error: unknown): string {
