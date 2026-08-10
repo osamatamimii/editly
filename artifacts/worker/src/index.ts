@@ -18,7 +18,7 @@ import pino from "pino";
 import { db, pool, jobsTable, projectsTable, type Job } from "@workspace/db";
 import { EditPlan } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
-import { renderPlan, FfmpegError } from "./ffmpeg";
+import { renderPlan, probeDuration, FfmpegError } from "./ffmpeg";
 import { enrichPlan } from "./enrich";
 import { resolveProviders } from "./providers";
 
@@ -161,6 +161,11 @@ async function processJob(job: Job): Promise<void> {
     const outputPath = `${job.userId}/${job.projectId}/edited-${job.id}.mp4`;
     await uploadObject(outputPath, output);
 
+    // What the plan meter counts. Measured from the finished file rather than
+    // predicted from the plan, because the only honest number is the one in
+    // the video we are about to hand over.
+    const outputSeconds = await probeDuration(output).catch(() => null);
+
     await db
       .update(jobsTable)
       .set({
@@ -169,6 +174,7 @@ async function processJob(job: Job): Promise<void> {
         stage: null,
         error: null,
         outputPath,
+        outputSeconds,
         lockedAt: null,
         lockedBy: null,
         finishedAt: new Date(),
@@ -180,7 +186,7 @@ async function processJob(job: Job): Promise<void> {
       .set({ status: "done", editedVideoPath: outputPath })
       .where(and(eq(projectsTable.id, job.projectId), eq(projectsTable.userId, job.userId)));
 
-    log.info({ outputPath, notes }, "render complete");
+    log.info({ outputPath, outputSeconds, notes }, "render complete");
   } catch (error) {
     // ffmpeg's complaints are specific enough to be worth showing; anything
     // else is infrastructure and the user can do nothing with the detail.
