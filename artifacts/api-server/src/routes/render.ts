@@ -11,8 +11,11 @@ import {
 } from "@workspace/api-zod";
 import { currentUserId } from "../middlewares/auth";
 import { serializeJob } from "../lib/transformers";
+import type { EditOperation } from "@workspace/api-zod";
 import { TEMPLATES, findTemplate, evenlySpacedPunches } from "../lib/templates";
-import { isPlanKey } from "../lib/plan-limits";
+import { planKeyFrom } from "../lib/plan-limits";
+import { usageFor } from "../lib/usage";
+import { decideRender } from "../lib/render-policy";
 import { isUnclaimed } from "../lib/queue-health";
 import { subscriptionsTable } from "@workspace/db";
 
@@ -78,42 +81,62 @@ router.post("/projects/:id/render", async (req, res): Promise<void> => {
     return;
   }
 
-  let plan;
+  let requested: EditOperation[];
   if ("templateId" in body.data) {
     const template = findTemplate(body.data.templateId);
     if (!template) {
       res.status(400).json({ error: `Unknown template "${body.data.templateId}".` });
       return;
     }
-    const [sub] = await db
-      .select()
-      .from(subscriptionsTable)
-      .where(eq(subscriptionsTable.userId, userId))
-      .limit(1);
-    const planKey = sub && isPlanKey(sub.plan) ? sub.plan : "starter";
-
-    plan = {
-      version: 1 as const,
-      operations: template.build({
-        platform: (project.platform ?? "tiktok") as "tiktok" | "reels" | "shorts",
-        // Templates place their punches proportionally, so they need a length.
-        durationSeconds: project.duration ?? 30,
-        watermark: planKey === "starter",
-      }),
-    };
+    requested = template.build({
+      platform: (project.platform ?? "tiktok") as "tiktok" | "reels" | "shorts",
+      // Templates place their punches proportionally, so they need a length.
+      durationSeconds: project.duration ?? 30,
+      // The mark is not the template's decision. `decideRender` adds it from the
+      // plan, so a template cannot accidentally watermark a paying customer or
+      // accidentally fail to watermark a free one.
+      watermark: false,
+    });
   } else {
     // A plan can arrive with punch timestamps left empty — the chat knows you
     // want emphasis but not where the interesting moments are. Space them out
     // over whatever the clip actually is.
-    plan = {
-      ...body.data.plan,
-      operations: body.data.plan.operations.map((op) =>
-        op.type === "zoomPunch" && op.at.length === 0
-          ? { ...op, at: evenlySpacedPunches(project.duration ?? 30, 4) }
-          : op,
-      ),
-    };
+    requested = body.data.plan.operations.map((op) =>
+      op.type === "zoomPunch" && op.at.length === 0
+        ? { ...op, at: evenlySpacedPunches(project.duration ?? 30, 4) }
+        : op,
+    );
   }
+
+  // Everything above this line is what the caller *asked for*. Everything below
+  // is what the plan they pay for actually allows — and the browser has no vote
+  // in it. This route used to trust the operations it was handed, which meant
+  // the watermark could be removed from the free plan by deleting one object
+  // from a JSON body, and the month's allowance was never checked at all.
+  const [sub] = await db
+    .select()
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, userId))
+    .limit(1);
+
+  const planKey = planKeyFrom(sub?.plan);
+  const decision = decideRender({
+    plan: planKey,
+    usage: await usageFor(userId, planKey),
+    sourceDurationSeconds: project.duration,
+    operations: requested,
+  });
+
+  if (!decision.allowed) {
+    res.status(decision.status).json(decision.body);
+    return;
+  }
+
+  if (decision.corrections.length) {
+    req.log?.info({ userId, plan: planKey, corrections: decision.corrections }, "render plan corrected by policy");
+  }
+
+  const plan = { version: 1 as const, operations: decision.operations };
 
   const [job] = await db
     .insert(jobsTable)
