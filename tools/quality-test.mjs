@@ -319,6 +319,98 @@ console.log("\nThe whole thing survives one pass");
   );
 }
 
+console.log("\nThe vertical crop finds the subject instead of the middle");
+{
+  const framing = await import(bundle("artifacts/worker/src/framing.ts", "framing.mjs"));
+  const { measureInterest, chooseCropCenter, cropOffsetX, coverScale, COLUMNS } = framing;
+
+  /** Dark 16:9 frame with one bright square moving in place at `xFraction`. */
+  function subjectClip(name, xFraction) {
+    const out = at(`${name}.mp4`);
+    const x = Math.round(1280 * xFraction) - 60;
+    ff([
+      "-f", "lavfi", "-i", "color=c=black:size=1280x720:rate=25:duration=5",
+      "-vf", `drawbox=x=${x}:y='260+40*sin(t*3)':w=120:h=200:color=white@1:t=fill`,
+      "-c:v", "libx264", "-pix_fmt", "yuv420p", out,
+    ]);
+    return out;
+  }
+
+  const windowFraction = (720 * (9 / 16)) / 1280; // a 9:16 window out of 16:9
+
+  for (const [where, fraction] of [["left", 0.18], ["right", 0.82], ["centre", 0.5]]) {
+    const clip = subjectClip(`subject-${where}`, fraction);
+    const choice = chooseCropCenter(await measureInterest(clip, 5), windowFraction);
+    check(
+      `a subject on the ${where} pulls the window to the ${where}`,
+      Math.abs(choice.center - fraction) < 0.12,
+      `chose ${choice.center.toFixed(2)}, subject at ${fraction}`,
+    );
+  }
+
+  const flat = at("flat.mp4");
+  ff([
+    "-f", "lavfi", "-i", "color=c=gray:size=1280x720:rate=25:duration=4",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", flat,
+  ]);
+  const flatChoice = chooseCropCenter(await measureInterest(flat, 4), windowFraction);
+  check(
+    "a frame with nothing to say keeps the centre rather than inventing a subject",
+    !flatChoice.moved && flatChoice.center === 0.5,
+    JSON.stringify(flatChoice),
+  );
+
+  const empty = chooseCropCenter({ columns: new Array(COLUMNS).fill(0), frames: 0 }, windowFraction);
+  check("and so does a measurement that produced nothing", empty.center === 0.5 && !empty.moved, "");
+
+  // Offsets have to stay on the image, and on even pixels: an odd offset makes
+  // the encoder resample the half-resolution chroma planes of 4:2:0.
+  const scaled = 2000;
+  const cropW = 1080;
+  check(
+    "the window never runs off the left edge",
+    cropOffsetX({ center: 0.0, moved: true, advantage: 2 }, scaled, cropW) === 0,
+    "",
+  );
+  check(
+    "nor off the right",
+    cropOffsetX({ center: 1.0, moved: true, advantage: 2 }, scaled, cropW) === scaled - cropW,
+    "",
+  );
+  check(
+    "and always lands on an even pixel",
+    [0.13, 0.37, 0.61, 0.88].every((c) => cropOffsetX({ center: c, moved: true, advantage: 2 }, scaled, cropW) % 2 === 0),
+    "",
+  );
+  check(
+    "the cover scale matches what ffmpeg will apply",
+    Math.abs(coverScale({ width: 1280, height: 720 }, { width: 1080, height: 1920 }) - 1920 / 720) < 1e-9,
+    "",
+  );
+
+  // The proof: a subject a centre crop would miss entirely.
+  const offCentre = subjectClip("off-centre-source", 0.14);
+  const { output, notes } = await renderPlan(
+    offCentre,
+    { version: 1, operations: [{ type: "formatForPlatform", platform: "tiktok" }] },
+    { workDir },
+  );
+
+  const stats = spawnSync("ffmpeg", [
+    "-hide_banner", "-nostdin", "-i", output,
+    "-vf", "fps=2,signalstats,metadata=print:file=-", "-an", "-f", "null", "-",
+  ], { encoding: "utf8" });
+  const luma = [...`${stats.stdout}${stats.stderr}`.matchAll(/YAVG=([\d.]+)/g)].map((m) => Number(m[1]));
+  const brightest = luma.length ? Math.max(...luma) : 0;
+
+  check("it says it framed on the subject", notes.some((n) => /framed on the subject/.test(n)), JSON.stringify(notes));
+  check(
+    "and the subject is really in the delivered frame, not cropped away",
+    brightest > 20,
+    `brightest sampled frame ${brightest.toFixed(1)} of 255`,
+  );
+}
+
 console.log("\nThe subtitle file itself is well formed");
 {
   const frame = { width: 1080, height: 1920 };

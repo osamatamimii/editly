@@ -47,6 +47,28 @@ if (esbuild.status !== 0) {
 const { renderPlan, probeSource, keepSegmentsFrom, remapTime, zoomExpression, writeSubtitleFile } =
   await import(pathToFileURL(modulePath).href);
 
+// The reference command below has to crop where the pipeline crops, or it
+// measures framing rather than generation loss. Which crop is *correct* is
+// quality-test.mjs's question; this file only asks whether one encode was used.
+const framingPath = path.join(buildDir, "framing.mjs");
+spawnSync(
+  require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/worker"] }),
+  [
+    path.join(repoRoot, "artifacts/worker/src/framing.ts"),
+    "--bundle", "--platform=node", "--format=esm", "--target=node22",
+    `--outfile=${framingPath}`, "--log-level=error",
+  ],
+  { stdio: "inherit" },
+);
+const { measureInterest, chooseCropCenter, cropOffsetX, coverScale } = await import(pathToFileURL(framingPath).href);
+
+async function sameCropAs(sourceFile, cropWidth, cropHeight) {
+  const info = await probeSource(sourceFile);
+  const scaledWidth = Math.round(info.width * coverScale(info, { width: cropWidth, height: cropHeight }));
+  if (scaledWidth <= cropWidth + 2) return Math.round((scaledWidth - cropWidth) / 4) * 2;
+  return cropOffsetX(chooseCropCenter(await measureInterest(sourceFile), cropWidth / scaledWidth), scaledWidth, cropWidth);
+}
+
 let checks = 0;
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -246,7 +268,7 @@ console.log("\nOne encode, not four");
   spawnSync("ffmpeg", [
     "-y", "-loglevel", "error", "-i", source,
     "-vf",
-    "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,setsar=1," +
+    `scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920:${await sameCropAs(source, 1080, 1920)}:(ih-oh)/2,setsar=1,` +
       "drawtext=text='Edited with Editly':fontcolor=white@0.85:fontsize=h/32:box=1:boxcolor=black@0.35:boxborderw=12:x=w-tw-40:y=h-th-40",
     "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-profile:v", "high", "-level", "4.2",
     "-pix_fmt", "yuv420p", "-g", "60", "-keyint_min", "30", "-sc_threshold", "0",
