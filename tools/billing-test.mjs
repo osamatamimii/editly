@@ -176,6 +176,95 @@ console.log("\nWhat leaves the server");
   check("the module knows whether it is configured", freemiusConfigured === true, "");
 }
 
+console.log("\nThe bytes surviving the trip");
+{
+  // The failure this section exists for is the one every other check in this
+  // file misses by construction: they call the verifier directly with bytes
+  // they made themselves. In the deployed app the request first passes through
+  // `express.json()`, which consumes the stream and hands back a parsed object.
+  // A route that then asks for the raw body gets nothing, so the digest is
+  // computed over "[object Object]" and *every genuine payment* is answered
+  // with 401 — while this file still reports 26/26.
+  //
+  // So this drives a real request through the real middleware and checks that
+  // what arrives at the handler is byte-identical to what was sent.
+  // Built inside the package rather than in /tmp, and with express left
+  // external: bundling express into a standalone ESM file breaks it (it reaches
+  // for `require` at load time), and the point here is to exercise the real
+  // middleware rather than a copy of it.
+  const parsersOut = path.join(repoRoot, "artifacts/api-server/.body-parsers.test.mjs");
+  const parsersBuilt = spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+    [
+      path.join(repoRoot, "artifacts/api-server/src/lib/body-parsers.ts"),
+      "--bundle", "--platform=node", "--format=esm", "--target=node22",
+      "--external:express",
+      `--outfile=${parsersOut}`, "--log-level=error",
+    ],
+    { stdio: "inherit" },
+  );
+
+  if (parsersBuilt.status !== 0) {
+    check("the body-parser module builds", false, "esbuild failed");
+  } else {
+    const { bodyParsers, needsRawBody } = await import(pathToFileURL(parsersOut).href);
+    const express = require(require.resolve("express", { paths: ["artifacts/api-server"] }));
+
+    check("the webhook path is exempt from parsing", needsRawBody("/api/billing/webhook"), "");
+    check("and nothing else is", !needsRawBody("/api/projects") && !needsRawBody("/api/billing/checkout"), "");
+
+    const app = express();
+    for (const parser of bodyParsers()) app.use(parser);
+
+    let seen = null;
+    app.post("/api/billing/webhook", express.raw({ type: "*/*", limit: "1mb" }), (req, res) => {
+      seen = Buffer.isBuffer(req.body) ? req.body : null;
+      res.json({ ok: true });
+    });
+    app.post("/api/projects", (req, res) => res.json({ parsed: req.body }));
+
+    const server = app.listen(0);
+    await new Promise((resolve) => server.once("listening", resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    // Whitespace and key order chosen to be destroyed by a parse/serialise
+    // round trip — which is exactly what a signature would not survive.
+    const sent = Buffer.from('{ "type":"license.created",  "objects":{"license":{"plan_id":9002}} }', "utf8");
+
+    const hookResponse = await fetch(`${base}/api/billing/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: sent,
+    });
+
+    check("the webhook answers", hookResponse.ok, String(hookResponse.status));
+    check("the handler receives a Buffer, not a parsed object", Buffer.isBuffer(seen), String(seen && typeof seen));
+    check(
+      "and the bytes are exactly the bytes that were sent",
+      Boolean(seen && seen.equals(sent)),
+      seen ? `got ${JSON.stringify(seen.toString())}` : "nothing arrived",
+    );
+    check(
+      "so a signature made over those bytes still verifies end to end",
+      Boolean(seen && verifySignature(seen, sign(sent))),
+      "",
+    );
+
+    // The exemption must be narrow: every other route still needs JSON.
+    const normal = await fetch(`${base}/api/projects`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "a project" }),
+    });
+    const normalBody = await normal.json();
+    check("ordinary routes still get parsed JSON", normalBody?.parsed?.title === "a project", JSON.stringify(normalBody));
+
+    server.close();
+  }
+
+  await rm(parsersOut, { force: true });
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
