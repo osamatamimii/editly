@@ -625,7 +625,10 @@ export default function Home() {
       {/* ── Pricing ── */}
       <section id="pricing" className="w-full max-w-7xl mx-auto px-6 py-24">
         <div className="text-center mb-10 reveal">
-          <h2 className="text-4xl md:text-5xl font-bold mb-4 glow-text">
+          {/* A step down from the other section headings, and balanced: this
+              line is longer than they are, and at 5xl it wrapped with a single
+              word stranded on the second line. */}
+          <h2 className="text-3xl md:text-4xl font-bold mb-4 glow-text max-w-3xl mx-auto text-balance">
             Priced by the minutes you publish, not the hours you record
           </h2>
           <p className="text-muted-foreground text-lg max-w-xl mx-auto">
