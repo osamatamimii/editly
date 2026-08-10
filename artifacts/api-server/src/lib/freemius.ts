@@ -122,10 +122,30 @@ export function planFromEvent(event: {
   return null;
 }
 
-/** Everything the browser needs to open a checkout. All of it is public. */
-export function checkoutConfig(): { productId: string; publicKey: string } | null {
+/**
+ * Everything the browser needs to open a checkout. All of it is public.
+ *
+ * `plans` is the same mapping as `PLAN_BY_FREEMIUS_ID`, read the other way:
+ * the browser knows it wants "pro" and needs the Freemius id to open. Sending
+ * it is safe — the id appears in the checkout URL either way — and sending it
+ * from here rather than hardcoding it in the bundle means renaming a plan on
+ * Freemius does not require a frontend deploy.
+ */
+export function checkoutConfig(): {
+  productId: string;
+  publicKey: string;
+  plans: Partial<Record<PlanKey, string>>;
+} | null {
   const productId = process.env["FREEMIUS_PRODUCT_ID"]?.trim();
   const publicKey = process.env["FREEMIUS_PUBLIC_KEY"]?.trim();
   if (!productId || !publicKey) return null;
-  return { productId, publicKey };
+
+  const plans: Partial<Record<PlanKey, string>> = {};
+  for (const [freemiusId, plan] of Object.entries(PLAN_BY_FREEMIUS_ID)) {
+    // First id wins. Two ids mapping to one plan is a configuration mistake,
+    // and picking either silently is better than opening a checkout for a
+    // plan the webhook will then refuse to recognise.
+    plans[plan] ??= freemiusId;
+  }
+  return { productId, publicKey, plans };
 }

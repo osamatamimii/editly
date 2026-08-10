@@ -12,7 +12,7 @@
  */
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db, jobsTable } from "@workspace/db";
-import { minutesFrom, PLAN_LIMITS, type PlanKey } from "./plan-limits";
+import { exhaustedMessage as messageFor, minutesFrom, PLAN_LIMITS, type PlanKey } from "./plan-limits";
 
 export interface Usage {
   minutesUsed: number;
@@ -55,9 +55,10 @@ export async function usageFor(userId: string, plan: PlanKey): Promise<Usage> {
 }
 
 /**
- * The sentence a user sees when they run out. It names the number, the plan and
- * the way out, because "limit reached" on its own is a dead end.
+ * The wording lives in `plan-limits`, beside the numbers it quotes, so that the
+ * policy layer can reach it without importing this module and its database
+ * driver. This is the shape the routes already call.
  */
 export function exhaustedMessage(plan: PlanKey, usage: Usage): string {
-  return `You've used all ${usage.minutesIncluded} minutes of finished video on the ${plan} plan this month. Uploading is unlimited — it's the exported minutes that count. Upgrade for more, or your allowance resets on the 1st.`;
+  return messageFor(plan, usage.minutesIncluded);
 }

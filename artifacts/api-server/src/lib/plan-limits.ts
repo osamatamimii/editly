@@ -118,3 +118,18 @@ export function planKeyFrom(value: string | null | undefined): PlanKey {
 export function minutesFrom(seconds: number): number {
   return Math.ceil(Math.max(0, seconds) / 60);
 }
+
+/**
+ * The sentence a user sees when they run out.
+ *
+ * It lives here, beside the numbers it quotes, rather than next to the query
+ * that counts them — this module imports nothing, so the policy layer and its
+ * tests can reach the wording without dragging a database driver along.
+ *
+ * It names the number, the plan and the way out, because "limit reached" on its
+ * own is a dead end. And it repeats the meter, because running out is exactly
+ * the moment someone decides whether the meter was fair.
+ */
+export function exhaustedMessage(plan: PlanKey, minutesIncluded: number): string {
+  return `You've used all ${minutesIncluded} minutes of finished video on the ${plan} plan this month. Uploading is unlimited — it's the exported minutes that count. Upgrade for more, or your allowance resets on the 1st.`;
+}
