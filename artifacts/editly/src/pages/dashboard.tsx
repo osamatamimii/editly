@@ -122,7 +122,7 @@ export default function Dashboard() {
       if (status === 429) {
         toast({
           title: "Video limit reached",
-          description: `You've used all ${subscription?.minutesIncluded ?? ""} minutes on your ${subscription?.plan ?? ""} plan this month.`,
+          description: `You've used all ${subscription?.minutesIncluded ?? ""} exported minutes on your ${subscription?.plan ?? ""} plan this month.`,
           variant: "destructive",
           action: (
             <ToastAction altText="Upgrade plan" onClick={() => window.location.href = "/#pricing"}>
@@ -309,7 +309,7 @@ export default function Dashboard() {
             <div>
               <div className="text-sm font-medium">
                 <span className="font-bold">{subscription.minutesUsedThisMonth} / {subscription.minutesIncluded}</span>
-                {" "}minutes used this month
+                {" "}minutes of finished video this month
               </div>
               <div className="mt-1.5 w-48 h-1.5 rounded-full bg-white/10 overflow-hidden">
                 <div

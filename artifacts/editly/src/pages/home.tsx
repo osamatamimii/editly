@@ -89,11 +89,24 @@ const PLANS = [
   },
 ] as const;
 
+/**
+ * The first line is the one that matters.
+ *
+ * "60 minutes a month" is read by a podcaster as "one episode" — the exact
+ * opposite of the truth, and the reading most likely to lose the long-form
+ * audience this pricing was built for. Every competitor meters uploaded hours
+ * or credits, so people arrive with that model already loaded and apply it to
+ * us by default.
+ *
+ * The fix is not a parenthetical. It is naming the unit ("minutes of finished
+ * video") and then saying the difference out loud, where it stops being a
+ * clarification and becomes the best line on the page.
+ */
 const SHARED_FEATURES = [
+  "Upload as much footage as you like — you only pay for what you publish",
   "No watermark",
   "Unlimited edits — asking again is free",
   "Match the style of a video you like",
-  "Export ready-to-post clips",
 ];
 
 export default function Home() {
@@ -704,7 +717,7 @@ Every plan does the same editing. Pick how much you post.
                   <div className="mb-6 space-y-2">
                     <div className="flex items-center gap-2 text-sm font-semibold">
                       <span className="text-2xl">{plan.minutes}</span>
-                      <span className="text-muted-foreground">minutes/month</span>
+                      <span className="text-muted-foreground">minutes of finished video</span>
                     </div>
                     <div className="text-sm text-muted-foreground">{plan.upload}</div>
                     <div className="text-xs text-muted-foreground/70 mt-1">{plan.forWho}</div>
