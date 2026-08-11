@@ -266,7 +266,7 @@ export default function Home() {
       {/* ── Header ── */}
       <header className="w-full max-w-7xl mx-auto px-6 py-6 flex items-center justify-between z-10 relative animate-fade-in">
         <div className="flex items-center gap-2.5">
-          <Logo className="w-9 h-9 text-brand-mark logo-animated" />
+          <Logo className="w-9 h-9 text-brand-mark" />
           <span className="font-bold text-xl tracking-tight">Editly</span>
         </div>
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
