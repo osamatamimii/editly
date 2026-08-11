@@ -90,8 +90,9 @@ router.post("/projects/:id/render", async (req, res): Promise<void> => {
     }
     requested = template.build({
       platform: (project.platform ?? "tiktok") as "tiktok" | "reels" | "shorts",
-      // Templates place their punches proportionally, so they need a length.
-      durationSeconds: project.duration ?? 30,
+      // Templates place their punches proportionally. When nothing has measured
+      // this file, they are told so rather than told "30 seconds".
+      durationSeconds: project.duration ?? null,
       // The mark is not the template's decision. `decideRender` adds it from the
       // plan, so a template cannot accidentally watermark a paying customer or
       // accidentally fail to watermark a free one.
@@ -103,7 +104,7 @@ router.post("/projects/:id/render", async (req, res): Promise<void> => {
     // over whatever the clip actually is.
     requested = body.data.plan.operations.map((op) =>
       op.type === "zoomPunch" && op.at.length === 0
-        ? { ...op, at: evenlySpacedPunches(project.duration ?? 30, 4) }
+        ? { ...op, at: evenlySpacedPunches(project.duration ?? null, 4) }
         : op,
     );
   }
@@ -147,6 +148,13 @@ router.post("/projects/:id/render", async (req, res): Promise<void> => {
       status: "queued",
       plan,
       inputPath: project.videoPath,
+      // Snapshotted so that changing or clearing the reference while this sits
+      // in the queue cannot quietly alter a render already accepted.
+      referencePath: project.referenceVideoPath ?? null,
+      // The worker re-checks this against the file it actually downloads. The
+      // duration the policy layer saw came from the browser and can be a lie;
+      // this number cannot.
+      maxSourceSeconds: decision.maxSourceSeconds,
     })
     .returning();
 

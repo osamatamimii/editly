@@ -138,6 +138,9 @@ router.post("/projects/:id/export", async (req, res): Promise<void> => {
     status: "queued",
     plan: { version: 1, operations },
     inputPath: project.videoPath,
+    referencePath: project.referenceVideoPath ?? null,
+    // Enforced for real by the worker, which has the file. See render.ts.
+    maxSourceSeconds: decision.maxSourceSeconds,
   });
 
   const [exportJob] = await db
@@ -209,10 +212,16 @@ router.get("/projects/:id/export/status", async (req, res): Promise<void> => {
         ...exportJob,
         status,
         steps,
-        // The output lives in a private bucket; the browser signs its own URL
-        // from the project's editedVideoPath rather than being handed one that
-        // would expire before it was used.
+        // The output lives in a private bucket, so the browser signs its own
+        // URL rather than being handed one that would expire before it was
+        // used — but it signs *this job's* output key, which travels with the
+        // status. It used to sign the project's `editedVideoPath` from a copy
+        // fetched before the export existed, which was still null, so the
+        // fallback handed people their original upload under a card saying the
+        // edit was ready.
         downloadUrl: null,
+        outputPath: job?.outputPath ?? null,
+        notes: Array.isArray(job?.notes) ? job.notes : [],
       }),
     ),
   );

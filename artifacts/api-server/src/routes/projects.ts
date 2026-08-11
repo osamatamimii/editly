@@ -13,7 +13,7 @@ import {
   UpdateProjectResponse,
 } from "@workspace/api-zod";
 import { serializeProject } from "../lib/transformers";
-import { planKeyFrom } from "../lib/plan-limits";
+import { planKeyFrom, PLAN_LIMITS } from "../lib/plan-limits";
 import { usageFor, exhaustedMessage } from "../lib/usage";
 import { currentUserId } from "../middlewares/auth";
 import { deleteProjectObjects, isOwnedObjectPath } from "../lib/storage";
@@ -154,10 +154,32 @@ router.patch("/projects/:id", async (req, res): Promise<void> => {
 
   // Storage keys come from the browser, so the server confirms they point
   // inside this user's folder for this project before recording them.
-  for (const field of ["videoPath", "editedVideoPath", "thumbnailPath"] as const) {
+  for (const field of ["videoPath", "editedVideoPath", "thumbnailPath", "referenceVideoPath"] as const) {
     const value = parsed.data[field];
-    if (value !== undefined && !isOwnedObjectPath(value, userId, params.data.id)) {
+    if (typeof value === "string" && !isOwnedObjectPath(value, userId, params.data.id)) {
       res.status(400).json({ error: `${field} must be inside this project's own storage folder` });
+      return;
+    }
+  }
+
+  // Matching a reference is what the paid plans are actually being bought for,
+  // so the check is here rather than in the browser — where the pricing card is
+  // drawn and where anyone can edit a request. Clearing it is always allowed:
+  // nobody should be locked out of removing something after a downgrade.
+  if (typeof parsed.data.referenceVideoPath === "string") {
+    const [sub] = await db
+      .select()
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.userId, userId))
+      .limit(1);
+    const planKey = planKeyFrom(sub?.plan);
+    if (!PLAN_LIMITS[planKey].referenceStyle) {
+      res.status(402).json({
+        error:
+          "Matching another video's look is part of the paid plans. Creator and up read your reference and edit to it.",
+        requiresPlan: "creator",
+        plan: planKey,
+      });
       return;
     }
   }
