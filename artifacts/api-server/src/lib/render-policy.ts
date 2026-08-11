@@ -19,7 +19,7 @@
  * never ask for more.
  */
 import type { EditOperation } from "@workspace/api-zod";
-import { exhaustedMessage, PLAN_LIMITS, type PlanKey } from "./plan-limits";
+import { exhaustedMessage, minutesFrom, PLAN_LIMITS, type PlanKey } from "./plan-limits";
 // Type-only: this module must not pull the database driver into a decision that
 // needs nothing but numbers, or its tests would need a Postgres to run.
 import type { Usage } from "./usage";
@@ -47,6 +47,16 @@ export interface PolicyApproval {
   operations: EditOperation[];
   /** What was changed and why, for the log line. Empty when nothing was. */
   corrections: string[];
+  /**
+   * The upload ceiling this decision was made under, in seconds, to be written
+   * onto the job.
+   *
+   * The check above can only ever be as honest as the duration it was given,
+   * and that duration comes from the browser. Carrying the ceiling forward lets
+   * the worker — which has the actual file — enforce it for real, without
+   * knowing anything about plans or prices.
+   */
+  maxSourceSeconds: number;
 }
 
 export type PolicyResult = PolicyRefusal | PolicyApproval;
@@ -100,6 +110,36 @@ export function decideRender(input: PolicyInput): PolicyResult {
         },
       };
     }
+
+    // No operation makes a clip longer — silence removal shortens it and the
+    // rest leave it alone — so the source length is an upper bound on what this
+    // render will consume. Refusing when that bound overruns the balance is the
+    // difference between "you have used your month up" arriving before a render
+    // and arriving after it: without this, someone with two minutes left could
+    // queue a four-hour file, and the meter would only notice on the next
+    // request, by which time we have already paid for the encode.
+    //
+    // It is deliberately conservative in the customer's direction and against
+    // ours: a talk that is half pauses would have fitted, and is refused. The
+    // message says the length rather than hiding behind "limit reached", so the
+    // person can see the arithmetic and decide whether to trim or upgrade.
+    const projected = minutesFrom(seconds);
+    if (projected > input.usage.minutesRemaining) {
+      return {
+        allowed: false,
+        status: 429,
+        body: {
+          error: wouldExceedMessage(input.plan, projected, input.usage.minutesRemaining),
+          limitReached: true,
+          wouldExceed: true,
+          plan: input.plan,
+          minutesUsed: input.usage.minutesUsed,
+          minutesIncluded: input.usage.minutesIncluded,
+          minutesRemaining: input.usage.minutesRemaining,
+          projectedMinutes: projected,
+        },
+      };
+    }
   }
 
   const corrections: string[] = [];
@@ -129,7 +169,27 @@ export function decideRender(input: PolicyInput): PolicyResult {
     corrections.push(hadOwn ? "replaced a client-supplied watermark with the free-plan mark" : "added the free-plan mark");
   }
 
-  return { allowed: true, operations, corrections };
+  return {
+    allowed: true,
+    operations,
+    corrections,
+    maxSourceSeconds: limits.maxUploadMinutes * 60,
+  };
+}
+
+/**
+ * Refusing before the encode rather than after it.
+ *
+ * Both numbers are named because "limit reached" invites an argument and
+ * "this clip is 12 minutes and you have 3 left" does not.
+ */
+function wouldExceedMessage(plan: PlanKey, projected: number, remaining: number): string {
+  const left = remaining === 0 ? "none left" : `${remaining} minute${remaining === 1 ? "" : "s"} left`;
+  const upgrade =
+    plan === "studio"
+      ? "Your minutes reset at the start of next month."
+      : "Upgrading adds them immediately, or they reset at the start of next month.";
+  return `That clip is ${projected} minute${projected === 1 ? "" : "s"} long and you have ${left} this month. ${upgrade}`;
 }
 
 /**

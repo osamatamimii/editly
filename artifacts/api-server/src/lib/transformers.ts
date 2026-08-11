@@ -31,6 +31,9 @@ export function serializeJob(job: Record<string, unknown>) {
     error: job.error ?? null,
     plan: job.plan,
     outputPath: job.outputPath ?? null,
+    // What the render did and could not do. Reaching the client is the whole
+    // point of having written them; they used to stop at a log line.
+    notes: Array.isArray(job.notes) ? job.notes : [],
     createdAt: job.createdAt instanceof Date ? job.createdAt.toISOString() : job.createdAt,
     updatedAt: job.updatedAt instanceof Date ? job.updatedAt.toISOString() : job.updatedAt,
   };

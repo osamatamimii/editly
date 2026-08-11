@@ -241,6 +241,7 @@ function describeAll(operations: EditOperation[]): string[] {
       case "normalizeLoudness": return "level the audio to what these platforms expect";
       case "burnCaptions": return "burn in the captions";
       case "watermark": return "add the watermark";
+      case "grade": return "match the colour to your reference";
     }
   });
 }

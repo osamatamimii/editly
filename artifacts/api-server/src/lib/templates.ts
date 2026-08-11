@@ -24,8 +24,17 @@ export interface Template {
 
 export interface TemplateContext {
   platform: Platform;
-  /** Seconds. Used to place punches proportionally rather than at fixed times. */
-  durationSeconds: number;
+  /**
+   * Seconds, or null when nobody has measured the file yet.
+   *
+   * Null is not a missing value to be defaulted. It used to be filled in with
+   * 30, which meant a template placed its punches as though every video were
+   * half a minute long — on a ten-minute talk, four zooms in the first twenty
+   * seconds and nothing after. An empty `at` is the better answer: it tells the
+   * worker to choose the moments from the speech itself, which is what it would
+   * rather do anyway.
+   */
+  durationSeconds: number | null;
   /** Free plans carry the mark. */
   watermark: boolean;
 }
@@ -40,7 +49,11 @@ function withWatermark(operations: EditOperation[], context: TemplateContext): E
  * last couple of seconds — a zoom on the opening frame fights the hook, and one
  * on the final frame lands after anyone has stopped watching.
  */
-export function evenlySpacedPunches(durationSeconds: number, count: number): number[] {
+export function evenlySpacedPunches(durationSeconds: number | null, count: number): number[] {
+  // "We do not know how long this is" and "this is 30 seconds" are different
+  // claims, and only one of them is ever true. Handing back an empty list makes
+  // the worker pick the emphasis from the transcript instead of from a guess.
+  if (durationSeconds == null || !Number.isFinite(durationSeconds) || durationSeconds <= 0) return [];
   const start = 2;
   const end = Math.max(start + 1, durationSeconds - 2);
   if (end <= start) return [];
