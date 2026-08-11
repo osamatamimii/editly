@@ -54,6 +54,11 @@ node tools/billing-test.mjs
 # a 500 falls back to keywords instead of reaching the user.
 node tools/planner-test.mjs
 
+# 28 checks on the two themes: that every token the dark theme defines is
+# answered by the light one, that the two actually differ, and that every
+# text-on-surface pair clears WCAG AA — measured from the real stylesheet.
+node tools/theme-test.mjs
+
 # 33 checks that nobody gets a render they did not pay for: a request that
 # omits the watermark, one that sends an unreadable watermark instead, one
 # padded to twelve operations so there is no room for ours, and a four-hour
