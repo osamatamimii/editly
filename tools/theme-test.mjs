@@ -191,6 +191,18 @@ console.log("\nText stays readable");
     // two tokens is that one of them could not satisfy both of these at once.
     ["label on a destructive button", "--destructive-foreground", "--destructive-fill", 4.5],
     ["destructive text on the page", "--destructive", "--background", 4.5],
+    // Status colours are read, not admired. These were tuned against a
+    // near-black page and shipped as text-green-400 and text-amber-400, which
+    // measure 1.8:1 and 2.2:1 on white — the "Ready to Share" heading and the
+    // "waiting for a machine" warning were decoration on the light theme.
+    ["success text on the page", "--success", "--background", 4.5],
+    ["success text on a card", "--success", "--card", 4.5],
+    ["warning text on the page", "--warning", "--background", 4.5],
+    ["warning text on a card", "--warning", "--card", 4.5],
+    // Secondary carries text (labels, icons) *and* sits under white text on the
+    // send button and the progress fill. On light both were 3.55:1 at once.
+    ["secondary text on a card", "--secondary", "--card", 4.5],
+    ["label on a secondary fill", "--secondary-foreground", "--secondary", 4.5],
   ];
 
   for (const [theme, tokens] of [["dark", dark], ["light", light]]) {
