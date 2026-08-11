@@ -386,6 +386,27 @@ const VIDEO_ENCODE = [
   "-sc_threshold", "0",
 ];
 
+/**
+ * The same settings, adjusted for a frame with four times the pixels.
+ *
+ * `medium`/CRF 18 is right at 1080 and wrong at 2160 for two reasons that pull
+ * the same way. The encode is roughly four times the work, which turns a render
+ * nobody is waiting on into one they are; and quantisation artefacts are far
+ * harder to see at that pixel density, so CRF 20 there looks like CRF 18 here
+ * while producing a file somebody can actually upload. Level 5.1 because 4.2
+ * does not admit frames this large — a mismatch some players enforce and others
+ * ignore, which is the worst kind of wrong.
+ */
+function videoEncodeFor(frameHeight: number): string[] {
+  if (frameHeight <= 1920) return VIDEO_ENCODE;
+  return VIDEO_ENCODE.map((arg, i, all) => {
+    if (all[i - 1] === "-preset") return "fast";
+    if (all[i - 1] === "-crf") return "20";
+    if (all[i - 1] === "-level") return "5.1";
+    return arg;
+  });
+}
+
 const AUDIO_ENCODE = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000"];
 
 /**
@@ -399,11 +420,35 @@ function escapeForFilter(text: string): string {
   return text.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'").replace(/%/g, "\\%");
 }
 
-const PLATFORM_FRAME: Record<string, { w: number; h: number }> = {
-  tiktok: { w: 1080, h: 1920 },
-  reels: { w: 1080, h: 1920 },
-  shorts: { w: 1080, h: 1920 },
-};
+/**
+ * The export frame, from its height.
+ *
+ * All three targets are 9:16, so the height is the only number: 1920 gives
+ * 1080x1920, 2160 gives 1216x2160, 1280 gives 720x1280. Widths are rounded to
+ * even because H.264 chroma subsampling requires it and an odd dimension fails
+ * the encode with a message about nothing in particular.
+ */
+const DEFAULT_FRAME_HEIGHT = 1920;
+
+export function frameFor(height: number): { w: number; h: number } {
+  const h = Math.round(height / 2) * 2;
+  return { w: Math.round((h * 9) / 16 / 2) * 2, h };
+}
+
+/**
+ * How much taller than the source's own vertical crop we are willing to go.
+ *
+ * Reframing takes a 9:16 window out of the source and scales it to the target,
+ * so a 1080p landscape clip only carries about 608 real pixels across that
+ * window — every vertical export from it is already an upscale. That is
+ * inherent and fine. Going further is not: exporting a 1080p camera at 2160
+ * quadruples the file for exactly the same detail, costs the customer their
+ * upload time and us the encode, and looks softer, not sharper.
+ *
+ * So the requested height is capped at what the crop can plausibly carry, with
+ * this much headroom, and the cap is stated rather than applied silently.
+ */
+const HONEST_UPSCALE = 2;
 
 const WATERMARK_POSITION: Record<string, string> = {
   "bottom-right": "x=w-tw-40:y=h-th-40",
@@ -556,7 +601,17 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   let frameHeight = source.height;
 
   if (reframe) {
-    const target = PLATFORM_FRAME[reframe.platform] ?? PLATFORM_FRAME["tiktok"];
+    const asked = frameFor(reframe.maxHeight ?? DEFAULT_FRAME_HEIGHT);
+    // What the source can honestly fill: the 9:16 window out of it, at the
+    // scale that window is already being taken at.
+    const sourceWindowHeight = Math.min(source.height, (source.width * 16) / 9);
+    const ceiling = Math.max(DEFAULT_FRAME_HEIGHT, sourceWindowHeight * HONEST_UPSCALE);
+    const target = asked.h > ceiling ? frameFor(ceiling) : asked;
+    if (target.h !== asked.h) {
+      notes.push(
+        `exported at ${target.h}p rather than ${asked.h}p — this footage has no more detail than that, and the larger file would only be a bigger copy of the same picture`,
+      );
+    }
     frameWidth = target.w;
     frameHeight = target.h;
     // Crop wider than the target when something will move, so the base zoom is
@@ -709,7 +764,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   args.push("-map", finalV);
   if (source.hasAudio) args.push("-map", finalA);
 
-  args.push(...VIDEO_ENCODE);
+  args.push(...videoEncodeFor(frameHeight));
   if (source.hasAudio) args.push(...AUDIO_ENCODE);
   args.push(...FASTSTART, output);
 

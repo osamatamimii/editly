@@ -78,7 +78,10 @@ async function claimJob(): Promise<Job | null> {
      WHERE id = (
        SELECT id FROM jobs
        WHERE status = 'queued' AND attempts < max_attempts
-       ORDER BY created_at
+       -- Priority first, then age. Within a priority this is still strictly
+       -- first-in-first-out, so a paid queue cannot starve a free one of
+       -- anything except its place at the front.
+       ORDER BY priority DESC, created_at
        FOR UPDATE SKIP LOCKED
        LIMIT 1
      )
@@ -111,6 +114,7 @@ function toJob(row: Record<string, unknown>): Job {
     outputSecondsSource: row["output_seconds_source"] as string | null,
     sourceSeconds: row["source_seconds"] as number | null,
     maxSourceSeconds: row["max_source_seconds"] as number | null,
+    priority: row["priority"] as number,
     maxAttempts: row["max_attempts"] as number,
   };
 }
