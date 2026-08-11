@@ -200,6 +200,84 @@ console.log("\nA file that is too long");
   check("a file exactly at the ceiling is accepted", exact.allowed === true, JSON.stringify(exact.body));
 }
 
+console.log("\nA render is refused before the encode, not after it");
+{
+  // The hole this closes: the meter only ever noticed *after* a render. Someone
+  // with two minutes left could queue a four-hour file, we would pay for the
+  // encode, and the refusal would arrive on their next request.
+  const overrun = decideRender({
+    plan: "creator",
+    usage: usage(58, 60),
+    operations: [SILENCE],
+    sourceDurationSeconds: 12 * 60,
+  });
+  check("a clip longer than the balance is refused", overrun.allowed === false);
+  check("as an allowance problem, not a file-size one", overrun.status === 429, String(overrun.status));
+  check("flagged as a projection rather than an exhausted meter", overrun.body?.wouldExceed === true);
+  check("the message names the clip's length", /12 minutes/.test(overrun.body?.error ?? ""), overrun.body?.error);
+  check("and how much is left", /2 minutes left/.test(overrun.body?.error ?? ""), overrun.body?.error);
+  check("the numbers travel with it", overrun.body?.projectedMinutes === 12 && overrun.body?.minutesRemaining === 2);
+
+  const fits = decideRender({
+    plan: "creator",
+    usage: usage(58, 60),
+    operations: [SILENCE],
+    sourceDurationSeconds: 110,
+  });
+  check("a clip that fits is allowed", fits.allowed === true, JSON.stringify(fits.body));
+
+  const exact = decideRender({
+    plan: "creator",
+    usage: usage(58, 60),
+    operations: [SILENCE],
+    sourceDurationSeconds: 120,
+  });
+  check("a clip exactly the size of the balance is allowed", exact.allowed === true, JSON.stringify(exact.body));
+
+  const oneSecondOver = decideRender({
+    plan: "creator",
+    usage: usage(58, 60),
+    operations: [SILENCE],
+    sourceDurationSeconds: 121,
+  });
+  check("a second past it is not — minutes round up, as the meter does", oneSecondOver.allowed === false);
+
+  const unknown = decideRender({
+    plan: "creator",
+    usage: usage(58, 60),
+    operations: [SILENCE],
+    sourceDurationSeconds: null,
+  });
+  check(
+    "an unmeasured file is not refused here — the worker enforces it against the real one",
+    unknown.allowed === true,
+  );
+
+  const studio = decideRender({
+    plan: "studio",
+    usage: usage(599, 600),
+    operations: [SILENCE],
+    sourceDurationSeconds: 600,
+  });
+  check("the top plan is not told to upgrade", !/Upgrading/.test(studio.body?.error ?? ""), studio.body?.error);
+  check("it is told when the minutes come back", /reset at the start of next month/.test(studio.body?.error ?? ""), studio.body?.error);
+}
+
+console.log("\nThe ceiling the worker will actually enforce travels with the decision");
+{
+  const free = decideRender({ plan: "free", usage: usage(0, 5), operations: [SILENCE] });
+  check("an approval carries a ceiling", typeof free.maxSourceSeconds === "number");
+  check("in seconds, matching the plan", free.maxSourceSeconds === 10 * 60, String(free.maxSourceSeconds));
+
+  const pro = decideRender({ plan: "pro", usage: usage(0, 200), operations: [SILENCE] });
+  check("a bigger plan carries a bigger one", pro.maxSourceSeconds === 240 * 60, String(pro.maxSourceSeconds));
+  check(
+    "and it does not depend on what the browser claimed the duration was",
+    decideRender({ plan: "pro", usage: usage(0, 200), operations: [SILENCE], sourceDurationSeconds: 3 })
+      .maxSourceSeconds === pro.maxSourceSeconds,
+  );
+}
+
 console.log("\nThe order of refusals");
 {
   // Both wrong at once. The allowance is the one the user can fix by waiting,

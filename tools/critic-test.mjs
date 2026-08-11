@@ -355,6 +355,35 @@ section("ffmpeg.ts still exports the timeline helpers the other suites import");
   check("and they still work", kept.length === 3 && near(kept[1].start, 12));
 }
 
+section("A quiet stretch that something is happening in is not a cut");
+{
+  const silences = [{ start: 8, end: 12 }, { start: 20, end: 23 }];
+
+  const both = keepSegmentsFrom(30, silences, 0);
+  check("with nothing protected, both silences go", both.length === 3, JSON.stringify(both));
+
+  // A demo running on screen, a reveal, a beat held before a punchline: all
+  // silent, and all the reason the clip exists.
+  const spared = keepSegmentsFrom(30, silences, 0, [{ start: 19, end: 24 }]);
+  check("a protected stretch survives the cut", spared.length === 2, JSON.stringify(spared));
+  check("the unprotected silence still goes", near(spared[1].start, 12));
+  check("and the protected one is intact, not trimmed to fit", near(spared[1].end, 30));
+
+  const touching = keepSegmentsFrom(30, silences, 0, [{ start: 22.9, end: 25 }]);
+  check("overlapping by a moment is enough to spare it", touching.length === 2, JSON.stringify(touching));
+
+  const adjacent = keepSegmentsFrom(30, silences, 0, [{ start: 23, end: 25 }]);
+  check("but merely touching the end is not — that is not overlap", adjacent.length === 3, JSON.stringify(adjacent));
+
+  const all = keepSegmentsFrom(30, silences, 0, [{ start: 0, end: 30 }]);
+  check("protecting everything means cutting nothing", all.length === 1 && near(all[0].end, 30));
+
+  check(
+    "and the old three-argument call still means what it did",
+    JSON.stringify(keepSegmentsFrom(30, silences, 0)) === JSON.stringify(both),
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
