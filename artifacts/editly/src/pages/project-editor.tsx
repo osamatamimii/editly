@@ -23,7 +23,7 @@ import { Card } from "@/components/ui/card";
 import { 
   UploadCloud, Play, Pause, ChevronLeft, Send,
   Wand2, Download, CheckCircle2, Loader2,
-  Video
+  Video, Sparkles
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
@@ -31,6 +31,8 @@ import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import {
   uploadProjectVideo,
+  uploadReferenceVideo,
+  MAX_REFERENCE_BYTES,
   usePlayableVideo,
   ACCEPTED_VIDEO_TYPES,
   MAX_UPLOAD_BYTES,
@@ -69,6 +71,7 @@ export default function ProjectEditor() {
   const cancelUploadRef = useRef<(() => void) | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isNoahThinking, setIsNoahThinking] = useState(false);
+  const [isAttachingReference, setIsAttachingReference] = useState(false);
   /** The plan derived from the conversation, if the assistant understood one. */
   const [chatPlan, setChatPlan] = useState<EditPlan | null>(null);
   /** Set when the browser cannot decode or reach the file behind playbackUrl. */
@@ -416,19 +419,11 @@ export default function ProjectEditor() {
       if (result?.plan) setChatPlan(result.plan);
       queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(id) });
     } catch (error: unknown) {
-      const status = (error as { status?: number })?.status;
-      if (status === 429) {
-        toast({
-          title: "Edit limit reached",
-          description: "You've used all your edits for this video on your current plan.",
-          variant: "destructive",
-          action: (
-            <ToastAction altText="Upgrade plan" onClick={() => window.location.href = "/#pricing"}>
-              Upgrade
-            </ToastAction>
-          ),
-        });
-      } else {
+      // There is deliberately no "you have used all your edits" branch here.
+      // The messages route has no cap and cannot return 429, and the pricing
+      // page promises unlimited edits — asking again is the loop this product
+      // is built around, so a toast implying otherwise was both dead and wrong.
+      {
         toast({
           title: "Failed to send message",
           variant: "destructive"
@@ -437,6 +432,68 @@ export default function ProjectEditor() {
       }
     } finally {
       setIsNoahThinking(false);
+    }
+  };
+
+  /**
+   * Attaches a video whose look this edit should match.
+   *
+   * The whole feature is one file and one column: the worker measures the
+   * reference — how often it cuts, how much silence it leaves, how loud and how
+   * saturated it ends up — and sets the numbers inside the plan to match. It
+   * never invents operations the plan did not ask for, so attaching a reference
+   * cannot turn a quiet edit into a frantic one.
+   */
+  const handleAttachReference = async (file: File) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!user || !accessToken || !project) return;
+
+    setIsAttachingReference(true);
+    try {
+      const referenceVideoPath = await uploadReferenceVideo({
+        file,
+        userId: user.id,
+        projectId: project.id,
+        accessToken,
+      });
+      await updateProject.mutateAsync({ id: project.id, data: { referenceVideoPath } });
+      queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
+      toast({
+        title: "Reference attached",
+        description: "Your next render will be edited to match it.",
+      });
+    } catch (error: unknown) {
+      const status = (error as { status?: number })?.status;
+      toast({
+        // 402 is the plan speaking, and it has already written the sentence.
+        title: status === 402 ? "That's a paid feature" : "Could not attach that reference",
+        description:
+          (error as { data?: { error?: string } })?.data?.error ??
+          (error instanceof Error ? error.message : undefined),
+        variant: "destructive",
+        ...(status === 402
+          ? {
+              action: (
+                <ToastAction altText="See plans" onClick={() => { window.location.href = "/#pricing"; }}>
+                  See plans
+                </ToastAction>
+              ),
+            }
+          : {}),
+      });
+    } finally {
+      setIsAttachingReference(false);
+    }
+  };
+
+  const handleClearReference = async () => {
+    if (!project) return;
+    try {
+      await updateProject.mutateAsync({ id: project.id, data: { referenceVideoPath: null } });
+      queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
+    } catch {
+      toast({ title: "Could not remove the reference", variant: "destructive" });
     }
   };
 
@@ -452,10 +509,33 @@ export default function ProjectEditor() {
       toast({ title: "Render queued", description: "You can leave this page — we'll keep working." });
     } catch (error: unknown) {
       const status = (error as { status?: number })?.status;
+      const said = (error as { data?: { error?: string } })?.data?.error;
+      // 429 and 413 are policy, not failure: the server has already written a
+      // sentence naming the minutes or the length and what to do about it, so
+      // it is shown as-is rather than replaced with a generic apology. This is
+      // also the one place an upgrade button belongs — it used to sit on a
+      // dead branch for a limit that does not exist.
+      const isPolicy = status === 429 || status === 413;
       toast({
-        title: status === 409 ? "Already rendering" : "Could not start the render",
-        description: status === 409 ? "This project has a render in progress." : (error as { data?: { error?: string } })?.data?.error,
+        title:
+          status === 409
+            ? "Already rendering"
+            : status === 429
+              ? "Not enough minutes left"
+              : status === 413
+                ? "That file is too long for this plan"
+                : "Could not start the render",
+        description: status === 409 ? "This project has a render in progress." : said,
         variant: "destructive",
+        ...(isPolicy
+          ? {
+              action: (
+                <ToastAction altText="See plans" onClick={() => { window.location.href = "/#pricing"; }}>
+                  See plans
+                </ToastAction>
+              ),
+            }
+          : {}),
       });
     }
   };
@@ -582,6 +662,79 @@ export default function ProjectEditor() {
    * under a landscape clip there is no room for that, so they stay as pills
    * with the description in the tooltip.
    */
+  /**
+   * The reference video: "edit this like that one".
+   *
+   * It sits with the looks because it is the same kind of decision — a saved
+   * style versus a measured one — and because the honest way to describe it is
+   * next to four named alternatives, so nobody thinks it does more than it does.
+   */
+  const reference = project && (
+    <div
+      className={`rounded-xl glass-panel border border-hairline ${
+        sideBySide ? "flex flex-col gap-2 px-4 py-4" : "mt-3 px-3 py-2.5"
+      }`}
+      data-testid="panel-reference"
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <Sparkles className={`text-secondary flex-shrink-0 ${sideBySide ? "w-4 h-4" : "w-3.5 h-3.5"}`} />
+        <span className={`font-medium text-muted-foreground ${sideBySide ? "text-sm" : "text-xs"}`}>
+          Match another video
+        </span>
+      </div>
+
+      {project.referenceVideoPath ? (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground leading-snug">
+            Your next render is edited to match the clip you attached — its pace, how much
+            silence it keeps, its level and its colour.
+          </span>
+          <button
+            onClick={handleClearReference}
+            className="flex-shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            data-testid="button-clear-reference"
+          >
+            Remove
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="text-[11px] leading-snug text-muted-foreground mb-2">
+            Upload a short clip in the style you want and we read it: how often it cuts, how
+            much silence it leaves, how loud and how graded it ends up. Under{" "}
+            {formatBytes(MAX_REFERENCE_BYTES)} — we only look at the first two minutes.
+          </p>
+          <label
+            className={`inline-flex items-center justify-center gap-2 rounded-xl border border-hairline bg-surface-1 px-4 py-2.5 text-xs font-medium cursor-pointer transition-all hover:border-primary/40 hover:bg-white/[0.06] ${
+              isAttachingReference ? "opacity-50 pointer-events-none" : ""
+            }`}
+            data-testid="button-attach-reference"
+          >
+            {isAttachingReference ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Uploading…
+              </>
+            ) : (
+              "Choose a reference clip"
+            )}
+            <input
+              type="file"
+              accept={ACCEPTED_VIDEO_TYPES.join(",")}
+              className="hidden"
+              disabled={isAttachingReference}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void handleAttachReference(file);
+              }}
+            />
+          </label>
+        </>
+      )}
+    </div>
+  );
+
   const looks = templates && templates.length > 0 && (
     <div
       className={`rounded-xl glass-panel border border-hairline ${
@@ -813,6 +966,7 @@ export default function ProjectEditor() {
                   data-testid="side-controls"
                 >
                   {looks}
+                  {reference}
                 </aside>
               )}
             </div>
@@ -820,7 +974,7 @@ export default function ProjectEditor() {
 
           {/* Under a landscape clip the width is the plentiful dimension, so the
               looks sit below as a row. A vertical clip puts them in the column. */}
-          {hasVideo && !sideBySide && <div>{looks}</div>}
+          {hasVideo && !sideBySide && <div>{looks}{reference}</div>}
         </div>
 
         {/* AI Chat Sidebar */}
@@ -911,6 +1065,33 @@ export default function ProjectEditor() {
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* What the render actually did, in the words the worker wrote.
+                  These have existed since the first render and went nowhere but
+                  a log line — so a job that skipped captions for want of a key
+                  came back looking exactly like one that did everything. */}
+              {renderJob?.status === "done" && (renderJob.notes?.length ?? 0) > 0 && (
+                <div className="flex gap-3 items-start">
+                  <img
+                    src="/noah-avatar.jpg"
+                    alt="Noah"
+                    className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-hairline"
+                  />
+                  <div className="flex flex-col gap-1 flex-1">
+                    <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
+                    <div className="bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 text-sm w-full">
+                      <p className="font-semibold mb-2">Here's what I did.</p>
+                      <ul className="space-y-1.5" data-testid="list-render-notes">
+                        {renderJob.notes?.map((note, i) => (
+                          <li key={i} className="text-xs text-muted-foreground leading-relaxed">
+                            {note}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   </div>
                 </div>

@@ -36,6 +36,7 @@ export default function ExportPage() {
   const { url: playbackUrl } = usePlayableVideo(
     project?.editedVideoPath ?? project?.videoPath ?? project?.editedVideoUrl ?? project?.videoUrl,
   );
+
   const hasVideo = Boolean(project?.videoPath ?? project?.videoUrl);
 
   const { data: exportStatus } = useGetExportStatus(id, {
@@ -52,6 +53,13 @@ export default function ExportPage() {
     }
   });
 
+  // The finished file, signed from the key this export reported — not from the
+  // project. `project` is a cached copy fetched before this export existed, so
+  // its `editedVideoPath` is still null when the export finishes, and the
+  // preview fell through to `videoPath`: the original upload, offered for
+  // download under a card saying the edit was ready.
+  const { url: exportedUrl } = usePlayableVideo(exportStatus?.outputPath ?? null);
+
   const startExport = useStartExport();
 
   // Watch export status changes
@@ -59,6 +67,9 @@ export default function ExportPage() {
     if (exportStatus) {
       if (exportStatus.status === 'done') {
         setIsExporting(false);
+        // The project row now points at the new render. Without this the editor
+        // and the preview keep showing the previous cut.
+        queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
         toast({
           title: "Export Complete!",
           description: "Your video is ready to download."
@@ -72,7 +83,7 @@ export default function ExportPage() {
         });
       }
     }
-  }, [exportStatus, toast]);
+  }, [exportStatus, toast, queryClient, id]);
 
   const handleStartExport = async () => {
     try {
@@ -124,9 +135,9 @@ export default function ExportPage() {
         {/* Preview Container */}
         <div className="lg:col-span-5 flex justify-center">
           <div className="force-dark w-full max-w-[360px] aspect-[9/16] bg-background text-foreground rounded-3xl overflow-hidden border-4 border-hairline relative shadow-[0_0_50px_var(--glass-bloom)]">
-            {playbackUrl ? (
-              <video 
-                src={playbackUrl} 
+            {(exportedUrl ?? playbackUrl) ? (
+              <video
+                src={exportedUrl ?? playbackUrl ?? undefined} 
                 className="w-full h-full object-cover"
                 controls
                 autoPlay
@@ -266,18 +277,24 @@ export default function ExportPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-6">
-                <Button 
-                  size="lg" 
+                <Button
+                  size="lg"
                   className="w-full h-16 text-lg font-bold rounded-xl bg-foreground text-background hover:bg-foreground/85 transition-all shadow-[0_0_20px_var(--invert-glow)]"
+                  // The edit, or nothing. There is deliberately no fallback to
+                  // the original upload here: handing someone their own file
+                  // back under a button marked "Download Video" is worse than
+                  // a button that is briefly unavailable, because they will not
+                  // find out until they have posted it.
+                  disabled={!exportedUrl}
                   onClick={() => {
-                    // Simulate download
+                    if (!exportedUrl) return;
                     const link = document.createElement('a');
-                    link.href = exportStatus?.downloadUrl || playbackUrl || '#';
+                    link.href = exportedUrl;
                     link.download = `${project.title.replace(/\s+/g, '-').toLowerCase()}-${platform}.mp4`;
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
-                    
+
                     toast({
                       title: "Download started",
                       description: "Your video is downloading."
@@ -286,9 +303,22 @@ export default function ExportPage() {
                   data-testid="button-download"
                 >
                   <Download className="w-5 h-5 mr-3" />
-                  Download Video
+                  {exportedUrl ? "Download Video" : "Preparing your file…"}
                 </Button>
-                
+
+                {(exportStatus?.notes?.length ?? 0) > 0 && (
+                  <div className="mt-6 rounded-xl border border-hairline bg-surface-1 p-4" data-testid="render-notes">
+                    <p className="text-sm font-semibold mb-2">What we did</p>
+                    <ul className="space-y-1.5">
+                      {exportStatus?.notes?.map((note, i) => (
+                        <li key={i} className="text-sm text-muted-foreground leading-relaxed">
+                          {note}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 <div className="mt-6 flex gap-4 justify-center">
                   <Button variant="outline" className="border-hairline" onClick={() => {
                     setIsExporting(false); // Reset to start another export
