@@ -262,7 +262,7 @@ export default function Dashboard() {
                     two cards that read "waiting for a machine" is the counter
                     contradicting the cards. */}
                 {(stats?.stalledCount ?? 0) > 0 && (
-                  <div className="text-xs text-amber-400 mt-1" data-testid="text-stalled-count">
+                  <div className="text-xs text-warning mt-1" data-testid="text-stalled-count">
                     {stats?.stalledCount} waiting for a machine
                   </div>
                 )}
@@ -273,7 +273,7 @@ export default function Dashboard() {
         <Card className="glass-panel border-hairline-faint">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Completed Edits</CardTitle>
-            <CheckCircle2 className="w-4 h-4 text-green-500" />
+            <CheckCircle2 className="w-4 h-4 text-success" />
           </CardHeader>
           <CardContent>
             {isStatsLoading ? (
@@ -304,9 +304,9 @@ export default function Dashboard() {
             }`}>
               <TrendingUp className={`w-4 h-4 ${
                 subscription.minutesUsedThisMonth >= subscription.minutesIncluded
-                  ? "text-red-400"
+                  ? "text-destructive"
                   : subscription.minutesUsedThisMonth / subscription.minutesIncluded >= 0.8
-                  ? "text-amber-400"
+                  ? "text-warning"
                   : "text-primary"
               }`} />
             </div>
@@ -379,7 +379,7 @@ export default function Dashboard() {
             {projects?.map(project => (
               <Link key={project.id} href={`/project/${project.id}`}>
                 <Card className="glass-panel border-hairline-faint overflow-hidden hover:border-primary/50 transition-colors group cursor-pointer h-full flex flex-col">
-                  <div className="w-full aspect-[16/9] bg-black/60 relative overflow-hidden flex-shrink-0">
+                  <div className="force-dark w-full aspect-[16/9] bg-background text-foreground relative overflow-hidden flex-shrink-0">
                     {/* The icon is the floor, not the fallback: it sits under
                         whatever loads, so a poster that fails to fetch or a clip
                         the browser will not decode leaves a recognisable empty

@@ -854,7 +854,7 @@ export default function Home() {
           <p
             role="alert"
             data-testid="text-checkout-error"
-            className="text-center text-sm text-red-400 mt-6 max-w-md mx-auto"
+            className="text-center text-sm text-destructive mt-6 max-w-md mx-auto"
           >
             {checkoutError}
           </p>

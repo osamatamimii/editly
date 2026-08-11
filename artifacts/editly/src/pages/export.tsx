@@ -123,7 +123,7 @@ export default function ExportPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
         {/* Preview Container */}
         <div className="lg:col-span-5 flex justify-center">
-          <div className="w-full max-w-[360px] aspect-[9/16] bg-black rounded-3xl overflow-hidden glass-panel border-4 border-hairline relative shadow-[0_0_50px_rgba(108,59,255,0.2)]">
+          <div className="force-dark w-full max-w-[360px] aspect-[9/16] bg-background text-foreground rounded-3xl overflow-hidden border-4 border-hairline relative shadow-[0_0_50px_var(--glass-bloom)]">
             {playbackUrl ? (
               <video 
                 src={playbackUrl} 
@@ -236,7 +236,7 @@ export default function ExportPage() {
                 {exportStatus?.steps.map((step, idx) => (
                   <div key={idx} className="flex items-center gap-4">
                     {step.status === 'done' ? (
-                      <CheckCircle2 className="w-6 h-6 text-green-500 flex-shrink-0" />
+                      <CheckCircle2 className="w-6 h-6 text-success flex-shrink-0" />
                     ) : step.status === 'active' ? (
                       <Loader2 className="w-6 h-6 animate-spin text-secondary flex-shrink-0" />
                     ) : (
@@ -258,9 +258,9 @@ export default function ExportPage() {
             <Card className="glass-panel border-green-500/30 shadow-[0_0_30px_rgba(34,197,94,0.15)]">
               <CardHeader className="text-center pb-2">
                 <div className="mx-auto w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mb-4">
-                  <CheckCircle2 className="w-8 h-8 text-green-500" />
+                  <CheckCircle2 className="w-8 h-8 text-success" />
                 </div>
-                <CardTitle className="text-2xl text-green-400">Ready to Share</CardTitle>
+                <CardTitle className="text-2xl text-success">Ready to Share</CardTitle>
                 <CardDescription>
                   Your video has been successfully optimized for {exportStatus?.platform || platform}.
                 </CardDescription>

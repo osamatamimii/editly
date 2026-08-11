@@ -662,7 +662,7 @@ export default function ProjectEditor() {
         <div className="flex-1 flex flex-col relative p-4 lg:p-6 overflow-hidden">
           
           {!hasVideo && (
-            <div className="flex-1 relative rounded-2xl overflow-hidden glass-panel border border-hairline bg-black/40 flex flex-col">
+            <div className="flex-1 relative rounded-2xl overflow-hidden glass-panel border border-hairline bg-band flex flex-col">
               <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
                 {isUploading ? (
                   <div className="flex flex-col items-center w-full max-w-sm">
@@ -720,7 +720,7 @@ export default function ProjectEditor() {
                   to one edge with a gap between them. */}
               <div className="min-w-0 flex flex-col items-center justify-center gap-3">
                 <div
-                  className="relative rounded-2xl overflow-hidden glass-panel border border-hairline"
+                  className="force-dark relative rounded-2xl overflow-hidden glass-panel border border-hairline text-foreground"
                   style={{
                     width: picture ? `${picture.width}px` : "100%",
                     height: picture ? `${picture.height}px` : "100%",
@@ -985,7 +985,7 @@ export default function ProjectEditor() {
                 type="submit"
                 size="icon"
                 disabled={!chatInput.trim() || !hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
-                className="absolute right-1 top-1 h-10 w-10 rounded-full bg-secondary text-white hover:bg-secondary/90 hover:shadow-[0_0_15px_rgba(155,107,255,0.6)] transition-all"
+                className="absolute right-1 top-1 h-10 w-10 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary/90 hover:shadow-[0_0_15px_rgba(155,107,255,0.6)] transition-all"
                 data-testid="button-send-message"
               >
                 <Send className="w-4 h-4" />
