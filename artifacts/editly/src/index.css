@@ -96,13 +96,14 @@
   --color-hairline-strong: var(--hairline-strong);
 
   /*
-   * The mark's own colour.
+   * The mark's colour. Purple in both themes — the same hue, 265, so it reads
+   * as one brand rather than two.
    *
-   * Its true purple is #6C17E2 and it is gorgeous on paper — and it manages
-   * 2.7:1 against our near-black page, under the 3:1 floor for a graphic that
-   * carries meaning. The dark theme keeps the hue and lifts the lightness
-   * instead of picking a second colour, which is why this is one token and not
-   * two logo files.
+   * Only the lightness moves, and it has to. The mark's true #6C17E2 is
+   * gorgeous on paper and manages 2.7:1 against our near-black page, under the
+   * 3:1 floor for a graphic that carries meaning: on the dark theme it stops
+   * being a logo and becomes a smudge. Lifting the same hue to 58% keeps it
+   * unmistakably purple and clears 3.6:1.
    */
   --color-brand-mark: hsl(var(--brand-mark));
 
@@ -143,7 +144,7 @@
   --hairline-strong: rgba(255, 255, 255, 0.25);
   --band: rgba(0, 0, 0, 0.4);
 
-  /* Same hue as the mark, lifted to clear 3.6:1 on near-black. */
+  /* Purple, lifted only as far as legibility on near-black requires. */
   --brand-mark: 265 85% 58%;
 
   /* The washes behind the landing page. Purple on near-black. */
@@ -169,8 +170,6 @@
   --input-focus-bg: rgba(255, 255, 255, 0.09);
   /* The halo under the one button drawn in the foreground colour. */
   --invert-glow: rgba(255, 255, 255, 0.3);
-  --logo-glow-near: rgba(155, 107, 255, 1);
-  --logo-glow-far: rgba(108, 59, 255, 0.6);
 
   --opaque-button-border-intensity: 9;
 
@@ -337,7 +336,7 @@
   --input: 265 40% 87%;
   --ring: 255 100% 62%;
 
-  /* The mark's true purple. It only needs lifting on the dark side. */
+  /* The mark's true purple, exactly as drawn. */
   --brand-mark: 265 82% 49%;
 
   /* The same five hues, darkened for a white plot area. Run the dark set on
@@ -371,8 +370,6 @@
   --cta-shadow-soft: rgba(70, 40, 160, 0.22);
   --input-focus-bg: rgba(255, 255, 255, 0.95);
   --invert-glow: rgba(16, 16, 28, 0.22);
-  --logo-glow-near: rgba(108, 59, 255, 0.30);
-  --logo-glow-far: rgba(108, 59, 255, 0.14);
 
   --shadow-2xs: 0px 1px 2px 0px rgba(30, 27, 58, 0.05);
   --shadow-xs: 0px 1px 2px 0px rgba(30, 27, 58, 0.07);
@@ -509,10 +506,6 @@
   background-color: var(--input-focus-bg) !important;
 }
 
-/* ── Logo — combined float + breathing glow (3s, 0→20px spread) */
-.logo-animated {
-  animation: float 4s ease-in-out infinite, logo-breathe 3s ease-in-out infinite;
-}
 
 /* ── Light sweep animation ──────────────────────────────── */
 /* linear kept intentionally — cubic-bezier would cause jarring restarts on a loop */
@@ -613,18 +606,6 @@
   50%       { box-shadow: 0 0 20px rgba(108,59,255,0.9), 0 0 40px rgba(155,107,255,0.4); }
 }
 
-/* The mark breathing. Tokenised like every other glow: on white the full
- * strength version put a violet smudge in the corner of the page, which is the
- * first thing anyone sees. */
-@keyframes logo-breathe {
-  0%, 100% {
-    filter: drop-shadow(0 0 2px var(--logo-glow-near));
-  }
-  50% {
-    filter: drop-shadow(0 0 20px var(--logo-glow-near))
-            drop-shadow(0 0 40px var(--logo-glow-far));
-  }
-}
 
 @keyframes light-sweep {
   0%   {
