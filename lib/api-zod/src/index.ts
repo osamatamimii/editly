@@ -30,6 +30,14 @@ export const Project = z.object({
   videoPath: z.string().nullable(),
   editedVideoPath: z.string().nullable(),
   thumbnailPath: z.string().nullable(),
+  /**
+   * A video whose look this project should be edited to match.
+   *
+   * Uploaded, never fetched from a link: pulling someone's TikTok down to
+   * analyse it breaks that platform's terms, and the exposure would be ours
+   * rather than the user's.
+   */
+  referenceVideoPath: z.string().nullable(),
   duration: z.number().nullable(),
   width: z.number().nullable(),
   height: z.number().nullable(),
@@ -66,7 +74,28 @@ export const ExportJob = z.object({
   status: z.enum(["pending", "processing", "done", "failed"]),
   platform: Platform,
   downloadUrl: z.string().nullable(),
+  /**
+   * The storage key of the file this export produced, which the browser signs
+   * for itself. Null until there is one.
+   *
+   * It is here rather than being read off the project because the project's
+   * `editedVideoPath` is a *cache* of the newest render, and the export screen
+   * was reading a copy of it fetched before this export existed — so "Download
+   * Video" handed people their original upload under a card saying the edit was
+   * ready. A path that arrives with the status it belongs to cannot be stale.
+   */
+  outputPath: z.string().nullable().optional(),
   steps: z.array(ExportStep),
+  /**
+   * What the render did that the person should know about: captions skipped for
+   * want of a key, punches dropped because the words they landed on were cut,
+   * words the two speech models disagreed on.
+   *
+   * The pipeline has produced these all along and thrown them into a log line.
+   * A render that quietly did less than it was asked to, and looks identical to
+   * one that did everything, is the failure this whole product is built against.
+   */
+  notes: z.array(z.string()).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -141,6 +170,8 @@ export const UpdateProjectBody = z.object({
   videoPath: z.string().optional(),
   editedVideoPath: z.string().optional(),
   thumbnailPath: z.string().optional(),
+  /** Null clears it. Gated on the plan — see routes/projects.ts. */
+  referenceVideoPath: z.string().nullable().optional(),
   duration: z.number().optional(),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
@@ -251,6 +282,24 @@ export const RemoveSilenceOperation = z.object({
   minSilenceMs: z.number().int().min(100).max(10_000).default(500),
   /** Kept on each side of a cut so words are not clipped. */
   paddingMs: z.number().int().min(0).max(1000).default(80),
+  /**
+   * Stretches of the source that must survive intact, in source milliseconds.
+   *
+   * Silence removal cannot tell a dead pause from a deliberate one. A demo
+   * running on screen, a reveal, a beat held before a punchline — all of them
+   * are quiet, and all of them are the moment the clip exists for. Cutting one
+   * out does not look like an aggressive edit; it looks like the video is
+   * broken.
+   *
+   * The API cannot fill this in: it needs someone to have watched the video.
+   * The worker's scene reader does, and writes what it found here, so the
+   * protection is part of the plan and therefore replayable and inspectable
+   * rather than a hidden step inside the renderer.
+   */
+  protect: z
+    .array(z.object({ startMs: z.number().min(0), endMs: z.number().min(0) }))
+    .max(60)
+    .optional(),
 });
 
 /** Reframe to a platform's aspect ratio by cropping to the centre. */
@@ -348,6 +397,22 @@ export const ZoomPunchOperation = z.object({
 });
 
 /**
+ * Push the colour toward a reference's.
+ *
+ * A ratio rather than an absolute, because "0.31 saturation" means nothing
+ * without knowing what the footage measured to begin with — the same number is
+ * a lift for flat log footage and a cut for something already graded. The
+ * multiplier is produced by comparing the two, and it is clamped hard: over-
+ * saturation is the fastest way to make footage look cheap, and it is the first
+ * thing anyone notices when an automatic edit has been over-eager.
+ */
+export const GradeOperation = z.object({
+  type: z.literal("grade"),
+  /** 1 leaves the picture alone. Below 1 drains colour, above 1 pushes it. */
+  saturation: z.number().min(0.5).max(1.5).default(1),
+});
+
+/**
  * Bring the audio to the level every social platform normalises to, so they
  * leave it alone instead of pulling it around on upload.
  */
@@ -365,6 +430,7 @@ export const EditOperation = z.discriminatedUnion("type", [
   KenBurnsOperation,
   ZoomPunchOperation,
   NormalizeLoudnessOperation,
+  GradeOperation,
 ]);
 export type EditOperation = z.infer<typeof EditOperation>;
 
@@ -386,6 +452,8 @@ export const RenderJob = z.object({
   error: z.string().nullable(),
   plan: EditPlan,
   outputPath: z.string().nullable(),
+  /** See ExportJob.notes — what was done, and what could not be. */
+  notes: z.array(z.string()).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
