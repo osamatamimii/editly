@@ -22,6 +22,16 @@ export const projectsTable = pgTable(
     editedVideoPath: text("edited_video_path"),
     /** Poster frame, same key shape as the video. */
     thumbnailPath: text("thumbnail_path"),
+
+    /**
+     * A video whose look this project should be edited to match.
+     *
+     * A storage key in the same private bucket and the same per-user prefix as
+     * everything else — uploaded, never fetched from a link. Downloading
+     * someone's TikTok to analyse it breaks that platform's terms, and the
+     * exposure would be ours rather than the customer's.
+     */
+    referenceVideoPath: text("reference_video_path"),
     duration: real("duration"),
     /**
      * The source clip's pixel dimensions, measured in the browser at upload.

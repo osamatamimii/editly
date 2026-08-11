@@ -32,6 +32,15 @@ export const jobsTable = pgTable(
     inputPath: text("input_path").notNull(),
     outputPath: text("output_path"),
 
+    /**
+     * The reference video this render was queued against, if any.
+     *
+     * Snapshotted onto the job rather than read from the project when the job
+     * is claimed, so changing or clearing the reference while a render sits in
+     * the queue cannot quietly alter a render already accepted.
+     */
+    referencePath: text("reference_path"),
+
     /** 0–100, written by the worker as it goes so the UI can show real progress. */
     progress: integer("progress").notNull().default(0),
     /** Human-readable description of what the worker is doing right now. */
@@ -39,6 +48,18 @@ export const jobsTable = pgTable(
 
     /** Set only on failure, and safe to show the user. */
     error: text("error"),
+
+    /**
+     * What the render did that the person should know about, in their language:
+     * captions skipped for want of a key, punches dropped because the words
+     * they landed on were cut, words the two speech models disagreed on.
+     *
+     * The worker has produced these from the beginning and written them to a
+     * log line. A render that quietly did less than it was asked to, and looks
+     * from the outside exactly like one that did everything, is the failure
+     * this product is built against — so they live on the row and reach the UI.
+     */
+    notes: jsonb("notes").$type<string[]>(),
 
     /**
      * How long the finished video actually came out, in seconds, measured by
@@ -49,6 +70,36 @@ export const jobsTable = pgTable(
      * quota those renders were free.
      */
     outputSeconds: real("output_seconds"),
+
+    /**
+     * How that number was arrived at: `probe` (read from the finished file),
+     * `estimate` (the plan's arithmetic, when ffprobe would not answer) or
+     * `fallback` (the source length, when nothing else was available).
+     *
+     * It exists because a measurement and a guess used to be indistinguishable
+     * once written, and the guess used to be `null` — which SUM() skips, so a
+     * render nobody could measure was silently free.
+     */
+    outputSecondsSource: text("output_seconds_source"),
+
+    /**
+     * Length of the uploaded file, measured by the worker from the file itself.
+     *
+     * This is the trusted number. `projects.duration` is written by the browser
+     * and is for display; enforcing a paid ceiling against it meant the ceiling
+     * could be removed by omitting a field.
+     */
+    sourceSeconds: real("source_seconds"),
+
+    /**
+     * The longest source this job's plan allowed at the moment it was queued.
+     *
+     * Carried on the row rather than looked up at render time for two reasons:
+     * the worker can enforce it without knowing anything about billing, and a
+     * plan change while the job sat in the queue cannot retroactively refuse
+     * work that was accepted under the old one.
+     */
+    maxSourceSeconds: real("max_source_seconds"),
 
     attempts: integer("attempts").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(3),
