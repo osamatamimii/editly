@@ -14,7 +14,7 @@ const buttonVariants = cva(
            // @replit: no hover, and add primary border
            "bg-primary text-primary-foreground border border-primary-border",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-sm border-destructive-border",
+          "bg-destructive-fill text-destructive-foreground shadow-sm border-destructive-border",
         outline:
           // @replit Shows the background color of whatever card / sidebar / accent background it is inside of.
           // Inherits the current text color. Uses shadow-xs. no shadow on active
