@@ -51,6 +51,18 @@
    */
   --color-destructive-fill: hsl(var(--destructive-fill));
 
+  /*
+   * Success and warning, as tokens for the same reason destructive is one.
+   *
+   * These were written inline as text-green-400 and text-amber-400 — values
+   * picked against a near-black page, where they are bright and obvious. On
+   * white, green-400 is 1.8:1 and amber-400 is barely better: the "Ready to
+   * Share" heading and the "waiting for a machine" warning became decoration.
+   * A status colour that cannot be read is not a status.
+   */
+  --color-success: hsl(var(--success));
+  --color-warning: hsl(var(--warning));
+
   --color-chart-1: hsl(var(--chart-1));
   --color-chart-2: hsl(var(--chart-2));
   --color-chart-3: hsl(var(--chart-3));
@@ -203,9 +215,13 @@
   --primary: 255 100% 62%;
   --primary-foreground: 0 0% 100%;
 
-  /* Neon Purple Glow #9B6BFF */
+  /*
+   * Neon Purple Glow #9B6BFF — light enough that white sits on it at 3.54:1,
+   * below AA. A light fill takes dark ink; that is not a compromise, it is the
+   * rule the rest of the palette already follows.
+   */
   --secondary: 259 100% 71%;
-  --secondary-foreground: 0 0% 100%;
+  --secondary-foreground: 260 40% 8%;
 
   --muted: 255 10% 12%;
   --muted-foreground: 255 5% 65%;
@@ -217,6 +233,8 @@
   --destructive: 0 84% 60%;
   /* Dark, because it is read *under* white text. See the note on the token. */
   --destructive-fill: 0 74% 34%;
+  --success: 142 70% 60%;
+  --warning: 38 92% 62%;
   --destructive-foreground: 0 0% 100%;
 
   --input: 255 10% 15%;
@@ -315,7 +333,15 @@
   /* Unchanged. The brand does not have two purples. */
   --primary: 255 100% 62%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 259 100% 71%;
+  /*
+   * On dark, secondary is the *lighter* purple — the neon one that glows. On
+   * light that relationship has to invert: a lighter-than-primary purple on
+   * white was 3.55:1 both as text and underneath white text, so the "Noah"
+   * label, the sparkles, the progress fill and the send button all failed at
+   * once. Deeper than primary keeps it the more emphatic of the two, which is
+   * the role it actually plays, and clears 6:1 in both directions.
+   */
+  --secondary: 272 90% 50%;
   --secondary-foreground: 0 0% 100%;
 
   --muted: 265 55% 95%;
@@ -331,6 +357,9 @@
    * the fill still goes deeper, to keep the white label comfortably clear. */
   --destructive: 0 72% 42%;
   --destructive-fill: 0 72% 38%;
+  /* Deep enough to read on paper; still unmistakably green and amber. */
+  --success: 142 72% 27%;
+  --warning: 32 90% 30%;
   --destructive-foreground: 0 0% 100%;
 
   --input: 265 40% 87%;
