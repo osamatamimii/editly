@@ -1,0 +1,24 @@
+/**
+ * The Editly mark.
+ *
+ * Inlined rather than an <img src="/logo.svg"> for one reason: an external SVG
+ * cannot inherit `currentColor`, and this mark needs two colours. Its true
+ * purple is #6C17E2, which reads beautifully on paper and manages only 2.7:1
+ * against our near-black page — under the 3:1 floor for a graphic that carries
+ * meaning. So the dark theme lifts the same hue to 58% lightness and clears
+ * 3.6:1, and the token does the switching. That is what a brand system is for:
+ * one mark, two renderings, no second logo file to keep in sync.
+ */
+export function Logo({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 492 575"
+      className={className}
+      role="img"
+      aria-label="Editly"
+      fill="currentColor"
+    >
+      <path d="M186.0 573.4C173.6 568.0 172.6 564.8 172.0 528.0C171.3 490.7 170.9 488.7 161.1 479.0C149.6 467.6 146.1 467.0 92.4 467.0C48.1 467.1 47.3 467.0 41.3 462.4C36.3 458.6 36.3 458.6 4.3 364.0C-1.1 347.9 -1.2 342.1 3.7 334.2C9.8 324.2 7.4 324.6 80.5 324.0C144.5 323.5 144.5 323.5 151.2 320.2C176.8 307.6 179.2 270.6 155.4 255.4C145.8 249.2 143.5 249.0 94.0 249.0C35.0 249.0 39.2 251.0 27.5 217.5C20.5 197.5 9.3 165.4 3.5 148.5C-2.4 131.5 -0.2 121.8 11.0 115.2C15.5 112.5 15.5 112.5 80.0 112.0C150.1 111.5 145.7 111.8 154.9 105.6C169.8 95.7 171.4 90.5 172.0 50.0C172.5 14.4 172.4 15.3 177.8 8.1C184.2 -0.5 175.5 0.0 313.5 0.0C398.3 0.0 437.7 0.3 440.4 1.1C448.3 3.3 453.0 9.7 458.3 25.5C460.9 33.2 465.7 47.1 469.0 56.5C494.7 130.2 494.6 129.3 482.7 139.5C476.1 145.2 481.5 145.0 330.4 145.0C190.3 145.0 189.4 145.0 183.2 147.1C152.7 157.4 151.2 198.9 180.8 212.8C186.5 215.5 186.5 215.5 313.0 216.0C453.4 216.6 441.9 215.9 448.6 223.2C452.8 227.6 452.9 227.9 459.3 247.0C462.3 256.1 468.3 273.4 472.5 285.5C491.9 341.1 492.0 341.5 483.8 351.5C477.0 359.7 490.6 359.0 334.2 359.0C238.2 359.0 193.5 359.3 189.5 360.1C155.0 366.5 148.1 411.4 179.1 427.7C184.5 430.5 184.5 430.5 313.0 431.0C454.9 431.6 442.6 431.0 451.3 437.4C456.1 441.0 457.5 444.3 475.0 496.5C493.4 551.7 494.0 554.1 490.1 562.5C488.1 567.0 483.2 571.6 478.3 573.7C473.2 575.8 191.0 575.6 186.0 573.4Z" />
+    </svg>
+  );
+}
