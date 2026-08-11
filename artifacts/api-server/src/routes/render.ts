@@ -155,6 +155,7 @@ router.post("/projects/:id/render", async (req, res): Promise<void> => {
       // duration the policy layer saw came from the browser and can be a lie;
       // this number cannot.
       maxSourceSeconds: decision.maxSourceSeconds,
+      priority: decision.priority,
     })
     .returning();
 

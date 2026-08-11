@@ -141,6 +141,7 @@ router.post("/projects/:id/export", async (req, res): Promise<void> => {
     referencePath: project.referenceVideoPath ?? null,
     // Enforced for real by the worker, which has the file. See render.ts.
     maxSourceSeconds: decision.maxSourceSeconds,
+    priority: decision.priority,
   });
 
   const [exportJob] = await db
