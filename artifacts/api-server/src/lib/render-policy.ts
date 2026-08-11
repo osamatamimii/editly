@@ -57,6 +57,14 @@ export interface PolicyApproval {
    * knowing anything about plans or prices.
    */
   maxSourceSeconds: number;
+  /**
+   * Where this job sits in the queue. Higher is claimed first.
+   *
+   * Written onto the job rather than looked up when a worker claims one: the
+   * claim is a single atomic statement that must not join, and the deal someone
+   * was on when they queued the work is the deal to honour.
+   */
+  priority: number;
 }
 
 export type PolicyResult = PolicyRefusal | PolicyApproval;
@@ -145,6 +153,23 @@ export function decideRender(input: PolicyInput): PolicyResult {
   const corrections: string[] = [];
   let operations = input.operations;
 
+  // Resolution is a tier feature, so the tier decides it — not the browser, and
+  // not by refusing the render. A request for more than the plan allows is
+  // served at what the plan allows, because someone who asked for 4K and gets
+  // 1080p has their video; someone who gets a 402 has nothing. Silence is the
+  // only unacceptable answer, so it is corrected out loud.
+  operations = operations.map((op) => {
+    if (op.type !== "formatForPlatform") return op;
+    const asked = op.maxHeight ?? limits.maxHeight;
+    const allowed = Math.min(asked, limits.maxHeight);
+    if (asked > limits.maxHeight) {
+      corrections.push(
+        `asked for ${asked}p and the ${input.plan} plan exports up to ${limits.maxHeight}p`,
+      );
+    }
+    return { ...op, maxHeight: allowed };
+  });
+
   if (limits.watermark) {
     // A client-supplied watermark is dropped rather than kept alongside ours,
     // because keeping it would let the browser choose the text and the corner —
@@ -174,8 +199,22 @@ export function decideRender(input: PolicyInput): PolicyResult {
     operations,
     corrections,
     maxSourceSeconds: limits.maxUploadMinutes * 60,
+    // Two bands, not four. Priority is worth having as "paid work goes first"
+    // and worth nothing as a ladder between paying customers — a Studio
+    // subscriber jumping a Pro one buys us nothing and costs the Pro one the
+    // exact experience they were sold.
+    priority: limits.priorityQueue ? PRIORITY_PAID : PRIORITY_STANDARD,
   };
 }
+
+/**
+ * The queue has two bands: work that was promised a place at the front, and
+ * everything else. Within a band it is strictly first-in-first-out, so nothing
+ * can starve — a free render waits behind the paid ones queued before it, never
+ * behind the paid ones queued after.
+ */
+const PRIORITY_STANDARD = 0;
+const PRIORITY_PAID = 10;
 
 /**
  * Refusing before the encode rather than after it.
