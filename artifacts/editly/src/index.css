@@ -95,6 +95,17 @@
   --color-hairline-faint: var(--hairline-faint);
   --color-hairline-strong: var(--hairline-strong);
 
+  /*
+   * The mark's own colour.
+   *
+   * Its true purple is #6C17E2 and it is gorgeous on paper — and it manages
+   * 2.7:1 against our near-black page, under the 3:1 floor for a graphic that
+   * carries meaning. The dark theme keeps the hue and lifts the lightness
+   * instead of picking a second colour, which is why this is one token and not
+   * two logo files.
+   */
+  --color-brand-mark: hsl(var(--brand-mark));
+
   --font-sans: var(--app-font-sans);
   --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
@@ -132,6 +143,9 @@
   --hairline-strong: rgba(255, 255, 255, 0.25);
   --band: rgba(0, 0, 0, 0.4);
 
+  /* Same hue as the mark, lifted to clear 3.6:1 on near-black. */
+  --brand-mark: 265 85% 58%;
+
   /* The washes behind the landing page. Purple on near-black. */
   --wash-top: rgba(108, 59, 255, 0.45);
   --wash-top-mid: rgba(108, 59, 255, 0.15);
@@ -155,6 +169,8 @@
   --input-focus-bg: rgba(255, 255, 255, 0.09);
   /* The halo under the one button drawn in the foreground colour. */
   --invert-glow: rgba(255, 255, 255, 0.3);
+  --logo-glow-near: rgba(155, 107, 255, 1);
+  --logo-glow-far: rgba(108, 59, 255, 0.6);
 
   --opaque-button-border-intensity: 9;
 
@@ -250,42 +266,52 @@
  * black. Matching the numbers would have made every card look dirty.
  */
 .light {
-  --button-outline: rgba(16, 16, 28, 0.12);
-  --badge-outline: rgba(16, 16, 28, 0.07);
+  --button-outline: rgba(84, 30, 190, 0.16);
+  --badge-outline: rgba(84, 30, 190, 0.09);
 
-  --elevate-1: rgba(16, 16, 28, 0.035);
-  --elevate-2: rgba(16, 16, 28, 0.075);
+  --elevate-1: rgba(84, 30, 190, 0.045);
+  --elevate-2: rgba(84, 30, 190, 0.095);
 
-  --surface-1: rgba(16, 16, 28, 0.035);
-  --surface-2: rgba(16, 16, 28, 0.065);
-  --surface-3: rgba(16, 16, 28, 0.11);
-  --hairline-faint: rgba(16, 16, 28, 0.06);
-  --hairline: rgba(16, 16, 28, 0.10);
-  --hairline-strong: rgba(16, 16, 28, 0.18);
+  /*
+   * Violet ink, not grey ink.
+   *
+   * The first version of this theme layered neutral #1010 1C over the page and
+   * it read as dusty — every raised surface was a slightly dirty white, and the
+   * page looked like a screenshot of itself. Tinting the ink toward the brand
+   * costs nothing in contrast and is the whole difference between "light theme"
+   * and "the light half of *this* product": the greys now belong to the purple
+   * rather than sitting next to it.
+   */
+  --surface-1: rgba(84, 30, 190, 0.045);
+  --surface-2: rgba(84, 30, 190, 0.085);
+  --surface-3: rgba(84, 30, 190, 0.14);
+  --hairline-faint: rgba(84, 30, 190, 0.09);
+  --hairline: rgba(84, 30, 190, 0.15);
+  --hairline-strong: rgba(84, 30, 190, 0.26);
   /* Far shallower than dark's 40%. Black at 40% over white is a grey slab; the
    * band only has to read as "set back", and on paper that takes very little. */
-  --band: rgba(16, 16, 28, 0.03);
+  --band: rgba(84, 30, 190, 0.045);
 
-  --background: 240 20% 98%;
-  --foreground: 250 25% 9%;
-  --border: 250 15% 89%;
+  --background: 265 60% 98.5%;
+  --foreground: 265 45% 10%;
+  --border: 265 40% 88%;
 
   --card: 0 0% 100%;
-  --card-foreground: 250 25% 9%;
-  --card-border: 250 15% 90%;
+  --card-foreground: 265 45% 10%;
+  --card-border: 265 40% 89%;
 
   --sidebar: 0 0% 100%;
-  --sidebar-foreground: 250 25% 9%;
-  --sidebar-border: 250 15% 90%;
+  --sidebar-foreground: 265 45% 10%;
+  --sidebar-border: 265 40% 89%;
   --sidebar-primary: 255 100% 62%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 250 25% 95%;
-  --sidebar-accent-foreground: 250 25% 9%;
+  --sidebar-accent: 265 55% 94%;
+  --sidebar-accent-foreground: 265 45% 10%;
   --sidebar-ring: 255 100% 62%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 250 25% 9%;
-  --popover-border: 250 15% 90%;
+  --popover-foreground: 265 45% 10%;
+  --popover-border: 265 40% 89%;
 
   /* Unchanged. The brand does not have two purples. */
   --primary: 255 100% 62%;
@@ -293,12 +319,14 @@
   --secondary: 259 100% 71%;
   --secondary-foreground: 0 0% 100%;
 
-  --muted: 250 25% 95%;
-  /* 4.7:1 on the page background — muted, still readable by someone who needs it to be. */
-  --muted-foreground: 250 10% 40%;
+  --muted: 265 55% 95%;
+  /* Saturated toward the brand and darkened a little: the old 10%-saturation
+   * grey was the single thing making this theme look washed out, because it is
+   * the colour most of the running copy is set in. */
+  --muted-foreground: 265 30% 38%;
 
-  --accent: 250 25% 95%;
-  --accent-foreground: 250 25% 9%;
+  --accent: 265 55% 94%;
+  --accent-foreground: 265 45% 10%;
 
   /* On white both jobs want a darker red, so the two are close but not equal:
    * the fill still goes deeper, to keep the white label comfortably clear. */
@@ -306,8 +334,11 @@
   --destructive-fill: 0 72% 38%;
   --destructive-foreground: 0 0% 100%;
 
-  --input: 250 15% 88%;
+  --input: 265 40% 87%;
   --ring: 255 100% 62%;
+
+  /* The mark's true purple. It only needs lifting on the dark side. */
+  --brand-mark: 265 82% 49%;
 
   /* The same five hues, darkened for a white plot area. Run the dark set on
    * white and the yellow and orange series all but vanish — a chart where two
@@ -321,25 +352,27 @@
   /* Washes: the same shapes, at a fifth of the strength. On white they are
    * tints rather than light sources, and anything stronger turns the copy
    * sitting on top of them unreadable. */
-  --wash-top: rgba(108, 59, 255, 0.10);
-  --wash-top-mid: rgba(108, 59, 255, 0.04);
-  --wash-mid: rgba(79, 70, 229, 0.05);
-  --wash-left: rgba(108, 59, 255, 0.05);
-  --wash-right: rgba(155, 107, 255, 0.04);
+  --wash-top: rgba(108, 59, 255, 0.20);
+  --wash-top-mid: rgba(108, 59, 255, 0.09);
+  --wash-mid: rgba(99, 70, 235, 0.11);
+  --wash-left: rgba(108, 59, 255, 0.11);
+  --wash-right: rgba(155, 107, 255, 0.10);
 
-  --glass-bg: rgba(255, 255, 255, 0.72);
-  --glass-inset: rgba(255, 255, 255, 0.9);
-  --glass-bloom: rgba(108, 59, 255, 0.06);
-  --glass-drop: rgba(30, 27, 58, 0.08);
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --glass-inset: rgba(255, 255, 255, 0.95);
+  --glass-bloom: rgba(108, 59, 255, 0.11);
+  --glass-drop: rgba(60, 30, 140, 0.10);
 
-  --glow-soft: rgba(108, 59, 255, 0.28);
-  --glow-wide: rgba(108, 59, 255, 0.12);
-  --text-glow-near: rgba(108, 59, 255, 0.18);
-  --text-glow-far: rgba(108, 59, 255, 0.08);
-  --cta-shadow: rgba(108, 59, 255, 0.30);
-  --cta-shadow-soft: rgba(70, 40, 160, 0.18);
+  --glow-soft: rgba(108, 59, 255, 0.40);
+  --glow-wide: rgba(108, 59, 255, 0.18);
+  --text-glow-near: rgba(108, 59, 255, 0.24);
+  --text-glow-far: rgba(108, 59, 255, 0.11);
+  --cta-shadow: rgba(108, 59, 255, 0.38);
+  --cta-shadow-soft: rgba(70, 40, 160, 0.22);
   --input-focus-bg: rgba(255, 255, 255, 0.95);
   --invert-glow: rgba(16, 16, 28, 0.22);
+  --logo-glow-near: rgba(108, 59, 255, 0.30);
+  --logo-glow-far: rgba(108, 59, 255, 0.14);
 
   --shadow-2xs: 0px 1px 2px 0px rgba(30, 27, 58, 0.05);
   --shadow-xs: 0px 1px 2px 0px rgba(30, 27, 58, 0.07);
@@ -580,13 +613,16 @@
   50%       { box-shadow: 0 0 20px rgba(108,59,255,0.9), 0 0 40px rgba(155,107,255,0.4); }
 }
 
+/* The mark breathing. Tokenised like every other glow: on white the full
+ * strength version put a violet smudge in the corner of the page, which is the
+ * first thing anyone sees. */
 @keyframes logo-breathe {
   0%, 100% {
-    filter: drop-shadow(0 0 2px rgba(108, 59, 255, 0.4));
+    filter: drop-shadow(0 0 2px var(--logo-glow-near));
   }
   50% {
-    filter: drop-shadow(0 0 20px rgba(155, 107, 255, 1))
-            drop-shadow(0 0 40px rgba(108, 59, 255, 0.6));
+    filter: drop-shadow(0 0 20px var(--logo-glow-near))
+            drop-shadow(0 0 40px var(--logo-glow-far));
   }
 }
 
