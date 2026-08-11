@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Loader2, Mail, Lock } from "lucide-react";
 import { BackButton } from "@/components/back-button";
+import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,9 +18,23 @@ import {
 
 type Mode = "signin" | "signup";
 
+/**
+ * Which form to show first.
+ *
+ * Read from the URL so the two entry points in the header land somewhere
+ * different: "Log in" opens the sign-in form, "Sign up free" opens the
+ * account-creation one. Sending both to the same screen and making the new
+ * visitor find a small link is how you lose the person who just decided to try
+ * the product.
+ */
+function initialMode(): Mode {
+  if (typeof window === "undefined") return "signin";
+  return new URLSearchParams(window.location.search).get("mode") === "signup" ? "signup" : "signin";
+}
+
 export default function Login() {
   const [, setLocation] = useLocation();
-  const [mode, setMode] = useState<Mode>("signin");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -107,8 +122,8 @@ export default function Login() {
 
       <BackButton fallback="/" label="Back" className="mb-8 -ml-4" testId="link-back-home" />
 
-      <div className="flex items-center gap-2 mb-8">
-        <img src="/logo.png" alt="Editly" className="w-10 h-10" />
+      <div className="flex items-center gap-2.5 mb-8">
+        <Logo className="w-8 h-8 text-brand-mark" />
         <span className="font-bold text-xl tracking-tight">Editly</span>
       </div>
 

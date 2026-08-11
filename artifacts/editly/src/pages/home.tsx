@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { fetchCheckoutConfig, openCheckout } from "@/lib/checkout";
 import { useAuth } from "@/lib/auth";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Logo } from "@/components/logo";
 
 function useScrollReveal() {
   const ref = useRef<HTMLDivElement>(null);
@@ -264,12 +265,8 @@ export default function Home() {
 
       {/* ── Header ── */}
       <header className="w-full max-w-7xl mx-auto px-6 py-6 flex items-center justify-between z-10 relative animate-fade-in">
-        <div className="flex items-center gap-2">
-          <img
-            src="/logo.png"
-            alt="Editly"
-            className="w-12 h-12 logo-animated"
-          />
+        <div className="flex items-center gap-2.5">
+          <Logo className="w-9 h-9 text-brand-mark logo-animated" />
           <span className="font-bold text-xl tracking-tight">Editly</span>
         </div>
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
@@ -284,14 +281,44 @@ export default function Home() {
             </a>
           ))}
         </nav>
-        <div className="flex items-center gap-3">
+        {/*
+          Two doors, not one.
+
+          The header used to offer only "Dashboard", which is a word that means
+          nothing to someone who has never signed up and quietly implies they
+          already have an account. A first-time visitor needs to be told where
+          to start; a returning one needs a way back in that is not the same
+          button. Once signed in both are noise, so they collapse back to the
+          single destination that is actually theirs.
+        */}
+        <div className="flex items-center gap-2 sm:gap-3">
           <ThemeToggle />
-          <Link
-            href="/dashboard"
-            className="glow-btn btn-gradient-cta text-white px-6 py-2 rounded-full font-medium animate-shimmer-border border border-transparent"
-          >
-            Dashboard
-          </Link>
+          {user ? (
+            <Link
+              href="/dashboard"
+              data-testid="link-dashboard"
+              className="glow-btn btn-gradient-cta text-white px-6 py-2 rounded-full font-medium animate-shimmer-border border border-transparent"
+            >
+              Dashboard
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                data-testid="link-log-in"
+                className="px-3 sm:px-4 py-2 rounded-full font-medium text-sm text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
+              >
+                Log in
+              </Link>
+              <Link
+                href="/login?mode=signup"
+                data-testid="link-sign-up"
+                className="glow-btn btn-gradient-cta text-white px-5 sm:px-6 py-2 rounded-full font-medium text-sm sm:text-base whitespace-nowrap animate-shimmer-border border border-transparent"
+              >
+                Sign up free
+              </Link>
+            </>
+          )}
         </div>
       </header>
 
