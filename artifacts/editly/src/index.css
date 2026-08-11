@@ -39,6 +39,17 @@
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-destructive-border: var(--destructive-border);
+  /*
+   * A second red, for fills.
+   *
+   * One token cannot do both jobs, and the arithmetic says so rather than
+   * taste: white text needs the red beneath it to be no lighter than ~0.18
+   * relative luminance, while red *text* on our near-black page needs to be no
+   * darker than ~0.19 to clear the same threshold. There is no value in
+   * between. So `--destructive` stays bright enough to read as text and
+   * `--destructive-fill` goes dark enough to carry a white label.
+   */
+  --color-destructive-fill: hsl(var(--destructive-fill));
 
   --color-chart-1: hsl(var(--chart-1));
   --color-chart-2: hsl(var(--chart-2));
@@ -57,6 +68,33 @@
   --color-sidebar-accent-border: var(--sidebar-accent-border);
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
+  /*
+   * Surfaces and hairlines, as tokens rather than literal white.
+   *
+   * Every one of these used to be written inline as `bg-white/5` or
+   * `border-white/10`. That reads fine until the background stops being black,
+   * at which point "white at 5%" is not a subtle raised surface any more — it
+   * is invisible. Naming the *role* instead of the colour is what lets the
+   * whole app flip: in the dark theme a raised surface is light ink on dark,
+   * in the light theme it is dark ink on light, and the layering logic in
+   * every component stays exactly the same.
+   *
+   * Deliberately absent: anything that sits on top of video. A scrim over a
+   * frame of footage is black in both themes, because the thing underneath it
+   * is the customer's video and not our background.
+   */
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  /* Recessed, not raised — a band that sits *below* the page. It needs its own
+   * token because it is the one surface that moves in the opposite direction
+   * from the others: darker than the page in dark, darker than the page in
+   * light too, where every other surface goes the other way. */
+  --color-band: var(--band);
+  --color-hairline: var(--hairline);
+  --color-hairline-faint: var(--hairline-faint);
+  --color-hairline-strong: var(--hairline-strong);
+
   --font-sans: var(--app-font-sans);
   --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
@@ -67,9 +105,56 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-:root, .dark {
+/*
+ * Dark is the default, and stays the default.
+ *
+ * It is written on `:root` rather than on `.dark` alone so that a page which
+ * renders before the theme script has run is dark rather than unstyled — the
+ * failure mode of a missing class should be the brand, not a white flash.
+ *
+ * `.force-dark` is in the same list on purpose. It marks a region that is dark
+ * in *both* themes and pins the tokens for everything inside it — the phone
+ * screen in the hero, and any other place we are drawing a picture of a video
+ * player rather than drawing our own interface. Without it the light theme
+ * turned the chat panel inside that mockup white while the footage beside it
+ * stayed black, and the message bubble went white-on-lilac. Custom properties
+ * inherit, so declaring them on the region is all it takes.
+ */
+:root, .dark, .force-dark {
   --button-outline: rgba(255,255,255, .10);
   --badge-outline: rgba(255,255,255, .05);
+
+  --surface-1: rgba(255, 255, 255, 0.05);
+  --surface-2: rgba(255, 255, 255, 0.10);
+  --surface-3: rgba(255, 255, 255, 0.20);
+  --hairline-faint: rgba(255, 255, 255, 0.05);
+  --hairline: rgba(255, 255, 255, 0.10);
+  --hairline-strong: rgba(255, 255, 255, 0.25);
+  --band: rgba(0, 0, 0, 0.4);
+
+  /* The washes behind the landing page. Purple on near-black. */
+  --wash-top: rgba(108, 59, 255, 0.45);
+  --wash-top-mid: rgba(108, 59, 255, 0.15);
+  --wash-mid: rgba(79, 70, 229, 0.18);
+  --wash-left: rgba(108, 59, 255, 0.18);
+  --wash-right: rgba(155, 107, 255, 0.12);
+
+  /* Glass: a lit top edge, a purple bloom, and a deep drop. */
+  --glass-bg: rgba(10, 10, 15, 0.5);
+  --glass-inset: rgba(255, 255, 255, 0.12);
+  --glass-bloom: rgba(108, 59, 255, 0.2);
+  --glass-drop: rgba(0, 0, 0, 0.5);
+
+  /* Glow, which is the whole visual identity and must survive the flip. */
+  --glow-soft: rgba(155, 107, 255, 0.85);
+  --glow-wide: rgba(108, 59, 255, 0.4);
+  --text-glow-near: rgba(155, 107, 255, 0.8);
+  --text-glow-far: rgba(108, 59, 255, 0.4);
+  --cta-shadow: rgba(108, 59, 255, 0.5);
+  --cta-shadow-soft: rgba(108, 59, 255, 0.4);
+  --input-focus-bg: rgba(255, 255, 255, 0.09);
+  /* The halo under the one button drawn in the foreground colour. */
+  --invert-glow: rgba(255, 255, 255, 0.3);
 
   --opaque-button-border-intensity: 9;
 
@@ -113,12 +198,16 @@
   --accent: 255 10% 12%;
   --accent-foreground: 0 0% 98%;
 
+  /* Bright, because it is read as text on a near-black page. */
   --destructive: 0 84% 60%;
+  /* Dark, because it is read *under* white text. See the note on the token. */
+  --destructive-fill: 0 74% 34%;
   --destructive-foreground: 0 0% 100%;
 
   --input: 255 10% 15%;
   --ring: 255 100% 62%;
   
+  /* Categorical series, tuned for a dark plot area. */
   --chart-1: 255 100% 62%;
   --chart-2: 259 100% 71%;
   --chart-3: 199 89% 48%;
@@ -140,6 +229,130 @@
   --shadow-2xl: 0px 2px 0px 0px hsl(var(--primary) / 0.1);
 }
 
+/*
+ * The light theme — "morning".
+ *
+ * Not an inversion. Inverting a dark interface gives you a white page with the
+ * same heavy shadows and the same saturated glow, and it looks broken in a way
+ * people feel before they can name. Three things change character:
+ *
+ * The background is not pure white. #FAFAFC keeps the page from vibrating
+ * against the white cards sitting on it, and gives elevation somewhere to go.
+ *
+ * The purple stays exactly #6C3BFF as a fill, because it is the brand and a
+ * brand that shifts hue between themes is two brands. What changes is its
+ * *glow*: a bloom that reads as light in a dark room reads as a smudge on
+ * paper, so every glow drops to roughly a quarter of its strength and the
+ * shadows become real shadows — grey, tight, cast downward.
+ *
+ * Raised surfaces flip from white-on-dark to ink-on-light at lower alpha,
+ * because dark ink at 5% is far more visible on white than white at 5% is on
+ * black. Matching the numbers would have made every card look dirty.
+ */
+.light {
+  --button-outline: rgba(16, 16, 28, 0.12);
+  --badge-outline: rgba(16, 16, 28, 0.07);
+
+  --elevate-1: rgba(16, 16, 28, 0.035);
+  --elevate-2: rgba(16, 16, 28, 0.075);
+
+  --surface-1: rgba(16, 16, 28, 0.035);
+  --surface-2: rgba(16, 16, 28, 0.065);
+  --surface-3: rgba(16, 16, 28, 0.11);
+  --hairline-faint: rgba(16, 16, 28, 0.06);
+  --hairline: rgba(16, 16, 28, 0.10);
+  --hairline-strong: rgba(16, 16, 28, 0.18);
+  /* Far shallower than dark's 40%. Black at 40% over white is a grey slab; the
+   * band only has to read as "set back", and on paper that takes very little. */
+  --band: rgba(16, 16, 28, 0.03);
+
+  --background: 240 20% 98%;
+  --foreground: 250 25% 9%;
+  --border: 250 15% 89%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 250 25% 9%;
+  --card-border: 250 15% 90%;
+
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 250 25% 9%;
+  --sidebar-border: 250 15% 90%;
+  --sidebar-primary: 255 100% 62%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 250 25% 95%;
+  --sidebar-accent-foreground: 250 25% 9%;
+  --sidebar-ring: 255 100% 62%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 250 25% 9%;
+  --popover-border: 250 15% 90%;
+
+  /* Unchanged. The brand does not have two purples. */
+  --primary: 255 100% 62%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 259 100% 71%;
+  --secondary-foreground: 0 0% 100%;
+
+  --muted: 250 25% 95%;
+  /* 4.7:1 on the page background — muted, still readable by someone who needs it to be. */
+  --muted-foreground: 250 10% 40%;
+
+  --accent: 250 25% 95%;
+  --accent-foreground: 250 25% 9%;
+
+  /* On white both jobs want a darker red, so the two are close but not equal:
+   * the fill still goes deeper, to keep the white label comfortably clear. */
+  --destructive: 0 72% 42%;
+  --destructive-fill: 0 72% 38%;
+  --destructive-foreground: 0 0% 100%;
+
+  --input: 250 15% 88%;
+  --ring: 255 100% 62%;
+
+  /* The same five hues, darkened for a white plot area. Run the dark set on
+   * white and the yellow and orange series all but vanish — a chart where two
+   * of five categories are unreadable is a chart that misleads. */
+  --chart-1: 255 85% 55%;
+  --chart-2: 271 70% 50%;
+  --chart-3: 199 89% 38%;
+  --chart-4: 38 85% 42%;
+  --chart-5: 20 80% 46%;
+
+  /* Washes: the same shapes, at a fifth of the strength. On white they are
+   * tints rather than light sources, and anything stronger turns the copy
+   * sitting on top of them unreadable. */
+  --wash-top: rgba(108, 59, 255, 0.10);
+  --wash-top-mid: rgba(108, 59, 255, 0.04);
+  --wash-mid: rgba(79, 70, 229, 0.05);
+  --wash-left: rgba(108, 59, 255, 0.05);
+  --wash-right: rgba(155, 107, 255, 0.04);
+
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-inset: rgba(255, 255, 255, 0.9);
+  --glass-bloom: rgba(108, 59, 255, 0.06);
+  --glass-drop: rgba(30, 27, 58, 0.08);
+
+  --glow-soft: rgba(108, 59, 255, 0.28);
+  --glow-wide: rgba(108, 59, 255, 0.12);
+  --text-glow-near: rgba(108, 59, 255, 0.18);
+  --text-glow-far: rgba(108, 59, 255, 0.08);
+  --cta-shadow: rgba(108, 59, 255, 0.30);
+  --cta-shadow-soft: rgba(70, 40, 160, 0.18);
+  --input-focus-bg: rgba(255, 255, 255, 0.95);
+  --invert-glow: rgba(16, 16, 28, 0.22);
+
+  --shadow-2xs: 0px 1px 2px 0px rgba(30, 27, 58, 0.05);
+  --shadow-xs: 0px 1px 2px 0px rgba(30, 27, 58, 0.07);
+  --shadow-sm: 0px 1px 3px 0px rgba(30, 27, 58, 0.08), 0px 1px 2px -1px rgba(30, 27, 58, 0.06);
+  --shadow: 0px 1px 3px 0px rgba(30, 27, 58, 0.08), 0px 1px 2px -1px rgba(30, 27, 58, 0.06);
+  --shadow-md: 0px 4px 6px -1px rgba(30, 27, 58, 0.08), 0px 2px 4px -2px rgba(30, 27, 58, 0.06);
+  --shadow-lg: 0px 10px 15px -3px rgba(30, 27, 58, 0.08), 0px 4px 6px -4px rgba(30, 27, 58, 0.05);
+  --shadow-xl: 0px 20px 25px -5px rgba(30, 27, 58, 0.08), 0px 8px 10px -6px rgba(30, 27, 58, 0.04);
+  --shadow-2xl: 0px 25px 50px -12px rgba(30, 27, 58, 0.14);
+
+  color-scheme: light;
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -150,25 +363,51 @@
   }
 }
 
+/*
+ * The film grain over the landing page.
+ *
+ * `overlay` lightens whatever is brighter than mid-grey, which on a near-black
+ * page is nothing — so the grain reads as a faint dusting. Run the same layer
+ * over white and every speck lightens something already light, and the texture
+ * turns into visible noise crawling over the copy. `multiply` at a third of the
+ * opacity gives the light theme the same *feeling* of a surface rather than a
+ * flat fill, without putting dirt on the page.
+ */
+.grain-layer {
+  mix-blend-mode: overlay;
+  opacity: 0.055;
+}
+.light .grain-layer {
+  mix-blend-mode: multiply;
+  opacity: 0.018;
+}
+
 /* ── Glass & Glow Utilities ─────────────────────────────── */
 .glass-panel {
-  @apply bg-background/50 backdrop-blur-xl border border-white/10;
+  @apply backdrop-blur-xl border;
+  background-color: var(--glass-bg);
+  border-color: var(--hairline);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 0 60px rgba(108, 59, 255, 0.2),
-    0 24px 80px rgba(0, 0, 0, 0.5);
+    inset 0 1px 0 var(--glass-inset),
+    0 0 60px var(--glass-bloom),
+    0 24px 80px var(--glass-drop);
 }
 
 .glow-btn {
   @apply transition-all duration-300 active:scale-[0.97];
 }
 .glow-btn:hover {
-  box-shadow: 0 0 50px rgba(155, 107, 255, 0.85), 0 0 100px rgba(108, 59, 255, 0.4);
+  box-shadow: 0 0 50px var(--glow-soft), 0 0 100px var(--glow-wide);
   transform: scale(1.05);
 }
 
+/*
+ * On black this is light spilling off the letterforms. On white there is no
+ * such thing as spilled light, so the tokens collapse it to a faint violet
+ * halo that keeps the word feeling lit without smearing it.
+ */
 .glow-text {
-  text-shadow: 0 0 60px rgba(155, 107, 255, 0.8), 0 0 120px rgba(108, 59, 255, 0.4);
+  text-shadow: 0 0 60px var(--text-glow-near), 0 0 120px var(--text-glow-far);
 }
 
 /* ── Premium CTA button ─────────────────────────────────── */
@@ -178,7 +417,10 @@
   background: linear-gradient(135deg, #4318ff 0%, #6C3BFF 30%, #9B6BFF 65%, #c084fc 100%);
   background-size: 200% 200%;
   transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 0 30px rgba(108, 59, 255, 0.5), 0 4px 24px rgba(108, 59, 255, 0.4);
+  /* The gradient itself never changes — only what it throws off. In light the
+   * first shadow becomes a tint and the second becomes a real cast shadow, so
+   * the button sits *on* the page rather than hovering above a void. */
+  box-shadow: 0 0 30px var(--cta-shadow), 0 4px 24px var(--cta-shadow-soft);
 }
 .btn-gradient-cta::after {
   content: '';
@@ -200,8 +442,8 @@
 .btn-gradient-cta:hover {
   background-position: 100% 100%;
   box-shadow:
-    0 0 60px rgba(108, 59, 255, 0.8),
-    0 0 120px rgba(155, 107, 255, 0.4),
+    0 0 60px var(--glow-soft),
+    0 0 120px var(--glow-wide),
     inset 0 0 30px rgba(255, 255, 255, 0.08);
   transform: scale(1.05);
 }
@@ -231,7 +473,7 @@
     0 0 0 2px rgba(155, 107, 255, 0.28),
     0 0 20px rgba(155, 107, 255, 0.2),
     0 0 40px rgba(108, 59, 255, 0.1) !important;
-  background-color: rgba(255, 255, 255, 0.09) !important;
+  background-color: var(--input-focus-bg) !important;
 }
 
 /* ── Logo — combined float + breathing glow (3s, 0→20px spread) */

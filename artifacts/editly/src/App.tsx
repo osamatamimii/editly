@@ -1,10 +1,11 @@
-import { useEffect, type ComponentType } from "react";
+import { type ComponentType } from "react";
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { ThemeProvider } from "@/lib/theme";
 import NotFound from "@/pages/not-found";
 
 import Home from "@/pages/home";
@@ -62,23 +63,24 @@ function Router() {
 }
 
 function App() {
-  useEffect(() => {
-    // Force dark mode
-    document.documentElement.classList.add('dark');
-  }, []);
-
+  // The class on <html> is set by the inline script in index.html, before the
+  // first paint, and maintained from here on by ThemeProvider. This used to be
+  // an effect that forced `dark` on mount, which is what made the theme
+  // unswitchable — it would have reapplied dark on every remount.
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <TooltipProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <div className="min-h-screen bg-background text-foreground selection:bg-primary/30">
-              <Router />
-            </div>
-          </WouterRouter>
-          <Toaster />
-        </TooltipProvider>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <TooltipProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <div className="min-h-screen bg-background text-foreground selection:bg-primary/30 transition-colors duration-300">
+                <Router />
+              </div>
+            </WouterRouter>
+            <Toaster />
+          </TooltipProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
