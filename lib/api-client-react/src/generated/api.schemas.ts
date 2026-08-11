@@ -55,6 +55,9 @@ export interface Project {
   /** Storage object key for the poster frame.
    * @nullable */
   thumbnailPath: string | null;
+  /** Storage object key of a video whose look this project should match.
+   * @nullable */
+  referenceVideoPath: string | null;
   /** @nullable */
   duration: number | null;
   /** Source video width in pixels, measured at upload.
@@ -104,6 +107,9 @@ export interface UpdateProjectBody {
   videoPath?: string;
   editedVideoPath?: string;
   thumbnailPath?: string;
+  /** Storage object key of a video whose look this project should match. Null clears it.
+   * @nullable */
+  referenceVideoPath?: string | null;
   duration?: number;
   width?: number;
   height?: number;
@@ -174,7 +180,14 @@ export interface ExportJob {
   platform: ExportJobPlatform;
   /** @nullable */
   downloadUrl: string | null;
+  /**
+   * Storage key of the file this export produced. The browser signs it itself.
+   * @nullable
+   */
+  outputPath?: string | null;
   steps: ExportStep[];
+  /** What the render did, and what it could not do. */
+  notes?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -326,6 +339,8 @@ export interface RenderJob {
   plan: EditPlan;
   /** @nullable */
   outputPath: string | null;
+  /** What the render did, and what it could not do. */
+  notes?: string[];
   createdAt: string;
   updatedAt: string;
 }
