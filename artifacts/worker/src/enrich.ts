@@ -54,6 +54,10 @@ export async function enrichPlan(
     const language = plan.operations.find((op) => op.type === "autoCaptions")?.language;
     try {
       transcript = await providers.transcriber.transcribe(mediaPath, language ? { language } : {});
+      // How the words were arrived at is part of what was done to the video.
+      // A transcript that was corroborated and one that was not are worth
+      // different amounts, and only one of them can say so.
+      notes.push(...(transcript.notes ?? []));
     } catch (error) {
       // A provider being down is not a reason to fail someone's render.
       notes.push(`speech recognition failed (${short(error)}), so this render has no captions`);
