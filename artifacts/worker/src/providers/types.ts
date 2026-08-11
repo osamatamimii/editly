@@ -43,6 +43,17 @@ export interface Transcript {
   language: string | null;
   /** Which provider and model produced this, for the render notes. */
   source: string;
+  /**
+   * Anything about *how* this transcript was arrived at that the person who
+   * paid for the render deserves to know: a second model being unavailable,
+   * words the two of them disagreed on. Absent when there is nothing to say.
+   *
+   * This exists because the alternative is silence. A transcript that was
+   * cross-checked and one that was not look identical from the outside, and
+   * quietly downgrading the thing someone is paying for is the failure mode
+   * this whole provider layer is built to avoid.
+   */
+  notes?: string[];
 }
 
 export interface Transcriber {
@@ -92,4 +103,10 @@ export interface SceneReadOptions {
 export interface ProviderStatus {
   transcription: string | null;
   vision: string | null;
+  /**
+   * Null when two speech models are configured and the words get corroborated.
+   * Otherwise why they do not — a capability that is *half* configured is the
+   * easiest one to lose without noticing, because everything still works.
+   */
+  crossCheck: string | null;
 }

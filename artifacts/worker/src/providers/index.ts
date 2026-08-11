@@ -14,7 +14,9 @@
  * are never logged, never returned from this module, and never put in a job
  * record or an error message.
  */
+import { createCrossCheckedTranscriber } from "./cross-check";
 import { createDeepgramTranscriber } from "./deepgram";
+import { createElevenLabsTranscriber } from "./elevenlabs";
 import { createGeminiSceneReader } from "./gemini";
 import type { ProviderStatus, SceneReader, Transcriber } from "./types";
 
@@ -28,17 +30,33 @@ export interface Providers {
 export interface ProviderEnv {
   DEEPGRAM_API_KEY?: string;
   DEEPGRAM_MODEL?: string;
+  ELEVENLABS_API_KEY?: string;
+  ELEVENLABS_MODEL?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
 }
 
 export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv): Providers {
   const deepgramKey = trimmed(env.DEEPGRAM_API_KEY);
+  const elevenLabsKey = trimmed(env.ELEVENLABS_API_KEY);
   const geminiKey = trimmed(env.GEMINI_API_KEY);
 
-  const transcriber = deepgramKey
+  const deepgram = deepgramKey
     ? createDeepgramTranscriber({ apiKey: deepgramKey, model: trimmed(env.DEEPGRAM_MODEL) })
     : null;
+
+  const elevenLabs = elevenLabsKey
+    ? createElevenLabsTranscriber({ apiKey: elevenLabsKey, model: trimmed(env.ELEVENLABS_MODEL) })
+    : null;
+
+  // Deepgram is the clock in every pairing, because its word boundaries are
+  // what the cuts are measured against. With only ElevenLabs configured it
+  // becomes the clock by default — one accurate reader beats none, and the
+  // notes will say the timings are not the ones the pipeline was tuned on.
+  const transcriber: Transcriber | null =
+    deepgram && elevenLabs
+      ? createCrossCheckedTranscriber({ primary: deepgram, secondary: elevenLabs })
+      : (deepgram ?? elevenLabs);
 
   const sceneReader = geminiKey
     ? createGeminiSceneReader({ apiKey: geminiKey, model: trimmed(env.GEMINI_MODEL) })
@@ -54,6 +72,12 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
       vision: sceneReader
         ? null
         : "no scene understanding is configured, so shot selection is based on speech alone",
+      crossCheck:
+        deepgram && elevenLabs
+          ? null
+          : transcriber
+            ? "only one speech model is configured, so captions rest on a single reading instead of two that agree"
+            : null,
     },
   };
 }
@@ -65,6 +89,7 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
 export function missingCapabilityNotes(status: ProviderStatus, needs: { transcript: boolean; vision: boolean }): string[] {
   const notes: string[] = [];
   if (needs.transcript && status.transcription) notes.push(status.transcription);
+  if (needs.transcript && status.crossCheck) notes.push(status.crossCheck);
   if (needs.vision && status.vision) notes.push(status.vision);
   return notes;
 }
