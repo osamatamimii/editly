@@ -510,7 +510,7 @@ export default function ProjectEditor() {
   if (isProjectLoading) {
     return (
       <div className="w-full h-screen flex flex-col">
-        <div className="h-16 border-b border-white/5 flex items-center px-6">
+        <div className="h-16 border-b border-hairline-faint flex items-center px-6">
           <Skeleton className="h-8 w-8 mr-4" />
           <Skeleton className="h-6 w-48" />
         </div>
@@ -536,11 +536,11 @@ export default function ProjectEditor() {
    * a timeline you have to go looking for.
    */
   const transport = (
-    <div ref={transportRef} className="rounded-xl glass-panel border border-white/10 px-4 py-3">
+    <div ref={transportRef} className="rounded-xl glass-panel border border-hairline px-4 py-3">
       <div className="flex items-center gap-3">
         <button
           onClick={togglePlay}
-          className="w-9 h-9 flex-shrink-0 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center transition-colors"
+          className="w-9 h-9 flex-shrink-0 rounded-full bg-surface-2 hover:bg-surface-2 flex items-center justify-center transition-colors"
           aria-label={isPlaying ? "Pause" : "Play"}
           data-testid="button-scrub-play"
         >
@@ -558,7 +558,7 @@ export default function ProjectEditor() {
             setCurrentTime(next);
             if (videoRef.current) videoRef.current.currentTime = next;
           }}
-          className="flex-1 min-w-0 h-1.5 appearance-none rounded-full bg-white/10 accent-primary cursor-pointer
+          className="flex-1 min-w-0 h-1.5 appearance-none rounded-full bg-surface-2 accent-primary cursor-pointer
                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5
                      [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
                      [&::-webkit-slider-thumb]:bg-secondary
@@ -584,7 +584,7 @@ export default function ProjectEditor() {
    */
   const looks = templates && templates.length > 0 && (
     <div
-      className={`rounded-xl glass-panel border border-white/10 ${
+      className={`rounded-xl glass-panel border border-hairline ${
         sideBySide
           ? "flex flex-col gap-2 items-stretch px-4 py-4"
           : "mt-3 flex items-center gap-2 overflow-x-auto px-3 py-2"
@@ -602,7 +602,7 @@ export default function ProjectEditor() {
           onClick={() => handleApplyTemplate(template.id)}
           disabled={isProcessingEdit || startRender.isPending}
           title={`${template.description} — ${template.bestFor}`}
-          className={`flex-shrink-0 border border-white/10 bg-white/[0.03] font-medium transition-all hover:border-primary/40 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed ${
+          className={`flex-shrink-0 border border-hairline bg-surface-1 font-medium transition-all hover:border-primary/40 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed ${
             sideBySide ? "rounded-xl px-4 py-3 text-left" : "rounded-full px-3 py-1.5 text-xs"
           }`}
           data-testid={`button-template-${template.id}`}
@@ -625,19 +625,19 @@ export default function ProjectEditor() {
   return (
     <div className="w-full h-screen flex flex-col bg-background overflow-hidden">
       {/* Topbar */}
-      <header className="h-16 flex-shrink-0 border-b border-white/10 bg-background/50 backdrop-blur-md flex items-center justify-between px-6 z-10">
+      <header className="h-16 flex-shrink-0 border-b border-hairline bg-background/50 backdrop-blur-md flex items-center justify-between px-6 z-10">
         <div className="flex items-center gap-4">
           <BackButton fallback="/dashboard" />
-          <div className="h-6 w-px bg-white/10" />
+          <div className="h-6 w-px bg-surface-2" />
           <h1 className="font-semibold text-lg" data-testid="text-editor-title">{project.title}</h1>
-          <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-xs text-muted-foreground">
+          <span className="px-2 py-0.5 rounded-full bg-surface-1 border border-hairline text-xs text-muted-foreground">
             {project.status}
           </span>
         </div>
         <div className="flex items-center gap-3">
           <Button 
             variant="outline" 
-            className="border-white/10"
+            className="border-hairline"
             disabled={!hasVideo}
             onClick={() => setLocation(`/export/${project.id}`)}
             data-testid="button-export"
@@ -662,13 +662,13 @@ export default function ProjectEditor() {
         <div className="flex-1 flex flex-col relative p-4 lg:p-6 overflow-hidden">
           
           {!hasVideo && (
-            <div className="flex-1 relative rounded-2xl overflow-hidden glass-panel border border-white/10 bg-black/40 flex flex-col">
+            <div className="flex-1 relative rounded-2xl overflow-hidden glass-panel border border-hairline bg-black/40 flex flex-col">
               <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
                 {isUploading ? (
                   <div className="flex flex-col items-center w-full max-w-sm">
                     <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
                     <h3 className="text-xl font-semibold mb-2">Uploading Video...</h3>
-                    <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden mb-2">
+                    <div className="w-full h-2 bg-surface-2 rounded-full overflow-hidden mb-2">
                       <div className="h-full bg-primary transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
                     </div>
                     <p className="text-sm text-muted-foreground" data-testid="text-upload-progress">
@@ -677,13 +677,13 @@ export default function ProjectEditor() {
                   </div>
                 ) : (
                   <div 
-                    className={`flex flex-col items-center justify-center border-2 border-dashed rounded-2xl w-full max-w-lg aspect-video cursor-pointer transition-all group ${isDragOver ? 'border-primary bg-primary/10 scale-[1.02]' : 'border-white/20 hover:border-primary/50 hover:bg-primary/5'}`}
+                    className={`flex flex-col items-center justify-center border-2 border-dashed rounded-2xl w-full max-w-lg aspect-video cursor-pointer transition-all group ${isDragOver ? 'border-primary bg-primary/10 scale-[1.02]' : 'border-hairline-strong hover:border-primary/50 hover:bg-primary/5'}`}
                     onClick={() => fileInputRef.current?.click()}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                   >
-                    <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <div className="w-16 h-16 rounded-full bg-surface-1 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                       <UploadCloud className={`w-8 h-8 transition-colors ${isDragOver ? 'text-primary' : 'text-muted-foreground group-hover:text-primary'}`} />
                     </div>
                     <h3 className="text-xl font-semibold mb-2">Upload Raw Footage</h3>
@@ -720,7 +720,7 @@ export default function ProjectEditor() {
                   to one edge with a gap between them. */}
               <div className="min-w-0 flex flex-col items-center justify-center gap-3">
                 <div
-                  className="relative rounded-2xl overflow-hidden glass-panel border border-white/10"
+                  className="relative rounded-2xl overflow-hidden glass-panel border border-hairline"
                   style={{
                     width: picture ? `${picture.width}px` : "100%",
                     height: picture ? `${picture.height}px` : "100%",
@@ -786,7 +786,7 @@ export default function ProjectEditor() {
                       className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 bg-black/20 transition-opacity cursor-pointer"
                       onClick={togglePlay}
                     >
-                      <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white">
+                      <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-sm border border-hairline flex items-center justify-center text-white">
                         {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8 ml-1" />}
                       </div>
                     </div>
@@ -824,9 +824,9 @@ export default function ProjectEditor() {
         </div>
 
         {/* AI Chat Sidebar */}
-        <div className="w-full lg:w-[400px] border-l border-white/10 bg-background/80 backdrop-blur-xl flex flex-col z-20 shadow-[-20px_0_40px_rgba(0,0,0,0.5)]">
+        <div className="w-full lg:w-[400px] border-l border-hairline bg-background/80 backdrop-blur-xl flex flex-col z-20 shadow-[-20px_0_40px_rgba(0,0,0,0.5)]">
           {/* Noah header */}
-          <div className="p-4 border-b border-white/10 flex items-center gap-3">
+          <div className="p-4 border-b border-hairline flex items-center gap-3">
             <div className="relative flex-shrink-0">
               <img
                 src="/noah-avatar.jpg"
@@ -849,11 +849,11 @@ export default function ProjectEditor() {
                 <img
                   src="/noah-avatar.jpg"
                   alt="Noah"
-                  className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-white/10"
+                  className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-hairline"
                 />
                 <div className="flex flex-col gap-1 min-w-0">
                   <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
-                  <div className="bg-white/5 border border-white/10 rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed">
+                  <div className="bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed">
                     Hey, I'm Noah 👋<br />Your AI video editor.<br /><br />Upload your video and tell me the vibe — I'll turn it into a viral clip.
                   </div>
                 </div>
@@ -876,7 +876,7 @@ export default function ProjectEditor() {
                       <img
                         src="/noah-avatar.jpg"
                         alt="Noah"
-                        className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-white/10"
+                        className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-hairline"
                       />
                     )}
                     <div className={`flex flex-col gap-1 min-w-0 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
@@ -886,7 +886,7 @@ export default function ProjectEditor() {
                       <div className={`px-4 py-3 text-sm leading-relaxed ${
                         msg.role === 'user'
                           ? 'bg-primary/20 border border-primary/30 rounded-2xl rounded-tr-sm text-foreground max-w-[85%]'
-                          : 'bg-white/5 border border-white/10 rounded-2xl rounded-tl-sm'
+                          : 'bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm'
                       }`}>
                         {msg.content}
                       </div>
@@ -901,13 +901,13 @@ export default function ProjectEditor() {
                   <img
                     src="/noah-avatar.jpg"
                     alt="Noah"
-                    className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-white/10"
+                    className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-hairline"
                   />
                   <div className="flex flex-col gap-1">
                     <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
                     {/* Glowing only while he is actually working — see the
                         .noah-working note in index.css. */}
-                    <div className="noah-working bg-white/5 border border-white/10 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5">
+                    <div className="noah-working bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5">
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
@@ -922,14 +922,14 @@ export default function ProjectEditor() {
                   <img
                     src="/noah-avatar.jpg"
                     alt="Noah"
-                    className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-white/10"
+                    className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-hairline"
                   />
                   <div className="flex flex-col gap-1 flex-1">
                     <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
                     {/* Breathing while the render runs, still when it has
                         failed — a failure is not work in progress. */}
                     <div
-                      className={`bg-white/5 border border-secondary/30 rounded-2xl rounded-tl-sm px-4 py-3 text-sm w-full ${
+                      className={`bg-surface-1 border border-secondary/30 rounded-2xl rounded-tl-sm px-4 py-3 text-sm w-full ${
                         renderJob?.status === "failed"
                           ? "shadow-[0_0_15px_rgba(155,107,255,0.1)]"
                           : "noah-working"
@@ -948,7 +948,7 @@ export default function ProjectEditor() {
                             <Loader2 className="w-4 h-4 animate-spin" />
                             {renderJob?.status === "queued" ? "Waiting for a free slot…" : (renderJob?.stage ?? "Working on it…")}
                           </p>
-                          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
                             <div
                               className="h-full bg-secondary transition-all duration-500"
                               style={{ width: `${renderJob?.progress ?? 0}%` }}
@@ -968,7 +968,7 @@ export default function ProjectEditor() {
             </div>
           </ScrollArea>
 
-          <div className="p-4 border-t border-white/10 bg-black/20">
+          <div className="p-4 border-t border-hairline bg-band">
             <form 
               onSubmit={(e) => { e.preventDefault(); handleSendChat(); }}
               className="relative"
@@ -977,7 +977,7 @@ export default function ProjectEditor() {
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
                 placeholder="Describe your edit..."
-                className="input-chat-glow pr-12 bg-white/5 border-white/10 rounded-full h-12"
+                className="input-chat-glow pr-12 bg-surface-1 border-hairline rounded-full h-12"
                 disabled={!hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 data-testid="input-chat"
               />

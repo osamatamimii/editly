@@ -5,6 +5,7 @@ import { useGetSubscription, useUpdateSubscription, getGetSubscriptionQueryKey }
 import { useQueryClient } from "@tanstack/react-query";
 import { fetchCheckoutConfig, openCheckout } from "@/lib/checkout";
 import { useAuth } from "@/lib/auth";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 function useScrollReveal() {
   const ref = useRef<HTMLDivElement>(null);
@@ -222,22 +223,22 @@ export default function Home() {
         {/* Strong top purple glow */}
         <div style={{
           position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 100% 55% at 50% -5%, rgba(108,59,255,0.45) 0%, rgba(108,59,255,0.15) 40%, transparent 70%)",
+          background: "radial-gradient(ellipse 100% 55% at 50% -5%, var(--wash-top) 0%, var(--wash-top-mid) 40%, transparent 70%)",
         }} />
         {/* Mid indigo bloom */}
         <div style={{
           position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 80% 45% at 50% 50%, rgba(79,70,229,0.18) 0%, transparent 65%)",
+          background: "radial-gradient(ellipse 80% 45% at 50% 50%, var(--wash-mid) 0%, transparent 65%)",
         }} />
         {/* Bottom-left accent */}
         <div style={{
           position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 60% 40% at 15% 85%, rgba(108,59,255,0.18) 0%, transparent 65%)",
+          background: "radial-gradient(ellipse 60% 40% at 15% 85%, var(--wash-left) 0%, transparent 65%)",
         }} />
         {/* Bottom-right accent */}
         <div style={{
           position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 60% 40% at 85% 80%, rgba(155,107,255,0.12) 0%, transparent 65%)",
+          background: "radial-gradient(ellipse 60% 40% at 85% 80%, var(--wash-right) 0%, transparent 65%)",
         }} />
 
         {/* Slow diagonal light sweep */}
@@ -258,9 +259,7 @@ export default function Home() {
           backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E\")",
           backgroundRepeat: "repeat",
           backgroundSize: "128px 128px",
-          opacity: 0.055,
-          mixBlendMode: "overlay",
-        }} />
+        }} className="grain-layer" />
       </div>
 
       {/* ── Header ── */}
@@ -285,12 +284,15 @@ export default function Home() {
             </a>
           ))}
         </nav>
-        <Link
-          href="/dashboard"
-          className="glow-btn btn-gradient-cta text-white px-6 py-2 rounded-full font-medium animate-shimmer-border border border-transparent"
-        >
-          Dashboard
-        </Link>
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          <Link
+            href="/dashboard"
+            className="glow-btn btn-gradient-cta text-white px-6 py-2 rounded-full font-medium animate-shimmer-border border border-transparent"
+          >
+            Dashboard
+          </Link>
+        </div>
       </header>
 
       {/* ── Hero ── */}
@@ -340,7 +342,7 @@ export default function Home() {
 
         {/* Badge */}
         <div
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-8 backdrop-blur-md animate-fade-up"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-surface-1 border border-hairline mb-8 backdrop-blur-md animate-fade-up"
           style={{ animationDelay: "100ms" }}
         >
           <Sparkles className="w-4 h-4 text-secondary animate-sparkle" />
@@ -348,7 +350,7 @@ export default function Home() {
               claims nothing we have not built: no version number, nothing that
               reads as "we shipped a model". The result is one line further down,
               where it has room to be specific. */}
-          <span className="text-sm font-medium text-white/80">Meet Noah — tell him what you want</span>
+          <span className="text-sm font-medium text-foreground/80">Meet Noah — tell him what you want</span>
           <span className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]"
             style={{ animation: "glow-pulse 2s ease-in-out infinite" }} />
         </div>
@@ -396,7 +398,7 @@ export default function Home() {
             <Play className="w-5 h-5 fill-current" />
             Upload a raw take
           </Link>
-          <button className="group flex items-center justify-center gap-2 h-14 px-8 rounded-full font-semibold text-lg bg-white/5 hover:bg-white/8 border border-white/10 transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_24px_rgba(108,59,255,0.2)] backdrop-blur-sm">
+          <button className="group flex items-center justify-center gap-2 h-14 px-8 rounded-full font-semibold text-lg bg-surface-1 hover:bg-surface-1 border border-hairline transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_24px_rgba(108,59,255,0.2)] backdrop-blur-sm">
             Watch Demo
             <ArrowRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
           </button>
@@ -408,12 +410,14 @@ export default function Home() {
           className="mt-20 w-full max-w-5xl animate-fade-up animate-float"
           style={{ animationDelay: "560ms", animationDuration: "6s" } as React.CSSProperties}
         >
-          <div className="rounded-2xl glass-panel overflow-hidden border border-white/10 p-2"
+          <div className="rounded-2xl glass-panel overflow-hidden border border-hairline p-2"
             style={{
               boxShadow: "0 40px 80px rgba(108,59,255,0.3), 0 80px 160px rgba(108,59,255,0.12), 0 0 0 1px rgba(155,107,255,0.12)",
             }}
           >
-            <div className="w-full aspect-[16/9] rounded-xl overflow-hidden relative"
+            {/* force-dark: this is a picture of a video editor, and a video
+                editor is dark whatever the surrounding page is doing. */}
+            <div className="force-dark w-full aspect-[16/9] rounded-xl overflow-hidden relative text-foreground"
               style={{ background: "linear-gradient(135deg, #080512 0%, #0a0614 40%, #060310 100%)" }}
             >
               {/* Abstract bokeh blobs — suggest out-of-focus video subjects */}
@@ -454,7 +458,7 @@ export default function Home() {
               <div className="absolute top-4 z-10"
                 style={{ right: "310px", animation: "fade-in 0.4s 0.9s both" }}
               >
-                <span className="text-[9px] font-mono text-white/40 bg-white/5 border border-white/10 px-2 py-0.5 rounded">
+                <span className="text-[9px] font-mono text-white/40 bg-surface-1 border border-hairline px-2 py-0.5 rounded">
                   1080p
                 </span>
               </div>
@@ -477,7 +481,7 @@ export default function Home() {
 
               {/* Timeline bar */}
               <div className="absolute bottom-0 left-0 right-0 h-28 p-4 flex flex-col justify-end">
-                <div className="w-full h-14 bg-white/5 rounded-lg border border-white/10 relative overflow-hidden">
+                <div className="w-full h-14 bg-surface-1 rounded-lg border border-hairline relative overflow-hidden">
                   {/* Animated progress fill */}
                   <div className="timeline-progress absolute top-0 left-0 bottom-0 bg-primary/20 border-r-2 border-secondary shadow-[0_0_20px_rgba(155,107,255,0.8)]" />
                   {/* Active edit segment — the highlighted clip being edited */}
@@ -502,7 +506,7 @@ export default function Home() {
                       <div
                         key={i}
                         className={`wave-bar flex-1 rounded-full min-w-[2px] ${
-                          i >= 13 && i <= 19 ? "bg-secondary/70" : "bg-white/30"
+                          i >= 13 && i <= 19 ? "bg-secondary/70" : "bg-surface-3"
                         }`}
                         style={{
                           height: `${bar.height}%`,
@@ -516,10 +520,10 @@ export default function Home() {
               </div>
 
               {/* Chat overlay */}
-              <div className="absolute top-6 right-6 w-72 rounded-xl bg-background/80 backdrop-blur-md border border-white/10 p-4 shadow-[0_20px_40px_rgba(0,0,0,0.5)]"
+              <div className="absolute top-6 right-6 w-72 rounded-xl bg-background/80 backdrop-blur-md border border-hairline p-4 shadow-[0_20px_40px_rgba(0,0,0,0.5)]"
                 style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.07), 0 20px 40px rgba(0,0,0,0.5)" }}
               >
-                <div className="flex items-center gap-2 mb-3 pb-3 border-b border-white/10">
+                <div className="flex items-center gap-2 mb-3 pb-3 border-b border-hairline">
                   <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]" />
                   <span className="text-xs font-semibold text-muted-foreground">Editly AI</span>
                 </div>
@@ -527,12 +531,12 @@ export default function Home() {
                   <div className="chat-bubble-1 self-end bg-primary/20 text-white px-3 py-2 rounded-xl rounded-br-sm text-xs border border-primary/30">
                     "Make it punchy, add zoom on the beat drops."
                   </div>
-                  <div className="chat-bubble-2 self-start bg-white/5 px-3 py-2 rounded-xl rounded-bl-sm text-xs border border-white/10 flex items-center gap-2">
+                  <div className="chat-bubble-2 self-start bg-surface-1 px-3 py-2 rounded-xl rounded-bl-sm text-xs border border-hairline flex items-center gap-2">
                     <Sparkles className="w-3 h-3 text-secondary flex-shrink-0" />
                     <span>Applying dynamic beat sync...</span>
                   </div>
                   <div
-                    className="self-start bg-white/5 px-3 py-2 rounded-xl rounded-bl-sm text-xs border border-white/10 flex items-center gap-1.5"
+                    className="self-start bg-surface-1 px-3 py-2 rounded-xl rounded-bl-sm text-xs border border-hairline flex items-center gap-1.5"
                     style={{ animation: "chat-slide-in 0.5s 3.5s cubic-bezier(0.16,1,0.3,1) both" }}
                   >
                     <span className="typing-dot w-1.5 h-1.5 rounded-full bg-secondary inline-block" />
@@ -550,7 +554,7 @@ export default function Home() {
                 {["TikTok", "Reels", "Shorts"].map((p, i) => (
                   <div
                     key={p}
-                    className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs font-medium text-white/80"
+                    className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-hairline text-xs font-medium text-white/80"
                     style={{ animation: `fade-up 0.5s ${1 + i * 0.15}s cubic-bezier(0.16,1,0.3,1) both` }}
                   >
                     {p}
@@ -563,7 +567,7 @@ export default function Home() {
       </section>
 
       {/* ── How It Works ── */}
-      <section id="how-it-works" className="w-full bg-black/40 py-24 relative overflow-hidden">
+      <section id="how-it-works" className="w-full bg-band py-24 relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(108,59,255,0.08)_0%,transparent_60%)]" />
         <div className="max-w-7xl mx-auto px-6 relative z-10">
           <div className="text-center mb-16">
@@ -586,7 +590,7 @@ export default function Home() {
                 style={{ transitionDelay: step.delay }}
               >
                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-primary/20 rounded-full blur-[50px] group-hover:bg-secondary/40 transition-colors duration-700" />
-                <span className="text-6xl font-extrabold text-white/5 mb-4 block group-hover:text-white/8 transition-colors">
+                <span className="text-6xl font-extrabold text-foreground/[0.06] mb-4 block group-hover:text-foreground/[0.10] transition-colors">
                   {step.num}
                 </span>
                 <div className="w-10 h-10 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center mb-4 group-hover:shadow-[0_0_15px_rgba(108,59,255,0.5)] transition-shadow">
@@ -624,7 +628,7 @@ export default function Home() {
                   <div className="w-9 h-9 flex-shrink-0 rounded-full bg-primary/15 flex items-center justify-center border border-primary/30 shadow-[0_0_8px_rgba(108,59,255,0.2)] group-hover:shadow-[0_0_16px_rgba(108,59,255,0.5)] group-hover:border-primary/60 transition-all duration-300">
                     <CheckCircle2 className="w-4 h-4 text-secondary" />
                   </div>
-                  <span className="text-lg font-medium group-hover:text-white transition-colors">{feat}</span>
+                  <span className="text-lg font-medium group-hover:text-foreground transition-colors">{feat}</span>
                 </li>
               ))}
             </ul>
@@ -654,13 +658,13 @@ export default function Home() {
                     className={`aspect-square rounded-xl flex items-center justify-center border transition-all duration-300 cursor-default
                       ${cell.icon
                         ? "bg-primary/20 border-primary/40 shadow-[0_0_20px_rgba(108,59,255,0.25)] hover:shadow-[0_0_35px_rgba(108,59,255,0.5)] hover:scale-[1.04]"
-                        : "bg-black/50 border-white/5 hover:border-white/15 hover:bg-white/5"
+                        : "bg-band border-hairline-faint hover:border-hairline hover:bg-surface-1"
                       }`}
                   >
                     {cell.icon ? (
                       <Sparkles className="w-8 h-8 text-primary animate-sparkle" />
                     ) : (
-                      <span className="text-sm font-medium text-white/40">{cell.label}</span>
+                      <span className="text-sm font-medium text-foreground/50">{cell.label}</span>
                     )}
                   </div>
                 ))}
@@ -686,7 +690,7 @@ export default function Home() {
 
         {/* Billing toggle */}
         <div className="flex justify-center mb-10">
-          <div className="inline-flex items-center gap-1 p-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-sm">
+          <div className="inline-flex items-center gap-1 p-1 rounded-full bg-surface-1 border border-hairline backdrop-blur-sm">
             <button
               onClick={() => setIsYearly(false)}
               className={`px-6 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
@@ -708,7 +712,7 @@ export default function Home() {
               Yearly
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all duration-300 ${
                 isYearly
-                  ? "bg-white/20 text-white border-white/30"
+                  ? "bg-surface-3 text-foreground border-hairline-strong"
                   : "bg-primary/15 text-primary border-primary/30"
               }`}>
                 Save 20%
@@ -728,8 +732,8 @@ export default function Home() {
                 key={plan.key}
                 className={`reveal relative flex flex-col rounded-3xl border transition-all duration-500 overflow-hidden ${
                   isPro
-                    ? "border-primary/60 shadow-[0_0_50px_rgba(108,59,255,0.25)] bg-white/[0.06]"
-                    : "border-white/10 bg-white/[0.03] hover:border-white/20"
+                    ? "border-primary/60 shadow-[0_0_50px_rgba(108,59,255,0.25)] bg-surface-2"
+                    : "border-hairline bg-surface-1 hover:border-hairline-strong"
                 }`}
                 style={{
                   transitionDelay: `${i * 80}ms`,
@@ -776,7 +780,7 @@ export default function Home() {
                     <div className="text-xs text-muted-foreground/70 mt-1">{plan.forWho}</div>
                   </div>
 
-                  <div className="h-px bg-white/5 mb-6" />
+                  <div className="h-px bg-surface-1 mb-6" />
 
                   <ul className="space-y-3 flex-1 mb-8">
                     {SHARED_FEATURES.map((feat) => (
@@ -802,7 +806,7 @@ export default function Home() {
                       className={`w-full rounded-full py-3 px-6 font-semibold text-sm transition-all duration-300 ${
                         isPro
                           ? "btn-gradient-cta text-white"
-                          : "bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/25 hover:shadow-[0_0_20px_rgba(108,59,255,0.12)]"
+                          : "bg-surface-1 border border-hairline hover:bg-surface-2 hover:border-hairline-strong hover:shadow-[0_0_20px_rgba(108,59,255,0.12)]"
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
                       {checkoutFor === plan.key

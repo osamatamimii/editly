@@ -9,7 +9,7 @@ import { BackButton } from "@/components/back-button";
 export default function NotFound() {
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center gap-4 px-6 text-center">
-      <div className="w-14 h-14 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+      <div className="w-14 h-14 rounded-full bg-surface-1 border border-hairline flex items-center justify-center">
         <AlertCircle className="w-7 h-7 text-muted-foreground" />
       </div>
       <h1 className="text-2xl font-bold">This page does not exist</h1>

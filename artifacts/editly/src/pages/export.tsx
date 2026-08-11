@@ -123,7 +123,7 @@ export default function ExportPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
         {/* Preview Container */}
         <div className="lg:col-span-5 flex justify-center">
-          <div className="w-full max-w-[360px] aspect-[9/16] bg-black rounded-3xl overflow-hidden glass-panel border-4 border-white/10 relative shadow-[0_0_50px_rgba(108,59,255,0.2)]">
+          <div className="w-full max-w-[360px] aspect-[9/16] bg-black rounded-3xl overflow-hidden glass-panel border-4 border-hairline relative shadow-[0_0_50px_rgba(108,59,255,0.2)]">
             {playbackUrl ? (
               <video 
                 src={playbackUrl} 
@@ -142,13 +142,13 @@ export default function ExportPage() {
             
             {/* Fake Platform UI Overlay based on selection */}
             <div className="absolute right-4 bottom-24 flex flex-col gap-4 pointer-events-none opacity-80">
-              <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur border border-white/30" />
-              <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur border border-white/30" />
-              <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur border border-white/30" />
+              <div className="w-10 h-10 rounded-full bg-surface-3 backdrop-blur border border-hairline-strong" />
+              <div className="w-10 h-10 rounded-full bg-surface-3 backdrop-blur border border-hairline-strong" />
+              <div className="w-10 h-10 rounded-full bg-surface-3 backdrop-blur border border-hairline-strong" />
             </div>
             <div className="absolute bottom-4 left-4 right-16 pointer-events-none opacity-80">
-              <div className="w-32 h-4 bg-white/20 rounded mb-2" />
-              <div className="w-48 h-3 bg-white/20 rounded" />
+              <div className="w-32 h-4 bg-surface-3 rounded mb-2" />
+              <div className="w-48 h-3 bg-surface-3 rounded" />
             </div>
           </div>
         </div>
@@ -162,7 +162,7 @@ export default function ExportPage() {
 
           {currentStatus === 'idle' && (
             <>
-              <Card className="glass-panel border-white/10">
+              <Card className="glass-panel border-hairline">
                 <CardHeader>
                   <CardTitle>Select Platform Format</CardTitle>
                   <CardDescription>
@@ -175,7 +175,7 @@ export default function ExportPage() {
                       <RadioGroupItem value="tiktok" id="tiktok" className="peer sr-only" />
                       <Label
                         htmlFor="tiktok"
-                        className="flex flex-col items-center justify-between rounded-xl border-2 border-white/10 bg-black/40 p-4 hover:bg-white/5 hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10 [&:has([data-state=checked])]:border-primary cursor-pointer transition-all"
+                        className="flex flex-col items-center justify-between rounded-xl border-2 border-hairline bg-band p-4 hover:bg-surface-1 hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10 [&:has([data-state=checked])]:border-primary cursor-pointer transition-all"
                       >
                         <Smartphone className="mb-3 h-8 w-8 text-[#00f2fe]" />
                         <span className="font-semibold text-lg">TikTok</span>
@@ -186,7 +186,7 @@ export default function ExportPage() {
                       <RadioGroupItem value="reels" id="reels" className="peer sr-only" />
                       <Label
                         htmlFor="reels"
-                        className="flex flex-col items-center justify-between rounded-xl border-2 border-white/10 bg-black/40 p-4 hover:bg-white/5 hover:text-accent-foreground peer-data-[state=checked]:border-secondary peer-data-[state=checked]:bg-secondary/10 [&:has([data-state=checked])]:border-secondary cursor-pointer transition-all"
+                        className="flex flex-col items-center justify-between rounded-xl border-2 border-hairline bg-band p-4 hover:bg-surface-1 hover:text-accent-foreground peer-data-[state=checked]:border-secondary peer-data-[state=checked]:bg-secondary/10 [&:has([data-state=checked])]:border-secondary cursor-pointer transition-all"
                       >
                         <PlaySquare className="mb-3 h-8 w-8 text-[#E1306C]" />
                         <span className="font-semibold text-lg">Reels</span>
@@ -197,7 +197,7 @@ export default function ExportPage() {
                       <RadioGroupItem value="shorts" id="shorts" className="peer sr-only" />
                       <Label
                         htmlFor="shorts"
-                        className="flex flex-col items-center justify-between rounded-xl border-2 border-white/10 bg-black/40 p-4 hover:bg-white/5 hover:text-accent-foreground peer-data-[state=checked]:border-red-500 peer-data-[state=checked]:bg-red-500/10 [&:has([data-state=checked])]:border-red-500 cursor-pointer transition-all"
+                        className="flex flex-col items-center justify-between rounded-xl border-2 border-hairline bg-band p-4 hover:bg-surface-1 hover:text-accent-foreground peer-data-[state=checked]:border-red-500 peer-data-[state=checked]:bg-red-500/10 [&:has([data-state=checked])]:border-red-500 cursor-pointer transition-all"
                       >
                         <PlaySquare className="mb-3 h-8 w-8 text-red-500" />
                         <span className="font-semibold text-lg">Shorts</span>
@@ -240,11 +240,11 @@ export default function ExportPage() {
                     ) : step.status === 'active' ? (
                       <Loader2 className="w-6 h-6 animate-spin text-secondary flex-shrink-0" />
                     ) : (
-                      <div className="w-6 h-6 rounded-full border-2 border-white/20 flex-shrink-0" />
+                      <div className="w-6 h-6 rounded-full border-2 border-hairline-strong flex-shrink-0" />
                     )}
                     <span className={`text-lg ${
-                      step.status === 'active' ? 'text-white font-medium' : 
-                      step.status === 'done' ? 'text-muted-foreground' : 'text-white/30'
+                      step.status === 'active' ? 'text-foreground font-medium' : 
+                      step.status === 'done' ? 'text-muted-foreground' : 'text-foreground/30'
                     }`}>
                       {step.label}
                     </span>
@@ -268,7 +268,7 @@ export default function ExportPage() {
               <CardContent className="pt-6">
                 <Button 
                   size="lg" 
-                  className="w-full h-16 text-lg font-bold rounded-xl bg-white text-black hover:bg-gray-200 transition-all shadow-[0_0_20px_rgba(255,255,255,0.3)]"
+                  className="w-full h-16 text-lg font-bold rounded-xl bg-foreground text-background hover:bg-foreground/85 transition-all shadow-[0_0_20px_var(--invert-glow)]"
                   onClick={() => {
                     // Simulate download
                     const link = document.createElement('a');
@@ -290,7 +290,7 @@ export default function ExportPage() {
                 </Button>
                 
                 <div className="mt-6 flex gap-4 justify-center">
-                  <Button variant="outline" className="border-white/10" onClick={() => {
+                  <Button variant="outline" className="border-hairline" onClick={() => {
                     setIsExporting(false); // Reset to start another export
                     queryClient.invalidateQueries({ queryKey: getGetExportStatusQueryKey(id) });
                   }}>

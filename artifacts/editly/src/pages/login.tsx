@@ -118,7 +118,7 @@ export default function Login() {
         Stop editing. Start describing.
       </p>
 
-      <Card className="glass-panel border-white/10 w-full max-w-md">
+      <Card className="glass-panel border-hairline w-full max-w-md">
         <CardContent className="pt-8 pb-8">
           <h1 className="text-2xl font-bold mb-1 text-center">
             {mode === "signin" ? "Welcome back" : "Create your account"}
@@ -136,7 +136,7 @@ export default function Login() {
                   type="button"
                   onClick={() => handleProvider("google")}
                   disabled={busyProvider !== null || isSubmitting}
-                  className="w-full h-12 rounded-xl bg-white text-[#1f1f1f] font-semibold flex items-center justify-center gap-3 transition-opacity hover:opacity-90 disabled:opacity-50"
+                  className="w-full h-12 rounded-xl bg-white text-[#1f1f1f] border border-hairline font-semibold flex items-center justify-center gap-3 transition-opacity hover:opacity-90 disabled:opacity-50"
                   data-testid="button-google-signin"
                 >
                   {busyProvider === "google" ? (
@@ -158,7 +158,7 @@ export default function Login() {
                   type="button"
                   onClick={() => handleProvider("apple")}
                   disabled={busyProvider !== null || isSubmitting}
-                  className="w-full h-12 rounded-xl bg-black text-white border border-white/20 font-semibold flex items-center justify-center gap-3 transition-opacity hover:opacity-90 disabled:opacity-50"
+                  className="w-full h-12 rounded-xl bg-black text-white border border-hairline-strong font-semibold flex items-center justify-center gap-3 transition-opacity hover:opacity-90 disabled:opacity-50"
                   data-testid="button-apple-signin"
                 >
                   {busyProvider === "apple" ? (
@@ -173,9 +173,9 @@ export default function Login() {
               )}
 
               <div className="flex items-center gap-3 pt-1">
-                <div className="h-px flex-1 bg-white/10" />
+                <div className="h-px flex-1 bg-surface-2" />
                 <span className="text-xs text-muted-foreground">or with email</span>
-                <div className="h-px flex-1 bg-white/10" />
+                <div className="h-px flex-1 bg-surface-2" />
               </div>
             </div>
           )}
@@ -191,7 +191,7 @@ export default function Login() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className="pl-10 bg-white/5 border-white/10"
+                  className="pl-10 bg-surface-1 border-hairline"
                   required
                   autoComplete="email"
                   data-testid="input-email"
@@ -209,7 +209,7 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
-                  className="pl-10 bg-white/5 border-white/10"
+                  className="pl-10 bg-surface-1 border-hairline"
                   required
                   minLength={6}
                   autoComplete={mode === "signup" ? "new-password" : "current-password"}

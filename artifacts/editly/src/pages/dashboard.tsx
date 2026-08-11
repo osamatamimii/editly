@@ -23,6 +23,7 @@ import {
   Trash2, AlertCircle, Loader2, Sparkles, Activity, TrendingUp
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { deleteProjectVideos, usePlayableVideo } from "@/lib/video-storage";
@@ -216,19 +217,22 @@ export default function Dashboard() {
           </p>
           </div>
         </div>
-        <Button 
-          onClick={() => setIsCreateOpen(true)}
-          className="glow-btn rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 h-12"
-          data-testid="button-new-project"
-        >
-          <Plus className="w-5 h-5 mr-2" />
-          New Project
-        </Button>
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          <Button
+            onClick={() => setIsCreateOpen(true)}
+            className="glow-btn rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 h-12"
+            data-testid="button-new-project"
+          >
+            <Plus className="w-5 h-5 mr-2" />
+            New Project
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-        <Card className="glass-panel border-white/5">
+        <Card className="glass-panel border-hairline-faint">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Projects</CardTitle>
             <Video className="w-4 h-4 text-primary" />
@@ -241,7 +245,7 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-        <Card className="glass-panel border-white/5">
+        <Card className="glass-panel border-hairline-faint">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Currently Processing</CardTitle>
             <Activity className="w-4 h-4 text-secondary" />
@@ -266,7 +270,7 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
-        <Card className="glass-panel border-white/5">
+        <Card className="glass-panel border-hairline-faint">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Completed Edits</CardTitle>
             <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -288,7 +292,7 @@ export default function Dashboard() {
             ? "border-red-500/30 bg-red-500/5"
             : subscription.minutesUsedThisMonth / subscription.minutesIncluded >= 0.8
             ? "border-amber-500/30 bg-amber-500/5"
-            : "border-white/5"
+            : "border-hairline-faint"
         }`}>
           <div className="flex items-center gap-3 min-w-0">
             <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -311,7 +315,7 @@ export default function Dashboard() {
                 <span className="font-bold">{subscription.minutesUsedThisMonth} / {subscription.minutesIncluded}</span>
                 {" "}minutes of finished video this month
               </div>
-              <div className="mt-1.5 w-48 h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div className="mt-1.5 w-48 h-1.5 rounded-full bg-surface-2 overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
                     subscription.minutesUsedThisMonth >= subscription.minutesIncluded
@@ -326,7 +330,7 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Badge variant="outline" className="capitalize border-white/10 bg-white/5 text-xs font-semibold">
+            <Badge variant="outline" className="capitalize border-hairline bg-surface-1 text-xs font-semibold">
               {subscription.plan} plan
             </Badge>
             {subscription.minutesUsedThisMonth / subscription.minutesIncluded >= 0.8 && (
@@ -347,7 +351,7 @@ export default function Dashboard() {
         {isProjectsLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3].map(i => (
-              <Card key={i} className="glass-panel overflow-hidden border-white/5">
+              <Card key={i} className="glass-panel overflow-hidden border-hairline-faint">
                 <Skeleton className="w-full aspect-[16/9] rounded-none" />
                 <CardContent className="p-4">
                   <Skeleton className="h-5 w-2/3 mb-2" />
@@ -357,7 +361,7 @@ export default function Dashboard() {
             ))}
           </div>
         ) : projects?.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center glass-panel rounded-2xl border-white/5 border-dashed">
+          <div className="flex flex-col items-center justify-center py-24 text-center glass-panel rounded-2xl border-hairline-faint border-dashed">
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 border border-primary/20">
               <Video className="w-8 h-8 text-primary" />
             </div>
@@ -374,7 +378,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects?.map(project => (
               <Link key={project.id} href={`/project/${project.id}`}>
-                <Card className="glass-panel border-white/5 overflow-hidden hover:border-primary/50 transition-colors group cursor-pointer h-full flex flex-col">
+                <Card className="glass-panel border-hairline-faint overflow-hidden hover:border-primary/50 transition-colors group cursor-pointer h-full flex flex-col">
                   <div className="w-full aspect-[16/9] bg-black/60 relative overflow-hidden flex-shrink-0">
                     {/* The icon is the floor, not the fallback: it sits under
                         whatever loads, so a poster that fails to fetch or a clip
@@ -420,7 +424,7 @@ export default function Dashboard() {
       </div>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="glass-panel border-white/10 sm:max-w-[425px]">
+        <DialogContent className="glass-panel border-hairline sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Create New Project</DialogTitle>
             <DialogDescription>
@@ -437,7 +441,7 @@ export default function Dashboard() {
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 placeholder="e.g. My Viral Short"
-                className="col-span-3 bg-white/5 border-white/10 focus-visible:ring-primary"
+                className="col-span-3 bg-surface-1 border-hairline focus-visible:ring-primary"
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreate();
