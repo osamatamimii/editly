@@ -297,6 +297,51 @@ export async function uploadThumbnail(options: {
   return path;
 }
 
+/**
+ * Sends a reference video — the one whose look this edit should match.
+ *
+ * Deliberately the plain, non-resumable path with a tight size cap. A reference
+ * is a sample of a style, not a deliverable: the worker only ever reads the
+ * first two minutes of it, so asking someone to upload a whole episode as a
+ * reference would cost them minutes of transfer for bytes we throw away. The
+ * cap is the honest expression of that.
+ */
+export const MAX_REFERENCE_BYTES = 25 * 1024 * 1024;
+
+export async function uploadReferenceVideo(options: {
+  file: File;
+  userId: string;
+  projectId: string;
+  accessToken: string;
+}): Promise<string> {
+  const { file, userId, projectId, accessToken } = options;
+  if (file.size > MAX_REFERENCE_BYTES) {
+    throw new UploadError(
+      `That reference is ${formatBytes(file.size)}. We only read the first couple of minutes of one, so keep it under ${formatBytes(MAX_REFERENCE_BYTES)} — a short clip in the style you want is plenty.`,
+    );
+  }
+
+  // Same per-user, per-project prefix as everything else: the storage policy
+  // and the server's ownership check both key off it, and a reference is no
+  // more shareable than the footage it is being matched to.
+  const path = `${userId}/${projectId}/reference.${extensionFor(file)}`;
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${path}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        "Content-Type": file.type || "video/mp4",
+        "x-upsert": "true",
+      },
+      body: file,
+    },
+  );
+  if (!res.ok) throw new UploadError(`Could not store the reference video (${res.status}).`);
+  return path;
+}
+
 export interface UploadHandle {
   /** Resolves to the durable Storage object key once the bytes are committed. */
   done: Promise<string>;
