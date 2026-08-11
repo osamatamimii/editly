@@ -334,8 +334,14 @@ export const KenBurnsOperation = z.object({
 /** Punch in at chosen moments — emphasis on a line, or on a cut. */
 export const ZoomPunchOperation = z.object({
   type: z.literal("zoomPunch"),
-  /** Seconds into the *edited* clip. */
-  /** Seconds into the *edited* clip. Empty means "choose for me". */
+  /**
+   * Seconds into the *source* — the file as it was uploaded, before silence is
+   * cut. Emphasis is measured against the recording, so that is the clock every
+   * producer of these numbers is reading; the renderer converts them once, in
+   * its critic pass, and drops any whose moment did not survive the cut.
+   *
+   * Empty means "choose for me".
+   */
   at: z.array(z.number().min(0)).max(40),
   amount: z.number().min(0.02).max(0.6).default(0.12),
   holdMs: z.number().int().min(200).max(6000).default(1200),
