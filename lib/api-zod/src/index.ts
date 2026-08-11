@@ -306,6 +306,17 @@ export const RemoveSilenceOperation = z.object({
 export const FormatForPlatformOperation = z.object({
   type: z.literal("formatForPlatform"),
   platform: Platform,
+  /**
+   * Height of the exported frame. The width follows from 9:16, so 1920 is
+   * 1080x1920 and 2160 is 1216x2160.
+   *
+   * Requesting one is not the same as getting it. The plan clamps it — nothing
+   * the client sends widens what the tier allows — and the renderer clamps it
+   * again against what the source can actually fill, because a 1080p camera
+   * scaled to 2160 is four times the file for exactly the same detail. Both
+   * clamps say so rather than quietly obeying.
+   */
+  maxHeight: z.number().int().min(720).max(2160).optional(),
 });
 
 export const CaptionWord = z.object({
