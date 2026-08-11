@@ -16,6 +16,8 @@ import type { EditOperation, EditPlan, Platform } from "@workspace/api-zod";
 import { buildCaptionCues, emphasisPoints } from "./captions";
 import { captionLayout } from "./caption-layout";
 import type { Providers } from "./providers";
+import { measureStyle, styleToSettings } from "./style-measure";
+import { applyReferenceStyle } from "./reference-style";
 import type { Transcript } from "./providers/types";
 
 export interface EnrichResult {
@@ -30,6 +32,15 @@ export interface EnrichOptions {
   onProgress?: (stage: string) => void;
   /** Overridable so tests do not need a key. */
   now?: () => number;
+  /**
+   * A local copy of the video whose look this edit should match, when the
+   * project has one and the plan allows it.
+   *
+   * It is read here rather than in the renderer for the same reason the
+   * transcript is: this is where a plan meets the files it was written without
+   * having seen. By the time the renderer runs, a plan should be final.
+   */
+  referencePath?: string | null;
 }
 
 export async function enrichPlan(
@@ -66,9 +77,44 @@ export async function enrichPlan(
     notes.push(providers.status.transcription);
   }
 
+  // What only someone who watched the video could know: where a demo is
+  // running, where a beat is being held. Silence detection hears all of those
+  // as dead air, and cutting one out does not read as a tight edit — it reads
+  // as a broken video. Read only when the plan actually cuts silence, because
+  // that is the only decision it changes.
+  let protect: Array<{ startMs: number; endMs: number }> = [];
+  const cutsSilence = plan.operations.some((op) => op.type === "removeSilence");
+  if (cutsSilence && providers.sceneReader) {
+    options.onProgress?.("Watching for anything that shouldn't be cut");
+    try {
+      const scenes = await providers.sceneReader.read(mediaPath);
+      protect = scenes
+        .filter((scene) => scene.protect && scene.endMs > scene.startMs)
+        .map((scene) => ({ startMs: scene.startMs, endMs: scene.endMs }))
+        // The schema caps this, and a plan that wanted to protect sixty
+        // separate stretches is describing a video with nothing to cut.
+        .slice(0, 60);
+      if (protect.length > 0) {
+        notes.push(
+          `${protect.length} ${protect.length === 1 ? "stretch is" : "stretches are"} quiet because something is happening on screen, not because nothing is — ${protect.length === 1 ? "it was" : "they were"} left in`,
+        );
+      }
+    } catch (error) {
+      // Not reading the video costs a worse cut, not a failed render.
+      notes.push(`we could not watch this clip for things worth keeping (${short(error)}), so the cut is from the audio alone`);
+    }
+  } else if (cutsSilence && providers.status.vision) {
+    notes.push(providers.status.vision);
+  }
+
   const operations: EditOperation[] = [];
 
   for (const operation of plan.operations) {
+    if (operation.type === "removeSilence" && protect.length > 0) {
+      operations.push({ ...operation, protect });
+      continue;
+    }
+
     if (operation.type === "autoCaptions") {
       if (!transcript) continue; // The reason is already in `notes`.
       // Group the words for the space the target platform actually leaves, so
@@ -112,10 +158,37 @@ export async function enrichPlan(
     operations.push(operation);
   }
 
+  // The reference is applied last, once the plan is otherwise final: it sets
+  // the numbers inside decisions already made, so it needs those decisions to
+  // have been made — including the punch moments the transcript just chose.
+  let shaped = operations;
+  if (options.referencePath) {
+    options.onProgress?.("Reading the video you want to match");
+    try {
+      const [reference, own] = await Promise.all([
+        measureStyle(options.referencePath),
+        // The user's own footage, so the grade is a comparison rather than a
+        // guess: the same saturation reading is a lift for flat log footage and
+        // a cut for something already graded.
+        measureStyle(mediaPath).catch(() => undefined),
+      ]);
+      const applied = applyReferenceStyle(shaped, styleToSettings(reference, own), {
+        reference,
+        sourceSeconds: own?.sampledSeconds ?? reference.sampledSeconds,
+      });
+      shaped = applied.operations;
+      notes.push(...applied.notes);
+    } catch (error) {
+      // A reference we could not read is a worse edit, not a failed one. The
+      // plan the user asked for still renders.
+      notes.push(`we could not read the video you asked us to match (${short(error)}), so this is edited to the plan alone`);
+    }
+  }
+
   // A plan can be emptied by all of the above — captions with no recogniser and
   // punches with nothing to punch on. Rendering nothing is worse than not
   // rendering, so we say so and let the caller decide.
-  return { plan: { version: 1, operations } as EditPlan, notes, transcript };
+  return { plan: { version: 1, operations: shaped } as EditPlan, notes, transcript };
 }
 
 /**

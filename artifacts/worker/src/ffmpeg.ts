@@ -419,6 +419,17 @@ export interface RenderContext {
 export interface RenderResult {
   output: string;
   notes: string[];
+  /** What the source measured, before any cuts. */
+  sourceSeconds: number;
+  /**
+   * How long the edit should come out, computed from the cut map rather than
+   * read from the finished file.
+   *
+   * This is arithmetic, not a guess, and it is here so that a render whose
+   * output cannot be probed still has an honest number to be billed on instead
+   * of a null the meter would read as free.
+   */
+  estimatedSeconds: number;
 }
 
 type Op<T extends EditOperation["type"]> = Extract<EditOperation, { type: T }>;
@@ -436,8 +447,25 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const source = await probeSource(input);
   const output = path.join(ctx.workDir, "output.mp4");
 
-  const find = <T extends EditOperation["type"]>(type: T): Op<T> | undefined =>
-    plan.operations.find((o) => o.type === type) as Op<T> | undefined;
+  /**
+   * The one operation of this type the graph will use.
+   *
+   * The graph has exactly one slot per kind — one crop, one zoom expression,
+   * one subtitle filter — so a plan carrying two of the same operation cannot
+   * express both. It used to take the first and drop the rest with no note and
+   * no error, which meant a plan asking for two different punch sets rendered
+   * as one and looked, from the outside, like the second one had simply not
+   * worked. Now the loss is stated.
+   */
+  const find = <T extends EditOperation["type"]>(type: T): Op<T> | undefined => {
+    const matches = plan.operations.filter((o) => o.type === type) as Op<T>[];
+    if (matches.length > 1) {
+      notes.push(
+        `the plan asked for ${matches.length} ${type} operations and the render can only apply one, so the first was used`,
+      );
+    }
+    return matches[0];
+  };
 
   const silence = find("removeSilence");
   const reframe = find("formatForPlatform");
@@ -447,6 +475,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   let captions = find("burnCaptions");
   const watermark = find("watermark");
   const loudness = find("normalizeLoudness");
+  const grade = find("grade");
 
   ctx.onProgress?.(0.02, "Looking at your footage");
 
@@ -458,7 +487,16 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     } else {
       ctx.onProgress?.(0.06, "Finding the silences");
       const silences = await detectSilences(input, silence.thresholdDb, silence.minSilenceMs / 1000);
-      const candidate = keepSegmentsFrom(source.duration, silences, silence.paddingMs / 1000);
+      const protect = (silence.protect ?? []).map((r) => ({ start: r.startMs / 1000, end: r.endMs / 1000 }));
+      const candidate = keepSegmentsFrom(source.duration, silences, silence.paddingMs / 1000, protect);
+      if (protect.length > 0) {
+        const spared = silences.filter((s) => protect.some((r) => s.start < r.end && s.end > r.start)).length;
+        if (spared > 0) {
+          notes.push(
+            `${spared} quiet ${spared === 1 ? "stretch was" : "stretches were"} left in because something was happening on screen there`,
+          );
+        }
+      }
 
       if (candidate.length === 0) {
         throw new FfmpegError("The whole clip reads as silence at this threshold — nothing would be left.");
@@ -589,6 +627,20 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     if (punches.length > 0) notes.push(`${punches.length} punch-in${punches.length === 1 ? "" : "s"}`);
   }
 
+  // ── Grade ─────────────────────────────────────────────────────────────────
+  //
+  // After motion and before anything drawn on top: the picture is graded, the
+  // captions and the mark are not. A watermark whose white drifted with the
+  // saturation of the footage under it would read as a rendering fault.
+  if (grade && Math.abs(grade.saturation - 1) > 0.001) {
+    videoParts.push(`eq=saturation=${grade.saturation.toFixed(3)}`);
+    notes.push(
+      grade.saturation > 1
+        ? `colour pushed ${Math.round((grade.saturation - 1) * 100)}% toward your reference`
+        : `colour pulled back ${Math.round((1 - grade.saturation) * 100)}% toward your reference`,
+    );
+  }
+
   // ── Drawn on top ──────────────────────────────────────────────────────────
   if (captions) {
     // Already on the edited timeline: the critic moved them with the cuts, and
@@ -676,7 +728,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
   if (notes.length === 0) notes.push("re-encoded with no changes requested");
   ctx.onProgress?.(1, "finishing");
-  return { output, notes };
+  return { output, notes, sourceSeconds: source.duration, estimatedSeconds: effectiveDuration };
 }
 
 function describeWork(plan: EditPlan): string {
@@ -697,6 +749,7 @@ export function describe(op: EditOperation): string {
     // that skips enrichment fails to compile rather than silently doing nothing.
     case "autoCaptions": return "Burning in captions";
     case "watermark": return "Adding the watermark";
+    case "grade": return "Matching the colour to your reference";
     case "kenBurns": return "Adding a slow push";
     case "zoomPunch": return "Adding punch-in zooms";
     case "normalizeLoudness": return "Levelling the audio";

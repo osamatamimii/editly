@@ -31,12 +31,28 @@ export const MOTION_OVERSCAN = 1.15;
 /**
  * Inverts a list of silences into the parts worth keeping, growing each kept
  * part by `padding` on both sides so words are not clipped at the cut.
+ *
+ * `protect` names stretches that must survive whatever the audio says about
+ * them. Silence detection hears a demo running on screen, a reveal, or a beat
+ * held before a punchline as exactly the same thing as dead air — and removing
+ * one of those does not read as a tight edit, it reads as a broken video. A
+ * silence that touches a protected stretch at all is left alone rather than
+ * trimmed to fit: half of a held beat is worse than all of it.
  */
-export function keepSegmentsFrom(duration: number, silences: Segment[], padding: number): Segment[] {
+export function keepSegmentsFrom(
+  duration: number,
+  silences: Segment[],
+  padding: number,
+  protect: Segment[] = [],
+): Segment[] {
   const kept: Segment[] = [];
   let cursor = 0;
 
+  const isProtected = (silence: Segment): boolean =>
+    protect.some((range) => silence.start < range.end && silence.end > range.start);
+
   for (const silence of silences) {
+    if (isProtected(silence)) continue;
     const start = Math.max(0, silence.start + padding);
     if (start > cursor) kept.push({ start: cursor, end: start });
     cursor = Math.max(cursor, Math.min(duration, silence.end - padding));

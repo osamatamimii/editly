@@ -18,7 +18,8 @@ import pino from "pino";
 import { db, pool, jobsTable, projectsTable, type Job } from "@workspace/db";
 import { EditPlan } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
-import { renderPlan, probeDuration, FfmpegError } from "./ffmpeg";
+import { renderPlan, probeDuration, probeSource, FfmpegError } from "./ffmpeg";
+import { measureOutput, exceedsCeiling, tooLongMessage } from "./duration";
 import { enrichPlan } from "./enrich";
 import { resolveProviders } from "./providers";
 
@@ -50,6 +51,17 @@ const providers = resolveProviders();
 class PlanEmptiedError extends Error {}
 
 /**
+ * The file is longer than the plan that queued it allows.
+ *
+ * This is checked here, against the file, rather than in the API — where the
+ * only duration available is the one the browser sent, which was optional and
+ * unvalidated. Omitting it removed the ceiling that separates the paid tiers
+ * entirely. Final rather than retried: the file will be exactly as long next
+ * time, and the message is the customer's to act on.
+ */
+class SourceTooLongError extends Error {}
+
+/**
  * Takes the oldest queued job, atomically. SKIP LOCKED is what makes this safe
  * to run in parallel: a row another worker is already claiming is stepped over
  * rather than waited on.
@@ -74,13 +86,31 @@ async function claimJob(): Promise<Job | null> {
     [WORKER_ID],
   );
   if (rows.length === 0) return null;
-  const row = rows[0] as Record<string, unknown>;
+  return toJob(rows[0] as Record<string, unknown>);
+}
+
+/**
+ * Postgres returns snake_case; the rest of the worker speaks the schema's
+ * camelCase. This mapping is by hand because the claim has to be one atomic
+ * `UPDATE … RETURNING`, which is below the ORM.
+ *
+ * Every column the worker reads must appear here. A column that is added to the
+ * schema and forgotten here arrives as `undefined` with no error anywhere — and
+ * for `maxSourceSeconds` that would mean the upload ceiling quietly stops being
+ * enforced, which is the exact failure this ceiling exists to prevent.
+ */
+function toJob(row: Record<string, unknown>): Job {
   return {
     ...(row as unknown as Job),
     userId: row["user_id"] as string,
     projectId: row["project_id"] as string,
     inputPath: row["input_path"] as string,
     outputPath: row["output_path"] as string | null,
+    referencePath: row["reference_path"] as string | null,
+    outputSeconds: row["output_seconds"] as number | null,
+    outputSecondsSource: row["output_seconds_source"] as string | null,
+    sourceSeconds: row["source_seconds"] as number | null,
+    maxSourceSeconds: row["max_source_seconds"] as number | null,
     maxAttempts: row["max_attempts"] as number,
   };
 }
@@ -131,11 +161,45 @@ async function processJob(job: Job): Promise<void> {
     const inputFile = path.join(workDir, "input.mp4");
     await downloadObject(job.inputPath, inputFile);
 
+    // The first honest measurement of this file anyone has made. Everything
+    // before now — the ceiling check in the API, the punch placement in a
+    // template — worked from a number the browser supplied and could omit.
+    const sourceSeconds = (await probeSource(inputFile)).duration;
+    if (exceedsCeiling(sourceSeconds, job.maxSourceSeconds)) {
+      await db.update(jobsTable).set({ sourceSeconds }).where(eq(jobsTable.id, job.id));
+      throw new SourceTooLongError(tooLongMessage(sourceSeconds, job.maxSourceSeconds as number));
+    }
+    // Written back to the project as well, so the next render's ceiling check
+    // and the next template's punch placement start from the truth. A lie told
+    // once is repaired permanently rather than repeated.
+    await db
+      .update(projectsTable)
+      .set({ duration: Math.round(sourceSeconds) })
+      .where(and(eq(projectsTable.id, job.projectId), eq(projectsTable.userId, job.userId)));
+
+    // The look this edit is being matched to, when there is one. Fetched only
+    // if the job carries a reference: measuring one costs a few ffmpeg passes
+    // and nobody should pay for them by default.
+    let referenceFile: string | null = null;
+    if (job.referencePath) {
+      await reportProgress(job.id, 7, "Fetching the video you want to match");
+      try {
+        referenceFile = path.join(workDir, "reference.mp4");
+        await downloadObject(job.referencePath, referenceFile);
+      } catch (error) {
+        // The reference is an improvement to the edit, not a precondition for
+        // it. Losing it costs the match and nothing else.
+        referenceFile = null;
+        log.warn({ err: error }, "could not fetch the reference video");
+      }
+    }
+
     // Whatever the plan could not know without the file — the words, where the
-    // emphasis fell — is filled in here. It degrades rather than fails, and
-    // every degradation comes back as a note.
+    // emphasis fell, what the reference looks like — is filled in here. It
+    // degrades rather than fails, and every degradation comes back as a note.
     const enriched = await enrichPlan(inputFile, plan, {
       providers,
+      referencePath: referenceFile,
       onProgress: (stage) => {
         void reportProgress(job.id, 8, stage).catch(() => {});
       },
@@ -148,7 +212,7 @@ async function processJob(job: Job): Promise<void> {
       );
     }
 
-    const { output, notes: renderNotes } = await renderPlan(inputFile, enriched.plan, {
+    const { output, notes: renderNotes, estimatedSeconds } = await renderPlan(inputFile, enriched.plan, {
       workDir,
       onProgress: (fraction, stage) => {
         // Download and upload bracket the render; the middle 80% is ffmpeg.
@@ -162,9 +226,17 @@ async function processJob(job: Job): Promise<void> {
     await uploadObject(outputPath, output);
 
     // What the plan meter counts. Measured from the finished file rather than
-    // predicted from the plan, because the only honest number is the one in
-    // the video we are about to hand over.
-    const outputSeconds = await probeDuration(output).catch(() => null);
+    // predicted from the plan, because the only honest number is the one in the
+    // video we are about to hand over — but never left null, because the meter
+    // sums this column and SQL skips nulls, so an unmeasurable render used to
+    // be a free one. `how` records which answer we ended up with.
+    const measured = await measureOutput(() => probeDuration(output), {
+      estimate: estimatedSeconds,
+      sourceSeconds,
+    });
+    if (measured.how !== "probe") {
+      log.warn({ how: measured.how, seconds: measured.seconds }, "output duration not measured directly");
+    }
 
     await db
       .update(jobsTable)
@@ -174,7 +246,10 @@ async function processJob(job: Job): Promise<void> {
         stage: null,
         error: null,
         outputPath,
-        outputSeconds,
+        notes,
+        outputSeconds: measured.seconds,
+        outputSecondsSource: measured.how,
+        sourceSeconds,
         lockedAt: null,
         lockedBy: null,
         finishedAt: new Date(),
@@ -186,18 +261,20 @@ async function processJob(job: Job): Promise<void> {
       .set({ status: "done", editedVideoPath: outputPath })
       .where(and(eq(projectsTable.id, job.projectId), eq(projectsTable.userId, job.userId)));
 
-    log.info({ outputPath, outputSeconds, notes }, "render complete");
+    log.info({ outputPath, outputSeconds: measured.seconds, how: measured.how, notes }, "render complete");
   } catch (error) {
     // ffmpeg's complaints are specific enough to be worth showing; anything
     // else is infrastructure and the user can do nothing with the detail.
     const message =
-      error instanceof PlanEmptiedError
+      error instanceof PlanEmptiedError || error instanceof SourceTooLongError
         ? error.message.slice(0, 300)
         : error instanceof FfmpegError
           ? error.message.split("\n")[0].slice(0, 300)
           : "Rendering failed. We are looking into it.";
-    // A plan nothing could be done with will be just as impossible next time.
-    const willRetry = !(error instanceof PlanEmptiedError) && job.attempts < job.maxAttempts;
+    // A plan nothing could be done with will be just as impossible next time,
+    // and a file will not get shorter.
+    const final = error instanceof PlanEmptiedError || error instanceof SourceTooLongError;
+    const willRetry = !final && job.attempts < job.maxAttempts;
 
     log.error({ err: error, attempt: job.attempts, willRetry }, "render failed");
 
