@@ -8,6 +8,39 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!--
+      Runs before the first paint, on purpose.
+
+      React cannot do this job. By the time the bundle has parsed and mounted,
+      the browser has already painted a frame — so a returning visitor on the
+      light theme gets a black flash, every single load. It is brief and it
+      looks broken, and the only fix is to decide the theme synchronously in
+      the document head.
+
+      Blocking (no defer, no module) for the same reason: this must finish
+      before anything is drawn. It is small enough that the cost is nothing.
+
+      The key is duplicated from src/lib/theme.tsx rather than imported,
+      because there is no module system here yet. If it ever changes, it has
+      to change in both places — hence the comment on the other side too.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("editly:theme");
+          var dark =
+            stored === "dark" ||
+            (stored !== "light" &&
+              (!window.matchMedia || window.matchMedia("(prefers-color-scheme: dark)").matches));
+          document.documentElement.classList.add(dark ? "dark" : "light");
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (e) {
+          // Storage blocked, or something older than we support. Dark is the
+          // default anyway, and :root already carries it.
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
