@@ -101,6 +101,18 @@ export const jobsTable = pgTable(
      */
     maxSourceSeconds: real("max_source_seconds"),
 
+    /**
+     * Higher is claimed first, within the queued rows.
+     *
+     * Set from the plan when the job is written, not joined from the
+     * subscription at claim time: the claim must stay one atomic statement, the
+     * worker should need to know nothing about billing, and the deal someone
+     * was on when they queued the work is the one to honour — upgrading does
+     * not reach back and reorder a queue, and downgrading does not demote work
+     * already accepted.
+     */
+    priority: integer("priority").notNull().default(0),
+
     attempts: integer("attempts").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(3),
 
@@ -118,8 +130,10 @@ export const jobsTable = pgTable(
   },
   (t) => [
     index("jobs_user_project_idx").on(t.userId, t.projectId, t.createdAt),
-    // The claim query orders queued rows by age; this is the index it uses.
-    index("jobs_queue_idx").on(t.status, t.createdAt),
+    // The claim query orders queued rows by priority then age; this is the
+    // index it uses, and the column order has to match or every claim sorts in
+    // memory.
+    index("jobs_queue_idx").on(t.status, t.priority.desc(), t.createdAt),
   ],
 );
 
