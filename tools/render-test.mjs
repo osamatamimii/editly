@@ -44,7 +44,7 @@ if (esbuild.status !== 0) {
   process.exit(1);
 }
 
-const { renderPlan, probeSource, keepSegmentsFrom, remapTime, zoomExpression, writeSubtitleFile } =
+const { renderPlan, probeSource, keepSegmentsFrom, remapTime, zoomExpression, writeSubtitleFile, frameFor } =
   await import(pathToFileURL(modulePath).href);
 
 // The reference command below has to crop where the pipeline crops, or it
@@ -138,6 +138,20 @@ console.log("\nSegment arithmetic");
   check("a moment after a cut moves earlier by the cut length", remapTime(8, kept) === 4, String(remapTime(8, kept)));
   check("a moment inside a cut lands on the seam", remapTime(5, kept) === 3, String(remapTime(5, kept)));
   check("a moment before any cut is unmoved", remapTime(2, kept) === 2, String(remapTime(2, kept)));
+}
+
+console.log("\nFrame arithmetic");
+{
+  check("1920 is the frame we have always exported", JSON.stringify(frameFor(1920)) === JSON.stringify({ w: 1080, h: 1920 }));
+  check("1280 is 720p vertical", JSON.stringify(frameFor(1280)) === JSON.stringify({ w: 720, h: 1280 }));
+  check("2160 keeps 9:16", Math.abs(frameFor(2160).w / frameFor(2160).h - 9 / 16) < 0.005, JSON.stringify(frameFor(2160)));
+  // H.264 chroma subsampling needs even dimensions, and an odd one fails the
+  // encode with a message about nothing in particular.
+  for (const h of [720, 1080, 1280, 1440, 1920, 2160]) {
+    const f = frameFor(h);
+    check(`${h}p exports even dimensions`, f.w % 2 === 0 && f.h % 2 === 0, JSON.stringify(f));
+  }
+  check("taller asks give taller frames", frameFor(2160).h > frameFor(1920).h);
 }
 
 console.log("\nZoom expressions");
@@ -244,6 +258,40 @@ console.log("\nReframing and encode quality");
   const moov = head.indexOf(Buffer.from("moov"));
   const mdat = head.indexOf(Buffer.from("mdat"));
   check("the moov atom is at the front so it streams", moov !== -1 && (mdat === -1 || moov < mdat), `moov@${moov} mdat@${mdat}`);
+}
+
+console.log("\nResolution, and refusing to sell an upscale as 4K");
+{
+  // The source is 640x360. The 9:16 window out of it carries 360 real pixels
+  // of height, so exporting at 2160 would be four times the file for exactly
+  // the same picture — and slower to make, slower to upload, and softer.
+  const { output, notes } = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "formatForPlatform", platform: "tiktok", maxHeight: 2160 }] },
+    { workDir: await scratch() },
+  );
+  const [width, height] = ffprobe(output, "stream=width,height");
+  check("the ask is capped at what the footage can fill", height === "1920", `${width}x${height}`);
+  check("and it stays 9:16", width === "1080", `${width}x${height}`);
+  check(
+    "the cap is explained rather than applied silently",
+    notes.some((n) => /2160p/.test(n) && /no more detail/.test(n)),
+    JSON.stringify(notes),
+  );
+
+  // Asking for less is always honoured: there is no honesty problem in
+  // exporting smaller than the source.
+  const small = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "formatForPlatform", platform: "tiktok", maxHeight: 1280 }] },
+    { workDir: await scratch() },
+  );
+  const [w720, h720] = ffprobe(small.output, "stream=width,height");
+  check("a smaller ask is given exactly", w720 === "720" && h720 === "1280", `${w720}x${h720}`);
+  check("with nothing to explain", !small.notes.some((n) => /no more detail/.test(n)), JSON.stringify(small.notes));
+
+  const [level] = ffprobe(small.output, "stream=level", ["-select_streams", "v:0"]);
+  check("and the ordinary encode settings still apply", level === "42", level);
 }
 
 console.log("\nOne encode, not four");

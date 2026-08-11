@@ -278,6 +278,49 @@ console.log("\nThe ceiling the worker will actually enforce travels with the dec
   );
 }
 
+console.log("\nResolution is decided by the tier, not by the browser");
+{
+  const ask = (plan, maxHeight) =>
+    decideRender({
+      plan,
+      usage: usage(0, 60),
+      operations: [SILENCE, { type: "formatForPlatform", platform: "tiktok", maxHeight }],
+    });
+  const heightOf = (r) => r.operations.find((op) => op.type === "formatForPlatform").maxHeight;
+
+  const greedy = ask("free", 2160);
+  check("a free plan asking for 4K does not get it", heightOf(greedy) === 1280, String(heightOf(greedy)));
+  check("but the render is not refused over it", greedy.allowed === true);
+  check("and the correction is recorded rather than silent", greedy.corrections.some((c) => /2160/.test(c)), greedy.corrections.join(" | "));
+
+  check("Pro asking for 4K gets it", heightOf(ask("pro", 2160)) === 2160);
+  check("Creator asking for 4K gets 1080p", heightOf(ask("creator", 2160)) === 1920);
+  check("asking for less than the tier allows is honoured", heightOf(ask("pro", 1280)) === 1280);
+  check("and asking for less is not a correction", ask("pro", 1280).corrections.length === 0);
+
+  const unset = decideRender({
+    plan: "creator",
+    usage: usage(0, 60),
+    operations: [SILENCE, { type: "formatForPlatform", platform: "tiktok" }],
+  });
+  check("asking for nothing gets the tier's own ceiling", heightOf(unset) === 1920, String(heightOf(unset)));
+}
+
+console.log("\nPaid work is claimed first, and that is the whole of it");
+{
+  const priorityOf = (plan) =>
+    decideRender({ plan, usage: usage(0, 60), operations: [SILENCE] }).priority;
+
+  check("free waits", priorityOf("free") === 0);
+  check("so does Creator, which is not sold a queue", priorityOf("creator") === 0);
+  check("Pro is claimed first", priorityOf("pro") > 0);
+  check("Studio too", priorityOf("studio") > 0);
+  check(
+    "but Studio does not jump Pro — that would sell one customer the other's wait",
+    priorityOf("studio") === priorityOf("pro"),
+  );
+}
+
 console.log("\nThe order of refusals");
 {
   // Both wrong at once. The allowance is the one the user can fix by waiting,
