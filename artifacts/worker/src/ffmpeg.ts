@@ -14,15 +14,16 @@
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { criticise } from "./critic";
 import type { EditOperation, EditPlan } from "@workspace/api-zod";
 import { captionLayout, type CaptionLayout } from "./caption-layout";
 import { chooseCropCenter, coverScale, cropOffsetX, measureInterest } from "./framing";
+import { keepSegmentsFrom, remapTime, MOTION_OVERSCAN, type Segment } from "./timeline";
 
-export interface Segment {
-  /** Seconds. */
-  start: number;
-  end: number;
-}
+// These moved to `timeline.ts` so the critic could share them without importing
+// the renderer that imports it. Re-exported because this is where callers —
+// including the test suites — have always found them.
+export { keepSegmentsFrom, remapTime, MOTION_OVERSCAN, type Segment };
 
 export interface SourceInfo {
   width: number;
@@ -145,52 +146,7 @@ export async function detectSilences(
   return silences;
 }
 
-/**
- * Inverts a list of silences into the parts worth keeping, growing each kept
- * part by `padding` on both sides so words are not clipped at the cut.
- */
-export function keepSegmentsFrom(duration: number, silences: Segment[], padding: number): Segment[] {
-  const kept: Segment[] = [];
-  let cursor = 0;
-
-  for (const silence of silences) {
-    const start = Math.max(0, silence.start + padding);
-    if (start > cursor) kept.push({ start: cursor, end: start });
-    cursor = Math.max(cursor, Math.min(duration, silence.end - padding));
-  }
-  if (cursor < duration) kept.push({ start: cursor, end: duration });
-
-  // Fragments this short are cutting artefacts, not content.
-  const MIN_SEGMENT_SECONDS = 0.05;
-  return kept.filter((s) => s.end - s.start > MIN_SEGMENT_SECONDS);
-}
-
-/**
- * Where a moment in the original lands after the cuts. Moments inside a removed
- * stretch collapse onto the cut point, which is where a caption for them
- * belongs.
- */
-export function remapTime(seconds: number, kept: Segment[]): number {
-  let elapsed = 0;
-  for (const segment of kept) {
-    if (seconds < segment.start) return elapsed;
-    if (seconds <= segment.end) return elapsed + (seconds - segment.start);
-    elapsed += segment.end - segment.start;
-  }
-  return elapsed;
-}
-
 // ─── Motion ─────────────────────────────────────────────────────────────────
-
-/**
- * Headroom kept around the frame when anything moves.
- *
- * Reframing crops to this multiple of the target, and the base zoom then scales
- * it back down to exactly the target — so an unmoved frame is a downscale, not
- * an upscale, and a punch-in has real pixels to expand into instead of
- * inventing them.
- */
-export const MOTION_OVERSCAN = 1.15;
 
 function clampExpr(inner: string): string {
   return `max(0,min(1,${inner}))`;
@@ -485,9 +441,10 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
   const silence = find("removeSilence");
   const reframe = find("formatForPlatform");
-  const kenBurns = find("kenBurns");
-  const zoomPunch = find("zoomPunch");
-  const captions = find("burnCaptions");
+  // `let`, because the critic revises these once it knows what the edit became.
+  let kenBurns = find("kenBurns");
+  let zoomPunch = find("zoomPunch");
+  let captions = find("burnCaptions");
   const watermark = find("watermark");
   const loudness = find("normalizeLoudness");
 
@@ -537,6 +494,23 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const effectiveDuration = kept
     ? kept.reduce((sum, s) => sum + (s.end - s.start), 0)
     : source.duration;
+
+  // ── The critic ────────────────────────────────────────────────────────────
+  //
+  // Everything decided so far was decided against the *original*: the API never
+  // saw the file, and enrich read the recording. The cuts above have just
+  // changed how long the video is and moved every moment inside it. This is the
+  // first and only point where both the plan and the edited timeline are known,
+  // so it is where the two are reconciled — see critic.ts for what that catches.
+  {
+    const reviewed = criticise({ operations: plan.operations, kept, effectiveDuration });
+    notes.push(...reviewed.notes);
+    const reviewedFind = <T extends EditOperation["type"]>(type: T): Op<T> | undefined =>
+      reviewed.operations.find((o) => o.type === type) as Op<T> | undefined;
+    kenBurns = reviewedFind("kenBurns");
+    zoomPunch = reviewedFind("zoomPunch");
+    captions = reviewedFind("burnCaptions");
+  }
 
   // ── Framing ───────────────────────────────────────────────────────────────
   const hasMotion = Boolean(kenBurns || zoomPunch);
@@ -617,14 +591,14 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
   // ── Drawn on top ──────────────────────────────────────────────────────────
   if (captions) {
-    // Cues are timed against the original. If silence was cut they have to move
-    // with it, or every caption drifts further out of sync as the clip goes on.
-    const shift = (ms: number) => (kept ? remapTime(ms / 1000, kept) * 1000 : ms);
+    // Already on the edited timeline: the critic moved them with the cuts, and
+    // shifting again here would move every caption a second time. That split of
+    // responsibility is deliberate — one place converts, everywhere else trusts.
     const cues: CaptionCue[] = captions.cues.map((c) => ({
-      startMs: shift(c.startMs),
-      endMs: shift(c.endMs),
+      startMs: c.startMs,
+      endMs: c.endMs,
       text: c.text,
-      words: c.words?.map((w) => ({ ...w, startMs: shift(w.startMs), endMs: shift(w.endMs) })),
+      words: c.words?.map((w) => ({ ...w })),
     }));
 
     const subtitlePath = path.join(ctx.workDir, "captions.ass");
