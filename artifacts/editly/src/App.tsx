@@ -13,6 +13,7 @@ import Login from "@/pages/login";
 import Dashboard from "@/pages/dashboard";
 import ProjectEditor from "@/pages/project-editor";
 import ExportPage from "@/pages/export";
+import AccountPage from "@/pages/account";
 
 const queryClient = new QueryClient();
 
@@ -56,6 +57,9 @@ function Router() {
       </Route>
       <Route path="/export/:id">
         <Protected component={ExportPage} />
+      </Route>
+      <Route path="/account">
+        <Protected component={AccountPage} />
       </Route>
       <Route component={NotFound} />
     </Switch>
