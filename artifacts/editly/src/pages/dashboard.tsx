@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { 
   Video, Plus, Clock, PlayCircle, CheckCircle2, 
-  Trash2, AlertCircle, Loader2, Sparkles, Activity, TrendingUp
+  Trash2, AlertCircle, Loader2, Sparkles, Activity, TrendingUp, UserRound
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -219,6 +219,15 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-3">
           <ThemeToggle />
+          <Button
+            variant="outline"
+            className="border-hairline rounded-full h-12 px-5"
+            onClick={() => setLocation("/account")}
+            data-testid="button-account"
+          >
+            <UserRound className="w-4 h-4 mr-2" />
+            Account
+          </Button>
           <Button
             onClick={() => setIsCreateOpen(true)}
             className="glow-btn rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 h-12"
