@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { eq, desc, gte, count, and, inArray } from "drizzle-orm";
-import { db, projectsTable, subscriptionsTable, jobsTable } from "@workspace/db";
+import { db, projectsTable, subscriptionsTable, jobsTable, messagesTable, exportsTable } from "@workspace/db";
 import {
   CreateProjectBody,
   UpdateProjectBody,
@@ -229,6 +229,27 @@ router.delete("/projects/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Project not found" });
     return;
   }
+
+  // Nothing here has a foreign key — ownership is denormalised onto every row
+  // so no query ever needs a join — which means nothing cascades and every
+  // child has to be named. Until this was written, deleting a project deleted
+  // one row: the conversation about a video the person had just removed stayed
+  // in the database indefinitely, and nobody could see it happening.
+  await db
+    .delete(messagesTable)
+    .where(and(eq(messagesTable.projectId, project.id), eq(messagesTable.userId, userId)));
+  await db
+    .delete(exportsTable)
+    .where(and(eq(exportsTable.projectId, project.id), eq(exportsTable.userId, userId)));
+
+  // Jobs deliberately survive.
+  //
+  // The meter sums `output_seconds` over finished jobs this month, so deleting
+  // them here would make "delete your projects" a way to reset your allowance
+  // and render for nothing — the same class of hole the render policy exists to
+  // close. Minutes that were produced were produced; removing the project
+  // afterwards does not un-produce them. The rows are orphaned by design and
+  // are only ever read as a sum.
 
   // The row is gone either way; reclaiming the bytes is best-effort.
   await deleteProjectObjects(userId, project.id);
