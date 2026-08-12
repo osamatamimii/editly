@@ -34,6 +34,7 @@ export interface ProviderEnv {
   ELEVENLABS_MODEL?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
+  GEMINI_MEDIA_RESOLUTION?: string;
 }
 
 export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv): Providers {
@@ -59,7 +60,11 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
       : (deepgram ?? elevenLabs);
 
   const sceneReader = geminiKey
-    ? createGeminiSceneReader({ apiKey: geminiKey, model: trimmed(env.GEMINI_MODEL) })
+    ? createGeminiSceneReader({
+        apiKey: geminiKey,
+        model: trimmed(env.GEMINI_MODEL),
+        mediaResolution: trimmed(env.GEMINI_MEDIA_RESOLUTION),
+      })
     : null;
 
   return {

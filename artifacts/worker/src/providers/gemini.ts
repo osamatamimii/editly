@@ -42,9 +42,30 @@ const WINDOW_MS = 10 * 60 * 1000;
 const PROXY_FPS = 1;
 const PROXY_HEIGHT = 360;
 
+/**
+ * How much of each frame the model actually looks at.
+ *
+ * Low is about 66 tokens a frame; the default is around 258. The difference is
+ * roughly $0.0018 against $0.007 a minute — against a budget of ten cents a
+ * produced minute and a current spend of two and a half, so the cost argument
+ * that chose `LOW` was answering the wrong question.
+ *
+ * What the extra resolution buys is specific and checkable: text on screen, and
+ * faces small enough in frame that expression is the only thing distinguishing
+ * a reaction from a pause. Both feed `protect` — the stretches silence removal
+ * must not cut through — and a demo whose on-screen text we could not read is
+ * exactly the kind of thing that gets cut out of the middle.
+ *
+ * Overridable, because a deployment that is watching four-hour podcasts at
+ * scale has a different arithmetic from one watching ninety-second clips.
+ */
+const DEFAULT_MEDIA_RESOLUTION = "MEDIA_RESOLUTION_MEDIUM";
+
 export interface GeminiOptions {
   apiKey: string;
   model?: string;
+  /** `MEDIA_RESOLUTION_LOW` | `MEDIA_RESOLUTION_MEDIUM` | `MEDIA_RESOLUTION_HIGH`. */
+  mediaResolution?: string;
   fetchImpl?: typeof fetch;
   /** Context that makes the reading better: what was said, and when. */
   transcriptHint?: string;
@@ -136,9 +157,9 @@ async function askForScenes(
     body: JSON.stringify({
       contents: [{ role: "user", parts }],
       generationConfig: {
-        // Low resolution is the whole cost argument: about 66 tokens a frame
-        // instead of several hundred, for a question that does not need detail.
-        mediaResolution: "MEDIA_RESOLUTION_LOW",
+        // Enough resolution to read the screen and see a face, which is what
+        // the answer is actually made of. See DEFAULT_MEDIA_RESOLUTION.
+        mediaResolution: options.mediaResolution ?? DEFAULT_MEDIA_RESOLUTION,
         responseMimeType: "application/json",
         responseSchema: RESPONSE_SCHEMA,
         temperature: 0.2,
