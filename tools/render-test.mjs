@@ -260,6 +260,41 @@ console.log("\nReframing and encode quality");
   check("the moov atom is at the front so it streams", moov !== -1 && (mdat === -1 || moov < mdat), `moov@${moov} mdat@${mdat}`);
 }
 
+console.log("\nA cut that would clip a syllable is moved off it");
+{
+  const plan = {
+    version: 1,
+    operations: [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 0 }],
+  };
+
+  const blind = await renderPlan(source, plan, { workDir: await scratch() });
+  const blindDuration = (await probeSource(blind.output)).duration;
+
+  // The tone stops at 3s, so the detector cuts there. A transcript saying a
+  // word runs to 3.5 means cutting at 3 clips it — the most audible way an
+  // automatic edit gives itself away, and one nobody reports because it sounds
+  // like the speaker stumbled.
+  const aware = await renderPlan(source, plan, {
+    workDir: await scratch(),
+    words: [{ start: 2.5, end: 3.5, filler: false }],
+  });
+  const awareDuration = (await probeSource(aware.output)).duration;
+
+  check(
+    "the render keeps the rest of the word",
+    awareDuration > blindDuration + 0.3,
+    `${blindDuration.toFixed(2)}s without, ${awareDuration.toFixed(2)}s with`,
+  );
+  check(
+    "by about the half second the word overran",
+    Math.abs(awareDuration - blindDuration - 0.5) < 0.25,
+    `${(awareDuration - blindDuration).toFixed(2)}s`,
+  );
+  check("and it says so", aware.notes.some((n) => /middle of a word/.test(n)), JSON.stringify(aware.notes));
+  check("silence is still removed", awareDuration < 12, `${awareDuration.toFixed(2)}s`);
+  check("without a transcript nothing changes", !blind.notes.some((n) => /middle of a word/.test(n)));
+}
+
 console.log("\nResolution, and refusing to sell an upscale as 4K");
 {
   // The source is 640x360. The 9:16 window out of it carries 360 real pixels

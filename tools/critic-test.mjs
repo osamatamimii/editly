@@ -43,7 +43,7 @@ function bundle(entry, name) {
 }
 
 const { criticise } = await import(bundle("artifacts/worker/src/critic.ts", "critic.mjs"));
-const { remapTime, keepSegmentsFrom, MOTION_OVERSCAN } = await import(
+const { remapTime, keepSegmentsFrom, snapToWords, MOTION_OVERSCAN } = await import(
   bundle("artifacts/worker/src/timeline.ts", "timeline.mjs")
 );
 // The renderer must keep re-exporting these: two suites import them from there.
@@ -353,6 +353,80 @@ section("ffmpeg.ts still exports the timeline helpers the other suites import");
   );
   const kept = ffmpeg.keepSegmentsFrom(30, [{ start: 8, end: 12 }, { start: 20, end: 23 }], 0);
   check("and they still work", kept.length === 3 && near(kept[1].start, 12));
+}
+
+section("A cut never lands in the middle of a word");
+{
+  // Silence detection works on amplitude, and amplitude does not respect
+  // syllables: a stop consonant dips below the threshold and the detector
+  // reports a pause where a word is still being said. Cutting there clips the
+  // syllable, which sounds like the speaker stumbled — so nobody reports it.
+  const words = [
+    { start: 0.0, end: 0.9 },
+    { start: 1.0, end: 2.4 },   // the long one a false pause lands inside
+    { start: 5.0, end: 5.6 },
+  ];
+
+  // The detector thought 1.8–4.9 was silence. It is not: 1.8 is mid-word.
+  const naive = keepSegmentsFrom(10, [{ start: 1.8, end: 4.9 }], 0);
+  check("without a transcript the cut lands inside the word", naive[0].end === 1.8, JSON.stringify(naive));
+
+  const fixed = snapToWords(naive, words);
+  check("with one, it moves to the end of the word", near(fixed[0].end, 2.4), JSON.stringify(fixed));
+  check("outward, never inward — extra audio is safe, a clipped syllable is not", fixed[0].end > naive[0].end);
+  check("the far side of the cut is untouched when it is genuinely in silence", near(fixed[1].start, 4.9));
+  check("and the segment count is unchanged", fixed.length === naive.length);
+
+  // A boundary already in silence is left exactly where it was.
+  const clean = snapToWords(keepSegmentsFrom(10, [{ start: 2.6, end: 4.8 }], 0), words);
+  check("a cut already between words does not move", near(clean[0].end, 2.6) && near(clean[1].start, 4.8), JSON.stringify(clean));
+
+  // A recogniser sometimes emits a "word" spanning several seconds — a run of
+  // speech it could not segment, or music. Snapping out of one of those would
+  // undo the trim entirely for no gain, so it is not treated as a word.
+  const runOn = snapToWords([{ start: 0, end: 3 }, { start: 20, end: 25 }], [{ start: 0, end: 9 }]);
+  check("a multi-second 'word' is not believed", near(runOn[0].end, 3), JSON.stringify(runOn));
+
+  check("no words, no change", JSON.stringify(snapToWords(naive, [])) === JSON.stringify(naive));
+  check("no segments, no crash", snapToWords([], words).length === 0);
+}
+
+section("Widening a cut on both sides cannot produce a stutter");
+{
+  // Two kept stretches separated by a gap shorter than the words either side.
+  // Snapping both outward makes them meet, and a zero-length cut becomes a
+  // repeated frame rather than a trim.
+  const words = [{ start: 0, end: 2.2 }, { start: 2.1, end: 4 }];
+  const merged = snapToWords([{ start: 0, end: 2.1 }, { start: 2.15, end: 4 }], words);
+  check("they merge instead of touching", merged.length === 1, JSON.stringify(merged));
+  check("covering both", near(merged[0].start, 0) && near(merged[0].end, 4), JSON.stringify(merged));
+  check("and nothing is zero length", merged.every((s) => s.end > s.start));
+}
+
+section("A punch does not land on a hesitation");
+{
+  const words = [
+    { start: 3.5, end: 4.2, filler: false },
+    { start: 5.0, end: 5.4, filler: true },  // "um"
+    { start: 12.0, end: 12.6, filler: false },
+  ];
+  const result = criticise({
+    operations: [punch([4, 5.2, 12.2])],
+    kept: null,
+    effectiveDuration: 30,
+    words,
+  });
+  const at = find(result, "zoomPunch").at;
+  check("the punch on 'um' is dropped", at.length === 2, JSON.stringify(at));
+  check("the ones on real words survive", near(at[0], 4) && near(at[1], 12.2));
+  check("and it says why", Boolean(noteMatching(result, /would have landed on/)), result.notes.join(" | "));
+  check("naming the sound, not a code", /"um" or "uh"/.test(noteMatching(result, /would have landed/) ?? ""));
+
+  // Without a transcript there is nothing to check against, and guessing would
+  // be worse than not checking.
+  const blind = criticise({ operations: [punch([4, 5.2, 12.2])], kept: null, effectiveDuration: 30 });
+  check("with no transcript every punch is kept", find(blind, "zoomPunch").at.length === 3);
+  check("and nothing is claimed about hesitations", !noteMatching(blind, /landed on/));
 }
 
 section("A quiet stretch that something is happening in is not a cut");
