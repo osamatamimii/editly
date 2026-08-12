@@ -2,7 +2,11 @@
 
 ## Overview
 
-Editly is a premium dark-mode SaaS app where users upload a video and use an AI chat interface to describe how they want it edited. The AI simulates processing and returns an edited version optimized for TikTok, Reels, and Shorts.
+Editly turns a landscape recording into a vertical clip you can post. You upload a video, describe the edit you want in your own words, and a dedicated ffmpeg worker performs it — cutting silence between words rather than through them, framing on the speaker rather than on the middle, burning captions from a transcript two speech models agreed on, and levelling the audio to what the platforms normalise to.
+
+This sentence used to say "the AI simulates processing and returns an edited version". It has not been true since the render worker was built, and it sat here for months describing the product as a mock — which is the most expensive kind of stale documentation, because it is the first thing anybody new reads.
+
+Both light and dark themes ship.
 
 pnpm workspace monorepo using TypeScript.
 

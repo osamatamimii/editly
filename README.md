@@ -19,11 +19,11 @@ Upload a raw take, say what you want in plain language ("cut the dead air and ma
 ## Tests
 
 ```bash
-# 55 checks that one user cannot see or touch another's data, against the real
+# 82 checks that one user cannot see or touch another's data, against the real
 # auth middleware. Needs a local Postgres matching the production schema.
 node tools/isolation-test.mjs
 
-# 41 checks on the ffmpeg pipeline — they inspect the output, not the exit code.
+# 62 checks on the ffmpeg pipeline — they inspect the output, not the exit code.
 # Needs ffmpeg and ffprobe on PATH.
 node tools/render-test.mjs
 
@@ -54,16 +54,46 @@ node tools/billing-test.mjs
 # a 500 falls back to keywords instead of reaching the user.
 node tools/planner-test.mjs
 
-# 28 checks on the two themes: that every token the dark theme defines is
+# 40 checks on the two themes: that every token the dark theme defines is
 # answered by the light one, that the two actually differ, and that every
 # text-on-surface pair clears WCAG AA — measured from the real stylesheet.
 node tools/theme-test.mjs
 
-# 33 checks that nobody gets a render they did not pay for: a request that
+# 62 checks that nobody gets a render they did not pay for: a request that
 # omits the watermark, one that sends an unreadable watermark instead, one
 # padded to twelve operations so there is no room for ours, and a four-hour
 # file on a ten-minute plan. No keys, no network, no database.
 node tools/policy-test.mjs
+
+# 83 checks that a plan is reviewed against the cut before ffmpeg runs it: a
+# punch remapped through the silence that was removed, one dropped because the
+# word it was going to emphasise is gone, and a cut moved off the middle of a
+# word — which sounds like the speaker stumbled, so nobody reports it.
+node tools/critic-test.mjs
+
+# 89 checks on asking two speech models the same question: where they agree the
+# word is corroborated, where they differ the more accurate one wins on the
+# other's clock, and where both are unsure the caption shows an ellipsis rather
+# than a guess.
+node tools/transcript-test.mjs
+
+# 54 checks on editing to match a video you like — mostly on what a reference is
+# *not* allowed to decide.
+node tools/reference-test.mjs
+
+# 58 checks that the 9:16 window goes where the person is and then stays there.
+# The last section renders a real clip of a face crossing frame and finds the
+# face in the output.
+node tools/framing-test.mjs
+
+# 48 checks written from the position of someone who wants the render for
+# nothing: make the probe fail, send no duration, claim a four-hour file is one
+# second long.
+node tools/meter-test.mjs
+
+# 30 checks that deleting an account is never partial and reported as complete,
+# and that the bytes go before the rows that name them.
+node tools/account-test.mjs
 
 # Storage policies are enforced by Postgres, not by code in this repo. Paste
 # this into the browser console on the deployed app after changing them.
