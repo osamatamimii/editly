@@ -173,8 +173,20 @@ console.log("\nToken enforcement");
   });
   check("expired token is rejected", expiredRes.status === 401, `got ${expiredRes.status}`);
 
+  // The health check is the one route with no token, and it has to stay that
+  // way — a monitor cannot hold a session. What it must not do is leak: it
+  // reports the shape of the schema, never a row, never a user.
   const health = await fetch(`${BASE}/api/healthz`);
-  check("health check stays public", health.status === 200, `got ${health.status}`);
+  const healthBody = await health.json();
+  check("health check needs no token", health.status !== 401 && health.status !== 403, `got ${health.status}`);
+  check("and against this database it is healthy", health.status === 200, `got ${health.status} ${JSON.stringify(healthBody)}`);
+  check("it says which database state it is in", healthBody?.status === "ok", JSON.stringify(healthBody));
+  check("nothing missing", healthBody?.database?.missingColumns?.length === 0, JSON.stringify(healthBody));
+  check(
+    "and it discloses no data — column names only, no rows, no ids",
+    !/[0-9a-f]{8}-[0-9a-f]{4}/.test(JSON.stringify(healthBody)),
+    JSON.stringify(healthBody),
+  );
 }
 
 console.log("\nOwnership isolation");

@@ -1,0 +1,456 @@
+/**
+ * Can the database this code needs be built from the files in the repository,
+ * and does anything notice when it has not been?
+ *
+ * On 12 August the production database was five migrations behind and had been
+ * for two days. The files were written, reviewed and committed. Applying them
+ * was something a person had to remember to do by hand, and nobody had. Every
+ * query in the product named a column that did not exist and failed; the
+ * symptom the customer saw was an empty project list and a Create button that
+ * did nothing, with no error anywhere. `/healthz` said ok throughout, because
+ * it returned a constant.
+ *
+ * Two things had to become checkable, and this file checks both.
+ *
+ * The first is that the migrations *are* the schema — that running them, in
+ * order, against an empty database produces exactly the columns the code
+ * declares. Not a document that describes the schema: the actual files, run for
+ * real, against a real Postgres, compared column by column with what Drizzle
+ * says the queries will ask for.
+ *
+ * The second is that a database which is behind says so. The health check reads
+ * its expectations out of the Drizzle tables rather than from a list somebody
+ * maintains, because a hand-maintained list of columns is the same forgetting
+ * one layer up.
+ *
+ * Usage: DATABASE_URL=postgres://... node tools/schema-test.mjs
+ * Requires: a local Postgres you may create and drop databases on.
+ */
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { Pool } = require(require.resolve("pg", { paths: ["lib/db"] }));
+
+const repoRoot = process.cwd();
+const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://postgres@127.0.0.1:5433/editly_test";
+const SCRATCH = "editly_schema_check";
+const scratchUrl = DATABASE_URL.replace(/\/[^/?]+(\?|$)/, `/${SCRATCH}$1`);
+
+let checks = 0;
+let failures = 0;
+const check = (name, ok, detail = "") => {
+  checks += 1;
+  if (ok) console.log(`  ✓ ${name}`);
+  else {
+    failures += 1;
+    console.log(`  ✗ ${name}${detail ? ` — ${detail}` : ""}`);
+  }
+};
+const section = (title) => console.log(`\n${title}`);
+
+// ─── The health module, as the server runs it ────────────────────────────────
+
+const buildDir = await mkdtemp(path.join(tmpdir(), "editly-schema-"));
+// Inside the package rather than in the temp directory: `@workspace/db` is a
+// workspace name, and workspace names resolve from the importing file.
+const entryDir = path.join(repoRoot, "artifacts/api-server/.schema-test");
+const entry = path.join(entryDir, "entry.ts");
+await (await import("node:fs/promises")).mkdir(entryDir, { recursive: true });
+await writeFile(
+  entry,
+  `export * from "../src/lib/schema-health";
+   export { pool } from "@workspace/db";`,
+);
+// The bundle leaves `pg` external, so it has to sit somewhere `require("pg")`
+// resolves from at runtime — which is lib/db, the package that depends on it.
+const outfile = path.join(repoRoot, "lib/db/.schema-health-under-test.mjs");
+const built = spawnSync(
+  require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+  [
+    entry,
+    "--bundle", "--platform=node", "--format=esm", "--target=node22",
+    "--external:pg", `--outfile=${outfile}`, "--log-level=error",
+  ],
+  { stdio: "inherit", cwd: path.join(repoRoot, "artifacts/api-server") },
+);
+if (built.status !== 0) {
+  console.error("could not bundle the health module");
+  process.exit(1);
+}
+const health = await import(pathToFileURL(outfile).href);
+
+// ─── What the code says it needs ─────────────────────────────────────────────
+
+section("The expected columns are read from the schema, not from a list");
+{
+  const expected = health.expectedColumns();
+  check("all five tables are covered", expected.size === 5, JSON.stringify([...expected.keys()]));
+  check(
+    "and the columns are the ones the queries name",
+    expected.get("jobs")?.has("output_seconds") &&
+      expected.get("jobs")?.has("priority") &&
+      expected.get("projects")?.has("reference_video_path"),
+    JSON.stringify([...(expected.get("jobs") ?? [])]),
+  );
+  // If this ever has to be edited by hand to stay correct, it has stopped being
+  // a check and become a second thing to forget.
+  const source = (await import("node:fs")).readFileSync(
+    path.join(repoRoot, "artifacts/api-server/src/lib/schema-health.ts"),
+    "utf8",
+  );
+  check("nothing in it is a literal column name", !/"[a-z]+_[a-z_]+"/.test(source.split("BEHIND_MESSAGE")[0]));
+  check("it reads them out of the Drizzle tables", /getTableConfig/.test(source));
+}
+
+section("A database that is behind is reported by name");
+{
+  const expected = new Map([
+    ["jobs", new Set(["id", "output_seconds", "priority"])],
+    ["projects", new Set(["id", "reference_video_path"])],
+  ]);
+
+  const complete = health.compareSchema(
+    expected,
+    new Map([
+      ["jobs", new Set(["id", "output_seconds", "priority"])],
+      ["projects", new Set(["id", "reference_video_path"])],
+    ]),
+  );
+  check("a database that has everything reports nothing", complete.length === 0, JSON.stringify(complete));
+
+  // Exactly the state production was in.
+  const behind = health.compareSchema(
+    expected,
+    new Map([
+      ["jobs", new Set(["id"])],
+      ["projects", new Set(["id"])],
+    ]),
+  );
+  check(
+    "a database missing three columns names all three",
+    JSON.stringify(behind) ===
+      JSON.stringify(["jobs.output_seconds", "jobs.priority", "projects.reference_video_path"]),
+    JSON.stringify(behind),
+  );
+  check("qualified by table, because a bare column name is ambiguous", behind.every((c) => c.includes(".")));
+
+  const noTable = health.compareSchema(expected, new Map([["projects", new Set(["id", "reference_video_path"])]]));
+  check(
+    "a table that does not exist at all is reported as its columns",
+    noTable.length === 3 && noTable.every((c) => c.startsWith("jobs.")),
+    JSON.stringify(noTable),
+  );
+
+  // Deploying a migration before the code that uses it is the safe order, and
+  // failing on it would make the safe order the failing one.
+  const ahead = health.compareSchema(
+    expected,
+    new Map([
+      ["jobs", new Set(["id", "output_seconds", "priority", "something_new"])],
+      ["projects", new Set(["id", "reference_video_path"])],
+    ]),
+  );
+  check("a column the database has and the code does not read is not a failure", ahead.length === 0, JSON.stringify(ahead));
+}
+
+// ─── Building the schema from the files ──────────────────────────────────────
+
+/**
+ * The parts of Supabase the migrations lean on.
+ *
+ * Three of them touch `storage.buckets`, `auth.uid()` and the roles Supabase
+ * defines, none of which exist in a plain Postgres. Stubbing them is what makes
+ * "rebuild the schema from the repository" a thing that can actually be run —
+ * and stubbing is honest here, because what is under test is the shape of the
+ * public tables, not the storage policies, which are tested against the real
+ * thing by tools/storage-isolation.browser.js.
+ */
+const SUPABASE_SHIM = `
+  DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'editly_app') THEN CREATE ROLE editly_app; END IF;
+  END $$;
+
+  CREATE SCHEMA IF NOT EXISTS auth;
+  CREATE SCHEMA IF NOT EXISTS storage;
+
+  CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
+
+  CREATE TABLE IF NOT EXISTS storage.buckets (
+    id text PRIMARY KEY, name text, public boolean,
+    file_size_limit bigint, allowed_mime_types text[]
+  );
+  CREATE TABLE IF NOT EXISTS storage.objects (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    bucket_id text, name text, owner uuid
+  );
+  ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+  CREATE OR REPLACE FUNCTION storage.foldername(name text) RETURNS text[]
+    LANGUAGE sql IMMUTABLE AS $$ SELECT string_to_array(name, '/') $$;
+`;
+
+const admin = new Pool({ connectionString: DATABASE_URL, max: 1 });
+const recreateScratch = async () => {
+  await admin.query(`DROP DATABASE IF EXISTS ${SCRATCH} WITH (FORCE)`);
+  await admin.query(`CREATE DATABASE ${SCRATCH}`);
+  const scratch = new Pool({ connectionString: scratchUrl, max: 1 });
+  await scratch.query(SUPABASE_SHIM);
+  await scratch.end();
+};
+
+const runMigrations = (url, args = []) =>
+  spawnSync("node", [path.join(repoRoot, "tools/migrate.mjs"), ...args], {
+    encoding: "utf8",
+    cwd: repoRoot,
+    env: { ...process.env, DATABASE_URL: url },
+  });
+
+const columnsOf = async (url) => {
+  const pool = new Pool({ connectionString: url, max: 1 });
+  const { rows } = await pool.query(
+    `SELECT table_name, column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = ANY($1)`,
+    [["projects", "messages", "exports", "jobs", "subscriptions"]],
+  );
+  await pool.end();
+  const found = new Map();
+  for (const row of rows) {
+    const set = found.get(row.table_name) ?? new Set();
+    set.add(row.column_name);
+    found.set(row.table_name, set);
+  }
+  return found;
+};
+
+section("The migrations in the repository build the schema the code expects");
+{
+  await recreateScratch();
+  const run = runMigrations(scratchUrl);
+
+  check("every migration applied cleanly", run.status === 0, (run.stderr || run.stdout || "").slice(0, 300));
+
+  const files = readdirSync(path.join(repoRoot, "lib/db/migrations")).filter((f) => f.endsWith(".sql"));
+  const appliedLines = (run.stdout || "").split("\n").filter((l) => l.startsWith("applied "));
+  check(
+    "all of them ran, not just the ones somebody remembered",
+    appliedLines.length === files.length,
+    `${appliedLines.length} of ${files.length}`,
+  );
+
+  const actual = await columnsOf(scratchUrl);
+  const missing = health.compareSchema(health.expectedColumns(), actual);
+  check(
+    "and the result has every column the code reads",
+    missing.length === 0,
+    missing.join(", "),
+  );
+
+  // The other direction: a column the migrations create that the code has
+  // forgotten about is dead weight, and usually means a rename went half-done.
+  const expected = health.expectedColumns();
+  const orphans = [];
+  for (const [table, columns] of actual) {
+    for (const column of columns) {
+      if (!expected.get(table)?.has(column)) orphans.push(`${table}.${column}`);
+    }
+  }
+  check("and nothing the code has never heard of", orphans.length === 0, orphans.join(", "));
+}
+
+/**
+ * Runs the real `checkSchema` in a child process, because it binds its
+ * connection when the module loads and the point is to point it at a database
+ * we control.
+ */
+const askHealth = (url) => {
+  const probe = spawnSync(
+    "node",
+    ["--input-type=module", "-e",
+     `const m = await import(${JSON.stringify(pathToFileURL(outfile).href)});
+      console.log(JSON.stringify(await m.checkSchema()));
+      await m.pool.end();`],
+    { encoding: "utf8", cwd: repoRoot, env: { ...process.env, DATABASE_URL: url } },
+  );
+  try {
+    return JSON.parse((probe.stdout || "").trim().split("\n").pop());
+  } catch {
+    return { parseFailed: true, stdout: probe.stdout, stderr: (probe.stderr || "").slice(0, 300) };
+  }
+};
+
+section("The health check, against a real database rather than a fixture");
+{
+  // The pure comparison above passed for a version of this that could not run
+  // the query at all: handed a JavaScript array, Drizzle expands it into a
+  // tuple and `= ANY((…))` is not valid SQL, so a perfectly healthy database
+  // was reported as unreachable. A health check that names the wrong failure
+  // sends whoever is on call to the wrong place — so it is asked for real.
+  const healthy = askHealth(scratchUrl);
+  check("a fully migrated database is reachable", healthy.reachable === true, JSON.stringify(healthy));
+  check("and reports nothing missing", healthy.missingColumns?.length === 0, JSON.stringify(healthy));
+  check("with no error to explain", healthy.error === undefined, String(healthy.error));
+}
+
+section("A database in the state production was actually in");
+{
+  // Not a fixture: an empty Postgres carrying only the migrations that had been
+  // applied on 12 August, which is 0000 through 0005.
+  await recreateScratch();
+  const pool = new Pool({ connectionString: scratchUrl, max: 1 });
+  const fs = await import("node:fs");
+  const early = readdirSync(path.join(repoRoot, "lib/db/migrations"))
+    .filter((f) => /^000[0-5]_/.test(f))
+    .sort();
+  for (const file of early) {
+    await pool.query(fs.readFileSync(path.join(repoRoot, "lib/db/migrations", file), "utf8"));
+  }
+  await pool.end();
+
+  const behind = askHealth(scratchUrl);
+  check("it is reachable, which is the point — nothing was down", behind.reachable === true, JSON.stringify(behind));
+  check("but it is reported as behind", behind.missingColumns?.length > 0, JSON.stringify(behind));
+  check(
+    "naming the column whose absence emptied the project list",
+    behind.missingColumns?.includes("projects.reference_video_path"),
+    JSON.stringify(behind.missingColumns),
+  );
+  check(
+    "and the one that broke every subscription request",
+    behind.missingColumns?.includes("jobs.output_seconds"),
+    JSON.stringify(behind.missingColumns),
+  );
+  check(
+    "and every other column the five unapplied migrations were going to add",
+    JSON.stringify(behind.missingColumns) ===
+      JSON.stringify([
+        "jobs.max_source_seconds",
+        "jobs.notes",
+        "jobs.output_seconds",
+        "jobs.output_seconds_source",
+        "jobs.priority",
+        "jobs.reference_path",
+        "jobs.source_seconds",
+        "projects.reference_video_path",
+      ]),
+    JSON.stringify(behind.missingColumns),
+  );
+  check(
+    "eight names, which is the whole outage in one line",
+    behind.missingColumns?.length === 8,
+    String(behind.missingColumns?.length),
+  );
+
+  // And running the migrations fixes it, which is the sentence the health
+  // message tells you to act on.
+  runMigrations(scratchUrl);
+  const after = askHealth(scratchUrl);
+  check("running the migrations clears it", after.missingColumns?.length === 0, JSON.stringify(after.missingColumns));
+}
+
+section("Running it twice does nothing the second time");
+{
+  const again = runMigrations(scratchUrl);
+  check("it exits cleanly", again.status === 0, (again.stderr || "").slice(0, 200));
+  check("and applies nothing", !/^applied /m.test(again.stdout || ""), (again.stdout || "").trim());
+  check("saying so out loud rather than silently", /up to date/.test(again.stdout || ""), (again.stdout || "").trim());
+}
+
+section("A migration that fails leaves the database as it was");
+{
+  await recreateScratch();
+  const pool = new Pool({ connectionString: scratchUrl, max: 1 });
+
+  // Half of a migration succeeds, then it hits something that cannot work.
+  // Without a transaction per file the table would survive, the ledger would
+  // not record the file, and the next run would fail differently — which is the
+  // state that is hardest to diagnose, because the file looks like it never ran.
+  const bad = path.join(repoRoot, "lib/db/migrations/9999_deliberately_broken.sql");
+  const fs = await import("node:fs/promises");
+  await fs.writeFile(
+    bad,
+    "CREATE TABLE half_done (id text);\nALTER TABLE table_that_is_not_here ADD COLUMN x text;\n",
+  );
+
+  const run = runMigrations(scratchUrl);
+  await fs.rm(bad, { force: true });
+
+  check("it exits non-zero", run.status !== 0, String(run.status));
+  check("and says which file", /9999_deliberately_broken/.test(run.stderr || ""), (run.stderr || "").slice(0, 200));
+  check("and that nothing after it was tried", /Nothing after it was attempted/.test(run.stderr || ""));
+
+  const { rows } = await pool.query(
+    "SELECT to_regclass('public.half_done') IS NOT NULL AS survived",
+  );
+  check("the half that succeeded is rolled back", rows[0].survived === false, JSON.stringify(rows[0]));
+
+  const ledger = await pool.query("SELECT filename FROM schema_migrations WHERE filename LIKE '9999%'");
+  check("and the failed file is not recorded as applied", ledger.rowCount === 0);
+
+  // Everything before it is applied and stays applied, which is what makes a
+  // failure resumable rather than a restart.
+  const done = await pool.query("SELECT count(*)::int AS n FROM schema_migrations");
+  check("the migrations before it are kept", done.rows[0].n >= 10, String(done.rows[0].n));
+  await pool.end();
+}
+
+section("A database migrated by hand before the ledger existed is adopted, not re-run");
+{
+  await recreateScratch();
+  // Stand in for production on 12 August: 0001–0005 applied by hand, no ledger.
+  const pool = new Pool({ connectionString: scratchUrl, max: 1 });
+  const files = readdirSync(path.join(repoRoot, "lib/db/migrations")).filter((f) => /^000[0-5]_/.test(f));
+  const fs = await import("node:fs");
+  for (const file of files.sort()) {
+    await pool.query(fs.readFileSync(path.join(repoRoot, "lib/db/migrations", file), "utf8"));
+  }
+
+  const run = runMigrations(scratchUrl);
+  check("it succeeds", run.status === 0, (run.stderr || "").slice(0, 300));
+  check("it notices what is already there", /adopted 6 migration/.test(run.stdout || ""), (run.stdout || "").trim());
+  check(
+    "and applies only what is genuinely missing",
+    (run.stdout.match(/^applied /gm) ?? []).length === 5,
+    (run.stdout || "").trim(),
+  );
+
+  const actual = await columnsOf(scratchUrl);
+  check(
+    "leaving a schema the code can run against",
+    health.compareSchema(health.expectedColumns(), actual).length === 0,
+    health.compareSchema(health.expectedColumns(), actual).join(", "),
+  );
+  await pool.end();
+}
+
+section("A dry run says what it would do and does none of it");
+{
+  await recreateScratch();
+  const run = runMigrations(scratchUrl, ["--dry-run"]);
+  check("it lists the pending files", (run.stdout.match(/^would apply /gm) ?? []).length === 11, (run.stdout || "").trim());
+  check("and applies nothing", !/^applied /m.test(run.stdout || ""));
+
+  const actual = await columnsOf(scratchUrl);
+  check("the database is untouched", actual.size === 0, JSON.stringify([...actual.keys()]));
+}
+
+await admin.query(`DROP DATABASE IF EXISTS ${SCRATCH} WITH (FORCE)`);
+await admin.end();
+await health.pool.end();
+await rm(buildDir, { recursive: true, force: true });
+await rm(entryDir, { recursive: true, force: true });
+await rm(outfile, { force: true });
+
+console.log(`\n${checks - failures}/${checks} checks passed`);
+if (failures > 0) {
+  console.log(`${failures} FAILED`);
+  process.exit(1);
+}
+console.log("The schema is what the files say it is, and a database that is behind says so.");
