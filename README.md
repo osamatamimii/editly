@@ -19,7 +19,7 @@ Upload a raw take, say what you want in plain language ("cut the dead air and ma
 ## Tests
 
 ```bash
-# 90 checks that one user cannot see or touch another's data, against the real
+# 94 checks that one user cannot see or touch another's data, against the real
 # auth middleware. Needs a local Postgres matching the production schema.
 node tools/isolation-test.mjs
 
@@ -115,6 +115,14 @@ node tools/browser-test.mjs
 # route is a failing check rather than a discovery someone makes a year later.
 node tools/contract-test.mjs
 
+# 39 checks that the database can be rebuilt from this repository and that one
+# which is behind says so. It creates an empty Postgres, runs every migration
+# into it, and diffs the result column by column against what the code declares
+# — so "apply the migrations" is provably enough — then puts a database into the
+# exact state production was in on 12 August and asks the health check what it
+# sees. Needs a local Postgres it may create and drop databases on.
+node tools/schema-test.mjs
+
 # Storage policies are enforced by Postgres, not by code in this repo. Paste
 # this into the browser console on the deployed app after changing them.
 # tools/storage-isolation.browser.js
@@ -125,8 +133,13 @@ node tools/contract-test.mjs
 ```bash
 pnpm install
 
-# API server (needs a PostgreSQL DATABASE_URL, see .env.example)
+# Bring a database up to date. Safe to run repeatedly; prints what it did.
+# An empty Postgres plus every file in lib/db/migrations *is* the schema —
+# nothing else creates a table, and tools/schema-test.mjs proves it.
 export DATABASE_URL=postgresql://...
+pnpm run migrate          # pnpm run migrate:dry to see what would happen first
+
+# API server
 export PORT=3001
 pnpm --filter @workspace/api-server run dev
 
@@ -149,7 +162,9 @@ pnpm run vercel:build   # build the exact artifacts Vercel deploys (dist/ + api/
 
 ## Database
 
-The schema lives in `lib/db/src/schema/` (Drizzle). The production database is a Supabase project; the initial schema was applied as the `init_editly_schema` migration (tables: `projects`, `messages`, `exports`, `subscriptions`, all with RLS enabled — the API connects as a dedicated `editly_app` role with explicit policies, never the `postgres` superuser).
+The schema lives in `lib/db/src/schema/` (Drizzle) and is created by `lib/db/migrations/*.sql`. An empty Postgres plus every file in that directory, in order, is the database — nothing else creates a table, and `tools/schema-test.mjs` proves it by building one and diffing it against what the code declares. All four base tables have RLS enabled; the API connects as a dedicated `editly_app` role with explicit policies, never the `postgres` superuser.
+
+**Deploying a schema change is a command, not a memory: `pnpm run migrate`.** On 12 August five committed migrations had never been applied to production. Every query in the app named a column that did not exist, the product served empty screens for two days with no error anywhere a user could see, and `/healthz` answered `ok` throughout because it returned a constant. `/healthz` now asks the database what columns it has, compares them to what the build reads, and answers 503 with the missing names when it is behind.
 
 Connect through Supabase's **transaction pooler** (`aws-0-<region>.pooler.supabase.com:6543`) — serverless functions open many short-lived connections, which the direct database host is not sized for. `lib/db/src/index.ts` enables TLS for any non-localhost host, since the pooler serves a certificate for its own hostname.
 

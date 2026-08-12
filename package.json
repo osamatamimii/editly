@@ -7,6 +7,8 @@
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "migrate": "node tools/migrate.mjs",
+    "migrate:dry": "node tools/migrate.mjs --dry-run",
     "vercel:build": "pnpm --filter @workspace/editly run build && node artifacts/api-server/build-vercel.mjs && node tools/assemble-vercel.mjs"
   },
   "packageManager": "pnpm@10.28.0",
