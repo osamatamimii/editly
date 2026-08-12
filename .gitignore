@@ -25,3 +25,8 @@ api/_bundle.js.map
 # Local working copies of the claude.ai project docs, kept so an update can
 # splice one section rather than rewrite the whole file. Not part of the app.
 .docs/
+
+# Scratch entry point tools/browser-test.mjs writes inside the frontend package
+# so that esbuild resolves the same React the app does. Removed on a clean run;
+# left behind by a crashed one.
+artifacts/editly/.browser-test/

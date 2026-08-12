@@ -19,9 +19,16 @@ Upload a raw take, say what you want in plain language ("cut the dead air and ma
 ## Tests
 
 ```bash
-# 82 checks that one user cannot see or touch another's data, against the real
+# 90 checks that one user cannot see or touch another's data, against the real
 # auth middleware. Needs a local Postgres matching the production schema.
 node tools/isolation-test.mjs
+
+# 40 checks on the job queue against a real Postgres: ten workers over five
+# jobs, a worker that dies mid-render, and the order people were promised. None
+# of this can be checked by reading the code — two workers claiming one row
+# produces no error at all, just a render that happens twice and is billed
+# twice. Needs the same local Postgres.
+node tools/queue-test.mjs
 
 # 62 checks on the ffmpeg pipeline — they inspect the output, not the exit code.
 # Needs ffmpeg and ffprobe on PATH.
@@ -86,14 +93,27 @@ node tools/reference-test.mjs
 # face in the output.
 node tools/framing-test.mjs
 
-# 48 checks written from the position of someone who wants the render for
+# 65 checks written from the position of someone who wants the render for
 # nothing: make the probe fail, send no duration, claim a four-hour file is one
-# second long.
+# second long. The last 17 run the real month-to-date query against Postgres.
 node tools/meter-test.mjs
 
 # 30 checks that deleting an account is never partial and reported as complete,
 # and that the bytes go before the rows that name them.
 node tools/account-test.mjs
+
+# 67 checks on the code that runs on a phone, in a real Chromium against a real
+# HTTP server that speaks tus and misbehaves the way networks do: an upload the
+# server has forgotten, an offset that is not where the client thought it was, a
+# connection dropped mid-chunk. The poster checks decode a clip whose first
+# second is black, because that is the file that code exists for. Needs ffmpeg.
+node tools/browser-test.mjs
+
+# 28 checks that the OpenAPI file above still describes this API. It reads the
+# routes out of the Express handlers and the shapes out of the zod schemas —
+# both of which are the code that actually runs — so forgetting to document a
+# route is a failing check rather than a discovery someone makes a year later.
+node tools/contract-test.mjs
 
 # Storage policies are enforced by Postgres, not by code in this repo. Paste
 # this into the browser console on the deployed app after changing them.
