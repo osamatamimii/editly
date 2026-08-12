@@ -7,6 +7,7 @@ import statsRouter from "./stats";
 import subscriptionRouter from "./subscription";
 import renderRouter from "./render";
 import billingRouter, { billingWebhookRouter } from "./billing";
+import accountRouter from "./account";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -31,5 +32,6 @@ router.use(statsRouter);
 router.use(subscriptionRouter);
 router.use(renderRouter);
 router.use(billingRouter);
+router.use(accountRouter);
 
 export default router;
