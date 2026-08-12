@@ -33,9 +33,23 @@ paths:
       operationId: healthCheck
       tags: [health]
       summary: Health check
+      description: >
+        Asks the database what columns it has and compares them to what this
+        build reads. It used to answer ok from a constant, and did so throughout
+        two days in which every query in the product was failing against a
+        database five migrations behind.
       responses:
         "200":
-          description: Healthy
+          description: Reachable, and carrying every column this build expects
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "503":
+          description: >
+            The database is unreachable, or behind the migrations. Not 200: a
+            monitor reading healthy while the product serves empty screens is
+            worse than no monitor.
           content:
             application/json:
               schema:
@@ -450,13 +464,33 @@ components:
         type: string
 
   schemas:
+    # Three states, not a boolean, because they are three different jobs for
+    # whoever is reading: nothing, run the migrations, check the connection.
     HealthStatus:
       type: object
       properties:
         status:
           type: string
+          enum: [ok, behind, unreachable]
+        database:
+          type: object
+          properties:
+            reachable:
+              type: boolean
+            missingColumns:
+              description: >
+                Qualified as table.column. Populated when the database is behind
+                the migrations this build expects — naming them turns the fix
+                from an afternoon of stack traces into a minute.
+              type: array
+              items:
+                type: string
+          required: [reachable, missingColumns]
+        message:
+          type: string
       required:
         - status
+        - database
 
     ErrorResponse:
       type: object
