@@ -27,12 +27,12 @@ import {
   MIN_SUBJECT_COVERAGE,
 } from "./framing";
 import { trackSubject, trackNote } from "./subject";
-import { keepSegmentsFrom, remapTime, MOTION_OVERSCAN, type Segment } from "./timeline";
+import { keepSegmentsFrom, remapTime, snapToWords, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
 
 // These moved to `timeline.ts` so the critic could share them without importing
 // the renderer that imports it. Re-exported because this is where callers —
 // including the test suites — have always found them.
-export { keepSegmentsFrom, remapTime, MOTION_OVERSCAN, type Segment };
+export { keepSegmentsFrom, remapTime, snapToWords, MOTION_OVERSCAN, type Segment, type SpokenWord };
 
 export interface SourceInfo {
   width: number;
@@ -468,6 +468,16 @@ const WATERMARK_POSITION: Record<string, string> = {
 export interface RenderContext {
   workDir: string;
   onProgress?: (fraction: number, stage: string) => void;
+  /**
+   * Where the words are, on the source clock.
+   *
+   * A measurement of this file rather than a decision about it, which is why it
+   * arrives here and not in the plan: the plan is the contract and stays
+   * replayable, while this is the same kind of input as the frame size. It is
+   * what lets a cut avoid landing inside a word — silence detection works on
+   * amplitude, and amplitude does not respect syllables.
+   */
+  words?: SpokenWord[];
 }
 
 export interface RenderResult {
@@ -542,7 +552,26 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       ctx.onProgress?.(0.06, "Finding the silences");
       const silences = await detectSilences(input, silence.thresholdDb, silence.minSilenceMs / 1000);
       const protect = (silence.protect ?? []).map((r) => ({ start: r.startMs / 1000, end: r.endMs / 1000 }));
-      const candidate = keepSegmentsFrom(source.duration, silences, silence.paddingMs / 1000, protect);
+      let candidate = keepSegmentsFrom(source.duration, silences, silence.paddingMs / 1000, protect);
+
+      // Amplitude does not respect words. A stop consonant or an unvoiced
+      // syllable dips below the threshold, the detector reads a pause, and the
+      // cut lands mid-word — which sounds like the speaker stumbled, so nobody
+      // reports it as a bug. With a transcript this is arithmetic.
+      if (ctx.words && ctx.words.length > 0) {
+        const before = candidate;
+        candidate = snapToWords(candidate, ctx.words);
+        const moved = candidate.reduce(
+          (count, segment, i) =>
+            count + (before[i] && (before[i].start !== segment.start || before[i].end !== segment.end) ? 1 : 0),
+          0,
+        );
+        if (moved > 0 || candidate.length !== before.length) {
+          notes.push(
+            `${Math.max(moved, before.length - candidate.length)} cut${Math.max(moved, before.length - candidate.length) === 1 ? "" : "s"} moved off the middle of a word`,
+          );
+        }
+      }
       if (protect.length > 0) {
         const spared = silences.filter((s) => protect.some((r) => s.start < r.end && s.end > r.start)).length;
         if (spared > 0) {
@@ -595,7 +624,12 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // first and only point where both the plan and the edited timeline are known,
   // so it is where the two are reconciled — see critic.ts for what that catches.
   {
-    const reviewed = criticise({ operations: plan.operations, kept, effectiveDuration });
+    const reviewed = criticise({
+      operations: plan.operations,
+      kept,
+      effectiveDuration,
+      words: ctx.words,
+    });
     notes.push(...reviewed.notes);
     const reviewedFind = <T extends EditOperation["type"]>(type: T): Op<T> | undefined =>
       reviewed.operations.find((o) => o.type === type) as Op<T> | undefined;

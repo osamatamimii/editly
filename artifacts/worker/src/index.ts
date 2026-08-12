@@ -216,8 +216,21 @@ async function processJob(job: Job): Promise<void> {
       );
     }
 
+    // The words, on the source clock, so the cut can avoid landing inside one
+    // and the critic can refuse to emphasise a hesitation. A measurement of
+    // this file rather than a decision about it, which is why it travels beside
+    // the plan and not inside it.
+    const words = (enriched.transcript?.segments ?? []).flatMap((segment) =>
+      segment.words.map((word) => ({
+        start: word.startMs / 1000,
+        end: word.endMs / 1000,
+        filler: word.filler,
+      })),
+    );
+
     const { output, notes: renderNotes, estimatedSeconds } = await renderPlan(inputFile, enriched.plan, {
       workDir,
+      words,
       onProgress: (fraction, stage) => {
         // Download and upload bracket the render; the middle 80% is ffmpeg.
         void reportProgress(job.id, 10 + fraction * 80, stage).catch(() => {});

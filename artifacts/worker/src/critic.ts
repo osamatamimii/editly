@@ -23,7 +23,7 @@
  * thing it will not do is leave a decision in place that it knows is wrong.
  */
 import type { EditOperation } from "@workspace/api-zod";
-import { remapTime, MOTION_OVERSCAN, type Segment } from "./timeline";
+import { remapTime, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
 
 export interface CriticInput {
   operations: EditOperation[];
@@ -31,6 +31,16 @@ export interface CriticInput {
   kept: Segment[] | null;
   /** Length of the video the viewer will actually receive, in seconds. */
   effectiveDuration: number;
+  /**
+   * What was said and when, on the source clock, where a transcript exists.
+   *
+   * Only the fillers are used, and only to answer one question: is this punch
+   * landing on "um". A zoom that emphasises a hesitation is worse than no zoom
+   * — it tells the viewer to pay attention to the moment the speaker had
+   * nothing to say, and it is the kind of mistake that reads as the software
+   * not understanding the video rather than as a stylistic choice.
+   */
+  words?: SpokenWord[];
 }
 
 export interface CriticResult {
@@ -98,8 +108,16 @@ export function criticise(input: CriticInput): CriticResult {
 
       const lost = operation.at.filter((at) => !survived(at)).length;
 
+      // A punch is emphasis. Emphasising a hesitation is worse than not
+      // emphasising anything: it points the viewer at the moment the speaker
+      // had nothing to say.
+      const onFiller = (seconds: number): boolean =>
+        (input.words ?? []).some((word) => word.filler && seconds >= word.start && seconds <= word.end);
+      const hesitations = operation.at.filter((at) => survived(at) && onFiller(at)).length;
+
       let at = operation.at
         .filter(survived)
+        .filter((seconds) => !onFiller(seconds))
         .map(toEdited)
         // A punch needs room to open and close. One that starts with less than
         // its own hold left plays as a zoom that never comes back.
@@ -120,9 +138,14 @@ export function criticise(input: CriticInput): CriticResult {
       if (lost > 0) {
         notes.push(`${lost} punch${lost === 1 ? "" : "es"} fell in silence that was cut, so ${lost === 1 ? "it was" : "they were"} dropped`);
       }
-      const trimmed = original - lost - at.length - crowded;
+      const trimmed = original - lost - hesitations - at.length - crowded;
       if (trimmed > 0) {
         notes.push(`${trimmed} punch${trimmed === 1 ? "" : "es"} landed past the end of the edit and ${trimmed === 1 ? "was" : "were"} dropped`);
+      }
+      if (hesitations > 0) {
+        notes.push(
+          `${hesitations} punch${hesitations === 1 ? "" : "es"} would have landed on "um" or "uh", so ${hesitations === 1 ? "it was" : "they were"} dropped`,
+        );
       }
       if (crowded > 0) {
         notes.push(`${crowded} punch${crowded === 1 ? "" : "es"} bunched up once the pauses were cut, so the ${crowded === 1 ? "extra one was" : "extras were"} dropped`);
