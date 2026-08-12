@@ -20,6 +20,12 @@ tags:
     description: Dashboard stats
   - name: subscription
     description: Subscription and plan management
+  - name: render
+    description: Starting and following an edit
+  - name: billing
+    description: Checkout configuration and the payment webhook
+  - name: account
+    description: Changing or ending an account
 
 paths:
   /healthz:
@@ -265,7 +271,184 @@ paths:
               schema:
                 $ref: "#/components/schemas/DashboardStats"
 
+  /projects/{id}/render:
+    post:
+      operationId: startRender
+      tags: [render]
+      summary: Queue a real edit for this project
+      description: >
+        Accepts either a plan the caller composed or the id of a saved template.
+        Whatever arrives, the server decides what actually runs: the plan's
+        watermark, allowance, upload ceiling and export height are applied here
+        and nothing the client sends can widen them.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  properties:
+                    plan:
+                      $ref: "#/components/schemas/EditPlan"
+                  required: [plan]
+                - type: object
+                  properties:
+                    templateId:
+                      type: string
+                  required: [templateId]
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenderJob"
+        "402":
+          description: The plan does not include something the request needs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: This project already has a render in flight
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: The source is longer than this plan accepts in one upload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: The month's allowance is used up, or this clip would exceed it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /projects/{id}/render/status:
+    get:
+      operationId: getRenderStatus
+      tags: [render]
+      summary: The most recent render for a project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: The render, or null if the project has never been rendered
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/RenderJob"
+                  - type: "null"
+
+  /templates:
+    get:
+      operationId: listTemplates
+      tags: [render]
+      summary: The saved looks a render can be started from
+      description: >
+        A template is a saved edit plan, resolved on the server so the numbers
+        behind a named look live in one place and the result is identical every
+        time.
+      responses:
+        "200":
+          description: Available templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Template"
+
+  /billing/checkout:
+    get:
+      operationId: getCheckoutConfig
+      tags: [billing]
+      summary: What the browser needs to open a checkout
+      description: >
+        Public identifiers only. The secret key never leaves the server, because
+        it is the only thing preventing anyone from forging a payment.
+      responses:
+        "200":
+          description: Checkout configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutConfig"
+
+  /billing/webhook:
+    post:
+      operationId: billingWebhook
+      tags: [billing]
+      summary: Freemius calls this when a payment changes
+      description: >
+        Deliberately unauthenticated in the session sense: it is called from the
+        open internet with no token. Its authentication is an HMAC-SHA256
+        signature over the raw request body, verified with a constant-time
+        compare. Events we do not recognise are answered 200 rather than
+        guessed at.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Accepted, or recognised and ignored
+        "401":
+          description: The signature did not verify
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /account:
+    delete:
+      operationId: deleteAccount
+      tags: [account]
+      summary: Remove everything belonging to this account
+      description: >
+        The videos, the projects, the conversation, the render history and the
+        login. Either it happens or it is refused — never partial and reported
+        as complete. Job rows survive on purpose: minutes that were produced
+        were produced, and cascading them would make deleting projects a way to
+        reset the meter.
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountDeletion"
+        "503":
+          description: >
+            Refused. The credentials needed to reclaim stored video are not
+            configured, and nothing was touched.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+
 components:
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      description: The project's id. Ownership is checked on every route that takes it.
+      schema:
+        type: string
+
   schemas:
     HealthStatus:
       type: object
@@ -308,6 +491,11 @@ components:
         thumbnailPath:
           description: Storage object key for the poster frame.
           type: ["string", "null"]
+        referenceVideoPath:
+          description: >
+            Storage object key of a video whose look this project should match.
+            Uploaded, never fetched from a link.
+          type: ["string", "null"]
         duration:
           type: ["number", "null"]
         width:
@@ -336,6 +524,7 @@ components:
         - videoPath
         - editedVideoPath
         - thumbnailPath
+        - referenceVideoPath
         - duration
         - width
         - height
@@ -437,10 +626,27 @@ components:
           enum: [tiktok, reels, shorts]
         downloadUrl:
           type: ["string", "null"]
+        # The storage key this export produced, which the browser signs for
+        # itself. It travels with the status it belongs to rather than being
+        # read off the project, whose `editedVideoPath` is a cache of the
+        # newest render — a copy fetched before this export existed once handed
+        # people their original upload under a card saying the edit was ready.
+        outputPath:
+          type: ["string", "null"]
         steps:
           type: array
           items:
             $ref: "#/components/schemas/ExportStep"
+        # What the render did that the person should know about: captions
+        # skipped for want of a key, punches dropped because the words they
+        # landed on were cut, words the two speech models disagreed on. A
+        # render that quietly did less than it was asked to, and looks
+        # identical to one that did everything, is the failure this product is
+        # built against.
+        notes:
+          type: array
+          items:
+            type: string
         createdAt:
           type: string
         updatedAt:
@@ -543,3 +749,370 @@ components:
         - stalledCount
         - doneCount
         - recentProjects
+
+    # ── What a render is ──────────────────────────────────────────────────────
+
+    # An operation is a decision, not a filter setting. Each carries only the
+    # numbers a person would argue about; everything else the renderer derives,
+    # so that the same plan against the same video always produces the same file.
+    EditOperation:
+      oneOf:
+        - $ref: "#/components/schemas/RemoveSilenceOperation"
+        - $ref: "#/components/schemas/FormatForPlatformOperation"
+        - $ref: "#/components/schemas/BurnCaptionsOperation"
+        - $ref: "#/components/schemas/AutoCaptionsOperation"
+        - $ref: "#/components/schemas/WatermarkOperation"
+        - $ref: "#/components/schemas/KenBurnsOperation"
+        - $ref: "#/components/schemas/ZoomPunchOperation"
+        - $ref: "#/components/schemas/NormalizeLoudnessOperation"
+        - $ref: "#/components/schemas/GradeOperation"
+      discriminator:
+        propertyName: type
+
+    RemoveSilenceOperation:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [removeSilence]
+        thresholdDb:
+          type: number
+          minimum: -60
+          maximum: -10
+          default: -32
+        minSilenceMs:
+          description: Shorter gaps than this are breath and rhythm, not silence.
+          type: integer
+          minimum: 100
+          maximum: 5000
+          default: 500
+        paddingMs:
+          description: Kept either side of a cut, so speech does not start clipped.
+          type: integer
+          minimum: 0
+          maximum: 1000
+          default: 120
+        keepRanges:
+          description: >
+            Source-time spans that survive regardless — a pause held on purpose.
+          type: array
+          maxItems: 60
+          items:
+            type: object
+            properties:
+              startMs:
+                type: number
+                minimum: 0
+              endMs:
+                type: number
+                minimum: 0
+            required: [startMs, endMs]
+      required: [type]
+
+    FormatForPlatformOperation:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [formatForPlatform]
+        platform:
+          type: string
+          enum: [tiktok, reels, shorts]
+        maxHeight:
+          description: >
+            Height of the exported frame; the width follows from 9:16. Asking is
+            not getting — the plan clamps it to what the tier allows and the
+            renderer clamps it again to what the source can actually fill, and
+            both say so rather than quietly obeying.
+          type: integer
+          minimum: 720
+          maximum: 2160
+      required: [type, platform]
+
+    CaptionWord:
+      type: object
+      properties:
+        startMs:
+          type: number
+          minimum: 0
+        endMs:
+          type: number
+          minimum: 0
+        text:
+          type: string
+          minLength: 1
+          maxLength: 60
+      required: [startMs, endMs, text]
+
+    BurnCaptionsOperation:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [burnCaptions]
+        cues:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              startMs:
+                type: number
+                minimum: 0
+              endMs:
+                type: number
+                minimum: 0
+              text:
+                type: string
+                minLength: 1
+                maxLength: 300
+              words:
+                description: >
+                  Per-word timing. Optional because not every source of cues
+                  knows it — and karaoke is only honest with it, so the renderer
+                  falls back to a plain fade rather than faking a rhythm.
+                type: array
+                items:
+                  $ref: "#/components/schemas/CaptionWord"
+            required: [startMs, endMs, text]
+        style:
+          type: string
+          enum: [bold-white, bold-yellow, karaoke-box]
+          default: bold-white
+        animation:
+          type: string
+          enum: [none, pop, karaoke]
+          default: pop
+      required: [type, cues]
+
+    # Captions whose words are not known yet. The API has none — the words live
+    # in the video, and only the worker has both the file and the recogniser —
+    # so a plan says *that* it wants captions and how they should look, and the
+    # worker replaces this with a real burnCaptions once it has a transcript, or
+    # drops it and says why.
+    AutoCaptionsOperation:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [autoCaptions]
+        style:
+          type: string
+          enum: [bold-white, bold-yellow, karaoke-box]
+          default: bold-white
+        animation:
+          type: string
+          enum: [none, pop, karaoke]
+          default: pop
+        dropFillers:
+          description: Leave "um" and "uh" out of what is burnt in.
+          type: boolean
+          default: true
+        language:
+          description: BCP-47 hint. Omit to let the recogniser detect the language.
+          type: string
+          minLength: 2
+          maxLength: 16
+      required: [type]
+
+    WatermarkOperation:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [watermark]
+        text:
+          type: string
+          minLength: 1
+          maxLength: 60
+          default: Edited with Editly
+        position:
+          type: string
+          enum: [bottom-right, bottom-center, top-right]
+          default: bottom-right
+      required: [type]
+
+    KenBurnsOperation:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [kenBurns]
+        to:
+          description: Zoom reached by the end. 1.08 is a push you feel but do not notice.
+          type: number
+          minimum: 1.01
+          maximum: 1.5
+          default: 1.08
+      required: [type]
+
+    ZoomPunchOperation:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [zoomPunch]
+        at:
+          description: >
+            Seconds into the *source* — the file as uploaded, before silence is
+            cut — because emphasis is measured against the recording. The
+            renderer converts them once and drops any whose moment did not
+            survive the cut. Empty means "choose for me".
+          type: array
+          maxItems: 40
+          items:
+            type: number
+            minimum: 0
+        amount:
+          type: number
+          minimum: 0.02
+          maximum: 0.6
+          default: 0.12
+        holdMs:
+          type: integer
+          minimum: 200
+          maximum: 6000
+          default: 1200
+      required: [type, at]
+
+    NormalizeLoudnessOperation:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [normalizeLoudness]
+        targetLufs:
+          type: number
+          minimum: -30
+          maximum: -8
+          default: -14
+      required: [type]
+
+    # A ratio rather than an absolute, because "0.31 saturation" means nothing
+    # without knowing what the footage measured to begin with. Clamped hard:
+    # over-saturation is the first thing anyone notices when an automatic edit
+    # has been over-eager.
+    GradeOperation:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [grade]
+        saturation:
+          description: 1 leaves the picture alone. Below 1 drains colour, above 1 pushes it.
+          type: number
+          minimum: 0.5
+          maximum: 1.5
+          default: 1
+      required: [type]
+
+    EditPlan:
+      type: object
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        operations:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/EditOperation"
+      required: [version, operations]
+
+    RenderJob:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, done, failed]
+        progress:
+          type: number
+        stage:
+          type: ["string", "null"]
+        error:
+          type: ["string", "null"]
+        plan:
+          $ref: "#/components/schemas/EditPlan"
+        outputPath:
+          type: ["string", "null"]
+        notes:
+          description: See ExportJob.notes — what was done, and what could not be.
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - projectId
+        - status
+        - progress
+        - stage
+        - error
+        - plan
+        - outputPath
+        - createdAt
+        - updatedAt
+
+    Template:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        bestFor:
+          type: string
+      required: [id, name, description, bestFor]
+
+    # ── Paying, and leaving ───────────────────────────────────────────────────
+
+    CheckoutConfig:
+      type: object
+      properties:
+        productId:
+          type: string
+        publicKey:
+          description: >
+            Public by design. The secret key never leaves the server, because it
+            is the only thing preventing anyone from forging a payment.
+          type: string
+        plans:
+          description: >
+            Plan name to Freemius id. Sent from here rather than hardcoded in
+            the bundle, so renaming a plan does not require a frontend deploy.
+          type: object
+          additionalProperties:
+            type: string
+        currentPlan:
+          $ref: "#/components/schemas/SubscriptionPlan"
+      required: [productId, publicKey, plans, currentPlan]
+
+    AccountDeletion:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+          enum: [true]
+        projects:
+          description: How many projects were removed, storage included.
+          type: number
+        loginRemoved:
+          description: >
+            False when the data went but the sign-in survived. Said out loud
+            rather than folded into a success, because the person needs to know
+            they can still log in to nothing.
+          type: boolean
+        note:
+          description: Present only when there is something to explain.
+          type: string
+      required: [deleted, projects, loginRemoved]
