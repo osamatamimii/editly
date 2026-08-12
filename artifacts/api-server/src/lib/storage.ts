@@ -70,3 +70,34 @@ export async function deleteProjectObjects(userId: string, projectId: string): P
     logger.error({ err: error, projectId }, "could not reclaim project storage");
   }
 }
+
+/**
+ * Removes the login itself.
+ *
+ * The one operation in this file that is not about bytes, and the one that
+ * makes "delete my account" mean what the words say. The admin auth endpoint
+ * needs the service role key — the same key that reclaims storage — so a
+ * deployment that can do one can do the other.
+ *
+ * Returns whether it worked rather than throwing, because by the time this runs
+ * the person's data is already gone: failing the request at this point would
+ * report a deletion that did happen as one that did not, and they would try
+ * again and get an empty account back.
+ */
+export async function deleteAuthUser(userId: string): Promise<boolean> {
+  if (!storageAdminConfigured) return false;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
+      method: "DELETE",
+      headers: adminHeaders(),
+    });
+    // 404 means somebody already deleted it, which is the outcome we wanted.
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`${res.status} ${(await res.text()).slice(0, 200)}`);
+    }
+    return true;
+  } catch (error) {
+    logger.error({ err: error, userId }, "could not remove the login after deleting the account");
+    return false;
+  }
+}
