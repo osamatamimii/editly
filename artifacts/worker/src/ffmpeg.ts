@@ -17,7 +17,16 @@ import path from "node:path";
 import { criticise } from "./critic";
 import type { EditOperation, EditPlan } from "@workspace/api-zod";
 import { captionLayout, type CaptionLayout } from "./caption-layout";
-import { chooseCropCenter, coverScale, cropOffsetX, measureInterest } from "./framing";
+import {
+  chooseCropCenter,
+  coverScale,
+  cropExpression,
+  cropOffsetX,
+  measureInterest,
+  subjectPath,
+  MIN_SUBJECT_COVERAGE,
+} from "./framing";
+import { trackSubject, trackNote } from "./subject";
 import { keepSegmentsFrom, remapTime, MOTION_OVERSCAN, type Segment } from "./timeline";
 
 // These moved to `timeline.ts` so the critic could share them without importing
@@ -627,26 +636,52 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     const scaledWidth = Math.round(source.width * scale);
     let cropX = Math.round((scaledWidth - cropW) / 4) * 2;
 
+    // Where the crop sits horizontally, as an ffmpeg expression. A number when
+    // the window holds still, which is the usual and the preferred answer.
+    let cropXExpr = String(cropX);
+
     if (scaledWidth > cropW + 2) {
       ctx.onProgress?.(0.08, "Finding your subject in the frame");
-      try {
-        const choice = chooseCropCenter(await measureInterest(input), cropW / scaledWidth);
-        cropX = cropOffsetX(choice, scaledWidth, cropW);
+      const windowFraction = cropW / scaledWidth;
+
+      // Faces first: "where is the person" is the question, and everything else
+      // here is a proxy for it. The tracker answers with null rather than
+      // throwing, so a missing python, a screen recording, or a clip nobody
+      // appears in all land in the same place.
+      const track = await trackSubject(input, source.width, source.height);
+      const note = trackNote(track);
+      if (note) notes.push(note);
+
+      if (track && track.coverage >= MIN_SUBJECT_COVERAGE) {
+        const path = subjectPath(track.samples, windowFraction);
+        cropXExpr = cropExpression(path.keyframes, scaledWidth, cropW);
+        const moves = (path.keyframes.length - 1) / 2;
         notes.push(
-          choice.moved
-            ? `framed on the subject rather than the centre (${Math.round(choice.center * 100)}% across)`
-            : "kept the centre — nothing in the frame argued for moving off it",
+          path.moves
+            ? `followed the speaker, moving the frame ${Math.round(moves)} time${Math.round(moves) === 1 ? "" : "s"} where they moved`
+            : "framed on the speaker and held there",
         );
-      } catch {
-        // Measurement is an improvement, not a dependency. A centre crop is
-        // still a real edit; failing the render over it would not be.
-        notes.push("could not read the framing, so the centre was kept");
+      } else {
+        try {
+          const choice = chooseCropCenter(await measureInterest(input), windowFraction);
+          cropX = cropOffsetX(choice, scaledWidth, cropW);
+          cropXExpr = String(cropX);
+          notes.push(
+            choice.moved
+              ? `framed on the subject rather than the centre (${Math.round(choice.center * 100)}% across)`
+              : "kept the centre — nothing in the frame argued for moving off it",
+          );
+        } catch {
+          // Measurement is an improvement, not a dependency. A centre crop is
+          // still a real edit; failing the render over it would not be.
+          notes.push("could not read the framing, so the centre was kept");
+        }
       }
     }
 
     videoParts.push(
       `scale=${cropW}:${cropH}:force_original_aspect_ratio=increase:flags=lanczos`,
-      `crop=${cropW}:${cropH}:${cropX}:(ih-oh)/2`,
+      `crop=${cropW}:${cropH}:'${cropXExpr}':(ih-oh)/2`,
       "setsar=1",
     );
     notes.push(`reframed to ${target.w}x${target.h} for ${reframe.platform}`);

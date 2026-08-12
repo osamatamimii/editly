@@ -198,3 +198,159 @@ export function coverScale(
 ): number {
   return Math.max(crop.width / source.width, crop.height / source.height);
 }
+
+// ─── Following the subject ───────────────────────────────────────────────────
+
+/**
+ * One reading of where the person is, as a fraction of the source width.
+ * `x` is null for a frame nothing was found in.
+ */
+export interface SubjectSample {
+  t: number;
+  x: number | null;
+}
+
+export interface SubjectPath {
+  /** Window centre over time, as fractions of source width. Piecewise linear. */
+  keyframes: Array<{ t: number; x: number }>;
+  /** True when the window moves at all. A single keyframe is a held frame. */
+  moves: boolean;
+  /** Fraction of sampled frames a subject was found in. */
+  coverage: number;
+}
+
+/**
+ * How far the subject may drift from the middle of the window before it
+ * follows, as a fraction of the window's own width.
+ *
+ * This is the number that decides whether the reframe looks like an operator or
+ * like a machine. Too small and the frame twitches at every head movement,
+ * which is worse than not moving at all — the eye reads it as a fault in the
+ * video rather than as camerawork. Too large and the subject walks out of shot
+ * before anything happens. A fifth of the window is roughly where a person
+ * stops looking centred and starts looking off to one side.
+ */
+const SUBJECT_DEADBAND = 0.2;
+
+/** A move slower than this reads as a drift; faster reads as a jump. */
+const EASE_SECONDS = 0.8;
+
+/** However much the subject wanders, the frame moves at most this often. */
+const MIN_MOVE_GAP_SECONDS = 2.5;
+
+/**
+ * The path becomes an ffmpeg expression, and an expression this long is already
+ * several kilobytes. Past here the frame holds its last position: a clip whose
+ * subject needed fifty moves is one where holding still was the better answer
+ * anyway.
+ */
+const MAX_KEYFRAMES = 48;
+
+/**
+ * Below this fraction of frames carrying a detection, the readings are not a
+ * track — they are a handful of guesses with long gaps between them, and
+ * following them would move the frame on evidence we do not have. The caller
+ * falls back to the static measurement, which at least never lies about
+ * knowing where anybody is.
+ */
+export const MIN_SUBJECT_COVERAGE = 0.35;
+
+/** Frames either side used to median-filter the readings. ~1.25s at 4fps. */
+const SMOOTHING_RADIUS = 2;
+
+/**
+ * Turns per-frame readings into a window that holds still and occasionally
+ * moves, which is what a competent operator does and what an automatic reframe
+ * almost never does.
+ */
+export function subjectPath(samples: SubjectSample[], windowFraction: number): SubjectPath {
+  const found = samples.filter((s) => s.x !== null).length;
+  const coverage = samples.length > 0 ? found / samples.length : 0;
+  const half = Math.min(0.5, windowFraction / 2);
+  const clamp = (x: number): number => Math.min(1 - half, Math.max(half, x));
+
+  if (found === 0) return { keyframes: [], moves: false, coverage };
+
+  // A frame the subject was not found in holds the last place they were, rather
+  // than being interpolated across: someone who turns away for a second has not
+  // moved, and someone who leaves has not moved yet either.
+  const filled: number[] = [];
+  let last = samples.find((s) => s.x !== null)!.x as number;
+  for (const sample of samples) {
+    if (sample.x !== null) last = sample.x;
+    filled.push(last);
+  }
+
+  // Median rather than mean, because a single false positive on the far side of
+  // the frame should not drag the window halfway there.
+  const smoothed = filled.map((_, i) => {
+    const from = Math.max(0, i - SMOOTHING_RADIUS);
+    const to = Math.min(filled.length, i + SMOOTHING_RADIUS + 1);
+    const window = filled.slice(from, to).sort((a, b) => a - b);
+    return window[Math.floor(window.length / 2)];
+  });
+
+  const keyframes: Array<{ t: number; x: number }> = [];
+  let current = clamp(smoothed[0]);
+  let lastMoveEnd = -Infinity;
+  keyframes.push({ t: samples[0].t, x: current });
+
+  for (let i = 1; i < smoothed.length; i += 1) {
+    if (keyframes.length + 2 > MAX_KEYFRAMES) break;
+    const t = samples[i].t;
+    if (t - lastMoveEnd < MIN_MOVE_GAP_SECONDS) continue;
+
+    const target = clamp(smoothed[i]);
+    if (Math.abs(target - current) < SUBJECT_DEADBAND * windowFraction) continue;
+
+    // Hold to here, then ease across. The pair of keyframes is the ease: the
+    // renderer interpolates linearly between them and holds outside.
+    keyframes.push({ t, x: current });
+    keyframes.push({ t: t + EASE_SECONDS, x: target });
+    current = target;
+    lastMoveEnd = t + EASE_SECONDS;
+  }
+
+  return { keyframes, moves: keyframes.length > 1, coverage };
+}
+
+/**
+ * The path, as something ffmpeg's crop filter will evaluate per frame.
+ *
+ * Piecewise linear between keyframes and flat outside them, built as nested
+ * conditionals because that is the only control flow the expression evaluator
+ * has. Every value is floored to an even pixel: 4:2:0 chroma planes are half
+ * resolution, so an odd offset makes the encoder resample them and quietly
+ * softens every frame of a reframed clip.
+ */
+export function cropExpression(
+  keyframes: Array<{ t: number; x: number }>,
+  scaledWidth: number,
+  cropWidth: number,
+): string {
+  const maxX = Math.max(0, scaledWidth - cropWidth);
+  const pixels = keyframes.map((k) => ({
+    t: k.t,
+    x: Math.min(maxX, Math.max(0, Math.round(k.x * scaledWidth - cropWidth / 2))),
+  }));
+
+  if (pixels.length === 0) return String(Math.round(maxX / 4) * 2);
+  if (pixels.length === 1) return String(Math.round(pixels[0].x / 2) * 2);
+
+  // Built from the last segment backwards, so each conditional wraps the rest.
+  let expression = String(pixels[pixels.length - 1].x);
+  for (let i = pixels.length - 2; i >= 0; i -= 1) {
+    const a = pixels[i];
+    const b = pixels[i + 1];
+    const span = Math.max(0.001, b.t - a.t);
+    const ramp =
+      a.x === b.x
+        ? String(a.x)
+        : `${a.x}+${(b.x - a.x).toFixed(2)}*(t-${a.t.toFixed(3)})/${span.toFixed(3)}`;
+    expression = `if(lt(t,${b.t.toFixed(3)}),${ramp},${expression})`;
+  }
+
+  // Before the first keyframe, hold the first position.
+  expression = `if(lt(t,${pixels[0].t.toFixed(3)}),${pixels[0].x},${expression})`;
+  return `2*floor((${expression})/2)`;
+}
