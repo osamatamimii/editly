@@ -1,4 +1,5 @@
 import path from "node:path";
+import { copyFile, mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
@@ -20,3 +21,13 @@ await build({
     js: "import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);",
   },
 });
+
+// The subject tracker is Python, so esbuild cannot bundle it — it is copied
+// beside the bundle, which is where `subject.ts` resolves it from. Forgetting
+// this would not break the build or the render: tracking would simply stop
+// happening and every clip would quietly go back to the old static framing.
+await mkdir(path.join(dir, "dist"), { recursive: true });
+await copyFile(
+  path.join(dir, "scripts/track-subject.py"),
+  path.join(dir, "dist/track-subject.py"),
+);
