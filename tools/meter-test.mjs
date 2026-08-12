@@ -227,6 +227,157 @@ section("Every template survives an unmeasured file");
   }
 }
 
+// ─── The query that decides what somebody owes ───────────────────────────────
+//
+// Everything above is arithmetic on numbers already in hand. This is the SQL
+// that produces them, and it has three edges nothing else covers: which month a
+// render belongs to, which statuses count, and whose renders they are. All
+// three are one WHERE clause away from being silently wrong in the customer's
+// favour, which is the direction nobody reports.
+
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.log("\n! Skipping the meter query: set DATABASE_URL to a Postgres with the schema to run it.");
+  console.log("  Everything above needs no database; this section needs the real query.");
+} else {
+  const { Pool } = require(require.resolve("pg", { paths: ["lib/db"] }));
+  const pool = new Pool({ connectionString: DATABASE_URL, max: 4 });
+
+  // `usage.ts` reaches the database through `pg`, which uses CommonJS `require`
+  // at runtime and cannot be bundled into ESM. So it is left external and the
+  // bundle is written inside a package that can resolve it — the same shape the
+  // billing suite uses for express.
+  const usageBundle = path.join(repoRoot, "lib/db/.meter-test-usage.mjs");
+  const usageBuild = spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+    [
+      path.join(repoRoot, "artifacts/api-server/src/lib/usage.ts"),
+      "--bundle", "--platform=node", "--format=esm", "--target=node22",
+      "--external:pg", `--outfile=${usageBundle}`, "--log-level=error",
+    ],
+    { stdio: "inherit" },
+  );
+  if (usageBuild.status !== 0) {
+    console.error("could not bundle the usage module");
+    process.exit(1);
+  }
+  const { usageFor, startOfMonthUtc } = await import(pathToFileURL(usageBundle).href);
+
+  const METERED = "33333333-3333-4333-8333-333333333333";
+  const OTHER = "44444444-4444-4444-8444-444444444444";
+
+  const insert = async (id, userId, over = {}) => {
+    const columns = {
+      id,
+      user_id: userId,
+      project_id: `p-${id}`,
+      status: "done",
+      plan: JSON.stringify({ version: 1, operations: [] }),
+      input_path: `${userId}/p-${id}/source.mp4`,
+      output_seconds: 60,
+      finished_at: new Date().toISOString(),
+      ...over,
+    };
+    const names = Object.keys(columns);
+    await pool.query(
+      `INSERT INTO jobs (${names.join(",")}) VALUES (${names.map((_, i) => `$${i + 1}`).join(",")})`,
+      Object.values(columns),
+    );
+  };
+
+  const clear = () => pool.query("DELETE FROM jobs WHERE user_id = ANY($1)", [[METERED, OTHER]]);
+
+  section("The month boundary is where a bill starts");
+  {
+    await clear();
+    const startOfThisMonth = startOfMonthUtc();
+    const justInside = new Date(startOfThisMonth.getTime() + 1000).toISOString();
+    const justOutside = new Date(startOfThisMonth.getTime() - 1000).toISOString();
+
+    await insert("this-month", METERED, { output_seconds: 120, finished_at: justInside });
+    await insert("last-month", METERED, { output_seconds: 6000, finished_at: justOutside });
+
+    const usage = await usageFor(METERED, "free");
+    check("a render one second into the month counts", usage.minutesUsed === 2, JSON.stringify(usage));
+    check(
+      "one a second before it does not — otherwise nobody's allowance ever resets",
+      usage.minutesUsed === 2,
+      JSON.stringify(usage),
+    );
+    check("the boundary is UTC midnight on the first", startOfThisMonth.getUTCDate() === 1);
+    check("with no local-time drift", startOfThisMonth.getUTCHours() === 0 && startOfThisMonth.getUTCMinutes() === 0);
+  }
+
+  section("Only finished renders are charged for");
+  {
+    await clear();
+    await insert("done", METERED, { output_seconds: 60 });
+    await insert("running", METERED, { status: "running", output_seconds: 600 });
+    await insert("queued", METERED, { status: "queued", output_seconds: 600 });
+    await insert("failed", METERED, { status: "failed", output_seconds: 600 });
+
+    const usage = await usageFor(METERED, "free");
+    check("the finished one is billed", usage.minutesUsed === 1, JSON.stringify(usage));
+    check(
+      "a render that died on our side is our problem, not their balance",
+      usage.minutesUsed === 1,
+      JSON.stringify(usage),
+    );
+  }
+
+  section("A render nobody could measure is skipped, not counted as free");
+  {
+    await clear();
+    await insert("measured", METERED, { output_seconds: 60 });
+    await insert("unmeasured", METERED, { output_seconds: null });
+
+    const usage = await usageFor(METERED, "free");
+    check("the null does not crash the sum", Number.isFinite(usage.minutesUsed));
+    check("and it contributes nothing rather than a zero", usage.minutesUsed === 1, JSON.stringify(usage));
+  }
+
+  section("The meter is per person");
+  {
+    await clear();
+    await insert("mine", METERED, { output_seconds: 60 });
+    await insert("theirs", OTHER, { output_seconds: 6000 });
+
+    const mine = await usageFor(METERED, "free");
+    const theirs = await usageFor(OTHER, "free");
+    check("I am billed for mine", mine.minutesUsed === 1, JSON.stringify(mine));
+    check("and not for theirs", mine.minutesUsed === 1);
+    check("they are billed for theirs", theirs.minutesUsed === 100, JSON.stringify(theirs));
+  }
+
+  section("Running out is reported before it is exceeded, not after");
+  {
+    await clear();
+    // The free plan includes five minutes.
+    await insert("four", METERED, { output_seconds: 240 });
+    const under = await usageFor(METERED, "free");
+    check("four of five is not exhausted", under.exhausted === false, JSON.stringify(under));
+    check("and one minute remains", under.minutesRemaining === 1, JSON.stringify(under));
+
+    await insert("one-more", METERED, { output_seconds: 60 });
+    const at = await usageFor(METERED, "free");
+    check("five of five is exhausted", at.exhausted === true, JSON.stringify(at));
+    check("with nothing remaining", at.minutesRemaining === 0, JSON.stringify(at));
+    check("and remaining never goes negative", (await usageFor(METERED, "free")).minutesRemaining >= 0);
+  }
+
+  section("Seconds round up, as anyone reading a meter would expect");
+  {
+    await clear();
+    await insert("sixty-one", METERED, { output_seconds: 61 });
+    const usage = await usageFor(METERED, "free");
+    check("a 61-second render costs two minutes", usage.minutesUsed === 2, JSON.stringify(usage));
+  }
+
+  await clear();
+  await pool.end();
+  await rm(usageBundle, { force: true });
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

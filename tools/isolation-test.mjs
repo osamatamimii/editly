@@ -96,6 +96,26 @@ function check(name, condition, detail = "") {
   }
 }
 
+/**
+ * Rows this file inserts directly, which nothing in the API can remove.
+ *
+ * They have to be swept before the run rather than only after it, because the
+ * whole point of some of them is to put minutes on Bob's meter — and a leftover
+ * pair from an interrupted run puts a free account over its allowance before
+ * the first check has executed, which then refuses the project creation four
+ * unrelated checks depend on. That is a suite that passes exactly once per
+ * database and fails ever after with errors that point at the wrong thing.
+ */
+const SEEDED_JOBS = ["meter-test-job", "cascade-test-job"];
+function sweepSeededJobs() {
+  spawnSync(
+    "psql",
+    [process.env.DATABASE_URL, "-c", `delete from jobs where id in (${SEEDED_JOBS.map((id) => `'${id}'`).join(",")})`],
+    { encoding: "utf8" },
+  );
+}
+sweepSeededJobs();
+
 async function call(user, path, method = "GET", body) {
   const res = await fetch(BASE + path, {
     method,
@@ -548,24 +568,64 @@ console.log("\nPer-user statistics and quota");
   check("Alice's stats count her project", alice.json?.totalProjects >= 1, JSON.stringify(alice.json));
   check("Bob's stats are empty", bob.json?.totalProjects === 0, JSON.stringify(bob.json));
 
+  // The meter counts minutes of finished video, so a render belonging to Bob
+  // must never appear on Alice's bill. This asserted `videosUsedThisMonth`
+  // against a project count — a field the API stopped returning when billing
+  // moved from videos to minutes, so it compared undefined to a number and
+  // could not have been true since.
+  // The job needs no project row: the meter sums by user and status, and
+  // nothing here joins. That is the same denormalisation that makes every
+  // ownership filter a single WHERE.
+  const charged = spawnSync(
+    "psql",
+    [
+      process.env.DATABASE_URL,
+      "-c",
+      `insert into jobs (id, user_id, project_id, status, plan, input_path, output_seconds, finished_at)
+       values ('meter-test-job', '${BOB}', 'meter-test-project', 'done', '{"version":1,"operations":[]}'::jsonb,
+               '${BOB}/x/source.mp4', 185, now())`,
+    ],
+    { encoding: "utf8" },
+  );
+  check("a finished render could be recorded for Bob", charged.status === 0, charged.stderr?.slice(0, 160));
+
+  const bobSub = await call(BOB, "/api/subscription");
+  check("Bob is billed for his own render", bobSub.json?.minutesUsedThisMonth === 4, JSON.stringify(bobSub.json));
+
   const aliceSub = await call(ALICE, "/api/subscription");
   check(
-    "quota is counted per user, not globally",
-    aliceSub.json?.videosUsedThisMonth === alice.json?.totalProjects,
+    "and Alice is not billed for it",
+    aliceSub.json?.minutesUsedThisMonth === 0,
+    JSON.stringify(aliceSub.json),
+  );
+  check(
+    "the meter is minutes of finished video, not a count of projects",
+    typeof aliceSub.json?.minutesUsedThisMonth === "number" && aliceSub.json?.videosUsedThisMonth === undefined,
     JSON.stringify(aliceSub.json),
   );
 }
 
 console.log("\nBilling integrity");
 {
-  const upgrade = await call(ALICE, "/api/subscription", "PATCH", { plan: "scale" });
+  // These used the pre-rename names — `scale` and `starter` — which the schema
+  // now rejects, so all three were 400s rather than the refusals they claim to
+  // check. Nobody saw it, because this suite needs a Postgres to run at all.
+  const upgrade = await call(ALICE, "/api/subscription", "PATCH", { plan: "pro" });
   check("upgrading without payment is refused", upgrade.status === 402, `got ${upgrade.status}`);
+  check(
+    "and the refusal points at checkout rather than just saying no",
+    typeof upgrade.json?.checkout === "string",
+    JSON.stringify(upgrade.json),
+  );
 
   const after = await call(ALICE, "/api/subscription");
-  check("plan unchanged after refused upgrade", after.json?.plan === "starter", JSON.stringify(after.json));
+  check("plan unchanged after refused upgrade", after.json?.plan === "free", JSON.stringify(after.json));
 
-  const same = await call(ALICE, "/api/subscription", "PATCH", { plan: "starter" });
+  const same = await call(ALICE, "/api/subscription", "PATCH", { plan: "free" });
   check("staying on the same tier is allowed", same.status === 200, `got ${same.status}`);
+
+  const nonsense = await call(ALICE, "/api/subscription", "PATCH", { plan: "starter" });
+  check("a plan name that no longer exists is rejected outright", nonsense.status === 400, `got ${nonsense.status}`);
 }
 
 console.log("\nCascade cleanup");
@@ -574,8 +634,35 @@ console.log("\nCascade cleanup");
   const id = created.json?.id;
   await call(BOB, `/api/projects/${id}/messages`, "POST", { content: "hello" });
 
+  // Deleting a project must not become a way to reset the meter. Minutes that
+  // were produced were produced, so the job rows outlive the project on
+  // purpose — the same hole the render policy exists to close would otherwise
+  // reopen as "delete your projects and render for free".
+  const billed = spawnSync(
+    "psql",
+    [
+      process.env.DATABASE_URL,
+      "-c",
+      `insert into jobs (id, user_id, project_id, status, plan, input_path, output_seconds, finished_at)
+       values ('cascade-test-job', '${BOB}', '${id}', 'done', '{"version":1,"operations":[]}'::jsonb,
+               '${BOB}/${id}/source.mp4', 120, now())`,
+    ],
+    { encoding: "utf8" },
+  );
+  check("a finished render could be recorded against it", billed.status === 0, billed.stderr?.slice(0, 160));
+
+  const beforeDelete = await call(BOB, "/api/subscription");
+  check("the meter sees it", beforeDelete.json?.minutesUsedThisMonth >= 2, JSON.stringify(beforeDelete.json));
+
   const del = await call(BOB, `/api/projects/${id}`, "DELETE");
   check("owner can delete their own project", del.status === 204, `got ${del.status}`);
+
+  const afterDelete = await call(BOB, "/api/subscription");
+  check(
+    "and deleting it does not refund the minutes it produced",
+    afterDelete.json?.minutesUsedThisMonth === beforeDelete.json?.minutesUsedThisMonth,
+    `${beforeDelete.json?.minutesUsedThisMonth} before, ${afterDelete.json?.minutesUsedThisMonth} after`,
+  );
 
   const msgs = await call(BOB, `/api/projects/${id}/messages`);
   check(
@@ -589,6 +676,7 @@ console.log("\nCascade cleanup");
 {
   const del = await call(ALICE, `/api/projects/${aliceProjectId}`, "DELETE");
   check("test data cleaned up", del.status === 204, `got ${del.status}`);
+  sweepSeededJobs();
 }
 
 server.close();
