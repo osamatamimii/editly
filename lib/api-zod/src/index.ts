@@ -136,7 +136,22 @@ const IdParams = z.object({ id: z.string().min(1) });
 // health
 // ---------------------------------------------------------------------------
 
-export const HealthCheckResponse = z.object({ status: z.string() });
+/**
+ * `ok` | `behind` | `unreachable`.
+ *
+ * Three states rather than a boolean because they are three different jobs for
+ * whoever is reading: nothing, run the migrations, check the connection. The
+ * missing columns are named, since "the database is behind" without saying how
+ * is a sentence that still costs an afternoon.
+ */
+export const HealthCheckResponse = z.object({
+  status: z.string(),
+  database: z.object({
+    reachable: z.boolean(),
+    missingColumns: z.array(z.string()),
+  }),
+  message: z.string().optional(),
+});
 export type HealthCheckResponse = z.infer<typeof HealthCheckResponse>;
 
 // ---------------------------------------------------------------------------
