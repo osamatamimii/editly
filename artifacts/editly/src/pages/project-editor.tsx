@@ -625,7 +625,7 @@ export default function ProjectEditor() {
     );
   }
 
-  if (!project) {
+  if (projectState === "missing" || !project) {
     return <div className="p-12 text-center">Project not found</div>;
   }
 

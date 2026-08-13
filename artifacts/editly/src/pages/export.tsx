@@ -130,7 +130,7 @@ export default function ExportPage() {
     );
   }
 
-  if (!project) return <div className="p-12 text-center">Project not found</div>;
+  if (projectState === "missing" || !project) return <div className="p-12 text-center">Project not found</div>;
 
   const currentStatus = isExporting ? exportStatus?.status : (exportStatus?.status === 'done' ? 'done' : 'idle');
 
