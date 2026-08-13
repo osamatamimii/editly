@@ -104,7 +104,7 @@ node tools/meter-test.mjs
 # and that the bytes go before the rows that name them.
 node tools/account-test.mjs
 
-# 82 checks on the code that runs on a phone, in a real Chromium against a real
+# 85 checks on the code that runs on a phone, in a real Chromium against a real
 # HTTP server that speaks tus and misbehaves the way networks do: an upload the
 # server has forgotten, an offset that is not where the client thought it was, a
 # connection dropped mid-chunk. The poster checks decode a clip whose first
