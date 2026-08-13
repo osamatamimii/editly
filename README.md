@@ -20,7 +20,9 @@ Upload a raw take, say what you want in plain language ("cut the dead air and ma
 
 ```bash
 # 94 checks that one user cannot see or touch another's data, against the real
-# auth middleware. Needs a local Postgres matching the production schema.
+# auth middleware. Needs a local Postgres built by `pnpm run migrate` — built
+# any other way it is a different database from production, which is how a
+# cascade that reset the meter passed here for weeks.
 node tools/isolation-test.mjs
 
 # 40 checks on the job queue against a real Postgres: ten workers over five
@@ -102,11 +104,14 @@ node tools/meter-test.mjs
 # and that the bytes go before the rows that name them.
 node tools/account-test.mjs
 
-# 67 checks on the code that runs on a phone, in a real Chromium against a real
+# 82 checks on the code that runs on a phone, in a real Chromium against a real
 # HTTP server that speaks tus and misbehaves the way networks do: an upload the
 # server has forgotten, an offset that is not where the client thought it was, a
 # connection dropped mid-chunk. The poster checks decode a clip whose first
-# second is black, because that is the file that code exists for. Needs ffmpeg.
+# second is black, because that is the file that code exists for. The last two
+# sections are about the other half of the August outage: "you have nothing" and
+# "we could not read your things" are different sentences, and no screen here
+# could tell them apart. Needs ffmpeg.
 node tools/browser-test.mjs
 
 # 28 checks that the OpenAPI file above still describes this API. It reads the
@@ -115,12 +120,14 @@ node tools/browser-test.mjs
 # route is a failing check rather than a discovery someone makes a year later.
 node tools/contract-test.mjs
 
-# 39 checks that the database can be rebuilt from this repository and that one
+# 49 checks that the database can be rebuilt from this repository and that one
 # which is behind says so. It creates an empty Postgres, runs every migration
-# into it, and diffs the result column by column against what the code declares
-# — so "apply the migrations" is provably enough — then puts a database into the
-# exact state production was in on 12 August and asks the health check what it
-# sees. Needs a local Postgres it may create and drop databases on.
+# into it, and diffs the result against what the code declares — columns *and*
+# constraints, because `jobs.project_id` once carried ON DELETE CASCADE and
+# deleting a project refunded the minutes it had produced. Then it puts a
+# database into the exact state production was in on 12 August and asks the
+# health check what it sees. Needs a Postgres it may create and drop databases
+# on.
 node tools/schema-test.mjs
 
 # Storage policies are enforced by Postgres, not by code in this repo. Paste
@@ -163,6 +170,8 @@ pnpm run vercel:build   # build the exact artifacts Vercel deploys (dist/ + api/
 ## Database
 
 The schema lives in `lib/db/src/schema/` (Drizzle) and is created by `lib/db/migrations/*.sql`. An empty Postgres plus every file in that directory, in order, is the database — nothing else creates a table, and `tools/schema-test.mjs` proves it by building one and diffing it against what the code declares. All four base tables have RLS enabled; the API connects as a dedicated `editly_app` role with explicit policies, never the `postgres` superuser.
+
+**Build your local database the same way — `pnpm run migrate`, never `drizzle-kit push`.** The Drizzle schema declares no foreign keys and the SQL declares three, so a pushed database is a different database from production: `jobs.project_id` carried `ON DELETE CASCADE` in production only, deleting a project deleted the jobs that record the minutes it produced, and the isolation check written to catch exactly that passed locally for weeks.
 
 **Deploying a schema change is a command, not a memory: `pnpm run migrate`.** On 12 August five committed migrations had never been applied to production. Every query in the app named a column that did not exist, the product served empty screens for two days with no error anywhere a user could see, and `/healthz` answered `ok` throughout because it returned a constant. `/healthz` now asks the database what columns it has, compares them to what the build reads, and answers 503 with the missing names when it is behind.
 
