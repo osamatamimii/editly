@@ -46,7 +46,10 @@ create index if not exists projects_user_id_created_idx
 create table if not exists public.messages (
   id          text primary key,
   user_id     uuid not null,
-  project_id  text not null references public.projects(id) on delete cascade,
+  -- Named rather than left to Postgres, because production's constraints were
+  -- created from the console with these names and a reconstruction that
+  -- produces different ones is a reconstruction you cannot compare against.
+  project_id  text not null constraint messages_project_fk references public.projects(id) on delete cascade,
   role        text not null,
   content     text not null,
   created_at  timestamptz not null default now()
@@ -59,7 +62,7 @@ create index if not exists messages_user_project_idx
 create table if not exists public.exports (
   id            text primary key,
   user_id       uuid not null,
-  project_id    text not null references public.projects(id) on delete cascade,
+  project_id    text not null constraint exports_project_fk references public.projects(id) on delete cascade,
   status        text not null default 'pending',
   platform      text not null,
   download_url  text,
