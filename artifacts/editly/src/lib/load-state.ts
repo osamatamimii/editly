@@ -18,12 +18,26 @@
  * empty answer and no answer look identical once the data is gone.
  */
 
-export type LoadState = "loading" | "failed" | "empty" | "ready";
+export type LoadState = "loading" | "failed" | "missing" | "empty" | "ready";
 
 export interface Loadable<T> {
   data: T | undefined;
   isLoading: boolean;
   isError: boolean;
+  /** Whatever the client threw. Only its status is read. */
+  error?: unknown;
+}
+
+/**
+ * A 404 is the one failure that really does mean "this is not here" — a stale
+ * link, a project deleted in another tab. Separating it keeps "we couldn't load
+ * this" honest: if every failure claimed the thing was missing we would be back
+ * where we started, and if none of them could we would tell someone following a
+ * dead link that our servers are unwell.
+ */
+function statusOf(error: unknown): number | undefined {
+  const e = error as { status?: number; response?: { status?: number } } | undefined;
+  return e?.status ?? e?.response?.status;
 }
 
 /**
@@ -40,7 +54,7 @@ export function loadState<T>(query: Loadable<T>, isEmpty?: (data: T) => boolean)
   if (query.data !== undefined) {
     return isEmpty?.(query.data) ? "empty" : "ready";
   }
-  if (query.isError) return "failed";
+  if (query.isError) return statusOf(query.error) === 404 ? "missing" : "failed";
   if (query.isLoading) return "loading";
 
   // No data, not loading, and no error flag. This should not happen — and it is
