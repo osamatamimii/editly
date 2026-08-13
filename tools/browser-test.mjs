@@ -92,11 +92,13 @@ await writeFile(
   `import * as storage from "${repoRoot}/artifacts/editly/src/lib/video-storage";
    import * as checkout from "${repoRoot}/artifacts/editly/src/lib/checkout";
    import * as oauth from "${repoRoot}/artifacts/editly/src/lib/oauth";
+   import * as load from "${repoRoot}/artifacts/editly/src/lib/load-state";
    import { createElement } from "react";
    import { createRoot } from "react-dom/client";
    (window as any).VS = storage;
    (window as any).CO = checkout;
    (window as any).OA = oauth;
+   (window as any).LS = load;
    (window as any).React = { createElement, createRoot };
   `,
 );
@@ -758,6 +760,105 @@ section("Sign-in buttons are shown for providers that are actually switched on")
     /Apple sign-in is not switched on/.test(message),
     message,
   );
+}
+
+section("An empty account and a broken one are different sentences");
+{
+  // The whole of 12 August in one function. Every screen knew two states,
+  // loading and loaded; a failed query is neither, and its undefined data
+  // rendered as an empty list. The person's projects were all still there.
+  const states = await run(() => {
+    const { loadState } = window.LS;
+    const empty = (list) => list.length === 0;
+    return {
+      loading: loadState({ data: undefined, isLoading: true, isError: false }, empty),
+      failed: loadState({ data: undefined, isLoading: false, isError: true }, empty),
+      empty: loadState({ data: [], isLoading: false, isError: false }, empty),
+      ready: loadState({ data: [{ id: "p1" }], isLoading: false, isError: false }, empty),
+      // No data, not loading, no error flag — the shape the outage took.
+      nothingAtAll: loadState({ data: undefined, isLoading: false, isError: false }, empty),
+      // A background refetch that failed while data is on screen. Replacing a
+      // working screen with an error because a poll missed is worse than the
+      // staleness.
+      staleButPresent: loadState({ data: [{ id: "p1" }], isLoading: false, isError: true }, empty),
+      // Something that cannot be empty, only present or not.
+      scalarReady: loadState({ data: { plan: "free" }, isLoading: false, isError: false }),
+      scalarFailed: loadState({ data: undefined, isLoading: false, isError: true }),
+    };
+  });
+
+  check("loading is loading", states.loading === "loading", states.loading);
+  check("an empty list is empty", states.empty === "empty", states.empty);
+  check("a list with something in it is ready", states.ready === "ready", states.ready);
+  check("a failed read is failed, not empty", states.failed === "failed", states.failed);
+  check(
+    "and so is no data with nothing to explain it — which is exactly what an outage looks like",
+    states.nothingAtAll === "failed",
+    states.nothingAtAll,
+  );
+  check(
+    "a failed refetch over data already on screen keeps the screen",
+    states.staleButPresent === "ready",
+    states.staleButPresent,
+  );
+  check("a scalar that arrived is ready", states.scalarReady === "ready", states.scalarReady);
+  check("a scalar that did not is failed", states.scalarFailed === "failed", states.scalarFailed);
+
+  const copy = await run(() => window.LS.COULD_NOT_LOAD);
+  check(
+    "the message says the work is safe, because the first fear is that it is gone",
+    /work is safe/i.test(copy),
+    copy,
+  );
+  check("and that it is our fault, not something they did", /on our side/i.test(copy), copy);
+}
+
+section("No screen can render an empty state without handling a failed one");
+{
+  // A source check, deliberately. What went wrong was not a bug in a function —
+  // it was four screens each independently treating "no data" as "no work", and
+  // the only thing that catches the fifth is a rule about all of them.
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const pagesDir = path.join(repoRoot, "artifacts/editly/src/pages");
+  const offenders = [];
+  for (const file of readdirSync(pagesDir).filter((f) => f.endsWith(".tsx"))) {
+    const source = readFileSync(path.join(pagesDir, file), "utf8");
+    const rendersEmptiness = /length === 0|!data|not found/i.test(source);
+    const readsFromTheApi = /use(Get|List)[A-Z]/.test(source);
+    if (!rendersEmptiness || !readsFromTheApi) continue;
+    if (!/loadState|LoadFailed/.test(source)) offenders.push(file);
+  }
+  check(
+    "every page that reads from the API and can show nothing goes through loadState",
+    offenders.length === 0,
+    offenders.join(", "),
+  );
+
+  const dashboard = readFileSync(path.join(pagesDir, "dashboard.tsx"), "utf8");
+  check(
+    "the dashboard checks for failure before it says the account is empty",
+    dashboard.indexOf('projectsState === "failed"') < dashboard.indexOf('projectsState === "empty"'),
+    "the empty branch comes first, which is the bug",
+  );
+  check(
+    "and a stat tile that could not be read does not print a zero",
+    /statsState === "failed"/.test(dashboard) &&
+      dashboard.match(/statsState === "failed"/g).length === 3,
+    String(dashboard.match(/statsState === "failed"/g)?.length),
+  );
+
+  // Matched on the rendered text rather than the phrase anywhere in the file:
+  // the first version of this check was satisfied by a code comment explaining
+  // the rule, which is a test that passes because someone wrote about it.
+  const rendered = />Project not found</;
+  for (const file of ["project-editor.tsx", "export.tsx"]) {
+    const source = readFileSync(path.join(pagesDir, file), "utf8");
+    check(
+      `${file} does not say a project was not found when the read simply failed`,
+      source.search(/projectState === "failed"/) < source.search(rendered),
+      "the not-found branch comes first",
+    );
+  }
 }
 
 section("Sizes are written the way a person reads them");

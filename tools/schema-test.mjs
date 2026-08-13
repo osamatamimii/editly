@@ -355,6 +355,96 @@ section("A database in the state production was actually in");
   check("running the migrations clears it", after.missingColumns?.length === 0, JSON.stringify(after.missingColumns));
 }
 
+section("The rules the schema itself enforces");
+{
+  // Columns are not the whole schema, and this is what that cost.
+  //
+  // `jobs.project_id` carried ON DELETE CASCADE, so deleting a project deleted
+  // the jobs that record how many minutes it produced — undoing, in the
+  // database, the exact rule routes/projects.ts and account-deletion.ts take
+  // care to state in code and isolation-test.mjs asserts. Delete your projects,
+  // reset your allowance, render for nothing.
+  //
+  // It survived because the test database was built by `drizzle-kit push` from
+  // a Drizzle schema that declares no foreign keys, while production was built
+  // from the SQL in this directory, which declares four. A check comparing
+  // columns alone cannot see a constraint.
+  await recreateScratch();
+  runMigrations(scratchUrl);
+  const pool = new Pool({ connectionString: scratchUrl, max: 1 });
+
+  const { rows: keys } = await pool.query(`
+    SELECT conrelid::regclass::text AS child, conname, pg_get_constraintdef(oid) AS definition
+      FROM pg_constraint
+     WHERE contype = 'f' AND connamespace = 'public'::regnamespace
+     ORDER BY 1, 2`);
+
+  const onJobs = keys.filter((k) => k.child === "jobs");
+  check(
+    "nothing cascades onto jobs, because a render that happened stays counted",
+    onJobs.length === 0,
+    JSON.stringify(onJobs),
+  );
+
+  const byName = Object.fromEntries(keys.map((k) => [k.conname, k.definition]));
+  check(
+    "a project's messages go with it",
+    /REFERENCES projects\(id\) ON DELETE CASCADE/.test(byName["messages_project_fk"] ?? ""),
+    byName["messages_project_fk"],
+  );
+  check(
+    "and its exports",
+    /REFERENCES projects\(id\) ON DELETE CASCADE/.test(byName["exports_project_fk"] ?? ""),
+    byName["exports_project_fk"],
+  );
+  check(
+    "an export whose job is gone loses the reference rather than itself",
+    /REFERENCES jobs\(id\) ON DELETE SET NULL/.test(byName["exports_job_id_fkey"] ?? ""),
+    byName["exports_job_id_fkey"],
+  );
+  check(
+    "and there are no others nobody has reasoned about",
+    keys.length === 3,
+    JSON.stringify(keys.map((k) => k.conname)),
+  );
+
+  // Proved rather than asserted: delete a project that produced minutes and
+  // read the meter's own query back.
+  await pool.query(`
+    INSERT INTO projects (id, user_id, title) VALUES ('p-cascade', '11111111-1111-4111-8111-111111111111', 'x');
+    INSERT INTO jobs (id, user_id, project_id, status, plan, input_path, output_seconds, finished_at)
+    VALUES ('j-cascade', '11111111-1111-4111-8111-111111111111', 'p-cascade', 'done',
+            '{"version":1,"operations":[]}'::jsonb, 'x/y/source.mp4', 120, now());
+    INSERT INTO messages (id, user_id, project_id, role, content)
+    VALUES ('m-cascade', '11111111-1111-4111-8111-111111111111', 'p-cascade', 'user', 'hi');`);
+  await pool.query("DELETE FROM projects WHERE id = 'p-cascade'");
+
+  const after = await pool.query(`
+    SELECT (SELECT coalesce(sum(output_seconds), 0) FROM jobs WHERE id = 'j-cascade') AS seconds,
+           (SELECT count(*)::int FROM messages WHERE id = 'm-cascade') AS messages`);
+  check(
+    "deleting a project does not refund the minutes it produced",
+    Number(after.rows[0].seconds) === 120,
+    JSON.stringify(after.rows[0]),
+  );
+  check("but it does take the conversation with it", after.rows[0].messages === 0, JSON.stringify(after.rows[0]));
+
+  // Every foreign key needs an index on the child side or each parent delete
+  // sequentially scans the child table. Invisible at three projects; discovered
+  // by a customer at thirty thousand.
+  const { rows: indexes } = await pool.query(
+    "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public'",
+  );
+  for (const [table, column] of [["messages", "project_id"], ["exports", "project_id"], ["exports", "job_id"]]) {
+    check(
+      `${table}.${column} is indexed, so the cascade is not a table scan`,
+      indexes.some((i) => new RegExp(`ON public\\.${table} USING btree \\(${column}\\)`).test(i.indexdef)),
+      column,
+    );
+  }
+  await pool.end();
+}
+
 section("Running it twice does nothing the second time");
 {
   const again = runMigrations(scratchUrl);
@@ -417,7 +507,7 @@ section("A database migrated by hand before the ledger existed is adopted, not r
   check("it notices what is already there", /adopted 6 migration/.test(run.stdout || ""), (run.stdout || "").trim());
   check(
     "and applies only what is genuinely missing",
-    (run.stdout.match(/^applied /gm) ?? []).length === 5,
+    (run.stdout.match(/^applied /gm) ?? []).length === 6,
     (run.stdout || "").trim(),
   );
 
@@ -434,7 +524,7 @@ section("A dry run says what it would do and does none of it");
 {
   await recreateScratch();
   const run = runMigrations(scratchUrl, ["--dry-run"]);
-  check("it lists the pending files", (run.stdout.match(/^would apply /gm) ?? []).length === 11, (run.stdout || "").trim());
+  check("it lists the pending files", (run.stdout.match(/^would apply /gm) ?? []).length === 12, (run.stdout || "").trim());
   check("and applies nothing", !/^applied /m.test(run.stdout || ""));
 
   const actual = await columnsOf(scratchUrl);
