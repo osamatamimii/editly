@@ -44,11 +44,17 @@ router.delete("/account", async (req, res): Promise<void> => {
 
     removeObjects: (projectId) => deleteProjectObjects(userId, projectId),
 
-    // None of these tables has a foreign key — ownership is denormalised onto
-    // every row precisely so that no query here needs a join — so this order is
-    // about what a partial failure leaves behind, not about constraints.
-    // Children first: a job whose project is gone is unreachable garbage, a
-    // project whose jobs are gone is merely a project with no history.
+    // This comment used to say none of these tables has a foreign key. Three of
+    // them do, and one of those — jobs cascading from projects — was quietly
+    // undoing the rule that a render which happened stays counted. Migration
+    // 0011 removed it; messages and exports still cascade, which is correct
+    // and makes their explicit deletion below a belt to that braces.
+    //
+    // Ownership is denormalised onto every row so that no query here needs a
+    // join, so this order is about what a partial failure leaves behind rather
+    // than about constraints. Children first: a job whose project is gone is
+    // still the record of minutes produced, a project whose jobs are gone is a
+    // project whose bill has been forgotten.
     removeRows: async () => {
       await db.delete(jobsTable).where(eq(jobsTable.userId, userId));
       await db.delete(exportsTable).where(eq(exportsTable.userId, userId));
