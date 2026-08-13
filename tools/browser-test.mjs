@@ -784,6 +784,14 @@ section("An empty account and a broken one are different sentences");
       // Something that cannot be empty, only present or not.
       scalarReady: loadState({ data: { plan: "free" }, isLoading: false, isError: false }),
       scalarFailed: loadState({ data: undefined, isLoading: false, isError: true }),
+      // A stale link to a project that really is gone. If every failure claimed
+      // the thing was missing we would be back where we started; if none could,
+      // a dead link would report our servers as unwell.
+      missing: loadState({ data: undefined, isLoading: false, isError: true, error: { status: 404 } }),
+      missingNested: loadState({
+        data: undefined, isLoading: false, isError: true, error: { response: { status: 404 } },
+      }),
+      serverError: loadState({ data: undefined, isLoading: false, isError: true, error: { status: 500 } }),
     };
   });
 
@@ -803,6 +811,9 @@ section("An empty account and a broken one are different sentences");
   );
   check("a scalar that arrived is ready", states.scalarReady === "ready", states.scalarReady);
   check("a scalar that did not is failed", states.scalarFailed === "failed", states.scalarFailed);
+  check("a 404 is missing, not broken", states.missing === "missing", states.missing);
+  check("however the client wraps the status", states.missingNested === "missing", states.missingNested);
+  check("and a 500 is broken, not missing", states.serverError === "failed", states.serverError);
 
   const copy = await run(() => window.LS.COULD_NOT_LOAD);
   check(
