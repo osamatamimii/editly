@@ -15,6 +15,8 @@ import { ChevronLeft, Download, Smartphone, PlaySquare, CheckCircle2, Loader2, A
 import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { usePlayableVideo } from "@/lib/video-storage";
+import { loadState } from "@/lib/load-state";
+import { LoadFailed } from "@/components/load-failed";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 
@@ -28,9 +30,11 @@ export default function ExportPage() {
   const [platform, setPlatform] = useState<"tiktok" | "reels" | "shorts">("tiktok");
   const [isExporting, setIsExporting] = useState(false);
 
-  const { data: project, isLoading: isProjectLoading } = useGetProject(id, {
+  const projectQuery = useGetProject(id, {
     query: { enabled: !!id, queryKey: getGetProjectQueryKey(id) }
   });
+  const { data: project } = projectQuery;
+  const projectState = loadState(projectQuery);
 
   // The bucket is private, so playback and download need a signed URL.
   const { url: playbackUrl } = usePlayableVideo(
@@ -103,7 +107,7 @@ export default function ExportPage() {
     }
   };
 
-  if (isProjectLoading) {
+  if (projectState === "loading") {
     return (
       <div className="w-full max-w-5xl mx-auto px-6 py-12">
         <Skeleton className="h-8 w-48 mb-8" />
@@ -114,6 +118,14 @@ export default function ExportPage() {
             <Skeleton className="h-16 w-full rounded-2xl" />
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (projectState === "failed") {
+    return (
+      <div className="w-full max-w-3xl mx-auto px-6 py-24">
+        <LoadFailed what="this project" onRetry={() => projectQuery.refetch()} testId="project-failed" />
       </div>
     );
   }

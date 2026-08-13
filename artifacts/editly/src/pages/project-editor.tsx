@@ -28,6 +28,8 @@ import {
 import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
+import { loadState } from "@/lib/load-state";
+import { LoadFailed } from "@/components/load-failed";
 import { supabase } from "@/lib/supabase";
 import {
   uploadProjectVideo,
@@ -91,13 +93,22 @@ export default function ProjectEditor() {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
 
-  const { data: project, isLoading: isProjectLoading } = useGetProject(id, {
+  const projectQuery = useGetProject(id, {
     query: { enabled: !!id, queryKey: getGetProjectQueryKey(id) }
   });
 
-  const { data: messages, isLoading: isMessagesLoading } = useListMessages(id, {
+  const messagesQuery = useListMessages(id, {
     query: { enabled: !!id, queryKey: getListMessagesQueryKey(id) }
   });
+
+  const { data: project } = projectQuery;
+  const { data: messages } = messagesQuery;
+
+  // Failure is checked before absence. "Project not found" in response to a
+  // read that failed tells someone their work is gone when it is sitting right
+  // there — which is worse than any error message.
+  const projectState = loadState(projectQuery);
+  const messagesState = loadState(messagesQuery, (list) => list.length === 0);
 
   const updateProject = useUpdateProject();
   const sendMessage = useSendMessage();
@@ -587,7 +598,7 @@ export default function ProjectEditor() {
     }
   };
 
-  if (isProjectLoading) {
+  if (projectState === "loading") {
     return (
       <div className="w-full h-screen flex flex-col">
         <div className="h-16 border-b border-hairline-faint flex items-center px-6">
@@ -602,6 +613,14 @@ export default function ProjectEditor() {
             <Skeleton className="w-full h-full rounded-2xl" />
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (projectState === "failed") {
+    return (
+      <div className="w-full max-w-3xl mx-auto px-6 py-24">
+        <LoadFailed what="this project" onRetry={() => projectQuery.refetch()} testId="project-failed" />
       </div>
     );
   }
@@ -998,7 +1017,7 @@ export default function ProjectEditor() {
           <ScrollArea ref={scrollAreaRef} className="flex-1 p-4">
             <div className="space-y-5 flex flex-col">
               {/* Welcome message — only shown when no messages exist yet */}
-              {!isMessagesLoading && (!messages || messages.length === 0) && (
+              {messagesState === "empty" && (
               <div className="flex gap-3 items-start">
                 <img
                   src="/noah-avatar.jpg"
@@ -1015,7 +1034,14 @@ export default function ProjectEditor() {
               )}
 
               {/* Messages */}
-              {isMessagesLoading ? (
+              {messagesState === "failed" ? (
+                <LoadFailed
+                  what="this conversation"
+                  compact
+                  onRetry={() => messagesQuery.refetch()}
+                  testId="messages-failed"
+                />
+              ) : messagesState === "loading" ? (
                 <div className="flex gap-3 items-start">
                   <Skeleton className="w-10 h-10 rounded-full flex-shrink-0" />
                   <div className="flex flex-col gap-1 flex-1">

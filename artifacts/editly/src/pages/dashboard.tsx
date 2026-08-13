@@ -27,6 +27,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { deleteProjectVideos, usePlayableVideo } from "@/lib/video-storage";
+import { loadState } from "@/lib/load-state";
+import { LoadFailed } from "@/components/load-failed";
 import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 
@@ -92,17 +94,26 @@ export default function Dashboard() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
 
-  const { data: stats, isLoading: isStatsLoading } = useGetDashboardStats({
+  const statsQuery = useGetDashboardStats({
     query: { queryKey: getGetDashboardStatsQueryKey() }
   });
-
-  const { data: projects, isLoading: isProjectsLoading } = useListProjects({
+  const projectsQuery = useListProjects({
     query: { queryKey: getListProjectsQueryKey() }
   });
-
-  const { data: subscription, isLoading: isSubscriptionLoading } = useGetSubscription({
+  const subscriptionQuery = useGetSubscription({
     query: { queryKey: getGetSubscriptionQueryKey() }
   });
+
+  const { data: stats } = statsQuery;
+  const { data: projects } = projectsQuery;
+  const { data: subscription } = subscriptionQuery;
+
+  // Every screen used to know only two states, loading and loaded, and a failed
+  // query is neither: it leaves `data` undefined, which renders as an empty
+  // list. That is how a total outage looked like an empty account for two days.
+  const statsState = loadState(statsQuery);
+  const projectsState = loadState(projectsQuery, (list) => list.length === 0);
+  const subscriptionState = loadState(subscriptionQuery);
 
   const createProject = useCreateProject();
   const deleteProject = useDeleteProject();
@@ -247,8 +258,14 @@ export default function Dashboard() {
             <Video className="w-4 h-4 text-primary" />
           </CardHeader>
           <CardContent>
-            {isStatsLoading ? (
+            {statsState === "loading" ? (
               <Skeleton className="h-8 w-16" />
+            ) : statsState === "failed" ? (
+              /* A zero here is a claim about the person's account. When the
+                 read failed we do not know the number, and "0" is the one
+                 answer guaranteed to be wrong for anybody who has ever used
+                 the product. */
+              <LoadFailed what="this" compact onRetry={() => statsQuery.refetch()} testId="stats-failed-total" />
             ) : (
               <div className="text-3xl font-bold">{stats?.totalProjects || 0}</div>
             )}
@@ -260,8 +277,10 @@ export default function Dashboard() {
             <Activity className="w-4 h-4 text-secondary" />
           </CardHeader>
           <CardContent>
-            {isStatsLoading ? (
+            {statsState === "loading" ? (
               <Skeleton className="h-8 w-16" />
+            ) : statsState === "failed" ? (
+              <LoadFailed what="this" compact onRetry={() => statsQuery.refetch()} testId="stats-failed-processing" />
             ) : (
               <>
                 <div className="text-3xl font-bold" data-testid="text-processing-count">
@@ -285,8 +304,10 @@ export default function Dashboard() {
             <CheckCircle2 className="w-4 h-4 text-success" />
           </CardHeader>
           <CardContent>
-            {isStatsLoading ? (
+            {statsState === "loading" ? (
               <Skeleton className="h-8 w-16" />
+            ) : statsState === "failed" ? (
+              <LoadFailed what="this" compact onRetry={() => statsQuery.refetch()} testId="stats-failed-done" />
             ) : (
               <div className="text-3xl font-bold">{stats?.doneCount || 0}</div>
             )}
@@ -295,7 +316,17 @@ export default function Dashboard() {
       </div>
 
       {/* Usage Banner */}
-      {!isSubscriptionLoading && subscription && (
+      {subscriptionState === "failed" && (
+        <div className="mb-8 rounded-2xl border border-warning/40 px-6 py-4 glass-panel">
+          <LoadFailed
+            what="your plan and usage"
+            compact
+            onRetry={() => subscriptionQuery.refetch()}
+            testId="subscription-failed"
+          />
+        </div>
+      )}
+      {subscriptionState === "ready" && subscription && (
         <div className={`mb-8 rounded-2xl border px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel ${
           subscription.minutesUsedThisMonth >= subscription.minutesIncluded
             ? "border-red-500/30 bg-red-500/5"
@@ -357,7 +388,7 @@ export default function Dashboard() {
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Recent Projects</h2>
         
-        {isProjectsLoading ? (
+        {projectsState === "loading" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3].map(i => (
               <Card key={i} className="glass-panel overflow-hidden border-hairline-faint">
@@ -369,7 +400,16 @@ export default function Dashboard() {
               </Card>
             ))}
           </div>
-        ) : projects?.length === 0 ? (
+        ) : projectsState === "failed" ? (
+          /* Before this branch existed, a failed read fell through to the
+             empty state below — "Nothing here yet", over a library that was
+             entirely intact. */
+          <LoadFailed
+            what="your projects"
+            onRetry={() => projectsQuery.refetch()}
+            testId="projects-failed"
+          />
+        ) : projectsState === "empty" ? (
           <div className="flex flex-col items-center justify-center py-24 text-center glass-panel rounded-2xl border-hairline-faint border-dashed">
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 border border-primary/20">
               <Video className="w-8 h-8 text-primary" />

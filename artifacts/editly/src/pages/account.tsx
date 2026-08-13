@@ -11,6 +11,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
+import { loadState } from "@/lib/load-state";
+import { LoadFailed } from "@/components/load-failed";
 import { Loader2, LogOut, Mail, KeyRound, Trash2 } from "lucide-react";
 
 /**
@@ -31,7 +33,11 @@ export default function AccountPage() {
   const [, setLocation] = useLocation();
   const { user, signOut } = useAuth();
   const { toast } = useToast();
-  const { data: subscription, isLoading } = useGetSubscription();
+  const subscriptionQuery = useGetSubscription();
+  const { data: subscription } = subscriptionQuery;
+  // A plan card that shows nothing when the read failed leaves someone unsure
+  // whether they are on the tier they paid for.
+  const subscriptionState = loadState(subscriptionQuery);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -140,7 +146,14 @@ export default function AccountPage() {
             <CardDescription>Minutes of finished video, not videos. Uploading is unlimited.</CardDescription>
           </CardHeader>
           <CardContent>
-            {isLoading || !subscription ? (
+            {subscriptionState === "failed" ? (
+              <LoadFailed
+                what="your plan and usage"
+                compact
+                onRetry={() => subscriptionQuery.refetch()}
+                testId="account-subscription-failed"
+              />
+            ) : !subscription ? (
               <Skeleton className="h-24 w-full rounded-xl" />
             ) : (
               <>
