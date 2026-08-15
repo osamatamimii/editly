@@ -81,11 +81,24 @@ export function exceedsCeiling(sourceSeconds: number, maxSourceSeconds: number |
   return sourceSeconds > maxSourceSeconds + CEILING_TOLERANCE_SECONDS;
 }
 
+/**
+ * How long something is, in the unit a person would use for it.
+ *
+ * Everything used to be printed in minutes, which produced "This file is 0.2
+ * minutes and your plan takes up to 0 in one upload" — arithmetically correct
+ * and unusable. Nobody reads a twelve-second clip as a fifth of a minute, and a
+ * refusal that rounds the limit to zero reads as a bug rather than a rule.
+ */
+function spoken(seconds: number): string {
+  const whole = Math.round(seconds);
+  if (whole < 90) return `${whole} second${whole === 1 ? "" : "s"}`;
+  const minutes = Math.round((seconds / 60) * 10) / 10;
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
 /** The sentence the customer sees. It names the length, because "too long" invites an argument. */
 export function tooLongMessage(sourceSeconds: number, maxSourceSeconds: number): string {
-  const minutes = Math.round((sourceSeconds / 60) * 10) / 10;
-  const ceiling = Math.round(maxSourceSeconds / 60);
-  return `This file is ${minutes} minutes and your plan takes up to ${ceiling} in one upload. A longer plan, or a shorter clip, and we will edit it.`;
+  return `This file is ${spoken(sourceSeconds)} and your plan takes up to ${spoken(maxSourceSeconds)} in one upload. A longer plan, or a shorter clip, and we will edit it.`;
 }
 
 function usable(value: number | null | undefined): value is number {
