@@ -1,9 +1,13 @@
 # Runs every check in tools/ on every push.
 #
-# This repository has 1146 automated checks and, until now, nothing that ran
-# them. That is the same problem as the OpenAPI file that drifted for months and
-# the migrations nobody applied, one level up: a check that only runs when
-# somebody remembers is a check that stops running the week they are busy.
+# Every suite in tools/ — a few thousand assertions across twenty-one files, and
+# until this existed, nothing that ran them. That is the same problem as the
+# OpenAPI file that drifted for months and the migrations nobody applied, one
+# level up: a check that only runs when somebody remembers is a check that stops
+# running the week they are busy.
+#
+# The count is deliberately not written down here. A number in a comment is a
+# claim nobody updates, which is the thing this file exists to stop.
 #
 # In a single day of looking, that gap had already produced a spec describing a
 # different product, a suite that passed exactly once per database, a foreign
