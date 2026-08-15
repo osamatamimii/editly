@@ -32,11 +32,13 @@ node tools/isolation-test.mjs
 # and the file is fetched back and probed. Needs ffmpeg and the same Postgres.
 node tools/worker-test.mjs
 
-# 42 checks on the things that only fail on deploy day, none of which need
+# 58 checks on the things that only fail on deploy day, none of which need
 # Docker, Fly or a credential: a secret named one thing in the workflow and read
 # as another in the worker, a path in the Dockerfile that no longer matches what
 # the build writes, an app name off by a hyphen. It also runs the secrets step
-# with no optional keys — the configuration everybody starts with.
+# with no optional keys — the configuration everybody starts with. The last two
+# sections point at CI itself: every suite in this directory has to be wired
+# into it, and it has to carry what the suites need.
 node tools/deploy-test.mjs
 
 # 40 checks on the job queue against a real Postgres: ten workers over five
@@ -148,6 +150,8 @@ node tools/schema-test.mjs
 # this into the browser console on the deployed app after changing them.
 # tools/storage-isolation.browser.js
 ```
+
+**All of it runs on every push and every pull request** — `.github/workflows/checks.yml`, on a Postgres 16 built by `pnpm run migrate`, with ffmpeg, OpenCV and a real Chromium. Nothing here is opt-in and nothing skips: a suite that runs only when somebody remembers is a suite that stops running the week they are busy, which is how the OpenAPI file drifted for months and how five migrations went unapplied for two days. `deploy-test` asserts that every file in `tools/` is wired into that workflow, so adding a suite and forgetting it is itself a failing check.
 
 ## Local development
 
