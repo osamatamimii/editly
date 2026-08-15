@@ -7,6 +7,7 @@ import { fetchCheckoutConfig, openCheckout } from "@/lib/checkout";
 import { useAuth } from "@/lib/auth";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Logo } from "@/components/logo";
+import { PLANS, SHARED_FEATURES } from "@/lib/pricing";
 
 function useScrollReveal() {
   const ref = useRef<HTMLDivElement>(null);
@@ -46,72 +47,6 @@ const PARTICLES = Array.from({ length: 30 }, (_, i) => ({
   delay:   -((i * 3.1) % 14),
   drift:   ((i * 23) % 60) - 30,
 }));
-
-/**
- * The tiers, priced on minutes of finished video.
- *
- * The quotas come from what people publish, not from round numbers. A
- * short-form creator posts a few times a week at half a minute, which is five
- * to twenty minutes a month — sixty is headroom, not a leash. A long-form
- * YouTuber lands near a hundred. What sells Pro is not its minutes but its
- * four-hour upload: a whole podcast episode as one file.
- */
-const PLANS = [
-  {
-    key: "creator" as const,
-    name: "Creator",
-    price: 12,
-    yearlyPrice: 115,
-    yearlyPerMonth: "$9.6/month billed yearly",
-    minutes: 60,
-    forWho: "Short-form: TikTok, Reels, Shorts",
-    upload: "Upload up to 30 minutes",
-    color: "emerald",
-  },
-  {
-    key: "pro" as const,
-    name: "Pro",
-    price: 29,
-    yearlyPrice: 279,
-    yearlyPerMonth: "$23.25/month billed yearly",
-    minutes: 400,
-    forWho: "Long-form: YouTube and podcasts",
-    upload: "Upload a 4-hour episode as one file",
-    color: "violet",
-    popular: true,
-  },
-  {
-    key: "studio" as const,
-    name: "Studio",
-    price: 79,
-    yearlyPrice: 758,
-    yearlyPerMonth: "$63.2/month billed yearly",
-    minutes: 1000,
-    forWho: "Teams and agencies",
-    upload: "3 seats, brand kit, API",
-    color: "fuchsia",
-  },
-] as const;
-
-/**
- * The first line is the one that matters.
- *
- * "60 minutes a month" is read by a podcaster as "one episode" — the exact
- * opposite of the truth, and the reading most likely to lose the long-form
- * audience this pricing was built for. Every competitor meters uploaded hours
- * or credits, so people arrive with that model already loaded and apply it to
- * us by default.
- *
- * The fix is not a parenthetical. It is naming the unit ("minutes of finished
- * video") and then saying the difference out loud, where it stops being a
- * clarification and becomes the best line on the page.
- */
-const SHARED_FEATURES = [
-  "Upload as much footage as you like — you only pay for what you publish",
-  "No watermark",
-  "Unlimited edits — asking again is free",
-  "Match the style of a video you like",
-];
 
 export default function Home() {
   const sectionsRef = useScrollReveal();
