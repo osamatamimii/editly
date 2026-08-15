@@ -74,6 +74,14 @@ node tools/style-test.mjs
 # make every genuine payment fail while every other check here still passed.
 node tools/billing-test.mjs
 
+# 44 checks that the pricing page promises what the server enforces. The tiers
+# exist twice — plan-limits.ts decides what happens to a render, pricing.ts is
+# what somebody reads before typing in a card number — and nothing compared
+# them. A drift there is not a bug, it is an advertisement for something the
+# product will refuse to do. A claim nobody has classified as either enforced or
+# not-built-yet is a failing check.
+node tools/pricing-test.mjs
+
 # 24 checks that a model cannot make the product lie: invented operations are
 # discarded, out-of-range values rejected rather than clamped, and a timeout or
 # a 500 falls back to keywords instead of reaching the user.
