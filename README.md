@@ -25,6 +25,20 @@ Upload a raw take, say what you want in plain language ("cut the dead air and ma
 # cascade that reset the meter passed here for weeks.
 node tools/isolation-test.mjs
 
+# 43 checks that run the worker itself — the loop that ties every tested piece
+# together, and the one thing here that had never once been executed. The built
+# bundle, as a real process, against a real Postgres, real ffmpeg and an HTTP
+# server standing in for Storage: it claims a job, renders it, uploads the file,
+# and the file is fetched back and probed. Needs ffmpeg and the same Postgres.
+node tools/worker-test.mjs
+
+# 42 checks on the things that only fail on deploy day, none of which need
+# Docker, Fly or a credential: a secret named one thing in the workflow and read
+# as another in the worker, a path in the Dockerfile that no longer matches what
+# the build writes, an app name off by a hyphen. It also runs the secrets step
+# with no optional keys — the configuration everybody starts with.
+node tools/deploy-test.mjs
+
 # 40 checks on the job queue against a real Postgres: ten workers over five
 # jobs, a worker that dies mid-render, and the order people were promised. None
 # of this can be checked by reading the code — two workers claiming one row
@@ -95,7 +109,7 @@ node tools/reference-test.mjs
 # face in the output.
 node tools/framing-test.mjs
 
-# 65 checks written from the position of someone who wants the render for
+# 70 checks written from the position of someone who wants the render for
 # nothing: make the probe fail, send no duration, claim a four-hour file is one
 # second long. The last 17 run the real month-to-date query against Postgres.
 node tools/meter-test.mjs
