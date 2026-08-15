@@ -760,6 +760,24 @@ components:
       required:
         - plan
 
+    # Whether anything is listening, and what it can do. The queue can say a
+    # render is stuck; it cannot say whether a worker exists — not for the first
+    # five minutes, and not at all when nothing is queued. The worker's id is
+    # deliberately absent: it carries a hostname and answers nobody's question.
+    WorkerStatus:
+      type: object
+      properties:
+        online:
+          type: boolean
+        lastSeenAt:
+          type: ["string", "null"]
+        transcription:
+          description: The model's name, never a key. Null when none is configured.
+          type: ["string", "null"]
+        vision:
+          type: ["string", "null"]
+      required: [online, lastSeenAt, transcription, vision]
+
     DashboardStats:
       type: object
       properties:
@@ -777,12 +795,15 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Project"
+        worker:
+          $ref: "#/components/schemas/WorkerStatus"
       required:
         - totalProjects
         - processingCount
         - stalledCount
         - doneCount
         - recentProjects
+        - worker
 
     # ── What a render is ──────────────────────────────────────────────────────
 
