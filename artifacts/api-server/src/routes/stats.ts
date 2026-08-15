@@ -1,10 +1,10 @@
 import { Router, type IRouter } from "express";
 import { desc, eq } from "drizzle-orm";
-import { db, projectsTable, jobsTable } from "@workspace/db";
+import { db, projectsTable, jobsTable, workerHeartbeatsTable } from "@workspace/db";
 import { GetDashboardStatsResponse } from "@workspace/api-zod";
 import { serializeProject } from "../lib/transformers";
 import { currentUserId } from "../middlewares/auth";
-import { isUnclaimed } from "../lib/queue-health";
+import { isUnclaimed, workerOnline } from "../lib/queue-health";
 
 const router: IRouter = Router();
 
@@ -43,6 +43,30 @@ router.get("/stats/dashboard", async (req, res): Promise<void> => {
   ).length;
   const stalledCount = allProjects.filter((p) => stalled.has(p.id)).length;
 
+  // Whether anything is listening. Global rather than per-user, and reported as
+  // a fact rather than inferred from the queue — the inference cannot say
+  // anything for five minutes and cannot say anything at all when nothing is
+  // queued, which is exactly the state right after a first deploy.
+  //
+  // The worker's id is deliberately not returned: it carries a hostname, and
+  // nobody outside needs it to know the answer.
+  const [newest] = await db
+    .select({
+      lastSeenAt: workerHeartbeatsTable.lastSeenAt,
+      transcription: workerHeartbeatsTable.transcription,
+      vision: workerHeartbeatsTable.vision,
+    })
+    .from(workerHeartbeatsTable)
+    .orderBy(desc(workerHeartbeatsTable.lastSeenAt))
+    .limit(1);
+
+  const worker = {
+    online: workerOnline(newest?.lastSeenAt),
+    lastSeenAt: newest?.lastSeenAt ? new Date(newest.lastSeenAt).toISOString() : null,
+    transcription: newest?.transcription ?? null,
+    vision: newest?.vision ?? null,
+  };
+
   const recentProjects = allProjects
     .slice(0, 4)
     .map((p) => serializeProject({ ...p, renderStalled: stalled.has(p.id) }));
@@ -54,6 +78,7 @@ router.get("/stats/dashboard", async (req, res): Promise<void> => {
       stalledCount,
       doneCount,
       recentProjects,
+      worker,
     })
   );
 });
