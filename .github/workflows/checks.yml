@@ -111,6 +111,7 @@ jobs:
       # renders.
       - run: node tools/contract-test.mjs
       - run: node tools/deploy-test.mjs
+      - run: node tools/pricing-test.mjs
       - run: node tools/theme-test.mjs
       - run: node tools/policy-test.mjs
       - run: node tools/planner-test.mjs
