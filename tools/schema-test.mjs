@@ -169,11 +169,48 @@ section("A database that is behind is reported by name");
  */
 const SUPABASE_SHIM = readFileSync(path.join(repoRoot, "lib/db/testing/supabase-shim.sql"), "utf8");
 
-const admin = new Pool({ connectionString: DATABASE_URL, max: 1 });
+/**
+ * Every pool here gets an error handler, and it is not defensive clutter.
+ *
+ * This file drops and recreates a database repeatedly. `DROP DATABASE … WITH
+ * (FORCE)` terminates whatever is still attached to it, and a node-postgres
+ * pool holding an *idle* connection to that database learns about it as a pool
+ * error rather than as a failed query — which, unhandled, takes the process
+ * down with a stack pointing at the protocol parser and no clue which section
+ * caused it. It passed here and on one CI run before failing on the next, which
+ * is the worst kind of suite: one people learn to re-run.
+ */
+const attach = (pool) => {
+  pool.on("error", () => {});
+  return pool;
+};
+
+const admin = attach(new Pool({ connectionString: DATABASE_URL, max: 1 }));
+
 const recreateScratch = async () => {
-  await admin.query(`DROP DATABASE IF EXISTS ${SCRATCH} WITH (FORCE)`);
+  // Ask everything attached to leave before forcing it out, so the drop is not
+  // racing anybody, and retry once or twice because a backend takes a moment to
+  // actually go.
+  await admin
+    .query(
+      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+        WHERE datname = $1 AND pid <> pg_backend_pid()`,
+      [SCRATCH],
+    )
+    .catch(() => {});
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await admin.query(`DROP DATABASE IF EXISTS ${SCRATCH} WITH (FORCE)`);
+      break;
+    } catch (error) {
+      if (attempt >= 4) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+
   await admin.query(`CREATE DATABASE ${SCRATCH}`);
-  const scratch = new Pool({ connectionString: scratchUrl, max: 1 });
+  const scratch = attach(new Pool({ connectionString: scratchUrl, max: 1 }));
   await scratch.query(SUPABASE_SHIM);
   await scratch.end();
 };
@@ -186,7 +223,7 @@ const runMigrations = (url, args = []) =>
   });
 
 const columnsOf = async (url) => {
-  const pool = new Pool({ connectionString: url, max: 1 });
+  const pool = attach(new Pool({ connectionString: url, max: 1 }));
   const { rows } = await pool.query(
     `SELECT table_name, column_name FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = ANY($1)`,
@@ -276,7 +313,7 @@ section("A database in the state production was actually in");
   // Not a fixture: an empty Postgres carrying only the migrations that had been
   // applied on 12 August, which is 0000 through 0005.
   await recreateScratch();
-  const pool = new Pool({ connectionString: scratchUrl, max: 1 });
+  const pool = attach(new Pool({ connectionString: scratchUrl, max: 1 }));
   const fs = await import("node:fs");
   const early = readdirSync(path.join(repoRoot, "lib/db/migrations"))
     .filter((f) => /^000[0-5]_/.test(f))
@@ -343,7 +380,7 @@ section("The rules the schema itself enforces");
   // columns alone cannot see a constraint.
   await recreateScratch();
   runMigrations(scratchUrl);
-  const pool = new Pool({ connectionString: scratchUrl, max: 1 });
+  const pool = attach(new Pool({ connectionString: scratchUrl, max: 1 }));
 
   const { rows: keys } = await pool.query(`
     SELECT conrelid::regclass::text AS child, conname, pg_get_constraintdef(oid) AS definition
@@ -428,7 +465,7 @@ section("Running it twice does nothing the second time");
 section("A migration that fails leaves the database as it was");
 {
   await recreateScratch();
-  const pool = new Pool({ connectionString: scratchUrl, max: 1 });
+  const pool = attach(new Pool({ connectionString: scratchUrl, max: 1 }));
 
   // Half of a migration succeeds, then it hits something that cannot work.
   // Without a transaction per file the table would survive, the ledger would
@@ -467,7 +504,7 @@ section("A database migrated by hand before the ledger existed is adopted, not r
 {
   await recreateScratch();
   // Stand in for production on 12 August: 0001–0005 applied by hand, no ledger.
-  const pool = new Pool({ connectionString: scratchUrl, max: 1 });
+  const pool = attach(new Pool({ connectionString: scratchUrl, max: 1 }));
   const files = readdirSync(path.join(repoRoot, "lib/db/migrations")).filter((f) => /^000[0-5]_/.test(f));
   const fs = await import("node:fs");
   for (const file of files.sort()) {
