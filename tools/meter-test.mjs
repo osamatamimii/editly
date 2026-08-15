@@ -20,8 +20,10 @@
  * for nothing: make the probe fail, send no duration at all, send a duration of
  * one second for a four-hour file.
  *
- * Usage: node tools/meter-test.mjs
- * Requires: nothing. No keys, no network, no database, no ffmpeg.
+ * Usage: DATABASE_URL=postgres://... node tools/meter-test.mjs
+ * Requires: a Postgres for the last section, which runs the real month-to-date
+ * query. Everything before it needs nothing at all — no keys, no network, no
+ * ffmpeg.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

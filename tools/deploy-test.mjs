@@ -40,6 +40,7 @@ const check = (name, ok, detail = "") => {
 const section = (title) => console.log(`\n${title}`);
 
 const workflow = read(".github/workflows/deploy-worker.yml");
+const checksWorkflow = read(".github/workflows/checks.yml");
 const dockerfile = read("artifacts/worker/Dockerfile");
 const flyToml = read("artifacts/worker/fly.toml");
 const buildScript = read("artifacts/worker/build.mjs");
@@ -294,6 +295,89 @@ section("A change that affects the worker triggers a deploy");
     "and two deploys never race",
     /concurrency:/.test(workflow) && /cancel-in-progress: false/.test(workflow),
   );
+}
+
+// ─── The checks that check nothing unless something runs them ────────────────
+
+section("Every suite in tools/ is one CI actually runs");
+{
+  // A suite nobody runs is a suite that rots. This repository has already
+  // watched that happen at every other level — a spec that drifted for months,
+  // migrations nobody applied, a health check that returned a constant — and
+  // the checks themselves are not exempt. Globbing the directory in the
+  // workflow would make this check impossible, which is why they are listed.
+  const suites = readdirSync(path.join(repoRoot, "tools"))
+    .filter((f) => f.endsWith("-test.mjs"))
+    .sort();
+
+  check("there are suites to run", suites.length >= 15, String(suites.length));
+
+  const unrun = suites.filter((f) => !checksWorkflow.includes(`tools/${f}`));
+  check(
+    "and CI runs every one of them",
+    unrun.length === 0,
+    `${unrun.join(", ")} — added and never wired in, which is a suite that exists and does nothing`,
+  );
+
+  const phantom = [...checksWorkflow.matchAll(/node tools\/(\S+\.mjs)/g)]
+    .map((m) => m[1])
+    .filter((f) => !existsSync(path.join(repoRoot, "tools", f)));
+  check("and runs nothing that does not exist", phantom.length === 0, phantom.join(", "));
+
+  // Renaming a suite is the usual way this breaks, and a workflow step that
+  // silently succeeds on a missing file is how it stays broken.
+  check(
+    "each suite is its own step, so the one that fails is named",
+    (checksWorkflow.match(/^ {6}- run: node tools\//gm) ?? []).length === suites.length,
+    `${(checksWorkflow.match(/^ {6}- run: node tools\//gm) ?? []).length} steps for ${suites.length} suites`,
+  );
+}
+
+section("CI has what the suites need");
+{
+  check("a Postgres of the major production runs", /image: postgres:16/.test(checksWorkflow));
+  check(
+    "built by the migrations, not by drizzle-kit push",
+    /pnpm run migrate/.test(checksWorkflow) && !/drizzle-kit push/.test(checksWorkflow),
+  );
+  // Three migrations name things only a managed Supabase provides. Without the
+  // shim the very first one fails, and it reads as a broken migration rather
+  // than a missing prerequisite.
+  check(
+    "with the Supabase stand-in applied first",
+    checksWorkflow.indexOf("supabase-shim.sql") < checksWorkflow.indexOf("pnpm run migrate"),
+    "the shim comes after the migrations, so the migrations cannot run",
+  );
+  check(
+    "and it is the same file the schema suite uses, not a copy",
+    /supabase-shim\.sql/.test(read("tools/schema-test.mjs")),
+  );
+  check(
+    "psql stops on the first error rather than carrying on",
+    /ON_ERROR_STOP=1/.test(checksWorkflow),
+  );
+  check("ffmpeg, for every render check", /\bffmpeg\b/.test(checksWorkflow));
+  check(
+    "the font drawtext names, without which the watermark renders as nothing at all",
+    /fonts-dejavu-core/.test(checksWorkflow),
+  );
+  check(
+    "OpenCV, so the tracking section runs instead of skipping itself",
+    /python3-opencv/.test(checksWorkflow),
+  );
+  check("and a Chromium for the browser suite", /playwright install chromium/.test(checksWorkflow));
+
+  // The browser suite resolves Playwright from the repository, so it has to be
+  // declared there rather than assumed present on whoever's machine.
+  const rootPackage = JSON.parse(read("package.json"));
+  check(
+    "Playwright is a declared dependency rather than a machine's happy accident",
+    Boolean(rootPackage.devDependencies?.playwright),
+    JSON.stringify(rootPackage.devDependencies),
+  );
+
+  check("it typechecks before it runs anything", /pnpm run typecheck/.test(checksWorkflow));
+  check("and it runs on pull requests, not only on main", /pull_request/.test(checksWorkflow));
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

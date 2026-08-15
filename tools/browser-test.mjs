@@ -276,15 +276,36 @@ await new Promise((resolve) => server.listen(PORT, "127.0.0.1", resolve));
 
 // ─── A real browser ──────────────────────────────────────────────────────────
 
-const chromiumDir = readdirSync("/opt/pw-browsers").find((d) => /^chromium-\d+$/.test(d));
-const executablePath = `/opt/pw-browsers/${chromiumDir}/chrome-linux/chrome`;
 const { chromium } = require(
   require.resolve("playwright", {
     paths: [`${process.env.HOME}/.npm-global/lib/node_modules`, repoRoot],
   }),
 );
+
+/**
+ * Where the browser is.
+ *
+ * A pinned path when the environment provides one — some sandboxes preinstall
+ * Chromium and forbid the download — and otherwise Playwright's own, which is
+ * what a CI runner has after `playwright install chromium`. Falling back rather
+ * than requiring the pinned path means this suite runs in both places; failing
+ * to find either is an error rather than a skip, because a browser suite that
+ * quietly does not run is worse than one that is missing.
+ */
+function findChromium() {
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (root && existsSync(root)) {
+    const dir = readdirSync(root).find((d) => /^chromium-\d+$/.test(d));
+    if (dir) {
+      const candidate = path.join(root, dir, "chrome-linux", "chrome");
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined; // Playwright resolves its own download.
+}
+
 const browser = await chromium.launch({
-  executablePath,
+  ...(findChromium() ? { executablePath: findChromium() } : {}),
   args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"],
 });
 const browserPage = await browser.newPage();

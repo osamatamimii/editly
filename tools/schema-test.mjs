@@ -27,7 +27,7 @@
  * Requires: a local Postgres you may create and drop databases on.
  */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -162,40 +162,12 @@ section("A database that is behind is reported by name");
 // ─── Building the schema from the files ──────────────────────────────────────
 
 /**
- * The parts of Supabase the migrations lean on.
- *
- * Three of them touch `storage.buckets`, `auth.uid()` and the roles Supabase
- * defines, none of which exist in a plain Postgres. Stubbing them is what makes
- * "rebuild the schema from the repository" a thing that can actually be run —
- * and stubbing is honest here, because what is under test is the shape of the
- * public tables, not the storage policies, which are tested against the real
- * thing by tools/storage-isolation.browser.js.
+ * The parts of Supabase the migrations lean on, read from the same file CI
+ * applies. A copy here and a copy there is how the two drift apart, and the
+ * drift would present as "the migrations do not run" on whichever one nobody
+ * looked at recently.
  */
-const SUPABASE_SHIM = `
-  DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'editly_app') THEN CREATE ROLE editly_app; END IF;
-  END $$;
-
-  CREATE SCHEMA IF NOT EXISTS auth;
-  CREATE SCHEMA IF NOT EXISTS storage;
-
-  CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
-
-  CREATE TABLE IF NOT EXISTS storage.buckets (
-    id text PRIMARY KEY, name text, public boolean,
-    file_size_limit bigint, allowed_mime_types text[]
-  );
-  CREATE TABLE IF NOT EXISTS storage.objects (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    bucket_id text, name text, owner uuid
-  );
-  ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
-  CREATE OR REPLACE FUNCTION storage.foldername(name text) RETURNS text[]
-    LANGUAGE sql IMMUTABLE AS $$ SELECT string_to_array(name, '/') $$;
-`;
+const SUPABASE_SHIM = readFileSync(path.join(repoRoot, "lib/db/testing/supabase-shim.sql"), "utf8");
 
 const admin = new Pool({ connectionString: DATABASE_URL, max: 1 });
 const recreateScratch = async () => {
