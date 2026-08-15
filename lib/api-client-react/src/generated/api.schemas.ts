@@ -6,7 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 export interface HealthStatus {
+  /** ok | behind | unreachable */
   status: string;
+  database: {
+    reachable: boolean;
+    /** Qualified as table.column, when the database is behind the migrations. */
+    missingColumns: string[];
+  };
+  message?: string;
 }
 
 export interface ErrorResponse {
@@ -230,6 +237,19 @@ export interface UpdateSubscriptionBody {
   plan: SubscriptionPlan;
 }
 
+/**
+ * Whether anything is listening, and what it can do. The queue can say a render
+ * is stuck; it cannot say whether a worker exists — not for the first five
+ * minutes, and not at all when nothing is queued.
+ */
+export interface WorkerStatus {
+  online: boolean;
+  lastSeenAt: string | null;
+  /** The model's name, never a key. Null when none is configured. */
+  transcription: string | null;
+  vision: string | null;
+}
+
 export interface DashboardStats {
   totalProjects: number;
   /** Renders a worker is actually working on. */
@@ -238,6 +258,7 @@ export interface DashboardStats {
   stalledCount: number;
   doneCount: number;
   recentProjects: Project[];
+  worker: WorkerStatus;
 }
 
 // ── render jobs ─────────────────────────────────────────────────────────────
