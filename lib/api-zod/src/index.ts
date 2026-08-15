@@ -261,6 +261,23 @@ export type UpdateSubscriptionResponse = z.infer<typeof UpdateSubscriptionRespon
 // stats
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether anything is listening, and what it can do.
+ *
+ * The queue can say a render is stuck. It cannot say whether a worker exists —
+ * not for the first five minutes, and not at all when nothing is queued. This
+ * is the fact rather than the inference. The worker's id is not here: it
+ * carries a hostname and answers no question anybody outside is asking.
+ */
+export const WorkerStatus = z.object({
+  online: z.boolean(),
+  lastSeenAt: z.string().nullable(),
+  /** The model's name, never a key. Null means the worker has none configured. */
+  transcription: z.string().nullable(),
+  vision: z.string().nullable(),
+});
+export type WorkerStatus = z.infer<typeof WorkerStatus>;
+
 export const DashboardStats = z.object({
   totalProjects: z.number(),
   /** Renders a worker is actually working on. Excludes the stalled ones. */
@@ -269,6 +286,8 @@ export const DashboardStats = z.object({
   stalledCount: z.number(),
   doneCount: z.number(),
   recentProjects: z.array(Project),
+  /** Whether anything is listening. See WorkerStatus. */
+  worker: WorkerStatus,
 });
 export type DashboardStats = z.infer<typeof DashboardStats>;
 
