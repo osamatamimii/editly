@@ -269,6 +269,78 @@ section("Finished work is invisible to the queue");
   check("neither is claimed", (await claim("w1")) === null);
 }
 
+// ─── Is anything listening at all? ───────────────────────────────────────────
+
+section("A queue with nobody on it, and a queue with somebody on it");
+{
+  // These are the two situations the product could not tell apart. Both look
+  // like a job sitting at queued with a progress bar at zero, and they mean
+  // opposite things to whoever is waiting: one is "your turn is coming", the
+  // other is "nothing is going to happen".
+  const { spawnSync } = await import("node:child_process");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const nodePath = await import("node:path");
+  const { pathToFileURL } = await import("node:url");
+
+  const buildDir = await mkdtemp(nodePath.join(tmpdir(), "editly-queue-health-"));
+  const outfile = nodePath.join(buildDir, "queue-health.mjs");
+  const built = spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+    [
+      "artifacts/api-server/src/lib/queue-health.ts",
+      "--bundle", "--platform=node", "--format=esm", "--target=node22",
+      `--outfile=${outfile}`, "--log-level=error",
+    ],
+    { stdio: "inherit" },
+  );
+  if (built.status !== 0) {
+    console.error("could not bundle queue-health");
+    process.exit(1);
+  }
+  const { isUnclaimed, workerOnline, NO_WORKER_AFTER_MS, WORKER_OFFLINE_AFTER_MS } =
+    await import(pathToFileURL(outfile).href);
+
+  const now = Date.now();
+  const ago = (ms) => new Date(now - ms).toISOString();
+
+  check(
+    "a job queued a moment ago is not stalled — the queue is allowed to be busy",
+    !isUnclaimed({ status: "queued", createdAt: ago(30_000) }, now),
+  );
+  check(
+    "a job queued long enough with nobody holding it is",
+    isUnclaimed({ status: "queued", createdAt: ago(NO_WORKER_AFTER_MS + 1000) }, now),
+  );
+  check(
+    "a job somebody has claimed never is, however long it takes",
+    !isUnclaimed({ status: "queued", createdAt: ago(60 * 60_000), lockedAt: ago(60_000) }, now),
+  );
+  check("nor is one that is running", !isUnclaimed({ status: "running", createdAt: ago(60 * 60_000) }, now));
+  check("nor one that finished", !isUnclaimed({ status: "done", createdAt: ago(60 * 60_000) }, now));
+
+  // The heartbeat is the half the queue cannot answer: when nothing is queued,
+  // an empty queue and a dead worker are the same picture.
+  check("no heartbeat at all means nothing is listening", workerOnline(null, now) === false);
+  check("and neither does an unparseable one", workerOnline("not a date", now) === false);
+  check("a beat from a moment ago means it is here", workerOnline(ago(20_000), now) === true);
+  check(
+    "a beat older than the window means it has gone",
+    workerOnline(ago(WORKER_OFFLINE_AFTER_MS + 1000), now) === false,
+  );
+  check(
+    "the window is generously longer than the beat, because a worker mid-render is busy, not dead",
+    WORKER_OFFLINE_AFTER_MS >= 60_000,
+    String(WORKER_OFFLINE_AFTER_MS),
+  );
+  check(
+    "a timestamp from the future is a clock disagreement, not evidence of absence",
+    workerOnline(new Date(now + 30_000).toISOString(), now) === true,
+  );
+
+  await rm(buildDir, { recursive: true, force: true });
+}
+
 // ─── The statement this file is a copy of ────────────────────────────────────
 
 section("The worker still claims the way this file assumes");

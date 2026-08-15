@@ -513,10 +513,17 @@ section("A database migrated by hand before the ledger existed is adopted, not r
 
   const run = runMigrations(scratchUrl);
   check("it succeeds", run.status === 0, (run.stderr || "").slice(0, 300));
-  check("it notices what is already there", /adopted 6 migration/.test(run.stdout || ""), (run.stdout || "").trim());
+  check(
+    `it notices the ${files.length} already there`,
+    new RegExp(`adopted ${files.length} migration`).test(run.stdout || ""),
+    (run.stdout || "").trim(),
+  );
+  // Counted rather than written down: a literal here has to be edited every
+  // time a migration is added, which is a claim that goes stale by default.
+  const total = readdirSync(path.join(repoRoot, "lib/db/migrations")).filter((f) => f.endsWith(".sql")).length;
   check(
     "and applies only what is genuinely missing",
-    (run.stdout.match(/^applied /gm) ?? []).length === 6,
+    (run.stdout.match(/^applied /gm) ?? []).length === total - files.length,
     (run.stdout || "").trim(),
   );
 
@@ -533,7 +540,8 @@ section("A dry run says what it would do and does none of it");
 {
   await recreateScratch();
   const run = runMigrations(scratchUrl, ["--dry-run"]);
-  check("it lists the pending files", (run.stdout.match(/^would apply /gm) ?? []).length === 12, (run.stdout || "").trim());
+  const all = readdirSync(path.join(repoRoot, "lib/db/migrations")).filter((f) => f.endsWith(".sql")).length;
+  check("it lists every pending file", (run.stdout.match(/^would apply /gm) ?? []).length === all, (run.stdout || "").trim());
   check("and applies nothing", !/^applied /m.test(run.stdout || ""));
 
   const actual = await columnsOf(scratchUrl);

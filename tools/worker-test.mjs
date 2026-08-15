@@ -158,6 +158,10 @@ async function reset() {
   await pool.query("DELETE FROM projects WHERE user_id = $1", [ALICE]);
 }
 
+async function clearHeartbeats() {
+  await pool.query("DELETE FROM worker_heartbeats");
+}
+
 async function queue(id, { plan, over = {}, project = {} } = {}) {
   const projectId = over.project_id ?? `proj-${id}`;
   await pool.query(
@@ -203,6 +207,7 @@ async function settle(id, timeoutMs = 180_000) {
 // ─── Start it ────────────────────────────────────────────────────────────────
 
 await reset();
+await clearHeartbeats();
 
 const workerLog = [];
 const worker = spawn("node", [path.join(repoRoot, "artifacts/worker/dist/index.mjs")], {
@@ -252,6 +257,43 @@ section("It starts, and says what it can do");
 }
 
 // ─── A real render, end to end ───────────────────────────────────────────────
+
+section("It says it is here, so the product does not have to guess");
+{
+  // The queue can tell you a render is stuck. It cannot tell you whether
+  // anything is listening — not for five minutes, and not at all when nothing
+  // is queued, which is the state right after a first deploy. Somebody who has
+  // just set the secrets and run the workflow should be able to find out
+  // without uploading a video.
+  const beat = await pool.query("SELECT * FROM worker_heartbeats ORDER BY last_seen_at DESC LIMIT 1");
+  const row = beat.rows[0];
+
+  check("a heartbeat row exists", Boolean(row), JSON.stringify(beat.rows));
+  check("recent enough to mean now", row && Date.now() - new Date(row.last_seen_at).getTime() < 60_000, String(row?.last_seen_at));
+  check("with a start time, so an old row is distinguishable from a restart", row?.started_at !== null);
+  check(
+    "and the providers it came up with — null here, because no keys are set",
+    row?.transcription === null && row?.vision === null,
+    JSON.stringify({ transcription: row?.transcription, vision: row?.vision }),
+  );
+  check(
+    "no key is stored, only the absence of one",
+    !JSON.stringify(row ?? {}).includes("service-role-key-for-tests"),
+  );
+
+  // A process that started and then wedged looks identical to a healthy one if
+  // the only evidence is that it once booted.
+  const before = new Date(row.last_seen_at).getTime();
+  await new Promise((r) => setTimeout(r, 22_000));
+  const again = await pool.query("SELECT last_seen_at FROM worker_heartbeats WHERE worker_id = $1", [row.worker_id]);
+  check(
+    "and it keeps saying so as it polls, rather than once at startup",
+    new Date(again.rows[0].last_seen_at).getTime() > before,
+    `${row.last_seen_at} → ${again.rows[0]?.last_seen_at}`,
+  );
+
+  check("one row per worker, not one per poll", (await pool.query("SELECT count(*)::int AS n FROM worker_heartbeats")).rows[0].n === 1);
+}
 
 section("A queued job becomes an edited file");
 {
@@ -453,6 +495,7 @@ section("It finishes what it is doing before it exits");
 }
 
 await reset();
+await clearHeartbeats();
 await pool.end();
 server.close();
 if (!worker.killed) worker.kill("SIGKILL");
