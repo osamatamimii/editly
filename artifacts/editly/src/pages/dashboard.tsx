@@ -289,9 +289,15 @@ export default function Dashboard() {
                 {/* Counted apart from the number above it. "Processing: 2" over
                     two cards that read "waiting for a machine" is the counter
                     contradicting the cards. */}
+                {/* Two different situations that used to read as one. A queue
+                    with nobody listening is "nothing is going to happen"; a
+                    queue with a worker on it is "your turn is coming". Before
+                    the worker reported in, the product could only guess, and
+                    only after five minutes of guessing. */}
                 {(stats?.stalledCount ?? 0) > 0 && (
                   <div className="text-xs text-warning mt-1" data-testid="text-stalled-count">
-                    {stats?.stalledCount} waiting for a machine
+                    {stats?.stalledCount}{" "}
+                    {stats?.worker?.online ? "waiting their turn" : "waiting for a machine"}
                   </div>
                 )}
               </>
