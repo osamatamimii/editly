@@ -1,0 +1,128 @@
+# Runs every check in tools/ on every push.
+#
+# This repository has 1146 automated checks and, until now, nothing that ran
+# them. That is the same problem as the OpenAPI file that drifted for months and
+# the migrations nobody applied, one level up: a check that only runs when
+# somebody remembers is a check that stops running the week they are busy.
+#
+# In a single day of looking, that gap had already produced a spec describing a
+# different product, a suite that passed exactly once per database, a foreign
+# key that reset the billing meter, and a health endpoint that could not fail.
+# Every one of those was found by choosing to look. This is the thing that looks
+# without being asked.
+#
+# It is deliberately one job rather than a matrix. The suites share an ffmpeg, a
+# Chromium and a Postgres, and paying for those four times to save a few minutes
+# of wall clock would trade a simple file for a fast one.
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        # The version Supabase runs. A suite that passes against a different
+        # major is a suite describing a different database — which is exactly
+        # how ON DELETE CASCADE on jobs.project_id survived for weeks.
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: editly_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/editly_test
+      # PLAYWRIGHT_BROWSERS_PATH is deliberately unset: browser-test prefers a
+      # pinned Chromium where an environment provides one and otherwise lets
+      # Playwright resolve its own, which is what a runner has after the install
+      # step below.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: corepack enable
+
+      - name: Install the tools the suites actually use
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          # ffmpeg for every render check; the DejaVu font because drawtext and
+          # the caption style both name it and render *nothing* without it,
+          # silently; python3-opencv for the subject tracker, whose section
+          # skips itself when OpenCV is missing — and a section that skips is a
+          # section that is not testing anything.
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg fonts-dejavu-core python3 python3-opencv postgresql-client
+          ffmpeg -version | head -1
+          python3 -c "import cv2; print('opencv', cv2.__version__)"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium for the browser suite
+        run: pnpm exec playwright install chromium
+
+      - run: pnpm run typecheck
+
+      # Three migrations touch `storage.buckets`, `auth.uid()` and the roles a
+      # managed Supabase project provides. A plain Postgres has none of them, so
+      # the names are created first — from the same file the schema suite uses,
+      # because a copy in each is how the two drift apart. It creates the names,
+      # not the behaviour; the storage policies are checked against the real
+      # thing by tools/storage-isolation.browser.js.
+      - name: Stand in for the parts of Supabase the migrations name
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f lib/db/testing/supabase-shim.sql
+
+      # The database is built the way production is built. Anything else and
+      # these suites describe a product that is not the one being shipped —
+      # which is exactly how a cascade that reset the billing meter survived.
+      - name: Build the database from the migrations
+        run: pnpm run migrate
+
+      # ── The suites ──────────────────────────────────────────────────────────
+      #
+      # Listed one per line rather than globbed, so adding a suite is a
+      # deliberate act and `deploy-test` can assert that none has been forgotten.
+      # Ordered cheapest first: a typo fails in seconds rather than after the
+      # renders.
+      - run: node tools/contract-test.mjs
+      - run: node tools/deploy-test.mjs
+      - run: node tools/theme-test.mjs
+      - run: node tools/policy-test.mjs
+      - run: node tools/planner-test.mjs
+      - run: node tools/account-test.mjs
+      - run: node tools/critic-test.mjs
+      - run: node tools/transcript-test.mjs
+      - run: node tools/reference-test.mjs
+      - run: node tools/billing-test.mjs
+      - run: node tools/models-test.mjs
+      - run: node tools/meter-test.mjs
+      - run: node tools/style-test.mjs
+      - run: node tools/schema-test.mjs
+      - run: node tools/queue-test.mjs
+      - run: node tools/isolation-test.mjs
+      - run: node tools/quality-test.mjs
+      - run: node tools/framing-test.mjs
+      - run: node tools/render-test.mjs
+      - run: node tools/browser-test.mjs
+      - run: node tools/worker-test.mjs
