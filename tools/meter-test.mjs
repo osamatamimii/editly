@@ -175,8 +175,19 @@ section("The refusal names the numbers rather than saying 'too long'");
 {
   const message = tooLongMessage(45 * 60, 30 * 60);
   check("it says how long the file is", /45 minutes/.test(message), message);
-  check("and what the plan takes", /up to 30/.test(message), message);
+  check("and what the plan takes", /up to 30 minutes/.test(message), message);
   check("and offers a way forward", /longer plan|shorter clip/.test(message), message);
+
+  // Everything was printed in minutes, which produced "This file is 0.2 minutes
+  // and your plan takes up to 0 in one upload" — arithmetically correct and
+  // unusable. A limit that rounds to zero reads as a bug rather than a rule.
+  const short = tooLongMessage(12, 5);
+  check("a short clip is spoken in seconds", /12 seconds/.test(short), short);
+  check("and so is a short ceiling, rather than rounding to zero", /up to 5 seconds/.test(short), short);
+  check("no limit is ever printed as 0", !/up to 0\b/.test(short), short);
+
+  check("a minute and a half crosses into minutes", /1.5 minutes/.test(tooLongMessage(90, 60)), tooLongMessage(90, 60));
+  check("and one second is singular", /1 second\b/.test(tooLongMessage(1, 1)), tooLongMessage(1, 1));
 }
 
 // ─── The guess that was placing zooms ────────────────────────────────────────
