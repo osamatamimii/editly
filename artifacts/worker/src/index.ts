@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { sql, eq, and } from "drizzle-orm";
 import pino from "pino";
-import { db, pool, jobsTable, projectsTable, type Job } from "@workspace/db";
+import { db, pool, jobsTable, projectsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
 import { EditPlan } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
 import { renderPlan, probeDuration, probeSource, FfmpegError } from "./ffmpeg";
@@ -117,6 +117,40 @@ function toJob(row: Record<string, unknown>): Job {
     priority: row["priority"] as number,
     maxAttempts: row["max_attempts"] as number,
   };
+}
+
+/**
+ * Says "I am here", so the product does not have to guess.
+ *
+ * Written as the worker polls rather than once at startup: a process that
+ * started and then wedged is indistinguishable from a healthy one if the only
+ * evidence is that it once booted. Throttled, because the poll is every few
+ * seconds and nobody needs that resolution to answer "is anything listening".
+ */
+const HEARTBEAT_EVERY_MS = 20_000;
+let lastHeartbeat = 0;
+
+async function heartbeat(now = Date.now()): Promise<void> {
+  if (now - lastHeartbeat < HEARTBEAT_EVERY_MS) return;
+  lastHeartbeat = now;
+  await db
+    .insert(workerHeartbeatsTable)
+    .values({
+      workerId: WORKER_ID,
+      // Names of models, never keys — the same two the startup line reports, so
+      // "why are my captions missing" is answerable from the product rather
+      // than from a log only one person can read.
+      transcription: providers.transcriber?.name ?? null,
+      vision: providers.sceneReader?.name ?? null,
+    })
+    .onConflictDoUpdate({
+      target: workerHeartbeatsTable.workerId,
+      set: {
+        lastSeenAt: new Date(),
+        transcription: providers.transcriber?.name ?? null,
+        vision: providers.sceneReader?.name ?? null,
+      },
+    });
 }
 
 /** Returns jobs abandoned by a dead worker to the queue. */
@@ -333,6 +367,11 @@ async function main(): Promise<void> {
 
   while (!shuttingDown) {
     try {
+      // Before anything else in the loop: a worker that is failing to claim is
+      // still a worker that is here, and the difference matters to whoever is
+      // watching a queue that is not moving.
+      await heartbeat();
+
       const requeued = await requeueStaleJobs();
       if (requeued > 0) logger.warn({ requeued }, "returned abandoned jobs to the queue");
       await failExhaustedJobs();
@@ -351,6 +390,8 @@ async function main(): Promise<void> {
   }
 
   logger.info("shutting down");
+  // Its row stays — the timestamp on it is what says when this copy went, which
+  // is more useful than a gap where a worker used to be.
   await pool.end();
 }
 
