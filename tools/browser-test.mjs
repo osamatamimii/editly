@@ -725,48 +725,114 @@ section("An object key is signed before it is played; a URL is left alone");
 
 section("Checkout cannot grant anything, and says so when it cannot open");
 {
-  const results = await run(async () => {
-    const config = { productId: "19012", publicKey: "pk_test", plans: { pro: "36845" }, currentPlan: "free" };
-    let creatorError = null;
-    try {
-      await window.CO.openCheckout(config, { plan: "creator", billingCycle: "monthly" });
-    } catch (error) {
-      creatorError = String(error.message);
-    }
+  // Freemius's script is intercepted rather than fetched. The first version of
+  // this section relied on checkout.freemius.com simply being unreachable from
+  // the sandbox it was written in — which made "an ad blocker is in the way" a
+  // fact about the network rather than a thing under test. On a CI runner the
+  // real script loaded, defined a `window.FS` that wanted jQuery, and the
+  // section failed for a reason that had nothing to do with this repository.
+  //
+  // A test whose result depends on whether a third party's CDN is reachable is
+  // not testing the code.
+  await browserPage.route("https://checkout.freemius.com/**", (route) => route.abort());
 
-    // The script is unreachable from this origin, which is exactly what an ad
-    // blocker looks like from here.
-    let proError = null;
-    try {
-      await window.CO.openCheckout(config, { plan: "pro", billingCycle: "monthly" });
-    } catch (error) {
-      proError = String(error.message);
-    }
-    let secondProError = null;
-    try {
-      await window.CO.openCheckout(config, { plan: "pro", billingCycle: "monthly" });
-    } catch (error) {
-      secondProError = String(error.message);
-    }
-    return { creatorError, proError, secondProError };
+  const blocked = await run(async () => {
+    const config = { productId: "19012", publicKey: "pk_test", plans: { pro: "36845" }, currentPlan: "free" };
+    const attempt = async (plan) => {
+      try {
+        await window.CO.openCheckout(config, { plan, billingCycle: "monthly" });
+        return null;
+      } catch (error) {
+        return String(error.message);
+      }
+    };
+    return { creator: await attempt("creator"), pro: await attempt("pro"), again: await attempt("pro") };
   });
 
   check(
-    "a plan with no id configured is refused by name",
-    /creator plan is not set up/.test(results.creatorError ?? ""),
-    results.creatorError,
+    "a plan with no id configured is refused by name, before anything is loaded",
+    /creator plan is not set up/.test(blocked.creator ?? ""),
+    blocked.creator,
   );
-  check("a checkout script that will not load is an error, not a hang", results.proError !== null, results.proError);
+  check("a checkout script that will not load is an error, not a hang", blocked.pro !== null, blocked.pro);
   check(
     "which blames the connection or a blocker, because that is what it usually is",
-    /ad blocker/.test(results.proError ?? ""),
-    results.proError,
+    /ad blocker/.test(blocked.pro ?? ""),
+    blocked.pro,
   );
   check(
     "and a second click tries again rather than remembering the failure forever",
-    results.secondProError !== null && results.secondProError === results.proError,
-    `${results.proError} / ${results.secondProError}`,
+    blocked.again !== null && blocked.again === blocked.pro,
+    `${blocked.pro} / ${blocked.again}`,
   );
+}
+
+section("And when it does open, it opens as the right person");
+{
+  // Freemius matches a payment to an account by email — it is the only
+  // identifier both sides share — so someone who pays under a different address
+  // than they signed up with lands in the "paid, but we cannot find you" case.
+  // Prefilling is what makes that a deliberate act rather than an accident, and
+  // it is invisible in any test that only checks the checkout opened.
+  await browserPage.unroute("https://checkout.freemius.com/**");
+  await browserPage.route("https://checkout.freemius.com/**", (route) =>
+    route.fulfill({
+      contentType: "application/javascript",
+      body: `window.__opened = [];
+             window.FS = {
+               Checkout: function (options) {
+                 this.constructed = options;
+                 this.open = (opened) => window.__opened.push({ constructed: options, opened });
+                 this.close = () => {};
+               },
+             };`,
+    }),
+  );
+
+  const opened = await run(async () => {
+    let purchased = 0;
+    await window.CO.openCheckout(
+      { productId: "19012", publicKey: "pk_test", plans: { pro: "36845" }, currentPlan: "free" },
+      {
+        plan: "pro",
+        billingCycle: "annual",
+        email: "osama@example.com",
+        onPurchase: () => { purchased += 1; },
+      },
+    );
+    const call = window.__opened[0];
+    // Freemius fires these in the browser when the purchase completes. They are
+    // a signal to refresh, not a grant.
+    call.opened.purchaseCompleted?.();
+    call.opened.success?.();
+    return { ...call, purchased };
+  });
+
+  check("the product and key it was configured with are used", opened.constructed.product_id === "19012" && opened.constructed.public_key === "pk_test", JSON.stringify(opened.constructed));
+  check("with the plan id for the tier being bought", opened.constructed.plan_id === "36845", JSON.stringify(opened.constructed));
+  check("the billing cycle asked for, not a default", opened.opened.billing_cycle === "annual", JSON.stringify(opened.opened));
+  check(
+    "and the email prefilled, because the webhook matches a payment by it",
+    opened.opened.user_email === "osama@example.com",
+    JSON.stringify(opened.opened),
+  );
+  check("a completed purchase tells the app to refresh", opened.purchased === 2, String(opened.purchased));
+
+  const withoutEmail = await run(async () => {
+    window.__opened = [];
+    await window.CO.openCheckout(
+      { productId: "19012", publicKey: "pk", plans: { studio: "1" }, currentPlan: "free" },
+      { plan: "studio", billingCycle: "monthly" },
+    );
+    return window.__opened[0].opened;
+  });
+  check(
+    "and no email is sent when there is none, rather than an empty one",
+    !("user_email" in withoutEmail),
+    JSON.stringify(withoutEmail),
+  );
+
+  await browserPage.unroute("https://checkout.freemius.com/**");
 }
 
 section("Sign-in buttons are shown for providers that are actually switched on");
