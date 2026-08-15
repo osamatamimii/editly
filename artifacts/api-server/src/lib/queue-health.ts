@@ -21,3 +21,26 @@ export function isUnclaimed(
   const created = new Date(job.createdAt).getTime();
   return now - created >= NO_WORKER_AFTER_MS;
 }
+
+/**
+ * How long after its last word a worker is assumed gone.
+ *
+ * Generously more than the heartbeat interval, because a worker mid-render is
+ * busy and a network hiccup is not a death. The cost of being slow to declare
+ * one dead is a minute of stale reassurance; the cost of being quick is telling
+ * somebody nothing is listening while their render is being made.
+ */
+export const WORKER_OFFLINE_AFTER_MS = 2 * 60 * 1000;
+
+export function workerOnline(
+  lastSeenAt: Date | string | null | undefined,
+  now = Date.now(),
+): boolean {
+  if (!lastSeenAt) return false;
+  const seen = new Date(lastSeenAt).getTime();
+  if (!Number.isFinite(seen)) return false;
+  // A timestamp from the future is a clock disagreement, not a live worker, but
+  // it is also not evidence of absence — treat it as present and let the next
+  // beat settle it.
+  return now - seen < WORKER_OFFLINE_AFTER_MS;
+}
