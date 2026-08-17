@@ -20,6 +20,8 @@ import { db, subscriptionsTable } from "@workspace/db";
 import { currentUserId } from "../middlewares/auth";
 import { checkoutConfig, freemiusConfigured, planFromEvent, verifySignature } from "../lib/freemius";
 import { planKeyFrom } from "../lib/plan-limits";
+import { decideApply, eventIdFor, eventTimeFrom } from "../lib/billing-ledger";
+import { createHash } from "node:crypto";
 
 /**
  * Public router: mounted outside `requireAuth`, because Freemius has no session
@@ -74,18 +76,40 @@ billingWebhookRouter.post(
       planId: (license["plan_id"] as string | number | undefined) ?? null,
     });
 
+    const type = String(payload.type ?? "");
+    const email = String(user["email"] ?? license["user_email"] ?? "").trim().toLowerCase();
+    const licenseId = license["id"] != null ? String(license["id"]) : null;
+    const eventId = eventIdFor(payload as Record<string, unknown>, raw, (input) =>
+      createHash("sha256").update(input).digest("hex"),
+    );
+    const eventAt = eventTimeFrom(objects, payload as Record<string, unknown>);
+
+    // Written down before anything is decided, and written down whatever the
+    // decision turns out to be. This table is the answer to "somebody says they
+    // paid and the product disagrees", and a row that only exists when things
+    // went well cannot answer that.
+    const seenBefore = await recordEvent({
+      eventId,
+      type,
+      email: email || null,
+      licenseId,
+      plan: decision?.plan ?? null,
+      eventAt,
+    });
+
     // An event we do not act on is still a delivered event. Answering 200 stops
     // Freemius retrying something we will never do anything with.
     if (!decision) {
-      res.status(200).json({ ok: true, ignored: String(payload.type ?? "") });
+      await closeEvent(eventId, null, "ignored");
+      res.status(200).json({ ok: true, ignored: type });
       return;
     }
 
     // Which of our users is this? Freemius knows them by the email they paid
     // with, which is the only identifier both sides share today.
-    const email = String(user["email"] ?? license["user_email"] ?? "").trim().toLowerCase();
     if (!email) {
-      req.log?.error({ type: payload.type }, "billing event carried no email, cannot map it to a user");
+      req.log?.error({ type, eventId }, "billing event carried no email, cannot map it to a user");
+      await closeEvent(eventId, null, "no-account-yet");
       res.status(200).json({ ok: true, unmapped: true });
       return;
     }
@@ -93,14 +117,43 @@ billingWebhookRouter.post(
     const userId = await userIdForEmail(email);
     if (!userId) {
       // They paid before signing up, or paid with a different address. Not an
-      // error we can fix from here, and not one to retry forever.
-      req.log?.warn({ type: payload.type }, "billing event for an email with no account yet");
+      // error we can fix from here and not one to retry forever — but no longer
+      // one we simply forget either. The row stays unclaimed, with the email on
+      // it, and `claimPaidEvents` hands it over the moment an account with that
+      // address appears. Until today this branch persisted nothing at all: the
+      // customer was charged, got the free plan, and support had no record.
+      req.log?.warn({ type, eventId }, "billing event for an email with no account yet — held for claiming");
+      await closeEvent(eventId, null, "no-account-yet");
       res.status(200).json({ ok: true, pending: true });
       return;
     }
 
-    await setPlan(userId, decision.plan);
-    req.log?.info({ userId, plan: decision.plan, reason: decision.reason }, "billing event applied");
+    const [current] = await db
+      .select()
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.userId, userId))
+      .limit(1);
+
+    const verdict = decideApply(
+      { plan: decision.plan, licenseId, eventAt, alreadySeen: seenBefore },
+      current ? { plan: current.plan, licenseId: current.licenseId, planSourceAt: current.planSourceAt } : null,
+    );
+
+    if (!verdict.apply) {
+      req.log?.warn(
+        { userId, eventId, type, outcome: verdict.outcome, wanted: decision.plan, have: current?.plan },
+        "billing event not applied",
+      );
+      await closeEvent(eventId, userId, verdict.outcome);
+      // Still 200. The event was received and understood; refusing to act on a
+      // stale one is not a failure Freemius should retry.
+      res.status(200).json({ ok: true, outcome: verdict.outcome });
+      return;
+    }
+
+    await setPlan(userId, decision.plan, licenseId, eventAt);
+    await closeEvent(eventId, userId, "applied");
+    req.log?.info({ userId, plan: decision.plan, reason: decision.reason, eventId }, "billing event applied");
     res.status(200).json({ ok: true });
   },
 );
@@ -141,14 +194,71 @@ async function userIdForEmail(email: string): Promise<string | null> {
   return rows[0]?.id ?? null;
 }
 
-async function setPlan(userId: string, plan: string): Promise<void> {
+async function setPlan(
+  userId: string,
+  plan: string,
+  licenseId: string | null,
+  eventAt: Date | null,
+): Promise<void> {
   const { pool } = await import("@workspace/db");
   // Upsert: a webhook can arrive before the person has ever loaded the app, and
   // "you paid but you have no subscription row" is not a state worth having.
+  //
+  // The licence and the timestamp travel with the plan, because they are what
+  // the *next* event is compared against. Writing the plan without them would
+  // leave the row unable to tell a retry from news, which is where this started.
   await pool.query(
-    `INSERT INTO subscriptions (user_id, plan, updated_at)
-     VALUES ($1, $2, now())
-     ON CONFLICT (user_id) DO UPDATE SET plan = EXCLUDED.plan, updated_at = now()`,
-    [userId, plan],
+    `INSERT INTO subscriptions (user_id, plan, license_id, plan_source_at, updated_at)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (user_id) DO UPDATE
+       SET plan = EXCLUDED.plan,
+           license_id = EXCLUDED.license_id,
+           plan_source_at = EXCLUDED.plan_source_at,
+           updated_at = now()`,
+    [userId, plan, licenseId, eventAt],
   );
+}
+
+/**
+ * Records the event and says whether we had already seen it.
+ *
+ * `ON CONFLICT DO NOTHING` plus a check of what came back is the whole
+ * duplicate rule: the primary key is the arbiter, so two simultaneous
+ * redeliveries cannot both decide they are the first.
+ */
+async function recordEvent(event: {
+  eventId: string;
+  type: string;
+  email: string | null;
+  licenseId: string | null;
+  plan: string | null;
+  eventAt: Date | null;
+}): Promise<boolean> {
+  const { pool } = await import("@workspace/db");
+  const { rows } = await pool.query(
+    `INSERT INTO billing_events (event_id, type, email, license_id, plan, event_at)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (event_id) DO NOTHING
+     RETURNING event_id`,
+    [event.eventId, event.type, event.email, event.licenseId, event.plan, event.eventAt],
+  );
+  return rows.length === 0;
+}
+
+/** Marks what became of an event. Never throws: bookkeeping must not fail a payment. */
+async function closeEvent(eventId: string, userId: string | null, outcome: string): Promise<void> {
+  try {
+    const { pool } = await import("@workspace/db");
+    await pool.query(
+      `UPDATE billing_events
+          SET user_id = COALESCE($2, user_id),
+              outcome = $3,
+              applied_at = CASE WHEN $3 = 'applied' THEN now() ELSE applied_at END
+        WHERE event_id = $1`,
+      [eventId, userId, outcome],
+    );
+  } catch {
+    // Deliberately silent. The plan is already written; failing the request now
+    // would make Freemius retry a payment we have already honoured.
+  }
 }

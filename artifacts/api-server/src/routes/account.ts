@@ -42,7 +42,7 @@ router.delete("/account", async (req, res): Promise<void> => {
           .where(eq(projectsTable.userId, userId))
       ).map((row) => row.id),
 
-    removeObjects: (projectId) => deleteProjectObjects(userId, projectId),
+    removeObjects: async (projectId) => (await deleteProjectObjects(userId, projectId)).removed,
 
     // This comment used to say none of these tables has a foreign key. Three of
     // them do, and one of those — jobs cascading from projects — was quietly

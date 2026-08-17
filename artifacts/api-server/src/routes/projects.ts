@@ -17,7 +17,13 @@ import { planKeyFrom, PLAN_LIMITS } from "../lib/plan-limits";
 import { usageFor, exhaustedMessage } from "../lib/usage";
 import { currentUserId } from "../middlewares/auth";
 import { deleteProjectObjects, isOwnedObjectPath } from "../lib/storage";
-import { isUnclaimed } from "../lib/queue-health";
+import { isUnattended } from "../lib/queue-health";
+import { newestWorkerSeenAt } from "../lib/worker-presence";
+import { rateLimit, LIMITS } from "../lib/rate-limit";
+
+/** Said instead of a 204 that would not be true. */
+const COULD_NOT_DELETE_STORAGE =
+  "We couldn\u2019t remove this project\u2019s video files just now, so nothing has been deleted \u2014 we won\u2019t tell you your work is gone while it is still here. Please try again shortly.";
 
 /**
  * Which of these projects are waiting on a machine that is not there?
@@ -40,7 +46,8 @@ async function stalledProjectIds(userId: string, projectIds: string[]): Promise<
     .where(and(eq(jobsTable.userId, userId), inArray(jobsTable.projectId, projectIds)));
 
   const stalled = new Set<string>();
-  for (const job of jobs) if (isUnclaimed(job)) stalled.add(job.projectId);
+  const workerLastSeenAt = await newestWorkerSeenAt();
+  for (const job of jobs) if (isUnattended(job, workerLastSeenAt)) stalled.add(job.projectId);
   return stalled;
 }
 
@@ -63,7 +70,7 @@ router.get("/projects", async (req, res): Promise<void> => {
   );
 });
 
-router.post("/projects", async (req, res): Promise<void> => {
+router.post("/projects", rateLimit(LIMITS.createProject), async (req, res): Promise<void> => {
   const userId = currentUserId(req);
 
   const parsed = CreateProjectBody.safeParse(req.body);
@@ -137,7 +144,7 @@ router.get("/projects/:id", async (req, res): Promise<void> => {
   );
 });
 
-router.patch("/projects/:id", async (req, res): Promise<void> => {
+router.patch("/projects/:id", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = UpdateProjectParams.safeParse({ id: raw });
@@ -215,18 +222,44 @@ router.delete("/projects/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  // Bytes before rows, and a refusal rather than a false confirmation.
+  //
+  // This used to delete the row first and then reclaim the storage best-effort,
+  // discarding the answer — so a deployment with no service role key, or
+  // Storage having a bad minute, returned 204 and told the customer their video
+  // was gone while every byte of it stayed on our disks with nothing left
+  // pointing at it. `account-deletion.ts` has refused in this exact situation
+  // from the start, for the reason written there: a refusal can be acted on, a
+  // false confirmation cannot. Deleting a project is the path people actually
+  // use, and it was the one that lied.
   const [project] = await db
-    .delete(projectsTable)
-    .where(
-      and(
-        eq(projectsTable.id, params.data.id),
-        eq(projectsTable.userId, userId),
-      ),
-    )
-    .returning();
+    .select({
+      id: projectsTable.id,
+      videoPath: projectsTable.videoPath,
+      editedVideoPath: projectsTable.editedVideoPath,
+      thumbnailPath: projectsTable.thumbnailPath,
+      referenceVideoPath: projectsTable.referenceVideoPath,
+    })
+    .from(projectsTable)
+    .where(and(eq(projectsTable.id, params.data.id), eq(projectsTable.userId, userId)))
+    .limit(1);
 
   if (!project) {
     res.status(404).json({ error: "Project not found" });
+    return;
+  }
+
+  // Whether this project has anything in the bucket to lose. A project that
+  // was created and never uploaded to has nothing, so refusing to delete it
+  // because the storage credentials are absent would be refusing to do
+  // something that cannot go wrong.
+  const holdsBytes = Boolean(
+    project.videoPath ?? project.editedVideoPath ?? project.thumbnailPath ?? project.referenceVideoPath,
+  );
+
+  const reclaimed = await deleteProjectObjects(userId, project.id);
+  if (!reclaimed.removed && holdsBytes) {
+    res.status(503).json({ error: COULD_NOT_DELETE_STORAGE });
     return;
   }
 
@@ -251,8 +284,9 @@ router.delete("/projects/:id", async (req, res): Promise<void> => {
   // afterwards does not un-produce them. The rows are orphaned by design and
   // are only ever read as a sum.
 
-  // The row is gone either way; reclaiming the bytes is best-effort.
-  await deleteProjectObjects(userId, project.id);
+  await db
+    .delete(projectsTable)
+    .where(and(eq(projectsTable.id, project.id), eq(projectsTable.userId, userId)));
 
   res.sendStatus(204);
 });

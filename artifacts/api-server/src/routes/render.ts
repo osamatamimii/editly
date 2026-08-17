@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { db, projectsTable, jobsTable } from "@workspace/db";
 import {
   StartRenderParams,
@@ -16,13 +16,19 @@ import { TEMPLATES, findTemplate, evenlySpacedPunches } from "../lib/templates";
 import { planKeyFrom } from "../lib/plan-limits";
 import { usageFor } from "../lib/usage";
 import { decideRender } from "../lib/render-policy";
-import { isUnclaimed } from "../lib/queue-health";
+import { isUnattended } from "../lib/queue-health";
+import { newestWorkerSeenAt } from "../lib/worker-presence";
+import { isDuplicateActiveJob, ALREADY_RENDERING } from "../lib/one-active-job";
 import { subscriptionsTable } from "@workspace/db";
+import { rateLimit, LIMITS } from "../lib/rate-limit";
 
 const router: IRouter = Router();
 
-function annotateStaleQueue(job: Record<string, unknown>): Record<string, unknown> {
-  if (!isUnclaimed(job as unknown as { status: string; createdAt: Date | string })) return job;
+function annotateStaleQueue(
+  job: Record<string, unknown>,
+  workerLastSeenAt: Date | null,
+): Record<string, unknown> {
+  if (!isUnattended(job as unknown as { status: string; createdAt: Date | string }, workerLastSeenAt)) return job;
   return {
     ...job,
     stage: "Still waiting for a render machine — nothing has picked this up yet.",
@@ -37,7 +43,7 @@ function annotateStaleQueue(job: Record<string, unknown>): Record<string, unknow
  * binary nor the lifetime to render video, and pretending otherwise is what the
  * original five-second `setTimeout` did.
  */
-router.post("/projects/:id/render", async (req, res): Promise<void> => {
+router.post("/projects/:id/render", rateLimit(LIMITS.render), async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = StartRenderParams.safeParse({ id: raw });
@@ -77,7 +83,7 @@ router.post("/projects/:id/render", async (req, res): Promise<void> => {
     .limit(1);
 
   if (pending && (pending.status === "queued" || pending.status === "running")) {
-    res.status(409).json({ error: "This project is already rendering.", jobId: pending.id });
+    res.status(409).json({ error: ALREADY_RENDERING, jobId: pending.id });
     return;
   }
 
@@ -139,25 +145,44 @@ router.post("/projects/:id/render", async (req, res): Promise<void> => {
 
   const plan = { version: 1 as const, operations: decision.operations };
 
-  const [job] = await db
-    .insert(jobsTable)
-    .values({
-      id: randomUUID(),
-      userId,
-      projectId: project.id,
-      status: "queued",
-      plan,
-      inputPath: project.videoPath,
-      // Snapshotted so that changing or clearing the reference while this sits
-      // in the queue cannot quietly alter a render already accepted.
-      referencePath: project.referenceVideoPath ?? null,
-      // The worker re-checks this against the file it actually downloads. The
-      // duration the policy layer saw came from the browser and can be a lie;
-      // this number cannot.
-      maxSourceSeconds: decision.maxSourceSeconds,
-      priority: decision.priority,
-    })
-    .returning();
+  // The SELECT above is the friendly check; this is the one that holds. Between
+  // the two there is a window in which a second click also sees "nothing
+  // pending", and what it costs is the customer's month — two encodes of one
+  // clip, both billed, one of them invisible.
+  let job: typeof jobsTable.$inferSelect;
+  try {
+    [job] = await db
+      .insert(jobsTable)
+      .values({
+        id: randomUUID(),
+        userId,
+        projectId: project.id,
+        status: "queued",
+        plan,
+        inputPath: project.videoPath,
+        // Snapshotted so that changing or clearing the reference while this sits
+        // in the queue cannot quietly alter a render already accepted.
+        referencePath: project.referenceVideoPath ?? null,
+        // The worker re-checks this against the file it actually downloads. The
+        // duration the policy layer saw came from the browser and can be a lie;
+        // this number cannot.
+        maxSourceSeconds: decision.maxSourceSeconds,
+        // And the balance, for the same reason: the ceiling survives a missing
+        // duration because the worker re-measures, and the allowance did not.
+        remainingSeconds: decision.remainingSeconds,
+        priority: decision.priority,
+      })
+      .returning();
+  } catch (error) {
+    if (!isDuplicateActiveJob(error)) throw error;
+    const [existing] = await db
+      .select({ id: jobsTable.id })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.projectId, project.id), eq(jobsTable.userId, userId), inArray(jobsTable.status, ["queued", "running"])))
+      .limit(1);
+    res.status(409).json({ error: ALREADY_RENDERING, ...(existing ? { jobId: existing.id } : {}) });
+    return;
+  }
 
   await db
     .update(projectsTable)
@@ -194,7 +219,8 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
     .orderBy(desc(jobsTable.createdAt))
     .limit(1);
 
-  res.json(GetRenderStatusResponse.parse(job ? serializeJob(annotateStaleQueue(job)) : null));
+  const workerLastSeenAt = job ? await newestWorkerSeenAt() : null;
+  res.json(GetRenderStatusResponse.parse(job ? serializeJob(annotateStaleQueue(job, workerLastSeenAt)) : null));
 });
 
 /** The named looks. Public shape, no per-user data — but still behind auth. */

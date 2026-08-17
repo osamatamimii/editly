@@ -12,6 +12,7 @@ import { serializeMessage } from "../lib/transformers";
 import { currentUserId } from "../middlewares/auth";
 import { replyFor } from "../lib/plan-from-text";
 import { createPlanner } from "../lib/planner";
+import { rateLimit, LIMITS } from "../lib/rate-limit";
 
 const router: IRouter = Router();
 
@@ -45,7 +46,7 @@ router.get("/projects/:id/messages", async (req, res): Promise<void> => {
   res.json(ListMessagesResponse.parse(messages.map(serializeMessage)));
 });
 
-router.post("/projects/:id/messages", async (req, res): Promise<void> => {
+router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = SendMessageParams.safeParse({ id: raw });

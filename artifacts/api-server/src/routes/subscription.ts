@@ -4,7 +4,8 @@ import { db, subscriptionsTable, projectsTable } from "@workspace/db";
 import { GetSubscriptionResponse, UpdateSubscriptionBody, UpdateSubscriptionResponse } from "@workspace/api-zod";
 import { DEFAULT_PLAN, PLAN_LIMITS, planKeyFrom, type PlanKey } from "../lib/plan-limits";
 import { usageFor } from "../lib/usage";
-import { currentUserId } from "../middlewares/auth";
+import { currentUserId, currentUserEmail } from "../middlewares/auth";
+import { claimPaidEvents } from "../lib/claim-paid-events";
 
 const router: IRouter = Router();
 
@@ -47,7 +48,13 @@ async function getOrCreateSubscription(userId: string) {
     .where(eq(subscriptionsTable.userId, userId))
     .limit(1);
 
-  return row;
+  // Losing the race *and* the re-read is not a state that should exist — the
+  // row is either there or we just made it — but `row` is typed as possibly
+  // undefined and every caller reads `.plan` off it, so the impossible case was
+  // a TypeError and a bare 500 on the endpoint that tells somebody what they
+  // are paying for. Answer with the default rather than crashing: it is the
+  // plan a brand new account has anyway.
+  return row ?? { userId, plan: DEFAULT_PLAN, licenseId: null, planSourceAt: null, createdAt: new Date(), updatedAt: new Date() };
 }
 
 async function buildUsageResponse(userId: string, plan: string) {
@@ -70,7 +77,16 @@ async function buildUsageResponse(userId: string, plan: string) {
 router.get("/subscription", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const sub = await getOrCreateSubscription(userId);
-  const usage = await buildUsageResponse(userId, sub.plan);
+
+  // If somebody paid before this account existed — or paid with the address on
+  // this token while signed up under it — the event has been sitting in
+  // `billing_events` unclaimed. This is the moment it can be handed over, and
+  // it is the moment they are most likely to be looking for it. Never throws:
+  // a failure here leaves them on the plan they had and is retried on the next
+  // read.
+  const plan = await claimPaidEvents(userId, currentUserEmail(req), sub.plan);
+
+  const usage = await buildUsageResponse(userId, plan);
   res.json(GetSubscriptionResponse.parse(usage));
 });
 

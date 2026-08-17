@@ -4,7 +4,7 @@ import { db, projectsTable, jobsTable, workerHeartbeatsTable } from "@workspace/
 import { GetDashboardStatsResponse } from "@workspace/api-zod";
 import { serializeProject } from "../lib/transformers";
 import { currentUserId } from "../middlewares/auth";
-import { isUnclaimed, workerOnline } from "../lib/queue-health";
+import { isUnattended, workerOnline } from "../lib/queue-health";
 
 const router: IRouter = Router();
 
@@ -32,8 +32,21 @@ router.get("/stats/dashboard", async (req, res): Promise<void> => {
     .from(jobsTable)
     .where(eq(jobsTable.userId, userId));
 
+  // Read before the queue is judged, because it is what the judgement turns on:
+  // a queue behind a working machine is a queue, and only a queue behind no
+  // machine at all is stalled.
+  const [newest] = await db
+    .select({
+      lastSeenAt: workerHeartbeatsTable.lastSeenAt,
+      transcription: workerHeartbeatsTable.transcription,
+      vision: workerHeartbeatsTable.vision,
+    })
+    .from(workerHeartbeatsTable)
+    .orderBy(desc(workerHeartbeatsTable.lastSeenAt))
+    .limit(1);
+
   const stalled = new Set<string>();
-  for (const job of jobs) if (isUnclaimed(job)) stalled.add(job.projectId);
+  for (const job of jobs) if (isUnattended(job, newest?.lastSeenAt)) stalled.add(job.projectId);
 
   // "Currently processing: 2" beside two cards reading "waiting for a machine"
   // is the counter contradicting the cards. A render nobody has picked up is
@@ -50,16 +63,6 @@ router.get("/stats/dashboard", async (req, res): Promise<void> => {
   //
   // The worker's id is deliberately not returned: it carries a hostname, and
   // nobody outside needs it to know the answer.
-  const [newest] = await db
-    .select({
-      lastSeenAt: workerHeartbeatsTable.lastSeenAt,
-      transcription: workerHeartbeatsTable.transcription,
-      vision: workerHeartbeatsTable.vision,
-    })
-    .from(workerHeartbeatsTable)
-    .orderBy(desc(workerHeartbeatsTable.lastSeenAt))
-    .limit(1);
-
   const worker = {
     online: workerOnline(newest?.lastSeenAt),
     lastSeenAt: newest?.lastSeenAt ? new Date(newest.lastSeenAt).toISOString() : null,

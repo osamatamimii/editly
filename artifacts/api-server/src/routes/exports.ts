@@ -13,6 +13,8 @@ import { planKeyFrom } from "../lib/plan-limits";
 import { usageFor } from "../lib/usage";
 import { decideRender } from "../lib/render-policy";
 import { currentUserId } from "../middlewares/auth";
+import { isDuplicateActiveJob, ALREADY_RENDERING } from "../lib/one-active-job";
+import { rateLimit, LIMITS } from "../lib/rate-limit";
 
 const router: IRouter = Router();
 
@@ -60,7 +62,7 @@ function exportStatusFor(job: Job | undefined): "pending" | "processing" | "done
   return job.status === "done" ? "done" : "failed";
 }
 
-router.post("/projects/:id/export", async (req, res): Promise<void> => {
+router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = StartExportParams.safeParse({ id: raw });
@@ -98,7 +100,7 @@ router.post("/projects/:id/export", async (req, res): Promise<void> => {
     .limit(1);
 
   if (latest && (latest.status === "queued" || latest.status === "running")) {
-    res.status(409).json({ error: "This project is already rendering.", jobId: latest.id });
+    res.status(409).json({ error: ALREADY_RENDERING, jobId: latest.id });
     return;
   }
 
@@ -131,31 +133,55 @@ router.post("/projects/:id/export", async (req, res): Promise<void> => {
   const operations = decision.operations;
 
   const jobId = randomUUID();
-  await db.insert(jobsTable).values({
-    id: jobId,
-    userId,
-    projectId: project.id,
-    status: "queued",
-    plan: { version: 1, operations },
-    inputPath: project.videoPath,
-    referencePath: project.referenceVideoPath ?? null,
-    // Enforced for real by the worker, which has the file. See render.ts.
-    maxSourceSeconds: decision.maxSourceSeconds,
-    priority: decision.priority,
-  });
 
-  const [exportJob] = await db
-    .insert(exportsTable)
-    .values({
-      id: randomUUID(),
-      userId,
-      projectId: project.id,
-      jobId,
-      status: "processing",
-      platform: parsed.data.platform,
-      steps: stepsForJob(undefined),
-    })
-    .returning();
+  // Both rows or neither.
+  //
+  // These were two independent inserts in the order that loses: the job first,
+  // the export row that reports on it second. If the second failed — a pool
+  // with three connections and a burst is enough — the caller got a bare 500
+  // while the job was already in the queue. The worker rendered it, the
+  // customer's minutes were spent, and `GET /export/status` answered
+  // "No export found for this project" forever afterwards: a 404 for something
+  // that did happen and was paid for.
+  let exportJob;
+  try {
+    exportJob = await db.transaction(async (tx) => {
+      await tx.insert(jobsTable).values({
+        id: jobId,
+        userId,
+        projectId: project.id,
+        status: "queued",
+        plan: { version: 1, operations },
+        inputPath: project.videoPath as string,
+        referencePath: project.referenceVideoPath ?? null,
+        // Enforced for real by the worker, which has the file. See render.ts.
+        maxSourceSeconds: decision.maxSourceSeconds,
+        // And the balance, for the same reason: the ceiling survives a missing
+        // duration because the worker re-measures, and the allowance did not.
+        remainingSeconds: decision.remainingSeconds,
+        priority: decision.priority,
+      });
+
+      const [row] = await tx
+        .insert(exportsTable)
+        .values({
+          id: randomUUID(),
+          userId,
+          projectId: project.id,
+          jobId,
+          status: "processing",
+          platform: parsed.data.platform,
+          steps: stepsForJob(undefined),
+        })
+        .returning();
+      return row;
+    });
+  } catch (error) {
+    // The same race the SELECT above cannot close, answered the same way.
+    if (!isDuplicateActiveJob(error)) throw error;
+    res.status(409).json({ error: ALREADY_RENDERING });
+    return;
+  }
 
   await db
     .update(projectsTable)
