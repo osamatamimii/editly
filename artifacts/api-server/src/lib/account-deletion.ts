@@ -28,8 +28,18 @@ export interface DeletionSteps {
   storageConfigured: boolean;
   /** Project ids owned by this user. */
   listProjects: () => Promise<string[]>;
-  /** Remove every stored object for one project. Best effort by contract. */
-  removeObjects: (projectId: string) => Promise<void>;
+  /**
+   * Remove every stored object for one project. Returns false when it could
+   * not be done.
+   *
+   * This used to be `Promise<void>` and described as best effort — which
+   * quietly suspended rule one for the step rule one is about. A Storage
+   * outage during the loop below removed nothing, said nothing, and the rows
+   * that name those objects were deleted immediately afterwards, so the
+   * person's videos stayed on our disks with nothing left pointing at them and
+   * the response said "deleted".
+   */
+  removeObjects: (projectId: string) => Promise<boolean>;
   /** Remove every database row this user owns. */
   removeRows: () => Promise<void>;
   /** Remove the login. Returns false when it could not be done. */
@@ -48,6 +58,9 @@ export type DeletionResult =
       loginRemoved: boolean;
       note?: string;
     };
+
+export const STORAGE_FAILED_MESSAGE =
+  "We couldn't remove your videos from storage just now, so nothing has been deleted — we won't tell you your account is gone while your files are still here. Please try again shortly.";
 
 export const NOT_CONFIGURED_MESSAGE =
   "We can't delete accounts right now — the storage credentials this needs aren't configured, and we won't tell you your videos are gone while they're still here. Please try again shortly.";
@@ -70,7 +83,12 @@ export async function deleteAccount(steps: DeletionSteps): Promise<DeletionResul
   // Bytes before rows. See the note at the top of this file: reversing these
   // two turns a deletion into an orphaning.
   for (const projectId of projects) {
-    await steps.removeObjects(projectId);
+    const removed = await steps.removeObjects(projectId);
+    // Stop at the first one that would not go. Carrying on and deleting the
+    // rows anyway is the half-delete this whole module exists to refuse, and
+    // the fact that some projects were removed first does not make it less of
+    // one — it makes the account harder to finish deleting later.
+    if (!removed) return { deleted: false, status: 503, error: STORAGE_FAILED_MESSAGE };
   }
 
   await steps.removeRows();

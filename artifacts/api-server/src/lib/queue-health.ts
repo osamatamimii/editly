@@ -23,6 +23,30 @@ export function isUnclaimed(
 }
 
 /**
+ * The same question, asked with the one piece of evidence that settles it.
+ *
+ * `isUnclaimed` knows only how old an unclaimed row is, which is a guess — and
+ * a guess that is wrong in exactly the situation the product is built for. One
+ * worker busy on a Pro customer's ninety-minute render means every job queued
+ * behind it crosses five minutes, and each one gets told "nothing has picked
+ * this up yet" while a machine is very much running and will reach it shortly.
+ * That is the inversion the file header says this module exists to prevent,
+ * committed by the module itself.
+ *
+ * A worker that beat recently is proof. Given proof, age means "your turn is
+ * coming", which the queue position already says better. Only in the absence of
+ * proof does age get to speak.
+ */
+export function isUnattended(
+  job: { status: string; createdAt: Date | string; lockedAt?: Date | string | null },
+  workerLastSeenAt: Date | string | null | undefined,
+  now = Date.now(),
+): boolean {
+  if (workerOnline(workerLastSeenAt, now)) return false;
+  return isUnclaimed(job, now);
+}
+
+/**
  * How long after its last word a worker is assumed gone.
  *
  * Generously more than the heartbeat interval, because a worker mid-render is

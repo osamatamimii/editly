@@ -58,6 +58,17 @@ export interface PolicyApproval {
    */
   maxSourceSeconds: number;
   /**
+   * What was left of the month's allowance when this decision was made, in
+   * seconds, to be written onto the job.
+   *
+   * The "would exceed" refusal above is only reachable when a source length was
+   * supplied, and it comes from the browser, which is allowed to omit it — so
+   * the one guard that stops us paying for an encode nobody can be charged for
+   * is skipped precisely when the browser stays quiet. Carrying the balance
+   * forward lets the worker apply it to the length it measured itself.
+   */
+  remainingSeconds: number;
+  /**
    * Where this job sits in the queue. Higher is claimed first.
    *
    * Written onto the job rather than looked up when a worker claims one: the
@@ -199,6 +210,7 @@ export function decideRender(input: PolicyInput): PolicyResult {
     operations,
     corrections,
     maxSourceSeconds: limits.maxUploadMinutes * 60,
+    remainingSeconds: input.usage.minutesRemaining * 60,
     // Two bands, not four. Priority is worth having as "paid work goes first"
     // and worth nothing as a ladder between paying customers — a Studio
     // subscriber jumping a Pro one buys us nothing and costs the Pro one the
