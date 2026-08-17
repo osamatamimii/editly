@@ -52,3 +52,15 @@ ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
 CREATE OR REPLACE FUNCTION storage.foldername(name text) RETURNS text[]
   LANGUAGE sql IMMUTABLE AS $$ SELECT string_to_array(name, '/') $$;
+
+-- `auth.users`, because one query in the API reads it directly.
+--
+-- The billing webhook maps a payment to an account by the address it was paid
+-- with, and Supabase owns the identity table — so `billing.ts` runs one narrow
+-- `select id from auth.users where lower(email) = $1`. Without a table of that
+-- name every webhook check here would fail on a missing relation rather than on
+-- anything about billing. Two columns is all that query touches.
+CREATE TABLE IF NOT EXISTS auth.users (
+  id    uuid PRIMARY KEY,
+  email text
+);
