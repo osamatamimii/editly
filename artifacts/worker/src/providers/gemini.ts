@@ -31,6 +31,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { SceneRead, SceneReadOptions, SceneReader } from "./types";
+import { withDeadline } from "./deadline";
 
 const API_ROOT = "https://generativelanguage.googleapis.com";
 const DEFAULT_MODEL = "gemini-flash-lite-latest";
@@ -104,7 +105,7 @@ const INSTRUCTION = [
 
 export function createGeminiSceneReader(options: GeminiOptions): SceneReader {
   const model = options.model ?? DEFAULT_MODEL;
-  const doFetch = options.fetchImpl ?? fetch;
+  const doFetch = withDeadline(options.fetchImpl ?? fetch);
 
   return {
     name: `gemini/${model}`,

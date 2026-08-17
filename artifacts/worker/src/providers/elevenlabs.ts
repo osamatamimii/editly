@@ -24,6 +24,7 @@ import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { extractSpeechAudio } from "./deepgram";
 import type { Transcriber, Transcript, TranscribeOptions, TranscriptSegment, TranscriptWord } from "./types";
+import { withDeadline } from "./deadline";
 
 const ENDPOINT = "https://api.elevenlabs.io/v1/speech-to-text";
 const DEFAULT_MODEL = "scribe_v1";
@@ -43,7 +44,7 @@ export interface ElevenLabsOptions {
 
 export function createElevenLabsTranscriber(options: ElevenLabsOptions): Transcriber {
   const model = options.model ?? DEFAULT_MODEL;
-  const doFetch = options.fetchImpl ?? fetch;
+  const doFetch = withDeadline(options.fetchImpl ?? fetch);
 
   return {
     name: `elevenlabs/${model}`,

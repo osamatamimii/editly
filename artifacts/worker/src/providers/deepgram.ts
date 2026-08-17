@@ -25,6 +25,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Transcriber, Transcript, TranscribeOptions, TranscriptSegment, TranscriptWord } from "./types";
+import { withDeadline } from "./deadline";
 
 const ENDPOINT = "https://api.deepgram.com/v1/listen";
 const DEFAULT_MODEL = "nova-3";
@@ -41,7 +42,7 @@ export interface DeepgramOptions {
 
 export function createDeepgramTranscriber(options: DeepgramOptions): Transcriber {
   const model = options.model ?? DEFAULT_MODEL;
-  const doFetch = options.fetchImpl ?? fetch;
+  const doFetch = withDeadline(options.fetchImpl ?? fetch);
 
   return {
     name: `deepgram/${model}`,
