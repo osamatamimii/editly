@@ -68,6 +68,13 @@ export function loadState<T>(query: Loadable<T>, isEmpty?: (data: T) => boolean)
 export const isFailed = (state: LoadState): boolean => state === "failed";
 
 /**
+ * A 404 from the client, for callers that need to act on it before `loadState`
+ * turns it into a word — a query that should not retry a "this has never
+ * existed" answer four times on every visit, for instance.
+ */
+export const isNotFound = (error: unknown): boolean => statusOf(error) === 404;
+
+/**
  * What the screen says when it could not read something.
  *
  * Deliberately not "Something went wrong": the person needs to know their work

@@ -34,7 +34,14 @@ export async function enabledProviders(): Promise<Set<OAuthProvider>> {
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
   try {
     const res = await fetch(`${url}/auth/v1/settings`, { headers: { apikey: key } });
-    if (!res.ok) return new Set();
+    // A 500 or a 429 from this endpoint says nothing about which providers are
+    // configured — it is exactly as uninformative as the network error handled
+    // below, and it used to be treated as the opposite. An empty Set hides the
+    // buttons, and hiding them is not a neutral act: somebody who created their
+    // account with "Continue with Google" has no password, so a login page with
+    // only an email form tells them their account is gone. Showing a button
+    // that might be off costs one honest error message on click.
+    if (!res.ok) return new Set(["google", "apple"] as const);
     const settings = (await res.json()) as { external?: Record<string, boolean> };
     return new Set((["google", "apple"] as const).filter((p) => settings.external?.[p]));
   } catch {
