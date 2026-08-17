@@ -48,13 +48,36 @@ const PARTICLES = Array.from({ length: 30 }, (_, i) => ({
   drift:   ((i * 23) % 60) - 30,
 }));
 
+/**
+ * The ladder, at module scope so nothing on this page can compare against a
+ * plan before the plan has been read. See `planKnown` below.
+ */
+const RANK = { free: 0, creator: 1, pro: 2, studio: 3 } as const;
+
 export default function Home() {
   const sectionsRef = useScrollReveal();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { data: subscription } = useGetSubscription({
+  const subscriptionQuery = useGetSubscription({
     query: { queryKey: getGetSubscriptionQueryKey() }
   });
+  const { data: subscription } = subscriptionQuery;
+  /**
+   * Whether we actually know what plan this person is on.
+   *
+   * `subscription?.plan ?? "free"` was written in three places on this page,
+   * and on the one screen where the negative fact costs the customer money.
+   * For the few hundred milliseconds before the query resolves — and for the
+   * whole of an outage, and for anyone whose token has just rotated — a Pro
+   * subscriber saw three cards reading "Get Creator", "Get Pro", "Get Studio"
+   * with no Current Plan marker anywhere. Clicking the plan they already pay
+   * for opened a Freemius checkout for it, because the downgrade test compares
+   * against "free" too.
+   *
+   * So the page says nothing about somebody's plan until it has been told.
+   */
+  const planKnown = subscriptionQuery.data !== undefined;
+  const currentPlan = (subscription?.plan ?? "free") as keyof typeof RANK;
   const updateSubscription = useUpdateSubscription();
 
   const [isYearly, setIsYearly] = useState(false);
@@ -112,10 +135,11 @@ export default function Home() {
    * upgrade opens Freemius, and the plan changes when the signed webhook
    * arrives, which is the only evidence that exists.
    */
-  const RANK = { free: 0, creator: 1, pro: 2, studio: 3 } as const;
-
   const handleSelectPlan = async (plan: "creator" | "pro" | "studio") => {
-    const current = (subscription?.plan ?? "free") as keyof typeof RANK;
+    // Nothing is decided from a plan we have not read. The buttons are disabled
+    // until then, so this is belt and braces rather than a live path.
+    if (!planKnown) return;
+    const current = currentPlan;
 
     if (RANK[plan] < RANK[current]) {
       updateSubscription.mutate(
@@ -685,10 +709,9 @@ export default function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
           {PLANS.map((plan, i) => {
-            const isCurrent = subscription?.plan === plan.key;
+            const isCurrent = planKnown && subscription?.plan === plan.key;
             const isPro = "popular" in plan && plan.popular;
-            const isDowngrade =
-              RANK[plan.key] < RANK[(subscription?.plan ?? "free") as keyof typeof RANK];
+            const isDowngrade = planKnown && RANK[plan.key] < RANK[currentPlan];
             return (
               <div
                 key={plan.key}
@@ -763,7 +786,7 @@ export default function Home() {
                   ) : (
                     <button
                       onClick={() => handleSelectPlan(plan.key)}
-                      disabled={updateSubscription.isPending || checkoutFor !== null}
+                      disabled={!planKnown || updateSubscription.isPending || checkoutFor !== null}
                       data-testid={`button-plan-${plan.key}`}
                       className={`w-full rounded-full py-3 px-6 font-semibold text-sm transition-all duration-300 ${
                         isPro
@@ -771,7 +794,9 @@ export default function Home() {
                           : "bg-surface-1 border border-hairline hover:bg-surface-2 hover:border-hairline-strong hover:shadow-[0_0_20px_rgba(108,59,255,0.12)]"
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
-                      {checkoutFor === plan.key
+                      {!planKnown
+                        ? "Checking your plan…"
+                        : checkoutFor === plan.key
                         ? "Opening checkout…"
                         : isDowngrade
                         ? updateSubscription.isPending

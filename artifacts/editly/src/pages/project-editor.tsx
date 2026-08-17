@@ -29,6 +29,7 @@ import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { loadState } from "@/lib/load-state";
+import { playbackVerdict, PLAYBACK_POLL_MS } from "@/lib/playability";
 import { LoadFailed } from "@/components/load-failed";
 import { supabase } from "@/lib/supabase";
 import {
@@ -70,6 +71,17 @@ export default function ProjectEditor() {
   const [uploadedBytes, setUploadedBytes] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  /**
+   * Which half of the upload is running.
+   *
+   * "sending" is bytes on the wire. "finishing" is everything after they have
+   * landed — reading the clip's length and grabbing a poster frame, both
+   * best-effort and both with timeouts measured in tens of seconds. The screen
+   * used to say "Uploading Video…" through all of it, so a bar reading
+   * "100% · 252 KB of 252 KB" sat under a heading claiming the transfer was
+   * still going. The file was already stored; only the trimmings were pending.
+   */
+  const [uploadPhase, setUploadPhase] = useState<"sending" | "finishing">("sending");
   const cancelUploadRef = useRef<(() => void) | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isNoahThinking, setIsNoahThinking] = useState(false);
@@ -120,6 +132,34 @@ export default function ProjectEditor() {
   // The worker is the source of truth for what is happening to this video.
   const { data: renderJob } = useRenderStatus(id, { enabled: !!id });
   const isProcessingEdit = isRenderInFlight(renderJob);
+
+  /**
+   * The render settled, so the project row is now out of date. Refetch it.
+   *
+   * Without this the page rewards the person who stays and watches, with the
+   * worse experience. The bar reaches 100%, the progress block disappears, and
+   * Noah posts "Here's what I did" with the worker's notes — while the cached
+   * project is still the copy fetched before the render started. So
+   * `editedVideoPath` is null, the player is still pointed at the *original*
+   * upload, the header pill still says `processing`, and the "AI Edited" badge
+   * never arrives. They press play, watch their raw take with every um still in
+   * it under a message claiming the silences were cut, and report that the edit
+   * did nothing. Anyone who walked away and came back saw the right thing,
+   * because react-query refetches on window focus.
+   *
+   * `export.tsx` has done this from the start, with a comment saying exactly
+   * why. This is the same two lines on the screen people actually use.
+   */
+  const settledJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    const status = renderJob?.status;
+    if (status !== "done" && status !== "failed") return;
+    const key = `${renderJob?.id ?? id}:${status}`;
+    if (settledJobRef.current === key) return;
+    settledJobRef.current = key;
+    queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
+    queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(id) });
+  }, [renderJob?.id, renderJob?.status, id, queryClient]);
 
   // The bucket is private, so playback needs a freshly signed URL.
   const { url: playbackUrl } = usePlayableVideo(
@@ -266,17 +306,26 @@ export default function ProjectEditor() {
   // A new URL deserves a fresh attempt. A stalled load also has to be caught:
   // a browser that cannot decode a file often never fires `error`, it simply
   // sits in NETWORK_LOADING forever, which on screen is just a black rectangle.
+  //
+  // But it is asked repeatedly rather than once, and the answer is allowed to
+  // go back to "fine". The single fifteen-second timer this replaces told the
+  // owner of a perfectly good file that it would not play — while the element
+  // was still loading it, with no error — and nothing could ever undo that.
   useEffect(() => {
     setPlaybackFailed(false);
     setDecodedAspect(null);
     setCurrentTime(0);
     if (!playbackUrl) return;
-    const STALL_MS = 15_000;
-    const timer = setTimeout(() => {
-      const el = videoRef.current;
-      if (el && el.readyState === 0) setPlaybackFailed(true);
-    }, STALL_MS);
-    return () => clearTimeout(timer);
+    const startedAt = Date.now();
+    const tick = () => {
+      const verdict = playbackVerdict(videoRef.current, Date.now() - startedAt);
+      if (verdict === "pending") return;
+      setPlaybackFailed(verdict === "failed");
+      clearInterval(timer);
+    };
+    const timer = setInterval(tick, PLAYBACK_POLL_MS);
+    tick();
+    return () => clearInterval(timer);
   }, [playbackUrl]);
 
   useEffect(() => {
@@ -317,6 +366,7 @@ export default function ProjectEditor() {
     }
 
     setIsUploading(true);
+    setUploadPhase("sending");
     setUploadProgress(0);
     setUploadedBytes(0);
     setTotalBytes(file.size);
@@ -343,6 +393,10 @@ export default function ProjectEditor() {
 
     try {
       const videoPath = await handle.done;
+      // The bytes are committed from here on. Nothing below can lose the file,
+      // so nothing below may keep saying it is being uploaded.
+      cancelUploadRef.current = null;
+      setUploadPhase("finishing");
       const [videoFacts, posterBlob] = await Promise.all([facts, poster]);
 
       let thumbnailPath: string | undefined;
@@ -839,13 +893,21 @@ export default function ProjectEditor() {
                 {isUploading ? (
                   <div className="flex flex-col items-center w-full max-w-sm">
                     <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
-                    <h3 className="text-xl font-semibold mb-2">Uploading Video...</h3>
+                    <h3 className="text-xl font-semibold mb-2" data-testid="text-upload-heading">
+                      {uploadPhase === "finishing" ? "Finishing up..." : "Uploading Video..."}
+                    </h3>
                     <div className="w-full h-2 bg-surface-2 rounded-full overflow-hidden mb-2">
                       <div className="h-full bg-primary transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
                     </div>
-                    <p className="text-sm text-muted-foreground" data-testid="text-upload-progress">
-                      {uploadProgress}%{totalBytes > 0 && ` · ${formatBytes(uploadedBytes)} of ${formatBytes(totalBytes)}`}
-                    </p>
+                    {uploadPhase === "finishing" ? (
+                      <p className="text-sm text-muted-foreground" data-testid="text-upload-progress">
+                        Your video is stored. Reading its length and taking a poster frame.
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground" data-testid="text-upload-progress">
+                        {uploadProgress}%{totalBytes > 0 && ` · ${formatBytes(uploadedBytes)} of ${formatBytes(totalBytes)}`}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div 
@@ -910,6 +972,9 @@ export default function ProjectEditor() {
                       preload="metadata"
                       onLoadedMetadata={(e) => {
                         const el = e.currentTarget;
+                        // There is a picture. Whatever we decided while it was
+                        // arriving is now wrong, so take it back.
+                        setPlaybackFailed(false);
                         if (el.videoWidth && el.videoHeight) setDecodedAspect(el.videoWidth / el.videoHeight);
                         if (Number.isFinite(el.duration)) setPlayerDuration(el.duration);
                       }}

@@ -15,7 +15,7 @@ import { ChevronLeft, Download, Smartphone, PlaySquare, CheckCircle2, Loader2, A
 import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { usePlayableVideo } from "@/lib/video-storage";
-import { loadState } from "@/lib/load-state";
+import { loadState, isNotFound } from "@/lib/load-state";
 import { LoadFailed } from "@/components/load-failed";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -37,16 +37,29 @@ export default function ExportPage() {
   const projectState = loadState(projectQuery);
 
   // The bucket is private, so playback and download need a signed URL.
-  const { url: playbackUrl } = usePlayableVideo(
+  const { url: playbackUrl, isResolving: playbackResolving } = usePlayableVideo(
     project?.editedVideoPath ?? project?.videoPath ?? project?.editedVideoUrl ?? project?.videoUrl,
   );
 
   const hasVideo = Boolean(project?.videoPath ?? project?.videoUrl);
 
-  const { data: exportStatus } = useGetExportStatus(id, {
-    query: { 
-      enabled: isExporting,
+  // Asked for on every visit, not only while this tab happens to have started
+  // one.
+  //
+  // `isExporting` is a local boolean that resets on every mount, and it used to
+  // gate this query — so reloading the page, or stepping back to the editor and
+  // returning, made a render that was genuinely running invisible. The server
+  // has the row the whole time. What the person saw instead was the platform
+  // picker and a live "Render & Export" button; clicking it hit the server's
+  // 409 guard, which this screen has no branch for, so they were told the
+  // export failed to start while it was in fact running.
+  const exportQuery = useGetExportStatus(id, {
+    query: {
+      enabled: !!id,
       queryKey: getGetExportStatusQueryKey(id),
+      // A project that has never been exported answers 404, which is an answer
+      // rather than a fault. Retrying it four times on every visit is noise.
+      retry: (count, error) => (isNotFound(error) ? false : count < 2),
       refetchInterval: (query) => {
         // Stop polling if done or failed
         if (query.state.data?.status === 'done' || query.state.data?.status === 'failed') {
@@ -56,13 +69,21 @@ export default function ExportPage() {
       }
     }
   });
+  const { data: exportStatus } = exportQuery;
+  const exportState = loadState(exportQuery);
+
+  // A render this page did not start is still a render this page must show.
+  const isRunning = isExporting || exportStatus?.status === 'pending';
 
   // The finished file, signed from the key this export reported — not from the
   // project. `project` is a cached copy fetched before this export existed, so
   // its `editedVideoPath` is still null when the export finishes, and the
   // preview fell through to `videoPath`: the original upload, offered for
   // download under a card saying the edit was ready.
-  const { url: exportedUrl } = usePlayableVideo(exportStatus?.outputPath ?? null);
+  const { url: exportedUrl, isResolving: exportedResolving } = usePlayableVideo(exportStatus?.outputPath ?? null);
+
+  /** A URL that is being minted is not a video that is missing. */
+  const isSigning = playbackResolving || exportedResolving;
 
   const startExport = useStartExport();
 
@@ -98,10 +119,34 @@ export default function ExportPage() {
       });
       // Start polling
       queryClient.invalidateQueries({ queryKey: getGetExportStatusQueryKey(id) });
-    } catch (error) {
+    } catch (error: unknown) {
+      const status = (error as { status?: number })?.status;
+      const said = (error as { data?: { error?: string } })?.data?.error;
+
+      // A 409 means one is already running — which is not a failure to start,
+      // it is the answer to "has one started". Telling somebody their export
+      // could not be started while it is being rendered is the worst of the
+      // four possible sentences here, and it was the one this screen always
+      // said. Keep the running state and let the poll show it.
+      if (status === 409) {
+        setIsExporting(true);
+        queryClient.invalidateQueries({ queryKey: getGetExportStatusQueryKey(id) });
+        toast({ title: "Already rendering", description: "This project has a render in progress." });
+        return;
+      }
+
       setIsExporting(false);
+      // 429 and 413 are policy, not breakage: the server has already written a
+      // sentence naming the minutes or the length. Show it rather than an
+      // apology that says nothing. Same rule as the editor.
       toast({
-        title: "Could not start export",
+        title:
+          status === 429
+            ? "Not enough minutes left"
+            : status === 413
+              ? "That file is too long for this plan"
+              : "Could not start export",
+        description: said,
         variant: "destructive"
       });
     }
@@ -132,7 +177,17 @@ export default function ExportPage() {
 
   if (projectState === "missing" || !project) return <div className="p-12 text-center">Project not found</div>;
 
-  const currentStatus = isExporting ? exportStatus?.status : (exportStatus?.status === 'done' ? 'done' : 'idle');
+  // Four states, not two. "We have not asked" and "we asked and could not
+  // read it" are no longer collapsed into "idle", which is what made a running
+  // export look like one that had never been started.
+  const currentStatus =
+    exportState === "loading" && !exportStatus
+      ? 'loading'
+      : isRunning
+        ? (exportStatus?.status ?? 'pending')
+        : exportStatus?.status === 'done'
+          ? 'done'
+          : 'idle';
 
   return (
     <div className="w-full max-w-6xl mx-auto px-6 py-12 min-h-screen">
@@ -156,6 +211,23 @@ export default function ExportPage() {
                 loop
                 muted
               />
+            ) : isSigning ? (
+              // Signing a private object takes a round trip. Saying "no video"
+              // during it — under a red alert icon, beside an enabled Render
+              // button — tells someone with 40 MB sitting in storage that their
+              // upload was lost, on every single visit.
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground p-6 text-center">
+                <Loader2 className="w-8 h-8 mb-2 animate-spin" />
+                <p>Loading your video…</p>
+              </div>
+            ) : hasVideo ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground p-6 text-center">
+                <AlertCircle className="w-8 h-8 mb-2" />
+                <p>We could not load the preview</p>
+                <p className="text-xs mt-1 opacity-70">
+                  Your video is stored safely — this is a problem on our side, and exporting still works.
+                </p>
+              </div>
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground p-6 text-center">
                 <AlertCircle className="w-8 h-8 mb-2" />
@@ -182,6 +254,21 @@ export default function ExportPage() {
             <h1 className="text-4xl font-bold tracking-tight mb-2 glow-text">Export Project</h1>
             <p className="text-xl text-muted-foreground">{project.title}</p>
           </div>
+
+          {currentStatus === 'loading' && (
+            <Card className="glass-panel border-hairline">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-3">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  Checking for a render in progress
+                </CardTitle>
+                <CardDescription>
+                  One moment — offering to start an export while one is already running is how you
+                  end up being told it failed.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          )}
 
           {currentStatus === 'idle' && (
             <>
@@ -243,7 +330,7 @@ export default function ExportPage() {
             </>
           )}
 
-          {isExporting && (
+          {currentStatus === 'pending' && (
             <Card className="glass-panel border-primary/30 shadow-[0_0_30px_rgba(108,59,255,0.15)] relative overflow-hidden">
               <div className="absolute top-0 left-0 h-1 bg-primary animate-pulse w-full"></div>
               <CardHeader>
@@ -252,7 +339,7 @@ export default function ExportPage() {
                   Rendering Video
                 </CardTitle>
                 <CardDescription>
-                  Applying final AI touches and formatting for {platform}.
+                  Applying final AI touches and formatting for {exportStatus?.platform ?? platform}.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
