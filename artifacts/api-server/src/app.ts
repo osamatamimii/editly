@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { bodyParsers } from "./lib/body-parsers";
 import { logger } from "./lib/logger";
+import { errorHandler } from "./lib/error-handler";
 
 const app: Express = express();
 
@@ -71,5 +72,10 @@ app.use(
 for (const parser of bodyParsers()) app.use(parser);
 
 app.use("/api", router);
+
+// Last, and after the routes, because that is how Express finds it. Without one
+// mounted, every throw fell through to Express's default handler: HTML, which
+// the generated client cannot parse, carrying a stack outside production.
+app.use(errorHandler);
 
 export default app;
