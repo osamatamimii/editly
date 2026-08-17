@@ -19,13 +19,27 @@ Upload a raw take, say what you want in plain language ("cut the dead air and ma
 ## Tests
 
 ```bash
-# 94 checks that one user cannot see or touch another's data, against the real
-# auth middleware. Needs a local Postgres built by `pnpm run migrate` — built
-# any other way it is a different database from production, which is how a
-# cascade that reset the meter passed here for weeks.
+# 162 checks that one user cannot see or touch another's data — or spend their
+# money — against the real auth middleware. Storage keys are whitelisted
+# rather than blacklisted, because
+# `%2e%2e/%2e%2e/` contains no dots for a `..` check to find and the URL parser
+# resolves it into somebody else's folder before the request leaves the worker —
+# which holds the service role key. Deleting a project refuses rather than
+# reporting success it cannot back up. The billing path is driven end to end
+# against the real route — a payment, its stale retry, its redelivery, and a
+# payment for an account that does not exist yet being claimed when it does —
+# and every unhandled failure is checked for what it leaks, since until recently
+# there was no error middleware at all and Express's default handler answers in
+# HTML carrying a stack. And the rate limiter, which had no equivalent at all:
+# the plan quota caps minutes of finished video and caps nothing else, so the
+# chat that turns a sentence into an edit plan — a paid model call producing no
+# minutes — was unlimited, on the free plan, to anybody with a loop. Needs a
+# local Postgres built by `pnpm run migrate` — built any other way it is a
+# different database from production, which is how a cascade that reset the
+# meter passed here for weeks.
 node tools/isolation-test.mjs
 
-# 50 checks that run the worker itself — the loop that ties every tested piece
+# 58 checks that run the worker itself — the loop that ties every tested piece
 # together, and the one thing here that had never once been executed. The built
 # bundle, as a real process, against a real Postgres, real ffmpeg and an HTTP
 # server standing in for Storage: it claims a job, renders it, uploads the file,
@@ -41,16 +55,20 @@ node tools/worker-test.mjs
 # into it, and it has to carry what the suites need.
 node tools/deploy-test.mjs
 
-# 51 checks on the job queue against a real Postgres: ten workers over five
+# 71 checks on the job queue against a real Postgres: ten workers over five
 # jobs, a worker that dies mid-render, and the order people were promised. None
 # of this can be checked by reading the code — two workers claiming one row
 # produces no error at all, just a render that happens twice and is billed
-# twice. The last section is the half the queue cannot answer on its own: when
-# nothing is queued, an empty queue and a dead worker are the same picture.
-# Needs the same local Postgres.
+# twice, which is also what a double-clicked Export button used to do until a
+# partial unique index started holding the invariant both routes only checked.
+# A lock is renewed while a render runs, so a ninety-minute file on the tier
+# that sells ninety-minute files is no longer requeued at thirty and failed at
+# ninety while two workers are still encoding it. And a queue behind a busy
+# machine is a queue: "nothing has picked this up" is now said only when
+# nothing has. Needs the same local Postgres.
 node tools/queue-test.mjs
 
-# 62 checks on the ffmpeg pipeline — they inspect the output, not the exit code.
+# 67 checks on the ffmpeg pipeline — they inspect the output, not the exit code.
 # Needs ffmpeg and ffprobe on PATH.
 node tools/render-test.mjs
 
@@ -61,19 +79,28 @@ node tools/render-test.mjs
 # their shoulder. This is the suite that stops quality drifting quietly.
 node tools/quality-test.mjs
 
-# 61 checks on the model layer — the requests we send, the shapes we expect
-# back, and what happens with no keys at all. No keys and no network needed.
+# 78 checks on the model layer — the requests we send, the shapes we expect
+# back, and what happens with no keys at all. Also that every request carries a
+# deadline, because Node's fetch has none and a socket that is accepted and
+# never answered takes a whole render machine out of service; and that a
+# provider's own error body never becomes the sentence a customer reads about
+# their video. No keys and no network needed.
 node tools/models-test.mjs
 
 # 25 checks that a reference clip's look is measured, not guessed: fast cuts
 # against slow, breathy against tight, graded against flat.
 node tools/style-test.mjs
 
-# 33 checks that nobody can forge a payment: an unsigned webhook, a real
-# signature on a tampered body, a refund that must drop access to free, and a
-# retried event that must not compound. The last section drives a real HTTP
-# request through the real middleware, because a body parser upstream would
-# make every genuine payment fail while every other check here still passed.
+# 62 checks that nobody can forge a payment — and that nobody loses one. An
+# unsigned webhook, a real signature on a tampered body, a refund that must drop
+# access to free. Then the quieter half: a cancellation for the *superseded*
+# licence of an upgrade, redelivered after the new one landed, used to write
+# free over Pro and there was no way back, because target-state writes are
+# idempotent and idempotence is not order-independence. And a payment made with
+# an address that has no account used to be answered 200 with nothing written
+# down at all. One section drives a real HTTP request through the real
+# middleware, because a body parser upstream would make every genuine payment
+# fail while every other check here still passed.
 node tools/billing-test.mjs
 
 # 44 checks that the pricing page promises what the server enforces. The tiers
@@ -94,7 +121,7 @@ node tools/planner-test.mjs
 # text-on-surface pair clears WCAG AA — measured from the real stylesheet.
 node tools/theme-test.mjs
 
-# 62 checks that nobody gets a render they did not pay for: a request that
+# 68 checks that nobody gets a render they did not pay for: a request that
 # omits the watermark, one that sends an unreadable watermark instead, one
 # padded to twelve operations so there is no room for ours, and a four-hour
 # file on a ten-minute plan. No keys, no network, no database.
@@ -121,23 +148,32 @@ node tools/reference-test.mjs
 # face in the output.
 node tools/framing-test.mjs
 
-# 70 checks written from the position of someone who wants the render for
+# 83 checks written from the position of someone who wants the render for
 # nothing: make the probe fail, send no duration, claim a four-hour file is one
 # second long. The last 17 run the real month-to-date query against Postgres.
 node tools/meter-test.mjs
 
-# 30 checks that deleting an account is never partial and reported as complete,
+# 36 checks that deleting an account is never partial and reported as complete,
 # and that the bytes go before the rows that name them.
 node tools/account-test.mjs
 
-# 91 checks on the code that runs on a phone, in a real Chromium against a real
+# 145 checks on the code that runs on a phone, in a real Chromium against a real
 # HTTP server that speaks tus and misbehaves the way networks do: an upload the
 # server has forgotten, an offset that is not where the client thought it was, a
 # connection dropped mid-chunk. The poster checks decode a clip whose first
-# second is black, because that is the file that code exists for. The last two
-# sections are about the other half of the August outage: "you have nothing" and
-# "we could not read your things" are different sentences, and no screen here
-# could tell them apart. Needs ffmpeg.
+# second is black, because that is the file that code exists for. Two sections
+# are about the other half of the August outage: "you have nothing" and "we
+# could not read your things" are different sentences, and no screen here could
+# tell them apart, and the same mistake inside the player: a file that is still
+# arriving was declared unplayable by a timer that could never take it back, and
+# a spinner said "uploading" for half a minute after the bytes had landed. The
+# last four are the same shape again on the screens where it costs the most: a
+# pricing page that read an unanswered query as "you are on the free plan" and
+# offered a paying customer a checkout for the plan they already had, a sign-in
+# page that hid the Google button when Supabase returned a 500, an editor that
+# left the original upload on screen under a message saying the silences were
+# cut, and an export screen that showed the platform picker over a render that
+# was already running. Needs ffmpeg.
 node tools/browser-test.mjs
 
 # 42 checks that the OpenAPI file above still describes this API. It reads the
@@ -149,8 +185,11 @@ node tools/browser-test.mjs
 # has installed, which had already drifted.
 node tools/contract-test.mjs
 
-# 49 checks that the database can be rebuilt from this repository and that one
-# which is behind says so. It creates an empty Postgres, runs every migration
+# 52 checks that the database can be rebuilt from this repository, that one
+# which is behind says so, and that every table in the public schema has
+# row-level security — the ledger this very tool creates was reachable with the
+# key in the browser bundle, which is the sort of thing a rule catches and a
+# person does not. It creates an empty Postgres, runs every migration
 # into it, and diffs the result against what the code declares — columns *and*
 # constraints, because `jobs.project_id` once carried ON DELETE CASCADE and
 # deleting a project refunded the minutes it had produced. Then it puts a
