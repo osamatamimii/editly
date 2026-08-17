@@ -29,6 +29,15 @@ declare global {
     interface Request {
       /** Present on every request that passed `requireAuth`. */
       userId?: string;
+      /**
+       * The address on the token, when Supabase put one there.
+       *
+       * Read rather than looked up because it is already in the token we just
+       * verified, and the one thing that needs it — matching a payment made
+       * with this address before the account existed — would otherwise mean a
+       * query into `auth.users` on every subscription read.
+       */
+      userEmail?: string;
     }
   }
 }
@@ -74,6 +83,9 @@ export const requireAuth: RequestHandler = async (
     }
 
     req.userId = payload.sub;
+    if (typeof payload["email"] === "string" && payload["email"]) {
+      req.userEmail = payload["email"].trim().toLowerCase();
+    }
     next();
   } catch {
     // Deliberately opaque: distinguishing "expired" from "bad signature" from
@@ -87,6 +99,11 @@ export const requireAuth: RequestHandler = async (
  * `requireAuth`. Throwing here means a route was mounted without the
  * middleware — a programming error, not a client error.
  */
+/** The verified address, or null when the token carried none. */
+export function currentUserEmail(req: Request): string | null {
+  return req.userEmail ?? null;
+}
+
 export function currentUserId(req: Request): string {
   const userId = req.userId;
 
