@@ -80,6 +80,10 @@ section("Every variable the worker reads is one the deploy actually sets");
   // ffmpeg and which the container has on PATH.
   const notSecrets = new Set([
     "NODE_ENV", "LOG_LEVEL", "POLL_INTERVAL_MS", "STALE_LOCK_MINUTES",
+    // How long a provider gets to answer before the request is abandoned. A
+    // knob, not a credential: the default exists so that a hung socket cannot
+    // hold a render machine forever, and nobody has to set it for that.
+    "PROVIDER_TIMEOUT_MS",
     "GEMINI_MEDIA_RESOLUTION", "TMPDIR",
     "DEEPGRAM_MODEL", "ELEVENLABS_MODEL", "GEMINI_MODEL",
     "FFMPEG_PATH", "FFPROBE_PATH", "PYTHON_PATH", "SUBJECT_SCRIPT",

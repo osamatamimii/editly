@@ -512,6 +512,50 @@ console.log("\nDegenerate input");
   check("it still produces a playable file", (await probeSource(output)).duration > 3, "");
 }
 
+console.log("\nWhen ffmpeg refuses, it says why");
+{
+  // What the customer used to read on every failed render was `ffmpeg exited 1`
+  // — a binary name and a number. The message was built as
+  // `${bin} exited ${code}\n<the last ten lines of stderr>`, and everything
+  // downstream that needs one sentence takes the first line. So the complaint
+  // was carried all the way to the job row and then thrown away one character
+  // before anybody could read it, and the comment above it said ffmpeg's
+  // complaints were "specific enough to be worth showing".
+  const dir = await scratch();
+  const missing = path.join(dir, "does-not-exist.mp4");
+
+  let thrown = null;
+  try {
+    await probeSource(missing);
+  } catch (error) {
+    thrown = error;
+  }
+
+  check("a file ffmpeg cannot read is an error, not a silent zero", thrown !== null, "it resolved");
+
+  const firstLine = String(thrown?.message ?? "").split("\n")[0];
+  check(
+    "the first line is ffmpeg's own complaint, because that is the line anything downstream takes",
+    /No such file|Invalid data|does-not-exist/i.test(firstLine),
+    firstLine,
+  );
+  check(
+    "not the exit code, which is what it used to be",
+    !/^ffprobe exited/.test(firstLine) && !/^ffmpeg exited/.test(firstLine),
+    firstLine,
+  );
+  check(
+    "the exit code is still there, one line down, for whoever wants it",
+    /exited \d+/.test(String(thrown?.message ?? "")),
+    String(thrown?.message ?? "").slice(0, 200),
+  );
+  check(
+    "and it is one sentence rather than a wall — this reaches a person",
+    firstLine.length < 300,
+    String(firstLine.length),
+  );
+}
+
 await rm(workDir, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });
 

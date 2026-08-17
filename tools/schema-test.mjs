@@ -87,6 +87,16 @@ const health = await import(pathToFileURL(outfile).href);
 
 // ─── What the code says it needs ─────────────────────────────────────────────
 
+/** One short-lived pool, for a question that needs its own connection. */
+async function pool2(url, fn) {
+  const p = attach(new Pool({ connectionString: url, max: 1 }));
+  try {
+    return await fn(p);
+  } finally {
+    await p.end();
+  }
+}
+
 section("The expected columns are read from the schema, not from a list");
 {
   const expected = health.expectedColumns();
@@ -336,25 +346,38 @@ section("A database in the state production was actually in");
     behind.missingColumns?.includes("jobs.output_seconds"),
     JSON.stringify(behind.missingColumns),
   );
+  // Derived rather than listed. The first version of this check spelled the
+  // eight names out, and the ninth migration to add a column broke it — which
+  // is a test failing because the product grew, not because anything is wrong.
+  // What is actually worth asserting is the relationship: everything a
+  // migration after 0005 adds is named, and nothing else is.
+  const laterAdditions = readdirSync(path.join(repoRoot, "lib/db/migrations"))
+    .filter((f) => f.endsWith(".sql") && !/^000[0-5]_/.test(f))
+    .sort()
+    .flatMap((f) => {
+      const sql = fs.readFileSync(path.join(repoRoot, "lib/db/migrations", f), "utf8");
+      return [
+        ...sql.matchAll(
+          /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?/gi,
+        ),
+      ].map((m) => `${m[1].toLowerCase()}.${m[2].toLowerCase()}`);
+    });
+  // Only columns on tables that existed by 0005 can go missing this way — a
+  // migration that creates a whole new table takes its columns with it, and the
+  // health check compares tables it can see.
+  const expected = [...new Set(laterAdditions)]
+    .filter((name) => ["projects.", "jobs.", "messages.", "exports.", "subscriptions."].some((t) => name.startsWith(t)))
+    .sort();
+
   check(
-    "and every other column the five unapplied migrations were going to add",
-    JSON.stringify(behind.missingColumns) ===
-      JSON.stringify([
-        "jobs.max_source_seconds",
-        "jobs.notes",
-        "jobs.output_seconds",
-        "jobs.output_seconds_source",
-        "jobs.priority",
-        "jobs.reference_path",
-        "jobs.source_seconds",
-        "projects.reference_video_path",
-      ]),
-    JSON.stringify(behind.missingColumns),
+    "and every other column the later migrations were going to add",
+    JSON.stringify(behind.missingColumns) === JSON.stringify(expected),
+    `saw ${JSON.stringify(behind.missingColumns)} / expected ${JSON.stringify(expected)}`,
   );
   check(
-    "eight names, which is the whole outage in one line",
-    behind.missingColumns?.length === 8,
-    String(behind.missingColumns?.length),
+    "which is the whole outage in one line, and nothing that was already there",
+    behind.missingColumns?.length === expected.length && expected.length >= 8,
+    `${behind.missingColumns?.length} vs ${expected.length}`,
   );
 
   // And running the migrations fixes it, which is the sentence the health
@@ -451,6 +474,40 @@ section("The rules the schema itself enforces");
       column,
     );
   }
+  // Every table in `public` is served by PostgREST with the anon key that ships
+  // in the browser bundle. The four that hold customer data have had row-level
+  // security from the day they were created — and then `schema_migrations` was
+  // added, by the tool written to fix a schema problem, without it. Supabase's
+  // linter found it, which is lucky; the rule belongs here, where a fifth table
+  // added next year meets it before anybody ships.
+  const tables = await pool2(scratchUrl, async (p) =>
+    (
+      await p.query(`
+        SELECT c.relname AS name, c.relrowsecurity AS rls
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public' AND c.relkind = 'r'
+         ORDER BY c.relname`)
+    ).rows,
+  );
+
+  check("there are tables to check at all", tables.length >= 5, JSON.stringify(tables.map((t) => t.name)));
+
+  const unprotected = tables.filter((t) => !t.rls).map((t) => t.name);
+  check(
+    "every table in the public schema has row-level security enabled",
+    unprotected.length === 0,
+    unprotected.join(", "),
+  );
+
+  // Named on its own, because it is the one that was wrong and the one whose
+  // correct state is easiest to argue away: "it's only filenames".
+  check(
+    "including the migration ledger, which is reachable with the key in the browser bundle",
+    tables.find((t) => t.name === "schema_migrations")?.rls === true,
+    JSON.stringify(tables.find((t) => t.name === "schema_migrations")),
+  );
+
   await pool.end();
 }
 

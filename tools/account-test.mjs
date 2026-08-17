@@ -75,6 +75,7 @@ function recorder(over = {}) {
       },
       removeObjects: async (id) => {
         log.push(`objects:${id}`);
+        return true;
       },
       removeRows: async () => {
         log.push("rows");
@@ -199,6 +200,39 @@ section("A storage failure stops the deletion before anything irreversible");
 }
 
 await rm(buildDir, { recursive: true, force: true });
+
+console.log("\nStorage that answers but will not delete is a refusal too");
+{
+  // The contract used to be `Promise<void>`, described as best effort — which
+  // quietly suspended the first rule for the one step the first rule is about.
+  // A Storage outage during the loop removed nothing, said nothing, and the
+  // rows that name those objects were deleted immediately afterwards. The
+  // person's videos stayed on our disks with nothing left pointing at them,
+  // and the response said "deleted".
+  const { log, steps } = recorder({
+    removeObjects: async (id) => {
+      log.push(`objects:${id}`);
+      return id === "p2" ? false : true;
+    },
+  });
+
+  const result = await deleteAccount(steps);
+
+  check("the deletion is refused", result.deleted === false, JSON.stringify(result));
+  check("with a status that means try again, not a fault of theirs", result.status === 503, String(result.status));
+  check(
+    "and a message that says nothing was deleted",
+    /nothing has been deleted/i.test(result.error ?? ""),
+    result.error,
+  );
+  check("the rows are untouched", !log.includes("rows"), JSON.stringify(log));
+  check("and so is the login", !log.includes("login"), JSON.stringify(log));
+  check(
+    "it stops at the one that would not go rather than carrying on",
+    !log.includes("objects:p3"),
+    JSON.stringify(log),
+  );
+}
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {

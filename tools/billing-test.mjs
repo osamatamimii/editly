@@ -18,7 +18,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHmac } from "node:crypto";
+import { createHmac, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
@@ -27,6 +27,8 @@ const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
 const buildDir = await mkdtemp(path.join(tmpdir(), "editly-billing-build-"));
 const outfile = path.join(buildDir, "freemius.mjs");
+const ledgerOut = path.join(buildDir, "billing-ledger.mjs");
+const claimOut = path.join(buildDir, "claim-paid-events.mjs");
 
 const SECRET = "test-secret-not-a-real-key";
 const PLAN_MAP = "9001:creator,9002:pro,9003:studio";
@@ -50,8 +52,36 @@ if (built.status !== 0) {
   process.exit(1);
 }
 
+for (const [entry, out] of [
+  ["artifacts/api-server/src/lib/billing-ledger.ts", ledgerOut],
+  ["artifacts/api-server/src/lib/claim-paid-events.ts", claimOut],
+]) {
+  const made = spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+    [
+      path.join(repoRoot, entry),
+      "--bundle", "--platform=node", "--format=esm", "--target=node22",
+      // The claim module reaches for the database driver at call time only; the
+      // pure rule above it is what is under test here.
+      // The database driver and the logger are reached for at call time; the
+      // pure rules above them are what is under test here, and bundling either
+      // would drag a connection pool into a suite that needs no database.
+      "--external:@workspace/db",
+      `--alias:pino=${path.join(repoRoot, "tools/fixtures/pino-stub.mjs")}`,
+      `--outfile=${out}`, "--log-level=error",
+    ],
+    { stdio: "inherit" },
+  );
+  if (made.status !== 0) {
+    console.error(`could not bundle ${entry}`);
+    process.exit(1);
+  }
+}
+
 const { verifySignature, planFromEvent, checkoutConfig, freemiusConfigured } =
   await import(pathToFileURL(outfile).href);
+const { decideApply, eventIdFor, eventTimeFrom } = await import(pathToFileURL(ledgerOut).href);
+const { claimable } = await import(pathToFileURL(claimOut).href);
 
 let checks = 0;
 let failures = 0;
@@ -161,6 +191,155 @@ console.log("\nArriving twice, and out of order");
     planFromEvent({ type: "payment.refund", planId: 9003 })?.plan === "free",
     "",
   );
+}
+
+console.log("\nA retry that lost a race is not news");
+{
+  // The bug this is about, in order:
+  //
+  //   1. A customer upgrades Creator → Pro.
+  //   2. Freemius emits `license.created` (Pro) and `license.cancelled` for the
+  //      superseded Creator licence.
+  //   3. Our first delivery of the cancellation fails — any transient blip.
+  //   4. Freemius retries it after the Pro event has landed.
+  //   5. A blind upsert writes free over Pro.
+  //
+  // They are charged $29 a month and see the free plan's watermark, and
+  // `PATCH /subscription` refuses upgrades by design, so nothing in the product
+  // can put it back. `planFromEvent` is not at fault — its answers are target
+  // states, which is idempotent. Idempotence is not order-independence.
+  const now = new Date("2026-08-15T12:00:00Z");
+  const earlier = new Date("2026-08-15T11:00:00Z");
+
+  const onPro = { plan: "pro", licenseId: "L-PRO", planSourceAt: now };
+
+  const staleCancellation = decideApply(
+    { plan: "free", licenseId: "L-CREATOR", eventAt: earlier },
+    onPro,
+  );
+  check("a cancellation older than the plan it would undo is refused", staleCancellation.apply === false);
+  check("and named as stale rather than as an error", staleCancellation.outcome === "stale", staleCancellation.outcome);
+
+  // The same event with no timestamp at all still has the licence to go on.
+  const supersededLicence = decideApply({ plan: "free", licenseId: "L-CREATOR", eventAt: null }, onPro);
+  check(
+    "so is one for a licence that is not the one granting this plan",
+    supersededLicence.apply === false && supersededLicence.outcome === "superseded-licence",
+    JSON.stringify(supersededLicence),
+  );
+
+  // The refusals must be narrow. Every one of them has to let a real
+  // cancellation through, or we have built a product nobody can leave.
+  const realCancellation = decideApply({ plan: "free", licenseId: "L-PRO", eventAt: now }, onPro);
+  check("a cancellation of the live licence still applies", realCancellation.apply === true, JSON.stringify(realCancellation));
+
+  const laterCancellation = decideApply(
+    { plan: "free", licenseId: "L-OTHER", eventAt: new Date("2026-09-01T00:00:00Z") },
+    { plan: "pro", licenseId: null, planSourceAt: now },
+  );
+  check(
+    "and so does one where we never recorded which licence granted the plan",
+    laterCancellation.apply === true,
+    JSON.stringify(laterCancellation),
+  );
+
+  const noTimestamps = decideApply({ plan: "free", licenseId: null, eventAt: null }, { plan: "pro", licenseId: null, planSourceAt: null });
+  check(
+    "an event we cannot order is applied, because dropping real payments is the worse failure",
+    noTimestamps.apply === true,
+    JSON.stringify(noTimestamps),
+  );
+
+  // Upgrades are never refused on licence identity — a new licence has a new
+  // id by definition, so the rule is deliberately one-directional.
+  const upgrade = decideApply({ plan: "pro", licenseId: "L-NEW", eventAt: now }, { plan: "creator", licenseId: "L-OLD", planSourceAt: earlier });
+  check("an upgrade carrying a new licence id is applied", upgrade.apply === true, JSON.stringify(upgrade));
+
+  const olderUpgrade = decideApply({ plan: "studio", licenseId: "L-X", eventAt: earlier }, { plan: "pro", licenseId: "L-PRO", planSourceAt: now });
+  check(
+    "but an upgrade older than the current state is still stale — the rule is about order, not direction",
+    olderUpgrade.apply === false && olderUpgrade.outcome === "stale",
+    JSON.stringify(olderUpgrade),
+  );
+
+  const duplicate = decideApply({ plan: "pro", licenseId: "L-PRO", eventAt: now, alreadySeen: true }, onPro);
+  check("an event we have already recorded does nothing a second time", duplicate.apply === false);
+  check("and says which it was", duplicate.outcome === "duplicate", duplicate.outcome);
+
+  const first = decideApply({ plan: "pro", licenseId: "L-PRO", eventAt: now }, null);
+  check("a first payment for an account with no subscription row applies", first.apply === true, JSON.stringify(first));
+
+  const notAboutAccess = decideApply({ plan: null, eventAt: now }, onPro);
+  check("an event that is not about access changes nothing", notAboutAccess.apply === false && notAboutAccess.outcome === "ignored");
+}
+
+console.log("\nEvery event is remembered by something");
+{
+  const sha = (input) => createHash("sha256").update(input).digest("hex");
+
+  const withId = eventIdFor({ id: 4815162342 }, "body", sha);
+  check("Freemius's own id is used when they send one", withId === "fs_4815162342", withId);
+  check(
+    "including when it is nested where some of their shapes put it",
+    eventIdFor({ data: { id: "abc" } }, "body", sha) === "fs_abc",
+  );
+
+  // An event with no id would otherwise be exempt from the duplicate rule —
+  // which is the one case where being exempt matters, since a redelivery is
+  // exactly what the rule exists for.
+  const a = eventIdFor({}, "the same bytes", sha);
+  const b = eventIdFor({}, "the same bytes", sha);
+  const c = eventIdFor({}, "different bytes", sha);
+  check("an event with no id is remembered by its own bytes", a === b, `${a} vs ${b}`);
+  check("and two different events are not confused for each other", a !== c);
+  check("the derived id is marked as derived", a.startsWith("sha_"), a);
+}
+
+console.log("\nWhen Freemius says it happened");
+{
+  // Their timestamps have no zone and are UTC by their documentation. `new
+  // Date` parses that as *local* time, so on a machine set to anything but UTC
+  // every ordering comparison would be shifted by the offset — which would make
+  // the stale rule above either fire on live events or miss stale ones,
+  // depending on which side of UTC the machine sits.
+  const read = eventTimeFrom({ license: { updated: "2026-08-15 14:02:11" } }, {});
+  check("a zoneless Freemius timestamp is read as UTC", read?.toISOString() === "2026-08-15T14:02:11.000Z", String(read));
+
+  check(
+    "the payload's own timestamp wins over the licence's",
+    eventTimeFrom({ license: { updated: "2020-01-01 00:00:00" } }, { created: "2026-08-15 14:02:11" })?.toISOString() ===
+      "2026-08-15T14:02:11.000Z",
+  );
+  check(
+    "an ISO timestamp is left alone",
+    eventTimeFrom({}, { created: "2026-08-15T14:02:11.000Z" })?.toISOString() === "2026-08-15T14:02:11.000Z",
+  );
+  check("and nothing at all is null, not now()", eventTimeFrom({}, {}) === null);
+  check("as is a value that is not a date", eventTimeFrom({}, { created: "soon" }) === null);
+}
+
+console.log("\nA payment that arrived before its owner did");
+{
+  // Paying with a different address than you signed up with is the commonest
+  // billing ticket there is. It used to be answered 200 with nothing written
+  // down: the customer was charged, got the free plan, and support had no
+  // record to reconcile from beyond a log line that deliberately excluded the
+  // address.
+  const older = { eventId: "e1", plan: "creator", licenseId: "L1", eventAt: "2026-07-01T00:00:00Z" };
+  const newer = { eventId: "e2", plan: "pro", licenseId: "L2", eventAt: "2026-08-01T00:00:00Z" };
+
+  check("a waiting payment is handed over", claimable([newer], "free")?.eventId === "e2");
+  check("the newest of several wins", claimable([older, newer], "free")?.eventId === "e2");
+  check("whatever order they are read in", claimable([newer, older], "free")?.eventId === "e2");
+
+  // Never a downgrade. An unmatched event is by definition one nobody could act
+  // on at the time, and applying a stale one now — to somebody who has since
+  // been granted a plan properly — would take away access nobody asked us to.
+  const cancellation = { eventId: "e3", plan: "free", licenseId: "L1", eventAt: "2026-08-02T00:00:00Z" };
+  check("a pending cancellation never downgrades anybody", claimable([cancellation], "pro") === null);
+  check("nor does a pending plan below the one they already have", claimable([older], "pro") === null);
+  check("and an equal plan is not re-applied", claimable([newer], "pro") === null);
+  check("nothing waiting means nothing happens", claimable([], "free") === null);
 }
 
 console.log("\nWhat leaves the server");

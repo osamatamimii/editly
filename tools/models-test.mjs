@@ -433,6 +433,126 @@ console.log("\nFilling in what only the video knows");
   }
 }
 
+console.log("\nA provider's own words do not become the customer's explanation");
+{
+  const enrich = await import(bundle("artifacts/worker/src/enrich.ts", "enrich-redaction.mjs"));
+
+  // These notes are persisted on the job row and returned verbatim to the
+  // browser, and `index.ts` promotes notes[0] into the render's entire failure
+  // message when a plan ends up empty. The providers throw
+  // "<provider> <status>: <their response body>", so what a customer read about
+  // their own video was:
+  //
+  //   speech recognition failed (deepgram 401: {"err_code":"INVALID_AUTH",
+  //   "err_msg":"Project does not have access to this feature"}), so this
+  //   render has no captions
+  //
+  // `providers/index.ts` says plainly that provider detail never reaches a job
+  // record. Who failed and how are what make the note honest; their JSON is
+  // ours to read in a log.
+  const raw = 'deepgram 401: {"err_code":"INVALID_AUTH","err_msg":"Project does not have access to this feature","request_id":"abc-123"}';
+  const failing = {
+    transcriber: { name: "stub", transcribe: async () => { throw new Error(raw); } },
+    sceneReader: null,
+    status: { transcription: null, vision: null },
+  };
+  const plan = {
+    version: 1,
+    operations: [
+      { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+      { type: "autoCaptions", style: "bold-white", animation: "pop", dropFillers: true },
+    ],
+  };
+  const out = await enrich.enrichPlan("unused.mp4", plan, { providers: failing });
+  const note = out.notes.join(" ");
+
+  check("the note still says who failed", /deepgram/.test(note), note);
+  check("and with what", /401/.test(note), note);
+  check("and what it cost the render", /no captions/.test(note), note);
+  check("but not their error code", !/INVALID_AUTH/.test(note), note);
+  check("nor their prose", !/does not have access/.test(note), note);
+  check("nor a request id that identifies our account to whoever reads it", !/abc-123/.test(note), note);
+  check("nor any of their JSON at all", !/[{}]/.test(note), note);
+
+  // A message that is not shaped like a provider status is left alone, because
+  // truncating everything to nothing would be its own kind of unhelpful.
+  const plain = {
+    transcriber: { name: "stub", transcribe: async () => { throw new Error("no response within 300s"); } },
+    sceneReader: null,
+    status: { transcription: null, vision: null },
+  };
+  const timedOut = await enrich.enrichPlan("unused.mp4", plan, { providers: plain });
+  check(
+    "a plain message survives, because it says something",
+    /no response within 300s/.test(timedOut.notes.join(" ")),
+    JSON.stringify(timedOut.notes),
+  );
+}
+
+console.log("\nEvery request to somebody else's server has a deadline");
+{
+  const deadline = await import(bundle("artifacts/worker/src/providers/deadline.ts", "deadline.mjs"));
+
+  check("there is a limit at all", Number.isFinite(deadline.PROVIDER_TIMEOUT_MS) && deadline.PROVIDER_TIMEOUT_MS > 0, String(deadline.PROVIDER_TIMEOUT_MS));
+  check(
+    "long enough for a real upload on a bad link",
+    deadline.PROVIDER_TIMEOUT_MS >= 60_000,
+    String(deadline.PROVIDER_TIMEOUT_MS),
+  );
+
+  // Node's fetch has no default timeout, so a socket that is accepted and never
+  // answered waits forever — inside processJob. The job stays running, the
+  // worker never returns to its loop, and one silent socket takes a whole
+  // render machine out of service until the stale-lock sweeper requeues the job
+  // and it all happens again.
+  const hangs = () => new Promise(() => {});
+  const wrapped = deadline.withDeadline(hangs, 150);
+  const started = Date.now();
+  let message = null;
+  try {
+    await wrapped("https://example.invalid/x");
+  } catch (error) {
+    message = error.message;
+  }
+  check("a request nobody answers is abandoned rather than awaited forever", message !== null, "it resolved");
+  check("promptly", Date.now() - started < 3000, `${Date.now() - started}ms`);
+  check(
+    "and says what timed out rather than raising a bare TimeoutError",
+    /no response within/.test(message ?? ""),
+    message,
+  );
+
+  // The caller's own signal still wins, so cancelling a job stays instant
+  // rather than waiting out the deadline.
+  const controller = new AbortController();
+  const slow = (_input, init) =>
+    new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(new Error("aborted by caller")));
+    });
+  const cancellable = deadline.withDeadline(slow, 60_000);
+  const inFlight = cancellable("https://example.invalid/x", { signal: controller.signal });
+  controller.abort();
+  let cancelled = null;
+  try {
+    await inFlight;
+  } catch (error) {
+    cancelled = error.message;
+  }
+  check("a caller that cancels does not wait out the deadline", cancelled !== null, "it did not reject");
+
+  // And it is applied where it has to be: at the one place each provider's
+  // traffic goes through, so a new call site cannot forget it.
+  const { readFileSync } = await import("node:fs");
+  for (const name of ["deepgram", "elevenlabs", "gemini"]) {
+    const src = readFileSync(`artifacts/worker/src/providers/${name}.ts`, "utf8");
+    check(
+      `${name} sends every request through it`,
+      /const doFetch = withDeadline\(options\.fetchImpl \?\? fetch\)/.test(src),
+      "doFetch is not wrapped",
+    );
+  }
+}
+
 await rm(workDir, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });
 

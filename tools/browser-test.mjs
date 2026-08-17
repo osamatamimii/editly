@@ -93,12 +93,14 @@ await writeFile(
    import * as checkout from "${repoRoot}/artifacts/editly/src/lib/checkout";
    import * as oauth from "${repoRoot}/artifacts/editly/src/lib/oauth";
    import * as load from "${repoRoot}/artifacts/editly/src/lib/load-state";
+   import * as play from "${repoRoot}/artifacts/editly/src/lib/playability";
    import { createElement } from "react";
    import { createRoot } from "react-dom/client";
    (window as any).VS = storage;
    (window as any).CO = checkout;
    (window as any).OA = oauth;
    (window as any).LS = load;
+   (window as any).PB = play;
    (window as any).React = { createElement, createRoot };
   `,
 );
@@ -203,6 +205,21 @@ const server = http.createServer(async (req, res) => {
     return res.writeHead(200, { "content-type": "text/javascript" }).end(readFileSync(bundle));
   if (p === "/fixture.webm")
     return res.writeHead(200, { "content-type": "video/webm" }).end(readFileSync(fixture));
+
+  // A file that really cannot be decoded: the right content type, the wrong
+  // bytes entirely. This is what the "will not play" notice exists for.
+  if (p === "/nonsense.mp4")
+    return res
+      .writeHead(200, { "content-type": "video/mp4" })
+      .end(Buffer.from("this is not a video, it is a sentence about one"));
+
+  // A request that is answered by nobody, ever. The element sits in
+  // NETWORK_LOADING with readyState 0 and no error — which is the exact state
+  // the old fifteen-second timer read as "this file will not play".
+  if (p === "/never-answers.mp4") {
+    res.writeHead(200, { "content-type": "video/mp4" });
+    return; // deliberately never ended
+  }
 
   // Supabase's auth settings probe, used by the OAuth module.
   if (p === "/auth/v1/settings")
@@ -957,6 +974,348 @@ section("No screen can render an empty state without handling a failed one");
       "the not-found branch comes first",
     );
   }
+}
+
+section("A video that is still arriving is not a video that will not play");
+{
+  // The other half of the same mistake as 12 August, in the player this time:
+  // one measurement, taken once, turned into a permanent statement about the
+  // person's file. On the live app the element was mid-load — networkState 2,
+  // readyState 0, error null, the signed URL answering 206 with video/mp4 —
+  // and the product had already told its owner the footage was unplayable,
+  // with no way to take it back.
+  const verdicts = await run(() => {
+    const { playbackVerdict, NETWORK_IDLE, NETWORK_LOADING, NETWORK_NO_SOURCE, PLAYBACK_CEILING_MS } = window.PB;
+    const facts = (readyState, networkState, error = null) => ({ readyState, networkState, error });
+    return {
+      noElementYet: playbackVerdict(null, 0),
+      earlyLoad: playbackVerdict(facts(0, NETWORK_LOADING), 1_000),
+      theLivePage: playbackVerdict(facts(0, NETWORK_LOADING), 20_000),
+      decoded: playbackVerdict(facts(1, NETWORK_LOADING), 40_000),
+      noSource: playbackVerdict(facts(0, NETWORK_NO_SOURCE), 200),
+      errored: playbackVerdict(facts(0, NETWORK_LOADING, { code: 4 }), 200),
+      brokeAfterMetadata: playbackVerdict(facts(2, NETWORK_IDLE, { code: 3 }), 5_000),
+      atTheCeiling: playbackVerdict(facts(0, NETWORK_LOADING), PLAYBACK_CEILING_MS),
+      ceiling: PLAYBACK_CEILING_MS,
+    };
+  });
+
+  check("no element yet is not a broken element", verdicts.noElementYet === "pending", verdicts.noElementYet);
+  check("a load that has just started is pending", verdicts.earlyLoad === "pending", verdicts.earlyLoad);
+  check(
+    "and is still pending at twenty seconds — the state the live app called unplayable",
+    verdicts.theLivePage === "pending",
+    verdicts.theLivePage,
+  );
+  check(
+    "metadata decoded means it plays, however long it took to get there",
+    verdicts.decoded === "playable",
+    verdicts.decoded,
+  );
+  check(
+    "a source the browser has exhausted fails at once, without waiting out a timer",
+    verdicts.noSource === "failed",
+    verdicts.noSource,
+  );
+  check("the element's own error is believed", verdicts.errored === "failed", verdicts.errored);
+  check(
+    "including one raised after metadata, which is a stuck picture rather than a good one",
+    verdicts.brokeAfterMetadata === "failed",
+    verdicts.brokeAfterMetadata,
+  );
+  check("and silence for the whole ceiling is a failure at last", verdicts.atTheCeiling === "failed", verdicts.atTheCeiling);
+  check(
+    "which is longer than the fifteen seconds that produced the false alarm",
+    verdicts.ceiling > 15_000,
+    String(verdicts.ceiling),
+  );
+
+  // The same function against real elements, because the point is what Chromium
+  // actually reports, not what this file assumes it reports.
+  const real = await run(async () => {
+    const { playbackVerdict } = window.PB;
+    const watch = (src, limitMs) =>
+      new Promise((resolve) => {
+        const el = document.createElement("video");
+        el.preload = "metadata";
+        el.muted = true;
+        el.src = src;
+        document.body.appendChild(el);
+        const started = Date.now();
+        const timer = setInterval(() => {
+          const elapsed = Date.now() - started;
+          const verdict = playbackVerdict(el, elapsed);
+          if (verdict === "pending" && elapsed < limitMs) return;
+          clearInterval(timer);
+          const seen = { verdict, elapsed, networkState: el.networkState, readyState: el.readyState };
+          el.removeAttribute("src");
+          el.load();
+          el.remove();
+          resolve(seen);
+        }, 50);
+      });
+    return {
+      good: await watch("/fixture.webm", 15_000),
+      nonsense: await watch("/nonsense.mp4", 15_000),
+      hanging: await watch("/never-answers.mp4", 4_000),
+    };
+  });
+
+  check("a real clip is called playable", real.good.verdict === "playable", JSON.stringify(real.good));
+  check(
+    "and quickly — a person does not sit through a timer for a file that works",
+    real.good.elapsed < 5_000,
+    JSON.stringify(real.good),
+  );
+  check(
+    "bytes that are not a video at all are called failed",
+    real.nonsense.verdict === "failed",
+    JSON.stringify(real.nonsense),
+  );
+  check(
+    "without waiting for the ceiling, because the browser already knows",
+    real.nonsense.elapsed < 10_000,
+    JSON.stringify(real.nonsense),
+  );
+  check(
+    "a request nobody answers stays pending rather than becoming an accusation",
+    real.hanging.verdict === "pending",
+    JSON.stringify(real.hanging),
+  );
+
+  // And the editor has to actually use it. A correct function nobody calls is
+  // how the first version of this bug survived.
+  const editor = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/project-editor.tsx"), "utf8");
+  check("the editor asks playbackVerdict rather than reading readyState itself", /playbackVerdict\(/.test(editor));
+  check(
+    "and asks repeatedly, rather than once and forever",
+    /setInterval\(/.test(editor) && !/STALL_MS/.test(editor),
+    "the single-shot timer is still there",
+  );
+  check(
+    "metadata arriving clears a verdict already on screen",
+    /onLoadedMetadata=\{[\s\S]{0,400}?setPlaybackFailed\(false\)/.test(editor),
+  );
+}
+
+section("The spinner names the thing it is actually waiting for");
+{
+  // The bar read "100% · 252 KB of 252 KB" under a heading that said
+  // "Uploading Video…" — for as long as thirty seconds, while two best-effort
+  // extras finished. The bytes were already committed and the row in the
+  // database already named the file. Nothing was uploading.
+  const editor = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/project-editor.tsx"), "utf8");
+  const doneAt = editor.indexOf("await handle.done");
+  const finishingAt = editor.indexOf('setUploadPhase("finishing")');
+  const factsAt = editor.indexOf("Promise.all([facts, poster])");
+
+  check("the upload has a phase, not just an on/off", finishingAt !== -1);
+  check("it turns over once the bytes are committed", doneAt !== -1 && finishingAt > doneAt, `${doneAt} / ${finishingAt}`);
+  check(
+    "before the two best-effort extras are waited on, not after them",
+    finishingAt < factsAt,
+    `${finishingAt} / ${factsAt}`,
+  );
+  check(
+    "the heading stops claiming an upload is running",
+    /uploadPhase === "finishing" \? "Finishing up/.test(editor),
+  );
+  check(
+    "and says the video is stored, since that is the fact the person wants",
+    /Your video is stored\./.test(editor),
+  );
+  check(
+    "the transfer can no longer be cancelled once it has landed",
+    editor.slice(doneAt, factsAt).includes("cancelUploadRef.current = null"),
+  );
+}
+
+section("A read that failed does not hide a sign-in button");
+{
+  // The catch below this line was reasoned about and correct: a network hiccup
+  // shows both buttons, because the click itself reports honestly if a provider
+  // turns out to be off. The line above it did the opposite for a failure that
+  // is exactly as uninformative — a 500 or a 429 from Supabase's settings
+  // endpoint became an empty Set, which is indistinguishable from "this project
+  // has no providers enabled".
+  //
+  // Hiding those buttons is not a neutral act. Somebody who created their
+  // account with "Continue with Google" has no password. A login page with only
+  // an email form tells them their account is gone, and reloading does not
+  // help, because the endpoint is still returning 500s.
+  for (const status of [500, 429, 502, 401]) {
+    await browserPage.route("**/auth/v1/settings", (route) =>
+      route.fulfill({ status, contentType: "application/json", body: "{}" }),
+    );
+    const providers = await run(() => window.OA.enabledProviders().then((s) => [...s]));
+    check(
+      `a ${status} from the settings endpoint leaves the buttons up`,
+      providers.includes("google") && providers.includes("apple"),
+      JSON.stringify(providers),
+    );
+    await browserPage.unroute("**/auth/v1/settings");
+  }
+
+  // And an answer that really is an answer is still obeyed — the point is not
+  // to show everything always, it is to distinguish "off" from "we could not
+  // ask".
+  await browserPage.route("**/auth/v1/settings", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ external: { google: true, apple: false } }),
+    }),
+  );
+  const real = await run(() => window.OA.enabledProviders().then((s) => [...s]));
+  check("a provider that is genuinely off is still hidden", !real.includes("apple"), JSON.stringify(real));
+  check("and one that is on is still shown", real.includes("google"), JSON.stringify(real));
+  await browserPage.unroute("**/auth/v1/settings");
+}
+
+section("A 404 is an answer, and the screens that need to act on one can");
+{
+  const verdicts = await run(() => ({
+    plain: window.LS.isNotFound({ status: 404 }),
+    nested: window.LS.isNotFound({ response: { status: 404 } }),
+    serverError: window.LS.isNotFound({ status: 500 }),
+    nothing: window.LS.isNotFound(undefined),
+  }));
+  check("a 404 is recognised", verdicts.plain === true);
+  check("however the client wraps it", verdicts.nested === true);
+  check("a 500 is not", verdicts.serverError === false);
+  check("and neither is nothing at all", verdicts.nothing === false);
+}
+
+section("The pricing page says nothing about your plan until it has been told");
+{
+  // The one screen where the negative fact costs the customer money. This file
+  // read `subscription?.plan ?? "free"` in three places, with no loading branch
+  // and no failed branch, so for the few hundred milliseconds before the query
+  // resolved — and for the whole of an outage, and for anyone whose token had
+  // just rotated — a Pro subscriber saw three cards reading "Get Creator",
+  // "Get Pro", "Get Studio" with no Current Plan marker anywhere. Clicking the
+  // plan they already pay for opened a Freemius checkout for it, because the
+  // downgrade comparison was against "free" too.
+  const home = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/home.tsx"), "utf8");
+
+  check(
+    "the page knows whether it has been told",
+    /const planKnown = /.test(home),
+    "nothing distinguishes an unread subscription from a free one",
+  );
+  // Comments stripped first: the reason this line exists is written above it,
+  // and a check satisfied or defeated by prose is not a check.
+  const homeCode = home.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const fallbacks = homeCode.match(/subscription\?\.plan \?\? "free"/g) ?? [];
+  check(
+    "the free-plan fallback survives in exactly one place, not three",
+    fallbacks.length === 1,
+    `${fallbacks.length} occurrences`,
+  );
+  check(
+    "and that place is the one definition everything else reads through",
+    /const currentPlan = \(subscription\?\.plan \?\? "free"\)/.test(homeCode),
+  );
+  check(
+    "the Current Plan marker waits for the answer",
+    /const isCurrent = planKnown &&/.test(home),
+  );
+  check(
+    "so does the downgrade test, which is what decides between a local switch and a checkout",
+    /const isDowngrade = planKnown &&/.test(home),
+  );
+  check(
+    "the buttons are not clickable before then",
+    /disabled=\{!planKnown \|\|/.test(home),
+  );
+  check(
+    "and they say what they are waiting for rather than offering a plan",
+    /Checking your plan/.test(home),
+  );
+  check(
+    "the handler refuses to act on a plan it has not read, even if a click gets through",
+    /if \(!planKnown\) return;/.test(home),
+  );
+}
+
+section("A render that finished is a project that changed");
+{
+  // The page rewarded the person who stayed and watched with the worse
+  // experience. The bar reached 100%, the progress block disappeared, and Noah
+  // posted "Here's what I did" with the worker's notes — while the cached
+  // project was still the copy fetched before the render started. So the player
+  // was pointed at the *original* upload, the header pill still said
+  // `processing`, and the "AI Edited" badge never arrived. They pressed play,
+  // watched their raw take with every um still in it under a message claiming
+  // the silences were cut, and reported that the edit did nothing.
+  const editor = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/project-editor.tsx"), "utf8");
+  const exportPage = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/export.tsx"), "utf8");
+
+  check(
+    "export.tsx refetches the project when the render settles",
+    /status === 'done'[\s\S]{0,400}?invalidateQueries\(\{ queryKey: getGetProjectQueryKey/.test(exportPage),
+  );
+  check(
+    "and now the editor does too, which is the screen people actually watch",
+    /renderJob\?\.status[\s\S]{0,900}?invalidateQueries\(\{ queryKey: getGetProjectQueryKey\(id\) \}\)/.test(editor),
+    "nothing invalidates the project when the job settles",
+  );
+  check(
+    "for a failure as well as a success, because a failed render also changes the row",
+    /status !== "done" && status !== "failed"/.test(editor),
+  );
+  check(
+    "once per settled job rather than on every poll",
+    /settledJobRef/.test(editor),
+  );
+}
+
+section("An export nobody on this tab started is still an export");
+{
+  // `isExporting` is a local boolean that resets on every mount, and it gated
+  // the status query — so reloading the page, or stepping back to the editor
+  // and returning, made a render that was genuinely running invisible. The
+  // person saw the platform picker and a live "Render & Export" button;
+  // clicking it hit the server's 409, which this screen had no branch for, so
+  // they were told the export failed to start while it was being rendered.
+  const exportPage = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/export.tsx"), "utf8");
+
+  check(
+    "the status is asked for on every visit, not only when this tab started one",
+    /enabled: !!id,/.test(exportPage),
+  );
+  check(
+    "a 404 is not retried, because 'never exported' is an answer",
+    /isNotFound\(error\) \? false/.test(exportPage),
+  );
+  check(
+    "a render the server reports is treated as running whoever started it",
+    /const isRunning = isExporting \|\| exportStatus\?\.status === 'pending'/.test(exportPage),
+  );
+  check(
+    "and the picker is not offered while we are still finding out",
+    /currentStatus === 'loading'/.test(exportPage),
+  );
+  check(
+    "a 409 says 'already rendering' rather than 'could not start'",
+    /status === 409[\s\S]{0,300}?Already rendering/.test(exportPage),
+  );
+  check(
+    "and keeps the running state instead of resetting it",
+    /if \(status === 409\) \{[\s\S]{0,200}?setIsExporting\(true\)/.test(exportPage),
+  );
+  check(
+    "the policy refusals are shown in the server's own words, as the editor does",
+    /Not enough minutes left/.test(exportPage) && /too long for this plan/.test(exportPage),
+  );
+  check(
+    "a URL still being signed is not reported as a missing video",
+    /isSigning/.test(exportPage) && /isResolving: playbackResolving/.test(exportPage),
+  );
+  check(
+    "and a preview that failed says the video is safe rather than that there is none",
+    /could not load the preview/i.test(exportPage) && /stored safely/.test(exportPage),
+  );
 }
 
 section("Sizes are written the way a person reads them");

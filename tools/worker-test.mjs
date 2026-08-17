@@ -420,6 +420,61 @@ section("A file longer than the plan allows is refused, once, in words");
   check("and the project says so too", project?.status === "failed", project?.status);
 }
 
+section("A file longer than the month's balance is refused against the file, not the claim");
+{
+  // The API skips its own allowance check whenever the browser omitted a
+  // duration, which is exactly when the file could be any length at all. The
+  // balance therefore travels on the job and is applied here, to a number that
+  // was measured. Without this, a free account with a minute left could queue
+  // a nine-minute file and the shortfall would be discovered by the meter
+  // afterwards — on a render we had already paid to produce.
+  const projectId = await queue("over-allowance", {
+    over: { max_source_seconds: 4 * 3600, remaining_seconds: 5 },
+    plan: { version: 1, operations: [{ type: "normalizeLoudness", targetLufs: -14 }] },
+  });
+  putObject(`${ALICE}/${projectId}/source.mp4`, source);
+
+  const row = await settle("over-allowance");
+  check("it fails rather than rendering", row?.status === "failed", `${row?.status}: ${row?.error}`);
+  check("and is not retried, because the file will be the same next time", row?.attempts === 1, String(row?.attempts));
+  check(
+    "the message says nothing was charged, which is the first fear",
+    /nothing has been charged/i.test(row?.error ?? ""),
+    row?.error,
+  );
+  check(
+    "and names both numbers rather than saying 'limit reached'",
+    /12 seconds/.test(row?.error ?? "") && /5 seconds/.test(row?.error ?? ""),
+    row?.error,
+  );
+  check(
+    "the measured length is recorded",
+    Math.abs(Number(row?.source_seconds) - 12) < 1,
+    String(row?.source_seconds),
+  );
+  check("nothing was billed for it", row?.output_seconds === null, String(row?.output_seconds));
+
+  // The `toJob` mapping again. A column added to the schema and forgotten in
+  // that function arrives as undefined, with no error anywhere — and an
+  // undefined balance means no balance, which is the failure this exists to
+  // prevent.
+  check("which means remaining_seconds survived the snake_case mapping", row?.status === "failed");
+
+  // And a job queued before the column existed must not be refused for a field
+  // it could not have carried.
+  const old = await queue("no-allowance-recorded", {
+    over: { max_source_seconds: 4 * 3600, remaining_seconds: null },
+    plan: { version: 1, operations: [{ type: "normalizeLoudness", targetLufs: -14 }] },
+  });
+  putObject(`${ALICE}/${old}/source.mp4`, source);
+  const legacy = await settle("no-allowance-recorded");
+  check(
+    "a job with no balance recorded still renders",
+    legacy?.status === "done",
+    `${legacy?.status}: ${legacy?.error}`,
+  );
+}
+
 // ─── Something the worker cannot fix by trying again ─────────────────────────
 
 section("A plan nothing in it can be applied is final, not retried");

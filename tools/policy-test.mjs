@@ -337,6 +337,59 @@ console.log("\nThe order of refusals");
 
 await rm(buildDir, { recursive: true, force: true });
 
+console.log("\nWhat the decision hands to the worker");
+{
+  // Two numbers travel on the job so that the worker can enforce them against
+  // the file it downloaded, without knowing anything about plans or prices. The
+  // ceiling has always travelled. The balance did not, and that was the hole:
+  // when the browser omits a duration this function skips *both* checks, so the
+  // one that stops us paying for an encode nobody can be charged for was
+  // skipped precisely when the file could be anything at all.
+  const decision = decideRender({
+    plan: "free",
+    usage: { minutesUsed: 4, minutesIncluded: 5, minutesRemaining: 1, exhausted: false },
+    sourceDurationSeconds: null,
+    operations: [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 }],
+  });
+
+  check("a render with no known duration is still accepted", decision.allowed === true, JSON.stringify(decision));
+  check(
+    "and carries the ceiling, as it always has",
+    decision.allowed && decision.maxSourceSeconds > 0,
+    String(decision.allowed && decision.maxSourceSeconds),
+  );
+  check(
+    "and now the balance too, in the same seconds the worker measures in",
+    decision.allowed && decision.remainingSeconds === 60,
+    String(decision.allowed && decision.remainingSeconds),
+  );
+
+  const rich = decideRender({
+    plan: "pro",
+    usage: { minutesUsed: 0, minutesIncluded: 240, minutesRemaining: 240, exhausted: false },
+    sourceDurationSeconds: 600,
+    operations: [],
+  });
+  check(
+    "a full month is carried as a full month rather than as a flag",
+    rich.allowed && rich.remainingSeconds === 240 * 60,
+    String(rich.allowed && rich.remainingSeconds),
+  );
+
+  // Zero is a real answer and must not be confused with "no limit recorded".
+  // `exhausted` already refuses this case, so this asserts the shape rather
+  // than a reachable path — which is the point: if the refusal above is ever
+  // relaxed, the number behind it is still honest.
+  const spent = decideRender({
+    plan: "free",
+    usage: { minutesUsed: 5, minutesIncluded: 5, minutesRemaining: 0, exhausted: true },
+    sourceDurationSeconds: 30,
+    operations: [],
+  });
+  check("an exhausted month is refused before any of this", spent.allowed === false);
+  check("with the status that means a limit, not a fault", spent.allowed === false && spent.status === 429, String(spent.status));
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);

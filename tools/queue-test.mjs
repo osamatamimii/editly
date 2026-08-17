@@ -298,7 +298,7 @@ section("A queue with nobody on it, and a queue with somebody on it");
     console.error("could not bundle queue-health");
     process.exit(1);
   }
-  const { isUnclaimed, workerOnline, NO_WORKER_AFTER_MS, WORKER_OFFLINE_AFTER_MS } =
+  const { isUnclaimed, isUnattended, workerOnline, NO_WORKER_AFTER_MS, WORKER_OFFLINE_AFTER_MS } =
     await import(pathToFileURL(outfile).href);
 
   const now = Date.now();
@@ -338,10 +338,178 @@ section("A queue with nobody on it, and a queue with somebody on it");
     workerOnline(new Date(now + 30_000).toISOString(), now) === true,
   );
 
+  // The two halves, put together — which is the fix. Age alone was the only
+  // input, and age alone gets the flagship case exactly backwards: one worker
+  // busy on a ninety-minute Pro render means every job queued behind it crosses
+  // five minutes and is told "nothing has picked this up yet", while a machine
+  // is running and will reach it shortly. That is the inversion this module's
+  // own header says it exists to prevent, committed by the module itself.
+  const oldQueued = { status: "queued", createdAt: ago(NO_WORKER_AFTER_MS + 60_000) };
+
+  check(
+    "a queue behind a machine that beat a moment ago is a queue, not a stall",
+    isUnattended(oldQueued, ago(20_000), now) === false,
+  );
+  check(
+    "however long it has been waiting",
+    isUnattended({ status: "queued", createdAt: ago(6 * 60 * 60_000) }, ago(5_000), now) === false,
+  );
+  check(
+    "with nothing listening, age speaks again",
+    isUnattended(oldQueued, ago(WORKER_OFFLINE_AFTER_MS + 60_000), now) === true,
+  );
+  check(
+    "and with nothing ever having beaten at all",
+    isUnattended(oldQueued, null, now) === true,
+  );
+  check(
+    "a job queued a moment ago is still not stalled, worker or no worker",
+    isUnattended({ status: "queued", createdAt: ago(30_000) }, null, now) === false,
+  );
+  check(
+    "and the old rule is still the one it falls back to, unchanged",
+    isUnattended(oldQueued, null, now) === isUnclaimed(oldQueued, now),
+  );
+
   await rm(buildDir, { recursive: true, force: true });
 }
 
 // ─── The statement this file is a copy of ────────────────────────────────────
+
+section("A long render is not an abandoned one");
+{
+  // The bug this replaces: `locked_at` was written once, at claim, and never
+  // again. So "abandoned by a dead worker" was decided from a single sample
+  // taken before any work started, and a 95-minute podcast — which Pro sells,
+  // at a 240-minute ceiling — looked identical to a crash at exactly 30
+  // minutes. A second worker requeued it and began rendering the same file, a
+  // third did at 60, and at 90 the sweeper marked it failed with "Gave up after
+  // repeated failures" while two workers were still encoding it.
+  await reset();
+  await queue("long-render", {
+    status: "running",
+    locked_at: new Date(Date.now() - 45 * 60_000),
+    locked_by: "w1",
+    attempts: 1,
+  });
+
+  const beforeRenewal = (await pool.query(REQUEUE_STALE, [String(STALE_MINUTES)])).rows.map((r) => r.id);
+  check(
+    "a lock written once and left is swept, which is the old behaviour",
+    beforeRenewal.includes("long-render"),
+    JSON.stringify(beforeRenewal),
+  );
+
+  // The renewal the worker now runs on a timer for as long as a job is in hand.
+  await reset();
+  await queue("long-render", {
+    status: "running",
+    locked_at: new Date(Date.now() - 45 * 60_000),
+    locked_by: "w1",
+    attempts: 1,
+  });
+  const renewed = await pool.query(
+    "UPDATE jobs SET locked_at = now(), updated_at = now() WHERE id = $1 AND locked_by = $2 RETURNING id",
+    ["long-render", "w1"],
+  );
+  check("the worker that holds it can renew", renewed.rowCount === 1);
+
+  const afterRenewal = (await pool.query(REQUEUE_STALE, [String(STALE_MINUTES)])).rows.map((r) => r.id);
+  check(
+    "and then it is not swept, however long the render has taken",
+    !afterRenewal.includes("long-render"),
+    JSON.stringify(afterRenewal),
+  );
+
+  const stillRunning = await read("long-render");
+  check("it is still running, not queued again", stillRunning.status === "running", stillRunning.status);
+  check("and its attempt was not spent", Number(stillRunning.attempts) === 1, String(stillRunning.attempts));
+
+  const exhausted = (await pool.query(FAIL_EXHAUSTED, [String(STALE_MINUTES)])).rows.map((r) => r.id);
+  check(
+    "nor is it failed out from under a worker that is still encoding",
+    !exhausted.includes("long-render"),
+    JSON.stringify(exhausted),
+  );
+
+  // The guard that matters if the job was taken away anyway: a renewal must
+  // never reach into a row somebody else now holds.
+  await pool.query("UPDATE jobs SET locked_by = $1 WHERE id = $2", ["w2", "long-render"]);
+  const stolen = await pool.query(
+    "UPDATE jobs SET locked_at = now() WHERE id = $1 AND locked_by = $2 RETURNING id",
+    ["long-render", "w1"],
+  );
+  check("a worker cannot renew a lock it no longer holds", stolen.rowCount === 0, String(stolen.rowCount));
+}
+
+section("One project cannot have two renders in flight");
+{
+  // Both queueing routes SELECT for a pending job and then INSERT, with nothing
+  // between them. Two requests milliseconds apart — a double-click, or the
+  // browser retrying a dropped response — both read "nothing pending" and both
+  // write. Two encodes of one clip, both measured, both summed by the meter,
+  // and only one of them visible anywhere in the product: a Creator customer
+  // with eight minutes left spends all eight on one four-minute video.
+  await reset();
+  await queue("first");
+
+  let secondRejected = null;
+  try {
+    await queue("second", { project_id: "p-first" });
+  } catch (error) {
+    secondRejected = error;
+  }
+  check("a second queued job for the same project is refused", secondRejected !== null);
+  check(
+    "as a unique violation, which the routes translate into the 409 they already meant",
+    secondRejected?.code === "23505",
+    String(secondRejected?.code),
+  );
+  check(
+    "naming the index, so the handler can tell it from any other collision",
+    secondRejected?.constraint === "jobs_one_active_per_project",
+    String(secondRejected?.constraint),
+  );
+
+  // Concurrently, which is the arrangement the SELECT cannot survive and the
+  // index can.
+  await reset();
+  const both = await Promise.allSettled([
+    queue("race-a", { project_id: "p-race" }),
+    queue("race-b", { project_id: "p-race" }),
+  ]);
+  const wrote = both.filter((r) => r.status === "fulfilled").length;
+  check("exactly one of two simultaneous inserts lands", wrote === 1, JSON.stringify(both.map((b) => b.status)));
+
+  // Running counts as in flight too — the second click usually arrives after a
+  // worker has already picked the first up.
+  await reset();
+  await queue("running-one", { status: "running", locked_at: new Date(), locked_by: "w1" });
+  let whileRunning = null;
+  try {
+    await queue("running-two", { project_id: "p-running-one" });
+  } catch (error) {
+    whileRunning = error;
+  }
+  check("and a project already rendering takes no second job either", whileRunning?.code === "23505");
+
+  // Finished work must not block the next render. The index is partial for
+  // exactly this reason.
+  await reset();
+  await queue("done-one", { status: "done", project_id: "p-again" });
+  await queue("failed-one", { status: "failed", project_id: "p-again" });
+  let afterFinished = null;
+  try {
+    await queue("new-one", { project_id: "p-again" });
+  } catch (error) {
+    afterFinished = error;
+  }
+  check("a project whose renders have finished can be rendered again", afterFinished === null, String(afterFinished));
+  check(
+    "and a failed one too — a failure must not lock somebody out of retrying",
+    (await read("new-one"))?.status === "queued",
+  );
+}
 
 section("The worker still claims the way this file assumes");
 {

@@ -54,7 +54,7 @@ function bundle(entry, name, from) {
   return pathToFileURL(outfile).href;
 }
 
-const { measureOutput, exceedsCeiling, tooLongMessage } = await import(
+const { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAllowanceMessage } = await import(
   bundle("artifacts/worker/src/duration.ts", "duration.mjs", "artifacts/worker")
 );
 const { evenlySpacedPunches, TEMPLATES, findTemplate } = await import(
@@ -171,6 +171,50 @@ section("A job queued before the ceiling existed is not retroactively refused");
   check("no ceiling recorded means no ceiling enforced", exceedsCeiling(4 * 3600, null) === false);
   check("nor does a nonsense one", exceedsCeiling(4 * 3600, 0) === false);
   check("nor an infinite one", exceedsCeiling(4 * 3600, Infinity) === false);
+}
+
+section("The allowance is enforced against the file too, because the API cannot always");
+{
+  // The hole this closes. `decideRender` refuses a render whose source would
+  // overrun the balance — but the length it compares comes from the browser and
+  // the browser is allowed to omit it, and when it does *both* the ceiling
+  // check and the allowance check are skipped. The ceiling survives that,
+  // because the worker re-measures. The allowance had nowhere to land.
+  //
+  // Concretely: a free account with one minute left uploads a nine-minute file
+  // whose duration never got recorded. `exhausted` is false, so nothing
+  // refuses, the render runs, and ~540 seconds are written to the meter
+  // afterwards — nine minutes of product on a five-minute plan, and we paid for
+  // the encode.
+  check("a file inside the balance passes", exceedsAllowance(120, 300) === false);
+  check("a file past it does not", exceedsAllowance(540, 60) === true);
+  check(
+    "a file exactly the length of the balance passes — the boundary belongs to the customer",
+    exceedsAllowance(300, 300) === false,
+  );
+  check("container rounding does not cost anyone a render", exceedsAllowance(300.04, 300) === false);
+  check("but a real overrun is not absorbed by the tolerance", exceedsAllowance(305, 300) === true);
+  check("a balance of nothing left refuses anything with length", exceedsAllowance(30, 0) === true);
+  check(
+    "a job queued before the column existed is not retroactively refused",
+    exceedsAllowance(4 * 3600, null) === false,
+  );
+  check("nor by a nonsense balance", exceedsAllowance(4 * 3600, Number.NaN) === false);
+
+  const message = overAllowanceMessage(9 * 60, 60);
+  check("the refusal says how long the file is", /9 minutes/.test(message), message);
+  check("and how much is left", /60 seconds/.test(message), message);
+  check(
+    "and that nothing was charged, because the fear is being billed for a refusal",
+    /nothing has been charged/i.test(message),
+    message,
+  );
+  check("and offers a way forward", /reset|upgrad/i.test(message), message);
+  check(
+    "an empty balance is spoken as words rather than as a zero",
+    /none left/.test(overAllowanceMessage(30, 0)),
+    overAllowanceMessage(30, 0),
+  );
 }
 
 section("The refusal names the numbers rather than saying 'too long'");
