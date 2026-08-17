@@ -19,7 +19,7 @@ import { db, pool, jobsTable, projectsTable, workerHeartbeatsTable, type Job } f
 import { EditPlan } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
 import { renderPlan, probeDuration, probeSource, FfmpegError } from "./ffmpeg";
-import { measureOutput, exceedsCeiling, tooLongMessage } from "./duration";
+import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAllowanceMessage } from "./duration";
 import { enrichPlan } from "./enrich";
 import { resolveProviders } from "./providers";
 
@@ -114,6 +114,7 @@ function toJob(row: Record<string, unknown>): Job {
     outputSecondsSource: row["output_seconds_source"] as string | null,
     sourceSeconds: row["source_seconds"] as number | null,
     maxSourceSeconds: row["max_source_seconds"] as number | null,
+    remainingSeconds: row["remaining_seconds"] as number | null,
     priority: row["priority"] as number,
     maxAttempts: row["max_attempts"] as number,
   };
@@ -179,11 +180,65 @@ async function failExhaustedJobs(): Promise<number> {
   return rowCount ?? 0;
 }
 
+/**
+ * How often a running job's lock is renewed while it is being worked on.
+ *
+ * `locked_at` used to be written once, at claim, and never again — so
+ * "abandoned by a dead worker" was decided from a single sample taken before
+ * any work happened, and the answer was the same whether the worker had died or
+ * was simply still busy. On a plan that sells 240-minute uploads that is not an
+ * edge case, it is the flagship: at 30 minutes a second worker requeued the job
+ * and started rendering the same file again, at 60 a third did, and at 90 the
+ * sweeper marked it `failed` — with the message "Gave up after repeated
+ * failures" — while two workers were still encoding it. The customer watched a
+ * render that was working report a failure it never had, and we paid for the
+ * encode three times.
+ *
+ * A lock is now a statement about the last few seconds rather than about the
+ * moment work began, so the staleness rule above finally means what it says.
+ */
+const LOCK_RENEW_EVERY_MS = 20_000;
+
+/**
+ * Renews the lock and the worker's heartbeat for as long as `work` runs.
+ *
+ * Tied to a timer rather than to progress callbacks on purpose: a two-hour
+ * encode of a file ffmpeg cannot report progress for is exactly the job that
+ * must not be declared dead, and it is the one that would report nothing.
+ */
+async function withLockKeptAlive<T>(jobId: string, work: () => Promise<T>): Promise<T> {
+  const renew = async () => {
+    try {
+      // `locked_by` in the WHERE clause matters: if this job was taken from us
+      // anyway, we must not reach back in and touch the new holder's row.
+      await pool.query(`UPDATE jobs SET locked_at = now(), updated_at = now() WHERE id = $1 AND locked_by = $2`, [
+        jobId,
+        WORKER_ID,
+      ]);
+      await heartbeat();
+    } catch (error) {
+      // A failed renewal is not a reason to abandon a render that is going
+      // fine. If the database is really gone the job will be requeued, which
+      // is the behaviour we want.
+      logger.warn({ err: error, jobId }, "could not renew the job lock");
+    }
+  };
+  const timer = setInterval(() => void renew(), LOCK_RENEW_EVERY_MS);
+  try {
+    return await work();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 async function reportProgress(jobId: string, progress: number, stage: string): Promise<void> {
   await db
     .update(jobsTable)
     .set({ progress: Math.max(0, Math.min(99, Math.round(progress))), stage })
     .where(eq(jobsTable.id, jobId));
+  // Progress is also proof of life. The renewal timer covers the silent
+  // stretches; this covers everything else without waiting for the next tick.
+  await heartbeat();
 }
 
 async function processJob(job: Job): Promise<void> {
@@ -206,6 +261,14 @@ async function processJob(job: Job): Promise<void> {
     if (exceedsCeiling(sourceSeconds, job.maxSourceSeconds)) {
       await db.update(jobsTable).set({ sourceSeconds }).where(eq(jobsTable.id, job.id));
       throw new SourceTooLongError(tooLongMessage(sourceSeconds, job.maxSourceSeconds as number));
+    }
+    // The same refusal for the other number the API could not check. It skips
+    // the allowance whenever the browser omitted a duration, which is the one
+    // case where the file could be anything at all — so the check lands here,
+    // against a length that was measured, and before the encode is paid for.
+    if (exceedsAllowance(sourceSeconds, job.remainingSeconds)) {
+      await db.update(jobsTable).set({ sourceSeconds }).where(eq(jobsTable.id, job.id));
+      throw new SourceTooLongError(overAllowanceMessage(sourceSeconds, job.remainingSeconds as number));
     }
     // Written back to the project as well, so the next render's ceiling check
     // and the next template's punch placement start from the truth. A lie told
@@ -381,7 +444,7 @@ async function main(): Promise<void> {
         await sleep(POLL_INTERVAL_MS);
         continue;
       }
-      await processJob(job);
+      await withLockKeptAlive(job.id, () => processJob(job));
     } catch (error) {
       // The loop must survive anything, including the database going away.
       logger.error({ err: error }, "worker loop error");

@@ -203,7 +203,28 @@ function platformOf(plan: EditPlan): Platform | null {
   return reframe && reframe.type === "formatForPlatform" ? reframe.platform : null;
 }
 
+/**
+ * What a provider's failure is allowed to say to the person who uploaded the
+ * video.
+ *
+ * These strings go into `notes`, which is persisted on the job row and returned
+ * verbatim to the browser — and `index.ts` promotes `notes[0]` into the render's
+ * whole failure message when a plan ends up empty. The provider errors are
+ * thrown as `"<provider> <status>: <their response body>"`, so without this the
+ * customer's explanation of their own render read:
+ *
+ *   speech recognition failed (deepgram 401: {"err_code":"INVALID_AUTH",
+ *   "err_msg":"Project does not have access to this feature"}), so this
+ *   render has no captions
+ *
+ * `providers/index.ts` states plainly that provider detail never reaches a job
+ * record. Who failed and how are the two facts that make the note honest; their
+ * JSON is ours to read in the log, not theirs to receive.
+ */
 function short(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  return message.split("\n")[0].slice(0, 120);
+  const firstLine = message.split("\n")[0];
+  const shaped = firstLine.match(/^([a-z][a-z0-9 _-]*?\s+\d{3})\b/i);
+  if (shaped) return shaped[1];
+  return firstLine.slice(0, 120);
 }

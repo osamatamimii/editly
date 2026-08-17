@@ -82,6 +82,36 @@ export function exceedsCeiling(sourceSeconds: number, maxSourceSeconds: number |
 }
 
 /**
+ * Is this file longer than what was left of the month when the job was queued?
+ *
+ * The API asks the same question, and cannot always answer it: the length it
+ * has comes from the browser and the browser is allowed to send nothing. When
+ * it sends nothing the refusal is skipped entirely — not deferred, skipped —
+ * so a free account with one minute left could queue a nine-minute file and
+ * the shortfall would be discovered by the meter afterwards, on a render we
+ * had already paid to produce.
+ *
+ * No operation makes a clip longer, so the source is an upper bound on what
+ * this render can consume, and comparing it to the balance is the same
+ * conservative rule the policy layer applies — now applied to a number that was
+ * measured rather than claimed.
+ *
+ * A null balance means the row predates the column and is treated as no limit:
+ * refusing old work over a field it could not have carried would be inventing a
+ * failure. Zero is a real answer and is enforced.
+ */
+export function exceedsAllowance(sourceSeconds: number, remainingSeconds: number | null): boolean {
+  if (remainingSeconds == null || !Number.isFinite(remainingSeconds) || remainingSeconds < 0) return false;
+  return sourceSeconds > remainingSeconds + CEILING_TOLERANCE_SECONDS;
+}
+
+/** The sentence for that one. Both numbers, because "limit reached" invites an argument. */
+export function overAllowanceMessage(sourceSeconds: number, remainingSeconds: number): string {
+  const left = remainingSeconds < 1 ? "none left" : `${spoken(remainingSeconds)} left`;
+  return `This file is ${spoken(sourceSeconds)} and you have ${left} in this month's allowance. Nothing has been charged for it. Your minutes reset at the start of next month, and upgrading adds them immediately.`;
+}
+
+/**
  * How long something is, in the unit a person would use for it.
  *
  * Everything used to be printed in minutes, which produced "This file is 0.2

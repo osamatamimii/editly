@@ -67,8 +67,18 @@ function run(
     child.on("error", (err) => reject(new FfmpegError(`${bin} could not be started: ${err.message}`)));
     child.on("close", (code) => {
       if (code === 0) resolve({ stdout, stderr });
-      // ffmpeg's useful message is always the last few lines, never the first.
-      else reject(new FfmpegError(`${bin} exited ${code}\n${stderr.trim().split("\n").slice(-10).join("\n")}`));
+      else {
+        // ffmpeg's useful message is always the last few lines, never the
+        // first — and the *first* line is what anything downstream takes when
+        // it needs one sentence. It used to be `${bin} exited ${code}`, so
+        // every render failure in the product read "ffmpeg exited 1": a binary
+        // name and a number, with the actual complaint sitting on the lines
+        // below where nobody looked. Put the complaint first and the exit code
+        // where it belongs, which is after it.
+        const tail = stderr.trim().split("\n").filter(Boolean);
+        const complaint = tail[tail.length - 1] ?? `${bin} exited ${code}`;
+        reject(new FfmpegError(`${complaint}\n${bin} exited ${code}\n${tail.slice(-10).join("\n")}`));
+      }
     });
   });
 }
