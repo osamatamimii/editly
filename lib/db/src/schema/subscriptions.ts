@@ -15,6 +15,21 @@ export const subscriptionsTable = pgTable("subscriptions", {
    * `DEFAULT_PLAN` is a trap that eventually goes off.
    */
   plan: text("plan").notNull().default("free"),
+  /**
+   * Which Freemius licence granted the current plan, and as of when.
+   *
+   * Without these two the webhook had nothing to compare an incoming event
+   * against, so a redelivered `license.cancelled` for a *superseded* licence
+   * wrote free over the Pro plan that had replaced it. Idempotence was never
+   * the problem — `planFromEvent` returns a target state — order was.
+   *
+   * Null on rows that predate them, and on any plan set by something other than
+   * a webhook (a self-serve downgrade). Both are treated as "unknown", and an
+   * unknown never causes an event to be ignored: the comparison only rejects an
+   * event when both sides are known and the incoming one is genuinely older.
+   */
+  licenseId: text("license_id"),
+  planSourceAt: timestamp("plan_source_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

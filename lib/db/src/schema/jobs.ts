@@ -1,5 +1,6 @@
-import { pgTable, text, timestamp, jsonb, uuid, integer, real, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, uuid, integer, real, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
+import { sql } from "drizzle-orm";
 import { z } from "zod/v4";
 
 /**
@@ -102,6 +103,24 @@ export const jobsTable = pgTable(
     maxSourceSeconds: real("max_source_seconds"),
 
     /**
+     * What was left of the month's allowance when this job was accepted.
+     *
+     * The same trick as the ceiling above, for the number the ceiling could not
+     * cover. The policy layer refuses a render whose source would overrun the
+     * balance — but only when it has a source length, and `projects.duration`
+     * comes from the browser and is nullable. When it is missing the refusal is
+     * skipped entirely, so a five-minute plan with one minute left would happily
+     * accept a nine-minute file and discover the overrun only after paying for
+     * the encode.
+     *
+     * The worker measures the file for real. With this on the row it can apply
+     * the rule to that measurement without knowing what a plan is.
+     *
+     * NULL means unlimited, for rows queued before the column existed.
+     */
+    remainingSeconds: real("remaining_seconds"),
+
+    /**
      * Higher is claimed first, within the queued rows.
      *
      * Set from the plan when the job is written, not joined from the
@@ -134,6 +153,13 @@ export const jobsTable = pgTable(
     // index it uses, and the column order has to match or every claim sorts in
     // memory.
     index("jobs_queue_idx").on(t.status, t.priority.desc(), t.createdAt),
+    // The invariant both queueing routes check by hand and neither could hold:
+    // a project may have at most one job that is queued or running. Declared
+    // here so the schema check knows it exists; created by
+    // 0013_one_active_job_per_project.sql, which is what actually runs.
+    uniqueIndex("jobs_one_active_per_project")
+      .on(t.projectId)
+      .where(sql`status IN ('queued', 'running')`),
   ],
 );
 
