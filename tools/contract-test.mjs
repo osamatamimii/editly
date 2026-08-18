@@ -289,7 +289,14 @@ section("The plan names in the spec are the ones the code accepts");
   }
   // The rename left `starter` and `scale` behind in more than one place, and a
   // spec still naming them would send an integrator to a 400.
-  check("and no longer mentions the pre-rename names", !/\bstarter\b|\bscale\b/.test(specText));
+  //
+  // Property *names* are excluded before the search. `scale` is also a real
+  // property — how wide an image overlay sits on the frame — and a guard that
+  // cannot tell a plan tier from a field name is a guard that stops anyone
+  // adding a field. An abandoned tier name would appear as an enum value or in
+  // prose, never as a YAML key, so dropping the keys keeps the check honest.
+  const specValues = specText.replace(/^(\s*)[A-Za-z][A-Za-z0-9]*:/gm, "$1:");
+  check("and no longer mentions the pre-rename names", !/\bstarter\b|\bscale\b/.test(specValues));
 }
 
 section("Every edit operation the worker can run is in the spec");
