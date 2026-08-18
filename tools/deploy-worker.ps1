@@ -11,8 +11,12 @@
 #  mojibake and break the parser before a single line runs.
 # =====================================================================
 
-$ErrorActionPreference = "Stop"
-$ORG  = "osama-tamimi"
+# Continue, not Stop. Windows PowerShell turns ANYTHING a native command writes
+# to stderr into a terminating error when this is "Stop" - and flyctl, git, and
+# curl all write ordinary progress and status text there. Exit codes are the
+# real signal, so every step below checks $LASTEXITCODE instead.
+$ErrorActionPreference = "Continue"
+$ORG  = "personal"   # the slug from `fly orgs list`, NOT the name in the dashboard URL
 $APP  = "editly-worker"
 $REPO = "https://github.com/osamatamimii/editly"
 
@@ -41,17 +45,19 @@ Ok (fly version)
 
 # --- 2. sign in ------------------------------------------------------
 Step 2 "sign in"
-fly auth whoami 2>$null | Out-Null
+$who = (fly auth whoami 2>&1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) {
-  Write-Host "   A browser window will open. Approve it, then come back here."
+  Write-Host "   Not signed in yet. A browser window will open - approve it, then come back here."
   fly auth login
   if ($LASTEXITCODE -ne 0) { Die "Sign-in failed." }
+  $who = (fly auth whoami 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) { Die "Signed in, but flyctl still cannot confirm who you are." }
 }
-Ok ("signed in as " + (fly auth whoami))
+Ok ("signed in as $who")
 
 # --- 3. the app ------------------------------------------------------
 Step 3 "app $APP"
-$apps = (fly apps list 2>$null) -join "`n"
+$apps = (fly apps list 2>&1 | Out-String)
 if ($LASTEXITCODE -ne 0) {
   Die "This token cannot list apps. Likely an SSO/permissions problem - send me the full message."
 }
@@ -96,13 +102,13 @@ Step 5 "code"
 $work = Join-Path $env:TEMP "editly-deploy"
 if (Test-Path (Join-Path $work ".git")) {
   Push-Location $work
-  git fetch origin --quiet
-  git reset --hard origin/main --quiet
+  git fetch origin --quiet 2>&1 | Out-Null
+  git reset --hard origin/main --quiet 2>&1 | Out-Null
   Pop-Location
   Ok "updated from origin/main."
 } else {
   if (Test-Path $work) { Remove-Item $work -Recurse -Force }
-  git clone --depth 1 $REPO $work
+  git clone --depth 1 $REPO $work 2>&1 | Write-Host
   if ($LASTEXITCODE -ne 0) { Die "Clone failed. Is git installed? Get it from git-scm.com" }
   Ok "cloned."
 }
