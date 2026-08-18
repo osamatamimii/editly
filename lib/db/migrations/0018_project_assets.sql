@@ -65,6 +65,3 @@ CREATE POLICY assets_service_only ON assets
   FOR ALL
   USING (current_user = 'postgres' OR pg_has_role(current_user, 'postgres', 'MEMBER'))
   WITH CHECK (current_user = 'postgres' OR pg_has_role(current_user, 'postgres', 'MEMBER'));
-
-INSERT INTO schema_migrations (filename) VALUES ('0018_project_assets.sql')
-ON CONFLICT DO NOTHING;
