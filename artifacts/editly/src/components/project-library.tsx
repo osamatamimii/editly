@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Trash2, ImageIcon, Film, Music, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { uploadProjectAsset, formatBytes, assetKindOf, MAX_ASSET_BYTES } from "@/lib/video-storage";
+import { StockSearch } from "./stock-search";
 
 export interface ProjectAsset {
   id: string;
@@ -162,6 +163,8 @@ export function ProjectLibrary({ projectId, userId }: { projectId: string; userI
           })}
         </ul>
       )}
+
+      <StockSearch projectId={projectId} userId={userId} onAdded={refresh} />
     </div>
   );
 }
