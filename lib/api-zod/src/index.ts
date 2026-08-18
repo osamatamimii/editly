@@ -466,6 +466,88 @@ export const NormalizeLoudnessOperation = z.object({
   targetLufs: z.number().min(-30).max(-8).default(-14),
 });
 
+/**
+ * A project's library entry: something the render can put *on screen*, as
+ * opposed to the one video it is editing.
+ */
+export const Asset = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  kind: z.enum(["video", "image", "audio"]),
+  label: z.string().nullable(),
+  bytes: z.number(),
+  durationSeconds: z.number().nullable(),
+  width: z.number().nullable(),
+  height: z.number().nullable(),
+  createdAt: z.string(),
+  /** Short-lived signed URL for the library thumbnail. Never the raw path. */
+  url: z.string().nullable(),
+});
+export type Asset = z.infer<typeof Asset>;
+
+/**
+ * Cut a second clip in over the main one — b-roll.
+ *
+ * The asset is named by id, never by path: an id is checked against the
+ * project's own library, and a path would be a request to render whatever the
+ * caller can spell.
+ *
+ * `at` is on the *source* clock, like every other timing in this file, so the
+ * producer and the critic are reading the same tape.
+ */
+export const InsertBRollOperation = z.object({
+  type: z.literal("insertBRoll"),
+  assetId: z.string().min(1),
+  at: z.number().min(0),
+  durationSeconds: z.number().min(0.2).max(30).default(3),
+  /**
+   * "cover" fills the frame and crops the overflow — right for footage.
+   * "contain" fits the whole thing inside and letterboxes — right for a
+   * screenshot, where cropping the edges destroys the point of showing it.
+   */
+  fit: z.enum(["cover", "contain"]).default("cover"),
+  /** Keep the main audio under the b-roll, which is what a cutaway is. */
+  keepSourceAudio: z.boolean().default(true),
+});
+
+/**
+ * Lay an image over the frame: a logo, a screenshot, a product shot, an arrow.
+ *
+ * Scale is a fraction of frame width rather than pixels, because the same plan
+ * renders to 1080×1920 and 1080×1350 and a pixel size that is right for one is
+ * wrong for the other.
+ */
+export const OverlayImageOperation = z.object({
+  type: z.literal("overlayImage"),
+  assetId: z.string().min(1),
+  at: z.number().min(0),
+  durationSeconds: z.number().min(0.2).max(60).default(3),
+  position: z
+    .enum(["top-left", "top-center", "top-right", "center", "bottom-left", "bottom-center", "bottom-right"])
+    .default("center"),
+  /** Fraction of the frame's width. 0.4 is a comfortable inset graphic. */
+  scale: z.number().min(0.05).max(1).default(0.4),
+  opacity: z.number().min(0.05).max(1).default(1),
+});
+
+export const ListAssetsParams = z.object({ id: z.string().min(1) });
+export const ListAssetsResponse = z.array(Asset);
+
+export const RegisterAssetParams = z.object({ id: z.string().min(1) });
+export const RegisterAssetBody = z.object({
+  /** Storage object path, `<userId>/<projectId>/<name>`. Checked, not trusted. */
+  path: z.string().min(3).max(400),
+  kind: z.enum(["video", "image", "audio"]),
+  label: z.string().max(200).optional(),
+  bytes: z.number().int().min(0).max(50_000_000_000).default(0),
+  durationSeconds: z.number().min(0).max(86_400).optional(),
+  width: z.number().int().min(0).max(20_000).optional(),
+  height: z.number().int().min(0).max(20_000).optional(),
+});
+export const RegisterAssetResponse = Asset;
+
+export const DeleteAssetParams = z.object({ id: z.string().min(1), assetId: z.string().min(1) });
+
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
   FormatForPlatformOperation,
@@ -476,6 +558,8 @@ export const EditOperation = z.discriminatedUnion("type", [
   ZoomPunchOperation,
   NormalizeLoudnessOperation,
   GradeOperation,
+  InsertBRollOperation,
+  OverlayImageOperation,
 ]);
 export type EditOperation = z.infer<typeof EditOperation>;
 
