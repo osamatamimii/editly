@@ -131,5 +131,6 @@ jobs:
       - run: node tools/render-test.mjs
       - run: node tools/overlay-test.mjs
       - run: node tools/motion-test.mjs
+      - run: node tools/checkout-test.mjs
       - run: node tools/browser-test.mjs
       - run: node tools/worker-test.mjs
