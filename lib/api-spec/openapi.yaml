@@ -452,6 +452,222 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /projects/{id}/assets:
+    get:
+      operationId: listAssets
+      tags: [assets]
+      summary: The files this project can put on screen
+      description: >
+        Everything besides the one video being cut — b-roll, a screenshot, a
+        logo, music. The storage path is deliberately absent from the response:
+        the browser already knows where it put a file, and echoing paths back
+        turns any future enumeration bug into a data leak.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The project's library, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Asset"
+        "404":
+          description: >
+            No such project, or not this account's. The same answer for both, so
+            that whether an id exists is not learnable from a status code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: registerAsset
+      tags: [assets]
+      summary: Record a file the browser has already uploaded
+      description: >
+        The bytes go straight from the browser to Storage under the signed-in
+        user's own session. This records where they landed — and refuses to
+        believe the claim unless the path is inside this user's folder for this
+        project.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterAssetBody"
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+        "400":
+          description: The path is not inside this project's folder
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: The project already holds as many files as it may
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /projects/{id}/assets/{assetId}:
+    delete:
+      operationId: deleteAsset
+      tags: [assets]
+      summary: Remove one file from the project's library
+      description: >
+        Scoped by user and project and asset together, so an id guessed from
+        another account deletes nothing. The stored object is left alone: a
+        per-asset delete that half-succeeds leaves a row pointing at nothing,
+        and deleting the project reclaims the whole folder in one call.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: assetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Removed
+        "404":
+          description: No such asset in this project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /stock/search:
+    get:
+      operationId: searchStock
+      tags: [stock]
+      summary: Search the stock library
+      description: >
+        Free clips and photography, searched through us so the key never reaches
+        the browser. With no key configured this answers 503 rather than an
+        empty list — "we have not switched this on" and "there are no photos of
+        cats" are different answers.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [image, video]
+            default: image
+      responses:
+        "200":
+          description: What the library has
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StockItem"
+                required: [items]
+        "400":
+          description: The search term is too short or too long
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: The stock provider did not answer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: No stock key is configured for this deployment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /stock/file/{id}:
+    get:
+      operationId: getStockFile
+      tags: [stock]
+      summary: Stream one stock file
+      description: >
+        The id is resolved by the provider and the resulting URL is checked
+        against an allowlist before a byte is fetched — the client never names a
+        file, because a client-supplied URL is a server-side request forgery.
+        Streamed rather than buffered, and capped on the way through.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: A namespaced stock id, "photo:123" or "video:456".
+          schema:
+            type: string
+            pattern: "^(photo|video):[0-9]{1,15}$"
+      responses:
+        "200":
+          description: >
+            The file. Its kind, label, dimensions and duration come back as
+            X-Stock-* headers so the caller can register it without a second
+            round trip and without inventing any of it.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: That is not a stock id, or the provider does not have it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Larger than we will pass through
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: The provider refused the file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: No stock key is configured for this deployment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 
 components:
   parameters:
@@ -821,8 +1037,231 @@ components:
         - $ref: "#/components/schemas/ZoomPunchOperation"
         - $ref: "#/components/schemas/NormalizeLoudnessOperation"
         - $ref: "#/components/schemas/GradeOperation"
+        - $ref: "#/components/schemas/InsertBRollOperation"
+        - $ref: "#/components/schemas/OverlayImageOperation"
+        - $ref: "#/components/schemas/MotionTitleOperation"
       discriminator:
         propertyName: type
+
+    Asset:
+      description: >
+        One file in a project's library. The storage path is deliberately not a
+        property: the browser knows where it put the file and can sign its own
+        URL, and a path in a response is a path in a future leak.
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        kind:
+          type: string
+          enum: [video, image, audio]
+        label:
+          type: string
+          nullable: true
+        bytes:
+          type: integer
+          minimum: 0
+        durationSeconds:
+          type: number
+          nullable: true
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        url:
+          description: Always null. Present so the shape does not change later.
+          type: string
+          nullable: true
+      required: [id, projectId, kind, bytes, createdAt]
+
+    RegisterAssetBody:
+      type: object
+      properties:
+        path:
+          description: >
+            Where the browser put the file. Checked against this user and this
+            project before it is believed; every segment must be made of
+            characters that cannot mean anything but themselves, so a traversal
+            is unspellable rather than merely rejected.
+          type: string
+        kind:
+          type: string
+          enum: [video, image, audio]
+        label:
+          type: string
+          nullable: true
+        bytes:
+          type: integer
+          minimum: 0
+        durationSeconds:
+          type: number
+          nullable: true
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+      required: [path, kind, bytes]
+
+    StockItem:
+      description: >
+        One result from the stock library. The id is namespaced — "photo:123" —
+        because the provider's photo and video id spaces overlap, and because a
+        client that can only name an id cannot name an internal address.
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: "^(photo|video):[0-9]{1,15}$"
+        kind:
+          type: string
+          enum: [image, video]
+        label:
+          type: string
+        previewUrl:
+          description: A thumbnail, safe to put in a grid. Videos get a poster frame.
+          type: string
+          format: uri
+        width:
+          type: integer
+        height:
+          type: integer
+        durationSeconds:
+          type: number
+          nullable: true
+        credit:
+          description: The photographer. Carried into the asset's label, as the provider asks.
+          type: string
+        creditUrl:
+          type: string
+          format: uri
+      required: [id, kind, label, previewUrl, width, height, credit, creditUrl]
+
+    InsertBRollOperation:
+      description: >
+        Cut away to one of the project's own clips, keeping the speaker's audio
+        underneath — a cutaway that silences them is not a cutaway, it is a cut.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [insertBRoll]
+        assetId:
+          description: >
+            Must name a video already in this project. The planner is offered
+            only the ids that exist, and the answer is checked against the kind
+            as well: an image here would not be a wrong edit, it would be a
+            crash.
+          type: string
+        at:
+          description: Seconds into the finished video, after any cuts.
+          type: number
+          minimum: 0
+        durationSeconds:
+          type: number
+          minimum: 0.2
+          maximum: 30
+          default: 3
+        fit:
+          description: >
+            cover fills the frame and crops the overflow, which is right for
+            footage; contain letterboxes, which is right for a screenshot where
+            cropping the edges destroys the point of showing it.
+          type: string
+          enum: [cover, contain]
+          default: cover
+        keepSourceAudio:
+          type: boolean
+          default: true
+      required: [type, assetId, at]
+
+    OverlayImageOperation:
+      description: Hold one of the project's images over the frame.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [overlayImage]
+        assetId:
+          type: string
+        at:
+          type: number
+          minimum: 0
+        durationSeconds:
+          type: number
+          minimum: 0.2
+          maximum: 60
+          default: 3
+        position:
+          type: string
+          enum:
+            [
+              top-left,
+              top-center,
+              top-right,
+              center,
+              bottom-left,
+              bottom-center,
+              bottom-right,
+            ]
+          default: center
+        scale:
+          description: Fraction of the frame's width. 0.4 is a comfortable inset graphic.
+          type: number
+          minimum: 0.05
+          maximum: 1
+          default: 0.4
+        opacity:
+          type: number
+          minimum: 0.05
+          maximum: 1
+          default: 1
+      required: [type, assetId, at]
+
+    MotionTitleOperation:
+      description: >
+        Words animated onto the screen, rendered in a real browser frame by
+        frame so the easing is a spring rather than a bezier's approximation of
+        one. The text is the person's own; the planner is instructed never to
+        write copy they did not ask for.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [motionTitle]
+        text:
+          type: string
+          minLength: 1
+          maxLength: 120
+        at:
+          type: number
+          minimum: 0
+        durationSeconds:
+          type: number
+          minimum: 0.4
+          maximum: 20
+          default: 2.5
+        style:
+          description: >
+            card is a full statement held in the middle of frame; lower-third is
+            a name or label that does not interrupt; word is one emphasised word,
+            bigger and shorter than either.
+          type: string
+          enum: [card, lower-third, word]
+          default: card
+        position:
+          type: string
+          enum: [top, center, bottom]
+          default: center
+      required: [type, text, at]
 
     RemoveSilenceOperation:
       type: object
