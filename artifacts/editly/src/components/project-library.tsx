@@ -27,7 +27,7 @@ async function authHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export function ProjectLibrary({ projectId, userId }: { projectId: string; userId: string }): JSX.Element {
+export function ProjectLibrary({ projectId, userId }: { projectId: string; userId: string }) {
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
