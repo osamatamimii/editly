@@ -435,8 +435,13 @@ section("The rules the schema itself enforces");
     byName["exports_job_id_fkey"],
   );
   check(
+    "a project's library goes with it too",
+    /REFERENCES projects\(id\) ON DELETE CASCADE/.test(byName["assets_project_id_fkey"] ?? ""),
+    byName["assets_project_id_fkey"],
+  );
+  check(
     "and there are no others nobody has reasoned about",
-    keys.length === 3,
+    keys.length === 4,
     JSON.stringify(keys.map((k) => k.conname)),
   );
 

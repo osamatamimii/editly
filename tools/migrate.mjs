@@ -100,7 +100,19 @@ try {
     await client.query("BEGIN");
     try {
       await client.query(sql);
-      await client.query("INSERT INTO schema_migrations (filename) VALUES ($1)", [filename]);
+      // ON CONFLICT DO NOTHING, because a migration that recorded itself must
+      // not be able to stop the whole run.
+      //
+      // 0018 ended with its own `INSERT INTO schema_migrations` — written while
+      // applying it to production by hand, where that line was the bookkeeping.
+      // In the file it meant the row already existed by the time this insert
+      // ran, the primary key was violated, the transaction rolled back, and CI
+      // died before a single test executed. What is applied is decided by the
+      // set read above, not by whether this insert had anything to do.
+      await client.query(
+        "INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING",
+        [filename],
+      );
       await client.query("COMMIT");
       console.log(`applied ${filename}`);
     } catch (error) {
