@@ -1,20 +1,27 @@
 /**
- * The one button that takes money, and the way it used to fail.
+ * The one button that takes money.
  *
- * A content blocker does not reject `checkout.freemius.com`. It black-holes it:
- * no `onload`, no `onerror`, no entry in the resource timeline, no console
- * line. The promise that waits on the script therefore never settles, and the
- * button says "Opening checkout…" for the rest of the session.
+ * It failed in production with `window.FS.Checkout is not a constructor`, and
+ * the constructor was never the problem. `checkout.freemius.com/checkout.js`
+ * is three IIFEs and the last one ends `})(jQuery);` — with no global jQuery
+ * that argument throws a ReferenceError before the function is entered, so the
+ * IIFE that assigns `FS.Checkout` never runs. What survives is the first one,
+ * which defines `FS.Logger`. So `window.FS` exists — every "did it load?"
+ * check passes — and `window.FS.Checkout` is undefined.
  *
- * I reproduced exactly that on the live site before writing this: the script
- * tag was appended, and twenty seconds later `performance.getEntriesByType`
- * still showed zero freemius requests and neither handler had run.
+ * Confirmed against production in a real browser: inject checkout.js alone and
+ * `window.FS` has exactly one key, `Logger`. Inject jQuery first and it has
+ * `Logger`, `PostMessage`, `Checkout`, the last with configure/open/close.
  *
- * So these checks are about a clock and a way out, not about Freemius:
- *   1. a load that never answers must still settle, and quickly
- *   2. it must fall back to the hosted checkout, which is a navigation rather
- *      than a third-party script and so usually survives the same blocker
- *   3. the fallback URL must carry the right product, plan, cycle and email
+ * The widget is therefore gone, and with it a 90KB CDN dependency and two
+ * blockable requests in front of the only button that takes money. What is
+ * left is a URL. These checks are about that URL and about the handoff:
+ *
+ *   1. the link carries the right product, plan, cycle and email, encoded
+ *   2. a plan with no id is an error the caller can show, not a dead click
+ *   3. a popup blocker must not swallow the purchase — it navigates instead
+ *   4. a successful new tab must NOT also navigate this one
+ *   5. the opener is severed, so the checkout cannot reach back into the app
  *
  * Usage: node tools/checkout-test.mjs
  */
@@ -68,28 +75,25 @@ const check = (name, ok, detail = "") => {
 };
 
 /**
- * A browser whose network swallows the request: the script element is created
- * and appended, and then nothing ever happens to it. This is the real
- * behaviour, not an approximation of it.
+ * A browser, with the two behaviours that matter made switchable:
+ * whether `window.open` yields a window, and whether it throws outright.
  */
-function blackHoleDom() {
+function fakeBrowser({ popupBlocked = false, openThrows = false } = {}) {
   const opened = [];
-  const created = [];
+  const navigated = [];
+  const handles = [];
   globalThis.window = {
-    FS: undefined,
-    setTimeout: (fn, ms) => setTimeout(fn, ms),
-    clearTimeout: (id) => clearTimeout(id),
-    open: (url) => opened.push(url),
-  };
-  globalThis.document = {
-    createElement: () => {
-      const el = {};
-      created.push(el);
-      return el;
+    open: (url, target) => {
+      opened.push({ url, target });
+      if (openThrows) throw new Error("blocked by policy");
+      if (popupBlocked) return null;
+      const handle = { opener: { real: true } };
+      handles.push(handle);
+      return handle;
     },
-    head: { appendChild: () => {} },
+    location: { assign: (url) => navigated.push(url) },
   };
-  return { opened, created };
+  return { opened, navigated, handles };
 }
 
 const { openCheckout, hostedCheckoutUrl } = await import(pathToFileURL(modulePath).href);
@@ -101,110 +105,94 @@ const config = {
   currentPlan: "free",
 };
 
-console.log("\nThe hosted checkout URL");
+console.log("\nThe link itself");
 {
   const url = hostedCheckoutUrl(config, { plan: "pro", billingCycle: "annual", email: "a b@x.com" });
   const parsed = new URL(url);
-  check("names the product and the plan in the path", parsed.pathname === "/product/36845/plan/61100/", parsed.pathname);
+  check("points at Freemius", parsed.host === "checkout.freemius.com", parsed.host);
+  check("carries the product", parsed.pathname.includes("/product/36845/"), parsed.pathname);
+  check("carries the plan for the tier asked for", parsed.pathname.includes("/plan/61100/"), parsed.pathname);
   check("carries the billing cycle", parsed.searchParams.get("billing_cycle") === "annual");
-  check("prefills the email, encoded", parsed.searchParams.get("user_email") === "a b@x.com", url);
-  check("is on Freemius, not on us", parsed.host === "checkout.freemius.com", parsed.host);
-  check(
-    "returns nothing for a plan we do not sell",
-    hostedCheckoutUrl({ ...config, plans: {} }, { plan: "pro", billingCycle: "monthly" }) === null,
-  );
+  check("prefills the email exactly", parsed.searchParams.get("user_email") === "a b@x.com");
+  check("encodes rather than interpolates", !url.includes("a b@x.com"), url);
+  check("ends the path in a slash, as Freemius serves it", parsed.pathname.endsWith("/"), parsed.pathname);
+}
+{
+  const url = hostedCheckoutUrl(config, { plan: "creator", billingCycle: "monthly" });
+  check("omits the email when there is none", !url.includes("user_email"), url);
+  check("uses the creator plan id", url.includes("/plan/61099/"), url);
+}
+{
+  const url = hostedCheckoutUrl(config, { plan: "studio", billingCycle: "monthly" });
+  check("uses the studio plan id", url.includes("/plan/61102/"), url);
+}
+check(
+  "a tier with no plan id has no link",
+  hostedCheckoutUrl({ ...config, plans: {} }, { plan: "pro", billingCycle: "monthly" }) === null,
+);
+
+console.log("\nA browser that allows the new tab");
+{
+  const dom = fakeBrowser();
+  let purchased = 0;
+  await openCheckout(config, {
+    plan: "pro", billingCycle: "monthly", email: "buyer@example.com",
+    onPurchase: () => { purchased += 1; },
+  });
+  check("opens exactly one window", dom.opened.length === 1, String(dom.opened.length));
+  check("opens it in a new tab", dom.opened[0]?.target === "_blank", String(dom.opened[0]?.target));
+  check("opens the hosted checkout", (dom.opened[0]?.url ?? "").startsWith("https://checkout.freemius.com/product/36845/plan/61100/"));
+  check("does NOT also navigate this tab", dom.navigated.length === 0, dom.navigated.join(","));
+  check("severs the opener", dom.handles.every((h) => h.opener === null));
+  check("tells the caller to refresh the plan", purchased === 1, String(purchased));
 }
 
-console.log("\nA request that is never answered");
+console.log("\nA browser that blocks the popup");
 {
-  const dom = blackHoleDom();
-  const started = Date.now();
-  await openCheckout(config, { plan: "creator", billingCycle: "monthly", email: "x@y.com" });
-  const took = Date.now() - started;
-
-  check("settles instead of hanging forever", took < 20000, `${took}ms`);
-  check("and does not sit there for a minute first", took < 15000, `${took}ms`);
-  check("opens the hosted checkout instead", dom.opened.length === 1, JSON.stringify(dom.opened));
-  check(
-    "for the plan that was asked for",
-    dom.opened[0]?.includes("/plan/61099/"),
-    dom.opened[0] ?? "nothing opened",
-  );
-  check("in a new tab, without handing it our window", dom.opened.length === 1);
+  const dom = fakeBrowser({ popupBlocked: true });
+  await openCheckout(config, { plan: "studio", billingCycle: "annual" });
+  check("still tried the tab first", dom.opened.length === 1);
+  check("navigates this tab instead", dom.navigated.length === 1, String(dom.navigated.length));
+  check("navigates to the same checkout", (dom.navigated[0] ?? "").includes("/plan/61102/"), dom.navigated[0]);
+  check("carries the cycle through the fallback", (dom.navigated[0] ?? "").includes("billing_cycle=annual"));
 }
 
-
-console.log("\nThe shape Freemius actually ships");
+console.log("\nA browser where opening throws");
 {
-  // The live script attaches FS.Checkout as a plain object with open/close.
-  // We were calling `new FS.Checkout(...)` against it, which throws
-  // "window.FS.Checkout is not a constructor" — and that is precisely what a
-  // real customer saw when they clicked Pro.
-  const opened = [];
-  globalThis.window = {
-    FS: {
-      Checkout: {
-        configure: (o) => opened.push({ call: "configure", o }),
-        open: (o) => opened.push({ call: "open", o }),
-      },
-    },
-    setTimeout: (fn, ms) => setTimeout(fn, ms),
-    clearTimeout: (id) => clearTimeout(id),
-    open: (url) => opened.push({ call: "window.open", url }),
-  };
-  globalThis.document = { createElement: () => ({}), head: { appendChild: () => {} } };
-
-  await openCheckout(config, { plan: "studio", billingCycle: "monthly", email: "z@y.com" });
-
-  const call = opened.find((c) => c.call === "open");
-  check("opens the widget rather than trying to construct it", Boolean(call), JSON.stringify(opened.map((c) => c.call)));
-  check("never falls back when the widget works", !opened.some((c) => c.call === "window.open"));
-  check("sends plugin_id, which is the name the script requires", call?.o.plugin_id === "36845", JSON.stringify(call?.o.plugin_id));
-  check("sends the public key", call?.o.public_key === "pk_test");
-  check("and the plan that was clicked", call?.o.plan_id === "61102", String(call?.o.plan_id));
-  check("with the billing cycle and email", call?.o.billing_cycle === "monthly" && call?.o.user_email === "z@y.com");
+  const dom = fakeBrowser({ openThrows: true });
+  let threw = null;
+  try {
+    await openCheckout(config, { plan: "creator", billingCycle: "monthly" });
+  } catch (error) { threw = error; }
+  check("does not surface the failure", threw === null, threw?.message ?? "");
+  check("falls through to a navigation", dom.navigated.length === 1, String(dom.navigated.length));
 }
 
-console.log("\nThe older shape, still honoured");
+console.log("\nA tier that was never set up");
 {
-  const seen = [];
-  class LegacyCheckout {
-    constructor(identity) { seen.push({ call: "new", identity }); }
-    open(o) { seen.push({ call: "open", o }); }
-  }
-  globalThis.window = {
-    FS: { Checkout: LegacyCheckout },
-    setTimeout: (fn, ms) => setTimeout(fn, ms),
-    clearTimeout: (id) => clearTimeout(id),
-    open: (url) => seen.push({ call: "window.open", url }),
-  };
-  globalThis.document = { createElement: () => ({}), head: { appendChild: () => {} } };
-
-  await openCheckout(config, { plan: "creator", billingCycle: "annual" });
-  check("constructs it when it is a constructor", seen[0]?.call === "new", JSON.stringify(seen.map((c) => c.call)));
-  check("then opens it", seen[1]?.call === "open");
+  const dom = fakeBrowser();
+  let threw = null;
+  try {
+    await openCheckout({ ...config, plans: { creator: "61099" } }, { plan: "studio", billingCycle: "monthly" });
+  } catch (error) { threw = error; }
+  check("refuses rather than opening nothing", threw !== null);
+  check("says which plan", (threw?.message ?? "").includes("studio"), threw?.message ?? "");
+  check("opened no window at all", dom.opened.length === 0 && dom.navigated.length === 0);
 }
 
-console.log("\nA widget that loads and then throws");
+console.log("\nThe widget is really gone");
 {
-  const seen = [];
-  globalThis.window = {
-    FS: { Checkout: { open: () => { throw new Error("nope"); } } },
-    setTimeout: (fn, ms) => setTimeout(fn, ms),
-    clearTimeout: (id) => clearTimeout(id),
-    open: (url) => seen.push(url),
-  };
-  globalThis.document = { createElement: () => ({}), head: { appendChild: () => {} } };
-
-  await openCheckout(config, { plan: "pro", billingCycle: "monthly" });
-  check("still ends up at a checkout", seen.length === 1 && seen[0].includes("/plan/61100/"), JSON.stringify(seen));
+  const source = await fs.readFile(path.join(repoRoot, "artifacts/editly/src/lib/checkout.ts"), "utf8");
+  // The comments in that file explain the widget at length, and explaining it
+  // is not shipping it. Only the code is searched.
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  check("no script tag is created", !code.includes("createElement"), "createElement is back");
+  check("checkout.js is not loaded", !code.includes("checkout.freemius.com/checkout.js"));
+  check("nothing reads window.FS", !/window\.FS/.test(code));
+  check("noopener is not used, because it always returns null", !code.includes("noopener"));
 }
 
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
-if (failures > 0) {
-  console.log("Someone who cannot load the widget still cannot pay.");
-  process.exit(1);
-}
-console.log("A blocked widget is a detour, not a dead end.");
+process.exit(failures === 0 ? 0 : 1);

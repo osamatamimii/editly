@@ -740,116 +740,101 @@ section("An object key is signed before it is played; a URL is left alone");
 
 // ─── The two smaller modules ─────────────────────────────────────────────────
 
-section("Checkout cannot grant anything, and says so when it cannot open");
+section("Checkout cannot grant anything, and hands off to a page it cannot be blocked out of");
 {
-  // Freemius's script is intercepted rather than fetched. The first version of
-  // this section relied on checkout.freemius.com simply being unreachable from
-  // the sandbox it was written in — which made "an ad blocker is in the way" a
-  // fact about the network rather than a thing under test. On a CI runner the
-  // real script loaded, defined a `window.FS` that wanted jQuery, and the
-  // section failed for a reason that had nothing to do with this repository.
+  // There is no third-party script here any more, so there is nothing to
+  // intercept. `checkout.freemius.com/checkout.js` ends `})(jQuery);` — with
+  // no global jQuery that argument throws before the function is entered, the
+  // IIFE that assigns `FS.Checkout` never runs, and `window.FS` is left
+  // holding only `Logger`. Every "did it load?" check passes and the next line
+  // reads `undefined`. That is the whole of "FS.Checkout is not a constructor".
   //
-  // A test whose result depends on whether a third party's CDN is reachable is
-  // not testing the code.
-  await browserPage.route("https://checkout.freemius.com/**", (route) => route.abort());
-
-  const blocked = await run(async () => {
-    const config = { productId: "19012", publicKey: "pk_test", plans: { pro: "36845" }, currentPlan: "free" };
-    const attempt = async (plan) => {
-      try {
-        await window.CO.openCheckout(config, { plan, billingCycle: "monthly" });
-        return null;
-      } catch (error) {
-        return String(error.message);
-      }
-    };
-    return { creator: await attempt("creator"), pro: await attempt("pro"), again: await attempt("pro") };
-  });
-
-  check(
-    "a plan with no id configured is refused by name, before anything is loaded",
-    /creator plan is not set up/.test(blocked.creator ?? ""),
-    blocked.creator,
-  );
-  check("a checkout script that will not load is an error, not a hang", blocked.pro !== null, blocked.pro);
-  check(
-    "which blames the connection or a blocker, because that is what it usually is",
-    /ad blocker/.test(blocked.pro ?? ""),
-    blocked.pro,
-  );
-  check(
-    "and a second click tries again rather than remembering the failure forever",
-    blocked.again !== null && blocked.again === blocked.pro,
-    `${blocked.pro} / ${blocked.again}`,
-  );
-}
-
-section("And when it does open, it opens as the right person");
-{
-  // Freemius matches a payment to an account by email — it is the only
-  // identifier both sides share — so someone who pays under a different address
-  // than they signed up with lands in the "paid, but we cannot find you" case.
-  // Prefilling is what makes that a deliberate act rather than an accident, and
-  // it is invisible in any test that only checks the checkout opened.
-  await browserPage.unroute("https://checkout.freemius.com/**");
-  await browserPage.route("https://checkout.freemius.com/**", (route) =>
-    route.fulfill({
-      contentType: "application/javascript",
-      body: `window.__opened = [];
-             window.FS = {
-               Checkout: function (options) {
-                 this.constructed = options;
-                 this.open = (opened) => window.__opened.push({ constructed: options, opened });
-                 this.close = () => {};
-               },
-             };`,
-    }),
-  );
-
+  // What is tested instead is the handoff: which URL, in which tab, and
+  // whether a purchase can be lost between the two.
   const opened = await run(async () => {
+    const calls = [];
+    const handles = [];
+    const realOpen = window.open;
+    window.open = (url, target) => {
+      calls.push({ url, target });
+      const handle = { opener: { real: true }, closed: false };
+      handles.push(handle);
+      return handle;
+    };
     let purchased = 0;
-    await window.CO.openCheckout(
-      { productId: "19012", publicKey: "pk_test", plans: { pro: "36845" }, currentPlan: "free" },
-      {
-        plan: "pro",
-        billingCycle: "annual",
-        email: "osama@example.com",
-        onPurchase: () => { purchased += 1; },
-      },
-    );
-    const call = window.__opened[0];
-    // Freemius fires these in the browser when the purchase completes. They are
-    // a signal to refresh, not a grant.
-    call.opened.purchaseCompleted?.();
-    call.opened.success?.();
-    return { ...call, purchased };
+    try {
+      await window.CO.openCheckout(
+        { productId: "36845", publicKey: "pk_test", plans: { pro: "61100" }, currentPlan: "free" },
+        {
+          plan: "pro",
+          billingCycle: "annual",
+          email: "osama@example.com",
+          onPurchase: () => { purchased += 1; },
+        },
+      );
+    } finally {
+      window.open = realOpen;
+    }
+    return { calls, purchased, openerSevered: handles.every((h) => h.opener === null) };
   });
 
-  check("the product and key it was configured with are used", opened.constructed.product_id === "19012" && opened.constructed.public_key === "pk_test", JSON.stringify(opened.constructed));
-  check("with the plan id for the tier being bought", opened.constructed.plan_id === "36845", JSON.stringify(opened.constructed));
-  check("the billing cycle asked for, not a default", opened.opened.billing_cycle === "annual", JSON.stringify(opened.opened));
+  check("exactly one window is opened", opened.calls.length === 1, String(opened.calls.length));
+  check("in a new tab, so the app is still there afterwards", opened.calls[0]?.target === "_blank", String(opened.calls[0]?.target));
+
+  const url = new URL(opened.calls[0]?.url ?? "https://example.invalid");
+  check("at Freemius, not at us", url.host === "checkout.freemius.com", url.host);
+  check("the product and plan being bought", url.pathname === "/product/36845/plan/61100/", url.pathname);
+  check("the billing cycle asked for, not a default", url.searchParams.get("billing_cycle") === "annual", url.search);
   check(
     "and the email prefilled, because the webhook matches a payment by it",
-    opened.opened.user_email === "osama@example.com",
-    JSON.stringify(opened.opened),
+    url.searchParams.get("user_email") === "osama@example.com",
+    url.search,
   );
-  check("a completed purchase tells the app to refresh", opened.purchased === 2, String(opened.purchased));
+  check("the checkout cannot reach back into the app", opened.openerSevered);
+  check("the app is told to refresh the plan", opened.purchased === 1, String(opened.purchased));
 
-  const withoutEmail = await run(async () => {
-    window.__opened = [];
-    await window.CO.openCheckout(
-      { productId: "19012", publicKey: "pk", plans: { studio: "1" }, currentPlan: "free" },
-      { plan: "studio", billingCycle: "monthly" },
-    );
-    return window.__opened[0].opened;
+  const noEmail = await run(async () => {
+    let seen = null;
+    const realOpen = window.open;
+    window.open = (u) => { seen = u; return { opener: null }; };
+    try {
+      await window.CO.openCheckout(
+        { productId: "36845", publicKey: "pk", plans: { studio: "61102" }, currentPlan: "free" },
+        { plan: "studio", billingCycle: "monthly" },
+      );
+    } finally {
+      window.open = realOpen;
+    }
+    return seen;
   });
   check(
     "and no email is sent when there is none, rather than an empty one",
-    !("user_email" in withoutEmail),
-    JSON.stringify(withoutEmail),
+    !noEmail.includes("user_email"),
+    noEmail,
   );
 
-  await browserPage.unroute("https://checkout.freemius.com/**");
+  const refused = await run(async () => {
+    let calls = 0;
+    const realOpen = window.open;
+    window.open = () => { calls += 1; return { opener: null }; };
+    let message = null;
+    try {
+      await window.CO.openCheckout(
+        { productId: "36845", publicKey: "pk", plans: { creator: "61099" }, currentPlan: "free" },
+        { plan: "pro", billingCycle: "monthly" },
+      );
+    } catch (error) {
+      message = String(error.message);
+    } finally {
+      window.open = realOpen;
+    }
+    return { message, calls };
+  });
+  check(
+    "a tier with no plan id is refused by name, and opens nothing",
+    /pro plan is not set up/.test(refused.message ?? "") && refused.calls === 0,
+    `${refused.message} / ${refused.calls}`,
+  );
 }
 
 section("Sign-in buttons are shown for providers that are actually switched on");
