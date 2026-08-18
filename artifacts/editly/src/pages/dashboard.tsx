@@ -28,6 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { deleteProjectVideos, usePlayableVideo } from "@/lib/video-storage";
 import { loadState } from "@/lib/load-state";
+import { FREE_TIER } from "@/lib/pricing";
 import { LoadFailed } from "@/components/load-failed";
 import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
@@ -332,6 +333,48 @@ export default function Dashboard() {
           />
         </div>
       )}
+      {/*
+        The free plan, said out loud.
+
+        Someone on it could already read "0 / 5 minutes" off the meter below
+        and a badge saying "free plan", and neither of those tells them the
+        thing they actually want to know: that they are not on a countdown,
+        that nobody has their card, and that what they are trying is the whole
+        editor rather than a crippled preview of it. That was the complaint —
+        the free tier is on the pricing page and invisible everywhere someone
+        actually uses the product.
+
+        The numbers come from the same FREE_TIER the pricing page reads, so
+        this cannot quietly drift away from what we sell.
+      */}
+      {subscriptionState === "ready" && subscription?.plan === "free" && (
+        <div
+          data-testid="free-plan-band"
+          className="mb-4 rounded-2xl border border-primary/25 bg-primary/5 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel"
+        >
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">
+              {FREE_TIER.headline}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {FREE_TIER.minutes} minutes of finished video a month, uploads up to{" "}
+              {FREE_TIER.uploadMinutes} minutes, and every editing feature. No card, no
+              expiry — it simply keeps working.
+            </div>
+          </div>
+          <Link href="/#pricing">
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="button-see-plans"
+              className="rounded-full text-xs h-8 px-4 border-primary/30"
+            >
+              See plans
+            </Button>
+          </Link>
+        </div>
+      )}
+
       {subscriptionState === "ready" && subscription && (
         <div className={`mb-8 rounded-2xl border px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel ${
           subscription.minutesUsedThisMonth >= subscription.minutesIncluded
