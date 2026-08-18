@@ -548,6 +548,29 @@ export const RegisterAssetResponse = Asset;
 
 export const DeleteAssetParams = z.object({ id: z.string().min(1), assetId: z.string().min(1) });
 
+/**
+ * Type that arrives with weight.
+ *
+ * Rendered in a browser rather than by a filter, because a spring — overshoot
+ * then settle — is a curve `cubic-bezier` cannot describe, and because the
+ * difference between "a caption" and "a title" is entirely in that curve.
+ *
+ * `at` is on the source clock like every other timing here.
+ */
+export const MotionTitleOperation = z.object({
+  type: z.literal("motionTitle"),
+  text: z.string().min(1).max(120),
+  at: z.number().min(0),
+  durationSeconds: z.number().min(0.4).max(20).default(2.5),
+  /**
+   * "card" is a full statement held in the middle of frame; "lower-third" is a
+   * name or label that does not interrupt; "word" is one emphasised word,
+   * bigger and shorter than either.
+   */
+  style: z.enum(["card", "lower-third", "word"]).default("card"),
+  position: z.enum(["top", "center", "bottom"]).default("center"),
+});
+
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
   FormatForPlatformOperation,
@@ -560,6 +583,7 @@ export const EditOperation = z.discriminatedUnion("type", [
   GradeOperation,
   InsertBRollOperation,
   OverlayImageOperation,
+  MotionTitleOperation,
 ]);
 export type EditOperation = z.infer<typeof EditOperation>;
 
