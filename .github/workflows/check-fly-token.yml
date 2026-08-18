@@ -1,0 +1,41 @@
+# Answers one question in thirty seconds instead of six minutes: is FLY_API_TOKEN
+# real, and is it scoped widely enough to CREATE an app?
+#
+# The deploy's very first command is `flyctl apps list || flyctl apps create
+# editly-worker`. A token scoped to a single app authenticates fine and then
+# fails that create with a permissions error that does not say "wrong scope" —
+# so the cheapest thing to know before deploying is which kind of token this is.
+#
+# Nothing here echoes the token. flyctl never prints it, and no step writes it
+# to the log; the only outputs are org and app names.
+name: Check Fly token
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Who does this token belong to
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${FLY_API_TOKEN:-}" ]; then
+            echo "::error::FLY_API_TOKEN is not set on this repository."
+            exit 1
+          fi
+          echo "--- orgs this token can see ---"
+          flyctl orgs list
+          echo "--- apps this token can see ---"
+          flyctl apps list
+          echo "--- does editly-worker exist yet ---"
+          if flyctl apps list | grep -q '^editly-worker'; then
+            echo "editly-worker already exists; the deploy will reuse it."
+          else
+            echo "editly-worker does not exist; the deploy must create it,"
+            echo "which an app-scoped token cannot do."
+          fi
