@@ -130,5 +130,6 @@ jobs:
       - run: node tools/framing-test.mjs
       - run: node tools/render-test.mjs
       - run: node tools/overlay-test.mjs
+      - run: node tools/motion-test.mjs
       - run: node tools/browser-test.mjs
       - run: node tools/worker-test.mjs
