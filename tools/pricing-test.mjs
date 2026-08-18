@@ -56,7 +56,7 @@ function bundle(entry, name, resolveFrom) {
   return pathToFileURL(outfile).href;
 }
 
-const { PLANS, SHARED_FEATURES } = await import(
+const { PLANS, SHARED_FEATURES, FREE_TIER } = await import(
   bundle("artifacts/editly/src/lib/pricing.ts", "pricing.mjs", "artifacts/editly")
 );
 const { PLAN_LIMITS } = await import(
@@ -278,7 +278,35 @@ section("Paying more never buys less");
     );
   }
 
-  // The free tier is not on the pricing cards, and it still has to make sense
+  // The free tier IS on the page now — as a band above the cards rather than a
+  // fourth card, because it is not a plan anyone chooses between, it is the
+  // door. What matters is that the sentence and the limit cannot drift apart:
+  // a free tier advertising more than it grants is the worst copy on the site.
+  check(
+    "the free tier's minutes match what the server grants",
+    FREE_TIER.minutes === PLAN_LIMITS.free.minutesPerMonth,
+    `page ${FREE_TIER.minutes} vs server ${PLAN_LIMITS.free.minutesPerMonth}`,
+  );
+  check(
+    "and its upload ceiling matches too",
+    FREE_TIER.uploadMinutes === PLAN_LIMITS.free.maxUploadMinutes,
+    `page ${FREE_TIER.uploadMinutes} vs server ${PLAN_LIMITS.free.maxUploadMinutes}`,
+  );
+  check(
+    "every number it prints is one of those two",
+    FREE_TIER.lines.every((line) => {
+      const numbers = (line.match(/\d+/g) ?? []).map(Number);
+      return numbers.every((n) => n === FREE_TIER.minutes || n === FREE_TIER.uploadMinutes);
+    }),
+    JSON.stringify(FREE_TIER.lines),
+  );
+  check(
+    "it says the mark out loud rather than letting it be a surprise",
+    FREE_TIER.lines.some((line) => /mark|watermark/i.test(line)) === PLAN_LIMITS.free.watermark,
+  );
+  check("it costs nothing, and says so", FREE_TIER.price === 0 && PLAN_LIMITS.free.pricePerMonth === 0);
+
+  // The free tier still has to make sense
   // against the cheapest paid one — it is what everybody starts on.
   const free = PLAN_LIMITS.free;
   const cheapest = PLAN_LIMITS[ordered[0].key];
