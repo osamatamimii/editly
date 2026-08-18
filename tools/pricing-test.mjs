@@ -26,7 +26,7 @@
  * Usage: node tools/pricing-test.mjs
  * Requires: nothing. No keys, no network, no database.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -317,6 +317,28 @@ section("Paying more never buys less");
     free.minutesPerMonth >= 3 && free.maxUploadMinutes >= 5,
     JSON.stringify(free),
   );
+}
+
+// ─── The free tier, where somebody on it actually is ────────────────────────
+//
+// It was on the pricing page and nowhere else, which is the one place a person
+// already using the product never looks. A meter reading "0 / 5" and a badge
+// reading "free plan" are facts, not an answer to "am I on a countdown, and
+// does anyone have my card?".
+console.log("\nThe free plan is legible from inside the product");
+{
+  const dashboard = await readFile(path.join(repoRoot, "artifacts/editly/src/pages/dashboard.tsx"), "utf8");
+  check("the dashboard says something about the free plan at all", dashboard.includes("free-plan-band"));
+  check("only to people who are on it", /subscription\?\.plan === "free"/.test(dashboard));
+  check(
+    "and it reads the numbers from the same place the pricing page does",
+    dashboard.includes("FREE_TIER.minutes") && dashboard.includes("FREE_TIER.uploadMinutes"),
+  );
+  check(
+    "rather than retyping them, which is how the two drift apart",
+    !/\b5 minutes of finished video a month\b/.test(dashboard),
+  );
+  check("it offers a way up without demanding one", dashboard.includes("button-see-plans"));
 }
 
 await rm(buildDir, { recursive: true, force: true });
