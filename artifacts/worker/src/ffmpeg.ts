@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { criticise } from "./critic";
+import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle } from "./motion";
 import type { EditOperation, EditPlan } from "@workspace/api-zod";
 import { captionLayout, type CaptionLayout } from "./caption-layout";
 import {
@@ -849,6 +850,47 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     notes.push(`levelled to ${loudness.targetLufs} LUFS`);
   }
 
+  // ── Designed motion ───────────────────────────────────────────────────────
+  //
+  // Titles are rendered in a browser to a transparent frame sequence and then
+  // laid over the picture like any other overlay. They are built *before* the
+  // overlay chain so they end up on top of b-roll and images, which is the
+  // order anyone would expect: a title is the last thing between the viewer
+  // and the frame.
+  //
+  // The whole thing degrades to a note. No browser in the image, a scene that
+  // fails to paint, a title whose moment was cut — none of those are reasons
+  // to fail a render that is otherwise finished.
+  const titleOps = plan.operations.filter((o): o is Op<"motionTitle"> => o.type === "motionTitle");
+  let motionLayer: { pattern: string; frames: number; fps: number } | null = null;
+  if (titleOps.length > 0) {
+    const titles: MotionTitle[] = [];
+    for (const op of titleOps) {
+      const start = kept ? remapTime(op.at, kept) : op.at;
+      const end = kept ? remapTime(op.at + op.durationSeconds, kept) : op.at + op.durationSeconds;
+      if (end - start < 0.2) {
+        notes.push("dropped a title whose moment did not survive the cut");
+        continue;
+      }
+      titles.push({
+        text: op.text,
+        at: start,
+        durationSeconds: end - start,
+        style: op.style,
+        position: op.position,
+      });
+    }
+    if (titles.length > 0) {
+      const until = Math.max(...titles.map((t) => t.at + t.durationSeconds)) + 0.6;
+      motionLayer = await renderMotionLayer(
+        { width: frameWidth, height: frameHeight, fps: source.fps, titles, durationSeconds: until },
+        path.join(ctx.workDir, "motion"),
+      );
+      if (motionLayer) notes.push(`rendered ${titles.length} title${titles.length === 1 ? "" : "s"}`);
+      else notes.push("could not render the titles here, so they were left out");
+    }
+  }
+
   // ── Things laid over the picture ──────────────────────────────────────────
   //
   // Unlike every other operation here, these do not have one slot: a plan may
@@ -864,6 +906,10 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   );
   const extraInputs: string[] = [];
   const overlayLinks: string[] = [];
+
+  /** Frames the motion layer contributes, averaged back down to one. */
+  const motionInputArgs = (): string[] =>
+    motionLayer ? ["-framerate", String(motionLayer.fps), "-i", motionLayer.pattern] : [];
 
   if (overlayOps.length > 0) {
     for (const op of overlayOps) {
@@ -925,6 +971,23 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(`cut to b-roll at ${start.toFixed(1)}s for ${(end - start).toFixed(1)}s`);
       }
     }
+  }
+
+  if (motionLayer) {
+    const idx = extraInputs.length / 2 + 1;
+    extraInputs.push(...motionInputArgs());
+    const inLabel = overlayLinks.length === 0 ? "OVBASE" : `ov${overlayLinks.length}`;
+    const outLabel = `ov${overlayLinks.length + 1}`;
+    // `tmix` is the shutter: four samples averaged into one frame, so fast
+    // movement smears and slow movement stays sharp without anyone deciding
+    // which is which. `select` then keeps one frame per group so the layer
+    // comes back to the output rate instead of four times it.
+    overlayLinks.push(
+      `[${idx}:v]tmix=frames=${MOTION_SUBSAMPLES}:weights='${Array(MOTION_SUBSAMPLES).fill(1).join(" ")}',` +
+        `select='not(mod(n\\,${MOTION_SUBSAMPLES}))',setpts=N/${source.fps.toFixed(4)}/TB,` +
+        `scale=${frameWidth}:${frameHeight}[mot]`,
+    );
+    overlayLinks.push(`[${inLabel}][mot]overlay=0:0:eof_action=pass[${outLabel}]`);
   }
 
   // ── Assemble ──────────────────────────────────────────────────────────────
@@ -1001,5 +1064,6 @@ export function describe(op: EditOperation): string {
     case "normalizeLoudness": return "Levelling the audio";
     case "insertBRoll": return "Cutting in your b-roll";
     case "overlayImage": return "Laying your image over the frame";
+    case "motionTitle": return "Animating your titles";
   }
 }
