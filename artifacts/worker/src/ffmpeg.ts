@@ -469,6 +469,21 @@ export function frameFor(height: number): { w: number; h: number } {
  */
 const HONEST_UPSCALE = 2;
 
+/**
+ * Where an overlay sits. `W`/`H` are the frame, `w`/`h` the thing being laid on
+ * it, so the same expression is right at 1080×1920 and at 1080×1350 — which a
+ * pixel offset would not be.
+ */
+const OVERLAY_POSITION: Record<string, string> = {
+  "top-left": "40:40",
+  "top-center": "(W-w)/2:40",
+  "top-right": "W-w-40:40",
+  center: "(W-w)/2:(H-h)/2",
+  "bottom-left": "40:H-h-40",
+  "bottom-center": "(W-w)/2:H-h-40",
+  "bottom-right": "W-w-40:H-h-40",
+};
+
 const WATERMARK_POSITION: Record<string, string> = {
   "bottom-right": "x=w-tw-40:y=h-th-40",
   "bottom-center": "x=(w-tw)/2:y=h-th-40",
@@ -488,6 +503,16 @@ export interface RenderContext {
    * amplitude, and amplitude does not respect syllables.
    */
   words?: SpokenWord[];
+  /**
+   * Asset id → the file already downloaded next to the source.
+   *
+   * Resolved by the caller, not looked up here, for the same reason the plan
+   * carries ids and not paths: by the time a filter graph is being written, the
+   * question "is this file allowed" must already be answered. A renderer that
+   * can open an arbitrary path is one plan away from reading someone else's
+   * project.
+   */
+  assets?: Map<string, { file: string; kind: "video" | "image" | "audio" }>;
 }
 
 export interface RenderResult {
@@ -824,9 +849,95 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     notes.push(`levelled to ${loudness.targetLufs} LUFS`);
   }
 
+  // ── Things laid over the picture ──────────────────────────────────────────
+  //
+  // Unlike every other operation here, these do not have one slot: a plan may
+  // legitimately place a logo, a screenshot and a piece of b-roll, and they
+  // compose. So each one becomes its own ffmpeg input and its own overlay link,
+  // chained in plan order.
+  //
+  // Timings arrive on the source clock like all the others, so they are moved
+  // through the same cut map — an overlay pinned to a sentence that got cut
+  // must not reappear over whatever took its place.
+  const overlayOps = plan.operations.filter(
+    (o): o is Op<"overlayImage"> | Op<"insertBRoll"> => o.type === "overlayImage" || o.type === "insertBRoll",
+  );
+  const extraInputs: string[] = [];
+  const overlayLinks: string[] = [];
+
+  if (overlayOps.length > 0) {
+    for (const op of overlayOps) {
+      const asset = ctx.assets?.get(op.assetId);
+      if (!asset) {
+        notes.push(`skipped an overlay: asset ${op.assetId} is not in this project`);
+        continue;
+      }
+      if (op.type === "overlayImage" && asset.kind !== "image") {
+        // The kind is re-derived from the bytes upstream, so this is a plan
+        // asking to draw a video as a still, not a mislabelled upload.
+        notes.push("skipped an image overlay: that asset is not an image");
+        continue;
+      }
+
+      const startSrc = op.at;
+      const endSrc = op.at + op.durationSeconds;
+      const start = kept ? remapTime(startSrc, kept) : startSrc;
+      const end = kept ? remapTime(endSrc, kept) : endSrc;
+      if (end - start < 0.1) {
+        // The whole stretch it was pinned to was cut away.
+        notes.push("dropped an overlay whose moment did not survive the cut");
+        continue;
+      }
+
+      const idx = extraInputs.length / 2 + 1; // input 0 is the source
+      const inLabel = overlayLinks.length === 0 ? "OVBASE" : `ov${overlayLinks.length}`;
+      const outLabel = `ov${overlayLinks.length + 1}`;
+
+      if (op.type === "overlayImage") {
+        // A still needs `-loop 1` to have a duration at all, and a `-t` so the
+        // loop is finite: without it ffmpeg never reaches the end of the input
+        // and the render does not stop.
+        extraInputs.push("-loop", "1", "-t", (end + 0.5).toFixed(3), "-i", asset.file);
+        const w = Math.max(2, Math.round(frameWidth * op.scale));
+        const alpha = op.opacity < 1 ? `,format=rgba,colorchannelmixer=aa=${op.opacity.toFixed(3)}` : "";
+        overlayLinks.push(`[${idx}:v]scale=${w}:-2${alpha}[img${idx}]`);
+        overlayLinks.push(
+          `[${inLabel}][img${idx}]overlay=${OVERLAY_POSITION[op.position]}:` +
+            `enable='between(t,${start.toFixed(3)},${end.toFixed(3)})':eof_action=pass[${outLabel}]`,
+        );
+        notes.push(`laid an image over the frame at ${start.toFixed(1)}s`);
+      } else {
+        // B-roll: a second clip filling the frame for a while. The source audio
+        // is kept underneath, which is what a cutaway is — the picture changes
+        // and the person keeps talking.
+        extraInputs.push("-i", asset.file);
+        const fit =
+          op.fit === "cover"
+            ? `scale=${frameWidth}:${frameHeight}:force_original_aspect_ratio=increase:flags=lanczos,crop=${frameWidth}:${frameHeight}`
+            : `scale=${frameWidth}:${frameHeight}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${frameWidth}:${frameHeight}:(ow-iw)/2:(oh-ih)/2:black`;
+        overlayLinks.push(
+          `[${idx}:v]${fit},setsar=1,trim=0:${(end - start).toFixed(3)},setpts=PTS-STARTPTS+${start.toFixed(3)}/TB[br${idx}]`,
+        );
+        overlayLinks.push(
+          `[${inLabel}][br${idx}]overlay=0:0:` +
+            `enable='between(t,${start.toFixed(3)},${end.toFixed(3)})':eof_action=pass[${outLabel}]`,
+        );
+        notes.push(`cut to b-roll at ${start.toFixed(1)}s for ${(end - start).toFixed(1)}s`);
+      }
+    }
+  }
+
   // ── Assemble ──────────────────────────────────────────────────────────────
   const graphParts: string[] = [];
-  if (videoParts.length > 0) graphParts.push(`[${vLabel}]${videoParts.join(",")}[vout]`);
+  // With overlays present the main chain stops at a named link and the overlay
+  // links carry it the rest of the way; without them it ends at [vout] as
+  // before. Naming this once here is what keeps the two cases from disagreeing
+  // about which label holds the finished picture.
+  const hasOverlays = overlayLinks.length > 0;
+  const mainVideoOut = hasOverlays ? "OVBASE" : "vout";
+  if (videoParts.length > 0) graphParts.push(`[${vLabel}]${videoParts.join(",")}[${mainVideoOut}]`);
+  else if (hasOverlays) graphParts.push(`[${kept ? vLabel : "0:v"}]null[OVBASE]`);
+  graphParts.push(...overlayLinks);
   if (source.hasAudio && audioParts.length > 0) graphParts.push(`[${aLabel}]${audioParts.join(",")}[aout]`);
 
   const graph = graphPrefix + graphParts.join(";");
@@ -834,10 +945,11 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // A bracketed name is a filter label; a bare one is an input stream. Mixing
   // them up makes ffmpeg look for "0:a" inside the graph and fail on a plan
   // that touches only the picture.
-  const finalV = videoParts.length > 0 ? "[vout]" : kept ? `[${vLabel}]` : "0:v";
+  const overlayTail = overlayLinks.length > 0 ? `[ov${overlayLinks.length / 2}]` : null;
+  const finalV = overlayTail ?? (videoParts.length > 0 ? "[vout]" : kept ? `[${vLabel}]` : "0:v");
   const finalA = audioParts.length > 0 ? "[aout]" : kept ? `[${aLabel}]` : "0:a";
 
-  const args = ["-hide_banner", "-y", "-i", input];
+  const args = ["-hide_banner", "-y", "-i", input, ...extraInputs];
   if (graph.length > 0) args.push("-filter_complex", graph);
 
   args.push("-map", finalV);
@@ -887,5 +999,7 @@ export function describe(op: EditOperation): string {
     case "kenBurns": return "Adding a slow push";
     case "zoomPunch": return "Adding punch-in zooms";
     case "normalizeLoudness": return "Levelling the audio";
+    case "insertBRoll": return "Cutting in your b-roll";
+    case "overlayImage": return "Laying your image over the frame";
   }
 }

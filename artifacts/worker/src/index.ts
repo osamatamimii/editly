@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { sql, eq, and } from "drizzle-orm";
 import pino from "pino";
-import { db, pool, jobsTable, projectsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
+import { db, pool, jobsTable, projectsTable, assetsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
 import { EditPlan } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
 import { renderPlan, probeDuration, probeSource, FfmpegError } from "./ffmpeg";
@@ -325,9 +325,51 @@ async function processJob(job: Job): Promise<void> {
       })),
     );
 
+    // Only the assets this plan actually names, and only after each one has
+    // been confirmed to belong to this project.
+    //
+    // The plan carries ids rather than paths precisely so that this lookup
+    // exists: an id that is not in the project's own library resolves to
+    // nothing and the overlay is dropped with a note, where a path would have
+    // been opened. And downloading only what is referenced means a project with
+    // forty files does not pay to fetch forty of them for a render that uses
+    // one.
+    const wantedAssetIds = [
+      ...new Set(
+        enriched.plan.operations
+          .filter((op) => op.type === "insertBRoll" || op.type === "overlayImage")
+          .map((op) => (op as { assetId: string }).assetId),
+      ),
+    ];
+    const assets = new Map<string, { file: string; kind: "video" | "image" | "audio" }>();
+    if (wantedAssetIds.length > 0) {
+      await reportProgress(job.id, 9, "Fetching the files you added");
+      const rows = await db
+        .select()
+        .from(assetsTable)
+        .where(and(eq(assetsTable.projectId, job.projectId), eq(assetsTable.userId, job.userId)));
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      for (const id of wantedAssetIds) {
+        const row = byId.get(id);
+        if (!row) {
+          log.warn({ assetId: id }, "plan named an asset this project does not have");
+          continue;
+        }
+        try {
+          const file = path.join(workDir, `asset-${row.id}`);
+          await downloadObject(row.path, file);
+          assets.set(row.id, { file, kind: row.kind as "video" | "image" | "audio" });
+        } catch (error) {
+          // One missing overlay is a worse render, not a failed one.
+          log.warn({ err: error, assetId: id }, "could not fetch an asset");
+        }
+      }
+    }
+
     const { output, notes: renderNotes, estimatedSeconds } = await renderPlan(inputFile, enriched.plan, {
       workDir,
       words,
+      assets,
       onProgress: (fraction, stage) => {
         // Download and upload bracket the render; the middle 80% is ffmpeg.
         void reportProgress(job.id, 10 + fraction * 80, stage).catch(() => {});
