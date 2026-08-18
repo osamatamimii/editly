@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { eq, asc, and } from "drizzle-orm";
-import { db, messagesTable, projectsTable } from "@workspace/db";
+import { eq, asc, and, desc } from "drizzle-orm";
+import { db, messagesTable, projectsTable, assetsTable } from "@workspace/db";
 import {
   SendMessageBody,
   SendMessageParams,
@@ -87,7 +87,24 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
   // The reply is derived from a real plan, so it cannot promise an edit the
   // worker has no operation for — whether a model or the keyword matcher chose
   // the operations. See lib/planner.ts.
-  const intent = await planner.plan(parsed.data.content, { defaultPlatform: project.platform as never });
+  // What this project can actually put on screen.
+  //
+  // Without this the planner has the operations for b-roll and overlays and no
+  // way to name a file, so it can never choose them — the library, the upload
+  // panel and the stock search would all exist and none of them would ever be
+  // reachable from a sentence. Ids and labels only: the planner is never told
+  // where a file is.
+  const assets = await db
+    .select({ id: assetsTable.id, kind: assetsTable.kind, label: assetsTable.label })
+    .from(assetsTable)
+    .where(eq(assetsTable.projectId, params.data.id))
+    .orderBy(desc(assetsTable.createdAt))
+    .limit(40);
+
+  const intent = await planner.plan(parsed.data.content, {
+    defaultPlatform: project.platform as never,
+    assets: assets as never,
+  });
   const aiContent = replyFor(intent, { hasVideo: Boolean(project.videoPath) });
   if (intent.degraded) req.log?.warn({ reason: intent.degraded }, "planner fell back to keywords");
 
