@@ -24,14 +24,31 @@ export interface CheckoutConfig {
   currentPlan: string;
 }
 
-/** Freemius injects this. Typed loosely on purpose — it is not our object. */
+/**
+ * Freemius injects this. Typed loosely on purpose — it is not our object, and
+ * it has had two different shapes.
+ *
+ * The current script attaches `FS.Checkout` as a **plain object** with
+ * `open`/`close`/`configure`. Older integrations documented it as a class you
+ * instantiate. We were writing `new window.FS.Checkout(...)` against a script
+ * that no longer has a constructor, so every click threw
+ * "window.FS.Checkout is not a constructor" and nobody could pay.
+ *
+ * So the type says "either", and the code below asks which one it got rather
+ * than assuming. A third-party global is not a contract; it is a fact you check.
+ */
+type FreemiusCheckoutObject = {
+  open: (options: Record<string, unknown>) => void;
+  close?: () => void;
+  configure?: (options: Record<string, unknown>) => void;
+};
+
 declare global {
   interface Window {
     FS?: {
-      Checkout: new (options: Record<string, unknown>) => {
-        open: (options: Record<string, unknown>) => void;
-        close: () => void;
-      };
+      Checkout:
+        | FreemiusCheckoutObject
+        | (new (options: Record<string, unknown>) => FreemiusCheckoutObject);
     };
   }
 }
@@ -178,13 +195,19 @@ export async function openCheckout(config: CheckoutConfig, options: OpenCheckout
     throw new Error("The checkout loaded but did not start. Reload and try again.");
   }
 
-  const handler = new window.FS.Checkout({
+  // `plugin_id` rather than `product_id`: Freemius renamed products in its
+  // dashboard and never renamed the field, and the script errors out without
+  // it. Both are sent — the extra one is ignored, and the day they finish the
+  // rename this keeps working.
+  const identity = {
+    plugin_id: config.productId,
     product_id: config.productId,
     public_key: config.publicKey,
     plan_id: planId,
-  });
+  };
 
-  handler.open({
+  const settings = {
+    ...identity,
     name: "Editly",
     billing_cycle: options.billingCycle,
     ...(options.email ? { user_email: options.email } : {}),
@@ -193,5 +216,26 @@ export async function openCheckout(config: CheckoutConfig, options: OpenCheckout
     // reaches our server, which may be a second before or after this fires.
     purchaseCompleted: () => options.onPurchase?.(),
     success: () => options.onPurchase?.(),
-  });
+  };
+
+  const FSCheckout = window.FS.Checkout;
+  try {
+    if (typeof FSCheckout === "function") {
+      // The old shape: a class you instantiate with the identity, then open.
+      new FSCheckout(identity).open(settings);
+    } else {
+      // The current shape: one object, everything passed to `open`.
+      FSCheckout.configure?.(identity);
+      FSCheckout.open(settings);
+    }
+  } catch (error) {
+    // The widget exists and still refused. That is not something the person
+    // can act on, and there is a working checkout one navigation away.
+    const fallback = hostedCheckoutUrl(config, options);
+    if (fallback) {
+      window.open(fallback, "_blank", "noopener");
+      return;
+    }
+    throw error;
+  }
 }
