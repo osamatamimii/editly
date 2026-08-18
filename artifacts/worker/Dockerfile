@@ -20,6 +20,13 @@ RUN pnpm --filter @workspace/worker run build
 FROM node:22-slim AS runtime
 WORKDIR /app
 
+# Chromium is here for designed motion: titles are described in HTML and CSS
+# and rendered frame-by-frame with time driven by hand, because a spring —
+# overshoot then settle — is a curve no ffmpeg easing can draw. Debian's
+# packaged build is used rather than a Playwright download so the image has one
+# browser rather than two, and so the version is whatever the distribution has
+# patched rather than whatever a lockfile pinned last spring.
+#
 # ffmpeg is the entire point of this container. fonts-dejavu-core supplies the
 # font that drawtext and the ASS caption style both name; without it the
 # watermark and captions render as nothing at all, silently.
@@ -36,6 +43,7 @@ WORKDIR /app
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ffmpeg fonts-dejavu-core ca-certificates python3 python3-numpy python3-pip \
+      chromium \
  && pip3 install --no-cache-dir --break-system-packages "opencv-python-headless==4.13.0.*" \
  && rm -rf /var/lib/apt/lists/*
 
@@ -48,6 +56,17 @@ RUN python3 -c "import cv2, os; \
     assert not cv2.CascadeClassifier(p).empty(), 'face cascade will not load'; \
     print('subject tracking ready:', cv2.__version__)"
 
+# Proven at build time rather than discovered on the first render that wanted a
+# title. A browser that will not start is a build problem; finding out about it
+# in production is a support ticket.
+RUN chromium --headless --no-sandbox --dump-dom about:blank > /dev/null \
+ && echo "motion renderer ready: $(chromium --version)"
+
+# playwright-core only — the driver, not the browsers. It is a few megabytes
+# and it is deliberately NOT bundled: see build.mjs.
+RUN npm install --no-save --omit=dev playwright-core@1.62.1
+
+ENV CHROMIUM_PATH=/usr/bin/chromium
 ENV NODE_ENV=production
 # Renders write large intermediates; keep them on the writable layer.
 ENV TMPDIR=/tmp

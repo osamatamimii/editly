@@ -13,7 +13,8 @@
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "drizzle-orm": "catalog:",
-    "pino": "^9"
+    "pino": "^9",
+    "playwright-core": "^1.62.1"
   },
   "devDependencies": {
     "@types/node": "catalog:",

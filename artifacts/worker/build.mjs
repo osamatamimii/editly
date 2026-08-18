@@ -15,7 +15,12 @@ await build({
   sourcemap: true,
   logLevel: "info",
   // pg loads this optionally and it is not present in the image.
-  external: ["pg-native"],
+  //
+  // playwright-core is external for a different reason: it is not a library so
+  // much as a launcher, full of dynamic requires and files it expects to find
+  // beside itself. Bundling it produces something that builds cleanly and
+  // cannot start a browser. The runtime image installs it as a real package.
+  external: ["pg-native", "playwright-core"],
   banner: {
     // pg and pino reach for CommonJS globals from inside an ESM bundle.
     js: "import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);",
