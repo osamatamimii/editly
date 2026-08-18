@@ -70,3 +70,32 @@ export const SHARED_FEATURES = [
   "Unlimited edits — asking again is free",
   "Match the style of a video you like",
 ];
+
+/**
+ * What you get without paying, said out loud.
+ *
+ * This used to be nowhere on the page. The cards started at $12 and the free
+ * tier existed only in the database, which reads to a visitor as "there is no
+ * free tier" — so the one thing that costs us nothing to give away, and is the
+ * only way anyone finds out whether the editing is any good, was invisible.
+ *
+ * The numbers are not written here twice: they come from `PLAN_LIMITS.free`,
+ * and `tools/pricing-test.mjs` asserts that this text still matches them. A
+ * free tier that quietly stops matching its own description is worse than not
+ * advertising one.
+ */
+export const FREE_TIER = {
+  name: "Free",
+  price: 0,
+  /** Kept in step with PLAN_LIMITS.free.minutesPerMonth. */
+  minutes: 5,
+  /** Kept in step with PLAN_LIMITS.free.maxUploadMinutes. */
+  uploadMinutes: 10,
+  headline: "Try it free — no card",
+  lines: [
+    "5 minutes of finished video a month",
+    "Upload clips up to 10 minutes",
+    "Every editing feature, so you can judge the result",
+    "Exports carry a small Editly mark",
+  ],
+} as const;

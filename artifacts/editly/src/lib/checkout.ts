@@ -45,6 +45,26 @@ let scriptPromise: Promise<void> | null = null;
  * milliseconds apart wait on the same load instead of racing two `<script>`
  * tags that both define `window.FS`.
  */
+/**
+ * How long to wait for the checkout script before giving up on it.
+ *
+ * There has to be a number here, and this is why: a blocked request does not
+ * fail. Content blockers — uBlock, Brave's shields, a Pi-hole, a corporate DNS
+ * filter — do not reject `checkout.freemius.com`, they black-hole it. The
+ * browser fires neither `onload` nor `onerror`, the request never even appears
+ * in the resource timeline, and the promise below never settles.
+ *
+ * Which meant the button said "Opening checkout…" and kept saying it. Forever.
+ * No error, no message, no way to pay, and nothing in the console to explain
+ * it. That is the worst possible failure for the one button on the site that
+ * takes money, and it was invisible from the code because the code has no bug
+ * in it — the bug is the absence of a clock.
+ */
+const SCRIPT_TIMEOUT_MS = 8000;
+
+/** Thrown when the widget could not load, so callers can fall back rather than apologise. */
+export class CheckoutBlockedError extends Error {}
+
 function loadCheckoutScript(): Promise<void> {
   if (window.FS) return Promise.resolve();
   if (scriptPromise) return scriptPromise;
@@ -53,18 +73,45 @@ function loadCheckoutScript(): Promise<void> {
     const script = document.createElement("script");
     script.src = SCRIPT_SRC;
     script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => {
+
+    const giveUp = (): void => {
       // A failed load must not be remembered as a failure forever: the usual
-      // cause is a flaky network or a blocker the person can turn off, and
-      // both are fixed by clicking again.
+      // cause is a blocker the person can turn off, or one page in a browser
+      // that behaves differently from the next.
       scriptPromise = null;
-      reject(new Error("Could not reach the checkout. Check your connection or any ad blocker, then try again."));
+      reject(new CheckoutBlockedError("The checkout widget could not load."));
+    };
+
+    const timer = window.setTimeout(giveUp, SCRIPT_TIMEOUT_MS);
+    script.onload = () => {
+      window.clearTimeout(timer);
+      resolve();
+    };
+    script.onerror = () => {
+      window.clearTimeout(timer);
+      giveUp();
     };
     document.head.appendChild(script);
   });
 
   return scriptPromise;
+}
+
+/**
+ * The same purchase, as an ordinary page.
+ *
+ * Freemius hosts a checkout at a plain URL, and a plain URL is a navigation
+ * rather than a third-party script — so the blockers that swallow the widget
+ * generally let this through. Opening it is not a consolation prize: it is the
+ * same checkout, the same plan, the same prefilled email.
+ */
+export function hostedCheckoutUrl(config: CheckoutConfig, options: OpenCheckoutOptions): string | null {
+  const planId = config.plans[options.plan];
+  if (!planId) return null;
+  const url = new URL(`https://checkout.freemius.com/product/${config.productId}/plan/${planId}/`);
+  url.searchParams.set("billing_cycle", options.billingCycle);
+  if (options.email) url.searchParams.set("user_email", options.email);
+  return url.toString();
 }
 
 /** Ask our server which product and plans to open. Public values only. */
@@ -110,8 +157,26 @@ export async function openCheckout(config: CheckoutConfig, options: OpenCheckout
     throw new Error(`The ${options.plan} plan is not set up for checkout yet.`);
   }
 
-  await loadCheckoutScript();
-  if (!window.FS) throw new Error("The checkout loaded but did not start. Reload and try again.");
+  try {
+    await loadCheckoutScript();
+  } catch (error) {
+    // Blocked, not broken. Send them to the hosted page instead of telling
+    // them to go and change their browser settings to give us money.
+    const fallback = hostedCheckoutUrl(config, options);
+    if (fallback) {
+      window.open(fallback, "_blank", "noopener");
+      return;
+    }
+    throw error;
+  }
+  if (!window.FS) {
+    const fallback = hostedCheckoutUrl(config, options);
+    if (fallback) {
+      window.open(fallback, "_blank", "noopener");
+      return;
+    }
+    throw new Error("The checkout loaded but did not start. Reload and try again.");
+  }
 
   const handler = new window.FS.Checkout({
     product_id: config.productId,
