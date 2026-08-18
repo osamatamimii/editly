@@ -133,6 +133,73 @@ console.log("\nA request that is never answered");
   check("in a new tab, without handing it our window", dom.opened.length === 1);
 }
 
+
+console.log("\nThe shape Freemius actually ships");
+{
+  // The live script attaches FS.Checkout as a plain object with open/close.
+  // We were calling `new FS.Checkout(...)` against it, which throws
+  // "window.FS.Checkout is not a constructor" — and that is precisely what a
+  // real customer saw when they clicked Pro.
+  const opened = [];
+  globalThis.window = {
+    FS: {
+      Checkout: {
+        configure: (o) => opened.push({ call: "configure", o }),
+        open: (o) => opened.push({ call: "open", o }),
+      },
+    },
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (id) => clearTimeout(id),
+    open: (url) => opened.push({ call: "window.open", url }),
+  };
+  globalThis.document = { createElement: () => ({}), head: { appendChild: () => {} } };
+
+  await openCheckout(config, { plan: "studio", billingCycle: "monthly", email: "z@y.com" });
+
+  const call = opened.find((c) => c.call === "open");
+  check("opens the widget rather than trying to construct it", Boolean(call), JSON.stringify(opened.map((c) => c.call)));
+  check("never falls back when the widget works", !opened.some((c) => c.call === "window.open"));
+  check("sends plugin_id, which is the name the script requires", call?.o.plugin_id === "36845", JSON.stringify(call?.o.plugin_id));
+  check("sends the public key", call?.o.public_key === "pk_test");
+  check("and the plan that was clicked", call?.o.plan_id === "61102", String(call?.o.plan_id));
+  check("with the billing cycle and email", call?.o.billing_cycle === "monthly" && call?.o.user_email === "z@y.com");
+}
+
+console.log("\nThe older shape, still honoured");
+{
+  const seen = [];
+  class LegacyCheckout {
+    constructor(identity) { seen.push({ call: "new", identity }); }
+    open(o) { seen.push({ call: "open", o }); }
+  }
+  globalThis.window = {
+    FS: { Checkout: LegacyCheckout },
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (id) => clearTimeout(id),
+    open: (url) => seen.push({ call: "window.open", url }),
+  };
+  globalThis.document = { createElement: () => ({}), head: { appendChild: () => {} } };
+
+  await openCheckout(config, { plan: "creator", billingCycle: "annual" });
+  check("constructs it when it is a constructor", seen[0]?.call === "new", JSON.stringify(seen.map((c) => c.call)));
+  check("then opens it", seen[1]?.call === "open");
+}
+
+console.log("\nA widget that loads and then throws");
+{
+  const seen = [];
+  globalThis.window = {
+    FS: { Checkout: { open: () => { throw new Error("nope"); } } },
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (id) => clearTimeout(id),
+    open: (url) => seen.push(url),
+  };
+  globalThis.document = { createElement: () => ({}), head: { appendChild: () => {} } };
+
+  await openCheckout(config, { plan: "pro", billingCycle: "monthly" });
+  check("still ends up at a checkout", seen.length === 1 && seen[0].includes("/plan/61100/"), JSON.stringify(seen));
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
