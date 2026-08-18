@@ -17,25 +17,37 @@
  * the suite says so and passes the checks that do not need it, because "this
  * laptop has no browser" is not a defect in the renderer.
  */
-import { mkdtemp, rm, readdir, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { existsSync, readdirSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
 const buildDir = await mkdtemp(path.join(tmpdir(), "editly-motion-test-"));
-const modulePath = path.join(buildDir, "motion.mjs");
+/**
+ * The bundle is written inside the worker package, not into the temp dir.
+ *
+ * Node resolves a bare specifier by walking up from the *importing file*, so a
+ * bundle sitting in /tmp can never find `playwright` however it is installed —
+ * and `renderMotionLayer` answers a missing driver by returning null, which is
+ * a legitimate result. The two together meant every render check silently
+ * skipped itself and the suite reported all-green while testing none of it.
+ */
+const moduleDir = path.join(repoRoot, "artifacts/worker/.motion-test");
+await mkdir(moduleDir, { recursive: true });
+const modulePath = path.join(moduleDir, "motion.mjs");
 
 const esbuild = spawnSync(
   require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/worker"] }),
   [
     path.join(repoRoot, "artifacts/worker/src/motion.ts"),
     "--bundle", "--platform=node", "--format=esm", "--target=node22",
-    "--external:playwright-core",
+    "--external:playwright-core", "--external:playwright",
     `--outfile=${modulePath}`, "--log-level=error",
   ],
   { stdio: "inherit" },
@@ -44,6 +56,32 @@ if (esbuild.status !== 0) {
   console.error("could not bundle the motion module");
   process.exit(1);
 }
+/**
+ * Point the module at a browser this machine actually has.
+ *
+ * `renderMotionLayer` answers a missing browser with null — correct in
+ * production, where a missing browser must cost the titles and not the render,
+ * and quietly fatal in a test, where it turns every render check into a skip.
+ * Some sandboxes preinstall Chromium under PLAYWRIGHT_BROWSERS_PATH and forbid
+ * the download, and the preinstalled build rarely matches the version
+ * Playwright expects — so the binary is found by pattern and handed over
+ * explicitly, exactly as browser-test does.
+ */
+function findChromium() {
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (!root || !existsSync(root)) return undefined;
+  for (const dir of readdirSync(root)) {
+    if (!/^chromium-\d+$/.test(dir)) continue;
+    const candidate = path.join(root, dir, "chrome-linux", "chrome");
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+if (!process.env.CHROMIUM_PATH) {
+  const found = findChromium();
+  if (found) process.env.CHROMIUM_PATH = found;
+}
+
 const { spring, sceneHtml, renderMotionLayer } = await import(pathToFileURL(modulePath).href);
 
 let checks = 0;
