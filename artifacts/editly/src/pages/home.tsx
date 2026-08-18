@@ -7,7 +7,7 @@ import { fetchCheckoutConfig, openCheckout } from "@/lib/checkout";
 import { useAuth } from "@/lib/auth";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Logo } from "@/components/logo";
-import { PLANS, SHARED_FEATURES } from "@/lib/pricing";
+import { PLANS, SHARED_FEATURES, FREE_TIER } from "@/lib/pricing";
 
 function useScrollReveal() {
   const ref = useRef<HTMLDivElement>(null);
@@ -705,6 +705,31 @@ export default function Home() {
               </span>
             </button>
           </div>
+        </div>
+
+        {/* The free tier, where a visitor can actually see it.
+            It sat in the database and nowhere else, so a page whose cheapest
+            number was $12 read as "no free tier" — and the thing that costs us
+            nothing to give away is the only way anyone finds out whether the
+            editing is any good. */}
+        <div
+          className="mb-8 rounded-2xl glass-panel border border-hairline px-6 py-5 flex flex-col md:flex-row md:items-center gap-4 md:gap-8 reveal"
+          data-testid="free-tier"
+        >
+          <div className="flex-shrink-0">
+            <div className="text-sm font-semibold text-primary">{FREE_TIER.headline}</div>
+            <div className="text-3xl font-bold mt-1">
+              $0<span className="text-base font-medium text-muted-foreground">/month</span>
+            </div>
+          </div>
+          <ul className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
+            {FREE_TIER.lines.map((line) => (
+              <li key={line} className="text-sm text-muted-foreground flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary/70" />
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
