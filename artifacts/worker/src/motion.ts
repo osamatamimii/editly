@@ -146,22 +146,85 @@ export interface MotionLayer {
  * worker image carries one, a laptop running the suite may not — and a missing
  * browser must cost the titles, not the render.
  */
+/**
+ * The parts of Playwright and of the page we actually touch.
+ *
+ * Written out rather than imported for the reason above, and kept deliberately
+ * narrow: this is the contract this file depends on, and a change to any of it
+ * should be a compile error rather than a black screen in an export.
+ */
+interface ChromiumLike {
+  launch(options: { executablePath?: string; args: string[] }): Promise<BrowserLike>;
+}
+interface BrowserLike {
+  newPage(options: {
+    viewport: { width: number; height: number };
+    deviceScaleFactor: number;
+  }): Promise<PageLike>;
+  close(): Promise<void>;
+}
+interface PageLike {
+  goto(url: string, options: { waitUntil: "load" }): Promise<unknown>;
+  evaluate<A>(fn: (arg: A) => unknown, arg?: A): Promise<unknown>;
+  screenshot(options: { path: string; omitBackground: boolean }): Promise<unknown>;
+  close(): Promise<void>;
+}
+
+/**
+ * `document` inside a page.evaluate callback is Chromium's, not Node's. Only
+ * the two members these callbacks use are declared, which is also the shortest
+ * possible statement of what the animation capture depends on.
+ */
+declare const document: {
+  fonts: { ready: Promise<unknown> };
+  getAnimations(): Array<{ pause(): void; currentTime: number | null }>;
+};
+
 export async function renderMotionLayer(
   options: MotionSceneOptions,
   outDir: string,
 ): Promise<MotionLayer | null> {
-  let chromium: typeof import("playwright-core")["chromium"];
-  try {
-    ({ chromium } = require("playwright-core"));
-  } catch {
-    return null;
+  // playwright-core is deliberately not a dependency of this package: it is
+  // installed into the runtime image (see the Dockerfile) and marked external
+  // in the bundle, because a laptop running the test suite should not have to
+  // download a browser driver to typecheck a video encoder. That means there
+  // are no types for it here, and the specifier is held in a variable so the
+  // compiler does not try to resolve one.
+  // Two names for the same driver. The runtime image installs `playwright-core`
+  // because it is the smaller of the two and downloads no browsers; a machine
+  // that has run the test suite usually has the full `playwright` instead. Both
+  // export the same `chromium`, so trying them in order is the difference
+  // between titles that render everywhere and titles that render in production
+  // only — where nobody can see them fail.
+  let chromium: ChromiumLike | null = null;
+  for (const specifier of ["playwright-core", "playwright"]) {
+    try {
+      const mod = (await import(specifier)) as { chromium?: ChromiumLike };
+      if (mod.chromium) {
+        chromium = mod.chromium;
+        break;
+      }
+    } catch {
+      // Not installed under that name. Try the other.
+    }
   }
+  if (!chromium) return null;
 
-  const executablePath = process.env["CHROMIUM_PATH"] ?? "/usr/bin/chromium";
+  /**
+   * Where the browser is — or, usually, not saying.
+   *
+   * The runtime image installs Chromium from the distribution and points
+   * CHROMIUM_PATH at it, because playwright-core ships no browser of its own.
+   * Everywhere else — a CI runner after `playwright install`, a laptop —
+   * Playwright already knows where its own build lives, and naming a path it
+   * does not have is how the whole feature silently turns itself off. So the
+   * path is passed only when it was actually configured.
+   */
+  const executablePath = process.env["CHROMIUM_PATH"]?.trim();
   let browser;
   try {
     browser = await chromium.launch({
-      executablePath,
+      ...(executablePath ? { executablePath } : {}),
       args: ["--no-sandbox", "--force-color-profile=srgb", "--disable-lcd-text"],
     });
   } catch {
