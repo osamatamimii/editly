@@ -47,6 +47,7 @@ import {
 } from "@/lib/video-storage";
 import { ToastAction } from "@/components/ui/toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ProjectLibrary } from "@/components/project-library";
 
 /** m:ss — anything longer than an hour is not what this product is for. */
 function formatTimecode(seconds: number): string {
@@ -808,6 +809,14 @@ export default function ProjectEditor() {
     </div>
   );
 
+  // Shown whenever there is a project to hold files, not only once a source
+  // video exists: gathering the b-roll before the take is a normal order of
+  // operations, and a panel that appears only after the upload teaches people
+  // the library is an afterthought.
+  const library = project && user?.id && (
+    <ProjectLibrary projectId={project.id} userId={user.id} />
+  );
+
   const looks = templates && templates.length > 0 && (
     <div
       className={`rounded-xl glass-panel border border-hairline ${
@@ -1050,6 +1059,7 @@ export default function ProjectEditor() {
                   data-testid="side-controls"
                 >
                   {looks}
+                  {library}
                   {reference}
                 </aside>
               )}
@@ -1058,7 +1068,7 @@ export default function ProjectEditor() {
 
           {/* Under a landscape clip the width is the plentiful dimension, so the
               looks sit below as a row. A vertical clip puts them in the column. */}
-          {hasVideo && !sideBySide && <div>{looks}{reference}</div>}
+          {hasVideo && !sideBySide && <div>{looks}{library}{reference}</div>}
         </div>
 
         {/* AI Chat Sidebar */}
