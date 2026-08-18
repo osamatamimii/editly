@@ -646,3 +646,73 @@ export function usePlayableVideo(pathOrUrl: string | null | undefined): {
 
   return { url, isResolving };
 }
+
+/**
+ * Anything a project can put on screen: b-roll, a screenshot, a logo, music.
+ *
+ * Uploaded the same way and to the same per-user, per-project prefix as
+ * everything else, so the storage policy and the server's ownership check both
+ * keep working unchanged — and then *registered*, because the server's library
+ * is the database table, not a listing of the bucket. A file nobody registered
+ * is a file no plan can name.
+ */
+export const MAX_ASSET_BYTES = 512 * 1024 * 1024;
+
+export type AssetKind = "video" | "image" | "audio";
+
+/**
+ * What this file is, from its MIME type — and `null` when it is something we
+ * would not know what to do with, so an unsupported drop is refused here with
+ * a sentence rather than at render time with a filter-graph error.
+ */
+export function assetKindOf(file: File): AssetKind | null {
+  const type = (file.type || "").toLowerCase();
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("audio/")) return "audio";
+  return null;
+}
+
+export async function uploadProjectAsset(options: {
+  file: File;
+  userId: string;
+  projectId: string;
+  accessToken: string;
+}): Promise<{ path: string; kind: AssetKind }> {
+  const { file, userId, projectId, accessToken } = options;
+  const kind = assetKindOf(file);
+  if (!kind) {
+    throw new UploadError(
+      `We can use video, images and audio. "${file.name}" is neither, so there is nothing we could do with it in an edit.`,
+    );
+  }
+  if (file.size > MAX_ASSET_BYTES) {
+    throw new UploadError(
+      `"${file.name}" is ${formatBytes(file.size)}. Keep each extra file under ${formatBytes(MAX_ASSET_BYTES)}.`,
+    );
+  }
+
+  // A name derived from the bytes, not from the browser's. Two people uploading
+  // "logo.png" into one project must not collide, and a filename is the one
+  // part of an upload an attacker fully controls — the path segments are
+  // validated server-side, and generating the leaf here means there is nothing
+  // to validate.
+  const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const path = `${userId}/${projectId}/asset-${stamp}.${extensionFor(file)}`;
+
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${path}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true",
+      },
+      body: file,
+    },
+  );
+  if (!res.ok) throw new UploadError(`Could not store "${file.name}" (${res.status}).`);
+  return { path, kind };
+}
