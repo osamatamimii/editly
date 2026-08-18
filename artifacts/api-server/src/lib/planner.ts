@@ -242,6 +242,15 @@ function describeAll(operations: EditOperation[]): string[] {
       case "burnCaptions": return "burn in the captions";
       case "watermark": return "add the watermark";
       case "grade": return "match the colour to your reference";
+      // The three that put something from the project's library on screen.
+      // Phrased by what a person would see rather than by the operation's
+      // name, because this list is read back to them as a promise.
+      case "insertBRoll":
+        return `cut away to one of your clips at ${Math.round(op.at)}s`;
+      case "overlayImage":
+        return `hold one of your images over the frame at ${Math.round(op.at)}s`;
+      case "motionTitle":
+        return `bring in the words "${op.text}" at ${Math.round(op.at)}s`;
     }
   });
 }
