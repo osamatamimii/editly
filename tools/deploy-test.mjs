@@ -87,6 +87,10 @@ section("Every variable the worker reads is one the deploy actually sets");
     "GEMINI_MEDIA_RESOLUTION", "TMPDIR",
     "DEEPGRAM_MODEL", "ELEVENLABS_MODEL", "GEMINI_MODEL",
     "FFMPEG_PATH", "FFPROBE_PATH", "PYTHON_PATH", "SUBJECT_SCRIPT",
+    // Where the browser that draws the titles lives. The image sets it; a
+    // developer points it at whatever Chromium they already have. A path, and
+    // paths are the other thing on this list.
+    "CHROMIUM_PATH",
   ]);
 
   const mustBeDeployed = [...referenced].filter((name) => !notSecrets.has(name)).sort();
