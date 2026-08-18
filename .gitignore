@@ -30,3 +30,9 @@ api/_bundle.js.map
 # so that esbuild resolves the same React the app does. Removed on a clean run;
 # left behind by a crashed one.
 artifacts/editly/.browser-test/
+
+# Bundled beside the worker so bare specifiers resolve; see tools/motion-test.mjs
+artifacts/worker/.motion-test/
+
+# Bundled beside the API for the same reason; see tools/stock-test.mjs
+artifacts/api-server/.stock-test/
