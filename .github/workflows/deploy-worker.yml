@@ -35,6 +35,30 @@ jobs:
 
       # Set before deploying: the worker exits immediately without these, and a
       # deploy that cannot pass its health window is rolled back.
+      # Refuse before touching anything, not halfway through. Without this the
+      # step below would happily run `flyctl secrets set DATABASE_URL=` with an
+      # empty value: Fly stores it, `flyctl secrets list` shows it as present,
+      # and the worker dies on the next deploy looking configured. A missing
+      # secret must look missing.
+      - name: Refuse to deploy with a secret missing
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${DATABASE_URL:-}" ]              || missing+=(WORKER_DATABASE_URL)
+          [ -n "${SUPABASE_URL:-}" ]              || missing+=(WORKER_SUPABASE_URL)
+          [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || missing+=(WORKER_SUPABASE_SERVICE_ROLE_KEY)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository secret(s): ${missing[*]}"
+            echo "Add them under Settings > Secrets and variables > Actions."
+            echo "Nothing was changed on Fly - the running worker is untouched."
+            exit 1
+          fi
+          echo "all three worker secrets are present"
+        env:
+          DATABASE_URL: ${{ secrets.WORKER_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.WORKER_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.WORKER_SUPABASE_SERVICE_ROLE_KEY }}
+
       - name: Push runtime secrets
         run: |
           set -euo pipefail
