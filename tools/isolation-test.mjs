@@ -932,6 +932,30 @@ console.log("\nA payment cannot be lost, reordered, or applied twice");
   });
   check("a cancellation of the live licence is applied", real.status === 200 && planOf(ALICE) === "free", planOf(ALICE));
 
+  // 4b. The lookup that starts all of this must work *as the role the
+  //     application actually connects with*. In production that is
+  //     `editly_app`, and `auth.users` lives in a schema it cannot touch —
+  //     querying it directly threw "permission denied" on every webhook, after
+  //     the event was recorded and before anything was decided, so upgrades
+  //     limped through the claim-on-read path and cancellations never applied
+  //     at all. The suite missed it because psql here connects as a superuser.
+  //     These two checks measure with the real role: the definer function
+  //     answers, and the direct read it replaces is refused.
+  // `psql -tAc` echoes "SET" for the role change before the query's result,
+  // so the answer is the last line of stdout — and for the refused query, the
+  // last line is the echo itself, because the SELECT produced only stderr.
+  const asAppRole = (sql) => psql(`SET ROLE editly_app; ${sql}`).split("\n").pop();
+  check(
+    "the app role can ask who owns an email, through the definer function",
+    asAppRole(`SELECT public.user_id_for_email('${ALICE_EMAIL}')`) === ALICE,
+    asAppRole(`SELECT public.user_id_for_email('${ALICE_EMAIL}')`),
+  );
+  check(
+    "and still cannot read auth.users itself",
+    asAppRole(`SELECT count(*) FROM auth.users`) === "SET",
+    "a row count coming back would mean the role can read the identity table directly",
+  );
+
   // 5. Somebody pays with an address that has no account. This used to be a 200
   //    with nothing written down anywhere: the money arrived and the record did
   //    not, and support had no way to reconcile it.
