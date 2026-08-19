@@ -12,7 +12,7 @@
  * in as b-roll by the same operation as a clip the customer filmed.
  */
 import { useState } from "react";
-import { Loader2, Search, ImageIcon, Film } from "lucide-react";
+import { Loader2, Search, ImageIcon, Film, X, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { uploadProjectAsset } from "@/lib/video-storage";
 
@@ -21,6 +21,10 @@ export interface StockItem {
   kind: "image" | "video";
   label: string;
   previewUrl: string;
+  /** A bigger still, for the preview. */
+  viewUrl: string;
+  /** A small playable rendition. Null for photographs. */
+  previewVideoUrl: string | null;
   width: number;
   height: number;
   durationSeconds: number | null;
@@ -62,6 +66,16 @@ export function StockSearch({
   const [items, setItems] = useState<StockItem[]>([]);
   const [searching, setSearching] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
+  /**
+   * The one being looked at.
+   *
+   * Clicking a tile used to add it. That is the wrong default for a grid of
+   * near-identical thumbnails: a poster frame says almost nothing about how a
+   * clip moves, and adding is a download, an upload and a row — expensive to
+   * undo for something you only wanted to see. So a click opens it, and adding
+   * is a separate, deliberate press.
+   */
+  const [previewing, setPreviewing] = useState<StockItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Distinct from an error: nothing is broken, the key is simply not set. */
   const [unavailable, setUnavailable] = useState<string | null>(null);
@@ -84,6 +98,7 @@ export function StockSearch({
       }
       if (!res.ok) throw new Error(body.error ?? "That search did not work.");
       setUnavailable(null);
+      setPreviewing(null);
       setItems(body.items ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "That search did not work.");
@@ -147,6 +162,7 @@ export function StockSearch({
         throw new Error(body.error ?? "Could not add that to the project.");
       }
       await onAdded();
+      setPreviewing(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not add that to the project.");
     } finally {
@@ -221,17 +237,102 @@ export function StockSearch({
         </div>
       )}
 
+      {previewing && (
+        <div
+          className="mt-3 rounded-xl border border-hairline bg-surface-1 p-3"
+          data-testid="stock-preview"
+        >
+          <div className="relative w-full overflow-hidden rounded-lg bg-black">
+            {previewing.kind === "video" && previewing.previewVideoUrl ? (
+              // Muted and looping on purpose: this is a silent judgement about
+              // movement, and a grid that starts shouting is a grid people close.
+              <video
+                key={previewing.id}
+                src={previewing.previewVideoUrl}
+                poster={previewing.previewUrl}
+                controls
+                autoPlay
+                muted
+                loop
+                playsInline
+                data-testid="stock-preview-video"
+                className="w-full max-h-64 object-contain"
+              />
+            ) : (
+              <img
+                key={previewing.id}
+                src={previewing.viewUrl || previewing.previewUrl}
+                alt={previewing.label}
+                data-testid="stock-preview-image"
+                className="w-full max-h-64 object-contain"
+              />
+            )}
+          </div>
+
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs truncate" title={previewing.label}>
+                {previewing.label}
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                {/* Pexels asks that the photographer be credited, so they are
+                    named here as well as in the file once it is added. */}
+                <a
+                  href={previewing.creditUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  {previewing.credit}
+                </a>{" "}
+                · Pexels
+                {previewing.durationSeconds !== null
+                  ? ` · ${Math.round(previewing.durationSeconds)}s`
+                  : ""}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setPreviewing(null)}
+                data-testid="button-stock-close-preview"
+                aria-label="Close the preview"
+                className="rounded-lg border border-hairline bg-surface-2 p-2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void add(previewing)}
+                disabled={adding !== null}
+                data-testid="button-stock-add"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-all hover:bg-primary/90 disabled:opacity-50"
+              >
+                {adding === previewing.id ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Plus className="w-3.5 h-3.5" />
+                )}
+                {adding === previewing.id ? "Adding…" : "Add to this project"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {items.length > 0 && (
         <ul className="mt-3 grid grid-cols-3 sm:grid-cols-4 gap-2">
           {items.map((item) => (
             <li key={item.id}>
               <button
                 type="button"
-                onClick={() => void add(item)}
+                onClick={() => setPreviewing(item)}
                 disabled={adding !== null}
                 data-testid={`stock-item-${item.id}`}
                 title={`${item.label} — ${item.credit}`}
-                className="group relative block w-full aspect-video overflow-hidden rounded-lg border border-hairline bg-surface-2 disabled:opacity-60"
+                className={`group relative block w-full aspect-video overflow-hidden rounded-lg border bg-surface-2 disabled:opacity-60 ${
+                  previewing?.id === item.id ? "border-primary ring-1 ring-primary" : "border-hairline"
+                }`}
               >
                 <img
                   src={item.previewUrl}
