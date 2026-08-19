@@ -18,7 +18,7 @@
 import { Router, type IRouter } from "express";
 import { HealthCheckResponse } from "@workspace/api-zod";
 import { checkSchema, BEHIND_MESSAGE } from "../lib/schema-health";
-import { storageAdminConfigured } from "../lib/storage";
+import { storageAdminConfigured, verifyStorageAdmin } from "../lib/storage";
 import { stockConfigured } from "../lib/stock";
 
 const router: IRouter = Router();
@@ -31,14 +31,19 @@ const router: IRouter = Router();
  * something. No key name and no key value ever appears — the answer is only
  * ever yes or no.
  */
-function capabilities(): {
+async function capabilities(): Promise<{
   storageAdmin: boolean;
+  storageCheck: string;
   planner: boolean;
   stockLibrary: boolean;
   billing: boolean;
-} {
+}> {
   return {
+    // Configured, which is not the same as working — see storageCheck.
     storageAdmin: storageAdminConfigured,
+    // Whether the key Storage was given actually authenticates. Cached, so a
+    // public endpoint cannot be turned into a load generator against Supabase.
+    storageCheck: await verifyStorageAdmin(),
     planner: Boolean(process.env["OPENAI_API_KEY"]?.trim()),
     stockLibrary: stockConfigured,
     billing: Boolean(process.env["FREEMIUS_SECRET_KEY"]?.trim()),
@@ -53,7 +58,7 @@ router.get("/healthz", async (_req, res): Promise<void> => {
       HealthCheckResponse.parse({
         status: "unreachable",
         database: { reachable: false, missingColumns: [] },
-        capabilities: capabilities(),
+        capabilities: await capabilities(),
         message: "The database could not be reached.",
       }),
     );
@@ -65,7 +70,7 @@ router.get("/healthz", async (_req, res): Promise<void> => {
       HealthCheckResponse.parse({
         status: "behind",
         database: { reachable: true, missingColumns: schema.missingColumns },
-        capabilities: capabilities(),
+        capabilities: await capabilities(),
         message: BEHIND_MESSAGE,
       }),
     );
@@ -76,7 +81,7 @@ router.get("/healthz", async (_req, res): Promise<void> => {
     HealthCheckResponse.parse({
       status: "ok",
       database: { reachable: true, missingColumns: [] },
-      capabilities: capabilities(),
+      capabilities: await capabilities(),
     }),
   );
 });
