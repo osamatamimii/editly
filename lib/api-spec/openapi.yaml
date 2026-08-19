@@ -621,11 +621,12 @@ paths:
       summary: Stream the small rendition, for looking rather than keeping
       description: >
         The same resolution and allowlist as the download, applied to the
-        smallest file the provider offers. Same origin on purpose: a preview
-        that silently never starts is worse than no preview, and a third-party
-        media domain is exactly what a content blocker removes without saying
-        so. Cached for an hour — a clip someone scrolls back to should not be
-        fetched twice.
+        smallest file the provider offers. Same origin on purpose: no dependency
+        on a third party's CORS or uptime, and nothing for a blocker to remove.
+        Cached for an hour — a clip someone scrolls back to should not be
+        fetched twice. It does not make an undecodable clip decodable: a browser
+        without H.264 plays neither the provider's copy nor ours, and the panel
+        says so rather than spinning.
       parameters:
         - name: id
           in: path
@@ -1219,12 +1220,11 @@ components:
           format: uri
         playable:
           description: >
-            Whether there is a clip to play. The bytes never come from a URL in
-            this object — they come from /stock/preview/{id}, because a direct
-            provider URL in a video element was black-holed by the first browser
-            we tried it in: no error, no onerror, readyState frozen at zero.
-            Still images from the provider load fine in that same browser, which
-            is what makes the failure impossible to guess at from the code.
+            Whether there is a clip to play. The bytes come from
+            /stock/preview/{id} rather than from a URL in this object, so a
+            preview depends on neither a third party's CORS nor its uptime.
+            Whether it then decodes is the browser's business: one without H.264
+            shows the poster frame and a line saying so.
           type: boolean
         width:
           type: integer
