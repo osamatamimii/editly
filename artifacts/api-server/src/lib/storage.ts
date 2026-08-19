@@ -75,6 +75,50 @@ async function listUnderPrefix(prefix: string): Promise<string[]> {
 }
 
 /**
+ * Does the configured key actually work?
+ *
+ * `storageAdminConfigured` only says a string is present, and the string being
+ * present is not the question anyone cares about — the wrong key looks exactly
+ * like the right one until a customer asks to delete their account and the
+ * deletion fails at the only moment it must not. So this asks Storage.
+ *
+ * It lists a prefix that cannot match anything, which is the cheapest
+ * authenticated call the API has: a key that works answers `[]`, and a key that
+ * does not answers 401 or 403. Nothing is written and nothing is removed.
+ *
+ * The answer is cached, because this is reachable from an endpoint that needs
+ * no token — without the cache, a public URL would turn every request into a
+ * request against Supabase, which is an amplifier rather than a health check.
+ */
+type StorageCheck = "ok" | "unauthorized" | "unreachable" | "not-configured";
+
+let cachedCheck: { at: number; value: StorageCheck } | null = null;
+const CHECK_TTL_MS = 60_000;
+
+export async function verifyStorageAdmin(now: number = Date.now()): Promise<StorageCheck> {
+  if (!storageAdminConfigured) return "not-configured";
+  if (cachedCheck && now - cachedCheck.at < CHECK_TTL_MS) return cachedCheck.value;
+
+  let value: StorageCheck;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${VIDEOS_BUCKET}`, {
+      method: "POST",
+      headers: adminHeaders(),
+      body: JSON.stringify({ prefix: "__healthcheck__", limit: 1, offset: 0 }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (res.ok) value = "ok";
+    else if (res.status === 401 || res.status === 403) value = "unauthorized";
+    else value = "unreachable";
+  } catch {
+    value = "unreachable";
+  }
+
+  cachedCheck = { at: now, value };
+  return value;
+}
+
+/**
  * Removes every object belonging to a project, and says whether it managed to.
  *
  * It still never throws — a caller that has already deleted the rows cannot
