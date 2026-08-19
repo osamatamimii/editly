@@ -167,6 +167,13 @@ export const HealthCheckResponse = z.object({
     .object({
       /** Reclaiming stored video. Account deletion is refused without it. */
       storageAdmin: z.boolean(),
+      /**
+       * Whether that key actually authenticates, asked of Storage rather than
+       * assumed: "ok" | "unauthorized" | "unreachable" | "not-configured".
+       * A present-but-wrong key looks identical to a right one until the moment
+       * a customer asks to delete their account.
+       */
+      storageCheck: z.string(),
       /** A model choosing operations. Without it, keyword matching does. */
       planner: z.boolean(),
       /** Searching free stock clips and photographs from inside a project. */
