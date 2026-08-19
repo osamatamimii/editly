@@ -12,7 +12,7 @@
  */
 import { Router, type IRouter } from "express";
 import { Readable } from "node:stream";
-import { stockConfigured, searchStock, resolveStockFile } from "../lib/stock";
+import { stockConfigured, searchStock, resolveStockFile, resolveStockPreview } from "../lib/stock";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 import { logger } from "../lib/logger";
 
@@ -58,7 +58,28 @@ router.get("/stock/search", rateLimit(LIMITS.write), async (req, res): Promise<v
   }
 });
 
-router.get("/stock/file/:id", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
+/**
+ * Everything the download route does, for the small rendition instead.
+ *
+ * Kept as its own path rather than a query parameter on the download so that
+ * "what is streamed" is decided by the URL and not by something a caller can
+ * flip — and so a preview can be cached for an hour while a download is not
+ * cached at all.
+ */
+async function streamStock(
+  req: import("express").Request,
+  res: import("express").Response,
+  resolve: (id: string) => Promise<{
+    url: URL;
+    contentType: string;
+    kind: "image" | "video";
+    label: string;
+    width: number;
+    height: number;
+    durationSeconds: number | null;
+  }>,
+  cacheControl: string,
+): Promise<void> {
   if (!stockConfigured) {
     res.status(503).json({ error: NOT_CONFIGURED });
     return;
@@ -68,7 +89,7 @@ router.get("/stock/file/:id", rateLimit(LIMITS.write), async (req, res): Promise
   try {
     // The id is parsed before anything is fetched, so a malformed one costs a
     // regex rather than a round trip.
-    resolved = await resolveStockFile(String(req.params["id"]));
+    resolved = await resolve(String(req.params["id"]));
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Unknown stock item." });
     return;
@@ -78,7 +99,7 @@ router.get("/stock/file/:id", rateLimit(LIMITS.write), async (req, res): Promise
   try {
     upstream = await fetch(resolved.url, { signal: AbortSignal.timeout(60_000) });
   } catch (error) {
-    logger.warn({ err: String(error) }, "stock file fetch failed");
+    logger.warn({ err: String(error) }, "stock fetch failed");
     res.status(502).json({ error: "Could not fetch that file from the stock library." });
     return;
   }
@@ -95,7 +116,7 @@ router.get("/stock/file/:id", rateLimit(LIMITS.write), async (req, res): Promise
   }
 
   res.setHeader("Content-Type", resolved.contentType);
-  res.setHeader("Cache-Control", "private, max-age=300");
+  res.setHeader("Cache-Control", cacheControl);
   // Everything the caller needs to register the asset afterwards, without a
   // second round trip and without the caller inventing any of it.
   res.setHeader("X-Stock-Kind", resolved.kind);
@@ -123,6 +144,23 @@ router.get("/stock/file/:id", rateLimit(LIMITS.write), async (req, res): Promise
     else res.destroy();
   });
   source.pipe(res);
+}
+
+/**
+ * The clip somebody is looking at before they decide.
+ *
+ * Same origin as everything else on purpose. A direct provider URL in a
+ * `<video src>` was black-holed by the first browser we tried — no error, no
+ * `onerror`, `readyState` frozen at 0 — which is the same silence a blocked
+ * checkout script produces. Cached for an hour, because a preview someone
+ * scrolls back to should not be fetched twice.
+ */
+router.get("/stock/preview/:id", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
+  await streamStock(req, res, resolveStockPreview, "private, max-age=3600");
+});
+
+router.get("/stock/file/:id", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
+  await streamStock(req, res, resolveStockFile, "private, max-age=300");
 });
 
 export default router;
