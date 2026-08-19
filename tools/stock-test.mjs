@@ -185,9 +185,17 @@ console.log("\nLooking before adding");
     component.includes("stock-preview-video") && component.includes("/api/stock/preview/"),
   );
   check(
-    "and its bytes come from us, because a blocked preview fails silently",
+    "and its bytes come from us, not from a domain we do not control",
     !/previewVideoUrl/.test(component),
-    "readyState frozen at 0, no error, no onerror",
+  );
+  check(
+    "a browser that cannot decode is told so, not left spinning",
+    component.includes("stock-preview-unplayable") && component.includes("playbackVerdict"),
+    "readyState 0, networkState loading, no error — from a local blob",
+  );
+  check(
+    "using the same verdict the editor uses, on a shorter clock",
+    component.includes("PREVIEW_CEILING_MS"),
   );
   check(
     "the object URL is revoked, so browsing does not accumulate clips",
@@ -212,8 +220,8 @@ console.log("\nLooking before adding");
     (route.match(/streamStock/g) ?? []).length >= 3,
   );
   check(
-    "and a preview is cached while a download is not",
-    /preview[\s\S]{0,200}max-age=3600/.test(route),
+    "and a preview is cached while a download is barely",
+    /preview[\s\S]{0,300}max-age=3600/.test(route),
   );
 }
 
