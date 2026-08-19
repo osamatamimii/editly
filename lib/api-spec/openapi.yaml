@@ -702,6 +702,33 @@ components:
               items:
                 type: string
           required: [reachable, missingColumns]
+        capabilities:
+          description: >
+            Which optional parts of the product this deployment actually has.
+            Booleans only — never a key name and never a key value, because this
+            endpoint is public. It exists because the recurring question has not
+            been "is the server up" but "is the thing we built switched on", and
+            that was otherwise only answerable by reading a dashboard or waiting
+            for a customer to hit a 503.
+          type: object
+          properties:
+            storageAdmin:
+              description: >
+                Reclaiming stored video. Account deletion is refused while this
+                is false, because removing the rows without the bytes is an
+                orphaning dressed up as a deletion.
+              type: boolean
+            planner:
+              description: >
+                A model choosing the operations. Without it the keyword matcher
+                does, which is worse and honest about being worse.
+              type: boolean
+            stockLibrary:
+              type: boolean
+            billing:
+              description: Without it the payment webhook refuses every request.
+              type: boolean
+          required: [storageAdmin, planner, stockLibrary, billing]
         message:
           type: string
       required:
