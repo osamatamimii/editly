@@ -11,10 +11,11 @@
  * nothing downstream knows where a file came from — a clip added here is cut
  * in as b-roll by the same operation as a clip the customer filmed.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Search, ImageIcon, Film, X, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { uploadProjectAsset } from "@/lib/video-storage";
+import { playbackVerdict, PREVIEW_CEILING_MS, PLAYBACK_POLL_MS } from "@/lib/playability";
 
 export interface StockItem {
   id: string;
@@ -86,6 +87,18 @@ export function StockSearch({
    */
   const [clipUrl, setClipUrl] = useState<string | null>(null);
   const [clipLoading, setClipLoading] = useState(false);
+  /**
+   * Whether the clip we fetched will actually decode here.
+   *
+   * Not every browser can play H.264 — the editor already says so about
+   * people's own uploads, in those words — and a decoder that cannot is not
+   * loud about it: the element sits at readyState 0, networkState "loading",
+   * with no error to read, from a *local* blob. So the same verdict the editor
+   * uses is applied here, on a much shorter clock, and the poster frame takes
+   * over when it gives up.
+   */
+  const [clipVerdict, setClipVerdict] = useState<"pending" | "playable" | "failed">("pending");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Distinct from an error: nothing is broken, the key is simply not set. */
   const [unavailable, setUnavailable] = useState<string | null>(null);
@@ -99,6 +112,7 @@ export function StockSearch({
     let cancelled = false;
     let objectUrl: string | null = null;
     setClipLoading(true);
+    setClipVerdict("pending");
     void (async () => {
       try {
         const res = await fetch(`/api/stock/preview/${encodeURIComponent(previewing.id)}`, {
@@ -124,6 +138,24 @@ export function StockSearch({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [previewing]);
+
+  useEffect(() => {
+    if (!clipUrl) return;
+    const startedAt = Date.now();
+    const tick = (): void => {
+      const el = videoRef.current;
+      setClipVerdict(
+        playbackVerdict(
+          el ? { readyState: el.readyState, networkState: el.networkState, error: el.error } : null,
+          Date.now() - startedAt,
+          PREVIEW_CEILING_MS,
+        ),
+      );
+    };
+    tick();
+    const timer = window.setInterval(tick, PLAYBACK_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [clipUrl]);
 
   async function search(): Promise<void> {
     const q = query.trim();
@@ -287,11 +319,12 @@ export function StockSearch({
           data-testid="stock-preview"
         >
           <div className="relative w-full overflow-hidden rounded-lg bg-black">
-            {previewing.kind === "video" && clipUrl ? (
+            {previewing.kind === "video" && clipUrl && clipVerdict !== "failed" ? (
               // Muted and looping on purpose: this is a silent judgement about
               // movement, and a grid that starts shouting is a grid people close.
               <video
                 key={previewing.id}
+                ref={videoRef}
                 src={clipUrl}
                 poster={previewing.previewUrl}
                 controls
@@ -311,6 +344,15 @@ export function StockSearch({
                 data-testid="stock-preview-image"
                 className="w-full max-h-64 object-contain"
               />
+            )}
+            {previewing.kind === "video" && clipVerdict === "failed" && (
+              <span
+                className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1.5 text-[10px] text-white"
+                data-testid="stock-preview-unplayable"
+              >
+                This clip will not play in this browser — some codecs just cannot be
+                previewed here. It will still cut into your video normally.
+              </span>
             )}
             {previewing.kind === "video" && clipLoading && (
               <span
