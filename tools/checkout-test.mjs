@@ -114,6 +114,7 @@ console.log("\nThe link itself");
   check("carries the plan for the tier asked for", parsed.pathname.includes("/plan/61100/"), parsed.pathname);
   check("carries the billing cycle", parsed.searchParams.get("billing_cycle") === "annual");
   check("prefills the email exactly", parsed.searchParams.get("user_email") === "a b@x.com");
+  check("asks for the trial the pricing page promises", parsed.searchParams.get("trial") === "paid");
   check("encodes rather than interpolates", !url.includes("a b@x.com"), url);
   check("ends the path in a slash, as Freemius serves it", parsed.pathname.endsWith("/"), parsed.pathname);
 }
