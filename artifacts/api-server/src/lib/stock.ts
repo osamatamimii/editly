@@ -143,14 +143,55 @@ export async function searchStock(
  * visible difference. So: the largest file that is still at or under 1080p,
  * and only then the smallest thing available as a fallback.
  */
-function pickVideoFile(files: any[]): { url: string; contentType: string } {
+function pickVideoFile(files: any[]): {
+  url: string;
+  contentType: string;
+  width: number;
+  height: number;
+} {
   const mp4s = files.filter((f) => String(f.file_type ?? "").includes("mp4") && f.link);
   const usable = mp4s.length > 0 ? mp4s : files.filter((f) => f.link);
   if (usable.length === 0) throw new Error("That clip has no downloadable file.");
   const withinBudget = usable.filter((f) => (Number(f.height) || 0) <= 1080);
   const pool = withinBudget.length > 0 ? withinBudget : usable;
   const best = pool.reduce((a, b) => ((Number(b.height) || 0) > (Number(a.height) || 0) ? b : a));
-  return { url: String(best.link), contentType: String(best.file_type ?? "video/mp4") };
+  return {
+    url: String(best.link),
+    contentType: String(best.file_type ?? "video/mp4"),
+    // The rendition's own size, not the parent clip's. They differ — a 4K entry
+    // lists 3840x2160 while the file we actually download is 1920x1080 — and
+    // recording the number we did not fetch is how a library ends up describing
+    // files it does not hold.
+    width: Number(best.width) || 0,
+    height: Number(best.height) || 0,
+  };
+}
+
+/**
+ * The size of the image we actually download.
+ *
+ * Pexels reports the original's dimensions on the search result — often 6000px
+ * wide — while `large2x` is a resized copy whose real size is spelled out in
+ * its own query string. Recording 6000 for a file that is 1880 wide is a small
+ * lie that becomes a real one the moment anything scales against it.
+ */
+function sizeFromSrcUrl(url: string, fallbackWidth: number, fallbackHeight: number): {
+  width: number;
+  height: number;
+} {
+  try {
+    const params = new URL(url).searchParams;
+    const width = Number(params.get("w"));
+    const height = Number(params.get("h"));
+    if (width > 0 && height > 0) return { width, height };
+    // Only the width is given: keep the original's aspect ratio.
+    if (width > 0 && fallbackWidth > 0 && fallbackHeight > 0) {
+      return { width, height: Math.round((width * fallbackHeight) / fallbackWidth) };
+    }
+  } catch {
+    // Not a URL we can read. Fall through to what the listing said.
+  }
+  return { width: fallbackWidth, height: fallbackHeight };
 }
 
 export interface ResolvedStockFile {
@@ -173,13 +214,14 @@ export async function resolveStockFile(id: string): Promise<ResolvedStockFile> {
     // `large2x` is roughly 1880px wide — more than any 1080p composition needs
     // and small enough to upload over a phone connection.
     const url = String(photo.src?.large2x ?? photo.src?.large ?? photo.src?.original ?? "");
+    const size = sizeFromSrcUrl(url, item.width, item.height);
     return {
       url: assertAllowedHost(url),
       contentType: "image/jpeg",
       kind: "image",
       label: `${item.label} — ${item.credit} / Pexels`.slice(0, 160),
-      width: item.width,
-      height: item.height,
+      width: size.width,
+      height: size.height,
       durationSeconds: null,
     };
   }
@@ -192,8 +234,8 @@ export async function resolveStockFile(id: string): Promise<ResolvedStockFile> {
     contentType: file.contentType,
     kind: "video",
     label: `${item.label} — Pexels`.slice(0, 160),
-    width: item.width,
-    height: item.height,
+    width: file.width || item.width,
+    height: file.height || item.height,
     durationSeconds: item.durationSeconds,
   };
 }
