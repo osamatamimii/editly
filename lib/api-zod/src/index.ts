@@ -150,6 +150,31 @@ export const HealthCheckResponse = z.object({
     reachable: z.boolean(),
     missingColumns: z.array(z.string()),
   }),
+  /**
+   * Which optional parts of the product this deployment actually has.
+   *
+   * Booleans, never key names and never key values — this endpoint is public.
+   * It exists because the recurring question on this project has not been "is
+   * the server up" but "is the thing we built actually switched on", and that
+   * was previously only answerable by reading a dashboard or waiting for a
+   * customer to hit a 503.
+   *
+   * `storageAdmin` false is the sharp one: account deletion is refused while it
+   * is, because deleting the rows without reclaiming the bytes would be an
+   * orphaning dressed up as a deletion.
+   */
+  capabilities: z
+    .object({
+      /** Reclaiming stored video. Account deletion is refused without it. */
+      storageAdmin: z.boolean(),
+      /** A model choosing operations. Without it, keyword matching does. */
+      planner: z.boolean(),
+      /** Searching free stock clips and photographs from inside a project. */
+      stockLibrary: z.boolean(),
+      /** Merchant of record. Without it the webhook refuses every payment. */
+      billing: z.boolean(),
+    })
+    .optional(),
   message: z.string().optional(),
 });
 export type HealthCheckResponse = z.infer<typeof HealthCheckResponse>;
