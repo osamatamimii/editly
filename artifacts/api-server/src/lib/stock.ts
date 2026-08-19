@@ -73,13 +73,10 @@ export interface StockItem {
    */
   viewUrl: string;
   /**
-   * A small, immediately playable rendition. Null for photographs.
-   *
-   * Deliberately the *smallest* file, not the one that would be downloaded:
-   * this plays while someone is still deciding, and a decision does not need
-   * 1080p.
+   * Whether there is something to play. The bytes come from our own preview
+   * route, never from a URL in this object — see `resolveStockPreview`.
    */
-  previewVideoUrl: string | null;
+  playable: boolean;
   width: number;
   height: number;
   durationSeconds: number | null;
@@ -118,7 +115,7 @@ function photoToItem(photo: any): StockItem {
     label: String(photo.alt || "Photo").slice(0, 120),
     previewUrl: String(photo.src?.medium ?? photo.src?.small ?? ""),
     viewUrl: String(photo.src?.large ?? photo.src?.medium ?? ""),
-    previewVideoUrl: null,
+    playable: false,
     width: Number(photo.width) || 0,
     height: Number(photo.height) || 0,
     durationSeconds: null,
@@ -128,17 +125,13 @@ function photoToItem(photo: any): StockItem {
 }
 
 /** The smallest playable rendition, for deciding rather than for keeping. */
-function smallestPlayable(files: any[]): string | null {
+function smallestPlayable(files: any[]): { url: string; contentType: string } | null {
   const mp4s = (files ?? []).filter((f) => String(f.file_type ?? "").includes("mp4") && f.link);
   if (mp4s.length === 0) return null;
   const smallest = mp4s.reduce((a, b) =>
     (Number(b.height) || Infinity) < (Number(a.height) || Infinity) ? b : a,
   );
-  try {
-    return assertAllowedHost(String(smallest.link)).toString();
-  } catch {
-    return null;
-  }
+  return { url: String(smallest.link), contentType: String(smallest.file_type ?? "video/mp4") };
 }
 
 function videoToItem(video: any): StockItem {
@@ -148,7 +141,7 @@ function videoToItem(video: any): StockItem {
     label: String(video.user?.name ? `Clip by ${video.user.name}` : "Clip").slice(0, 120),
     previewUrl: String(video.image ?? ""),
     viewUrl: String(video.image ?? ""),
-    previewVideoUrl: smallestPlayable(video.video_files),
+    playable: smallestPlayable(video.video_files) !== null,
     width: Number(video.width) || 0,
     height: Number(video.height) || 0,
     durationSeconds: Number(video.duration) || null,
@@ -240,6 +233,57 @@ export interface ResolvedStockFile {
   width: number;
   height: number;
   durationSeconds: number | null;
+}
+
+/**
+ * The clip to play while somebody is deciding — through us, like everything else.
+ *
+ * This began as a direct `videos.pexels.com` URL on the theory that a preview is
+ * only a thumbnail. It is not: on the first browser we tried it in, the request
+ * was black-holed. No error, no `onerror`, `readyState` stuck at 0 and a video
+ * element that simply never started — the same silent failure the checkout
+ * widget had, from the same cause, a third-party domain a blocker had never
+ * heard of. Still images from `images.pexels.com` loaded fine in that same
+ * browser, which is exactly what makes the failure so hard to guess at from the
+ * code.
+ *
+ * So the rule that already governs the download governs this too: if it has to
+ * work, it comes from our origin. It is still the *smallest* rendition — a
+ * decision does not need 1080p — so the cost of the guarantee is a few hundred
+ * kilobytes.
+ */
+export async function resolveStockPreview(id: string): Promise<ResolvedStockFile> {
+  const { kind, numericId } = parseStockId(id);
+
+  if (kind === "photo") {
+    const photo = await pexels(`/v1/photos/${numericId}`);
+    const item = photoToItem(photo);
+    const url = String(photo.src?.large ?? photo.src?.medium ?? "");
+    const size = sizeFromSrcUrl(url, item.width, item.height);
+    return {
+      url: assertAllowedHost(url),
+      contentType: "image/jpeg",
+      kind: "image",
+      label: item.label,
+      width: size.width,
+      height: size.height,
+      durationSeconds: null,
+    };
+  }
+
+  const video = await pexels(`/videos/videos/${numericId}`);
+  const item = videoToItem(video);
+  const smallest = smallestPlayable(video.video_files);
+  if (!smallest) throw new Error("That clip has nothing small enough to preview.");
+  return {
+    url: assertAllowedHost(smallest.url),
+    contentType: smallest.contentType,
+    kind: "video",
+    label: item.label,
+    width: 0,
+    height: 0,
+    durationSeconds: item.durationSeconds,
+  };
 }
 
 export async function resolveStockFile(id: string): Promise<ResolvedStockFile> {
