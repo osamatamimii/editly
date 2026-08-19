@@ -11,7 +11,7 @@
  * nothing downstream knows where a file came from — a clip added here is cut
  * in as b-roll by the same operation as a clip the customer filmed.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Search, ImageIcon, Film, X, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { uploadProjectAsset } from "@/lib/video-storage";
@@ -23,8 +23,8 @@ export interface StockItem {
   previewUrl: string;
   /** A bigger still, for the preview. */
   viewUrl: string;
-  /** A small playable rendition. Null for photographs. */
-  previewVideoUrl: string | null;
+  /** Whether there is something to play. The bytes come from our own route. */
+  playable: boolean;
   width: number;
   height: number;
   durationSeconds: number | null;
@@ -76,10 +76,54 @@ export function StockSearch({
    * is a separate, deliberate press.
    */
   const [previewing, setPreviewing] = useState<StockItem | null>(null);
+  /**
+   * The playable clip, fetched through our API and held as an object URL.
+   *
+   * A `<video>` cannot carry an Authorization header, so the bytes are fetched
+   * and handed to the element rather than pointed at. That is also why this is
+   * the *small* rendition: the whole thing arrives before the first frame
+   * plays, and the poster covers the wait.
+   */
+  const [clipUrl, setClipUrl] = useState<string | null>(null);
+  const [clipLoading, setClipLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Distinct from an error: nothing is broken, the key is simply not set. */
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+
+  useEffect(() => {
+    if (!previewing || !previewing.playable) {
+      setClipUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setClipLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/stock/preview/${encodeURIComponent(previewing.id)}`, {
+          headers: await authHeaders(),
+        });
+        if (!res.ok) throw new Error("preview unavailable");
+        const blob = await res.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setClipUrl(objectUrl);
+      } catch {
+        // The poster frame is still there, and it is a preview — a failure
+        // here must not become an error message about someone's project.
+        if (!cancelled) setClipUrl(null);
+      } finally {
+        if (!cancelled) setClipLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      // Revoked on the way out: a grid someone browses for a minute would
+      // otherwise hold every clip they glanced at in memory.
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [previewing]);
 
   async function search(): Promise<void> {
     const q = query.trim();
@@ -243,12 +287,12 @@ export function StockSearch({
           data-testid="stock-preview"
         >
           <div className="relative w-full overflow-hidden rounded-lg bg-black">
-            {previewing.kind === "video" && previewing.previewVideoUrl ? (
+            {previewing.kind === "video" && clipUrl ? (
               // Muted and looping on purpose: this is a silent judgement about
               // movement, and a grid that starts shouting is a grid people close.
               <video
                 key={previewing.id}
-                src={previewing.previewVideoUrl}
+                src={clipUrl}
                 poster={previewing.previewUrl}
                 controls
                 autoPlay
@@ -262,10 +306,19 @@ export function StockSearch({
               <img
                 key={previewing.id}
                 src={previewing.viewUrl || previewing.previewUrl}
+                data-loading={previewing.kind === "video" && clipLoading ? "true" : undefined}
                 alt={previewing.label}
                 data-testid="stock-preview-image"
                 className="w-full max-h-64 object-contain"
               />
+            )}
+            {previewing.kind === "video" && clipLoading && (
+              <span
+                className="absolute inset-0 flex items-center justify-center bg-black/40"
+                data-testid="stock-preview-loading"
+              >
+                <Loader2 className="w-5 h-5 animate-spin text-white" />
+              </span>
             )}
           </div>
 
