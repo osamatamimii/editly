@@ -1166,6 +1166,22 @@ components:
           description: A thumbnail, safe to put in a grid. Videos get a poster frame.
           type: string
           format: uri
+        viewUrl:
+          description: >
+            A bigger still, for looking at one properly before committing to it.
+          type: string
+          format: uri
+        previewVideoUrl:
+          description: >
+            The smallest playable rendition, or null for a photograph.
+            Deliberately not the file that would be downloaded: this plays while
+            somebody is still deciding, and a decision does not need 1080p.
+            Unlike the download, previews are served from the provider's CDN —
+            pushing megabytes of "maybe" through a function costs us and buys
+            nothing.
+          type: string
+          format: uri
+          nullable: true
         width:
           type: integer
         height:
@@ -1179,7 +1195,7 @@ components:
         creditUrl:
           type: string
           format: uri
-      required: [id, kind, label, previewUrl, width, height, credit, creditUrl]
+      required: [id, kind, label, previewUrl, viewUrl, width, height, credit, creditUrl]
 
     InsertBRollOperation:
       description: >
