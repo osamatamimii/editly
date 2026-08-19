@@ -149,11 +149,13 @@ async function streamStock(
 /**
  * The clip somebody is looking at before they decide.
  *
- * Same origin as everything else on purpose. A direct provider URL in a
- * `<video src>` was black-holed by the first browser we tried — no error, no
- * `onerror`, `readyState` frozen at 0 — which is the same silence a blocked
- * checkout script produces. Cached for an hour, because a preview someone
- * scrolls back to should not be fetched twice.
+ * Same origin as everything else: no dependency on a third party's CORS or
+ * uptime, and nothing for a blocker to remove. Cached for an hour, because a
+ * preview someone scrolls back to should not be fetched twice.
+ *
+ * It does not make an undecodable clip decodable — a browser without H.264
+ * plays neither the provider's copy nor ours, and the panel says so rather than
+ * spinning.
  */
 router.get("/stock/preview/:id", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
   await streamStock(req, res, resolveStockPreview, "private, max-age=3600");
