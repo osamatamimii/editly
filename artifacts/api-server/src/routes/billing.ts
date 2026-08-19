@@ -182,13 +182,18 @@ router.get("/billing/checkout", async (req, res): Promise<void> => {
 export default router;
 
 /**
- * Supabase owns the identity table, and it lives in a schema Drizzle does not
- * model. One narrow query is cheaper and clearer than mirroring `auth.users`.
+ * Supabase owns the identity table, and it lives in a schema the application
+ * role is not allowed to touch — querying `auth.users` directly threw
+ * "permission denied" on every webhook, after the event was recorded and
+ * before anything was decided (see migration 0020). The lookup goes through
+ * `public.user_id_for_email`, a SECURITY DEFINER function that answers this
+ * one question with its owner's rights; the app role holds EXECUTE on it and
+ * nothing else.
  */
 async function userIdForEmail(email: string): Promise<string | null> {
   const { pool } = await import("@workspace/db");
-  const { rows } = await pool.query<{ id: string }>(
-    "select id from auth.users where lower(email) = $1 limit 1",
+  const { rows } = await pool.query<{ id: string | null }>(
+    "select public.user_id_for_email($1) as id",
     [email],
   );
   return rows[0]?.id ?? null;
