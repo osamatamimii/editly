@@ -353,6 +353,99 @@ console.log("\nTitles the model got wrong");
   check("and a style that does not exist becomes the plain one", titles[0]?.style === "card", titles[0]?.style);
 }
 
+// ─── With no model at all, which is what this deployment actually is ────────
+//
+// Production has no OPENAI_API_KEY. Everything above about schemas and enums is
+// therefore about a path that never runs there — and for months the b-roll
+// operations, the library that holds the files and the renderer that composites
+// them all existed while the only sentence a customer could get back was "I
+// can't cut in B-roll yet". That reply was describing the planner, not the
+// product, and it read as the product.
+console.log("\nThe keyword matcher can reach the library too");
+{
+  const planner = createPlanner({ apiKey: "" });
+  const result = await planner.plan("cut in some b-roll and tighten it up", { assets: LIBRARY });
+  const cutaways = result.operations.filter((o) => o.type === "insertBRoll");
+
+  check("it is the keyword path", result.source === "keywords");
+  check("b-roll becomes a real operation", cutaways.length === 1, JSON.stringify(result.operations.map((o) => o.type)));
+  check("using the clip that exists", cutaways[0]?.assetId === "a1", cutaways[0]?.assetId);
+  check(
+    "not over the opening, where a speaker establishes who they are",
+    (cutaways[0]?.at ?? 0) >= 5,
+    String(cutaways[0]?.at),
+  );
+  check("the speaker is still heard under it", cutaways[0]?.keepSourceAudio === true);
+  check("the rest of the request still works", result.operations.some((o) => o.type === "removeSilence"));
+  check(
+    "and the reply names the file and the moment",
+    /street at night/.test(result.willDo.join(" ")) && /5s/.test(result.willDo.join(" ")),
+    JSON.stringify(result.willDo),
+  );
+  check("nothing is listed as impossible", result.cannotYet.length === 0, JSON.stringify(result.cannotYet));
+}
+
+console.log("\nAsking for what the project does not have");
+{
+  const planner = createPlanner({ apiKey: "" });
+  const result = await planner.plan("cut in some b-roll", { assets: [] });
+  check("no operation is invented", result.operations.length === 0);
+  check(
+    "and the reason is the missing file, not a missing feature",
+    /no clips to cut to/.test(result.cannotYet.join(" ")),
+    JSON.stringify(result.cannotYet),
+  );
+}
+
+console.log("\nA logo goes in the corner, not over the face");
+{
+  const planner = createPlanner({ apiKey: "" });
+  const result = await planner.plan("put my logo on it", { assets: LIBRARY });
+  const overlay = result.operations.find((o) => o.type === "overlayImage");
+  check("the image is used", overlay?.assetId === "a2", JSON.stringify(result.operations));
+  check("in a corner", overlay?.position === "top-right", overlay?.position);
+  check("small enough not to be the subject", (overlay?.scale ?? 1) <= 0.3, String(overlay?.scale));
+}
+
+console.log("\nTitles: their words or none");
+{
+  const planner = createPlanner({ apiKey: "" });
+  const quoted = await planner.plan('add a title saying "Half the price" please', { assets: LIBRARY });
+  const title = quoted.operations.find((o) => o.type === "motionTitle");
+  check("a quoted phrase becomes the title", title?.text === "Half the price", JSON.stringify(title));
+
+  const unquoted = await planner.plan("put a title on it", { assets: LIBRARY });
+  check(
+    "and without quotes nothing is written for them",
+    !unquoted.operations.some((o) => o.type === "motionTitle"),
+    JSON.stringify(unquoted.operations),
+  );
+  check(
+    "but they are told how to get one",
+    /put them in quotes/.test(unquoted.cannotYet.join(" ")),
+    JSON.stringify(unquoted.cannotYet),
+  );
+
+  // "caption" is a different feature and must not be hijacked by this.
+  const captions = await planner.plan("add captions", { assets: LIBRARY });
+  check(
+    "asking for captions still means captions",
+    captions.operations.some((o) => o.type === "autoCaptions") &&
+      !captions.operations.some((o) => o.type === "motionTitle"),
+    JSON.stringify(captions.operations.map((o) => o.type)),
+  );
+}
+
+console.log("\nAn audio file is not something to put on screen");
+{
+  const planner = createPlanner({ apiKey: "" });
+  const result = await planner.plan("cut in b-roll and show the logo", {
+    assets: [{ id: "only-audio", kind: "audio", label: "a voice note" }],
+  });
+  check("nothing is placed", result.operations.length === 0, JSON.stringify(result.operations));
+  check("and both are explained", result.cannotYet.length === 2, JSON.stringify(result.cannotYet));
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
