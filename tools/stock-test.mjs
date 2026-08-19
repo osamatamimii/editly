@@ -182,7 +182,16 @@ console.log("\nLooking before adding");
   check("and there is a way back out", component.includes("button-stock-close-preview"));
   check(
     "a clip actually plays in the preview",
-    component.includes("stock-preview-video") && component.includes("previewVideoUrl"),
+    component.includes("stock-preview-video") && component.includes("/api/stock/preview/"),
+  );
+  check(
+    "and its bytes come from us, because a blocked preview fails silently",
+    !/previewVideoUrl/.test(component),
+    "readyState frozen at 0, no error, no onerror",
+  );
+  check(
+    "the object URL is revoked, so browsing does not accumulate clips",
+    component.includes("revokeObjectURL"),
   );
   check(
     "muted, because a grid that starts shouting is a grid people close",
@@ -193,11 +202,18 @@ console.log("\nLooking before adding");
   const lib = await readFile(path.join(repoRoot, "artifacts/api-server/src/lib/stock.ts"), "utf8");
   check(
     "the preview is the smallest rendition, not the one that would be kept",
-    lib.includes("smallestPlayable"),
+    lib.includes("smallestPlayable") && lib.includes("resolveStockPreview"),
+  );
+
+  const route = await readFile(path.join(repoRoot, "artifacts/api-server/src/routes/stock.ts"), "utf8");
+  check("the preview has its own route", route.includes("/stock/preview/:id"));
+  check(
+    "sharing one streaming path with the download, cap and all",
+    (route.match(/streamStock/g) ?? []).length >= 3,
   );
   check(
-    "and even a preview URL is checked against the allowlist",
-    /smallestPlayable[\s\S]{0,600}assertAllowedHost/.test(lib),
+    "and a preview is cached while a download is not",
+    /preview[\s\S]{0,200}max-age=3600/.test(route),
   );
 }
 
