@@ -61,6 +61,25 @@ export interface StockItem {
   label: string;
   /** A small image, safe to put in a grid. Videos get their poster frame. */
   previewUrl: string;
+  /**
+   * A bigger still, for looking at one properly before committing to it.
+   *
+   * These two are provider URLs rather than proxied, unlike the download. The
+   * download is proxied because it is the file that ends up in someone's
+   * project and its size is ours to control; a preview is a thumbnail on a
+   * public CDN, and pushing megabytes of "maybe" through a serverless function
+   * so that a person can glance at a clip is a cost with nothing on the other
+   * side of it.
+   */
+  viewUrl: string;
+  /**
+   * A small, immediately playable rendition. Null for photographs.
+   *
+   * Deliberately the *smallest* file, not the one that would be downloaded:
+   * this plays while someone is still deciding, and a decision does not need
+   * 1080p.
+   */
+  previewVideoUrl: string | null;
   width: number;
   height: number;
   durationSeconds: number | null;
@@ -98,6 +117,8 @@ function photoToItem(photo: any): StockItem {
     kind: "image",
     label: String(photo.alt || "Photo").slice(0, 120),
     previewUrl: String(photo.src?.medium ?? photo.src?.small ?? ""),
+    viewUrl: String(photo.src?.large ?? photo.src?.medium ?? ""),
+    previewVideoUrl: null,
     width: Number(photo.width) || 0,
     height: Number(photo.height) || 0,
     durationSeconds: null,
@@ -106,12 +127,28 @@ function photoToItem(photo: any): StockItem {
   };
 }
 
+/** The smallest playable rendition, for deciding rather than for keeping. */
+function smallestPlayable(files: any[]): string | null {
+  const mp4s = (files ?? []).filter((f) => String(f.file_type ?? "").includes("mp4") && f.link);
+  if (mp4s.length === 0) return null;
+  const smallest = mp4s.reduce((a, b) =>
+    (Number(b.height) || Infinity) < (Number(a.height) || Infinity) ? b : a,
+  );
+  try {
+    return assertAllowedHost(String(smallest.link)).toString();
+  } catch {
+    return null;
+  }
+}
+
 function videoToItem(video: any): StockItem {
   return {
     id: `video:${video.id}`,
     kind: "video",
     label: String(video.user?.name ? `Clip by ${video.user.name}` : "Clip").slice(0, 120),
     previewUrl: String(video.image ?? ""),
+    viewUrl: String(video.image ?? ""),
+    previewVideoUrl: smallestPlayable(video.video_files),
     width: Number(video.width) || 0,
     height: Number(video.height) || 0,
     durationSeconds: Number(video.duration) || null,
