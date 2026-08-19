@@ -76,6 +76,12 @@ export function hostedCheckoutUrl(config: CheckoutConfig, options: OpenCheckoutO
   if (!planId) return null;
   const url = new URL(`https://checkout.freemius.com/product/${config.productId}/plan/${planId}/`);
   url.searchParams.set("billing_cycle", options.billingCycle);
+  // The pricing page promises a 7-day trial, and as of 19 Aug 2026 all three
+  // plans have one configured in Freemius (7 days, card required — "paid" in
+  // their vocabulary). The parameter is only honoured when the plan actually
+  // defines a trial; before that was true, Freemius silently ignored it and
+  // charged immediately, which is exactly the mismatch this line closes.
+  url.searchParams.set("trial", "paid");
   if (options.email) url.searchParams.set("user_email", options.email);
   return url.toString();
 }
