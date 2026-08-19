@@ -13,6 +13,19 @@ export interface HealthStatus {
     /** Qualified as table.column, when the database is behind the migrations. */
     missingColumns: string[];
   };
+  /**
+   * Which optional parts of the product this deployment has. Booleans only —
+   * never a key name and never a key value.
+   */
+  capabilities?: {
+    /** Reclaiming stored video. Account deletion is refused while false. */
+    storageAdmin: boolean;
+    /** A model choosing operations; without it, keyword matching does. */
+    planner: boolean;
+    stockLibrary: boolean;
+    /** Without it the payment webhook refuses every request. */
+    billing: boolean;
+  };
   message?: string;
 }
 
