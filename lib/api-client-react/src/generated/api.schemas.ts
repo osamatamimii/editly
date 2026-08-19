@@ -18,8 +18,10 @@ export interface HealthStatus {
    * never a key name and never a key value.
    */
   capabilities?: {
-    /** Reclaiming stored video. Account deletion is refused while false. */
+    /** Reclaiming stored video is configured. Deletion is refused while false. */
     storageAdmin: boolean;
+    /** Whether that key authenticates: ok | unauthorized | unreachable | not-configured. */
+    storageCheck: string;
     /** A model choosing operations; without it, keyword matching does. */
     planner: boolean;
     stockLibrary: boolean;
