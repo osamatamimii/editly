@@ -238,19 +238,18 @@ export interface ResolvedStockFile {
 /**
  * The clip to play while somebody is deciding — through us, like everything else.
  *
- * This began as a direct `videos.pexels.com` URL on the theory that a preview is
- * only a thumbnail. It is not: on the first browser we tried it in, the request
- * was black-holed. No error, no `onerror`, `readyState` stuck at 0 and a video
- * element that simply never started — the same silent failure the checkout
- * widget had, from the same cause, a third-party domain a blocker had never
- * heard of. Still images from `images.pexels.com` loaded fine in that same
- * browser, which is exactly what makes the failure so hard to guess at from the
- * code.
+ * This began as a direct `videos.pexels.com` URL, on the theory that a preview
+ * is only a thumbnail. When it did not play I assumed a content blocker had
+ * swallowed it, which was wrong and worth recording as wrong: serving the same
+ * file from our own origin did not help either. The browser in question cannot
+ * decode H.264 at all — the editor already tells people that about their own
+ * uploads, in those words — and a decoder that cannot is silent about it:
+ * `readyState` 0, `networkState` "loading", no error, from a *local* blob.
  *
- * So the rule that already governs the download governs this too: if it has to
- * work, it comes from our origin. It is still the *smallest* rendition — a
- * decision does not need 1080p — so the cost of the guarantee is a few hundred
- * kilobytes.
+ * The proxy stayed anyway, for the reasons that survive the correction: it does
+ * not depend on a third party's CORS or availability, it cannot be blocked, and
+ * it is cacheable by us. It is still the *smallest* rendition — a decision does
+ * not need 1080p — so the cost is a few hundred kilobytes.
  */
 export async function resolveStockPreview(id: string): Promise<ResolvedStockFile> {
   const { kind, numericId } = parseStockId(id);
