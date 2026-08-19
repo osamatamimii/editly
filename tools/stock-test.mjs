@@ -167,6 +167,40 @@ console.log("\nWhat gets downloaded is not the biggest thing available");
   check("the photographer's credit is carried into the label", /Pexels/.test(lib) && lib.includes("credit"));
 }
 
+console.log("\nLooking before adding");
+{
+  const component = await readFile(
+    path.join(repoRoot, "artifacts/editly/src/components/stock-search.tsx"),
+    "utf8",
+  );
+  check(
+    "clicking a tile opens it rather than buying it",
+    component.includes("onClick={() => setPreviewing(item)}"),
+    "a poster frame says almost nothing about how a clip moves",
+  );
+  check("adding is its own press", component.includes("button-stock-add"));
+  check("and there is a way back out", component.includes("button-stock-close-preview"));
+  check(
+    "a clip actually plays in the preview",
+    component.includes("stock-preview-video") && component.includes("previewVideoUrl"),
+  );
+  check(
+    "muted, because a grid that starts shouting is a grid people close",
+    /<video[\s\S]{0,400}muted/.test(component),
+  );
+  check("the photographer is named where the decision is made", component.includes("creditUrl"));
+
+  const lib = await readFile(path.join(repoRoot, "artifacts/api-server/src/lib/stock.ts"), "utf8");
+  check(
+    "the preview is the smallest rendition, not the one that would be kept",
+    lib.includes("smallestPlayable"),
+  );
+  check(
+    "and even a preview URL is checked against the allowlist",
+    /smallestPlayable[\s\S]{0,600}assertAllowedHost/.test(lib),
+  );
+}
+
 console.log("\nThe size recorded is the size downloaded");
 {
   const lib = await readFile(path.join(repoRoot, "artifacts/api-server/src/lib/stock.ts"), "utf8");

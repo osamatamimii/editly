@@ -445,6 +445,49 @@ section("The rules the schema itself enforces");
     JSON.stringify(keys.map((k) => k.conname)),
   );
 
+  // ── The role that actually runs the product ───────────────────────────────
+  //
+  // Four migrations in a row shipped a policy that named `postgres`, and this
+  // deployment's API connects as `editly_app`. The result was not a loud
+  // failure: writes to `assets` returned 500, and *reads* returned an empty
+  // list, because a SELECT under a policy that does not match is not an error
+  // — it is no rows. The rate limiter degraded open and said so only in a log
+  // line nobody was reading, which means abuse limits were off in production
+  // for as long as that migration had been live.
+  //
+  // So the rule is checked directly: every table with row-level security on
+  // must carry a policy that names the role the server connects as. A policy
+  // that protects the table from the application is not protection.
+  const rlsTables = (await pool.query(`
+    SELECT c.relname AS table, c.relforcerowsecurity AS forced
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relrowsecurity
+    ORDER BY c.relname`)).rows;
+
+  const appPolicies = (await pool.query(`
+    SELECT tablename, policyname, roles::text AS roles
+    FROM pg_policies WHERE schemaname = 'public'`)).rows;
+
+  const reachable = new Set(
+    appPolicies.filter((p) => p.roles.includes("editly_app")).map((p) => p.tablename),
+  );
+  const unreachable = rlsTables.map((t) => t.table).filter((t) => !reachable.has(t));
+  check(
+    "every table the server uses names the role the server connects as",
+    unreachable.length === 0,
+    unreachable.join(", "),
+  );
+
+  // FORCE subjects the *owner* to policies. The owner is postgres and postgres
+  // is not what runs the product, so forcing it while the policy names another
+  // role is precisely how the reads went quiet.
+  const forcedWithoutApp = rlsTables.filter((t) => t.forced && !reachable.has(t.table));
+  check(
+    "and nothing is forced against a policy that excludes it",
+    forcedWithoutApp.length === 0,
+    forcedWithoutApp.map((t) => t.table).join(", "),
+  );
+
   // Proved rather than asserted: delete a project that produced minutes and
   // read the meter's own query back.
   await pool.query(`
