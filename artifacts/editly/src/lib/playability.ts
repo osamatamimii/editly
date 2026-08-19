@@ -50,9 +50,21 @@ export interface MediaFacts {
   error: unknown;
 }
 
+/**
+ * How long a *preview* waits before giving up.
+ *
+ * Much shorter than the ceiling above, and for a different reason: the editor's
+ * ceiling covers someone's own footage arriving over their own connection,
+ * where waiting is right. A stock preview is a few hundred kilobytes that we
+ * already hold — if it has not decoded in this long, it is not going to, and
+ * the person is standing there deciding.
+ */
+export const PREVIEW_CEILING_MS = 8_000;
+
 export function playbackVerdict(
   el: MediaFacts | null | undefined,
   elapsedMs: number,
+  ceilingMs: number = PLAYBACK_CEILING_MS,
 ): PlaybackVerdict {
   // No element yet is not a failing element. The React ref is null for the
   // first paint of every project that has a video, and treating that as
@@ -70,7 +82,7 @@ export function playbackVerdict(
 
   if (el.networkState === NETWORK_NO_SOURCE) return "failed";
 
-  if (elapsedMs >= PLAYBACK_CEILING_MS) return "failed";
+  if (elapsedMs >= ceilingMs) return "failed";
 
   return "pending";
 }
