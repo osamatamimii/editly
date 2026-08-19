@@ -110,6 +110,13 @@ export function StockSearch({
       // from the server rather than from this component, so it is the same
       // string whatever added it.
       const label = decodeURIComponent(res.headers.get("x-stock-label") ?? item.label);
+      // The dimensions of the file that arrived, not of the original the search
+      // result described. Pexels lists a 6000px original and serves a 1880px
+      // copy; recording the number we did not download is a library describing
+      // files it does not hold.
+      const servedWidth = Number(res.headers.get("x-stock-width")) || item.width;
+      const servedHeight = Number(res.headers.get("x-stock-height")) || item.height;
+      const servedDuration = Number(res.headers.get("x-stock-duration")) || item.durationSeconds;
       const file = new File([blob], fileNameFor(item.id, contentType), { type: contentType });
 
       const { data } = await supabase.auth.getSession();
@@ -130,9 +137,9 @@ export function StockSearch({
           kind: storedKind,
           label,
           bytes: file.size,
-          ...(item.width ? { width: item.width } : {}),
-          ...(item.height ? { height: item.height } : {}),
-          ...(item.durationSeconds ? { durationSeconds: item.durationSeconds } : {}),
+          ...(servedWidth ? { width: servedWidth } : {}),
+          ...(servedHeight ? { height: servedHeight } : {}),
+          ...(servedDuration ? { durationSeconds: servedDuration } : {}),
         }),
       });
       if (!registered.ok) {
