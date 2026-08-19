@@ -714,10 +714,19 @@ components:
           properties:
             storageAdmin:
               description: >
-                Reclaiming stored video. Account deletion is refused while this
-                is false, because removing the rows without the bytes is an
-                orphaning dressed up as a deletion.
+                Reclaiming stored video is configured. Account deletion is
+                refused while this is false, because removing the rows without
+                the bytes is an orphaning dressed up as a deletion.
               type: boolean
+            storageCheck:
+              description: >
+                Whether that key actually authenticates — asked of Storage with
+                a list against a prefix that matches nothing, and cached, so a
+                public endpoint cannot be turned into a load generator. A
+                present-but-wrong key is indistinguishable from a right one
+                until a customer asks to delete their account.
+              type: string
+              enum: [ok, unauthorized, unreachable, not-configured]
             planner:
               description: >
                 A model choosing the operations. Without it the keyword matcher
@@ -728,7 +737,7 @@ components:
             billing:
               description: Without it the payment webhook refuses every request.
               type: boolean
-          required: [storageAdmin, planner, stockLibrary, billing]
+          required: [storageAdmin, storageCheck, planner, stockLibrary, billing]
         message:
           type: string
       required:
