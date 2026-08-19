@@ -167,6 +167,33 @@ console.log("\nWhat gets downloaded is not the biggest thing available");
   check("the photographer's credit is carried into the label", /Pexels/.test(lib) && lib.includes("credit"));
 }
 
+console.log("\nThe size recorded is the size downloaded");
+{
+  const lib = await readFile(path.join(repoRoot, "artifacts/api-server/src/lib/stock.ts"), "utf8");
+  check(
+    "a photo's size is read from the rendition, not from the original",
+    lib.includes("sizeFromSrcUrl"),
+    "Pexels lists a 6000px original and serves an 1880px copy",
+  );
+  check(
+    "and a clip's from the file chosen, not from the parent entry",
+    /width: Number\(best\.width\)/.test(lib),
+  );
+
+  const component = await readFile(
+    path.join(repoRoot, "artifacts/editly/src/components/stock-search.tsx"),
+    "utf8",
+  );
+  check(
+    "the browser registers what arrived rather than what it searched",
+    component.includes("x-stock-width") && component.includes("servedWidth"),
+  );
+  check(
+    "so the search result's dimensions are not written to the library",
+    !/width: item\.width/.test(component),
+  );
+}
+
 console.log("\nStock arrives as an ordinary asset");
 {
   const component = await readFile(
