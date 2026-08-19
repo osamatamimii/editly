@@ -212,6 +212,9 @@ export function createPlanner(options: PlannerOptions = {}) {
       context: { defaultPlatform?: Platform | null; assets?: PlannerAsset[] },
     ): Promise<PlanResult> {
       const assets = context.assets ?? [];
+      // The fallback sees the library too. Without that, a deployment with no
+      // model key has the operations, the files and the renderer, and no way
+      // for a sentence to reach any of them.
       const fallback = (): PlanResult => ({ ...planFromText(text, context), source: "keywords" });
       if (!apiKey) return fallback();
 

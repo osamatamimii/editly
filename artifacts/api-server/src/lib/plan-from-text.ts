@@ -33,9 +33,45 @@ const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
   { patterns: /\bmusic|beat|sound ?track\b/i, label: "add music or sync to a beat" },
   { patterns: /\bcolou?r|grade|cinematic|filter\b/i, label: "colour grade" },
   { patterns: /\bhook|first (two|2|three|3) seconds\b/i, label: "build a hook from the opening" },
-  { patterns: /\bb-?roll\b/i, label: "cut in B-roll" },
   { patterns: /\btransition/i, label: "add transitions" },
 ];
+
+/**
+ * B-roll is not in that list any more, and the reason is worth stating.
+ *
+ * The operations for it exist, but only a model was ever able to choose them,
+ * because choosing one means naming a file. And there is no model on a
+ * deployment with no OpenAI key — which is this one — so everything built for
+ * the library was unreachable from a sentence, and the honest reply "I can't
+ * cut in B-roll yet" was describing a limitation of the *planner*, not of the
+ * product.
+ *
+ * So the matcher reads the library too. It does not guess at a file's contents:
+ * it places what is there, says exactly where it put it, and leaves correcting
+ * that to the person, which is a conversation they can have. Nothing here is
+ * cleverer than that, deliberately.
+ */
+export interface LibraryFile {
+  id: string;
+  kind: "video" | "image" | "audio";
+  label: string | null;
+}
+
+const BROLL_WORDS = /\bb-?roll|cut ?away|cutaway|footage|insert (a |the )?(clip|shot)\b/i;
+const OVERLAY_WORDS = /\blogo|overlay|screenshot|graphic|show (the |my )?(image|picture|photo)\b/i;
+
+/**
+ * Where cutaways go when nobody said.
+ *
+ * Not at zero — the opening is where a speaker establishes who they are, and
+ * covering it is the one place a cutaway is always wrong. After that, spaced
+ * far enough apart that two do not read as one.
+ */
+const CUTAWAY_SECONDS = [5, 15, 25];
+const CUTAWAY_DURATION = 3;
+
+/** A phrase in quotes is the one case where the words are unambiguously theirs. */
+const QUOTED = /["“”']([^"“”']{1,120})["“”']/;
 
 const SILENCE_WORDS =
   /\bsilence|silent|quiet|pause|dead air|um+s?\b|\bfiller|tighten|trim|short|fast|snapp|pace|boring|drag/i;
@@ -50,7 +86,10 @@ const PUNCH_WORDS = /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b/i;
 const PUSH_WORDS = /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b/i;
 const LOUDNESS_WORDS = /\bloud|volume|quiet|audio level|sound level|normali[sz]/i;
 
-export function planFromText(text: string, options: { defaultPlatform?: Platform | null } = {}): ParsedIntent {
+export function planFromText(
+  text: string,
+  options: { defaultPlatform?: Platform | null; assets?: LibraryFile[] } = {},
+): ParsedIntent {
   const operations: EditOperation[] = [];
   const willDo: string[] = [];
   const cannotYet: string[] = [];
@@ -98,11 +137,82 @@ export function planFromText(text: string, options: { defaultPlatform?: Platform
     willDo.push("level the audio to what these platforms expect");
   }
 
+  // ── The project's own files ────────────────────────────────────────────────
+  const library = options.assets ?? [];
+  const clips = library.filter((a) => a.kind === "video");
+  const stills = library.filter((a) => a.kind === "image");
+
+  if (BROLL_WORDS.test(text)) {
+    if (clips.length === 0) {
+      cannotYet.push("cut in B-roll, because this project has no clips to cut to yet");
+    } else {
+      clips.slice(0, CUTAWAY_SECONDS.length).forEach((clip, index) => {
+        const at = CUTAWAY_SECONDS[index]!;
+        operations.push({
+          type: "insertBRoll",
+          assetId: clip.id,
+          at,
+          durationSeconds: CUTAWAY_DURATION,
+          fit: "cover",
+          keepSourceAudio: true,
+        });
+        willDo.push(`cut away to ${describeFile(clip)} at ${at}s`);
+      });
+    }
+  }
+
+  if (OVERLAY_WORDS.test(text)) {
+    if (stills.length === 0) {
+      cannotYet.push("put an image over the frame, because this project has no images yet");
+    } else {
+      const still = stills[0]!;
+      operations.push({
+        type: "overlayImage",
+        assetId: still.id,
+        at: 1,
+        durationSeconds: 4,
+        // A logo lives in a corner. Anywhere else covers the speaker's face,
+        // which is the one thing the frame is for.
+        position: "top-right",
+        scale: 0.25,
+        opacity: 1,
+      });
+      willDo.push(`hold ${describeFile(still)} in the corner from 1s`);
+    }
+  }
+
+  // A title needs words, and the only words we can be certain are theirs are
+  // the ones they put in quotes. Anything else would be us writing their copy.
+  const quoted = QUOTED.exec(text);
+  if (quoted) {
+    const words = quoted[1]!.trim();
+    if (words.length > 0) {
+      operations.push({
+        type: "motionTitle",
+        text: words.slice(0, 120),
+        at: 0.5,
+        durationSeconds: 2.5,
+        style: "card",
+        position: "center",
+      });
+      willDo.push(`bring in the words "${words}" near the start`);
+    }
+  } else if (/\btitle|\btext on screen\b/i.test(text) && !CAPTION_WORDS.test(text)) {
+    cannotYet.push('animate a title, because I do not know the words — put them in quotes and I will');
+  }
+
   for (const { patterns, label } of NOT_YET) {
     if (patterns.test(text)) cannotYet.push(label);
   }
 
   return { operations, willDo, cannotYet };
+}
+
+/** A file by its own name where it has one, and by its kind where it does not. */
+function describeFile(file: LibraryFile): string {
+  const label = (file.label ?? "").trim();
+  if (!label) return file.kind === "image" ? "your image" : "your clip";
+  return `"${label.slice(0, 60)}"`;
 }
 
 /**
