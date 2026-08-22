@@ -478,6 +478,17 @@ console.log("\nThe assistant only promises what it can build");
     whileBusy.status === 201 && /already going/i.test(whileBusy.json?.aiMessage?.content ?? ""),
     whileBusy.json?.aiMessage?.content,
   );
+  // "I'll fold this in once it finishes" was, for a while, a sentence with
+  // nothing behind it. Now it stores the plan it promised to keep.
+  const psqlRead = (sql) =>
+    spawnSync("psql", [process.env.DATABASE_URL, "-t", "-A", "-c", sql], { encoding: "utf8" }).stdout.trim();
+  check(
+    "and the promise is stored, not just spoken",
+    psqlRead(`SELECT operations::text FROM render_followups WHERE project_id = '${aliceProjectId}'`).includes(
+      "removeSilence",
+    ),
+    psqlRead(`SELECT count(*) FROM render_followups WHERE project_id = '${aliceProjectId}'`),
+  );
 
   check(
     "the platform comes from what was actually asked for",
@@ -519,10 +530,53 @@ console.log("\nThe assistant only promises what it can build");
     /not sure/i.test(nonsense.json?.aiMessage?.content ?? "") && nonsense.json?.plan === null,
     nonsense.json?.aiMessage?.content,
   );
+  // The promise coming due: the poll that sees the render settle starts the
+  // stored follow-up. Every prompt above that produced a plan while the queue
+  // was busy overwrote the same row — newest wish wins — so exactly one
+  // follow-up starts, whatever was asked in between.
+  psqlGlobal(
+    `UPDATE jobs SET status='done', progress=100, finished_at=now() WHERE project_id = '${aliceProjectId}'`,
+  );
+  const settlingPoll = await call(ALICE, `/api/projects/${aliceProjectId}/render/status`);
+  check(
+    "the poll that sees the settle still answers with the settled render",
+    settlingPoll.json?.status === "done",
+    JSON.stringify(settlingPoll.json?.status),
+  );
+  const followupPoll = await call(ALICE, `/api/projects/${aliceProjectId}/render/status`);
+  check(
+    "and the next poll finds the follow-up already rendering",
+    followupPoll.json?.status === "queued" && followupPoll.json?.id !== settlingPoll.json?.id,
+    JSON.stringify({ status: followupPoll.json?.status, same: followupPoll.json?.id === settlingPoll.json?.id }),
+  );
+  check(
+    "the stored wish was consumed, not copied",
+    psqlRead(`SELECT count(*) FROM render_followups WHERE project_id = '${aliceProjectId}'`) === "0",
+  );
+  const spoken = await call(ALICE, `/api/projects/${aliceProjectId}/messages`);
+  check(
+    "and the hand-off is said in the conversation where the promise was made",
+    (spoken.json ?? []).some((m) => m.role === "assistant" && /follow-up you asked for/i.test(m.content)),
+    JSON.stringify((spoken.json ?? []).slice(-2).map((m) => m.content?.slice(0, 60))),
+  );
+  // A settle with nothing pending must start nothing: the poll asks once,
+  // gets the same answer, and the queue stays quiet.
+  psqlGlobal(
+    `UPDATE jobs SET status='done', progress=100, finished_at=now() WHERE project_id = '${aliceProjectId}'`,
+  );
+  await call(ALICE, `/api/projects/${aliceProjectId}/render/status`);
+  const quiet = await call(ALICE, `/api/projects/${aliceProjectId}/render/status`);
+  check(
+    "a settle with no follow-up pending starts nothing",
+    quiet.json?.status === "done",
+    JSON.stringify(quiet.json?.status),
+  );
+
   // Sentences in this section started renders — that is now the point of a
   // sentence. Cleared here so the sections below still measure the button
   // door from a clean queue.
   psqlGlobal(`DELETE FROM jobs WHERE project_id = '${aliceProjectId}'`);
+  psqlGlobal(`DELETE FROM render_followups WHERE project_id = '${aliceProjectId}'`);
 
 }
 
