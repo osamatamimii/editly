@@ -17,7 +17,7 @@
  */
 import { randomUUID } from "crypto";
 import { eq, and, desc, inArray } from "drizzle-orm";
-import { db, projectsTable, jobsTable, subscriptionsTable } from "@workspace/db";
+import { db, projectsTable, jobsTable, subscriptionsTable, renderFollowupsTable } from "@workspace/db";
 import type { EditOperation } from "@workspace/api-zod";
 import { evenlySpacedPunches } from "./templates";
 import { planKeyFrom } from "./plan-limits";
@@ -134,6 +134,14 @@ export async function startRenderForProject(
     .update(projectsTable)
     .set({ status: "processing" })
     .where(and(eq(projectsTable.id, project.id), eq(projectsTable.userId, userId)));
+
+  // A render that just started is the freshest thing the person asked for. A
+  // follow-up still waiting from an earlier busy moment is by definition an
+  // older wish — running it after this one would apply a superseded request
+  // on top of the one they just made.
+  await db
+    .delete(renderFollowupsTable)
+    .where(and(eq(renderFollowupsTable.projectId, project.id), eq(renderFollowupsTable.userId, userId)));
 
   return { ok: true, job };
 }
