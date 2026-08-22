@@ -88,6 +88,10 @@ export interface Project {
   /** Source video height in pixels, measured at upload.
    * @nullable */
   height: number | null;
+  /** Edited output width in pixels, measured by the worker from the file it produced. Null until a render has finished. */
+  editedWidth: number | null;
+  /** Edited output height in pixels, measured by the worker. */
+  editedHeight: number | null;
   /** @nullable */
   platform: ProjectPlatform;
   /** The render is queued but no worker has claimed it. */
