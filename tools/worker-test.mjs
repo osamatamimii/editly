@@ -156,6 +156,8 @@ const pool = new Pool({ connectionString: DATABASE_URL, max: 4 });
 async function reset() {
   await pool.query("DELETE FROM jobs WHERE user_id = $1", [ALICE]);
   await pool.query("DELETE FROM projects WHERE user_id = $1", [ALICE]);
+  // The worker writes its summaries into the conversation now.
+  await pool.query("DELETE FROM messages WHERE user_id = $1", [ALICE]);
 }
 
 async function clearHeartbeats() {
@@ -381,6 +383,22 @@ section("A queued job becomes an edited file");
     "the worker authenticated to storage as the service role",
     storage.log.some((entry) => entry.auth === "Bearer service-role-key-for-tests"),
   );
+
+  // The summary is part of the conversation, not a property of the job. The
+  // editor used to synthesise it from the latest job's notes, so the third
+  // render of an afternoon erased the answers to the first two.
+  const said = await pool.query(
+    "SELECT role, content FROM messages WHERE user_id = $1 AND project_id = $2 ORDER BY created_at",
+    [ALICE, projectId],
+  );
+  check("the render leaves a message in the conversation", said.rows.length === 1, JSON.stringify(said.rows));
+  check("spoken as the assistant", said.rows[0]?.role === "assistant", said.rows[0]?.role);
+  check(
+    "summarising what was done, one line per note",
+    /^Here's what I did\.\n/.test(said.rows[0]?.content ?? "") &&
+      (said.rows[0]?.content.match(/\n• /g)?.length ?? 0) === (row?.notes?.length ?? -1),
+    said.rows[0]?.content,
+  );
 }
 
 // ─── The ceiling, enforced against the file ──────────────────────────────────
@@ -494,6 +512,19 @@ section("A plan nothing in it can be applied is final, not retried");
     (row?.error ?? "").length > 0 && !/Rendering failed/.test(row?.error ?? ""),
     row?.error,
   );
+
+  // A final failure is an answer, and it belongs in the same conversation the
+  // request was made in — an edit that silently never arrives reads as being
+  // ignored.
+  const said = await pool.query(
+    "SELECT content FROM messages WHERE user_id = $1 AND project_id = $2 AND role = 'assistant'",
+    [ALICE, projectId],
+  );
+  check(
+    "the failure is said in the conversation, in the same words as the error",
+    said.rows.length === 1 && /^I couldn't finish that edit — /.test(said.rows[0].content),
+    JSON.stringify(said.rows),
+  );
 }
 
 // ─── Something that might work next time ─────────────────────────────────────
@@ -520,6 +551,18 @@ section("A render that failed on infrastructure is tried again");
   check(
     "with a message that does not leak the plumbing",
     decided.some((l) => /Rendering failed/.test(l)) || /Rendering failed/.test(String(row?.error ?? "")) || row?.error === null,
+  );
+
+  // The stumble was invisible to the person — the retry finished the job — so
+  // the conversation must read as one success, not an apology above it.
+  const said = await pool.query(
+    "SELECT content FROM messages WHERE user_id = $1 AND project_id = $2 AND role = 'assistant' ORDER BY created_at",
+    [ALICE, projectId],
+  );
+  check(
+    "a retried success says only what it did — no apology for the attempt nobody saw",
+    said.rows.length === 1 && !/couldn't finish/.test(said.rows[0].content),
+    JSON.stringify(said.rows.map((r) => r.content.slice(0, 60))),
   );
 }
 
