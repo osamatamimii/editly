@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { sql, eq, and } from "drizzle-orm";
 import pino from "pino";
-import { db, pool, jobsTable, projectsTable, assetsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
+import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, workerHeartbeatsTable, type Job } from "@workspace/db";
 import { EditPlan } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
 import { renderPlan, probeDuration, probeSource, FfmpegError } from "./ffmpeg";
@@ -448,6 +448,33 @@ async function processJob(job: Job): Promise<void> {
       })
       .where(and(eq(projectsTable.id, job.projectId), eq(projectsTable.userId, job.userId)));
 
+    // The summary, said in the conversation itself.
+    //
+    // The editor used to synthesise a "Here's what I did" bubble from the
+    // latest job's notes — which meant the summary belonged to the job, not to
+    // the conversation, and evaporated the moment the next render started.
+    // Someone who asked for three edits over an afternoon had a chat that
+    // remembered their three sentences and none of the three answers. Written
+    // here, once, at the only moment the notes are fresh, it becomes part of
+    // the record the messages endpoint returns forever after.
+    //
+    // Best-effort on purpose: the render is already saved and paid for, and a
+    // failed insert must not turn a finished job into a retried one.
+    try {
+      await db.insert(messagesTable).values({
+        id: randomUUID(),
+        userId: job.userId,
+        projectId: job.projectId,
+        role: "assistant",
+        content:
+          notes.length > 0
+            ? `Here's what I did.\n${notes.map((note) => `• ${note}`).join("\n")}`
+            : "Done — your edit is ready to watch.",
+      });
+    } catch (error) {
+      log.warn({ err: error }, "could not write the summary into the conversation");
+    }
+
     log.info({ outputPath, outputSeconds: measured.seconds, how: measured.how, notes }, "render complete");
   } catch (error) {
     // ffmpeg's complaints are specific enough to be worth showing; anything
@@ -482,6 +509,23 @@ async function processJob(job: Job): Promise<void> {
         .update(projectsTable)
         .set({ status: "failed" })
         .where(and(eq(projectsTable.id, job.projectId), eq(projectsTable.userId, job.userId)));
+
+      // A final failure is an answer too, and it belongs in the conversation
+      // for the same reason the summary does: the person asked in words, and
+      // an edit that silently never arrives reads as being ignored. Only on
+      // the *final* attempt — a retry that is about to succeed should not
+      // leave an apology above its own success.
+      try {
+        await db.insert(messagesTable).values({
+          id: randomUUID(),
+          userId: job.userId,
+          projectId: job.projectId,
+          role: "assistant",
+          content: `I couldn't finish that edit — ${message}`,
+        });
+      } catch (insertError) {
+        log.warn({ err: insertError }, "could not write the failure into the conversation");
+      }
     }
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
