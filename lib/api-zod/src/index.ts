@@ -41,6 +41,14 @@ export const Project = z.object({
   duration: z.number().nullable(),
   width: z.number().nullable(),
   height: z.number().nullable(),
+  /**
+   * The *edited* file's dimensions, measured by the worker from the file it
+   * produced. A landscape upload rendered for a vertical platform makes these
+   * disagree with `width`/`height`, and the player draws whichever file it is
+   * actually showing.
+   */
+  editedWidth: z.number().nullable(),
+  editedHeight: z.number().nullable(),
   platform: Platform.nullable(),
   /**
    * True when this project's render has been sitting unclaimed long enough that
@@ -254,8 +262,9 @@ export const MessagePair = z.object({
 });
 export type MessagePair = z.infer<typeof MessagePair>;
 
-export const SendMessageResponse = MessagePair;
-export type SendMessageResponse = z.infer<typeof SendMessageResponse>;
+// SendMessageResponse is defined after RenderJob, because sending a message
+// can now *start a render* — see routes/messages.ts — and the response carries
+// the job it started.
 
 // ---------------------------------------------------------------------------
 // exports
@@ -643,6 +652,18 @@ export const RenderJob = z.object({
   updatedAt: z.string(),
 });
 export type RenderJob = z.infer<typeof RenderJob>;
+
+/**
+ * What a sent message comes back with. `plan` is what the sentence was
+ * understood to mean; `render` is the job that understanding started, when it
+ * started one — the product's promise is one prompt and the work begins, so
+ * the response has to be able to say "and it has begun".
+ */
+export const SendMessageResponse = MessagePair.extend({
+  plan: EditPlan.nullable().optional(),
+  render: RenderJob.nullable().optional(),
+});
+export type SendMessageResponse = z.infer<typeof SendMessageResponse>;
 
 export const StartRenderParams = z.object({ id: z.string() });
 export type StartRenderParams = z.infer<typeof StartRenderParams>;
