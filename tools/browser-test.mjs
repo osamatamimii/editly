@@ -94,6 +94,7 @@ await writeFile(
    import * as oauth from "${repoRoot}/artifacts/editly/src/lib/oauth";
    import * as load from "${repoRoot}/artifacts/editly/src/lib/load-state";
    import * as play from "${repoRoot}/artifacts/editly/src/lib/playability";
+   import * as pending from "${repoRoot}/artifacts/editly/src/lib/pending-upload";
    import { createElement } from "react";
    import { createRoot } from "react-dom/client";
    (window as any).VS = storage;
@@ -101,6 +102,7 @@ await writeFile(
    (window as any).OA = oauth;
    (window as any).LS = load;
    (window as any).PB = play;
+   (window as any).PU = pending;
    (window as any).React = { createElement, createRoot };
   `,
 );
@@ -1300,6 +1302,66 @@ section("An export nobody on this tab started is still an export");
   check(
     "and a preview that failed says the video is safe rather than that there is none",
     /could not load the preview/i.test(exportPage) && /stored safely/.test(exportPage),
+  );
+}
+
+section("A video dropped on the dashboard becomes a project that uploads itself");
+{
+  // The handoff is a File in module memory, claimed exactly once. The claim
+  // *is* the double-run guard — React mounts effects twice in dev, and the
+  // second take finding nothing is what stops a second upload of the same
+  // bytes.
+  const handoff = await run(() => {
+    const { stashPendingUpload, takePendingUpload } = window.PU;
+    const file = new File(["x"], "take.mp4", { type: "video/mp4" });
+    stashPendingUpload("p1", file);
+    const first = takePendingUpload("p1");
+    const second = takePendingUpload("p1");
+    const other = takePendingUpload("never-stashed");
+    return { firstName: first?.name ?? null, second, other };
+  });
+  check("the stashed file comes back once", handoff.firstName === "take.mp4", String(handoff.firstName));
+  check("and only once — the claim deletes it", handoff.second === null, String(handoff.second));
+  check("a project nothing was stashed for gets nothing", handoff.other === null, String(handoff.other));
+
+  const titles = await run(() => {
+    const { titleFromFilename } = window.PU;
+    return {
+      cleaned: titleFromFilename("my-viral-short_v2.FINAL.mp4"),
+      plain: titleFromFilename("Interview.mov"),
+      hostile: titleFromFilename("....mp4"),
+      long: titleFromFilename(`${"a".repeat(200)}.mp4`).length,
+    };
+  });
+  check(
+    "the filename's separators become spaces",
+    titles.cleaned === "my viral short v2 FINAL",
+    titles.cleaned,
+  );
+  check("a plain name just loses its extension", titles.plain === "Interview", titles.plain);
+  check("a name that cleans away to nothing still names the project", titles.hostile === "New video", titles.hostile);
+  check("and a novel of a filename is capped", titles.long <= 80, String(titles.long));
+
+  // Source checks for the two ends of the handoff — ordering bugs here would
+  // not throw, they would misfile someone's video.
+  const { readFileSync: readSrc } = await import("node:fs");
+  const dashboardSrc = readSrc(path.join(repoRoot, "artifacts/editly/src/pages/dashboard.tsx"), "utf8");
+  const editorSrc = readSrc(path.join(repoRoot, "artifacts/editly/src/pages/project-editor.tsx"), "utf8");
+
+  check(
+    "the dashboard stashes the file only after the project row exists",
+    /await createProject\.mutateAsync[\s\S]{0,700}?stashPendingUpload/.test(dashboardSrc),
+    "stash must follow a successful create, or a failed create strands the file",
+  );
+  check(
+    "and vets the file the same way the editor would, before creating anything",
+    dashboardSrc.indexOf("ACCEPTED_VIDEO_TYPES") < dashboardSrc.indexOf("createAndOpen(titleFromFilename"),
+    "a rejected file should cost a toast, not an empty project",
+  );
+  check(
+    "the editor refuses a stale stash when the project already has footage",
+    /project\.videoPath \|\| isUploading\) return;[\s\S]{0,200}?takePendingUpload/.test(editorSrc),
+    "a pending file must never overwrite an uploaded video",
   );
 }
 
