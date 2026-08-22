@@ -612,28 +612,53 @@ export async function deleteProjectVideos(userId: string, projectId: string): Pr
  */
 export function usePlayableVideo(pathOrUrl: string | null | undefined): {
   url: string | null;
+  /**
+   * A VP9 mirror of the same video, when the worker wrote one.
+   *
+   * The master is H.264, and H.264 decode is a licensed *operating system*
+   * component — we watched a real browser hold an edited render at
+   * `readyState 0` forever, no error, while `canPlayType` answered
+   * "probably". VP9 decodes in software inside every Chromium and Firefox
+   * build, so the player offers this first and the master second: browsers
+   * that can decode the master lose a little preview quality, browsers that
+   * cannot keep the whole product. Renders older than the preview pipeline
+   * simply have no object at the conventional key, the signing call fails,
+   * and this stays null — which is exactly the old behaviour.
+   */
+  previewUrl: string | null;
   isResolving: boolean;
 } {
   const [url, setUrl] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isResolving, setIsResolving] = useState(false);
 
   useEffect(() => {
     if (!pathOrUrl || pathOrUrl.startsWith("blob:")) {
       setUrl(null);
+      setPreviewUrl(null);
       setIsResolving(false);
       return;
     }
     if (/^https?:\/\//.test(pathOrUrl)) {
       setUrl(pathOrUrl);
+      setPreviewUrl(null);
       setIsResolving(false);
       return;
     }
 
     let cancelled = false;
     setIsResolving(true);
-    signedVideoUrl(pathOrUrl)
-      .then((signed) => {
-        if (!cancelled) setUrl(signed);
+    // The preview lives at the master's key plus this suffix — a convention
+    // shared with the worker, not a column, so it cannot drift from the file.
+    const previewKey = /\.mp4$/i.test(pathOrUrl) ? pathOrUrl.replace(/\.mp4$/i, "") + ".preview.webm" : null;
+    Promise.all([
+      signedVideoUrl(pathOrUrl),
+      previewKey ? signedVideoUrl(previewKey) : Promise.resolve(null),
+    ])
+      .then(([signed, preview]) => {
+        if (cancelled) return;
+        setUrl(signed);
+        setPreviewUrl(preview);
       })
       .finally(() => {
         if (!cancelled) setIsResolving(false);
@@ -644,7 +669,7 @@ export function usePlayableVideo(pathOrUrl: string | null | undefined): {
     };
   }, [pathOrUrl]);
 
-  return { url, isResolving };
+  return { url, previewUrl, isResolving };
 }
 
 /**
