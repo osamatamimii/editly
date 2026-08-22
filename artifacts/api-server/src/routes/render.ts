@@ -1,6 +1,5 @@
 import { Router, type IRouter } from "express";
-import { randomUUID } from "crypto";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { db, projectsTable, jobsTable } from "@workspace/db";
 import {
   StartRenderParams,
@@ -12,14 +11,10 @@ import {
 import { currentUserId } from "../middlewares/auth";
 import { serializeJob } from "../lib/transformers";
 import type { EditOperation } from "@workspace/api-zod";
-import { TEMPLATES, findTemplate, evenlySpacedPunches } from "../lib/templates";
-import { planKeyFrom } from "../lib/plan-limits";
-import { usageFor } from "../lib/usage";
-import { decideRender } from "../lib/render-policy";
+import { TEMPLATES, findTemplate } from "../lib/templates";
 import { isUnattended } from "../lib/queue-health";
 import { newestWorkerSeenAt } from "../lib/worker-presence";
-import { isDuplicateActiveJob, ALREADY_RENDERING } from "../lib/one-active-job";
-import { subscriptionsTable } from "@workspace/db";
+import { startRenderForProject } from "../lib/start-render";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 
 const router: IRouter = Router();
@@ -68,25 +63,6 @@ router.post("/projects/:id/render", rateLimit(LIMITS.render), async (req, res): 
     return;
   }
 
-  if (!project.videoPath) {
-    res.status(409).json({ error: "Upload a video before rendering." });
-    return;
-  }
-
-  // One render at a time per project: a second one would race the first for the
-  // same output key, and the user has no way to tell which result they got.
-  const [pending] = await db
-    .select()
-    .from(jobsTable)
-    .where(and(eq(jobsTable.projectId, project.id), eq(jobsTable.userId, userId)))
-    .orderBy(desc(jobsTable.createdAt))
-    .limit(1);
-
-  if (pending && (pending.status === "queued" || pending.status === "running")) {
-    res.status(409).json({ error: ALREADY_RENDERING, jobId: pending.id });
-    return;
-  }
-
   let requested: EditOperation[];
   if ("templateId" in body.data) {
     const template = findTemplate(body.data.templateId);
@@ -105,91 +81,19 @@ router.post("/projects/:id/render", rateLimit(LIMITS.render), async (req, res): 
       watermark: false,
     });
   } else {
-    // A plan can arrive with punch timestamps left empty — the chat knows you
-    // want emphasis but not where the interesting moments are. Space them out
-    // over whatever the clip actually is.
-    requested = body.data.plan.operations.map((op) =>
-      op.type === "zoomPunch" && op.at.length === 0
-        ? { ...op, at: evenlySpacedPunches(project.duration ?? null, 4) }
-        : op,
-    );
+    requested = body.data.plan.operations;
   }
 
-  // Everything above this line is what the caller *asked for*. Everything below
-  // is what the plan they pay for actually allows — and the browser has no vote
-  // in it. This route used to trust the operations it was handed, which meant
-  // the watermark could be removed from the free plan by deleting one object
-  // from a JSON body, and the month's allowance was never checked at all.
-  const [sub] = await db
-    .select()
-    .from(subscriptionsTable)
-    .where(eq(subscriptionsTable.userId, userId))
-    .limit(1);
-
-  const planKey = planKeyFrom(sub?.plan);
-  const decision = decideRender({
-    plan: planKey,
-    usage: await usageFor(userId, planKey),
-    sourceDurationSeconds: project.duration,
-    operations: requested,
-  });
-
-  if (!decision.allowed) {
-    res.status(decision.status).json(decision.body);
+  // What "asked" becomes "queued" through lives in one place — the same place
+  // the chat door uses — so the browser has no vote in the allowance, the
+  // watermark, or the one-render-at-a-time rule whichever door was used.
+  const outcome = await startRenderForProject(userId, project, requested, req.log);
+  if (!outcome.ok) {
+    res.status(outcome.status).json(outcome.body);
     return;
   }
 
-  if (decision.corrections.length) {
-    req.log?.info({ userId, plan: planKey, corrections: decision.corrections }, "render plan corrected by policy");
-  }
-
-  const plan = { version: 1 as const, operations: decision.operations };
-
-  // The SELECT above is the friendly check; this is the one that holds. Between
-  // the two there is a window in which a second click also sees "nothing
-  // pending", and what it costs is the customer's month — two encodes of one
-  // clip, both billed, one of them invisible.
-  let job: typeof jobsTable.$inferSelect;
-  try {
-    [job] = await db
-      .insert(jobsTable)
-      .values({
-        id: randomUUID(),
-        userId,
-        projectId: project.id,
-        status: "queued",
-        plan,
-        inputPath: project.videoPath,
-        // Snapshotted so that changing or clearing the reference while this sits
-        // in the queue cannot quietly alter a render already accepted.
-        referencePath: project.referenceVideoPath ?? null,
-        // The worker re-checks this against the file it actually downloads. The
-        // duration the policy layer saw came from the browser and can be a lie;
-        // this number cannot.
-        maxSourceSeconds: decision.maxSourceSeconds,
-        // And the balance, for the same reason: the ceiling survives a missing
-        // duration because the worker re-measures, and the allowance did not.
-        remainingSeconds: decision.remainingSeconds,
-        priority: decision.priority,
-      })
-      .returning();
-  } catch (error) {
-    if (!isDuplicateActiveJob(error)) throw error;
-    const [existing] = await db
-      .select({ id: jobsTable.id })
-      .from(jobsTable)
-      .where(and(eq(jobsTable.projectId, project.id), eq(jobsTable.userId, userId), inArray(jobsTable.status, ["queued", "running"])))
-      .limit(1);
-    res.status(409).json({ error: ALREADY_RENDERING, ...(existing ? { jobId: existing.id } : {}) });
-    return;
-  }
-
-  await db
-    .update(projectsTable)
-    .set({ status: "processing" })
-    .where(and(eq(projectsTable.id, project.id), eq(projectsTable.userId, userId)));
-
-  res.status(202).json(StartRenderResponse.parse(serializeJob(job)));
+  res.status(202).json(StartRenderResponse.parse(serializeJob(outcome.job)));
 });
 
 /** The most recent render for a project, or null if it has never been rendered. */

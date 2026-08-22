@@ -8,10 +8,11 @@ import {
   ListMessagesParams,
   ListMessagesResponse,
 } from "@workspace/api-zod";
-import { serializeMessage } from "../lib/transformers";
+import { serializeMessage, serializeJob } from "../lib/transformers";
 import { currentUserId } from "../middlewares/auth";
 import { replyFor } from "../lib/plan-from-text";
 import { createPlanner } from "../lib/planner";
+import { startRenderForProject } from "../lib/start-render";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 
 const router: IRouter = Router();
@@ -105,8 +106,31 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     defaultPlatform: project.platform as never,
     assets: assets as never,
   });
-  const aiContent = replyFor(intent, { hasVideo: Boolean(project.videoPath) });
   if (intent.degraded) req.log?.warn({ reason: intent.degraded }, "planner fell back to keywords");
+
+  // One prompt, and the work starts. The sentence produced a real plan and the
+  // project has a video, so the render is started here — the same door the
+  // button uses, with the same policy between "asked" and "queued" — rather
+  // than answered with an instruction to go press something. The refusals a
+  // person can act on (a render already going, the month's minutes spent) come
+  // back as words in Noah's reply instead of as an HTTP error nobody sees.
+  let render: { started: true } | { started: false; because: string } | undefined;
+  let startedJob: ReturnType<typeof serializeJob> | null = null;
+  if (intent.operations.length > 0 && project.videoPath) {
+    const outcome = await startRenderForProject(userId, project, intent.operations, req.log);
+    if (outcome.ok) {
+      render = { started: true };
+      startedJob = serializeJob(outcome.job);
+    } else {
+      const because =
+        outcome.status === 409
+          ? "there's a render already going for this project — I'll fold this in once it finishes."
+          : String(outcome.body["error"] ?? "the render could not be started.");
+      render = { started: false, because };
+    }
+  }
+
+  const aiContent = replyFor(intent, { hasVideo: Boolean(project.videoPath), render });
 
   const [userMessage] = await db
     .insert(messagesTable)
@@ -135,6 +159,9 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     aiMessage: serializeMessage(aiMessage),
     // The editor renders exactly this, so what gets built is what was promised.
     plan: intent.operations.length > 0 ? { version: 1, operations: intent.operations } : null,
+    // The render this message started, when it started one — so the editor can
+    // show the progress it just caused instead of waiting to be told.
+    render: startedJob,
   });
 });
 
