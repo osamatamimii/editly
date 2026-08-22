@@ -1181,7 +1181,10 @@ export default function ProjectEditor() {
                       {msg.role === 'assistant' && (
                         <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
                       )}
-                      <div className={`px-4 py-3 text-sm leading-relaxed ${
+                      {/* pre-line: the worker's summary arrives as one message
+                          with a line per note, and collapsing those lines into
+                          a paragraph turns a list of decisions into mush. */}
+                      <div className={`px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
                         msg.role === 'user'
                           ? 'bg-primary/20 border border-primary/30 rounded-2xl rounded-tr-sm text-foreground max-w-[85%]'
                           : 'bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm'
@@ -1214,32 +1217,13 @@ export default function ProjectEditor() {
                 </div>
               )}
 
-              {/* What the render actually did, in the words the worker wrote.
-                  These have existed since the first render and went nowhere but
-                  a log line — so a job that skipped captions for want of a key
-                  came back looking exactly like one that did everything. */}
-              {renderJob?.status === "done" && (renderJob.notes?.length ?? 0) > 0 && (
-                <div className="flex gap-3 items-start">
-                  <img
-                    src="/noah-avatar.jpg"
-                    alt="Noah"
-                    className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-hairline"
-                  />
-                  <div className="flex flex-col gap-1 flex-1">
-                    <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
-                    <div className="bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 text-sm w-full">
-                      <p className="font-semibold mb-2">Here's what I did.</p>
-                      <ul className="space-y-1.5" data-testid="list-render-notes">
-                        {renderJob.notes?.map((note, i) => (
-                          <li key={i} className="text-xs text-muted-foreground leading-relaxed">
-                            {note}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* "Here's what I did" is no longer synthesised here from the
+                  latest job's notes — the worker writes it into the
+                  conversation itself when the render finishes, so the third
+                  edit of the afternoon no longer erases the answers to the
+                  first two. The settle effect above invalidates the messages
+                  list, which is what makes the summary appear without a
+                  refresh. */}
 
               {/* Live render progress, reported by the worker itself */}
               {(isProcessingEdit || renderJob?.status === "failed") && (
