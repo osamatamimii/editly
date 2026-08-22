@@ -62,6 +62,18 @@ spawnSync(
 );
 const { measureInterest, chooseCropCenter, cropOffsetX, coverScale } = await import(pathToFileURL(framingPath).href);
 
+const previewModPath = path.join(buildDir, "preview.mjs");
+spawnSync(
+  require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/worker"] }),
+  [
+    path.join(repoRoot, "artifacts/worker/src/preview.ts"),
+    "--bundle", "--platform=node", "--format=esm", "--target=node22",
+    `--outfile=${previewModPath}`, "--log-level=error",
+  ],
+  { stdio: "inherit" },
+);
+const { encodePreview, previewPathFor } = await import(pathToFileURL(previewModPath).href);
+
 async function sameCropAs(sourceFile, cropWidth, cropHeight) {
   const info = await probeSource(sourceFile);
   const scaledWidth = Math.round(info.width * coverScale(info, { width: cropWidth, height: cropHeight }));
@@ -238,6 +250,28 @@ console.log("\nSilence removal");
   check("what is left is the audible part, not an arbitrary trim", info.duration > 9 && info.duration < 11, `${info.duration.toFixed(2)}s`);
   check("the worker reports what it did", notes.some((n) => /removed [\d.]+s of silence/.test(n)), JSON.stringify(notes));
   check("both streams survive", ffprobe(output, "stream=codec_type").sort().join(",") === "audio,video", "");
+
+  // The VP9 mirror. The master is H.264, and H.264 decode is an *operating
+  // system* component that we have watched be broken on a real machine — the
+  // render finished and its owner could not play a second of it, while
+  // canPlayType said "probably". The preview exists so watching the result
+  // never depends on the viewer's codec luck; these checks pin the codec pair,
+  // because a preview that quietly came out H.264 would be the same trap with
+  // an extra file.
+  const previewOut = output.replace(/\.mp4$/, "") + ".preview.webm";
+  await encodePreview(output, previewOut);
+  check("the preview really is VP9", ffprobe(previewOut, "stream=codec_name").includes("vp9"), JSON.stringify(ffprobe(previewOut, "stream=codec_name")));
+  check("with Opus for the sound", ffprobe(previewOut, "stream=codec_name").includes("opus"), "");
+  check(
+    "and it runs as long as the master",
+    Math.abs((await probeSource(previewOut)).duration - info.duration) < 0.5,
+    `${(await probeSource(previewOut)).duration.toFixed(2)}s vs ${info.duration.toFixed(2)}s`,
+  );
+  check(
+    "the conventional key derives from the master's key alone",
+    previewPathFor("u/p/edited-1.mp4") === "u/p/edited-1.preview.webm",
+    previewPathFor("u/p/edited-1.mp4"),
+  );
 }
 
 console.log("\nReframing and encode quality");

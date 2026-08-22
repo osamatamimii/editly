@@ -166,6 +166,11 @@ function check(name, condition, detail = "") {
  * unrelated checks depend on. That is a suite that passes exactly once per
  * database and fails ever after with errors that point at the wrong thing.
  */
+/** One-line SQL against the test database, for setup and cleanup only. */
+function psqlGlobal(sql) {
+  spawnSync("psql", [process.env.DATABASE_URL, "-c", sql], { encoding: "utf8" });
+}
+
 const SEEDED_JOBS = ["meter-test-job", "cascade-test-job"];
 function sweepSeededJobs() {
   spawnSync(
@@ -448,6 +453,32 @@ console.log("\nThe assistant only promises what it can build");
     types.includes("removeSilence") && types.includes("formatForPlatform"),
     JSON.stringify(understood.json?.plan),
   );
+  // The product's promise as of the owner setting it: one prompt, and the work
+  // begins. A sentence that produced a plan on a project with a video must
+  // come back with the render it started — and the reply must say it is
+  // running, not tell the person which button to press next.
+  check(
+    "and the sentence starts the render by itself",
+    understood.json?.render?.status === "queued",
+    JSON.stringify(understood.json?.render ?? null),
+  );
+  check(
+    "and the reply says it is running rather than pointing at a button",
+    /rendering now/i.test(understood.json?.aiMessage?.content ?? "") &&
+      !/hit generate edit/i.test(understood.json?.aiMessage?.content ?? ""),
+    understood.json?.aiMessage?.content,
+  );
+  // A second understood sentence while that render runs is *told about it*
+  // in words rather than failing anywhere a person cannot see.
+  const whileBusy = await call(ALICE, `/api/projects/${aliceProjectId}/messages`, "POST", {
+    content: "cut the dead air out",
+  });
+  check(
+    "a prompt during a render explains itself instead of erroring",
+    whileBusy.status === 201 && /already going/i.test(whileBusy.json?.aiMessage?.content ?? ""),
+    whileBusy.json?.aiMessage?.content,
+  );
+
   check(
     "the platform comes from what was actually asked for",
     understood.json?.plan?.operations?.find((o) => o.type === "formatForPlatform")?.platform === "tiktok",
@@ -488,6 +519,11 @@ console.log("\nThe assistant only promises what it can build");
     /not sure/i.test(nonsense.json?.aiMessage?.content ?? "") && nonsense.json?.plan === null,
     nonsense.json?.aiMessage?.content,
   );
+  // Sentences in this section started renders — that is now the point of a
+  // sentence. Cleared here so the sections below still measure the button
+  // door from a clean queue.
+  psqlGlobal(`DELETE FROM jobs WHERE project_id = '${aliceProjectId}'`);
+
 }
 
 console.log("\nNamed looks");
