@@ -19,6 +19,7 @@ import { db, pool, jobsTable, projectsTable, assetsTable, workerHeartbeatsTable,
 import { EditPlan } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
 import { renderPlan, probeDuration, probeSource, FfmpegError } from "./ffmpeg";
+import { encodePreview, previewPathFor } from "./preview";
 import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAllowanceMessage } from "./duration";
 import { enrichPlan } from "./enrich";
 import { resolveProviders } from "./providers";
@@ -381,6 +382,31 @@ async function processJob(job: Job): Promise<void> {
     const outputPath = `${job.userId}/${job.projectId}/edited-${job.id}.mp4`;
     await uploadObject(outputPath, output);
 
+    // A VP9 mirror of the master, so "watch what I made" does not depend on
+    // the viewer's operating system shipping a working H.264 decoder — we have
+    // watched a real browser sit at readyState 0 forever on the master while
+    // claiming it could probably play it. Optional on purpose: a render whose
+    // preview fails is a render, and the player falls back to the master.
+    try {
+      const previewFile = path.join(workDir, "preview.webm");
+      await encodePreview(output, previewFile);
+      await uploadObject(previewPathFor(outputPath), previewFile);
+    } catch (error) {
+      log.warn({ err: error }, "preview encode failed; the master is the only copy");
+    }
+
+    // The true size of what was produced, measured from the file. The project
+    // row's width/height describe the *upload*; the player needs the shape of
+    // the file it is actually showing, and on a browser that cannot decode it
+    // this stored pair is the only shape it will ever learn.
+    let editedSize: { width: number | null; height: number | null } = { width: null, height: null };
+    try {
+      const probed = await probeSource(output);
+      if (probed.width > 0 && probed.height > 0) editedSize = { width: probed.width, height: probed.height };
+    } catch {
+      // The shape is a nicety; the render is the point.
+    }
+
     // What the plan meter counts. Measured from the finished file rather than
     // predicted from the plan, because the only honest number is the one in the
     // video we are about to hand over — but never left null, because the meter
@@ -414,7 +440,12 @@ async function processJob(job: Job): Promise<void> {
 
     await db
       .update(projectsTable)
-      .set({ status: "done", editedVideoPath: outputPath })
+      .set({
+        status: "done",
+        editedVideoPath: outputPath,
+        editedWidth: editedSize.width,
+        editedHeight: editedSize.height,
+      })
       .where(and(eq(projectsTable.id, job.projectId), eq(projectsTable.userId, job.userId)));
 
     log.info({ outputPath, outputSeconds: measured.seconds, how: measured.how, notes }, "render complete");

@@ -71,7 +71,7 @@ export async function enrichPlan(
       notes.push(...(transcript.notes ?? []));
     } catch (error) {
       // A provider being down is not a reason to fail someone's render.
-      notes.push(`speech recognition failed (${short(error)}), so this render has no captions`);
+      notes.push(`we could not hear the words in this clip${visionExcuse(error)}, so this render has no captions`);
     }
   } else if (needsTranscript && providers.status.transcription) {
     notes.push(providers.status.transcription);
@@ -101,7 +101,14 @@ export async function enrichPlan(
       }
     } catch (error) {
       // Not reading the video costs a worse cut, not a failed render.
-      notes.push(`we could not watch this clip for things worth keeping (${short(error)}), so the cut is from the audio alone`);
+      //
+      // These sentences end up in the person's chat, word for word, so the
+      // *reason* has to be one a person can do something with. "gemini upload
+      // start 429" is a log line, not a sentence — it leaked into the product
+      // once, verbatim, and taught us that anything pushed onto `notes` is
+      // copy, not telemetry. The raw error still goes to the log, where it is
+      // for the people it is for.
+      notes.push(`we could not watch this clip for things worth keeping${visionExcuse(error)}, so the cut is from the audio alone`);
     }
   } else if (cutsSilence && providers.status.vision) {
     notes.push(providers.status.vision);
@@ -181,7 +188,7 @@ export async function enrichPlan(
     } catch (error) {
       // A reference we could not read is a worse edit, not a failed one. The
       // plan the user asked for still renders.
-      notes.push(`we could not read the video you asked us to match (${short(error)}), so this is edited to the plan alone`);
+      notes.push(`we could not read the video you asked us to match${visionExcuse(error)}, so this is edited to the plan alone`);
     }
   }
 
@@ -221,6 +228,22 @@ function platformOf(plan: EditPlan): Platform | null {
  * record. Who failed and how are the two facts that make the note honest; their
  * JSON is ours to read in the log, not theirs to receive.
  */
+/**
+ * The failure, phrased for the person whose chat it lands in.
+ *
+ * Coarse on purpose: the distinctions that matter to us — which endpoint,
+ * which status, whose bug — are in the logs. The person needs exactly two
+ * things: that the tool was overloaded (try again later and it may work) or
+ * that it simply could not this time (nothing they did, nothing to fix).
+ */
+function visionExcuse(error: unknown): string {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (message.includes("429") || message.includes("quota") || message.includes("rate")) {
+    return " this time — the service that looks at footage was overloaded —";
+  }
+  return " this time";
+}
+
 function short(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const firstLine = message.split("\n")[0];
