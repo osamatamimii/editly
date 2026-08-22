@@ -231,17 +231,27 @@ function platformOf(plan: EditPlan): Platform | null {
 /**
  * The failure, phrased for the person whose chat it lands in.
  *
- * Coarse on purpose: the distinctions that matter to us — which endpoint,
- * which status, whose bug — are in the logs. The person needs exactly two
- * things: that the tool was overloaded (try again later and it may work) or
- * that it simply could not this time (nothing they did, nothing to fix).
+ * Two duties pull on this sentence and models-test.mjs holds both. The note
+ * must stay *honest*: who failed and with what status are what let a person —
+ * or support — tell "their key is wrong" from "the service was down", so the
+ * provider's name and the bare status survive. And it must not become a
+ * *conduit*: the provider's error codes, prose, request ids and JSON are ours
+ * to read in a log, not the customer's to puzzle over. "gemini upload start
+ * 429", verbatim in a chat bubble, was the second failure; a note scrubbed of
+ * everything was the first. This keeps the noun and the number, drops the
+ * rest, and glosses the one status a person can act on (429: try again
+ * later). A message not shaped like a provider status passes through capped,
+ * because truncating it to nothing would say even less.
  */
 function visionExcuse(error: unknown): string {
-  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-  if (message.includes("429") || message.includes("quota") || message.includes("rate")) {
-    return " this time — the service that looks at footage was overloaded —";
+  const message = (error instanceof Error ? error.message : String(error)).split("\n")[0];
+  const shaped = message.match(/^([a-z][a-z0-9_-]*)(?:\s+[a-z0-9 _-]*?)?\s+(\d{3})\b/i);
+  if (shaped) {
+    const [, provider, status] = shaped;
+    const gloss = status === "429" ? " — it was overloaded, and later usually works" : "";
+    return ` this time (${provider} answered ${status}${gloss})`;
   }
-  return " this time";
+  return ` this time (${message.slice(0, 120)})`;
 }
 
 function short(error: unknown): string {
