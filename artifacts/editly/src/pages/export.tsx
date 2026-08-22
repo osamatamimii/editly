@@ -37,7 +37,7 @@ export default function ExportPage() {
   const projectState = loadState(projectQuery);
 
   // The bucket is private, so playback and download need a signed URL.
-  const { url: playbackUrl, isResolving: playbackResolving } = usePlayableVideo(
+  const { url: playbackUrl, previewUrl: playbackPreviewUrl, isResolving: playbackResolving } = usePlayableVideo(
     project?.editedVideoPath ?? project?.videoPath ?? project?.editedVideoUrl ?? project?.videoUrl,
   );
 
@@ -80,7 +80,16 @@ export default function ExportPage() {
   // its `editedVideoPath` is still null when the export finishes, and the
   // preview fell through to `videoPath`: the original upload, offered for
   // download under a card saying the edit was ready.
-  const { url: exportedUrl, isResolving: exportedResolving } = usePlayableVideo(exportStatus?.outputPath ?? null);
+  const { url: exportedUrl, previewUrl: exportedPreviewUrl, isResolving: exportedResolving } = usePlayableVideo(exportStatus?.outputPath ?? null);
+
+  /**
+   * The pair actually on screen. The download button below deliberately keeps
+   * using the mp4 master — the preview is for *watching here*, on browsers
+   * whose H.264 decoder is broken; what people hand to TikTok stays H.264.
+   */
+  const shown = exportedUrl
+    ? { url: exportedUrl, preview: exportedPreviewUrl }
+    : { url: playbackUrl, preview: playbackPreviewUrl };
 
   /** A URL that is being minted is not a video that is missing. */
   const isSigning = playbackResolving || exportedResolving;
@@ -202,15 +211,20 @@ export default function ExportPage() {
         {/* Preview Container */}
         <div className="lg:col-span-5 flex justify-center">
           <div className="force-dark w-full max-w-[360px] aspect-[9/16] bg-background text-foreground rounded-3xl overflow-hidden border-4 border-hairline relative shadow-[0_0_50px_var(--glass-bloom)]">
-            {(exportedUrl ?? playbackUrl) ? (
+            {shown.url ? (
               <video
-                src={exportedUrl ?? playbackUrl ?? undefined} 
+                key={shown.preview ?? shown.url}
                 className="w-full h-full object-cover"
                 controls
                 autoPlay
                 loop
                 muted
-              />
+              >
+                {/* VP9 first — it decodes in software everywhere; the H.264
+                    master leans on an OS codec we have watched be broken. */}
+                {shown.preview && <source src={shown.preview} type="video/webm" />}
+                <source src={shown.url} type="video/mp4" />
+              </video>
             ) : isSigning ? (
               // Signing a private object takes a round trip. Saying "no video"
               // during it — under a red alert icon, beside an enabled Render
