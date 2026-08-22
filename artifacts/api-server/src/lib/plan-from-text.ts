@@ -219,7 +219,21 @@ function describeFile(file: LibraryFile): string {
  * The assistant's reply. Written from the parsed plan so it can only claim what
  * the worker will really do — and says plainly when it cannot do something.
  */
-export function replyFor(intent: ParsedIntent, context: { hasVideo: boolean }): string {
+export function replyFor(
+  intent: ParsedIntent,
+  context: {
+    hasVideo: boolean;
+    /**
+     * What happened when the server tried to start the render for this
+     * message. "started" is the promise of the product — one prompt, and the
+     * work begins; the person is told it is running, not told which button to
+     * press next. "blocked" carries the refusal in words (a render already
+     * going, the month's minutes spent). Absent means nothing was attempted —
+     * no operations, or no video — and the reply reads as before.
+     */
+    render?: { started: true } | { started: false; because: string };
+  },
+): string {
   if (!context.hasVideo) {
     return "Upload a video first and I'll get to work — I can cut the silences out, caption it from what you actually say, reframe it for TikTok, Reels or Shorts, add motion, and level the audio.";
   }
@@ -227,7 +241,13 @@ export function replyFor(intent: ParsedIntent, context: { hasVideo: boolean }): 
   const parts: string[] = [];
 
   if (intent.willDo.length > 0) {
-    parts.push(`Right — I'll ${joinNaturally(intent.willDo)}. Hit Generate Edit and I'll start.`);
+    if (context.render?.started) {
+      parts.push(`On it — I'll ${joinNaturally(intent.willDo)}. It's rendering now; you'll see it here the moment it's done.`);
+    } else if (context.render && !context.render.started) {
+      parts.push(`I'd ${joinNaturally(intent.willDo)} — but I can't start it right now: ${context.render.because}`);
+    } else {
+      parts.push(`Right — I'll ${joinNaturally(intent.willDo)}. Hit Generate Edit and I'll start.`);
+    }
   }
 
   if (intent.cannotYet.length > 0) {
