@@ -40,6 +40,14 @@ export const projectsTable = pgTable(
      */
     width: integer("width"),
     height: integer("height"),
+    /**
+     * The *edited* file's dimensions, measured by the worker from the file it
+     * produced. A landscape upload rendered for a vertical platform makes the
+     * two pairs disagree, and the player must draw whichever file it is
+     * actually showing — see migration 0021.
+     */
+    editedWidth: integer("edited_width"),
+    editedHeight: integer("edited_height"),
     platform: text("platform"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
