@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
+import { randomUUID } from "crypto";
 import { eq, and, desc } from "drizzle-orm";
-import { db, projectsTable, jobsTable } from "@workspace/db";
+import { db, projectsTable, jobsTable, messagesTable, renderFollowupsTable } from "@workspace/db";
 import {
   StartRenderParams,
   StartRenderBody,
@@ -106,8 +107,10 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
     return;
   }
 
+  // The whole row, not just the id: a settled render may have a follow-up to
+  // start, and starting one needs the same project the other doors read.
   const [project] = await db
-    .select({ id: projectsTable.id })
+    .select()
     .from(projectsTable)
     .where(and(eq(projectsTable.id, params.data.id), eq(projectsTable.userId, userId)));
 
@@ -122,6 +125,48 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
     .where(and(eq(jobsTable.projectId, project.id), eq(jobsTable.userId, userId)))
     .orderBy(desc(jobsTable.createdAt))
     .limit(1);
+
+  // The moment the poll sees the render settle is the moment "I'll fold this
+  // in once it finishes" comes due. The DELETE .. RETURNING is the claim:
+  // concurrent polls race here, exactly one gets the row, so one follow-up
+  // starts however many tabs are watching. This poll still answers with the
+  // *settled* job — the screen gets to show what just finished (and refetch
+  // the project and the conversation) — and the next poll finds the new job.
+  if (job && (job.status === "done" || job.status === "failed")) {
+    const [pending] = await db
+      .delete(renderFollowupsTable)
+      .where(and(eq(renderFollowupsTable.projectId, project.id), eq(renderFollowupsTable.userId, userId)))
+      .returning();
+
+    if (pending) {
+      let content: string;
+      if (job.status === "failed") {
+        // Folding a follow-up into a failure would render on top of a problem
+        // nobody has looked at yet. Saying so beats silently dropping it.
+        content =
+          "That render failed, so I left your follow-up unstarted — send it again once you've had a look.";
+      } else {
+        const outcome = await startRenderForProject(
+          userId,
+          project,
+          pending.operations as EditOperation[],
+          req.log,
+        );
+        content = outcome.ok
+          ? "That render landed — starting the follow-up you asked for. It's rendering now."
+          : `That render landed, but I couldn't start your follow-up: ${String(outcome.body["error"] ?? "it could not be started.")}`;
+      }
+      // Into the conversation, like every other answer: the promise was made
+      // in the chat, so the chat is where keeping it must be visible.
+      await db.insert(messagesTable).values({
+        id: randomUUID(),
+        userId,
+        projectId: project.id,
+        role: "assistant",
+        content,
+      });
+    }
+  }
 
   const workerLastSeenAt = job ? await newestWorkerSeenAt() : null;
   res.json(GetRenderStatusResponse.parse(job ? serializeJob(annotateStaleQueue(job, workerLastSeenAt)) : null));

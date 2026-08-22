@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { eq, asc, and, desc } from "drizzle-orm";
-import { db, messagesTable, projectsTable, assetsTable } from "@workspace/db";
+import { db, messagesTable, projectsTable, assetsTable, renderFollowupsTable } from "@workspace/db";
 import {
   SendMessageBody,
   SendMessageParams,
@@ -13,6 +13,7 @@ import { currentUserId } from "../middlewares/auth";
 import { replyFor } from "../lib/plan-from-text";
 import { createPlanner } from "../lib/planner";
 import { startRenderForProject } from "../lib/start-render";
+import { ALREADY_RENDERING } from "../lib/one-active-job";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 
 const router: IRouter = Router();
@@ -122,11 +123,26 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
       render = { started: true };
       startedJob = serializeJob(outcome.job);
     } else {
-      const because =
-        outcome.status === 409
-          ? "there's a render already going for this project — I'll fold this in once it finishes."
-          : String(outcome.body["error"] ?? "the render could not be started.");
+      const busy = outcome.status === 409 && outcome.body["error"] === ALREADY_RENDERING;
+      const because = busy
+        ? "there's a render already going for this project — I'll fold this in once it finishes."
+        : String(outcome.body["error"] ?? "the render could not be started.");
       render = { started: false, because };
+
+      // "I'll fold this in" is a promise, and this row is what keeps it. One
+      // per project, newest sentence wins: the planner turns each message into
+      // the person's whole current wish, so a later wish replaces an earlier
+      // one rather than queuing a render they already superseded. Consumed by
+      // the render-status poll the moment the active render settles.
+      if (busy) {
+        await db
+          .insert(renderFollowupsTable)
+          .values({ projectId: params.data.id, userId, operations: intent.operations })
+          .onConflictDoUpdate({
+            target: renderFollowupsTable.projectId,
+            set: { userId, operations: intent.operations, createdAt: new Date() },
+          });
+      }
     }
   }
 
