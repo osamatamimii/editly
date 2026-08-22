@@ -892,41 +892,47 @@ export default function ProjectEditor() {
   return (
     <div className="w-full h-screen flex flex-col bg-background overflow-hidden">
       {/* Topbar */}
-      <header className="h-16 flex-shrink-0 border-b border-hairline bg-background/50 backdrop-blur-md flex items-center justify-between px-6 z-10">
-        <div className="flex items-center gap-4">
+      {/* On a phone the title yields (truncates) and the buttons keep their
+          icons but drop their words — the actions must stay reachable at
+          390px, and a title that pushes them off the edge is a title read
+          once at the cost of every edit after it. */}
+      <header className="h-16 flex-shrink-0 border-b border-hairline bg-background/50 backdrop-blur-md flex items-center justify-between gap-2 px-3 sm:px-6 z-10">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
           <BackButton fallback="/dashboard" />
-          <div className="h-6 w-px bg-surface-2" />
-          <h1 className="font-semibold text-lg" data-testid="text-editor-title">{project.title}</h1>
-          <span className="px-2 py-0.5 rounded-full bg-surface-1 border border-hairline text-xs text-muted-foreground">
+          <div className="h-6 w-px bg-surface-2 hidden sm:block" />
+          <h1 className="font-semibold text-lg truncate min-w-0" data-testid="text-editor-title">{project.title}</h1>
+          <span className="px-2 py-0.5 rounded-full bg-surface-1 border border-hairline text-xs text-muted-foreground hidden sm:inline-block">
             {project.status}
           </span>
         </div>
-        <div className="flex items-center gap-3">
-          <Button 
-            variant="outline" 
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <Button
+            variant="outline"
             className="border-hairline"
             disabled={!hasVideo}
             onClick={() => setLocation(`/export/${project.id}`)}
             data-testid="button-export"
           >
-            <Download className="w-4 h-4 mr-2" />
-            Export
+            <Download className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Export</span>
           </Button>
-          <Button 
+          <Button
             className="glow-btn btn-gradient-cta text-white border-0"
             disabled={!hasVideo || isProcessingEdit || project.status === 'uploading'}
             onClick={handleGenerateEdit}
             data-testid="button-generate-edit"
           >
-            <Wand2 className="w-4 h-4 mr-2" />
-            Generate Edit
+            <Wand2 className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Generate Edit</span>
           </Button>
         </div>
       </header>
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
-        {/* Main Editor Area */}
-        <div className="flex-1 flex flex-col relative p-4 lg:p-6 overflow-hidden">
+        {/* Main Editor Area. min-h-0: without it this flex child refuses to
+            shrink below its content and the stacked mobile layout overflows
+            the screen instead of sharing it. */}
+        <div className="flex-1 min-h-0 flex flex-col relative p-4 lg:p-6 overflow-hidden">
           
           {!hasVideo && (
             <div className="flex-1 relative rounded-2xl overflow-hidden glass-panel border border-hairline bg-band flex flex-col">
@@ -1114,8 +1120,15 @@ export default function ProjectEditor() {
           {hasVideo && !sideBySide && <div>{looks}{library}{reference}</div>}
         </div>
 
-        {/* AI Chat Sidebar */}
-        <div className="w-full lg:w-[400px] border-l border-hairline bg-background/80 backdrop-blur-xl flex flex-col z-20 shadow-[-20px_0_40px_rgba(0,0,0,0.5)]">
+        {/* AI Chat Sidebar.
+
+            On a phone this stacks under the player inside a viewport that
+            never scrolls — so without a height of its own the chat's natural
+            height is its whole history, and flexbox settles the fight by
+            crushing the player to a sliver under an unscrollable wall of
+            messages. A fixed share of the column gives both panes a shape:
+            the player keeps the top, the chat scrolls inside the bottom. */}
+        <div className="w-full lg:w-[400px] basis-[45%] flex-shrink-0 lg:basis-auto min-h-0 border-t lg:border-t-0 lg:border-l border-hairline bg-background/80 backdrop-blur-xl flex flex-col z-20 shadow-[-20px_0_40px_rgba(0,0,0,0.5)]">
           {/* Noah header */}
           <div className="p-4 border-b border-hairline flex items-center gap-3">
             <div className="relative flex-shrink-0">
@@ -1132,7 +1145,7 @@ export default function ProjectEditor() {
             </div>
           </div>
           
-          <ScrollArea ref={scrollAreaRef} className="flex-1 p-4">
+          <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0 p-4">
             <div className="space-y-5 flex flex-col">
               {/* Welcome message — only shown when no messages exist yet */}
               {messagesState === "empty" && (
