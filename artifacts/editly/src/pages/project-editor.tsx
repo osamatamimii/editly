@@ -12,6 +12,7 @@ import {
   isRenderInFlight,
   getGetProjectQueryKey,
   getListMessagesQueryKey,
+  getRenderStatusQueryKey,
   type EditOperation,
   type EditPlan
 } from "@workspace/api-client-react";
@@ -163,7 +164,7 @@ export default function ProjectEditor() {
   }, [renderJob?.id, renderJob?.status, id, queryClient]);
 
   // The bucket is private, so playback needs a freshly signed URL.
-  const { url: playbackUrl } = usePlayableVideo(
+  const { url: playbackUrl, previewUrl } = usePlayableVideo(
     project?.editedVideoPath ?? project?.videoPath ?? project?.editedVideoUrl ?? project?.videoUrl,
   );
   const hasVideo = Boolean(project?.videoPath ?? project?.videoUrl);
@@ -177,9 +178,14 @@ export default function ProjectEditor() {
    * decoding — and it is the only thing that keeps the shape right at all for a
    * codec the browser refuses to decode.
    */
+  const showingEdited = Boolean(project?.editedVideoPath);
   const aspect =
     decodedAspect ??
-    (project?.width && project?.height ? project.width / project.height : null);
+    (showingEdited && project?.editedWidth && project?.editedHeight
+      ? project.editedWidth / project.editedHeight
+      : project?.width && project?.height
+        ? project.width / project.height
+        : null);
 
   /**
    * A vertical clip leaves a wide empty column beside it, so the looks move
@@ -480,10 +486,18 @@ export default function ProjectEditor() {
       const result = await sendMessage.mutateAsync({
         id,
         data: { content }
-      }) as unknown as { plan?: EditPlan | null };
+      }) as unknown as { plan?: EditPlan | null; render?: { id: string } | null };
       // Whatever the reply promised is exactly what Generate Edit will build.
       if (result?.plan) setChatPlan(result.plan);
       queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(id) });
+      // The sentence may have *started the render* — that is the product's
+      // promise, one prompt and the work begins. The server already queued it;
+      // all the editor has to do is stop showing yesterday and start showing
+      // the progress this message just caused.
+      if (result?.render) {
+        queryClient.invalidateQueries({ queryKey: getRenderStatusQueryKey(id) });
+        queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
+      }
     } catch (error: unknown) {
       // There is deliberately no "you have used all your edits" branch here.
       // The messages route has no cap and cannot return 429, and the pricing
@@ -975,7 +989,10 @@ export default function ProjectEditor() {
                 >
                     <video
                       ref={videoRef}
-                      src={playbackUrl ?? undefined}
+                      // The key forces a reload when the URLs change: unlike
+                      // `src`, swapping <source> children does not make the
+                      // element look again on its own.
+                      key={previewUrl ?? playbackUrl ?? "empty"}
                       className="w-full h-full object-contain"
                       controls={false}
                       preload="metadata"
@@ -991,7 +1008,15 @@ export default function ProjectEditor() {
                       onEnded={() => setIsPlaying(false)}
                       onError={() => setPlaybackFailed(true)}
                       data-testid="video-preview"
-                    />
+                    >
+                      {/* VP9 first: it decodes in software in every browser,
+                          while the H.264 master leans on an OS codec that we
+                          have watched be broken on a real machine. A browser
+                          that handles both loses a little preview quality; a
+                          browser that cannot decode H.264 keeps the product. */}
+                      {previewUrl && <source src={previewUrl} type="video/webm" />}
+                      {playbackUrl && <source src={playbackUrl} type="video/mp4" />}
+                    </video>
 
                     {/* The two purple edges. They were on the old wide stage and
                         went with it; Osama asked for them back, so they now run
