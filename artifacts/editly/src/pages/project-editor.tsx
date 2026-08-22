@@ -162,6 +162,12 @@ export default function ProjectEditor() {
     settledJobRef.current = key;
     queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
     queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(id) });
+    // One extra look at the queue: a settled render may have started the
+    // follow-up promised while it ran, and polling stops on "done" — without
+    // this the follow-up would render invisibly until the tab refocused.
+    // Guarded by settledJobRef, so a settle without a follow-up asks once,
+    // gets the same answer, and stops.
+    queryClient.invalidateQueries({ queryKey: getRenderStatusQueryKey(id) });
   }, [renderJob?.id, renderJob?.status, id, queryClient]);
 
   // The bucket is private, so playback needs a freshly signed URL.
