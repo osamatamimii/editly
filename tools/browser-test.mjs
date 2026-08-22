@@ -1365,6 +1365,36 @@ section("A video dropped on the dashboard becomes a project that uploads itself"
   );
 }
 
+section("The editor fits a phone, which is where the owner will test it");
+{
+  // The editor lives inside h-screen + overflow-hidden. On a desktop the chat
+  // is a fixed-width column beside the player; on a phone it stacks below —
+  // and a stacked pane with no height of its own takes the height of its
+  // content, which for a chat is unbounded. Flexbox settles that fight by
+  // crushing the player to a sliver under an unscrollable wall of messages.
+  // These are the three properties that keep the phone layout standing.
+  const { readFileSync: readEditor } = await import("node:fs");
+  const editorSrc = readEditor(path.join(repoRoot, "artifacts/editly/src/pages/project-editor.tsx"), "utf8");
+
+  check(
+    "the chat takes a fixed share of the column on a phone, its natural width on a desktop",
+    /basis-\[45%\] flex-shrink-0 lg:basis-auto min-h-0/.test(editorSrc),
+    "the chat pane needs a definite mobile height or it eats the player",
+  );
+  check(
+    "the player pane may shrink below its content, or stacking overflows the screen",
+    /flex-1 min-h-0 flex flex-col relative p-4 lg:p-6 overflow-hidden/.test(editorSrc),
+  );
+  check(
+    "the header's buttons drop their words on a phone rather than falling off the edge",
+    (editorSrc.match(/className="hidden sm:inline"/g)?.length ?? 0) >= 2,
+  );
+  check(
+    "and the title truncates instead of pushing them",
+    /text-editor-title[\s\S]{0,80}?truncate|truncate min-w-0" data-testid="text-editor-title"/.test(editorSrc),
+  );
+}
+
 section("Sizes are written the way a person reads them");
 {
   const formatted = await run(() =>
