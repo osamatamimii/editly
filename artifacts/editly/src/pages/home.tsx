@@ -880,6 +880,31 @@ The tedious part is the part a machine should do.<br />Upload one take and see h
           <p className="text-xs text-muted-foreground mt-5 opacity-60">No credit card required · Cancel anytime</p>
         </div>
       </section>
+
+      {/* ── Footer ──
+          One quiet row. The affiliate link is the only load-bearing part: the
+          program lives in the Freemius customer portal, and a program nobody
+          can find pays nobody. The terms are stated in the link text because
+          "become an affiliate" alone gives no reason to click it. */}
+      <footer className="w-full border-t border-hairline-faint py-8 px-6">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
+          <span className="opacity-60">© {new Date().getFullYear()} Editly</span>
+          <div className="flex items-center gap-6">
+            <a href="/#pricing" className="hover:text-foreground transition-colors">
+              Pricing
+            </a>
+            <a
+              href="https://users.freemius.com/"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-foreground transition-colors"
+              data-testid="link-become-affiliate"
+            >
+              Become an affiliate — earn 25% of every payment for a year
+            </a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

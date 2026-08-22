@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { 
@@ -18,15 +18,23 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { 
-  Video, Plus, Clock, PlayCircle, CheckCircle2, 
-  Trash2, AlertCircle, Loader2, Sparkles, Activity, TrendingUp, UserRound
+import {
+  Video, Plus, Clock, PlayCircle, CheckCircle2,
+  Trash2, AlertCircle, Loader2, Sparkles, Activity, TrendingUp, UserRound,
+  UploadCloud
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { deleteProjectVideos, usePlayableVideo } from "@/lib/video-storage";
+import {
+  deleteProjectVideos,
+  usePlayableVideo,
+  ACCEPTED_VIDEO_TYPES,
+  MAX_UPLOAD_BYTES,
+  formatBytes,
+} from "@/lib/video-storage";
+import { stashPendingUpload, titleFromFilename } from "@/lib/pending-upload";
 import { loadState } from "@/lib/load-state";
 import { FREE_TIER } from "@/lib/pricing";
 import { LoadFailed } from "@/components/load-failed";
@@ -94,6 +102,8 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const createFileRef = useRef<HTMLInputElement>(null);
+  const [isDropActive, setIsDropActive] = useState(false);
 
   const statsQuery = useGetDashboardStats({
     query: { queryKey: getGetDashboardStatsQueryKey() }
@@ -120,13 +130,24 @@ export default function Dashboard() {
   const deleteProject = useDeleteProject();
   const { user } = useAuth();
 
-  const handleCreate = async () => {
-    if (!newTitle.trim()) return;
+  /**
+   * One creation path, two doors in.
+   *
+   * The named door is the old dialog flow. The file door is the shorter road
+   * the product actually sells — "upload a raw take and describe it" — where
+   * the project names itself after the file and the editor starts the upload
+   * the moment it mounts. Both share the same error handling, because a 429
+   * is a 429 whichever way you asked.
+   */
+  const createAndOpen = async (title: string, file?: File) => {
     try {
-      const project = await createProject.mutateAsync({ data: { title: newTitle } });
+      const project = await createProject.mutateAsync({ data: { title } });
       queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() });
+      // Stash only after the row exists: a failed create must not leave a file
+      // waiting for a project that was never made.
+      if (file) stashPendingUpload(project.id, file);
       setIsCreateOpen(false);
       setNewTitle("");
       setLocation(`/project/${project.id}`);
@@ -152,6 +173,36 @@ export default function Dashboard() {
         });
       }
     }
+  };
+
+  const handleCreate = () => {
+    if (!newTitle.trim()) return;
+    void createAndOpen(newTitle);
+  };
+
+  /**
+   * The same gatekeeping the editor applies, applied before the project
+   * exists — a rejected file should cost a toast, not an empty project row
+   * named after a spreadsheet.
+   */
+  const handleStartFromVideo = (file: File) => {
+    if (!ACCEPTED_VIDEO_TYPES.includes(file.type) && !file.name.match(/\.(mp4|mov|webm)$/i)) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload an mp4, mov, or webm file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast({
+        title: "File too large",
+        description: `That file is ${formatBytes(file.size)}. The current limit is ${formatBytes(MAX_UPLOAD_BYTES)} per video.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    void createAndOpen(titleFromFilename(file.name), file);
   };
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
@@ -526,10 +577,74 @@ export default function Dashboard() {
           <DialogHeader>
             <DialogTitle>Create New Project</DialogTitle>
             <DialogDescription>
-              Give your project a name to get started.
+              Start from your video — or just give the project a name.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {/* The short road: the file is the project. It gets its name from
+                the filename and the editor starts uploading it on arrival, so
+                the distance from "I have a clip" to "tell Noah what you want"
+                is one gesture. */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => createFileRef.current?.click()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") createFileRef.current?.click();
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDropActive(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setIsDropActive(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDropActive(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) handleStartFromVideo(file);
+              }}
+              className={`group rounded-xl border border-dashed px-4 py-6 text-center cursor-pointer transition-colors ${
+                isDropActive
+                  ? "border-primary bg-primary/10"
+                  : "border-hairline hover:border-primary/50 hover:bg-primary/5"
+              }`}
+              data-testid="dropzone-create-from-video"
+            >
+              {createProject.isPending ? (
+                <Loader2 className="w-6 h-6 mx-auto mb-2 text-primary animate-spin" />
+              ) : (
+                <UploadCloud
+                  className={`w-6 h-6 mx-auto mb-2 transition-colors ${
+                    isDropActive ? "text-primary" : "text-muted-foreground group-hover:text-primary"
+                  }`}
+                />
+              )}
+              <div className="text-sm font-medium">Drop your video here</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                The project names itself and the upload starts right away
+              </div>
+              <input
+                ref={createFileRef}
+                type="file"
+                accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  // Allow picking the same file again after a rejection.
+                  e.target.value = "";
+                  if (file) handleStartFromVideo(file);
+                }}
+                data-testid="input-create-from-video"
+              />
+            </div>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-hairline" />
+              or name it first
+              <div className="h-px flex-1 bg-hairline" />
+            </div>
             <div className="flex flex-col gap-3">
               <Label htmlFor="name" className="text-left">
                 Project Name

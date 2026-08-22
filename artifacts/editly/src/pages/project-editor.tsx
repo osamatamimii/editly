@@ -49,6 +49,7 @@ import {
 import { ToastAction } from "@/components/ui/toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ProjectLibrary } from "@/components/project-library";
+import { takePendingUpload } from "@/lib/pending-upload";
 
 /** m:ss — anything longer than an hour is not what this product is for. */
 function formatTimecode(seconds: number): string {
@@ -447,6 +448,23 @@ export default function ProjectEditor() {
       setIsUploading(false);
     }
   };
+
+  /**
+   * A video chosen on the dashboard arrives here as a stashed File: the
+   * project was created from it one page ago, and this is the first moment
+   * the upload pipeline exists to receive it. `takePendingUpload` deletes on
+   * read, so a re-mount cannot start the same upload twice.
+   *
+   * Waits for the project row and the signed-in user, because the upload needs
+   * both — and does nothing for a project that already has footage, so a stale
+   * stash can never overwrite a video.
+   */
+  useEffect(() => {
+    if (!id || !user || !project || project.videoPath || isUploading) return;
+    const file = takePendingUpload(id);
+    if (file) void validateAndUpload(file);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once, when the pieces are all present
+  }, [id, user, project?.id, project?.videoPath]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
