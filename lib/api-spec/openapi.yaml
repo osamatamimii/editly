@@ -837,6 +837,14 @@ components:
         height:
           description: Source video height in pixels, measured at upload.
           type: ["integer", "null"]
+        editedWidth:
+          description: >
+            Edited output width in pixels, measured by the worker from the file
+            it produced. Null until a render has finished.
+          type: ["integer", "null"]
+        editedHeight:
+          description: Edited output height in pixels, measured by the worker.
+          type: ["integer", "null"]
         platform:
           type: ["string", "null"]
           enum: [tiktok, reels, shorts, null]
@@ -861,6 +869,8 @@ components:
         - duration
         - width
         - height
+        - editedWidth
+        - editedHeight
         - platform
         - renderStalled
         - createdAt
