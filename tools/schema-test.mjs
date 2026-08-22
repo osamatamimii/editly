@@ -440,8 +440,13 @@ section("The rules the schema itself enforces");
     byName["assets_project_id_fkey"],
   );
   check(
+    "and so does a follow-up still waiting on it — a wish with no video is not a wish",
+    /REFERENCES projects\(id\) ON DELETE CASCADE/.test(byName["render_followups_project_id_fkey"] ?? ""),
+    byName["render_followups_project_id_fkey"],
+  );
+  check(
     "and there are no others nobody has reasoned about",
-    keys.length === 4,
+    keys.length === 5,
     JSON.stringify(keys.map((k) => k.conname)),
   );
 
