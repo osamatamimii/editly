@@ -612,12 +612,20 @@ export const Clip = z.object({
   outputSeconds: z.number().nullable(),
   /** The worker's one line about this clip. */
   note: z.string().nullable(),
+  /**
+   * The opening words spoken in this clip's window, from the transcript.
+   * Null when nothing was heard — a title the product invented would be a
+   * title the speaker never said.
+   */
+  title: z.string().nullable(),
   createdAt: z.string(),
 });
 export type Clip = z.infer<typeof Clip>;
 
 export const ListClipsParams = z.object({ id: z.string().min(1) });
 export const ListClipsResponse = z.array(Clip);
+
+export const DeleteClipParams = z.object({ id: z.string().min(1), clipId: z.string().min(1) });
 
 /**
  * Type that arrives with weight.
