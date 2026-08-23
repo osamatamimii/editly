@@ -1,10 +1,8 @@
 /**
  * The pieces clips renders have cut from this project's video.
  *
- * Read-only on purpose: clips are made by the worker and die with the
- * project. There is nothing for a client to register or amend — the one
- * honest mutation, "delete this clip", can arrive when someone asks for it,
- * with the storage sweep that must ride along.
+ * Nothing here registers or amends: clips are made by the worker. The one
+ * client mutation is deleting a piece someone decided against keeping.
  *
  * Unlike the asset library, the storage path IS in the response. The rule
  * behind hiding asset paths was "the browser already knows where it put the
@@ -17,8 +15,9 @@
 import { Router, type IRouter } from "express";
 import { and, desc, asc, eq } from "drizzle-orm";
 import { db, clipsTable, projectsTable } from "@workspace/db";
-import { ListClipsParams, ListClipsResponse } from "@workspace/api-zod";
+import { DeleteClipParams, ListClipsParams, ListClipsResponse } from "@workspace/api-zod";
 import { currentUserId } from "../middlewares/auth";
+import { deleteObjects } from "../lib/storage";
 
 const router: IRouter = Router();
 
@@ -33,6 +32,7 @@ function serialize(row: typeof clipsTable.$inferSelect): unknown {
     outputPath: row.outputPath,
     outputSeconds: row.outputSeconds,
     note: row.note,
+    title: row.title,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -68,6 +68,49 @@ router.get("/projects/:id/clips", async (req, res): Promise<void> => {
     .limit(60);
 
   res.json(ListClipsResponse.parse(rows.map(serialize)));
+});
+
+/**
+ * Deleting a clip is row-first, storage-best-effort — the asset route's
+ * reasoning, inherited: a half-succeeded per-file delete must never leave a
+ * row pointing at nothing, because a row with no file is a broken player,
+ * while a file with no row is invisible bytes that the project's own deletion
+ * sweeps later. The attempt is still made immediately — clips are whole
+ * videos, and "reclaimed eventually" should be the fallback, not the plan.
+ */
+router.delete("/projects/:id/clips/:clipId", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  const params = DeleteClipParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  // Scoped by user *and* project *and* clip: an id guessed from another
+  // account deletes nothing, and gets the same 404 as an id that never was.
+  const removed = await db
+    .delete(clipsTable)
+    .where(
+      and(
+        eq(clipsTable.id, params.data.clipId),
+        eq(clipsTable.projectId, params.data.id),
+        eq(clipsTable.userId, userId),
+      ),
+    )
+    .returning({ outputPath: clipsTable.outputPath });
+
+  if (removed.length === 0) {
+    res.status(404).json({ error: "Clip not found." });
+    return;
+  }
+
+  // The master and its VP9 mirror, by the same naming convention the worker
+  // wrote them under. Best-effort: a failure here leaves orphan bytes that
+  // deleting the project reclaims, not a lie in the response.
+  const master = removed[0].outputPath;
+  void deleteObjects([master, master.replace(/\.mp4$/i, "") + ".preview.webm"]);
+
+  res.status(204).end();
 });
 
 export default router;
