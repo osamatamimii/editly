@@ -83,6 +83,7 @@ function buildSchema(assets: PlannerAsset[]) {
   const types = [
     "removeSilence",
     "extractHighlight",
+    "extractRange",
     "formatForPlatform",
     "autoCaptions",
     "kenBurns",
@@ -113,6 +114,8 @@ function buildSchema(assets: PlannerAsset[]) {
             "punchAmount",
             "minSilenceMs",
             "targetSeconds",
+            "startSeconds",
+            "endSeconds",
             "assetId",
             "atSeconds",
             "durationSeconds",
@@ -133,6 +136,10 @@ function buildSchema(assets: PlannerAsset[]) {
             minSilenceMs: { type: ["number", "null"] },
             /** Seconds. For extractHighlight: how long the kept stretch should be. */
             targetSeconds: { type: ["number", "null"] },
+            /** Seconds. For extractRange: where the named stretch begins. */
+            startSeconds: { type: ["number", "null"] },
+            /** Seconds. For extractRange: where it ends. */
+            endSeconds: { type: ["number", "null"] },
             /** Which file from this project. Only these ids exist. */
             assetId:
               assetIds.length > 0
@@ -181,6 +188,10 @@ function instructionFor(assets: PlannerAsset[]): string {
     "extractHighlight keeps only the strongest stretch of the clip — choose it when they ask for the best part,",
     "a highlight, or the top N seconds. targetSeconds is the length they asked for (default 30); the worker",
     "chooses where those seconds live, from the speech itself. Never choose it for requests about the whole video.",
+    "extractRange keeps exactly the stretch the person named — 'from 1:20 to 2:10', 'the first 40 seconds',",
+    "'minute two to minute three'. startSeconds and endSeconds are seconds on the source clock; convert",
+    "minutes yourself. Choose it only when they name the moments; when they ask for 'the best part', that is",
+    "extractHighlight, whose window the worker chooses.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
     "motionTitle animates words onto the screen. Use the person's own words — never write copy they did not ask for.",
   ];
@@ -343,6 +354,16 @@ function toOperation(
         // Clamped rather than rejected: "the best 3 minutes" should become
         // the longest highlight we make, not a keyword-matcher fallback.
         return { type, targetSeconds: Math.min(120, Math.max(5, numberOr(raw["targetSeconds"], 30))) };
+      case "extractRange": {
+        // Repaired rather than rejected: an inverted window is re-ordered and
+        // a missing end becomes half a minute, because the person plainly
+        // wanted *a* stretch — the renderer clamps to the file's real length.
+        const a = Math.max(0, numberOr(raw["startSeconds"], 0));
+        const b = Math.max(0, numberOr(raw["endSeconds"], a + 30));
+        const start = Math.min(a, b);
+        const end = Math.max(a, b) > start ? Math.max(a, b) : start + 30;
+        return { type, startSeconds: Math.min(start, 86400), endSeconds: Math.min(end, 86400) };
+      }
       case "formatForPlatform":
         return { type, platform: raw["platform"] ?? defaultPlatform ?? "tiktok" };
       case "autoCaptions":
@@ -428,12 +449,19 @@ function numberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+/** Seconds as m:ss, because "80s" is a number and "1:20" is a moment. */
+function clock(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
 /** The user-facing phrasing, derived from operations so it cannot overpromise. */
 function describeAll(operations: EditOperation[]): string[] {
   return operations.map((op) => {
     switch (op.type) {
       case "removeSilence": return "cut out the silences and dead air";
       case "extractHighlight": return `pull the strongest ${Math.round(op.targetSeconds)} seconds into its own cut`;
+      case "extractRange": return `cut it down to ${clock(op.startSeconds)}\u2013${clock(op.endSeconds)}, the stretch you named`;
       case "formatForPlatform": return `reframe it to 9:16 for ${op.platform}`;
       case "autoCaptions": return "caption it from what is actually said";
       case "kenBurns": return "add a slow push so the frame is not static";

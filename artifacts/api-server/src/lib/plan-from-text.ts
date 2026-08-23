@@ -95,6 +95,65 @@ const HIGHLIGHT_WORDS =
 /** "best 45 seconds", "the top 20s" — the number they said, not our default. */
 const HIGHLIGHT_SECONDS = /\b(\d{1,3}) ?(?:seconds?|secs?|s\b|ثانية|ثواني)/i;
 
+/**
+ * A stretch named by its moments, in the ways people actually name them.
+ *
+ * Four shapes, tried most-specific first: "1:20 to 2:10", "minute 2 to 3",
+ * "from 40 to 90 seconds" (a seconds unit is required somewhere, so "from 3
+ * to 5" about anything else does not become a cut), and "the first 40
+ * seconds". The first-N form starts at five seconds on purpose: "the first
+ * 3 seconds" belongs to hook-building, which is still on the not-yet list,
+ * and claiming it as a cut would do something nobody asked for.
+ */
+const TO = "(?:to|until|till|thru|through|[-\u2013\u2192]|\u0625\u0644\u0649|\u0627\u0644\u0649|\u062d\u062a\u0649|\u0644\u063a\u0627\u064a\u0629)";
+const RANGE_MMSS = new RegExp(String.raw`(\d{1,3}):([0-5]\d)\s*${TO}\s*(\d{1,3}):([0-5]\d)`, "i");
+const RANGE_MINUTES = new RegExp(
+  String.raw`(?:minute|\u0627\u0644\u062f\u0642\u064a\u0642\u0629|\u062f\u0642\u064a\u0642\u0629)\s*(\d{1,3})\s*${TO}\s*(?:minute|\u0627\u0644\u062f\u0642\u064a\u0642\u0629|\u062f\u0642\u064a\u0642\u0629)?\s*(\d{1,3})`,
+  "i",
+);
+const RANGE_SECONDS = new RegExp(
+  String.raw`(?:from|\u0645\u0646)\s*(?:second|\u0627\u0644\u062b\u0627\u0646\u064a\u0629)?\s*(\d{1,4})\s*(?:seconds?|secs?|s\b)?\s*${TO}\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|\u062b\u0627\u0646\u064a\u0629|\u062b\u0648\u0627\u0646\u064a)`,
+  "i",
+);
+const RANGE_FIRST = /\b(?:first|opening|أول|اول)\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|ثانية|ثواني)/i;
+const RANGE_FIRST_MINUTES = /\b(?:first|opening|أول|اول)\s*(\d{1,3})?\s*(?:minutes?|دقيقة|دقائق)/i;
+
+/** The stretch the sentence names, or null when it names none. */
+export function parseRange(text: string): { startSeconds: number; endSeconds: number } | null {
+  const mmss = RANGE_MMSS.exec(text);
+  if (mmss) {
+    const start = Number(mmss[1]) * 60 + Number(mmss[2]);
+    const end = Number(mmss[3]) * 60 + Number(mmss[4]);
+    return end > start ? { startSeconds: start, endSeconds: end } : { startSeconds: end, endSeconds: start };
+  }
+  const minutes = RANGE_MINUTES.exec(text);
+  if (minutes) {
+    const a = Number(minutes[1]) * 60;
+    const b = Number(minutes[2]) * 60;
+    // "minute 2 to 3" reads as 2:00 to 3:00 — the marks, not the ordinals.
+    return a < b ? { startSeconds: a, endSeconds: b } : { startSeconds: b, endSeconds: a };
+  }
+  const seconds = RANGE_SECONDS.exec(text);
+  if (seconds) {
+    const a = Number(seconds[1]);
+    const b = Number(seconds[2]);
+    if (a === b) return null;
+    return a < b ? { startSeconds: a, endSeconds: b } : { startSeconds: b, endSeconds: a };
+  }
+  const firstSeconds = RANGE_FIRST.exec(text);
+  if (firstSeconds) {
+    const n = Number(firstSeconds[1]);
+    if (n >= 5) return { startSeconds: 0, endSeconds: n };
+    return null;
+  }
+  const firstMinutes = RANGE_FIRST_MINUTES.exec(text);
+  if (firstMinutes) {
+    const n = firstMinutes[1] ? Number(firstMinutes[1]) : 1;
+    if (n >= 1 && n <= 180) return { startSeconds: 0, endSeconds: n * 60 };
+  }
+  return null;
+}
+
 const PUNCH_WORDS = /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b/i;
 const PUSH_WORDS = /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b/i;
 const LOUDNESS_WORDS = /\bloud|volume|quiet|audio level|sound level|normali[sz]/i;
@@ -123,6 +182,14 @@ export function planFromText(
     const targetSeconds = Math.min(120, Math.max(5, asked ? Number(asked[1]) : 30));
     operations.push({ type: "extractHighlight", targetSeconds });
     willDo.push(`pull the strongest ${targetSeconds} seconds into its own cut`);
+  }
+
+  // The stretch they named, kept exactly. The mirror of the highlight: there
+  // the worker chooses the moments, here the person already has.
+  const range = parseRange(text);
+  if (range) {
+    operations.push({ type: "extractRange", ...range });
+    willDo.push(`keep just ${clockOf(range.startSeconds)}\u2013${clockOf(range.endSeconds)}, the stretch you named`);
   }
 
   if (wantsVertical) {
@@ -230,6 +297,12 @@ export function planFromText(
   return { operations, willDo, cannotYet };
 }
 
+/** Seconds as m:ss, because "80s" is a number and "1:20" is a moment. */
+function clockOf(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
 /** A file by its own name where it has one, and by its kind where it does not. */
 function describeFile(file: LibraryFile): string {
   const label = (file.label ?? "").trim();
@@ -257,7 +330,7 @@ export function replyFor(
   },
 ): string {
   if (!context.hasVideo) {
-    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts, add motion, and level the audio.";
+    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts, add motion, and level the audio.";
   }
 
   const parts: string[] = [];
@@ -281,8 +354,9 @@ export function replyFor(
   if (parts.length === 0) {
     return (
       "I'm not sure what to change from that. Right now I can pull out the best 30 seconds of a clip, " +
-      "cut the silences, caption it, reframe it to 9:16, add punch-in zooms or a slow push, and level " +
-      'the audio — try something like "give me the strongest 30 seconds, captioned, vertical for TikTok".'
+      "keep exactly a stretch you name (from 1:20 to 2:10), cut the silences, caption it, reframe it to 9:16, " +
+      "add punch-in zooms or a slow push, and level the audio — try something like " +
+      '"give me the strongest 30 seconds, captioned, vertical for TikTok".'
     );
   }
 
