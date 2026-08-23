@@ -9,6 +9,7 @@ import renderRouter from "./render";
 import billingRouter, { billingWebhookRouter } from "./billing";
 import accountRouter from "./account";
 import assetsRouter from "./assets";
+import clipsRouter from "./clips";
 import stockRouter from "./stock";
 import { requireAuth } from "../middlewares/auth";
 
@@ -36,6 +37,7 @@ router.use(renderRouter);
 router.use(billingRouter);
 router.use(accountRouter);
 router.use(assetsRouter);
+router.use(clipsRouter);
 router.use(stockRouter);
 
 export default router;
