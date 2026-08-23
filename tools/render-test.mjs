@@ -44,7 +44,7 @@ if (esbuild.status !== 0) {
   process.exit(1);
 }
 
-const { renderPlan, probeSource, keepSegmentsFrom, remapTime, zoomExpression, writeSubtitleFile, frameFor, chooseHighlight } =
+const { renderPlan, probeSource, keepSegmentsFrom, remapTime, zoomExpression, writeSubtitleFile, frameFor, chooseHighlight, chooseClips } =
   await import(pathToFileURL(modulePath).href);
 
 // The reference command below has to crop where the pipeline crops, or it
@@ -689,6 +689,51 @@ console.log("\nThe highlight is chosen from the words, cut for real, and honest 
 // The mirror image of the highlight: the person names the moments. These
 // paths are the substrate multi-clip renders will ride, so they are measured
 // on real cuts, not on arithmetic alone.
+console.log("\nClips are chosen apart, in source order, honestly counted");
+{
+  // Two dense stretches of speech far apart, one weak one between them.
+  const words = [];
+  for (let t = 2; t < 6; t += 0.4) words.push({ start: t, end: t + 0.35, filler: false });
+  for (let t = 14; t < 18; t += 0.4) words.push({ start: t, end: t + 0.35, filler: false });
+  words.push({ start: 9, end: 9.3, filler: false });
+
+  const spoken = chooseClips(20, 2, 5, words);
+  check("with words, the two densest stretches win", spoken.how === "speech" && spoken.windows.length === 2, JSON.stringify(spoken));
+  check(
+    "one on each stretch, never overlapping",
+    spoken.windows[0].end <= spoken.windows[1].start &&
+      spoken.windows[0].start < 6 && spoken.windows[1].end > 13,
+    JSON.stringify(spoken.windows),
+  );
+  check(
+    "returned in source order, whatever their scores",
+    spoken.windows[0].start < spoken.windows[1].start,
+    JSON.stringify(spoken.windows),
+  );
+  check(
+    "and the choice is deterministic",
+    JSON.stringify(chooseClips(20, 2, 5, words)) === JSON.stringify(spoken),
+  );
+
+  const divided = chooseClips(30, 3, 6, undefined);
+  check("no words divides evenly and says so", divided.how === "divided" && divided.windows.length === 3, JSON.stringify(divided));
+  check(
+    "divided windows do not overlap either",
+    divided.windows.every((w, i) => i === 0 || divided.windows[i - 1].end <= w.start),
+    JSON.stringify(divided.windows),
+  );
+
+  const short = chooseClips(11, 3, 5, undefined);
+  check(
+    "a short video yields fewer clips rather than overlapping ones",
+    short.windows.length === 2,
+    JSON.stringify(short),
+  );
+
+  const tiny = chooseClips(4, 3, 30, undefined);
+  check("a video shorter than one clip still yields one", tiny.windows.length === 1, JSON.stringify(tiny));
+}
+
 console.log("\nThe stretch they name is kept exactly, with honest clamping");
 {
   const plain = await renderPlan(

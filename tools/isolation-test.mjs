@@ -302,6 +302,39 @@ let aliceProjectId;
   check("Bob cannot poll Alice's export status", expStatus.status === 404, `got ${expStatus.status}`);
 }
 
+console.log("\nClips are the owner's, and their paths reach only the owner");
+{
+  // A clip row as the worker would write it. Through psql, because the worker
+  // writes as the table owner and there is no client route for creating one —
+  // that is the point of the read-only endpoint.
+  psqlGlobal(`
+    INSERT INTO clips (id, project_id, user_id, job_id, idx, start_seconds, end_seconds, output_path, output_seconds, note)
+    VALUES ('clip-iso-1', '${aliceProjectId}', '${ALICE}', 'job-iso-1', 1, 2, 7,
+            '${ALICE}/${aliceProjectId}/clip-job-iso-1-1.mp4', 5, 'the speech runs densest here')`);
+
+  const mine = await call(ALICE, `/api/projects/${aliceProjectId}/clips`);
+  check("Alice sees her clip", mine.status === 200 && mine.json?.length === 1, `got ${mine.status} ${mine.text.slice(0, 120)}`);
+  check(
+    "with the storage path she needs to sign her own playback URL",
+    mine.json?.[0]?.outputPath === `${ALICE}/${aliceProjectId}/clip-job-iso-1-1.mp4`,
+    JSON.stringify(mine.json?.[0]),
+  );
+  check(
+    "and the stretch it came from",
+    mine.json?.[0]?.startSeconds === 2 && mine.json?.[0]?.endSeconds === 7,
+    JSON.stringify(mine.json?.[0]),
+  );
+
+  const theirs = await call(BOB, `/api/projects/${aliceProjectId}/clips`);
+  check(
+    "Bob gets the same 404 whether the project exists or not",
+    theirs.status === 404,
+    `got ${theirs.status}`,
+  );
+
+  psqlGlobal(`DELETE FROM clips WHERE id = 'clip-iso-1'`);
+}
+
 console.log("\nClip dimensions");
 {
   // The player is shaped from these before a frame has decoded, so if they do

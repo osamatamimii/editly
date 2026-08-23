@@ -490,6 +490,68 @@ console.log("\nThe stretch they name is kept exactly");
   );
 }
 
+// Several pieces, each its own output — the clipping feature's front door.
+console.log("\nAsking for clips is a plan for several outputs");
+{
+  const planner = createPlanner({ apiKey: "" });
+
+  const counted = await planner.plan("give me 3 clips from this for tiktok", {});
+  const clips = counted.operations.find((o) => o.type === "extractClips");
+  check("'3 clips' becomes extractClips", Boolean(clips), JSON.stringify(counted.operations));
+  check("with the count they said", clips?.count === 3, String(clips?.count));
+  check(
+    "and composes with the reframe",
+    counted.operations.some((o) => o.type === "formatForPlatform"),
+    JSON.stringify(counted.operations.map((o) => o.type)),
+  );
+  check(
+    "the reply promises pieces, not one video",
+    /3 separate clips/.test(counted.willDo.join(" ")),
+    JSON.stringify(counted.willDo),
+  );
+
+  const sized = await planner.plan("cut this into 2 clips of 20 seconds each", {});
+  const two = sized.operations.find((o) => o.type === "extractClips");
+  check("a per-clip length is heard too", two?.count === 2 && two?.targetSeconds === 20, JSON.stringify(two));
+
+  const into = await planner.plan("split it into shorts please", {});
+  const dflt = into.operations.find((o) => o.type === "extractClips");
+  check("'into shorts' with no number defaults to three", dflt?.count === 3, JSON.stringify(dflt));
+
+  const greedy = await planner.plan("make me 10 clips", {});
+  const capped = greedy.operations.find((o) => o.type === "extractClips");
+  check("ten clips is clamped to six, not refused", capped?.count === 6, String(capped?.count));
+
+  const best = await planner.plan("give me the best 3 clips", {});
+  check(
+    "'the best 3 clips' is a clips ask, not a highlight",
+    best.operations.some((o) => o.type === "extractClips") &&
+      !best.operations.some((o) => o.type === "extractHighlight"),
+    JSON.stringify(best.operations.map((o) => o.type)),
+  );
+
+  const arabic = await planner.plan("قسّم الفيديو إلى مقاطع", {});
+  check(
+    "the Arabic verb for dividing is understood",
+    arabic.operations.some((o) => o.type === "extractClips"),
+    JSON.stringify(arabic.operations.map((o) => o.type)),
+  );
+
+  // The words that must NOT trigger it: the video itself, and b-roll.
+  const bare = await planner.plan("tighten this clip up for me", {});
+  check(
+    "'this clip' is the video, not a clips ask",
+    !bare.operations.some((o) => o.type === "extractClips"),
+    JSON.stringify(bare.operations.map((o) => o.type)),
+  );
+  const broll = await planner.plan("insert a clip of the city here", { assets: LIBRARY });
+  check(
+    "a b-roll ask stays a b-roll ask",
+    !broll.operations.some((o) => o.type === "extractClips"),
+    JSON.stringify(broll.operations.map((o) => o.type)),
+  );
+}
+
 console.log("\nAsking for what the project does not have");
 {
   const planner = createPlanner({ apiKey: "" });

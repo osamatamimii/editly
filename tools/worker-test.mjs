@@ -401,6 +401,108 @@ section("A queued job becomes an edited file");
   );
 }
 
+// ─── A clips plan becomes several files ──────────────────────────────────────
+
+section("A clips plan becomes several files, each its own artifact");
+{
+  const projectId = await queue("clips-1", {
+    plan: {
+      version: 1,
+      operations: [
+        { type: "extractClips", count: 2, targetSeconds: 5 },
+        { type: "watermark", text: "Edited with Editly", position: "bottom-right" },
+      ],
+    },
+  });
+  putObject(`${ALICE}/${projectId}/source.mp4`, source);
+
+  const row = await settle("clips-1");
+  check("it finishes", row?.status === "done", `${row?.status}: ${row?.error}`);
+
+  const clips = (
+    await pool.query("SELECT * FROM clips WHERE job_id = $1 ORDER BY idx", ["clips-1"])
+  ).rows;
+  check("two clip rows exist", clips.length === 2, JSON.stringify(clips.map((c) => c.idx)));
+  check(
+    "1-based, in source order",
+    clips[0]?.idx === 1 && clips[1]?.idx === 2 && clips[0]?.start_seconds < clips[1]?.start_seconds,
+    JSON.stringify(clips.map((c) => [c.idx, c.start_seconds, c.end_seconds])),
+  );
+  check(
+    "their windows do not overlap",
+    clips.length === 2 && clips[0].end_seconds <= clips[1].start_seconds,
+    JSON.stringify(clips.map((c) => [c.start_seconds, c.end_seconds])),
+  );
+  check(
+    "each file really is in storage",
+    clips.every((c) => existsSync(path.join(objects, c.output_path))),
+    JSON.stringify(clips.map((c) => c.output_path)),
+  );
+
+  const durations = clips.map((c) => {
+    const p = spawnSync(
+      "ffprobe",
+      ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1",
+       path.join(objects, c.output_path ?? "missing")],
+      { encoding: "utf8" },
+    );
+    return Number(p.stdout.trim());
+  });
+  check(
+    "each clip is about the asked five seconds",
+    durations.every((d) => d > 4.2 && d < 6.0),
+    JSON.stringify(durations),
+  );
+  check(
+    "together well short of the whole video — pieces, not copies",
+    durations.reduce((a, b) => a + b, 0) < 11.5,
+    JSON.stringify(durations),
+  );
+
+  check(
+    "the job's own output points at the first clip",
+    row?.output_path === clips[0]?.output_path,
+    `${row?.output_path} vs ${clips[0]?.output_path}`,
+  );
+  check(
+    "the meter counts the sum of the pieces",
+    Math.abs(Number(row?.output_seconds) - durations.reduce((a, b) => a + b, 0)) < 0.8,
+    `${row?.output_seconds} vs ${durations.reduce((a, b) => a + b, 0)}`,
+  );
+
+  const project = await readProject(projectId);
+  check("the project is done", project?.status === "done", project?.status);
+  check(
+    "but its pointer is untouched — it means the latest whole-video render, and none happened",
+    project?.edited_video_path === null,
+    String(project?.edited_video_path),
+  );
+
+  const said = await pool.query(
+    "SELECT content FROM messages WHERE user_id = $1 AND project_id = $2 AND role = 'assistant' ORDER BY created_at DESC LIMIT 1",
+    [ALICE, projectId],
+  );
+  const summary = said.rows[0]?.content ?? "";
+  check("the summary names each clip with its moments", /clip 1: kept/.test(summary) && /clip 2: kept/.test(summary), summary);
+  check(
+    "and is honest that no ears were involved — no transcriber runs in this test",
+    /divided evenly/.test(summary),
+    summary,
+  );
+
+  // A retry must replace the set, not append to it. Requeue the same job id
+  // and let it run again: still exactly two rows.
+  await pool.query(
+    "UPDATE jobs SET status = 'queued', attempts = 0, locked_at = NULL, locked_by = NULL WHERE id = 'clips-1'",
+  );
+  const rerun = await settle("clips-1");
+  check("a rerun still finishes", rerun?.status === "done", `${rerun?.status}: ${rerun?.error}`);
+  const again = (
+    await pool.query("SELECT count(*)::int AS n FROM clips WHERE job_id = 'clips-1'")
+  ).rows[0];
+  check("and the set was replaced, not doubled", again?.n === 2, String(again?.n));
+}
+
 // ─── The ceiling, enforced against the file ──────────────────────────────────
 
 section("A file longer than the plan allows is refused, once, in words");
