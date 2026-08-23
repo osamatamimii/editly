@@ -600,11 +600,14 @@ export default function Home() {
             </div>
             <ul className="space-y-5">
               {[
+                // Kept honest by hand: everything on this list works today,
+                // and anything not built yet says so on its own line.
+                "The strongest 30 seconds pulled out of a long take",
                 "Every silence and pause cut automatically",
+                "Captions burned in from what you actually say",
                 "Reframed to 9:16 for TikTok, Reels and Shorts",
                 "Renders while you close the tab",
                 "Your footage stays private to your account",
-                "Captions and colour grading — in progress",
               ].map((feat, i) => (
                 <li
                   key={i}
@@ -634,9 +637,12 @@ export default function Home() {
             <div className="glass-panel p-6 rounded-2xl relative z-10 transition-all duration-500 hover:shadow-[0_0_60px_rgba(108,59,255,0.2)]">
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  { label: "B-Roll", dimmed: true },
+                  // Dimmed means "not built yet" — B-roll and captions both
+                  // ship today, so pretending they are future work undersells
+                  // the product on its own landing page.
+                  { label: "B-Roll", dimmed: false },
                   { label: null, icon: true },
-                  { label: "Captions", dimmed: true },
+                  { label: "Captions", dimmed: false },
                   { label: "Transitions", dimmed: true },
                 ].map((cell, i) => (
                   <div
@@ -650,7 +656,9 @@ export default function Home() {
                     {cell.icon ? (
                       <Sparkles className="w-8 h-8 text-primary animate-sparkle" />
                     ) : (
-                      <span className="text-sm font-medium text-foreground/50">{cell.label}</span>
+                      <span className={`text-sm font-medium ${cell.dimmed ? "text-foreground/35" : "text-foreground/80"}`}>
+                        {cell.label}
+                      </span>
                     )}
                   </div>
                 ))}
