@@ -326,6 +326,8 @@ async function processJob(job: Job): Promise<void> {
         start: word.startMs / 1000,
         end: word.endMs / 1000,
         filler: word.filler,
+        // Carried for the clip titles alone; the cut logic never reads it.
+        text: word.text,
       })),
     );
 
@@ -607,7 +609,7 @@ async function renderClipSet(args: {
   job: Job;
   clipsOp: Extract<EditOperation, { type: "extractClips" }>;
   enriched: Awaited<ReturnType<typeof enrichPlan>>;
-  words: Array<{ start: number; end: number; filler: boolean }>;
+  words: Array<{ start: number; end: number; filler: boolean; text?: string }>;
   assets: Map<string, { file: string; kind: "video" | "image" | "audio" }>;
   workDir: string;
   inputFile: string;
@@ -741,6 +743,7 @@ async function renderClipSet(args: {
       outputPath,
       outputSeconds: measured.seconds,
       note: clipNote,
+      title: clipTitle(window, words),
     });
 
     notes.push(
@@ -795,6 +798,32 @@ async function renderClipSet(args: {
     { clips: total, outputSeconds: outputSecondsSum, notes },
     "clip set complete",
   );
+}
+
+/**
+ * The opening words spoken inside a window — the clip's own name for itself.
+ *
+ * The speaker's words, never invented copy: the same rule motion titles live
+ * by. Fillers are skipped (a clip titled "um, so, uh" is a clip titled by its
+ * worst moment), the cut is at a word boundary, and null means nothing was
+ * heard — a made-up title would be the product pretending to have listened.
+ */
+function clipTitle(
+  window: { start: number; end: number },
+  words: Array<{ start: number; end: number; filler: boolean; text?: string }>,
+): string | null {
+  const spoken = words
+    .filter((w) => !w.filler && typeof w.text === "string" && w.text.trim().length > 0)
+    .filter((w) => w.start < window.end && w.end > window.start);
+  if (spoken.length === 0) return null;
+  const parts: string[] = [];
+  for (const word of spoken) {
+    const next = [...parts, word.text!.trim()].join(" ");
+    if (next.length > 42) break;
+    parts.push(word.text!.trim());
+  }
+  if (parts.length === 0) return null;
+  return parts.join(" ") + (parts.length < spoken.length ? "\u2026" : "");
 }
 
 /** Seconds as m:ss, because "80s" is a number and "1:20" is a moment. */
