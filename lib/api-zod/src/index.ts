@@ -633,9 +633,36 @@ export const ExtractHighlightOperation = z.object({
   targetSeconds: z.number().min(5).max(120).default(30),
 });
 
+/**
+ * Keep exactly the stretch the person named — "from 1:20 to 2:10".
+ *
+ * The mirror image of `extractHighlight`: there the caller names a length and
+ * the product chooses the moments; here the caller names the moments and no
+ * judgement is invited. It exists because "cut minute two to minute three" is
+ * among the first sentences anyone says to an editor, and because a clip
+ * chosen by someone who watched the footage beats any heuristic we own.
+ *
+ * It is also the substrate the clipping feature stands on: a "clip" is
+ * nothing more than a range some chooser decided on, so every path this
+ * operation exercises — the cut, the intersection with silence removal, the
+ * honest clamping notes — is the path multi-clip renders will ride later.
+ *
+ * Both ends are on the source clock. An end past the file's real length is
+ * clamped rather than refused, with a note; an empty or inverted window is
+ * the renderer's to drop, also with a note.
+ */
+export const ExtractRangeOperation = z.object({
+  type: z.literal("extractRange"),
+  /** Where the kept stretch begins, in seconds on the source clock. */
+  startSeconds: z.number().min(0).max(86400),
+  /** Where it ends. Clamped to the file's real length at render time. */
+  endSeconds: z.number().min(0).max(86400),
+});
+
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
   ExtractHighlightOperation,
+  ExtractRangeOperation,
   FormatForPlatformOperation,
   BurnCaptionsOperation,
   AutoCaptionsOperation,
