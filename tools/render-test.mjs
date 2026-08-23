@@ -686,6 +686,98 @@ console.log("\nThe highlight is chosen from the words, cut for real, and honest 
   );
 }
 
+// The mirror image of the highlight: the person names the moments. These
+// paths are the substrate multi-clip renders will ride, so they are measured
+// on real cuts, not on arithmetic alone.
+console.log("\nThe stretch they name is kept exactly, with honest clamping");
+{
+  const plain = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "extractRange", startSeconds: 5, endSeconds: 12 }] },
+    { workDir: await scratch() },
+  );
+  const plainSeconds = Number(ffprobe(plain.output, "format=duration")[0]);
+  check("5s to 12s comes out seven seconds long", plainSeconds > 6.4 && plainSeconds < 7.6, String(plainSeconds));
+  check(
+    "and the note says which stretch was kept",
+    plain.notes.some((n) => /kept 5\.0s to 12\.0s, the stretch you asked for/.test(n)),
+    JSON.stringify(plain.notes),
+  );
+
+  // Composed with silence removal: the audible part of exactly that stretch.
+  // The source is audible only during 0-3, 7-10 and 14-17.
+  const tight = await renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        { type: "extractRange", startSeconds: 5, endSeconds: 12 },
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  const tightSeconds = Number(ffprobe(tight.output, "format=duration")[0]);
+  check(
+    "with the dead air cut, only the audible part of the stretch remains",
+    tightSeconds > 2.2 && tightSeconds < 4.5,
+    String(tightSeconds),
+  );
+  check(
+    "and both decisions are in the notes",
+    tight.notes.some((n) => /stretch you asked for/.test(n)) && tight.notes.some((n) => /silence/.test(n)),
+    JSON.stringify(tight.notes),
+  );
+
+  // An end past the file is clamped, and the note says where the file ran out.
+  const over = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "extractRange", startSeconds: 15, endSeconds: 40 }] },
+    { workDir: await scratch() },
+  );
+  const overSeconds = Number(ffprobe(over.output, "format=duration")[0]);
+  check("an end past the file becomes the end of the file", overSeconds > 4.4 && overSeconds < 5.6, String(overSeconds));
+  check(
+    "and the note names where the clip ran out",
+    over.notes.some((n) => /runs out at 20\.0s, before the 40s you named/.test(n)),
+    JSON.stringify(over.notes),
+  );
+
+  // A start past the file cuts nothing, and says so rather than erroring.
+  const past = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "extractRange", startSeconds: 25, endSeconds: 30 }] },
+    { workDir: await scratch() },
+  );
+  const pastSeconds = Number(ffprobe(past.output, "format=duration")[0]);
+  check("a stretch past the end leaves the clip whole", pastSeconds > 19 && pastSeconds < 21, String(pastSeconds));
+  check(
+    "with the reason in the notes",
+    past.notes.some((n) => /starts at 25s, but the clip is only 20\.0s long/.test(n)),
+    JSON.stringify(past.notes),
+  );
+
+  // Two people holding the scissors: the named range wins over the highlight.
+  const both = await renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        { type: "extractHighlight", targetSeconds: 8 },
+        { type: "extractRange", startSeconds: 5, endSeconds: 12 },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  const bothSeconds = Number(ffprobe(both.output, "format=duration")[0]);
+  check("the named stretch is the one that renders", bothSeconds > 6.4 && bothSeconds < 7.6, String(bothSeconds));
+  check(
+    "and the conflict is stated, not hidden",
+    both.notes.some((n) => /the stretch you named won/.test(n)),
+    JSON.stringify(both.notes),
+  );
+}
+
 console.log("\nThe worker looks at what it made before handing it over");
 {
   const dir = await scratch();

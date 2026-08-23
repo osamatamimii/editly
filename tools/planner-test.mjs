@@ -422,6 +422,74 @@ console.log("\nThe best N seconds is a plan, not a shrug");
   check("an absurd length is clamped, not refused", clamped?.targetSeconds === 120, String(clamped?.targetSeconds));
 }
 
+// The mirror image of the highlight: the person names the moments, and no
+// judgement is invited. This is also the substrate the clipping feature will
+// stand on — a clip is a range some chooser decided on.
+console.log("\nThe stretch they name is kept exactly");
+{
+  const planner = createPlanner({ apiKey: "" });
+
+  const mmss = await planner.plan("keep just 1:20 to 2:10 and caption it", {});
+  const range = mmss.operations.find((o) => o.type === "extractRange");
+  check("1:20 to 2:10 becomes extractRange", Boolean(range), JSON.stringify(mmss.operations));
+  check("in seconds on the source clock", range?.startSeconds === 80 && range?.endSeconds === 130, JSON.stringify(range));
+  check(
+    "said back as moments, not numbers",
+    /1:20/.test(mmss.willDo.join(" ")) && /2:10/.test(mmss.willDo.join(" ")),
+    JSON.stringify(mmss.willDo),
+  );
+  check("and composes with captions", mmss.operations.some((o) => o.type === "autoCaptions"));
+
+  const minutes = await planner.plan("cut minute 2 to minute 3 out of this for me", {});
+  const m = minutes.operations.find((o) => o.type === "extractRange");
+  check("minutes convert to the marks they name", m?.startSeconds === 120 && m?.endSeconds === 180, JSON.stringify(m));
+
+  const seconds = await planner.plan("from 40 to 90 seconds please", {});
+  const s = seconds.operations.find((o) => o.type === "extractRange");
+  check("a seconds pair works too", s?.startSeconds === 40 && s?.endSeconds === 90, JSON.stringify(s));
+
+  const first = await planner.plan("give me the first 40 seconds, vertical", {});
+  const f = first.operations.find((o) => o.type === "extractRange");
+  check("the first N seconds starts at zero", f?.startSeconds === 0 && f?.endSeconds === 40, JSON.stringify(f));
+  check(
+    "and composes with the reframe",
+    first.operations.some((o) => o.type === "formatForPlatform"),
+    JSON.stringify(first.operations.map((o) => o.type)),
+  );
+
+  const arabic = await planner.plan("خذ من الدقيقة 2 إلى الدقيقة 3", {});
+  const ar = arabic.operations.find((o) => o.type === "extractRange");
+  check("Arabic minutes are understood", ar?.startSeconds === 120 && ar?.endSeconds === 180, JSON.stringify(ar));
+
+  const inverted = await planner.plan("keep 2:10 to 1:20", {});
+  const inv = inverted.operations.find((o) => o.type === "extractRange");
+  check("an inverted window is re-ordered, not refused", inv?.startSeconds === 80 && inv?.endSeconds === 130, JSON.stringify(inv));
+
+  // The first 3 seconds is hook territory, still honestly on the not-yet list;
+  // claiming it as a cut would do something nobody asked for.
+  const hook = await planner.plan("build a hook from the first 3 seconds", {});
+  check(
+    "the first 3 seconds still belongs to hook-building",
+    !hook.operations.some((o) => o.type === "extractRange") && /hook/.test(hook.cannotYet.join(" ")),
+    JSON.stringify({ ops: hook.operations, cannot: hook.cannotYet }),
+  );
+
+  const ratio = await planner.plan("make it 9:16 for tiktok", {});
+  check(
+    "9:16 is an aspect ratio, not a stretch",
+    !ratio.operations.some((o) => o.type === "extractRange"),
+    JSON.stringify(ratio.operations.map((o) => o.type)),
+  );
+
+  const best = await planner.plan("give me the best 45 seconds", {});
+  check(
+    "'the best 45 seconds' stays the worker's judgement",
+    !best.operations.some((o) => o.type === "extractRange") &&
+      best.operations.some((o) => o.type === "extractHighlight"),
+    JSON.stringify(best.operations.map((o) => o.type)),
+  );
+}
+
 console.log("\nAsking for what the project does not have");
 {
   const planner = createPlanner({ apiKey: "" });
