@@ -590,6 +590,36 @@ export const RegisterAssetResponse = Asset;
 export const DeleteAssetParams = z.object({ id: z.string().min(1), assetId: z.string().min(1) });
 
 /**
+ * One piece a clips render cut from the source.
+ *
+ * Unlike an Asset, the storage path IS returned: the worker wrote this file,
+ * so the browser has no other way to learn where it is — and it goes only to
+ * the verified owner of the project, exactly as `editedVideoPath` already
+ * does on the project itself. The browser signs its own playback URL from it
+ * with its own session, the same way it plays everything else.
+ */
+export const Clip = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  /** Which render produced it — clips from one ask share a jobId. */
+  jobId: z.string(),
+  /** 1-based position in its set, in source order. */
+  idx: z.number(),
+  /** The stretch of the source it came from, seconds on the source clock. */
+  startSeconds: z.number(),
+  endSeconds: z.number(),
+  outputPath: z.string(),
+  outputSeconds: z.number().nullable(),
+  /** The worker's one line about this clip. */
+  note: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type Clip = z.infer<typeof Clip>;
+
+export const ListClipsParams = z.object({ id: z.string().min(1) });
+export const ListClipsResponse = z.array(Clip);
+
+/**
  * Type that arrives with weight.
  *
  * Rendered in a browser rather than by a filter, because a spring — overshoot
@@ -659,10 +689,32 @@ export const ExtractRangeOperation = z.object({
   endSeconds: z.number().min(0).max(86400),
 });
 
+/**
+ * Cut the video into several separate clips — the clipping feature's front
+ * door.
+ *
+ * The person asks for a number of pieces; where each piece lives is the same
+ * judgement `extractHighlight` already makes, made several times over with
+ * the windows kept apart. The worker expands this one operation into one
+ * render per clip — each an `extractRange` it chose — and the rest of the
+ * plan (reframe, captions, levelling, the watermark policy added) applies to
+ * every clip alike. The outputs land in the `clips` table as their own
+ * artifacts; the project's own pointer keeps meaning "the latest whole-video
+ * render" and is not touched.
+ */
+export const ExtractClipsOperation = z.object({
+  type: z.literal("extractClips"),
+  /** How many pieces to cut. Bounded because each one is a full render. */
+  count: z.number().int().min(2).max(6).default(3),
+  /** How long each piece should be, in seconds. */
+  targetSeconds: z.number().min(5).max(120).default(30),
+});
+
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
   ExtractHighlightOperation,
   ExtractRangeOperation,
+  ExtractClipsOperation,
   FormatForPlatformOperation,
   BurnCaptionsOperation,
   AutoCaptionsOperation,
