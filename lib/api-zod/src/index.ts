@@ -612,8 +612,30 @@ export const MotionTitleOperation = z.object({
   position: z.enum(["top", "center", "bottom"]).default("center"),
 });
 
+/**
+ * Keep only the strongest stretch of the clip — the highlight.
+ *
+ * The person asks for a length, not for timestamps: "give me the best 30
+ * seconds" is a sentence about the result, and where those seconds live is
+ * exactly the judgement they are paying the product to make. The worker
+ * chooses the window from the transcript — the densest, least-hesitant run
+ * of speech — and falls back to the middle of the clip when nothing can be
+ * heard, saying so in the notes either way.
+ *
+ * Composes with everything else the way a cut must: chosen first, so
+ * captions, punches and framing are laid onto the clip that will actually
+ * exist. When silence removal is also asked for, the silences are cut
+ * *within* the chosen window rather than fighting it for the timeline.
+ */
+export const ExtractHighlightOperation = z.object({
+  type: z.literal("extractHighlight"),
+  /** How long the finished highlight should be, in seconds. */
+  targetSeconds: z.number().min(5).max(120).default(30),
+});
+
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
+  ExtractHighlightOperation,
   FormatForPlatformOperation,
   BurnCaptionsOperation,
   AutoCaptionsOperation,
