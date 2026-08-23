@@ -154,6 +154,29 @@ export function parseRange(text: string): { startSeconds: number; endSeconds: nu
   return null;
 }
 
+/**
+ * Asking for the video to be cut into pieces, each its own output.
+ *
+ * Deliberately narrow: a bare "clip" is how people refer to the video itself
+ * ("this clip"), and B-roll requests say "insert a clip". So the ask must
+ * carry either a number ("3 clips"), the into-shape ("split it into clips",
+ * "into shorts"), or the Arabic verb for dividing. The model path catches the
+ * phrasings this matcher will not.
+ */
+const CLIPS_COUNT = /\b(\d{1,2})\s*(?:clips?|shorts|\u0645\u0642\u0627\u0637\u0639|\u0642\u0635\u0627\u0635\u0627\u062a|\u0623\u062c\u0632\u0627\u0621)\b/i;
+const CLIPS_INTO = /\b(?:into|in ?to)\s+(?:clips|shorts|pieces)\b|\u0642\u0633\u0651?\u0645\u0647?[^.]*(?:\u0645\u0642\u0627\u0637\u0639|\u0642\u0635\u0627\u0635\u0627\u062a|\u0623\u062c\u0632\u0627\u0621)/i;
+
+/** The clips ask, or null. Count clamps to [2, 6]; length reuses the seconds pattern. */
+export function parseClips(text: string): { count: number; targetSeconds: number } | null {
+  const counted = CLIPS_COUNT.exec(text);
+  const into = CLIPS_INTO.test(text);
+  if (!counted && !into) return null;
+  const count = Math.min(6, Math.max(2, counted ? Number(counted[1]) : 3));
+  const asked = HIGHLIGHT_SECONDS.exec(text);
+  const targetSeconds = Math.min(120, Math.max(5, asked ? Number(asked[1]) : 30));
+  return { count, targetSeconds };
+}
+
 const PUNCH_WORDS = /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b/i;
 const PUSH_WORDS = /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b/i;
 const LOUDNESS_WORDS = /\bloud|volume|quiet|audio level|sound level|normali[sz]/i;
@@ -175,9 +198,20 @@ export function planFromText(
     willDo.push("cut out the silences and dead air");
   }
 
+  // Several pieces, each its own output. Checked before the highlight and the
+  // range: "the best 3 clips" is a clips ask, and the worker would drop a
+  // stray highlight riding along anyway — better not to promise one.
+  const clipsAsk = parseClips(text);
+  if (clipsAsk) {
+    operations.push({ type: "extractClips", ...clipsAsk });
+    willDo.push(
+      `cut it into ${clipsAsk.count} separate clips of about ${clipsAsk.targetSeconds} seconds each`,
+    );
+  }
+
   // The person asks for a length; where those seconds live is the worker's
   // judgement, made from the transcript. The plan carries only the length.
-  if (HIGHLIGHT_WORDS.test(text)) {
+  if (!clipsAsk && HIGHLIGHT_WORDS.test(text)) {
     const asked = HIGHLIGHT_SECONDS.exec(text);
     const targetSeconds = Math.min(120, Math.max(5, asked ? Number(asked[1]) : 30));
     operations.push({ type: "extractHighlight", targetSeconds });
@@ -186,7 +220,7 @@ export function planFromText(
 
   // The stretch they named, kept exactly. The mirror of the highlight: there
   // the worker chooses the moments, here the person already has.
-  const range = parseRange(text);
+  const range = clipsAsk ? null : parseRange(text);
   if (range) {
     operations.push({ type: "extractRange", ...range });
     willDo.push(`keep just ${clockOf(range.startSeconds)}\u2013${clockOf(range.endSeconds)}, the stretch you named`);
@@ -330,7 +364,7 @@ export function replyFor(
   },
 ): string {
   if (!context.hasVideo) {
-    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts, add motion, and level the audio.";
+    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts, add motion, and level the audio.";
   }
 
   const parts: string[] = [];
@@ -354,7 +388,7 @@ export function replyFor(
   if (parts.length === 0) {
     return (
       "I'm not sure what to change from that. Right now I can pull out the best 30 seconds of a clip, " +
-      "keep exactly a stretch you name (from 1:20 to 2:10), cut the silences, caption it, reframe it to 9:16, " +
+      "keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it, reframe it to 9:16, " +
       "add punch-in zooms or a slow push, and level the audio — try something like " +
       '"give me the strongest 30 seconds, captioned, vertical for TikTok".'
     );

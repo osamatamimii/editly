@@ -84,6 +84,7 @@ function buildSchema(assets: PlannerAsset[]) {
     "removeSilence",
     "extractHighlight",
     "extractRange",
+    "extractClips",
     "formatForPlatform",
     "autoCaptions",
     "kenBurns",
@@ -116,6 +117,7 @@ function buildSchema(assets: PlannerAsset[]) {
             "targetSeconds",
             "startSeconds",
             "endSeconds",
+            "clipCount",
             "assetId",
             "atSeconds",
             "durationSeconds",
@@ -140,6 +142,8 @@ function buildSchema(assets: PlannerAsset[]) {
             startSeconds: { type: ["number", "null"] },
             /** Seconds. For extractRange: where it ends. */
             endSeconds: { type: ["number", "null"] },
+            /** For extractClips: how many pieces to cut. */
+            clipCount: { type: ["number", "null"] },
             /** Which file from this project. Only these ids exist. */
             assetId:
               assetIds.length > 0
@@ -192,6 +196,10 @@ function instructionFor(assets: PlannerAsset[]): string {
     "'minute two to minute three'. startSeconds and endSeconds are seconds on the source clock; convert",
     "minutes yourself. Choose it only when they name the moments; when they ask for 'the best part', that is",
     "extractHighlight, whose window the worker chooses.",
+    "extractClips cuts the video into several separate clips, each its own output — choose it when they ask",
+    "for N clips, to split it into shorts, or for pieces to post separately. clipCount is how many (2-6),",
+    "targetSeconds how long each should be. The worker chooses where each clip lives, from the speech.",
+    "One clip of the best material is extractHighlight, not extractClips with clipCount 1.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
     "motionTitle animates words onto the screen. Use the person's own words — never write copy they did not ask for.",
   ];
@@ -354,6 +362,14 @@ function toOperation(
         // Clamped rather than rejected: "the best 3 minutes" should become
         // the longest highlight we make, not a keyword-matcher fallback.
         return { type, targetSeconds: Math.min(120, Math.max(5, numberOr(raw["targetSeconds"], 30))) };
+      case "extractClips":
+        // Clamped rather than rejected, like the highlight: "ten clips"
+        // becomes six, and a missing count becomes three.
+        return {
+          type,
+          count: Math.min(6, Math.max(2, Math.round(numberOr(raw["clipCount"], 3)))),
+          targetSeconds: Math.min(120, Math.max(5, numberOr(raw["targetSeconds"], 30))),
+        };
       case "extractRange": {
         // Repaired rather than rejected: an inverted window is re-ordered and
         // a missing end becomes half a minute, because the person plainly
@@ -462,6 +478,7 @@ function describeAll(operations: EditOperation[]): string[] {
       case "removeSilence": return "cut out the silences and dead air";
       case "extractHighlight": return `pull the strongest ${Math.round(op.targetSeconds)} seconds into its own cut`;
       case "extractRange": return `cut it down to ${clock(op.startSeconds)}\u2013${clock(op.endSeconds)}, the stretch you named`;
+      case "extractClips": return `cut it into ${op.count} separate clips of about ${Math.round(op.targetSeconds)} seconds each`;
       case "formatForPlatform": return `reframe it to 9:16 for ${op.platform}`;
       case "autoCaptions": return "caption it from what is actually said";
       case "kenBurns": return "add a slow push so the frame is not static";
