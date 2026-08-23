@@ -29,6 +29,8 @@ import {
 } from "./framing";
 import { trackSubject, trackNote } from "./subject";
 import { keepSegmentsFrom, remapTime, snapToWords, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
+import { chooseHighlight } from "./highlight";
+export { chooseHighlight } from "./highlight";
 
 // These moved to `timeline.ts` so the critic could share them without importing
 // the renderer that imports it. Re-exported because this is where callers —
@@ -568,6 +570,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   };
 
   const silence = find("removeSilence");
+  const highlight = find("extractHighlight");
   const reframe = find("formatForPlatform");
   // `let`, because the critic revises these once it knows what the edit became.
   let kenBurns = find("kenBurns");
@@ -627,6 +630,43 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         kept = candidate;
         notes.push(`removed ${(source.duration - keptDuration).toFixed(1)}s of silence across ${silences.length} gaps`);
       }
+    }
+  }
+
+  // ── The highlight ─────────────────────────────────────────────────────────
+  //
+  // Chosen after silence detection and applied as an intersection with it, so
+  // "the best 30 seconds, with the dead air cut" means exactly that: the
+  // window is picked from the words, and whatever silence removal decided is
+  // honoured *inside* it. One `kept` list feeds the concat, the effective
+  // duration and the critic, so captions and punches land on the edited clock
+  // without anything new learning to count time.
+  if (highlight) {
+    const choice = chooseHighlight(source.duration, highlight.targetSeconds, ctx.words);
+    if (choice.how === "whole") {
+      notes.push(
+        `the clip is ${source.duration.toFixed(1)}s — no longer than the ${Math.round(highlight.targetSeconds)}s you asked to keep, so nothing was cut away`,
+      );
+    } else {
+      let window = choice.window;
+      if (ctx.words && ctx.words.length > 0) {
+        // The scorer starts windows on word starts, but the right edge can
+        // still land mid-word; widening both edges to word boundaries costs a
+        // breath of extra footage and saves a clipped syllable.
+        const snapped = snapToWords([window], ctx.words);
+        if (snapped.length === 1) window = { start: snapped[0].start, end: Math.min(source.duration, snapped[0].end) };
+      }
+      const inside = (kept ?? [{ start: 0, end: source.duration }])
+        .map((s) => ({ start: Math.max(s.start, window.start), end: Math.min(s.end, window.end) }))
+        .filter((s) => s.end - s.start > 0.05);
+      // A window that somehow swallowed every kept stretch would render
+      // nothing; the window alone is the least-wrong recovery.
+      kept = inside.length > 0 ? inside : [window];
+      notes.push(
+        choice.how === "speech"
+          ? `kept the strongest ${Math.round(window.end - window.start)}s — ${window.start.toFixed(1)}s to ${window.end.toFixed(1)}s, where the speech runs densest`
+          : `we could not hear the words in this clip, so the highlight is its middle ${Math.round(window.end - window.start)}s`,
+      );
     }
   }
 
@@ -1051,6 +1091,7 @@ function describeWork(plan: EditPlan): string {
 export function describe(op: EditOperation): string {
   switch (op.type) {
     case "removeSilence": return "Cutting the silences";
+    case "extractHighlight": return "Finding the strongest stretch";
     case "formatForPlatform": return `Reframing for ${op.platform}`;
     case "burnCaptions": return "Burning in captions";
     // Replaced by burnCaptions before the renderer ever sees a plan — see

@@ -56,7 +56,10 @@ export async function enrichPlan(
   // otherwise spread punches evenly, which is the automatic look we are trying
   // not to have.
   const wantsChosenPunches = plan.operations.some((op) => op.type === "zoomPunch" && op.at.length === 0);
-  const needsTranscript = wantsCaptions || wantsChosenPunches;
+  // A highlight is chosen from the words: without them the renderer falls
+  // back to the middle of the clip, which is a guess, not a judgement.
+  const wantsHighlight = plan.operations.some((op) => op.type === "extractHighlight");
+  const needsTranscript = wantsCaptions || wantsChosenPunches || wantsHighlight;
 
   let transcript: Transcript | null = null;
 
