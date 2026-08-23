@@ -43,6 +43,13 @@ export const clipsTable = pgTable(
     /** The worker's one line about this clip, shown under it in the list. */
     note: text("note"),
 
+    /**
+     * The opening words spoken in this clip's window, from the transcript.
+     * Null when nothing was heard — a title the product invented would be a
+     * title the speaker never said.
+     */
+    title: text("title"),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("clips_project_id_idx").on(t.projectId)],
