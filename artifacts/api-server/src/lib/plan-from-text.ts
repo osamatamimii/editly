@@ -82,6 +82,19 @@ const CAPTION_WORDS = /\bcaption|subtitle|sub ?titles?|text on screen|on-?screen
 const KARAOKE_WORDS = /\bkaraoke|word by word|word-by-word|highlight/i;
 const YELLOW_WORDS = /\byellow|gold\b/i;
 
+/**
+ * Asking for the strongest stretch, in the ways people actually ask.
+ *
+ * "highlight" alone is deliberately not enough — KARAOKE_WORDS above already
+ * reads it as a caption style ("highlight each word"), so the highlight *cut*
+ * needs the shape of a request for a piece of the clip: "the best part",
+ * "strongest 30 seconds", "a highlight reel", "just the good bit".
+ */
+const HIGHLIGHT_WORDS =
+  /\b(best|strongest|good|top|most interesting) ?\d* ?(part|parts|bit|bits|moment|moments|section|seconds?|secs?|s\b)|highlight reel|the highlight\b|أفضل جزء|أقوى جزء|أفضل لقطة|أقوى لقطة|مقتطف|الزبدة|زبدة الفيديو/i;
+/** "best 45 seconds", "the top 20s" — the number they said, not our default. */
+const HIGHLIGHT_SECONDS = /\b(\d{1,3}) ?(?:seconds?|secs?|s\b|ثانية|ثواني)/i;
+
 const PUNCH_WORDS = /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b/i;
 const PUSH_WORDS = /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b/i;
 const LOUDNESS_WORDS = /\bloud|volume|quiet|audio level|sound level|normali[sz]/i;
@@ -101,6 +114,15 @@ export function planFromText(
   if (wantsSilenceCut) {
     operations.push({ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 });
     willDo.push("cut out the silences and dead air");
+  }
+
+  // The person asks for a length; where those seconds live is the worker's
+  // judgement, made from the transcript. The plan carries only the length.
+  if (HIGHLIGHT_WORDS.test(text)) {
+    const asked = HIGHLIGHT_SECONDS.exec(text);
+    const targetSeconds = Math.min(120, Math.max(5, asked ? Number(asked[1]) : 30));
+    operations.push({ type: "extractHighlight", targetSeconds });
+    willDo.push(`pull the strongest ${targetSeconds} seconds into its own cut`);
   }
 
   if (wantsVertical) {

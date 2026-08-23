@@ -82,6 +82,7 @@ function buildSchema(assets: PlannerAsset[]) {
 
   const types = [
     "removeSilence",
+    "extractHighlight",
     "formatForPlatform",
     "autoCaptions",
     "kenBurns",
@@ -111,6 +112,7 @@ function buildSchema(assets: PlannerAsset[]) {
             "zoomTo",
             "punchAmount",
             "minSilenceMs",
+            "targetSeconds",
             "assetId",
             "atSeconds",
             "durationSeconds",
@@ -129,6 +131,8 @@ function buildSchema(assets: PlannerAsset[]) {
             punchAmount: { type: ["number", "null"] },
             /** Milliseconds. Pauses shorter than this are speech, not dead air. */
             minSilenceMs: { type: ["number", "null"] },
+            /** Seconds. For extractHighlight: how long the kept stretch should be. */
+            targetSeconds: { type: ["number", "null"] },
             /** Which file from this project. Only these ids exist. */
             assetId:
               assetIds.length > 0
@@ -174,6 +178,9 @@ function instructionFor(assets: PlannerAsset[]): string {
     "asking for TikTok implies formatForPlatform, asking to tighten implies removeSilence.",
     "Do not add operations because they are usually nice. An edit nobody asked for is an edit nobody wants.",
     "zoomPunch places punch-ins where the speaker stresses a word; the worker finds those, you only ask for it.",
+    "extractHighlight keeps only the strongest stretch of the clip — choose it when they ask for the best part,",
+    "a highlight, or the top N seconds. targetSeconds is the length they asked for (default 30); the worker",
+    "chooses where those seconds live, from the speech itself. Never choose it for requests about the whole video.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
     "motionTitle animates words onto the screen. Use the person's own words — never write copy they did not ask for.",
   ];
@@ -332,6 +339,10 @@ function toOperation(
           minSilenceMs: numberOr(raw["minSilenceMs"], 500),
           paddingMs: 80,
         };
+      case "extractHighlight":
+        // Clamped rather than rejected: "the best 3 minutes" should become
+        // the longest highlight we make, not a keyword-matcher fallback.
+        return { type, targetSeconds: Math.min(120, Math.max(5, numberOr(raw["targetSeconds"], 30))) };
       case "formatForPlatform":
         return { type, platform: raw["platform"] ?? defaultPlatform ?? "tiktok" };
       case "autoCaptions":
@@ -422,6 +433,7 @@ function describeAll(operations: EditOperation[]): string[] {
   return operations.map((op) => {
     switch (op.type) {
       case "removeSilence": return "cut out the silences and dead air";
+      case "extractHighlight": return `pull the strongest ${Math.round(op.targetSeconds)} seconds into its own cut`;
       case "formatForPlatform": return `reframe it to 9:16 for ${op.platform}`;
       case "autoCaptions": return "caption it from what is actually said";
       case "kenBurns": return "add a slow push so the frame is not static";
