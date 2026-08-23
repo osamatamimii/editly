@@ -526,6 +526,40 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /projects/{id}/clips:
+    get:
+      operationId: listClips
+      tags: [clips]
+      summary: The pieces clips renders have cut from this project's video
+      description: >
+        Newest set first, source order within a set. Each clip is its own
+        artifact with its own storage path, which the browser signs into a
+        playback URL with its own session - the same way it plays everything
+        else this project owns.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The project's clips
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Clip"
+        "404":
+          description: >
+            No such project, or not this account's. The same answer for both, so
+            that whether an id exists is not learnable from a status code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /projects/{id}/assets/{assetId}:
     delete:
       operationId: deleteAsset
@@ -1124,6 +1158,7 @@ components:
         - $ref: "#/components/schemas/RemoveSilenceOperation"
         - $ref: "#/components/schemas/ExtractHighlightOperation"
         - $ref: "#/components/schemas/ExtractRangeOperation"
+        - $ref: "#/components/schemas/ExtractClipsOperation"
         - $ref: "#/components/schemas/FormatForPlatformOperation"
         - $ref: "#/components/schemas/BurnCaptionsOperation"
         - $ref: "#/components/schemas/AutoCaptionsOperation"
@@ -1413,6 +1448,71 @@ components:
           minimum: 0
           maximum: 86400
       required: [type, startSeconds, endSeconds]
+
+    ExtractClipsOperation:
+      description: >
+        Cut the video into several separate clips. The caller names how many
+        and how long each should be; the worker chooses where each one lives -
+        the same judgement extractHighlight makes, made several times over with
+        the windows kept apart - and renders one output per clip. The outputs
+        are listed by GET /projects/{id}/clips; the project's own pointer keeps
+        meaning "the latest whole-video render".
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [extractClips]
+        count:
+          description: How many pieces to cut.
+          type: number
+          minimum: 2
+          maximum: 6
+          default: 3
+        targetSeconds:
+          description: How long each piece should be, in seconds.
+          type: number
+          minimum: 5
+          maximum: 120
+          default: 30
+      required: [type]
+
+    Clip:
+      description: >
+        One piece a clips render cut from the source. The storage path is
+        returned - the worker wrote this file, so the browser has no other way
+        to learn where it is - and only to the verified owner, exactly as
+        editedVideoPath already is on the project. The browser signs its own
+        playback URL from it.
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        jobId:
+          description: Which render produced it - clips from one ask share a jobId.
+          type: string
+        idx:
+          description: 1-based position in its set, in source order.
+          type: number
+        startSeconds:
+          description: Where in the source this clip begins, in seconds.
+          type: number
+        endSeconds:
+          type: number
+        outputPath:
+          type: string
+        outputSeconds:
+          type: number
+          nullable: true
+        note:
+          description: The worker's one line about this clip.
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required:
+        [id, projectId, jobId, idx, startSeconds, endSeconds, outputPath, outputSeconds, note, createdAt]
 
     RemoveSilenceOperation:
       type: object
