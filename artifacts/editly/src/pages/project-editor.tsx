@@ -49,6 +49,7 @@ import {
 import { ToastAction } from "@/components/ui/toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ProjectLibrary } from "@/components/project-library";
+import { ProjectClips, getListClipsQueryKey } from "@/components/project-clips";
 import { takePendingUpload } from "@/lib/pending-upload";
 
 /** m:ss — anything longer than an hour is not what this product is for. */
@@ -168,6 +169,9 @@ export default function ProjectEditor() {
     // Guarded by settledJobRef, so a settle without a follow-up asks once,
     // gets the same answer, and stops.
     queryClient.invalidateQueries({ queryKey: getRenderStatusQueryKey(id) });
+    // A settled render may have been a clips render; the panel appears the
+    // moment its rows exist rather than on the next hard refresh.
+    queryClient.invalidateQueries({ queryKey: getListClipsQueryKey(id) });
   }, [renderJob?.id, renderJob?.status, id, queryClient]);
 
   // The bucket is private, so playback needs a freshly signed URL.
@@ -855,6 +859,10 @@ export default function ProjectEditor() {
     <ProjectLibrary projectId={project.id} userId={user.id} />
   );
 
+  const clipsPanel = (
+    <ProjectClips projectId={project.id} />
+  );
+
   const looks = templates && templates.length > 0 && (
     <div
       className={`rounded-xl glass-panel border border-hairline ${
@@ -1114,6 +1122,7 @@ export default function ProjectEditor() {
                   data-testid="side-controls"
                 >
                   {looks}
+                  {clipsPanel}
                   {library}
                   {reference}
                 </aside>
@@ -1123,7 +1132,7 @@ export default function ProjectEditor() {
 
           {/* Under a landscape clip the width is the plentiful dimension, so the
               looks sit below as a row. A vertical clip puts them in the column. */}
-          {hasVideo && !sideBySide && <div>{looks}{library}{reference}</div>}
+          {hasVideo && !sideBySide && <div>{looks}{clipsPanel}{library}{reference}</div>}
         </div>
 
         {/* AI Chat Sidebar.
