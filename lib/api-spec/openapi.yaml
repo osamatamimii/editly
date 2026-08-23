@@ -560,6 +560,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /projects/{id}/clips/{clipId}:
+    delete:
+      operationId: deleteClip
+      tags: [clips]
+      summary: Delete one clip the person decided against keeping
+      description: >
+        Removes the row, then makes an immediate best-effort attempt on the
+        master file and its preview mirror - a failure there leaves orphan
+        bytes that deleting the project reclaims, never a row pointing at a
+        file that is gone. Scoped by user, project and clip; a guessed id
+        gets the same 404 as one that never existed.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: clipId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: No such clip in this project for this account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /projects/{id}/assets/{assetId}:
     delete:
       operationId: deleteAsset
@@ -1509,10 +1541,17 @@ components:
           description: The worker's one line about this clip.
           type: string
           nullable: true
+        title:
+          description: >
+            The opening words spoken in this clip's window, from the
+            transcript. Null when nothing was heard - a title the product
+            invented would be a title the speaker never said.
+          type: string
+          nullable: true
         createdAt:
           type: string
       required:
-        [id, projectId, jobId, idx, startSeconds, endSeconds, outputPath, outputSeconds, note, createdAt]
+        [id, projectId, jobId, idx, startSeconds, endSeconds, outputPath, outputSeconds, note, title, createdAt]
 
     RemoveSilenceOperation:
       type: object
