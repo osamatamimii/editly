@@ -74,6 +74,18 @@ spawnSync(
 );
 const { encodePreview, previewPathFor } = await import(pathToFileURL(previewModPath).href);
 
+const reviewModPath = path.join(buildDir, "review.mjs");
+spawnSync(
+  require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/worker"] }),
+  [
+    path.join(repoRoot, "artifacts/worker/src/review.ts"),
+    "--bundle", "--platform=node", "--format=esm", "--target=node22",
+    `--outfile=${reviewModPath}`, "--log-level=error",
+  ],
+  { stdio: "inherit" },
+);
+const { reviewOutput } = await import(pathToFileURL(reviewModPath).href);
+
 async function sameCropAs(sourceFile, cropWidth, cropHeight) {
   const info = await probeSource(sourceFile);
   const scaledWidth = Math.round(info.width * coverScale(info, { width: cropWidth, height: cropHeight }));
@@ -672,6 +684,160 @@ console.log("\nThe highlight is chosen from the words, cut for real, and honest 
     both.notes.some((n) => /middle 8s/.test(n)) && both.notes.some((n) => /silence/.test(n)),
     JSON.stringify(both.notes),
   );
+}
+
+console.log("\nThe worker looks at what it made before handing it over");
+{
+  const dir = await scratch();
+
+  // A finished-looking output whose mix landed nowhere near the brief: bright
+  // test pattern, tone at roughly -31 LUFS against a -14 target.
+  const off = path.join(dir, "off.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=6",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=6",
+    "-filter_complex", "[1:a]volume=0.05[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", off,
+  ]);
+  const keep = path.join(dir, "off-before.mp4");
+  spawnSync("cp", [off, keep]);
+
+  const before = measureLoudness(off);
+  check("the crafted output really did miss the target", before < -20, `${before} LUFS`);
+
+  const loudnessPlan = [{ type: "normalizeLoudness", targetLufs: -14 }];
+  const review = await reviewOutput(off, {
+    operations: loudnessPlan,
+    sourcePath: keep,
+    sourceHadAudio: true,
+    expectedSeconds: 6,
+    workDir: dir,
+  });
+  check("the miss is noticed and the file is repaired in place", review.repaired === true, JSON.stringify(review));
+  const after = measureLoudness(off);
+  check("the corrected mix lands within tolerance of the target", Math.abs(after + 14) <= 1.2, `${after} LUFS`);
+  check(
+    "and the note admits the first pass missed rather than pretending",
+    review.notes.some((n) => /levelling missed/.test(n) && /LUFS/.test(n)),
+    JSON.stringify(review.notes),
+  );
+  check(
+    "the picture was stream-copied, not re-encoded — the frames are bit-identical",
+    psnr(keep, off) === Infinity,
+    String(psnr(keep, off)),
+  );
+
+  // The same file, reviewed again: now on target, so the critic stays quiet.
+  const again = await reviewOutput(off, {
+    operations: loudnessPlan,
+    sourcePath: keep,
+    sourceHadAudio: true,
+    expectedSeconds: 6,
+    workDir: dir,
+  });
+  check(
+    "a mix already on target is left untouched, with nothing to say",
+    again.repaired === false && again.notes.length === 0,
+    JSON.stringify(again),
+  );
+
+  // A near-silent mix is a clip with nothing in it, not a level to correct —
+  // gain would only raise the noise floor, so no repair and no note.
+  const hush = path.join(dir, "hush.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+    "-filter_complex", "[1:a]volume=0.001[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", hush,
+  ]);
+  const hushed = await reviewOutput(hush, {
+    operations: loudnessPlan,
+    sourcePath: hush,
+    sourceHadAudio: true,
+    expectedSeconds: 4,
+    workDir: dir,
+  });
+  check(
+    "silence is not corrected and not apologised for",
+    hushed.repaired === false && hushed.notes.length === 0,
+    JSON.stringify(hushed),
+  );
+
+  // A source that had sound and an output that does not is a defect worth
+  // saying out loud — deterministic, so not retried, but never hushed up.
+  const mute = path.join(dir, "mute.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=4",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", mute,
+  ]);
+  const muted = await reviewOutput(mute, {
+    operations: loudnessPlan,
+    sourcePath: keep,
+    sourceHadAudio: true,
+    expectedSeconds: 4,
+    workDir: dir,
+  });
+  check(
+    "an audio track that vanished is confessed in the notes",
+    muted.notes.some((n) => /sound did not survive/.test(n)),
+    JSON.stringify(muted.notes),
+  );
+
+  // A black picture is called out — but only when the source was not black,
+  // because audio over a black card is somebody's deliberate look.
+  const black = path.join(dir, "black.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "color=c=black:size=320x240:rate=25:duration=4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+    "-map", "0:v", "-map", "1:a",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", black,
+  ]);
+  const blackFromBright = await reviewOutput(black, {
+    operations: [],
+    sourcePath: keep,
+    sourceHadAudio: true,
+    expectedSeconds: 4,
+    workDir: dir,
+  });
+  check(
+    "a black picture from a bright source is a confessed bug",
+    blackFromBright.notes.some((n) => /came out black/.test(n)),
+    JSON.stringify(blackFromBright.notes),
+  );
+  const blackFromBlack = await reviewOutput(black, {
+    operations: [],
+    sourcePath: black,
+    sourceHadAudio: true,
+    expectedSeconds: 4,
+    workDir: dir,
+  });
+  check(
+    "a black picture from a black source is the user's own look, not our bug",
+    blackFromBlack.notes.every((n) => !/came out black/.test(n)),
+    JSON.stringify(blackFromBlack.notes),
+  );
+
+  // Length drift is ours to chase in the logs, never the user's to worry about.
+  const drifted = await reviewOutput(off, {
+    operations: loudnessPlan,
+    sourcePath: keep,
+    sourceHadAudio: true,
+    expectedSeconds: 20,
+    workDir: dir,
+  });
+  check(
+    "duration drift raises a diagnostic, not an apology",
+    drifted.warnings.some((w) => /cut map/.test(w)) && drifted.notes.length === 0,
+    JSON.stringify(drifted),
+  );
+
+  await rm(dir, { recursive: true, force: true });
 }
 
 await rm(workDir, { recursive: true, force: true });
