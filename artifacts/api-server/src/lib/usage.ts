@@ -29,10 +29,14 @@ export function startOfMonthUtc(now = new Date()): Date {
 export async function usageFor(userId: string, plan: PlanKey): Promise<Usage> {
   const [row] = await db
     .select({
-      // Jobs from before minute-based billing have no measured duration. They
-      // are skipped rather than counted as zero, because "we did not measure
-      // this" and "this was free" are different claims and only one is true.
-      seconds: sql<number>`coalesce(sum(${jobsTable.outputSeconds}), 0)`,
+      // The charge column first, the measurement as its fallback. A clips
+      // render is billed at the source it read rather than the pieces it
+      // produced — that lives in billed_seconds — while rows from before that
+      // column existed fall back to output_seconds, which is exactly what
+      // they were billed at the time. Jobs with neither are skipped rather
+      // than counted as zero, because "we did not measure this" and "this
+      // was free" are different claims and only one is true.
+      seconds: sql<number>`coalesce(sum(coalesce(${jobsTable.billedSeconds}, ${jobsTable.outputSeconds})), 0)`,
     })
     .from(jobsTable)
     .where(
