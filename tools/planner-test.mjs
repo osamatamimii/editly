@@ -385,6 +385,43 @@ console.log("\nThe keyword matcher can reach the library too");
   check("nothing is listed as impossible", result.cannotYet.length === 0, JSON.stringify(result.cannotYet));
 }
 
+console.log("\nThe best N seconds is a plan, not a shrug");
+{
+  const planner = createPlanner({ apiKey: "" });
+
+  const asked = await planner.plan("just give me the best 45 seconds of this", {});
+  const highlight = asked.operations.find((o) => o.type === "extractHighlight");
+  check("asking for the best stretch becomes extractHighlight", Boolean(highlight), JSON.stringify(asked.operations));
+  check("with the length they said, not our default", highlight?.targetSeconds === 45, String(highlight?.targetSeconds));
+  check(
+    "and the reply promises the judgement, not the mechanism",
+    /strongest 45 seconds/.test(asked.willDo.join(" ")),
+    JSON.stringify(asked.willDo),
+  );
+
+  const bare = await planner.plan("pull out the strongest part and make it vertical", {});
+  const dflt = bare.operations.find((o) => o.type === "extractHighlight");
+  check("no number falls back to 30 seconds", dflt?.targetSeconds === 30, String(dflt?.targetSeconds));
+  check(
+    "and composes with the rest of the sentence",
+    bare.operations.some((o) => o.type === "formatForPlatform"),
+    JSON.stringify(bare.operations.map((o) => o.type)),
+  );
+
+  // "highlight each word" is the caption style; it must not start cutting
+  // the video down to 30 seconds because it heard the word "highlight".
+  const karaoke = await planner.plan("caption it and highlight each word as it is said", {});
+  check(
+    "caption-highlighting does not trigger the cut",
+    !karaoke.operations.some((o) => o.type === "extractHighlight"),
+    JSON.stringify(karaoke.operations.map((o) => o.type)),
+  );
+
+  const absurd = await planner.plan("keep only the best 300 seconds", {});
+  const clamped = absurd.operations.find((o) => o.type === "extractHighlight");
+  check("an absurd length is clamped, not refused", clamped?.targetSeconds === 120, String(clamped?.targetSeconds));
+}
+
 console.log("\nAsking for what the project does not have");
 {
   const planner = createPlanner({ apiKey: "" });

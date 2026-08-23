@@ -44,7 +44,7 @@ if (esbuild.status !== 0) {
   process.exit(1);
 }
 
-const { renderPlan, probeSource, keepSegmentsFrom, remapTime, zoomExpression, writeSubtitleFile, frameFor } =
+const { renderPlan, probeSource, keepSegmentsFrom, remapTime, zoomExpression, writeSubtitleFile, frameFor, chooseHighlight } =
   await import(pathToFileURL(modulePath).href);
 
 // The reference command below has to crop where the pipeline crops, or it
@@ -587,6 +587,90 @@ console.log("\nWhen ffmpeg refuses, it says why");
     "and it is one sentence rather than a wall — this reaches a person",
     firstLine.length < 300,
     String(firstLine.length),
+  );
+}
+
+console.log("\nThe highlight is chosen from the words, cut for real, and honest about how");
+{
+  // ── The choice, as pure arithmetic ────────────────────────────────────────
+  const whole = chooseHighlight(20, 30, undefined);
+  check("a clip shorter than the ask is kept whole", whole.how === "whole" && whole.window.end === 20, JSON.stringify(whole));
+
+  const centered = chooseHighlight(20, 8, undefined);
+  check(
+    "no words means the middle, said as a fallback rather than a judgement",
+    centered.how === "centered" && Math.abs(centered.window.start - 6) < 0.01 && Math.abs(centered.window.end - 14) < 0.01,
+    JSON.stringify(centered),
+  );
+
+  // Dense clean speech late in the clip, hesitant fragments early: the window
+  // must find the dense run, and the same words must always pick the same
+  // window — a re-render that moves the highlight is a product nobody trusts.
+  const words = [
+    { start: 1.0, end: 1.3, filler: true },
+    { start: 2.0, end: 2.2, filler: false },
+    ...Array.from({ length: 12 }, (_, i) => ({ start: 13 + i * 0.45, end: 13 + i * 0.45 + 0.4, filler: false })),
+  ];
+  const spoken = chooseHighlight(20, 6, words);
+  check(
+    "with words, the densest stretch of speech wins",
+    spoken.how === "speech" && spoken.window.start >= 12 && spoken.window.end <= 20,
+    JSON.stringify(spoken),
+  );
+  check(
+    "and the choice is deterministic",
+    JSON.stringify(chooseHighlight(20, 6, words)) === JSON.stringify(spoken),
+  );
+
+  // ── The cut, through the real renderer ────────────────────────────────────
+  const blind = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "extractHighlight", targetSeconds: 6 }] },
+    { workDir: await scratch() },
+  );
+  const blindSeconds = Number(ffprobe(blind.output, "format=duration")[0]);
+  check("the wordless highlight is the asked length", Math.abs(blindSeconds - 6) < 0.6, String(blindSeconds));
+  check(
+    "and its note admits the middle was a fallback",
+    blind.notes.some((n) => /middle 6s/.test(n)),
+    JSON.stringify(blind.notes),
+  );
+
+  const heard = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "extractHighlight", targetSeconds: 6 }] },
+    { workDir: await scratch(), words },
+  );
+  const heardSeconds = Number(ffprobe(heard.output, "format=duration")[0]);
+  check(
+    "a heard highlight lands on the speech and says where",
+    heard.notes.some((n) => /strongest 6s — 1[23]/.test(n)),
+    JSON.stringify(heard.notes),
+  );
+  check("at roughly the asked length, allowing the word-boundary widening", heardSeconds > 5.4 && heardSeconds < 8, String(heardSeconds));
+
+  // ── Composed with silence removal: the silences are cut inside the window ──
+  const both = await renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        { type: "extractHighlight", targetSeconds: 8 },
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  const bothSeconds = Number(ffprobe(both.output, "format=duration")[0]);
+  check(
+    "the centered 8s window keeps only its audible stretch",
+    bothSeconds > 2.5 && bothSeconds < 4.5,
+    String(bothSeconds),
+  );
+  check(
+    "and both decisions are in the notes, because both were made",
+    both.notes.some((n) => /middle 8s/.test(n)) && both.notes.some((n) => /silence/.test(n)),
+    JSON.stringify(both.notes),
   );
 }
 
