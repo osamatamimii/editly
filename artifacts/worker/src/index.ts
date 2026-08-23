@@ -484,6 +484,10 @@ async function processJob(job: Job): Promise<void> {
         outputPath,
         notes,
         outputSeconds: measured.seconds,
+        // A single render is billed at what it produced. Written explicitly
+        // rather than left to the meter's fallback, so the charge is a
+        // recorded fact and not an inference.
+        billedSeconds: measured.seconds,
         outputSecondsSource: measured.how,
         sourceSeconds,
         lockedAt: null,
@@ -648,6 +652,12 @@ async function renderClipSet(args: {
       ? `chose ${chosen.windows.length} stretches where the speech runs densest`
       : `we could not hear words in this clip, so it was divided evenly into ${chosen.windows.length}`,
   );
+  // The charge, said where the person will read it. Clips are metered by the
+  // source they read, not by the pieces — the whole file was transcribed and
+  // scored to choose them — and a charge nobody saw coming is a dispute.
+  notes.push(
+    `counted as ${Math.round(sourceSeconds)}s against your minutes — clips are metered by the source they read, not by the pieces`,
+  );
 
   const total = chosen.windows.length;
   let outputSecondsSum = 0;
@@ -750,6 +760,10 @@ async function renderClipSet(args: {
       outputPath: firstClipPath,
       notes,
       outputSeconds: outputSecondsSum,
+      // A clips render reads the whole source — transcribes it, scores every
+      // window, renders each piece — so the source is what it is billed at,
+      // and the note below says so before anyone reads it off an invoice.
+      billedSeconds: sourceSeconds,
       outputSecondsSource: weakestMeasure,
       sourceSeconds,
       lockedAt: null,
