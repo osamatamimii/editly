@@ -299,6 +299,13 @@ export interface FormatForPlatformOperation {
   platform: "tiktok" | "reels" | "shorts";
 }
 
+/** Keep only the strongest stretch — the worker chooses where it lives. */
+export interface ExtractHighlightOperation {
+  type: "extractHighlight";
+  /** How long the finished highlight should be, in seconds. */
+  targetSeconds?: number;
+}
+
 export interface CaptionCue {
   startMs: number;
   endMs: number;
@@ -346,6 +353,7 @@ export interface WatermarkOperation {
 
 export type EditOperation =
   | RemoveSilenceOperation
+  | ExtractHighlightOperation
   | FormatForPlatformOperation
   | BurnCaptionsOperation
   | WatermarkOperation
