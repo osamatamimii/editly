@@ -382,6 +382,25 @@ if (!DATABASE_URL) {
     );
   }
 
+  section("Clips are charged by the source they read, not by the pieces");
+  {
+    await clear();
+    // A clips render of a two-minute source that produced ten seconds of
+    // pieces: the worker records the charge — the source — in its own column.
+    await insert("clips-job", METERED, { output_seconds: 10, billed_seconds: 120 });
+    const usage = await usageFor(METERED, "free");
+    check("the charge column wins over the measurement", usage.minutesUsed === 2, JSON.stringify(usage));
+
+    // A row from before the column existed is billed exactly as it was then.
+    await insert("legacy-job", METERED, { output_seconds: 60, billed_seconds: null });
+    const both = await usageFor(METERED, "free");
+    check(
+      "and a legacy row falls back to what it was billed at the time",
+      both.minutesUsed === 3,
+      JSON.stringify(both),
+    );
+  }
+
   section("A render nobody could measure is skipped, not counted as free");
   {
     await clear();

@@ -360,6 +360,11 @@ section("A queued job becomes an edited file");
     `${row?.output_seconds} vs ${seconds}`,
   );
   check(
+    "a single render is billed at exactly what it produced",
+    Math.abs(Number(row?.billed_seconds) - Number(row?.output_seconds)) < 0.01,
+    `billed ${row?.billed_seconds} vs output ${row?.output_seconds}`,
+  );
+  check(
     "the source was measured too, so the next ceiling check starts from the truth",
     Math.abs(Number(row?.source_seconds) - 12) < 1,
     String(row?.source_seconds),
@@ -465,9 +470,14 @@ section("A clips plan becomes several files, each its own artifact");
     `${row?.output_path} vs ${clips[0]?.output_path}`,
   );
   check(
-    "the meter counts the sum of the pieces",
+    "output_seconds still records the sum of the pieces — the measurement",
     Math.abs(Number(row?.output_seconds) - durations.reduce((a, b) => a + b, 0)) < 0.8,
     `${row?.output_seconds} vs ${durations.reduce((a, b) => a + b, 0)}`,
+  );
+  check(
+    "but the charge is the source that was read — twelve seconds, not ten",
+    Math.abs(Number(row?.billed_seconds) - 12) < 1,
+    String(row?.billed_seconds),
   );
 
   const project = await readProject(projectId);
@@ -487,6 +497,11 @@ section("A clips plan becomes several files, each its own artifact");
   check(
     "and is honest that no ears were involved — no transcriber runs in this test",
     /divided evenly/.test(summary),
+    summary,
+  );
+  check(
+    "and the charge is said where the person reads, before any invoice",
+    /metered by the source they read/.test(summary),
     summary,
   );
 
