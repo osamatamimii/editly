@@ -30,7 +30,7 @@ import {
 import { trackSubject, trackNote } from "./subject";
 import { keepSegmentsFrom, remapTime, snapToWords, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
 import { chooseHighlight } from "./highlight";
-export { chooseHighlight } from "./highlight";
+export { chooseHighlight, chooseClips } from "./highlight";
 
 // These moved to `timeline.ts` so the critic could share them without importing
 // the renderer that imports it. Re-exported because this is where callers —
@@ -1134,6 +1134,10 @@ export function describe(op: EditOperation): string {
     case "removeSilence": return "Cutting the silences";
     case "extractHighlight": return "Finding the strongest stretch";
     case "extractRange": return "Cutting to the stretch you named";
+    // Expanded by the worker into one extractRange render per clip before the
+    // renderer ever sees a plan — see index.ts. Named here so the switch stays
+    // exhaustive and a future path that skips the expansion fails to compile.
+    case "extractClips": return "Cutting it into clips";
     case "formatForPlatform": return `Reframing for ${op.platform}`;
     case "burnCaptions": return "Burning in captions";
     // Replaced by burnCaptions before the renderer ever sees a plan — see

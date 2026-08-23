@@ -59,7 +59,10 @@ export async function enrichPlan(
   // A highlight is chosen from the words: without them the renderer falls
   // back to the middle of the clip, which is a guess, not a judgement.
   const wantsHighlight = plan.operations.some((op) => op.type === "extractHighlight");
-  const needsTranscript = wantsCaptions || wantsChosenPunches || wantsHighlight;
+  // Clips are placed by the same speech-density judgement the highlight uses,
+  // so a clips plan wants ears for the same reason a highlight plan does.
+  const wantsClips = plan.operations.some((op) => op.type === "extractClips");
+  const needsTranscript = wantsCaptions || wantsChosenPunches || wantsHighlight || wantsClips;
 
   let transcript: Transcript | null = null;
 

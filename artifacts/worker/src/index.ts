@@ -8,19 +8,20 @@
  *
  * Env: DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { sql, eq, and } from "drizzle-orm";
 import pino from "pino";
-import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, workerHeartbeatsTable, type Job } from "@workspace/db";
-import { EditPlan } from "@workspace/api-zod";
+import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
+import { EditPlan, type EditOperation } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
 import { renderPlan, probeDuration, probeSource, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
 import { reviewOutput } from "./review";
+import { chooseClips } from "./highlight";
 import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAllowanceMessage } from "./duration";
 import { enrichPlan } from "./enrich";
 import { resolveProviders } from "./providers";
@@ -369,6 +370,31 @@ async function processJob(job: Job): Promise<void> {
       }
     }
 
+    // ── Several clips instead of one video ────────────────────────────────
+    //
+    // A clips plan is expanded here, not in the renderer: each chosen window
+    // becomes its own complete render — an extractRange the worker decided on
+    // plus everything else the plan asked for — so every clip rides exactly
+    // the paths a single render does, review pass included. The project's own
+    // pointer keeps meaning "the latest whole-video render" and is not
+    // touched; the outputs are their own artifacts in the clips table.
+    const clipsOp = enriched.plan.operations.find((op) => op.type === "extractClips");
+    if (clipsOp && clipsOp.type === "extractClips") {
+      await renderClipSet({
+        job,
+        clipsOp,
+        enriched,
+        words,
+        assets,
+        workDir,
+        inputFile,
+        sourceSeconds,
+        sourceHadAudio: sourceProbe.hasAudio,
+        log,
+      });
+      return;
+    }
+
     const { output, notes: renderNotes, estimatedSeconds } = await renderPlan(inputFile, enriched.plan, {
       workDir,
       words,
@@ -558,6 +584,209 @@ async function processJob(job: Job): Promise<void> {
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/**
+ * One clips job, expanded into one render per chosen window.
+ *
+ * Runs inside processJob's try, so a throw here fails the job through the
+ * same path a single render does. Each clip is a complete render — the
+ * worker's chosen extractRange plus everything else the plan asked for — so
+ * captions, reframing, levelling, the watermark policy added, and the
+ * post-render review all apply to every clip exactly as they would to one.
+ *
+ * The rows land in `clips`; the job's own outputPath points at the first
+ * clip (a job that made files should say so); the project's pointer is left
+ * alone, because it means "the latest whole-video render" and none happened.
+ */
+async function renderClipSet(args: {
+  job: Job;
+  clipsOp: Extract<EditOperation, { type: "extractClips" }>;
+  enriched: Awaited<ReturnType<typeof enrichPlan>>;
+  words: Array<{ start: number; end: number; filler: boolean }>;
+  assets: Map<string, { file: string; kind: "video" | "image" | "audio" }>;
+  workDir: string;
+  inputFile: string;
+  sourceSeconds: number;
+  sourceHadAudio: boolean;
+  log: pino.Logger;
+}): Promise<void> {
+  const { job, clipsOp, enriched, words, assets, workDir, inputFile, sourceSeconds, sourceHadAudio, log } = args;
+
+  await reportProgress(job.id, 9, "Choosing the clips");
+
+  // A retry must produce a fresh set, not a second copy of half of one.
+  await db.delete(clipsTable).where(eq(clipsTable.jobId, job.id));
+
+  const chosen = chooseClips(
+    sourceSeconds,
+    clipsOp.count,
+    clipsOp.targetSeconds,
+    words.length > 0 ? words : undefined,
+  );
+  if (chosen.windows.length === 0) {
+    throw new PlanEmptiedError("This video is too short to cut clips of that length from.");
+  }
+
+  // The rest of the plan applies to every clip. The other cut operations do
+  // not ride along: the clips ARE the cut, and a highlight window chosen on
+  // the whole source could escape the very piece it lands in.
+  const rest = enriched.plan.operations.filter(
+    (op) => op.type !== "extractClips" && op.type !== "extractHighlight" && op.type !== "extractRange",
+  );
+  const notes: string[] = [...enriched.notes];
+  if (rest.length !== enriched.plan.operations.length - 1) {
+    notes.push("the plan asked for clips and another cut at once — the clips won");
+  }
+  if (chosen.windows.length < clipsOp.count) {
+    notes.push(
+      `the video is ${sourceSeconds.toFixed(0)}s long, which holds ${chosen.windows.length} clip${chosen.windows.length === 1 ? "" : "s"} of ${Math.round(clipsOp.targetSeconds)}s — not the ${clipsOp.count} asked for`,
+    );
+  }
+  notes.push(
+    chosen.how === "speech"
+      ? `chose ${chosen.windows.length} stretches where the speech runs densest`
+      : `we could not hear words in this clip, so it was divided evenly into ${chosen.windows.length}`,
+  );
+
+  const total = chosen.windows.length;
+  let outputSecondsSum = 0;
+  let weakestMeasure: "probe" | "estimate" | "fallback" = "probe";
+  let firstClipPath: string | null = null;
+
+  for (const [i, window] of chosen.windows.entries()) {
+    const subDir = path.join(workDir, `clip-${i + 1}`);
+    await mkdir(subDir, { recursive: true });
+    const subPlan = {
+      version: 1 as const,
+      operations: [
+        { type: "extractRange" as const, startSeconds: window.start, endSeconds: window.end },
+        ...rest,
+      ],
+    };
+    const { output, notes: renderNotes, estimatedSeconds } = await renderPlan(inputFile, subPlan, {
+      workDir: subDir,
+      words,
+      assets,
+      onProgress: (fraction, stage) => {
+        void reportProgress(
+          job.id,
+          10 + ((i + fraction) / total) * 78,
+          `Clip ${i + 1} of ${total}: ${stage}`,
+        ).catch(() => {});
+      },
+    });
+
+    // The same look every single render gets, per clip. Best-effort for the
+    // same reason: a review that cannot run must not cost the render.
+    try {
+      const review = await reviewOutput(output, {
+        operations: subPlan.operations,
+        sourcePath: inputFile,
+        sourceHadAudio,
+        expectedSeconds: estimatedSeconds,
+        workDir: subDir,
+      });
+      renderNotes.push(...review.notes);
+      if (review.warnings.length > 0) {
+        log.warn({ clip: i + 1, warnings: review.warnings }, "clip review raised flags");
+      }
+    } catch (error) {
+      log.warn({ err: error, clip: i + 1 }, "clip review failed; delivering unreviewed");
+    }
+
+    const outputPath = `${job.userId}/${job.projectId}/clip-${job.id}-${i + 1}.mp4`;
+    await uploadObject(outputPath, output);
+    firstClipPath ??= outputPath;
+
+    // The same VP9 mirror every master gets, same naming convention, same
+    // optionality: a clip whose preview fails is a clip.
+    try {
+      const previewFile = path.join(subDir, "preview.webm");
+      await encodePreview(output, previewFile);
+      await uploadObject(previewPathFor(outputPath), previewFile);
+    } catch (error) {
+      log.warn({ err: error, clip: i + 1 }, "clip preview encode failed; the master is the only copy");
+    }
+
+    const measured = await measureOutput(() => probeDuration(output), {
+      estimate: estimatedSeconds,
+      sourceSeconds: window.end - window.start,
+    });
+    outputSecondsSum += measured.seconds;
+    if (measured.how === "fallback" || (measured.how === "estimate" && weakestMeasure === "probe")) {
+      weakestMeasure = measured.how;
+    }
+
+    const clipNote =
+      chosen.how === "speech" ? "the speech runs densest here" : "an even division of the video";
+    await db.insert(clipsTable).values({
+      id: randomUUID(),
+      projectId: job.projectId,
+      userId: job.userId,
+      jobId: job.id,
+      idx: i + 1,
+      startSeconds: window.start,
+      endSeconds: window.end,
+      outputPath,
+      outputSeconds: measured.seconds,
+      note: clipNote,
+    });
+
+    notes.push(
+      `clip ${i + 1}: kept ${clock(window.start)}–${clock(window.end)} (${measured.seconds.toFixed(1)}s${renderNotes.some((n) => /silence/.test(n)) ? ", silences cut" : ""})`,
+    );
+  }
+
+  await reportProgress(job.id, 95, "Saving the clips");
+
+  await db
+    .update(jobsTable)
+    .set({
+      status: "done",
+      progress: 100,
+      stage: null,
+      error: null,
+      outputPath: firstClipPath,
+      notes,
+      outputSeconds: outputSecondsSum,
+      outputSecondsSource: weakestMeasure,
+      sourceSeconds,
+      lockedAt: null,
+      lockedBy: null,
+      finishedAt: new Date(),
+    })
+    .where(eq(jobsTable.id, job.id));
+
+  // Status only. editedVideoPath keeps meaning "the latest whole-video
+  // render", and this job made pieces, not a whole.
+  await db
+    .update(projectsTable)
+    .set({ status: "done" })
+    .where(and(eq(projectsTable.id, job.projectId), eq(projectsTable.userId, job.userId)));
+
+  try {
+    await db.insert(messagesTable).values({
+      id: randomUUID(),
+      userId: job.userId,
+      projectId: job.projectId,
+      role: "assistant",
+      content: `Here's what I did.\n${notes.map((note) => `• ${note}`).join("\n")}`,
+    });
+  } catch (error) {
+    log.warn({ err: error }, "could not write the summary into the conversation");
+  }
+
+  log.info(
+    { clips: total, outputSeconds: outputSecondsSum, notes },
+    "clip set complete",
+  );
+}
+
+/** Seconds as m:ss, because "80s" is a number and "1:20" is a moment. */
+function clock(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
 async function main(): Promise<void> {

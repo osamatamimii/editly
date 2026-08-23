@@ -87,3 +87,95 @@ export function chooseHighlight(
 
   return { window: best ?? { start: 0, end: targetSeconds }, how: "speech" };
 }
+
+/**
+ * Where `count` separate clips of the video live.
+ *
+ * The same judgement as `chooseHighlight`, made several times over with the
+ * windows kept apart: pick the strongest window, remove everything it covers
+ * from contention, pick the strongest of what remains. Greedy is right here —
+ * the person asked for the best pieces, and the best piece of what is left
+ * after taking the best piece is exactly what "second-best clip" means to a
+ * human. Deterministic, like everything in this file: ties break earlier.
+ *
+ * With no transcript the clip is divided evenly, skipping the very ends —
+ * openings ramp up and endings trail off — and the caller says it was a
+ * division, not a judgement. Returned in source order either way, because
+ * "clip 2" should come after "clip 1" in the video, whatever their scores.
+ *
+ * A short clip yields fewer windows rather than overlapping ones: three
+ * thirty-second clips of a fifty-second video is not a thing that exists.
+ */
+export function chooseClips(
+  duration: number,
+  count: number,
+  targetSeconds: number,
+  words: SpokenWord[] | undefined,
+): { windows: Segment[]; how: "speech" | "divided" } {
+  const fit = Math.max(1, Math.min(count, Math.floor(duration / Math.max(1, targetSeconds))));
+
+  const spoken = (words ?? []).filter((w) => w.end > w.start);
+  if (spoken.length === 0) {
+    // Divide what can be divided, keeping clear of the first and last few
+    // seconds when there is room to.
+    const margin = duration > fit * targetSeconds + 4 ? 2 : 0;
+    const usable = duration - margin * 2;
+    const gap = (usable - fit * targetSeconds) / Math.max(1, fit + 1);
+    const windows: Segment[] = [];
+    for (let i = 0; i < fit; i += 1) {
+      const start = margin + gap * (i + 1) + targetSeconds * i;
+      windows.push({ start: round2(start), end: round2(start + targetSeconds) });
+    }
+    return { windows, how: "divided" };
+  }
+
+  const score = (window: Segment, taken: Segment[]): number => {
+    // A window that touches an already-chosen clip is out: two clips sharing
+    // a sentence would read as the same clip posted twice.
+    if (taken.some((t) => window.start < t.end && window.end > t.start)) return -Infinity;
+    let value = 0;
+    for (const word of spoken) {
+      const overlap = Math.min(word.end, window.end) - Math.max(word.start, window.start);
+      if (overlap <= 0) continue;
+      value += word.filler ? -overlap : overlap;
+    }
+    return value;
+  };
+
+  const starts = new Set<number>([0, Math.max(0, duration - targetSeconds)]);
+  for (const word of spoken) {
+    if (word.start + targetSeconds <= duration) starts.add(word.start);
+  }
+  const ordered = [...starts].sort((a, b) => a - b);
+
+  const taken: Segment[] = [];
+  for (let i = 0; i < fit; i += 1) {
+    let best: Segment | null = null;
+    let bestScore = -Infinity;
+    for (const start of ordered) {
+      const candidate = { start, end: Math.min(duration, start + targetSeconds) };
+      const value = score(candidate, taken);
+      if (value > bestScore + 1e-9) {
+        bestScore = value;
+        best = candidate;
+      }
+    }
+    // Nothing left that does not overlap, or nothing with any speech in it:
+    // fewer clips, honestly, rather than padding with pieces of nothing.
+    if (!best || bestScore <= 0) break;
+    taken.push(best);
+  }
+
+  if (taken.length === 0) {
+    // Speech existed but every window scored zero or less (all filler, say).
+    // Fall back to division rather than returning nothing.
+    return chooseClips(duration, count, targetSeconds, undefined);
+  }
+
+  taken.sort((a, b) => a.start - b.start);
+  return { windows: taken, how: "speech" };
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
