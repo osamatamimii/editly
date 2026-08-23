@@ -73,6 +73,17 @@ export const jobsTable = pgTable(
     outputSeconds: real("output_seconds"),
 
     /**
+     * Seconds the meter charges for this job — separated from what it
+     * produced, because clips broke the equivalence: a clips render reads and
+     * transcribes the whole source to produce a few pieces of it, so it is
+     * billed at the source it read, said openly in its notes. A single render
+     * is billed at what it produced, as always. Null on rows from before this
+     * column existed; the meter falls back to `outputSeconds` for those,
+     * which is exactly what they were billed at the time.
+     */
+    billedSeconds: real("billed_seconds"),
+
+    /**
      * How that number was arrived at: `probe` (read from the finished file),
      * `estimate` (the plan's arithmetic, when ffprobe would not answer) or
      * `fallback` (the source length, when nothing else was available).
