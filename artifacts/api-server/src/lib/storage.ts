@@ -153,6 +153,34 @@ export async function deleteProjectObjects(
 }
 
 /**
+ * Removes the named objects, and says whether it managed to.
+ *
+ * The clip-deletion path: a clip's master and its preview mirror are two
+ * exactly-known keys, and listing a prefix to find two names you already hold
+ * is a round trip for nothing. Missing objects are fine — the batch reports
+ * what it removed — and the caller decides what honesty about failure means
+ * for its route, exactly as deleteProjectObjects's callers do.
+ */
+export async function deleteObjects(
+  keys: string[],
+): Promise<{ removed: boolean; reason?: "not-configured" | "failed" }> {
+  if (!storageAdminConfigured) return { removed: false, reason: "not-configured" };
+  if (keys.length === 0) return { removed: true };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}`, {
+      method: "DELETE",
+      headers: adminHeaders(),
+      body: JSON.stringify({ prefixes: keys }),
+    });
+    if (!res.ok) throw new Error(`delete failed: ${res.status} ${await res.text()}`);
+    return { removed: true };
+  } catch (error) {
+    logger.error({ err: error, keys }, "could not remove objects");
+    return { removed: false, reason: "failed" };
+  }
+}
+
+/**
  * Removes the login itself.
  *
  * The one operation in this file that is not about bytes, and the one that
