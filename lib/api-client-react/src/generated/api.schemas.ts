@@ -331,6 +331,8 @@ export interface Clip {
   outputSeconds: number | null;
   /** The worker's one line about this clip. */
   note: string | null;
+  /** The opening words spoken in this window; null when nothing was heard. */
+  title: string | null;
   createdAt: string;
 }
 
