@@ -1122,6 +1122,7 @@ components:
     EditOperation:
       oneOf:
         - $ref: "#/components/schemas/RemoveSilenceOperation"
+        - $ref: "#/components/schemas/ExtractHighlightOperation"
         - $ref: "#/components/schemas/FormatForPlatformOperation"
         - $ref: "#/components/schemas/BurnCaptionsOperation"
         - $ref: "#/components/schemas/AutoCaptionsOperation"
@@ -1368,6 +1369,25 @@ components:
           enum: [top, center, bottom]
           default: center
       required: [type, text, at]
+
+    ExtractHighlightOperation:
+      description: >
+        Keep only the strongest stretch of the clip. The caller names a length;
+        the worker chooses where those seconds live, from the transcript when
+        one exists and from the middle of the clip when nothing can be heard —
+        saying which in the notes.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [extractHighlight]
+        targetSeconds:
+          description: How long the finished highlight should be, in seconds.
+          type: number
+          minimum: 5
+          maximum: 120
+          default: 30
+      required: [type]
 
     RemoveSilenceOperation:
       type: object
