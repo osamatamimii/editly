@@ -1045,6 +1045,24 @@ console.log("\nA payment cannot be lost, reordered, or applied twice");
     asAppRole(`SELECT count(*) FROM auth.users`) === "SET",
     "a row count coming back would mean the role can read the identity table directly",
   );
+  // 4c. And the roles PostgREST hands to the outside world must NOT be able
+  //     to ask it. Supabase's default privileges grant EXECUTE on every new
+  //     public function to `anon` and `authenticated` directly — grants in
+  //     their own right, which 0020's revoke-from-PUBLIC never touched. That
+  //     put the function on /rest/v1/rpc for anyone holding the public anon
+  //     key: an oracle mapping any email to whether an account exists here.
+  //     0023 is the revoke; these measure it with the real roles.
+  const asRole = (role, sql) => psql(`SET ROLE ${role}; ${sql}`).split("\n").pop();
+  check(
+    "the anonymous role cannot turn an email into an account",
+    asRole("anon", `SELECT public.user_id_for_email('${ALICE_EMAIL}')`) === "SET",
+    "an answer here is an email-enumeration oracle behind the public anon key",
+  );
+  check(
+    "nor can a merely signed-in one",
+    asRole("authenticated", `SELECT public.user_id_for_email('${ALICE_EMAIL}')`) === "SET",
+    "signing up should not buy a directory of everyone else's addresses",
+  );
 
   // 5. Somebody pays with an address that has no account. This used to be a 200
   //    with nothing written down anywhere: the money arrived and the record did
