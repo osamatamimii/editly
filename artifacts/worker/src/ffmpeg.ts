@@ -571,6 +571,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
   const silence = find("removeSilence");
   const highlight = find("extractHighlight");
+  const range = find("extractRange");
   const reframe = find("formatForPlatform");
   // `let`, because the critic revises these once it knows what the edit became.
   let kenBurns = find("kenBurns");
@@ -633,6 +634,38 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     }
   }
 
+  // ── The named range ───────────────────────────────────────────────────────
+  //
+  // The stretch the person pointed at, applied the same way the highlight is:
+  // as an intersection with whatever silence removal kept, so "minute two to
+  // three, with the dead air cut" keeps the audible parts of exactly that
+  // stretch. No snapping to words here — these numbers were chosen by someone
+  // who watched the footage, and second-guessing them is how software gets a
+  // reputation for knowing better.
+  if (range) {
+    const start = Math.max(0, Math.min(range.startSeconds, range.endSeconds));
+    const end = Math.min(source.duration, Math.max(range.startSeconds, range.endSeconds));
+    if (start >= source.duration - 0.05) {
+      notes.push(
+        `the stretch you asked for starts at ${range.startSeconds.toFixed(0)}s, but the clip is only ${source.duration.toFixed(1)}s long — so nothing was cut away`,
+      );
+    } else if (end - start < 0.2) {
+      notes.push("the stretch you asked for is shorter than a fifth of a second, so it was left uncut");
+    } else {
+      const window = { start, end };
+      const inside = (kept ?? [{ start: 0, end: source.duration }])
+        .map((s) => ({ start: Math.max(s.start, window.start), end: Math.min(s.end, window.end) }))
+        .filter((s) => s.end - s.start > 0.05);
+      kept = inside.length > 0 ? inside : [window];
+      const clamped = range.endSeconds > source.duration + 0.05;
+      notes.push(
+        clamped
+          ? `kept ${start.toFixed(1)}s to the end — the clip runs out at ${source.duration.toFixed(1)}s, before the ${range.endSeconds.toFixed(0)}s you named`
+          : `kept ${start.toFixed(1)}s to ${end.toFixed(1)}s, the stretch you asked for`,
+      );
+    }
+  }
+
   // ── The highlight ─────────────────────────────────────────────────────────
   //
   // Chosen after silence detection and applied as an intersection with it, so
@@ -641,7 +674,15 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // honoured *inside* it. One `kept` list feeds the concat, the effective
   // duration and the critic, so captions and punches land on the edited clock
   // without anything new learning to count time.
-  if (highlight) {
+  //
+  // A plan carrying both a highlight and a named range is asking two people
+  // to hold the scissors. The named range wins: it is the more specific
+  // instruction, and a highlight window chosen outside it could escape the
+  // very stretch the person pointed at.
+  if (highlight && range) {
+    notes.push("the plan asked for both a highlight and a named stretch — the stretch you named won");
+  }
+  if (highlight && !range) {
     const choice = chooseHighlight(source.duration, highlight.targetSeconds, ctx.words);
     if (choice.how === "whole") {
       notes.push(
@@ -1092,6 +1133,7 @@ export function describe(op: EditOperation): string {
   switch (op.type) {
     case "removeSilence": return "Cutting the silences";
     case "extractHighlight": return "Finding the strongest stretch";
+    case "extractRange": return "Cutting to the stretch you named";
     case "formatForPlatform": return `Reframing for ${op.platform}`;
     case "burnCaptions": return "Burning in captions";
     // Replaced by burnCaptions before the renderer ever sees a plan — see
