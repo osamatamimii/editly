@@ -20,6 +20,7 @@ import { EditPlan } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
 import { renderPlan, probeDuration, probeSource, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
+import { reviewOutput } from "./review";
 import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAllowanceMessage } from "./duration";
 import { enrichPlan } from "./enrich";
 import { resolveProviders } from "./providers";
@@ -258,7 +259,8 @@ async function processJob(job: Job): Promise<void> {
     // The first honest measurement of this file anyone has made. Everything
     // before now — the ceiling check in the API, the punch placement in a
     // template — worked from a number the browser supplied and could omit.
-    const sourceSeconds = (await probeSource(inputFile)).duration;
+    const sourceProbe = await probeSource(inputFile);
+    const sourceSeconds = sourceProbe.duration;
     if (exceedsCeiling(sourceSeconds, job.maxSourceSeconds)) {
       await db.update(jobsTable).set({ sourceSeconds }).where(eq(jobsTable.id, job.id));
       throw new SourceTooLongError(tooLongMessage(sourceSeconds, job.maxSourceSeconds as number));
@@ -377,6 +379,32 @@ async function processJob(job: Job): Promise<void> {
       },
     });
     const notes = [...enriched.notes, ...renderNotes];
+
+    // The look at what actually came out, before anyone else sees it.
+    //
+    // The plan critic checked the numbers; this checks the file. Its one
+    // repair is the loudness correction — a second, linear levelling pass
+    // built from measurements of the first, with the video stream copied
+    // untouched — and everything else it finds becomes an honest note or a
+    // log line. It runs between render and upload on purpose: a corrected
+    // master is the one the preview is encoded from and the one that ships.
+    // And it is best-effort all the way down — a review that cannot run must
+    // not cost anyone the render it was reviewing.
+    await reportProgress(job.id, 90, "Checking the result");
+    try {
+      const review = await reviewOutput(output, {
+        operations: enriched.plan.operations,
+        sourcePath: inputFile,
+        sourceHadAudio: sourceProbe.hasAudio,
+        expectedSeconds: estimatedSeconds,
+        workDir,
+      });
+      notes.push(...review.notes);
+      if (review.repaired) log.info({ measuredLufs: review.measuredLufs }, "output repaired after review");
+      if (review.warnings.length > 0) log.warn({ warnings: review.warnings }, "output review raised flags");
+    } catch (error) {
+      log.warn({ err: error }, "output review failed; delivering the file unreviewed");
+    }
 
     await reportProgress(job.id, 92, "Saving the result");
     const outputPath = `${job.userId}/${job.projectId}/edited-${job.id}.mp4`;
