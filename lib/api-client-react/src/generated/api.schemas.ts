@@ -306,6 +306,15 @@ export interface ExtractHighlightOperation {
   targetSeconds?: number;
 }
 
+/** Keep exactly the stretch the caller named, in seconds on the source clock. */
+export interface ExtractRangeOperation {
+  type: "extractRange";
+  /** Where the kept stretch begins. */
+  startSeconds: number;
+  /** Where it ends. Clamped to the file's real length at render time. */
+  endSeconds: number;
+}
+
 export interface CaptionCue {
   startMs: number;
   endMs: number;
@@ -354,6 +363,7 @@ export interface WatermarkOperation {
 export type EditOperation =
   | RemoveSilenceOperation
   | ExtractHighlightOperation
+  | ExtractRangeOperation
   | FormatForPlatformOperation
   | BurnCaptionsOperation
   | WatermarkOperation
