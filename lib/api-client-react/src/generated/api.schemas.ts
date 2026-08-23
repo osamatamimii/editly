@@ -306,6 +306,34 @@ export interface ExtractHighlightOperation {
   targetSeconds?: number;
 }
 
+/** Cut the video into several separate clips; the worker chooses where each lives. */
+export interface ExtractClipsOperation {
+  type: "extractClips";
+  /** How many pieces to cut. */
+  count?: number;
+  /** How long each piece should be, in seconds. */
+  targetSeconds?: number;
+}
+
+/** One piece a clips render cut from the source. */
+export interface Clip {
+  id: string;
+  projectId: string;
+  /** Which render produced it — clips from one ask share a jobId. */
+  jobId: string;
+  /** 1-based position in its set, in source order. */
+  idx: number;
+  /** The stretch of the source it came from, seconds on the source clock. */
+  startSeconds: number;
+  endSeconds: number;
+  /** The browser signs its own playback URL from this with its own session. */
+  outputPath: string;
+  outputSeconds: number | null;
+  /** The worker's one line about this clip. */
+  note: string | null;
+  createdAt: string;
+}
+
 /** Keep exactly the stretch the caller named, in seconds on the source clock. */
 export interface ExtractRangeOperation {
   type: "extractRange";
@@ -364,6 +392,7 @@ export type EditOperation =
   | RemoveSilenceOperation
   | ExtractHighlightOperation
   | ExtractRangeOperation
+  | ExtractClipsOperation
   | FormatForPlatformOperation
   | BurnCaptionsOperation
   | WatermarkOperation

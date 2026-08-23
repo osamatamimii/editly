@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  Clip,
   CreateProjectBody,
   DashboardStats,
   ErrorResponse,
@@ -614,6 +615,90 @@ export function useListMessages<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListMessagesQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+export const getListClipsUrl = (id: string) => {
+  return `/api/projects/${id}/clips`;
+};
+
+export const listClips = async (
+  id: string,
+  options?: RequestInit,
+): Promise<Clip[]> => {
+  return customFetch<Clip[]>(getListClipsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListClipsQueryKey = (id: string) => {
+  return [`/api/projects/${id}/clips`] as const;
+};
+
+export const getListClipsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listClips>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listClips>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListClipsQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listClips>>> = ({
+    signal,
+  }) => listClips(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listClips>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListClipsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listClips>>
+>;
+export type ListClipsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary The pieces clips renders have cut from this project's video
+ */
+
+export function useListClips<
+  TData = Awaited<ReturnType<typeof listClips>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listClips>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListClipsQueryOptions(id, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
