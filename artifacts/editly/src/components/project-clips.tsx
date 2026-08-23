@@ -6,10 +6,17 @@
  * person owns is signed: by their own session, in the browser. The panel
  * renders nothing at all until clips exist, because an empty "Clips" box on
  * every project would be a promise-shaped piece of furniture.
+ *
+ * The newest set leads; earlier sets fold away behind a count rather than
+ * disappearing — their files still exist and still belong to the person, but
+ * a panel of every set ever made is an archive, not an editor.
  */
-import { Scissors, Download } from "lucide-react";
+import { useState } from "react";
+import { Scissors, Download, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useListClips, getListClipsQueryKey, type Clip } from "@workspace/api-client-react";
 import { usePlayableVideo, signedVideoUrl } from "@/lib/video-storage";
+import { supabase } from "@/lib/supabase";
 
 export { getListClipsQueryKey };
 
@@ -18,7 +25,13 @@ function clock(seconds: number): string {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
-function ClipRow({ clip }: { clip: Clip }) {
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function ClipRow({ clip, onDelete }: { clip: Clip; onDelete: (clip: Clip) => void }) {
   // The preview.webm mirror is tried first, exactly as the main player does —
   // a browser that cannot decode H.264 should not lose the clips too.
   const { url, previewUrl } = usePlayableVideo(clip.outputPath);
@@ -38,15 +51,30 @@ function ClipRow({ clip }: { clip: Clip }) {
           Clip {clip.idx} · {clock(clip.startSeconds)}–{clock(clip.endSeconds)}
           {clip.outputSeconds != null ? ` · ${clip.outputSeconds.toFixed(0)}s` : ""}
         </span>
-        <button
-          onClick={() => void download()}
-          title="Open this clip in a new tab to save it"
-          className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-          data-testid={`clip-download-${clip.idx}`}
-        >
-          <Download className="w-3.5 h-3.5" />
-        </button>
+        <span className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => void download()}
+            title="Open this clip in a new tab to save it"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            data-testid={`clip-download-${clip.idx}`}
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => onDelete(clip)}
+            title="Delete this clip"
+            className="text-muted-foreground hover:text-destructive transition-colors"
+            data-testid={`clip-delete-${clip.idx}`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </span>
       </div>
+      {/* The speaker's own words, never invented copy — absent when nothing
+          was heard, rather than filled with something nobody said. */}
+      {clip.title && (
+        <p className="text-[11px] leading-snug italic mb-1.5 truncate">“{clip.title}”</p>
+      )}
       {(previewUrl || url) && (
         <video
           controls
@@ -68,14 +96,26 @@ function ClipRow({ clip }: { clip: Clip }) {
 
 export function ProjectClips({ projectId }: { projectId: string }) {
   const { data: clips } = useListClips(projectId);
+  const queryClient = useQueryClient();
+  const [showEarlier, setShowEarlier] = useState(false);
+
   if (!clips || clips.length === 0) return null;
 
-  // Newest set only. The endpoint returns newest-first sets in source order
-  // within each set, so the first row's jobId names the set to show — older
-  // sets' files still exist, but a panel of every set ever made is an
-  // archive, not an editor.
+  // Newest set first: the endpoint returns newest-first sets in source order
+  // within each set, so the first row's jobId names the set that leads.
   const latestJob = clips[0].jobId;
   const latest = clips.filter((c) => c.jobId === latestJob);
+  const earlier = clips.filter((c) => c.jobId !== latestJob);
+
+  async function remove(clip: Clip): Promise<void> {
+    // The row goes first server-side, so a failure can only mean "still
+    // there" — refetching is the honest recovery either way.
+    await fetch(`/api/projects/${projectId}/clips/${clip.id}`, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    }).catch(() => {});
+    queryClient.invalidateQueries({ queryKey: getListClipsQueryKey(projectId) });
+  }
 
   return (
     <div className="rounded-xl glass-panel border border-hairline flex flex-col gap-2 px-4 py-4 mt-3" data-testid="panel-clips">
@@ -86,8 +126,24 @@ export function ProjectClips({ projectId }: { projectId: string }) {
         </span>
       </div>
       {latest.map((clip) => (
-        <ClipRow key={clip.id} clip={clip} />
+        <ClipRow key={clip.id} clip={clip} onDelete={(c) => void remove(c)} />
       ))}
+      {earlier.length > 0 && (
+        <>
+          <button
+            onClick={() => setShowEarlier((v) => !v)}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            data-testid="button-earlier-clips"
+          >
+            {showEarlier ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            Earlier sets ({earlier.length})
+          </button>
+          {showEarlier &&
+            earlier.map((clip) => (
+              <ClipRow key={clip.id} clip={clip} onDelete={(c) => void remove(c)} />
+            ))}
+        </>
+      )}
     </div>
   );
 }
