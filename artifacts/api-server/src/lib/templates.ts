@@ -119,6 +119,28 @@ export const TEMPLATES: Template[] = [
       ),
   },
   {
+    id: "the-highlight",
+    name: "The highlight",
+    description: "Keeps only the strongest 30 seconds, reframed and captioned.",
+    bestFor: "Long takes you want one clip from",
+    build: (context) =>
+      withWatermark(
+        [
+          // The worker chooses the window from the speech; the silences are
+          // then cut inside it, so "the strongest 30 seconds" means the
+          // strongest 30 of source — arriving a touch tighter than 30.
+          { type: "extractHighlight", targetSeconds: 30 },
+          { type: "removeSilence", thresholdDb: -34, minSilenceMs: 700, paddingMs: 120 },
+          { type: "formatForPlatform", platform: context.platform },
+          // A highlight exists to be posted, and posted clips get read with
+          // the sound off. Captions are the look, not an accessory to it.
+          { type: "autoCaptions", style: "bold-white", animation: "pop", dropFillers: true },
+          { type: "normalizeLoudness", targetLufs: -14 },
+        ],
+        context,
+      ),
+  },
+  {
     id: "podcast-clip",
     name: "Podcast clip",
     description: "Keeps the natural rhythm, adds a gentle push and even levels.",

@@ -257,7 +257,7 @@ export function replyFor(
   },
 ): string {
   if (!context.hasVideo) {
-    return "Upload a video first and I'll get to work — I can cut the silences out, caption it from what you actually say, reframe it for TikTok, Reels or Shorts, add motion, and level the audio.";
+    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts, add motion, and level the audio.";
   }
 
   const parts: string[] = [];
@@ -280,9 +280,9 @@ export function replyFor(
 
   if (parts.length === 0) {
     return (
-      "I'm not sure what to change from that. Right now I can cut the silences out of a clip, " +
-      "caption it, reframe it to 9:16, add punch-in zooms or a slow push, and level the audio — try " +
-      'something like "remove the dead air, caption it and make it vertical for TikTok".'
+      "I'm not sure what to change from that. Right now I can pull out the best 30 seconds of a clip, " +
+      "cut the silences, caption it, reframe it to 9:16, add punch-in zooms or a slow push, and level " +
+      'the audio — try something like "give me the strongest 30 seconds, captioned, vertical for TikTok".'
     );
   }
 
