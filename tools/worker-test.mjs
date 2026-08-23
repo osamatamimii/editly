@@ -443,6 +443,11 @@ section("A clips plan becomes several files, each its own artifact");
     clips.every((c) => existsSync(path.join(objects, c.output_path))),
     JSON.stringify(clips.map((c) => c.output_path)),
   );
+  check(
+    "titles are absent rather than invented — nothing was heard in this test",
+    clips.every((c) => c.title === null),
+    JSON.stringify(clips.map((c) => c.title)),
+  );
 
   const durations = clips.map((c) => {
     const p = spawnSync(

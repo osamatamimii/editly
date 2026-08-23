@@ -332,7 +332,31 @@ console.log("\nClips are the owner's, and their paths reach only the owner");
     `got ${theirs.status}`,
   );
 
-  psqlGlobal(`DELETE FROM clips WHERE id = 'clip-iso-1'`);
+  // Bob cannot delete what he cannot see — and learns nothing from trying.
+  const theft = await call(BOB, `/api/projects/${aliceProjectId}/clips/clip-iso-1`, "DELETE");
+  check("Bob cannot delete Alice's clip", theft.status === 404, `got ${theft.status}`);
+  const survived = await call(ALICE, `/api/projects/${aliceProjectId}/clips`);
+  check("and it is still there for Alice", survived.json?.length === 1, JSON.stringify(survived.json));
+
+  // The owner can, and the row goes with the request for the files.
+  const before = storageCalls.length;
+  const gone = await call(ALICE, `/api/projects/${aliceProjectId}/clips/clip-iso-1`, "DELETE");
+  check("Alice deletes her clip", gone.status === 204, `got ${gone.status}`);
+  const after = await call(ALICE, `/api/projects/${aliceProjectId}/clips`);
+  check("and the row is gone on the next read", after.json?.length === 0, JSON.stringify(after.json));
+  await new Promise((r) => setTimeout(r, 300));
+  const asked = storageCalls
+    .slice(before)
+    .some((c) => c.op === "delete" && String(c.body).includes("clip-job-iso-1-1.mp4"));
+  check("and storage was asked for the master by name", asked, JSON.stringify(storageCalls.slice(before)));
+  check(
+    "with its preview mirror beside it",
+    storageCalls.slice(before).some((c) => String(c.body).includes("clip-job-iso-1-1.preview.webm")),
+    JSON.stringify(storageCalls.slice(before)),
+  );
+
+  const again = await call(ALICE, `/api/projects/${aliceProjectId}/clips/clip-iso-1`, "DELETE");
+  check("deleting it twice is a 404, not a crash", again.status === 404, `got ${again.status}`);
 }
 
 console.log("\nClip dimensions");
