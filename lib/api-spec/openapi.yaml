@@ -1123,6 +1123,7 @@ components:
       oneOf:
         - $ref: "#/components/schemas/RemoveSilenceOperation"
         - $ref: "#/components/schemas/ExtractHighlightOperation"
+        - $ref: "#/components/schemas/ExtractRangeOperation"
         - $ref: "#/components/schemas/FormatForPlatformOperation"
         - $ref: "#/components/schemas/BurnCaptionsOperation"
         - $ref: "#/components/schemas/AutoCaptionsOperation"
@@ -1388,6 +1389,30 @@ components:
           maximum: 120
           default: 30
       required: [type]
+
+    ExtractRangeOperation:
+      description: >
+        Keep exactly the stretch the caller named, both ends in seconds on the
+        source clock. The mirror image of extractHighlight - the caller names
+        the moments and no judgement is invited. An end past the file's real
+        length is clamped at render time with a note; an empty or inverted
+        window is dropped, also with a note.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [extractRange]
+        startSeconds:
+          description: Where the kept stretch begins, in seconds.
+          type: number
+          minimum: 0
+          maximum: 86400
+        endSeconds:
+          description: Where it ends. Clamped to the file's real length.
+          type: number
+          minimum: 0
+          maximum: 86400
+      required: [type, startSeconds, endSeconds]
 
     RemoveSilenceOperation:
       type: object
