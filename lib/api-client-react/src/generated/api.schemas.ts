@@ -333,6 +333,8 @@ export interface Clip {
   note: string | null;
   /** The opening words spoken in this window; null when nothing was heard. */
   title: string | null;
+  /** A frame from the middle of the clip; null when none could be made. */
+  thumbnailPath: string | null;
   createdAt: string;
 }
 
