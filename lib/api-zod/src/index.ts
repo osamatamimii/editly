@@ -138,6 +138,8 @@ export type SubscriptionPlan = z.infer<typeof SubscriptionPlan>;
 export const SubscriptionUsage = z.object({
   plan: SubscriptionPlan,
   minutesIncluded: z.number(),
+  /** Of `minutesIncluded`, how much was granted by hand this month rather than paid for. */
+  minutesGranted: z.number().default(0),
   minutesUsedThisMonth: z.number(),
   minutesRemaining: z.number(),
   maxUploadMinutes: z.number(),
@@ -1019,3 +1021,44 @@ export const ListAdminJobsResponse = z.object({
   total: z.number().int(),
 });
 export type ListAdminJobsResponse = z.infer<typeof ListAdminJobsResponse>;
+
+/**
+ * One act of the console.
+ *
+ * `reason` is not optional anywhere — not in the schema, not in the routes.
+ * It is the only part of an audit row a future reader cannot reconstruct from
+ * the rest of the database, which makes it the only part worth insisting on.
+ */
+export const AdminActionRecord = z.object({
+  id: z.string(),
+  actorUserId: z.string(),
+  /** requeue_job · grant_minutes · set_plan · set_suspended */
+  action: z.string(),
+  subjectUserId: z.string().nullable(),
+  subjectJobId: z.string().nullable(),
+  reason: z.string(),
+  detail: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.string(),
+});
+export type AdminActionRecord = z.infer<typeof AdminActionRecord>;
+
+export const ListAdminActionsResponse = z.object({
+  actions: z.array(AdminActionRecord),
+  total: z.number().int(),
+});
+export type ListAdminActionsResponse = z.infer<typeof ListAdminActionsResponse>;
+
+/** Every action body carries one. Six characters, because a bar people route around is worse than a low one. */
+export const AdminReasonBody = z.object({ reason: z.string().min(6).max(500) });
+
+export const GrantMinutesBody = AdminReasonBody.extend({ minutes: z.number().min(1).max(600) });
+export type GrantMinutesBody = z.infer<typeof GrantMinutesBody>;
+
+export const SetPlanBody = AdminReasonBody.extend({ plan: SubscriptionPlan });
+export type SetPlanBody = z.infer<typeof SetPlanBody>;
+
+export const SetSuspendedBody = AdminReasonBody.extend({ suspended: z.boolean() });
+export type SetSuspendedBody = z.infer<typeof SetSuspendedBody>;
+
+export const RequeueJobBody = AdminReasonBody;
+export type RequeueJobBody = z.infer<typeof RequeueJobBody>;
