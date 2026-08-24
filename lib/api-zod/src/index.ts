@@ -911,3 +911,111 @@ export type TemplateSummary = z.infer<typeof TemplateSummary>;
 
 export const ListTemplatesResponse = z.array(TemplateSummary);
 export type ListTemplatesResponse = z.infer<typeof ListTemplatesResponse>;
+
+// ---------------------------------------------------------------------------
+// the admin console
+//
+// Operations, not surveillance. Everything below is metadata the platform
+// already holds about itself: how the queue is doing, who signed up, which
+// renders failed and why, what is being paid. There is deliberately no shape
+// here that carries a customer's video, a signed URL to one, or anything that
+// would let the console act as that customer — see admin-console.md for why
+// that is a product boundary and not an unfinished feature.
+// ---------------------------------------------------------------------------
+
+/** How the platform is doing right now — the row of cards at the top. */
+export const AdminOverview = z.object({
+  queue: z.object({
+    /** Being worked on by a live machine. */
+    processing: z.number().int(),
+    /** Queued behind a live machine. Waiting is normal; unattended is not. */
+    waiting: z.number().int(),
+    /** Queued with nothing listening. This is the number that means something is wrong. */
+    unattended: z.number().int(),
+    failedLastDay: z.number().int(),
+    doneLastDay: z.number().int(),
+  }),
+  worker: WorkerStatus,
+  accounts: z.object({
+    total: z.number().int(),
+    newLastWeek: z.number().int(),
+  }),
+  /** Subscribers per plan, and what they add up to per month. */
+  revenue: z.object({
+    byPlan: z.array(z.object({ plan: SubscriptionPlan, count: z.number().int() })),
+    monthlyRecurringUsd: z.number(),
+  }),
+  /**
+   * The most recent billing events, so a payment that did not land somewhere
+   * can be seen rather than deduced. No amounts, no payment details: Freemius
+   * is the merchant of record and what we do not store we cannot leak.
+   */
+  billing: z.array(
+    z.object({
+      eventId: z.string(),
+      type: z.string(),
+      email: z.string().nullable(),
+      plan: SubscriptionPlan.nullable(),
+      receivedAt: z.string(),
+      applied: z.boolean(),
+      outcome: z.string().nullable(),
+    }),
+  ),
+  /** Seconds rendered this month across everyone — what the platform is actually doing. */
+  minutesRenderedThisMonth: z.number(),
+});
+export type AdminOverview = z.infer<typeof AdminOverview>;
+
+export const GetAdminOverviewResponse = AdminOverview;
+export type GetAdminOverviewResponse = z.infer<typeof GetAdminOverviewResponse>;
+
+export const AdminAccount = z.object({
+  userId: z.string(),
+  email: z.string().nullable(),
+  createdAt: z.string(),
+  lastSignInAt: z.string().nullable(),
+  plan: SubscriptionPlan,
+  projectCount: z.number().int(),
+  minutesUsedThisMonth: z.number(),
+  minutesIncluded: z.number(),
+});
+export type AdminAccount = z.infer<typeof AdminAccount>;
+
+export const ListAdminAccountsResponse = z.object({
+  accounts: z.array(AdminAccount),
+  /** The real total, counted independently of the page — a total derived from a page is a lie on page two. */
+  total: z.number().int(),
+});
+export type ListAdminAccountsResponse = z.infer<typeof ListAdminAccountsResponse>;
+
+/**
+ * One render, as operations sees it.
+ *
+ * `error` is carried verbatim rather than prettified. The whole value of this
+ * screen is turning "my video did not work" into an answer in ten seconds, and
+ * a message rewritten for reassurance is a message that has had the answer
+ * taken out of it.
+ */
+export const AdminJob = z.object({
+  id: z.string(),
+  userId: z.string(),
+  projectId: z.string(),
+  status: z.string(),
+  progress: z.number().int(),
+  stage: z.string().nullable(),
+  error: z.string().nullable(),
+  attempts: z.number().int(),
+  billedSeconds: z.number().nullable(),
+  createdAt: z.string(),
+  lockedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  /** Queued, unclaimed, and nothing is listening. */
+  unattended: z.boolean(),
+});
+export type AdminJob = z.infer<typeof AdminJob>;
+
+export const ListAdminJobsResponse = z.object({
+  jobs: z.array(AdminJob),
+  total: z.number().int(),
+});
+export type ListAdminJobsResponse = z.infer<typeof ListAdminJobsResponse>;
