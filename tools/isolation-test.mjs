@@ -354,9 +354,10 @@ console.log("\nClips are the owner's, and their paths reach only the owner");
   // writes as the table owner and there is no client route for creating one —
   // that is the point of the read-only endpoint.
   psqlGlobal(`
-    INSERT INTO clips (id, project_id, user_id, job_id, idx, start_seconds, end_seconds, output_path, output_seconds, note)
+    INSERT INTO clips (id, project_id, user_id, job_id, idx, start_seconds, end_seconds, output_path, output_seconds, note, thumbnail_path)
     VALUES ('clip-iso-1', '${aliceProjectId}', '${ALICE}', 'job-iso-1', 1, 2, 7,
-            '${ALICE}/${aliceProjectId}/clip-job-iso-1-1.mp4', 5, 'the speech runs densest here')`);
+            '${ALICE}/${aliceProjectId}/clip-job-iso-1-1.mp4', 5, 'the speech runs densest here',
+            '${ALICE}/${aliceProjectId}/clip-job-iso-1-1.jpg')`);
 
   const mine = await call(ALICE, `/api/projects/${aliceProjectId}/clips`);
   check("Alice sees her clip", mine.status === 200 && mine.json?.length === 1, `got ${mine.status} ${mine.text.slice(0, 120)}`);
@@ -369,6 +370,11 @@ console.log("\nClips are the owner's, and their paths reach only the owner");
     "and the stretch it came from",
     mine.json?.[0]?.startSeconds === 2 && mine.json?.[0]?.endSeconds === 7,
     JSON.stringify(mine.json?.[0]),
+  );
+  check(
+    "and the still the panel shows instead of loading the video",
+    mine.json?.[0]?.thumbnailPath === `${ALICE}/${aliceProjectId}/clip-job-iso-1-1.jpg`,
+    JSON.stringify(mine.json?.[0]?.thumbnailPath),
   );
 
   const theirs = await call(BOB, `/api/projects/${aliceProjectId}/clips`);
@@ -420,6 +426,11 @@ console.log("\nClips are the owner's, and their paths reach only the owner");
     );
     await new Promise((r) => setTimeout(r, 300));
     check(
+      "the clip's still becomes the new project's poster",
+      opened.json?.thumbnailPath === `${ALICE}/${born}/thumb.jpg`,
+      JSON.stringify(opened.json?.thumbnailPath),
+    );
+    check(
       "with the preview mirror behind it, for browsers that cannot decode H.264",
       storageCalls.slice(copyMark).some((c) => c.op === "copy" && String(c.to).endsWith("/source.preview.webm")),
       JSON.stringify(storageCalls.slice(copyMark).filter((c) => c.op === "copy")),
@@ -458,6 +469,11 @@ console.log("\nClips are the owner's, and their paths reach only the owner");
   check(
     "with its preview mirror beside it",
     storageCalls.slice(before).some((c) => String(c.body).includes("clip-job-iso-1-1.preview.webm")),
+    JSON.stringify(storageCalls.slice(before)),
+  );
+  check(
+    "and its still, so nothing of the clip is left behind",
+    storageCalls.slice(before).some((c) => String(c.body).includes("clip-job-iso-1-1.jpg")),
     JSON.stringify(storageCalls.slice(before)),
   );
 

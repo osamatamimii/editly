@@ -449,6 +449,33 @@ section("A clips plan becomes several files, each its own artifact");
     JSON.stringify(clips.map((c) => c.title)),
   );
 
+  // The poster the panel shows instead of mounting a player per clip.
+  check(
+    "each clip carries a still of its own",
+    clips.every((c) => typeof c.thumbnail_path === "string" && c.thumbnail_path.endsWith(".jpg")),
+    JSON.stringify(clips.map((c) => c.thumbnail_path)),
+  );
+  check(
+    "and the still is really in storage, beside its master",
+    clips.every((c) => existsSync(path.join(objects, c.thumbnail_path ?? "missing"))),
+    JSON.stringify(clips.map((c) => c.thumbnail_path)),
+  );
+  check(
+    "each still is an image with real pixels, not an empty file",
+    clips.every((c) => {
+      const file = path.join(objects, c.thumbnail_path ?? "missing");
+      if (!existsSync(file)) return false;
+      const probe = spawnSync(
+        "ffprobe",
+        ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", file],
+        { encoding: "utf8" },
+      );
+      const [w, h] = probe.stdout.trim().split(",").map(Number);
+      return w > 0 && h === 360;
+    }),
+    JSON.stringify(clips.map((c) => c.thumbnail_path)),
+  );
+
   const durations = clips.map((c) => {
     const p = spawnSync(
       "ffprobe",
