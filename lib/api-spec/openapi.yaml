@@ -592,6 +592,54 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /projects/{id}/clips/{clipId}/open:
+    post:
+      operationId: openClipAsProject
+      tags: [clips]
+      summary: Open one clip as a project of its own
+      description: >
+        Makes a new project whose source video is a copy of this clip, so a
+        piece the worker cut can be edited, captioned and rendered like any
+        other upload instead of being a download-only dead end. The bytes are
+        copied rather than shared: every object in this bucket belongs to
+        exactly one project prefix, and two rows owning one file would mean
+        the first deletion broke the second project. If the copy fails the
+        new project row is removed again, so a project never points at a file
+        that is not there. Nothing about the clip or its own project changes.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: clipId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: The new project, ready to open
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: No such clip in this project for this account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: >
+            This deployment cannot copy stored video, so the clip cannot be
+            opened as a project. Refused rather than answered with a project
+            that would not play.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /projects/{id}/assets/{assetId}:
     delete:
       operationId: deleteAsset
