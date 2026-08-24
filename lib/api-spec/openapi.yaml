@@ -1618,10 +1618,17 @@ components:
             invented would be a title the speaker never said.
           type: string
           nullable: true
+        thumbnailPath:
+          description: >
+            Storage key of a frame grabbed from the middle of this clip, so a
+            panel can show the piece without loading it. Null when the still
+            could not be made - a missing poster never costs a render.
+          type: string
+          nullable: true
         createdAt:
           type: string
       required:
-        [id, projectId, jobId, idx, startSeconds, endSeconds, outputPath, outputSeconds, note, title, createdAt]
+        [id, projectId, jobId, idx, startSeconds, endSeconds, outputPath, outputSeconds, note, title, thumbnailPath, createdAt]
 
     RemoveSilenceOperation:
       type: object
