@@ -53,6 +53,27 @@ import { startOfMonthUtc } from "../lib/usage";
  * console that will one day disagree with the invoice, and when it does nobody
  * will know which of the two is lying.
  */
+interface AccountRow extends Record<string, unknown> {
+  user_id: string;
+  email: string | null;
+  created_at: string;
+  last_sign_in_at: string | null;
+}
+
+/**
+ * The rows out of a raw `db.execute`.
+ *
+ * Written as a named helper rather than `.rows` at each call site because the
+ * shape depends on the driver — node-postgres returns pg's QueryResult, others
+ * return the array — and reading it wrongly does not throw. It returns nothing,
+ * which looks exactly like a table with nothing in it.
+ */
+function rowsOf<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  const rows = (result as { rows?: unknown })?.rows;
+  return Array.isArray(rows) ? (rows as T[]) : [];
+}
+
 const router: IRouter = Router();
 
 router.use("/admin", requireAdmin);
@@ -188,26 +209,23 @@ router.get("/admin/accounts", async (req, res): Promise<void> => {
   // schema belongs to Supabase. `admin_accounts` is a SECURITY DEFINER function
   // that answers this one question and returns four columns; see migration
   // 0028 for why it exists and what it deliberately does not return.
-  const rows = await db.execute<{
-    user_id: string;
-    email: string | null;
-    created_at: string;
-    last_sign_in_at: string | null;
-  }>(sql`select * from public.admin_accounts(${search || null}, ${limit}, ${offset})`);
-  const accounts = Array.from(rows as unknown as Iterable<{
-    user_id: string;
-    email: string | null;
-    created_at: string;
-    last_sign_in_at: string | null;
-  }>);
+  //
+  // `db.execute` on the node-postgres driver hands back pg's QueryResult, and
+  // the rows are on `.rows`. This first read the result as if it were the array
+  // itself, which does not throw — it quietly yields nothing — so the console
+  // showed "Nobody yet." beside a card counting one account. The suite did not
+  // catch it because the local `auth.users` stand-in was empty, and an empty
+  // answer is indistinguishable from a wrong one when the fixture is empty too.
+  // It is asserted against a seeded row now.
+  const listed = await db.execute<AccountRow>(
+    sql`select * from public.admin_accounts(${search || null}, ${limit}, ${offset})`,
+  );
+  const accounts = rowsOf<AccountRow>(listed);
 
-  const totalRows = await db.execute<{ admin_account_count: string }>(
+  const counted = await db.execute<{ admin_account_count: string }>(
     sql`select public.admin_account_count(${search || null}) as admin_account_count`,
   );
-  const total = Number(
-    Array.from(totalRows as unknown as Iterable<{ admin_account_count: string }>)[0]
-      ?.admin_account_count ?? 0,
-  );
+  const total = Number(rowsOf<{ admin_account_count: string }>(counted)[0]?.admin_account_count ?? 0);
 
   const ids = accounts.map((row) => row.user_id);
   // One query each for the three facts about a page of accounts, rather than
