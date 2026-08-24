@@ -465,12 +465,14 @@ console.log("\nThe stretch they name is kept exactly");
   const inv = inverted.operations.find((o) => o.type === "extractRange");
   check("an inverted window is re-ordered, not refused", inv?.startSeconds === 80 && inv?.endSeconds === 130, JSON.stringify(inv));
 
-  // The first 3 seconds is hook territory, still honestly on the not-yet list;
-  // claiming it as a cut would do something nobody asked for.
+  // "The first 3 seconds" is hook territory, and the hook is built now — so
+  // it produces a cold open rather than a cut, and nothing is refused. What
+  // it must still never do is silently trim the video to three seconds.
   const hook = await planner.plan("build a hook from the first 3 seconds", {});
   check(
-    "the first 3 seconds still belongs to hook-building",
-    !hook.operations.some((o) => o.type === "extractRange") && /hook/.test(hook.cannotYet.join(" ")),
+    "the first 3 seconds is a hook, never a three-second cut",
+    !hook.operations.some((o) => o.type === "extractRange") &&
+      hook.operations.some((o) => o.type === "coldOpen"),
     JSON.stringify({ ops: hook.operations, cannot: hook.cannotYet }),
   );
 
@@ -673,6 +675,24 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
     "the join between two cuts is still admitted as missing",
     between.cannotYet.some((c) => /between the cuts/i.test(c)),
     JSON.stringify(between.cannotYet),
+  );
+
+  const hook = await planner.plan("add a hook at the start", {});
+  check(
+    "a hook ask now produces the cold open that exists",
+    hook.operations.some((o) => o.type === "coldOpen"),
+    JSON.stringify(hook.operations.map((o) => o.type)),
+  );
+  check(
+    "and the hook is no longer on the cannot-do list",
+    !hook.cannotYet.some((c) => /hook/i.test(c)),
+    JSON.stringify(hook.cannotYet),
+  );
+  const arabicHook = await planner.plan("ابدأ بالأقوى", {});
+  check(
+    "and the Arabic ask is heard too",
+    arabicHook.operations.some((o) => o.type === "coldOpen"),
+    JSON.stringify(arabicHook.operations.map((o) => o.type)),
   );
 
   const colour = await planner.plan("make the colour more cinematic", {});

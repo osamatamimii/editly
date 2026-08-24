@@ -173,6 +173,22 @@ console.log("\nSegment arithmetic");
   check("a moment after a cut moves earlier by the cut length", remapTime(8, kept) === 4, String(remapTime(8, kept)));
   check("a moment inside a cut lands on the seam", remapTime(5, kept) === 3, String(remapTime(5, kept)));
   check("a moment before any cut is unmoved", remapTime(2, kept) === 2, String(remapTime(2, kept)));
+
+  // The cold open reorders rather than removes, so the map is no longer
+  // walked in source order. Every moment still appears exactly once, and the
+  // arithmetic has to keep up with that.
+  const reordered = [{ start: 12, end: 16 }, { start: 0, end: 12 }, { start: 16, end: 20 }];
+  check("a moment inside the hook lands at the very start", remapTime(13, reordered) === 1, String(remapTime(13, reordered)));
+  check("a moment before the hook lands after it", remapTime(3, reordered) === 7, String(remapTime(3, reordered)));
+  check("a moment after the hook lands after everything else", remapTime(17, reordered) === 17, String(remapTime(17, reordered)));
+  // A cut-away moment lands where the nearest *following* source material
+  // plays — which, once the list is reordered, may be the very beginning.
+  // Sorted lists are unaffected: the check two lines up still reads 3.
+  check(
+    "a cut-away moment lands where the material after it now plays",
+    remapTime(5, [{ start: 8, end: 12 }, { start: 0, end: 4 }]) === 0,
+    String(remapTime(5, [{ start: 8, end: 12 }, { start: 0, end: 4 }])),
+  );
 }
 
 console.log("\nFrame arithmetic");
@@ -852,6 +868,80 @@ console.log("\nThe stretch they name is kept exactly, with honest clamping");
     both.notes.some((n) => /the stretch you named won/.test(n)),
     JSON.stringify(both.notes),
   );
+}
+
+console.log("\nThe cold open moves the best moment to the front, and moves nothing else");
+{
+  // The source is audible during 0-3, 7-10 and 14-17, so the strongest four
+  // seconds are somewhere in the middle — not at the start.
+  const opened = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "coldOpen", seconds: 4 }] },
+    { workDir: await scratch() },
+  );
+  const openedSeconds = Number(ffprobe(opened.output, "format=duration")[0]);
+  // The property that makes this expressible at all: nothing is added and
+  // nothing is dropped, so the video is exactly as long as it was.
+  check(
+    "the video is exactly as long as it was — the moment moved, it was not copied",
+    openedSeconds > 19 && openedSeconds < 21,
+    String(openedSeconds),
+  );
+  check(
+    "and the note says where it opened from",
+    opened.notes.some((n) => /opened on the strongest .*then the rest plays from the top|opens on .*from the middle/.test(n)),
+    JSON.stringify(opened.notes),
+  );
+
+  // Composed with silence removal: the hook is taken out of what survived,
+  // and the total is still the cut length rather than the cut length plus a
+  // repeated moment.
+  const cutOpen = await renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+        { type: "coldOpen", seconds: 3 },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  const cutOpenSeconds = Number(ffprobe(cutOpen.output, "format=duration")[0]);
+  const cutOnly = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 }] },
+    { workDir: await scratch() },
+  );
+  const cutOnlySeconds = Number(ffprobe(cutOnly.output, "format=duration")[0]);
+  check(
+    "with the silences cut, the hook still adds no length",
+    Math.abs(cutOpenSeconds - cutOnlySeconds) < 0.6,
+    `${cutOpenSeconds} vs ${cutOnlySeconds}`,
+  );
+
+  // A clip too short to open on part of itself says so rather than producing
+  // a hook that is most of the video.
+  const shortDir = await scratch();
+  const shortFile = path.join(shortDir, "short.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=5",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=5",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", shortFile,
+  ]);
+  const tiny = await renderPlan(
+    shortFile,
+    { version: 1, operations: [{ type: "coldOpen", seconds: 4 }] },
+    { workDir: await scratch() },
+  );
+  check(
+    "a clip too short to open on part of itself is left in order, and says so",
+    tiny.notes.some((n) => /too short to open on part of itself/.test(n)),
+    JSON.stringify(tiny.notes),
+  );
+  const tinySeconds = Number(ffprobe(tiny.output, "format=duration")[0]);
+  check("and it is still the whole clip", tinySeconds > 4.5 && tinySeconds < 5.5, String(tinySeconds));
 }
 
 console.log("\nThe frame is shaped by the platform, and measured");
