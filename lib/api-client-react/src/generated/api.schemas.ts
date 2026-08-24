@@ -336,6 +336,13 @@ export interface Clip {
   createdAt: string;
 }
 
+/** Fade in from black and out to black — the first transition. Ends only. */
+export interface FadeOperation {
+  type: "fade";
+  /** How long each fade runs, in milliseconds. */
+  durationMs?: number;
+}
+
 /** Keep exactly the stretch the caller named, in seconds on the source clock. */
 export interface ExtractRangeOperation {
   type: "extractRange";
@@ -395,6 +402,7 @@ export type EditOperation =
   | ExtractHighlightOperation
   | ExtractRangeOperation
   | ExtractClipsOperation
+  | FadeOperation
   | FormatForPlatformOperation
   | BurnCaptionsOperation
   | WatermarkOperation
