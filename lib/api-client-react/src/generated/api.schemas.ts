@@ -56,6 +56,8 @@ export const ProjectPlatform = {
   tiktok: "tiktok",
   reels: "reels",
   shorts: "shorts",
+  youtube: "youtube",
+  square: "square",
 } as const;
 
 export interface Project {
@@ -122,6 +124,8 @@ export const UpdateProjectBodyPlatform = {
   tiktok: "tiktok",
   reels: "reels",
   shorts: "shorts",
+  youtube: "youtube",
+  square: "square",
 } as const;
 
 export interface UpdateProjectBody {
@@ -183,6 +187,8 @@ export const ExportJobPlatform = {
   tiktok: "tiktok",
   reels: "reels",
   shorts: "shorts",
+  youtube: "youtube",
+  square: "square",
 } as const;
 
 export type ExportStepStatus =
@@ -225,6 +231,8 @@ export const StartExportBodyPlatform = {
   tiktok: "tiktok",
   reels: "reels",
   shorts: "shorts",
+  youtube: "youtube",
+  square: "square",
 } as const;
 
 export interface StartExportBody {
@@ -296,7 +304,7 @@ export interface RemoveSilenceOperation {
 
 export interface FormatForPlatformOperation {
   type: "formatForPlatform";
-  platform: "tiktok" | "reels" | "shorts";
+  platform: "tiktok" | "reels" | "shorts" | "youtube" | "square";
 }
 
 /** Keep only the strongest stretch — the worker chooses where it lives. */
