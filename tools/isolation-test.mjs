@@ -234,6 +234,28 @@ function sweepSeededJobs() {
 }
 sweepSeededJobs();
 
+/**
+ * Grants this file makes, which nothing in the API can take back.
+ *
+ * A grant is deliberately permanent — the audit log is not editable, and that
+ * is the point of it. Which means this suite would hand Bob another 25 minutes
+ * every run and slowly drift the numbers the allowance checks depend on. The
+ * checks are written as deltas so they survive that, and this sweeps anyway so
+ * the database does not accumulate a test's leavings forever.
+ */
+function sweepSeededGrants() {
+  spawnSync(
+    "psql",
+    [
+      process.env.DATABASE_URL,
+      "-c",
+      `delete from admin_actions where actor_user_id = '${ALICE}' or subject_user_id in ('${ALICE}','${BOB}')`,
+    ],
+    { encoding: "utf8" },
+  );
+}
+sweepSeededGrants();
+
 async function call(user, path, method = "GET", body) {
   const res = await fetch(BASE + path, {
     method,
@@ -1589,12 +1611,31 @@ console.log("\nOne person cannot spend everybody's money");
 // ── The admin console is a door, not a curtain ──────────────────────────────
 console.log("\nThe admin console answers everyone but its allowlist with 404");
 {
-  const PATHS = ["/api/admin/overview", "/api/admin/accounts", "/api/admin/jobs"];
+  const PATHS = ["/api/admin/overview", "/api/admin/accounts", "/api/admin/jobs", "/api/admin/actions"];
 
   for (const path of PATHS) {
     const bob = await call(BOB, path);
     check(`Bob gets 404 on ${path} — not 403, which would confirm it exists`, bob.status === 404, `got ${bob.status}`);
   }
+
+  // The four that change something. A gate that covers the reads and not the
+  // writes is not a gate, and this is the direction that would cost real money.
+  const WRITES = [
+    [`/api/admin/jobs/whatever/requeue`, { reason: "trying it on" }],
+    [`/api/admin/accounts/${ALICE}/minutes`, { minutes: 600, reason: "trying it on" }],
+    [`/api/admin/accounts/${ALICE}/plan`, { plan: "studio", reason: "trying it on" }],
+    [`/api/admin/accounts/${ALICE}/suspend`, { suspended: true, reason: "trying it on" }],
+  ];
+  for (const [path, body] of WRITES) {
+    const bob = await call(BOB, path, "POST", body);
+    check(`Bob cannot POST ${path}`, bob.status === 404, `got ${bob.status}`);
+  }
+  const aliceStillFree = await call(ALICE, "/api/subscription");
+  check(
+    "and none of it landed — Bob could not give himself, or Alice, a plan",
+    aliceStillFree.json?.plan !== "studio",
+    JSON.stringify(aliceStillFree.json?.plan),
+  );
 
   const anon = await fetch(`${BASE}/api/admin/overview`);
   check("and an anonymous caller is refused before the allowlist is even consulted", anon.status === 401, `got ${anon.status}`);
@@ -1649,6 +1690,104 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
     JSON.stringify((failedOnly.json?.jobs ?? []).map((j) => j.status)),
   );
 
+  // ── Acting, and being unable to act without saying why ────────────────────
+  {
+    const before = await call(ALICE, "/api/admin/actions?limit=1");
+    const countBefore = before.json?.total ?? 0;
+
+    const noReason = await call(ALICE, `/api/admin/accounts/${BOB}/minutes`, "POST", { minutes: 10 });
+    check("an action with no reason is refused", noReason.status === 400, `got ${noReason.status}`);
+    const thinReason = await call(ALICE, `/api/admin/accounts/${BOB}/minutes`, "POST", {
+      minutes: 10,
+      reason: "eh",
+    });
+    check("and so is a reason too short to mean anything", thinReason.status === 400, `got ${thinReason.status}`);
+
+    const afterRefusals = await call(ALICE, "/api/admin/actions?limit=1");
+    check(
+      "a refused action writes nothing — the log records what happened, not what was attempted",
+      (afterRefusals.json?.total ?? 0) === countBefore,
+      `${afterRefusals.json?.total} vs ${countBefore}`,
+    );
+
+    // Minutes. The grant is the audit row: there is no other table, so the
+    // meter and the log cannot disagree about whether one was made.
+    const usageBefore = await call(BOB, "/api/subscription");
+    const includedBefore = usageBefore.json?.minutesIncluded ?? 0;
+    const grantedBefore = usageBefore.json?.minutesGranted ?? 0;
+
+    const granted = await call(ALICE, `/api/admin/accounts/${BOB}/minutes`, "POST", {
+      minutes: 25,
+      reason: "goodwill after the outage",
+    });
+    check("a grant with a reason is accepted", granted.status === 204, `got ${granted.status}`);
+
+    const usageAfter = await call(BOB, "/api/subscription");
+    check(
+      "and the meter can see it — the allowance actually grew",
+      (usageAfter.json?.minutesIncluded ?? 0) === includedBefore + 25,
+      `${usageAfter.json?.minutesIncluded} vs ${includedBefore}`,
+    );
+    check(
+      "and says how much of the allowance was given rather than paid for",
+      (usageAfter.json?.minutesGranted ?? 0) - grantedBefore === 25,
+      `${usageAfter.json?.minutesGranted} vs ${grantedBefore}`,
+    );
+
+    const log = await call(ALICE, "/api/admin/actions?limit=5");
+    const entry = (log.json?.actions ?? []).find((a) => a.action === "grant_minutes");
+    check("the grant is in the log", Boolean(entry), JSON.stringify(log.json?.actions?.slice(0, 2)));
+    check("with the reason as typed", entry?.reason === "goodwill after the outage", entry?.reason);
+    check("and the name of whoever did it", entry?.actorUserId === ALICE, entry?.actorUserId);
+    check("against the person it was done to", entry?.subjectUserId === BOB, entry?.subjectUserId);
+
+    // Suspension stops new work and destroys nothing.
+    const suspended = await call(ALICE, `/api/admin/accounts/${BOB}/suspend`, "POST", {
+      suspended: true,
+      reason: "chargeback while we sort it out",
+    });
+    check("an account can be suspended", suspended.status === 204, `got ${suspended.status}`);
+
+    const bobProject = await call(BOB, "/api/projects", "POST", { title: "still mine" });
+    check(
+      "a suspended account still has its work and can still make a project",
+      bobProject.status === 201,
+      `got ${bobProject.status}`,
+    );
+    const bobRender = await call(BOB, `/api/projects/${bobProject.json?.id}/render`, "POST", {
+      plan: { version: 1, operations: [{ type: "removeSilence" }] },
+    });
+    check("but cannot start a render", bobRender.status === 403, `got ${bobRender.status}`);
+    check(
+      "and is told plainly that nothing was deleted",
+      /nothing has been deleted/i.test(bobRender.json?.error ?? ""),
+      bobRender.json?.error,
+    );
+
+    const restored = await call(ALICE, `/api/admin/accounts/${BOB}/suspend`, "POST", {
+      suspended: false,
+      reason: "sorted, restoring the account",
+    });
+    check("and it can be restored", restored.status === 204, `got ${restored.status}`);
+    await call(BOB, `/api/projects/${bobProject.json?.id}`, "DELETE");
+
+    // A finished render is never requeued: that would bill for it twice.
+    const finished = await call(ALICE, "/api/admin/jobs?status=done&limit=1");
+    const doneJob = (finished.json?.jobs ?? [])[0];
+    if (doneJob) {
+      const twice = await call(ALICE, `/api/admin/jobs/${doneJob.id}/requeue`, "POST", {
+        reason: "seeing whether it lets me",
+      });
+      check("a finished render cannot be requeued", twice.status === 409, `got ${twice.status}`);
+    } else {
+      check("a finished render cannot be requeued — none present to try", true);
+    }
+    const missingJob = await call(ALICE, "/api/admin/jobs/not-a-real-job/requeue", "POST", {
+      reason: "checking the missing case",
+    });
+    check("and a job that does not exist is a 404", missingJob.status === 404, `got ${missingJob.status}`);
+  }
+
   // The allowlist itself, on its own. The unset case is the one that matters:
   // it must mean *nobody*, never everybody and never the first user, because
   // that failure is silent and looks fine everywhere except production.
@@ -1693,6 +1832,7 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
   const del = await call(ALICE, `/api/projects/${aliceProjectId}`, "DELETE");
   check("test data cleaned up", del.status === 204, `got ${del.status}`);
   sweepSeededJobs();
+  sweepSeededGrants();
 }
 
 server.close();

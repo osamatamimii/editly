@@ -935,10 +935,32 @@ section("The operations console stays an operations console");
     !/storage\/v1|videoPath|storagePath|outputPath/.test(admin),
     "a storage path appeared on the admin page",
   );
+  // This check used to read "it writes nothing", which was true of the first
+  // version and is deliberately false of this one. What replaced it is the
+  // boundary that actually still holds: the console may do the four named
+  // things and nothing else, and it may not reach for a general-purpose write.
+  const ALLOWED_WRITES = ["useRequeueJob", "useGrantMinutes", "useSetSuspended", "useSetPlanByHand"];
+  const writeHooks = (admin.match(/use[A-Z][A-Za-z]*/g) ?? []).filter((name) =>
+    /^use(Requeue|Grant|Set|Delete|Create|Update)/.test(name),
+  );
+  const unexpected = writeHooks.filter((name) => !ALLOWED_WRITES.includes(name) && name !== "useState");
   check(
-    "it writes nothing: no mutation hook, no non-GET call",
-    !/useMutation|useCreate|useUpdate|useDelete|method:\s*"(POST|PATCH|PUT|DELETE)"/.test(admin),
-    "the read-only console grew a write",
+    "it writes only through the four named actions",
+    unexpected.length === 0,
+    unexpected.join(", "),
+  );
+  check(
+    "and never deletes anything — suspension stops renders, it does not destroy work",
+    !/useDelete|method:\s*"DELETE"/.test(admin),
+    "a delete appeared on the admin page",
+  );
+  // The reason is what makes the log worth keeping. A button that can fire
+  // without one is a row in the log that says nothing.
+  check(
+    "no action can fire without a reason typed first",
+    /const canAct = reason\.trim\(\)\.length >= 6/.test(admin) &&
+      (admin.match(/disabled=\{!canAct/g) ?? []).length >= 3,
+    String((admin.match(/disabled=\{!canAct/g) ?? []).length),
   );
   check(
     "and it decides nothing about who may see it — the server does",
