@@ -28,14 +28,14 @@ import {
   MIN_SUBJECT_COVERAGE,
 } from "./framing";
 import { trackSubject, trackNote } from "./subject";
-import { keepSegmentsFrom, remapTime, snapToWords, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
+import { keepSegmentsFrom, outputDuration, remapTime, snapToWords, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
 import { chooseHighlight } from "./highlight";
 export { chooseHighlight, chooseClips } from "./highlight";
 
 // These moved to `timeline.ts` so the critic could share them without importing
 // the renderer that imports it. Re-exported because this is where callers —
 // including the test suites — have always found them.
-export { keepSegmentsFrom, remapTime, snapToWords, MOTION_OVERSCAN, type Segment, type SpokenWord };
+export { keepSegmentsFrom, outputDuration, remapTime, snapToWords, MOTION_OVERSCAN, type Segment, type SpokenWord };
 
 export interface SourceInfo {
   width: number;
@@ -622,6 +622,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const loudness = find("normalizeLoudness");
   const grade = find("grade");
   const fade = find("fade");
+  const dissolve = find("dissolve");
   const coldOpen = find("coldOpen");
 
   ctx.onProgress?.(0.02, "Looking at your footage");
@@ -820,10 +821,58 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   let vLabel = "0:v";
   let aLabel = "0:a";
 
+  // ── The join ──────────────────────────────────────────────────────────────
+  //
+  // How long each cut overlaps the next. Zero is a hard cut, which is what
+  // every edit before this one was. It is decided here, before a single filter
+  // is written, because it is not only a look: it is the rate the output clock
+  // runs at through every join, and captions, punches, overlays and titles are
+  // all placed against that clock further down. One number, computed once,
+  // handed to everything.
+  let overlap = 0;
+  if (dissolve) {
+    const joins = kept ? kept.length - 1 : 0;
+    if (joins < 1) {
+      // Asking for a dissolve on an edit with nothing to dissolve between is
+      // not an error — it is usually a plan built for a longer recording than
+      // this one turned out to be. Say what happened rather than silently
+      // doing nothing.
+      notes.push("there are no cuts in this edit to dissolve between, so nothing was crossfaded");
+    } else {
+      const asked = dissolve.durationMs / 1000;
+      // The overlap has to fit inside the shortest thing it joins — twice, in
+      // fact, since an interior piece is dissolved into on its way in and out
+      // of on its way out. Two fifths keeps both inside it with room left that
+      // is actually the shot itself; anything more and the shortest piece is
+      // never on screen alone, which is not a transition, it is a smear.
+      const shortest = Math.min(...kept!.map((segment) => segment.end - segment.start));
+      const room = shortest * 0.4;
+      if (room < 0.05) {
+        notes.push("the pieces this edit is cut into are too short to dissolve between, so the cuts stay hard");
+      } else {
+        overlap = Math.min(asked, room);
+        notes.push(
+          overlap < asked - 0.001
+            ? `dissolved between the cuts over ${overlap.toFixed(2)}s — shorter than asked, so the shortest piece is still on screen by itself`
+            : `dissolved between the cuts over ${overlap.toFixed(2)}s`,
+        );
+      }
+    }
+  }
+
   if (kept) {
     const pieces: string[] = [];
+    const withAudio = source.hasAudio;
+    const last = kept.length - 1;
     kept.forEach((segment, i) => {
-      pieces.push(`[0:v]trim=start=${segment.start}:end=${segment.end},setpts=PTS-STARTPTS[cv${i}]`);
+      // `fps` is only forced when the joins overlap: xfade reads two streams in
+      // lockstep and a variable frame rate walks them out of it, where concat
+      // simply plays one after the other and never has to care.
+      const cadence = overlap > 0 ? `,fps=${source.fps.toFixed(4)}` : "";
+      pieces.push(
+        `[0:v]trim=start=${segment.start}:end=${segment.end},setpts=PTS-STARTPTS${cadence}[cv${i}]`,
+      );
+      if (!withAudio) return;
       // Every audio edge gets a blink-long ramp (15ms — under any perceptual
       // threshold for a fade, well over the one for a click). A cut lands
       // wherever the detector put it, which is rarely a zero crossing, and a
@@ -831,22 +880,63 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       // join. This is the audio analogue of lanczos on the downscale: not a
       // decision anyone is told about, just the cut done properly — so no
       // note, and no way to turn it off.
+      //
+      // An edge that a dissolve is about to cross fade over does not get one:
+      // the crossfade already ramps it, over a hundred times longer, and two
+      // ramps stacked on one edge is an audible dip in the middle of the
+      // transition. The outer two edges are still hard cuts out of the source
+      // and still get theirs.
       const len = segment.end - segment.start;
       const ramp = Math.min(DECLICK_SECONDS, len / 4);
+      const rampIn = overlap > 0 && i > 0 ? 0 : ramp;
+      const rampOut = overlap > 0 && i < last ? 0 : ramp;
+      const fades = [
+        rampIn > 0 ? `afade=t=in:st=0:d=${rampIn.toFixed(4)}` : null,
+        rampOut > 0 ? `afade=t=out:st=${Math.max(0, len - rampOut).toFixed(4)}:d=${rampOut.toFixed(4)}` : null,
+      ].filter((part): part is string => part !== null);
       pieces.push(
-        `[0:a]atrim=start=${segment.start}:end=${segment.end},asetpts=PTS-STARTPTS,` +
-          `afade=t=in:st=0:d=${ramp.toFixed(4)},afade=t=out:st=${Math.max(0, len - ramp).toFixed(4)}:d=${ramp.toFixed(4)}[ca${i}]`,
+        `[0:a]atrim=start=${segment.start}:end=${segment.end},asetpts=PTS-STARTPTS` +
+          (fades.length > 0 ? `,${fades.join(",")}` : "") +
+          `[ca${i}]`,
       );
     });
-    pieces.push(`${kept.map((_, i) => `[cv${i}][ca${i}]`).join("")}concat=n=${kept.length}:v=1:a=1[cutv][cuta]`);
+
+    if (overlap > 0 && kept.length > 1) {
+      // Chained pairwise, because that is the only shape xfade has. Each join
+      // starts `overlap` before the end of everything already stitched — and
+      // everything already stitched is shorter than the sum of its parts by one
+      // overlap per join made so far, which is the whole reason the output
+      // clock needs correcting downstream.
+      let elapsed = kept[0].end - kept[0].start;
+      let vPrevious = "cv0";
+      let aPrevious = "ca0";
+      for (let i = 1; i < kept.length; i += 1) {
+        const offset = elapsed - i * overlap;
+        const vOut = i === last ? "cutv" : `xv${i}`;
+        pieces.push(
+          `[${vPrevious}][cv${i}]xfade=transition=fade:duration=${overlap.toFixed(4)}:` +
+            `offset=${Math.max(0, offset).toFixed(4)}[${vOut}]`,
+        );
+        vPrevious = vOut;
+        if (withAudio) {
+          const aOut = i === last ? "cuta" : `xa${i}`;
+          pieces.push(`[${aPrevious}][ca${i}]acrossfade=d=${overlap.toFixed(4)}:c1=tri:c2=tri[${aOut}]`);
+          aPrevious = aOut;
+        }
+        elapsed += kept[i].end - kept[i].start;
+      }
+    } else {
+      pieces.push(
+        `${kept.map((_, i) => (withAudio ? `[cv${i}][ca${i}]` : `[cv${i}]`)).join("")}` +
+          `concat=n=${kept.length}:v=1:a=${withAudio ? 1 : 0}[cutv]${withAudio ? "[cuta]" : ""}`,
+      );
+    }
     graphPrefix = `${pieces.join(";")};`;
     vLabel = "cutv";
-    aLabel = "cuta";
+    if (withAudio) aLabel = "cuta";
   }
 
-  const effectiveDuration = kept
-    ? kept.reduce((sum, s) => sum + (s.end - s.start), 0)
-    : source.duration;
+  const effectiveDuration = kept ? outputDuration(kept, overlap) : source.duration;
 
   // ── The critic ────────────────────────────────────────────────────────────
   //
@@ -860,6 +950,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       operations: plan.operations,
       kept,
       effectiveDuration,
+      overlap,
       words: ctx.words,
     });
     notes.push(...reviewed.notes);
@@ -1066,8 +1157,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   if (titleOps.length > 0) {
     const titles: MotionTitle[] = [];
     for (const op of titleOps) {
-      const start = kept ? remapTime(op.at, kept) : op.at;
-      const end = kept ? remapTime(op.at + op.durationSeconds, kept) : op.at + op.durationSeconds;
+      const start = kept ? remapTime(op.at, kept, overlap) : op.at;
+      const end = kept ? remapTime(op.at + op.durationSeconds, kept, overlap) : op.at + op.durationSeconds;
       if (end - start < 0.2) {
         notes.push("dropped a title whose moment did not survive the cut");
         continue;
@@ -1127,8 +1218,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
       const startSrc = op.at;
       const endSrc = op.at + op.durationSeconds;
-      const start = kept ? remapTime(startSrc, kept) : startSrc;
-      const end = kept ? remapTime(endSrc, kept) : endSrc;
+      const start = kept ? remapTime(startSrc, kept, overlap) : startSrc;
+      const end = kept ? remapTime(endSrc, kept, overlap) : endSrc;
       if (end - start < 0.1) {
         // The whole stretch it was pinned to was cut away.
         notes.push("dropped an overlay whose moment did not survive the cut");
@@ -1321,6 +1412,7 @@ export function describe(op: EditOperation): string {
     case "extractClips": return "Cutting it into clips";
     case "coldOpen": return "Opening on the strongest moment";
     case "fade": return "Fading in and out";
+    case "dissolve": return "Dissolving between the cuts";
     case "formatForPlatform": return `Reframing for ${op.platform}`;
     case "burnCaptions": return "Burning in captions";
     // Replaced by burnCaptions before the renderer ever sees a plan — see

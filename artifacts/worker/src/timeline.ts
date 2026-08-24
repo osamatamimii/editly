@@ -65,23 +65,49 @@ export function keepSegmentsFrom(
 }
 
 /**
+ * How long the edit actually runs.
+ *
+ * The sum of the kept stretches, less what the joins overlap. Every caller that
+ * needs the length of the output needs the same subtraction, and a second place
+ * that computes it by hand is a second place to get it wrong: a dissolve that
+ * shortens the video without shortening the number the caption clock is checked
+ * against pushes the last caption past the end of the file.
+ */
+export function outputDuration(kept: Segment[], overlap = 0): number {
+  const spanned = kept.reduce((sum, s) => sum + (s.end - s.start), 0);
+  return spanned - Math.max(0, kept.length - 1) * overlap;
+}
+
+/**
  * Where a moment in the original lands after the cuts. Moments inside a removed
  * stretch collapse onto the cut point, which is where a caption for them
  * belongs.
+ *
+ * `overlap` is how long each join runs both shots at once — zero for a hard
+ * cut, the dissolve's duration otherwise. It is a parameter rather than a
+ * second function because the alternative is two mappings that agree only while
+ * someone remembers to change both: a dissolve moves *every* moment after the
+ * first join earlier, and a caption placed by the un-overlapped map drifts
+ * further out of sync with every join it survives. Passing zero is the old
+ * behaviour exactly.
  */
-export function remapTime(seconds: number, kept: Segment[]): number {
+export function remapTime(seconds: number, kept: Segment[], overlap = 0): number {
   // Where each kept stretch lands in the output, in the order the concat will
   // play them — which since the cold open exists is no longer necessarily the
-  // order they occur in the source.
+  // order they occur in the source. Each join after the first pulls everything
+  // that follows it earlier by the length of the overlap.
   let elapsed = 0;
-  const placed = kept.map((segment) => {
-    const at = elapsed;
+  const placed = kept.map((segment, i) => {
+    const at = Math.max(0, elapsed - i * overlap);
     elapsed += segment.end - segment.start;
     return { segment, at };
   });
+  const total = Math.max(0, elapsed - Math.max(0, kept.length - 1) * overlap);
 
   for (const { segment, at } of placed) {
-    if (seconds >= segment.start && seconds <= segment.end) return at + (seconds - segment.start);
+    if (seconds >= segment.start && seconds <= segment.end) {
+      return Math.min(total, at + (seconds - segment.start));
+    }
   }
 
   // Not inside anything that was kept: this moment was cut away. It lands on
@@ -96,7 +122,7 @@ export function remapTime(seconds: number, kept: Segment[]): number {
       best = { at, start: segment.start };
     }
   }
-  return best ? best.at : elapsed;
+  return best ? best.at : total;
 }
 
 /**

@@ -32,6 +32,15 @@ export interface CriticInput {
   /** Length of the video the viewer will actually receive, in seconds. */
   effectiveDuration: number;
   /**
+   * How long each join overlaps, in seconds. Zero for a hard cut.
+   *
+   * The critic decides where a punch may land, and "where" is a position on
+   * the edited clock. A dissolve makes that clock run short by one overlap per
+   * join, so a critic reading the un-overlapped clock would guard the wrong
+   * splices and reject punches that are comfortably inside the file.
+   */
+  overlap?: number;
+  /**
    * What was said and when, on the source clock, where a transcript exists.
    *
    * Only the fillers are used, and only to answer one question: is this punch
@@ -72,9 +81,10 @@ const MAX_UPSCALE = 1.25;
 export function criticise(input: CriticInput): CriticResult {
   const notes: string[] = [];
   const { kept, effectiveDuration } = input;
+  const overlap = input.overlap ?? 0;
 
   /** Source seconds to edited seconds. Identity when nothing was cut. */
-  const toEdited = (seconds: number): number => (kept ? remapTime(seconds, kept) : seconds);
+  const toEdited = (seconds: number): number => (kept ? remapTime(seconds, kept, overlap) : seconds);
 
   /**
    * Did this moment survive the cut?
@@ -133,7 +143,7 @@ export function criticise(input: CriticInput): CriticResult {
         }
       }
       const crowded = at.length - spaced.length;
-      at = spaced.map((seconds) => nudgeOffSplice(seconds, kept, effectiveDuration));
+      at = spaced.map((seconds) => nudgeOffSplice(seconds, kept, effectiveDuration, overlap));
 
       if (lost > 0) {
         notes.push(`${lost} punch${lost === 1 ? "" : "es"} fell in silence that was cut, so ${lost === 1 ? "it was" : "they were"} dropped`);
@@ -256,15 +266,20 @@ function capZoom(
  * Only forward: a punch is emphasis on something about to be said, and pulling
  * it earlier puts it on the word before.
  */
-function nudgeOffSplice(seconds: number, kept: Segment[] | null, limit: number): number {
+function nudgeOffSplice(seconds: number, kept: Segment[] | null, limit: number, overlap = 0): number {
   if (!kept || kept.length < 2) return seconds;
 
+  // Where the joins land on the edited clock. With a dissolve a join is not an
+  // instant but a stretch, and the guard is measured from where it ends: a
+  // punch that opens inside the dissolve is a zoom on two shots at once, which
+  // is the very thing the guard exists to prevent.
   let elapsed = 0;
-  for (const segment of kept) {
-    elapsed += segment.end - segment.start;
-    if (elapsed >= limit) break;
-    if (Math.abs(seconds - elapsed) < SPLICE_GUARD_SECONDS) {
-      return Math.min(elapsed + SPLICE_GUARD_SECONDS, limit);
+  for (let i = 0; i < kept.length; i += 1) {
+    elapsed += kept[i].end - kept[i].start;
+    const splice = elapsed - (i + 1) * overlap;
+    if (splice >= limit) break;
+    if (seconds > splice - SPLICE_GUARD_SECONDS - overlap && seconds < splice + SPLICE_GUARD_SECONDS) {
+      return Math.min(splice + SPLICE_GUARD_SECONDS, limit);
     }
   }
   return seconds;
