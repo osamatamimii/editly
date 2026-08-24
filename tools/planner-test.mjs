@@ -650,6 +650,46 @@ console.log("\nThe frame follows the platform that was named");
   );
 }
 
+// The list of things we cannot do has to shrink as things get built, or it
+// lies in the other direction.
+console.log("\nWhat we cannot do yet is claimed no wider than it is");
+{
+  const planner = createPlanner({ apiKey: "" });
+
+  const asked = await planner.plan("add some transitions please", {});
+  check(
+    "a bare transitions ask now produces the fade that exists",
+    asked.operations.some((o) => o.type === "fade"),
+    JSON.stringify(asked.operations.map((o) => o.type)),
+  );
+  check(
+    "and no longer claims transitions are impossible",
+    !asked.cannotYet.some((c) => /transition/i.test(c)),
+    JSON.stringify(asked.cannotYet),
+  );
+
+  const between = await planner.plan("crossfade between the cuts", {});
+  check(
+    "the join between two cuts is still admitted as missing",
+    between.cannotYet.some((c) => /between the cuts/i.test(c)),
+    JSON.stringify(between.cannotYet),
+  );
+
+  const colour = await planner.plan("make the colour more cinematic", {});
+  check(
+    "a colour ask points at reference matching instead of refusing the subject",
+    colour.cannotYet.some((c) => /match it/i.test(c)),
+    JSON.stringify(colour.cannotYet),
+  );
+
+  const music = await planner.plan("add music to it", {});
+  check(
+    "and what really is missing is still refused plainly",
+    music.cannotYet.some((c) => /music/i.test(c)),
+    JSON.stringify(music.cannotYet),
+  );
+}
+
 console.log("\nAsking for what the project does not have");
 {
   const planner = createPlanner({ apiKey: "" });
