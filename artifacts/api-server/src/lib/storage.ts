@@ -61,12 +61,24 @@ function adminHeaders(): Record<string, string> {
   };
 }
 
-/** Every object stored under a project, as full bucket keys. */
+/**
+ * One page of the objects stored under a project, as full bucket keys.
+ *
+ * A page, not everything: the Storage list endpoint caps what it returns, and
+ * asking once used to be the whole sweep. That was fine when a project held a
+ * handful of files, and quietly stopped being fine when clips arrived — one
+ * clips render writes up to twelve objects, so a project a person actually
+ * used could hold more than a single page, and the sweep deleted the first
+ * hundred while reporting all of them gone. The caller now drains pages until
+ * the prefix answers empty.
+ */
+const LIST_PAGE = 100;
+
 async function listUnderPrefix(prefix: string): Promise<string[]> {
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${VIDEOS_BUCKET}`, {
     method: "POST",
     headers: adminHeaders(),
-    body: JSON.stringify({ prefix, limit: 100, offset: 0 }),
+    body: JSON.stringify({ prefix, limit: LIST_PAGE, offset: 0 }),
   });
   if (!res.ok) throw new Error(`list failed: ${res.status} ${await res.text()}`);
   const entries = (await res.json()) as Array<{ name: string; id: string | null }>;
@@ -130,22 +142,42 @@ export async function verifyStorageAdmin(now: number = Date.now()): Promise<Stor
  * acted on, a false confirmation cannot. Deleting a project is the path people
  * actually use, and it was the one that lied.
  */
+/**
+ * Fifty pages is five thousand objects — far past any project a person can
+ * actually make. Reaching it means Storage keeps answering 200 while removing
+ * nothing, and a sweep that spins forever against a lying backend helps nobody.
+ * Giving up is reported as failure, never as success: "we could not say your
+ * bytes are gone" is something a person can act on, "they are gone" when they
+ * are not is not.
+ */
+const MAX_SWEEP_PASSES = 50;
+
 export async function deleteProjectObjects(
   userId: string,
   projectId: string,
 ): Promise<{ removed: boolean; reason?: "not-configured" | "failed" }> {
   if (!storageAdminConfigured) return { removed: false, reason: "not-configured" };
   try {
-    const keys = await listUnderPrefix(`${userId}/${projectId}`);
-    if (keys.length === 0) return { removed: true };
-    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}`, {
-      method: "DELETE",
-      headers: adminHeaders(),
-      body: JSON.stringify({ prefixes: keys }),
-    });
-    if (!res.ok) throw new Error(`delete failed: ${res.status} ${await res.text()}`);
-    logger.info({ projectId, removed: keys.length }, "reclaimed project storage");
-    return { removed: true };
+    let removedCount = 0;
+    for (let pass = 0; pass < MAX_SWEEP_PASSES; pass++) {
+      const keys = await listUnderPrefix(`${userId}/${projectId}`);
+      if (keys.length === 0) {
+        // Only an empty listing proves the sweep is done. Counting one page and
+        // stopping is how objects past the page size survived their deletion.
+        if (removedCount > 0) {
+          logger.info({ projectId, removed: removedCount }, "reclaimed project storage");
+        }
+        return { removed: true };
+      }
+      const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}`, {
+        method: "DELETE",
+        headers: adminHeaders(),
+        body: JSON.stringify({ prefixes: keys }),
+      });
+      if (!res.ok) throw new Error(`delete failed: ${res.status} ${await res.text()}`);
+      removedCount += keys.length;
+    }
+    throw new Error(`prefix still lists objects after ${MAX_SWEEP_PASSES} passes`);
   } catch (error) {
     logger.error({ err: error, projectId }, "could not reclaim project storage");
     return { removed: false, reason: "failed" };
