@@ -46,12 +46,33 @@ function shapeLabel(platform: Platform): string {
 }
 
 /** Asked-for things that are real product ideas but have no operation yet. */
+/**
+ * Asked-for things that are real product ideas but have no operation yet.
+ *
+ * This list has to be pruned as things get built, or it starts lying in the
+ * other direction — a product that says "I can't do transitions" the week
+ * after transitions shipped is as dishonest as one that promises what it
+ * cannot do. Two entries were narrowed for exactly that reason:
+ *
+ * - Transitions: a fade at the ends exists now, so only the *between-cuts*
+ *   kind is still missing, and only that is claimed.
+ * - Colour: matching a reference video's colour exists, so the reply points
+ *   at it rather than refusing the whole subject.
+ */
 const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
   { patterns: /\bemoji/i, label: "add emojis" },
   { patterns: /\bmusic|beat|sound ?track\b/i, label: "add music or sync to a beat" },
-  { patterns: /\bcolou?r|grade|cinematic|filter\b/i, label: "colour grade" },
+  {
+    patterns: /\bcolou?r|grade|cinematic|filter\b/i,
+    label: "grade the colour on its own — but upload a video whose look you want and I will match it",
+  },
   { patterns: /\bhook|first (two|2|three|3) seconds\b/i, label: "build a hook from the opening" },
-  { patterns: /\btransition/i, label: "add transitions" },
+  {
+    // "fade" is deliberately absent: the fade is built. What is still missing
+    // is the join between two cuts — a crossfade, a wipe, a slide.
+    patterns: /\bcross ?fade|dissolve|\bwipe\b|\bslide\b|transition between|between (the )?(cuts|clips)/i,
+    label: "put a transition between the cuts",
+  },
 ];
 
 /**
@@ -281,7 +302,11 @@ export function planFromText(
     willDo.push("level the audio to what these platforms expect");
   }
 
-  if (FADE_WORDS.test(text)) {
+  // A bare "add transitions" used to be refused outright. The fade at the ends
+  // is a transition and it is built, so the ask now produces it — and the
+  // narrower "between the cuts" entry above still says what is missing, so
+  // nobody is told they got something they did not.
+  if (FADE_WORDS.test(text) || /\btransitions?\b|\bانتقال|انتقالات/i.test(text)) {
     operations.push({ type: "fade", durationMs: 500 });
     willDo.push("open it from black and close it to black");
   }
