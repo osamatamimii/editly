@@ -1,7 +1,9 @@
+import { randomUUID } from "crypto";
 import { Router, type IRouter } from "express";
 import { and, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import {
   db,
+  adminActionsTable,
   billingEventsTable,
   jobsTable,
   projectsTable,
@@ -12,9 +14,11 @@ import {
   GetAdminOverviewResponse,
   ListAdminAccountsResponse,
   ListAdminJobsResponse,
+  ListAdminActionsResponse,
   isPlanKeyGuard,
 } from "@workspace/api-zod";
 import { requireAdmin } from "../middlewares/admin";
+import { currentUserId } from "../middlewares/auth";
 import { isUnattended, workerOnline } from "../lib/queue-health";
 import { DEFAULT_PLAN, PLAN_LIMITS, minutesFrom, type PlanKey } from "../lib/plan-limits";
 import { startOfMonthUtc } from "../lib/usage";
@@ -29,10 +33,18 @@ import { startOfMonthUtc } from "../lib/usage";
  *
  * Two rules hold this file together:
  *
- * **It reads and does not write.** There is no handler here that changes
- * anything, deliberately, for this first version. Actions come next and each
- * will leave an audit row; a console that can act before it can be trusted to
- * read correctly is a console nobody should have.
+ * **Nothing is done without a signature.** The read routes came first and the
+ * four actions came after, once the reading was proven. Every one of them
+ * writes a row into `admin_actions` naming the actor, the subject and a reason
+ * the route refuses to let be blank — and the audit row is written *before*
+ * the effect wherever the two can be ordered, because an effect with no record
+ * is worse than a record with no effect. Granting minutes goes further: the
+ * audit row **is** the grant, and the meter reads it, so there is no code path
+ * that can hand out minutes anonymously.
+ *
+ * **Nothing here destroys anything.** Suspension stops new renders and deletes
+ * nothing; there is no delete-account, no delete-video, no sign-in-as. Those
+ * are absent by decision, not by omission — see admin-console.md.
  *
  * **The numbers come from the modules the product uses.** Queue health is
  * `queue-health.ts` — the same function the dashboard and the render status
@@ -293,6 +305,241 @@ router.get("/admin/jobs", async (req, res): Promise<void> => {
         lockedAt: job.lockedAt ? new Date(job.lockedAt).toISOString() : null,
         finishedAt: job.finishedAt ? new Date(job.finishedAt).toISOString() : null,
         unattended: isUnattended(job, newest?.lastSeenAt, now),
+      })),
+    }),
+  );
+});
+
+// ── Acting ───────────────────────────────────────────────────────────────────
+
+/**
+ * Every action needs a reason, and this decides what counts as one.
+ *
+ * Not a formality: the reason is the only part of an audit row that a future
+ * reader cannot reconstruct from the rest of the database. Six characters is a
+ * low bar deliberately — "refund" and "test" both pass — because a bar high
+ * enough to be annoying is a bar people route around by typing "aaaaaaaa".
+ */
+function reasonFrom(body: unknown): string | null {
+  const raw = (body as { reason?: unknown } | undefined)?.reason;
+  if (typeof raw !== "string") return null;
+  const reason = raw.trim();
+  return reason.length >= 6 ? reason.slice(0, 500) : null;
+}
+
+async function record(entry: {
+  actorUserId: string;
+  action: string;
+  subjectUserId?: string | null;
+  subjectJobId?: string | null;
+  reason: string;
+  detail?: Record<string, unknown>;
+}): Promise<void> {
+  await db.insert(adminActionsTable).values({
+    id: randomUUID(),
+    actorUserId: entry.actorUserId,
+    action: entry.action,
+    subjectUserId: entry.subjectUserId ?? null,
+    subjectJobId: entry.subjectJobId ?? null,
+    reason: entry.reason,
+    detail: entry.detail ?? null,
+  });
+}
+
+/**
+ * Put a stuck job back in the queue.
+ *
+ * The most-used action and the least dangerous one: the queue was built to be
+ * re-claimed, so this only clears the lock a dead worker left behind. It
+ * refuses a job that is already finished — requeueing a done render would
+ * bill the customer twice for the same video — and it refuses one a live
+ * worker is holding, because that worker is not stuck, it is working.
+ */
+router.post("/admin/jobs/:id/requeue", async (req, res): Promise<void> => {
+  const actorUserId = currentUserId(req);
+  const reason = reasonFrom(req.body);
+  if (!reason) {
+    res.status(400).json({ error: "A reason of at least six characters is required." });
+    return;
+  }
+
+  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, req.params["id"]!)).limit(1);
+  if (!job) {
+    res.status(404).json({ error: "No such job." });
+    return;
+  }
+  if (job.status === "done") {
+    res.status(409).json({ error: "This render finished. Requeueing it would bill for it twice." });
+    return;
+  }
+
+  const [newest] = await db
+    .select({ lastSeenAt: workerHeartbeatsTable.lastSeenAt })
+    .from(workerHeartbeatsTable)
+    .orderBy(desc(workerHeartbeatsTable.lastSeenAt))
+    .limit(1);
+  if (job.status === "processing" && job.lockedAt && workerOnline(newest?.lastSeenAt)) {
+    res.status(409).json({ error: "A live worker is holding this job. It is working, not stuck." });
+    return;
+  }
+
+  // The row first, the effect second: an effect nobody wrote down is worse
+  // than a record of something that then failed to happen.
+  await record({ actorUserId, action: "requeue_job", subjectJobId: job.id, reason,
+    detail: { fromStatus: job.status, attempts: job.attempts } });
+
+  await db
+    .update(jobsTable)
+    .set({ status: "queued", lockedAt: null, lockedBy: null, progress: 0, stage: null, error: null })
+    .where(eq(jobsTable.id, job.id));
+
+  res.status(204).end();
+});
+
+/**
+ * Hand somebody minutes.
+ *
+ * The grant is the audit row — there is no other table and no column to set,
+ * and `usage.ts` sums these for the current month. Which means the reason is
+ * not documentation attached to the grant; it is part of it, and a grant
+ * without one cannot be written at all.
+ *
+ * It expires with the month, like the plan's own allowance. A grant that
+ * carried forever would be a plan change made by accident.
+ */
+router.post("/admin/accounts/:userId/minutes", async (req, res): Promise<void> => {
+  const actorUserId = currentUserId(req);
+  const reason = reasonFrom(req.body);
+  if (!reason) {
+    res.status(400).json({ error: "A reason of at least six characters is required." });
+    return;
+  }
+  const minutes = Number((req.body as { minutes?: unknown } | undefined)?.minutes);
+  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 600) {
+    res.status(400).json({ error: "Minutes must be a number between 1 and 600." });
+    return;
+  }
+
+  const subjectUserId = req.params["userId"]!;
+  await record({
+    actorUserId,
+    action: "grant_minutes",
+    subjectUserId,
+    reason,
+    detail: { seconds: Math.round(minutes * 60), minutes },
+  });
+
+  res.status(204).end();
+});
+
+/**
+ * Set somebody's plan by hand.
+ *
+ * For the case that has actually happened: the Freemius webhook failed and the
+ * customer is paying for one thing and holding another. It is the one action
+ * here that can disagree with an outside system, so the response says so
+ * rather than leaving whoever used it to remember.
+ */
+router.post("/admin/accounts/:userId/plan", async (req, res): Promise<void> => {
+  const actorUserId = currentUserId(req);
+  const reason = reasonFrom(req.body);
+  if (!reason) {
+    res.status(400).json({ error: "A reason of at least six characters is required." });
+    return;
+  }
+  const requested = (req.body as { plan?: unknown } | undefined)?.plan;
+  if (typeof requested !== "string" || !isPlanKeyGuard(requested)) {
+    res.status(400).json({ error: "Unknown plan." });
+    return;
+  }
+
+  const subjectUserId = req.params["userId"]!;
+  const [existing] = await db
+    .select({ plan: subscriptionsTable.plan })
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, subjectUserId))
+    .limit(1);
+
+  await record({
+    actorUserId,
+    action: "set_plan",
+    subjectUserId,
+    reason,
+    detail: { from: existing?.plan ?? null, to: requested },
+  });
+
+  await db
+    .insert(subscriptionsTable)
+    .values({ userId: subjectUserId, plan: requested })
+    .onConflictDoUpdate({ target: subscriptionsTable.userId, set: { plan: requested } });
+
+  res.json({
+    plan: requested,
+    note:
+      "Set by hand. Freemius still believes whatever it believed — until it is corrected there, its next webhook can overwrite this.",
+  });
+});
+
+/**
+ * Suspend or restore an account.
+ *
+ * Stops new renders and deletes nothing: every byte, project and clip stays,
+ * and the person can still sign in and look at their work. There is no
+ * delete-account action here and there will not be one.
+ */
+router.post("/admin/accounts/:userId/suspend", async (req, res): Promise<void> => {
+  const actorUserId = currentUserId(req);
+  const reason = reasonFrom(req.body);
+  if (!reason) {
+    res.status(400).json({ error: "A reason of at least six characters is required." });
+    return;
+  }
+  const suspended = (req.body as { suspended?: unknown } | undefined)?.suspended;
+  if (typeof suspended !== "boolean") {
+    res.status(400).json({ error: "`suspended` must be true or false." });
+    return;
+  }
+
+  const subjectUserId = req.params["userId"]!;
+  await record({
+    actorUserId,
+    action: "set_suspended",
+    subjectUserId,
+    reason,
+    detail: { suspended },
+  });
+
+  const suspendedAt = suspended ? new Date() : null;
+  await db
+    .insert(subscriptionsTable)
+    .values({ userId: subjectUserId, plan: DEFAULT_PLAN, suspendedAt })
+    .onConflictDoUpdate({ target: subscriptionsTable.userId, set: { suspendedAt } });
+
+  res.status(204).end();
+});
+
+/** The log itself, newest first. Nothing writes to it but the routes above. */
+router.get("/admin/actions", async (req, res): Promise<void> => {
+  const limit = Math.min(200, Math.max(1, Number(req.query["limit"] ?? 50) || 50));
+  const rows = await db
+    .select()
+    .from(adminActionsTable)
+    .orderBy(desc(adminActionsTable.createdAt))
+    .limit(limit);
+  const [totalRow] = await db.select({ n: count() }).from(adminActionsTable);
+
+  res.json(
+    ListAdminActionsResponse.parse({
+      total: Number(totalRow?.n ?? 0),
+      actions: rows.map((row) => ({
+        id: row.id,
+        actorUserId: row.actorUserId,
+        action: row.action,
+        subjectUserId: row.subjectUserId ?? null,
+        subjectJobId: row.subjectJobId ?? null,
+        reason: row.reason,
+        detail: (row.detail ?? null) as Record<string, unknown> | null,
+        createdAt: new Date(row.createdAt).toISOString(),
       })),
     }),
   );

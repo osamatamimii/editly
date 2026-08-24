@@ -65,6 +65,7 @@ async function buildUsageResponse(userId: string, plan: string) {
   return {
     plan: validPlan,
     minutesIncluded: usage.minutesIncluded,
+    minutesGranted: usage.minutesGranted,
     minutesUsedThisMonth: usage.minutesUsed,
     minutesRemaining: usage.minutesRemaining,
     maxUploadMinutes: limits.maxUploadMinutes,
