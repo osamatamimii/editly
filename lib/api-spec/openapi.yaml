@@ -285,6 +285,81 @@ paths:
               schema:
                 $ref: "#/components/schemas/DashboardStats"
 
+  /admin/overview:
+    get:
+      operationId: getAdminOverview
+      tags: [admin]
+      summary: How the platform is doing right now
+      description: >
+        Operations, not surveillance. Queue health from the same module the
+        product uses, the worker's own heartbeat, account and subscription
+        counts, the last ten billing events, and minutes rendered this month.
+        Answers 404 — not 403 — to any signed-in caller who is not on the
+        ADMIN_USER_IDS allowlist, because a status code that confirms the path
+        exists is information.
+      responses:
+        "200":
+          description: Platform overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOverview"
+        "404":
+          description: Not an admin, or no such route. Deliberately the same answer.
+
+  /admin/accounts:
+    get:
+      operationId: listAdminAccounts
+      tags: [admin]
+      summary: Who has signed up, and what they have used
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Substring match on the email address.
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: A page of accounts, with the real total beside it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListAdminAccountsResponse"
+        "404":
+          description: Not an admin, or no such route.
+
+  /admin/jobs:
+    get:
+      operationId: listAdminJobs
+      tags: [admin]
+      summary: Recent renders, with their errors as they were written
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [queued, processing, done, failed] }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: Recent render jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListAdminJobsResponse"
+        "404":
+          description: Not an admin, or no such route.
+
   /projects/{id}/render:
     post:
       operationId: startRender
@@ -1577,6 +1652,125 @@ components:
           maximum: 15
           default: 4
       required: [type]
+
+    AdminOverview:
+      description: >
+        The row of cards at the top of the console. Every number here already
+        existed in the database; what is new is that it can be looked at.
+      type: object
+      properties:
+        queue:
+          type: object
+          properties:
+            processing: { type: integer }
+            waiting:
+              description: Queued behind a live machine. Waiting is normal.
+              type: integer
+            unattended:
+              description: Queued with nothing listening. This is the number that means something is wrong.
+              type: integer
+            failedLastDay: { type: integer }
+            doneLastDay: { type: integer }
+          required: [processing, waiting, unattended, failedLastDay, doneLastDay]
+        worker:
+          $ref: "#/components/schemas/WorkerStatus"
+        accounts:
+          type: object
+          properties:
+            total: { type: integer }
+            newLastWeek: { type: integer }
+          required: [total, newLastWeek]
+        revenue:
+          type: object
+          properties:
+            byPlan:
+              type: array
+              items:
+                type: object
+                properties:
+                  plan: { $ref: "#/components/schemas/SubscriptionPlan" }
+                  count: { type: integer }
+                required: [plan, count]
+            monthlyRecurringUsd: { type: number }
+          required: [byPlan, monthlyRecurringUsd]
+        billing:
+          description: >
+            The last events Freemius sent. No amounts and no payment details:
+            Freemius is the merchant of record, and what we do not store we
+            cannot leak.
+          type: array
+          items:
+            type: object
+            properties:
+              eventId: { type: string }
+              type: { type: string }
+              email: { type: string, nullable: true }
+              plan:
+                allOf: [{ $ref: "#/components/schemas/SubscriptionPlan" }]
+                nullable: true
+              receivedAt: { type: string, format: date-time }
+              applied: { type: boolean }
+              outcome: { type: string, nullable: true }
+            required: [eventId, type, email, plan, receivedAt, applied, outcome]
+        minutesRenderedThisMonth: { type: number }
+      required: [queue, worker, accounts, revenue, billing, minutesRenderedThisMonth]
+
+    AdminAccount:
+      type: object
+      properties:
+        userId: { type: string, format: uuid }
+        email: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        lastSignInAt: { type: string, format: date-time, nullable: true }
+        plan: { $ref: "#/components/schemas/SubscriptionPlan" }
+        projectCount: { type: integer }
+        minutesUsedThisMonth: { type: number }
+        minutesIncluded: { type: number }
+      required:
+        [userId, email, createdAt, lastSignInAt, plan, projectCount, minutesUsedThisMonth, minutesIncluded]
+
+    ListAdminAccountsResponse:
+      type: object
+      properties:
+        accounts:
+          type: array
+          items: { $ref: "#/components/schemas/AdminAccount" }
+        total:
+          description: Counted independently of the page — a total derived from a page lies on page two.
+          type: integer
+      required: [accounts, total]
+
+    AdminJob:
+      description: >
+        One render, as operations sees it. `error` is carried verbatim: the
+        value of this screen is turning "my video did not work" into an answer,
+        and a message rewritten for reassurance has had the answer taken out.
+      type: object
+      properties:
+        id: { type: string }
+        userId: { type: string, format: uuid }
+        projectId: { type: string }
+        status: { type: string }
+        progress: { type: integer }
+        stage: { type: string, nullable: true }
+        error: { type: string, nullable: true }
+        attempts: { type: integer }
+        billedSeconds: { type: number, nullable: true }
+        createdAt: { type: string, format: date-time }
+        lockedAt: { type: string, format: date-time, nullable: true }
+        finishedAt: { type: string, format: date-time, nullable: true }
+        unattended: { type: boolean }
+      required:
+        [id, userId, projectId, status, progress, stage, error, attempts, billedSeconds, createdAt, lockedAt, finishedAt, unattended]
+
+    ListAdminJobsResponse:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items: { $ref: "#/components/schemas/AdminJob" }
+        total: { type: integer }
+      required: [jobs, total]
 
     FadeOperation:
       description: >
