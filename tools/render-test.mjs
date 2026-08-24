@@ -44,7 +44,7 @@ if (esbuild.status !== 0) {
   process.exit(1);
 }
 
-const { renderPlan, probeSource, keepSegmentsFrom, remapTime, zoomExpression, writeSubtitleFile, frameFor, shapeFor, defaultHeightFor, chooseHighlight, chooseClips } =
+const { renderPlan, probeSource, keepSegmentsFrom, remapTime, outputDuration, zoomExpression, writeSubtitleFile, frameFor, shapeFor, defaultHeightFor, chooseHighlight, chooseClips } =
   await import(pathToFileURL(modulePath).href);
 
 // The reference command below has to crop where the pipeline crops, or it
@@ -189,6 +189,30 @@ console.log("\nSegment arithmetic");
     remapTime(5, [{ start: 8, end: 12 }, { start: 0, end: 4 }]) === 0,
     String(remapTime(5, [{ start: 8, end: 12 }, { start: 0, end: 4 }])),
   );
+
+  // A dissolve overlaps every join, so the edited clock runs short by one
+  // overlap per join made so far. This is the arithmetic every caption, punch,
+  // overlay and title is placed by — if it drifts, they all drift together and
+  // nobody can tell which feature broke.
+  const three = [{ start: 0, end: 4 }, { start: 6, end: 10 }, { start: 12, end: 16 }];
+  check("with no overlap the old answers are unchanged", remapTime(7, three, 0) === 5, String(remapTime(7, three, 0)));
+  check(
+    "a moment after one join moves earlier by one overlap",
+    Math.abs(remapTime(7, three, 0.5) - 4.5) < 1e-9,
+    String(remapTime(7, three, 0.5)),
+  );
+  check(
+    "a moment after two joins moves earlier by two",
+    Math.abs(remapTime(13, three, 0.5) - 8) < 1e-9,
+    String(remapTime(13, three, 0.5)),
+  );
+  check(
+    "and nothing is ever mapped past the end of the shortened file",
+    remapTime(16, three, 0.5) <= outputDuration(three, 0.5) + 1e-9,
+    `${remapTime(16, three, 0.5)} vs ${outputDuration(three, 0.5)}`,
+  );
+  check("the output loses one overlap per join, not per segment", outputDuration(three, 0.5) === 11, String(outputDuration(three, 0.5)));
+  check("a single segment has no join to lose", outputDuration([{ start: 0, end: 4 }], 0.5) === 4, String(outputDuration([{ start: 0, end: 4 }], 0.5)));
 }
 
 console.log("\nFrame arithmetic");
@@ -1080,6 +1104,128 @@ console.log("\nThe fade opens from black, closes to black, and touches no clock"
   check(
     "a fade longer than a third of the clip is shrunk, and says so",
     greedy.notes.some((n) => /shorter than asked/.test(n)),
+    JSON.stringify(greedy.notes),
+  );
+}
+
+console.log("\nThe dissolve mixes one shot into the next, and the clock knows it");
+{
+  // Built so the join is visible as a number: white for the first kept
+  // stretch, black for the second, a second of silence between them for the
+  // cut to find. A hard cut goes white-frame straight to black-frame and no
+  // frame is ever grey. A dissolve has to produce one — and the file has to
+  // come out exactly one overlap shorter, because that is the property every
+  // caption in the edit is then placed against.
+  const dir = await scratch();
+  const twoShots = path.join(dir, "two-shots.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y",
+    "-f", "lavfi", "-i", "color=c=white:size=320x240:rate=25:duration=4",
+    "-f", "lavfi", "-i", "color=c=black:size=320x240:rate=25:duration=3",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=1",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-filter_complex",
+    "[0:v][1:v]concat=n=2:v=1:a=0[v];[2:a][3:a][4:a]concat=n=3:v=0:a=1[a]",
+    "-map", "[v]", "-map", "[a]",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", twoShots,
+  ]);
+
+  const lumaAt = (file, at) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},trim=start=${at}:end=${at + 0.06},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.YAVG",
+        "-of", "default=nw=1:nk=1",
+      ],
+      { encoding: "utf8" },
+    );
+    const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number);
+    return vals.length > 0 ? vals[0] : NaN;
+  };
+
+  const cutOps = [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 0 }];
+
+  const hard = await renderPlan(twoShots, { version: 1, operations: cutOps }, { workDir: await scratch() });
+  const hardSeconds = Number(ffprobe(hard.output, "format=duration")[0]);
+
+  const soft = await renderPlan(
+    twoShots,
+    { version: 1, operations: [...cutOps, { type: "dissolve", durationMs: 400 }] },
+    { workDir: await scratch() },
+  );
+  const softSeconds = Number(ffprobe(soft.output, "format=duration")[0]);
+
+  check(
+    "the dissolve says what it did, at the length it did it",
+    soft.notes.some((n) => /dissolved between the cuts over 0\.40s/.test(n)),
+    JSON.stringify(soft.notes),
+  );
+  check(
+    "the edit comes out one overlap shorter than the hard cut",
+    Math.abs(hardSeconds - softSeconds - 0.4) < 0.12,
+    `hard ${hardSeconds}, soft ${softSeconds}`,
+  );
+  check(
+    "and the renderer's own estimate agrees with the file it produced",
+    Math.abs(soft.estimatedSeconds - softSeconds) < 0.2,
+    `estimated ${soft.estimatedSeconds}, measured ${softSeconds}`,
+  );
+
+  // The join itself. On the hard cut the splice is at the end of the first
+  // kept stretch; on the dissolve it starts one overlap earlier and runs
+  // through it.
+  const splice = hardSeconds - 3;
+  check("the hard cut is white right up to the splice", lumaAt(hard.output, splice - 0.15) > 200, String(lumaAt(hard.output, splice - 0.15)));
+  check("and black immediately after it", lumaAt(hard.output, splice + 0.15) < 40, String(lumaAt(hard.output, splice + 0.15)));
+
+  const midway = splice - 0.4 / 2;
+  const blended = lumaAt(soft.output, midway);
+  check(
+    "halfway through the dissolve the frame is neither shot but both",
+    blended > 60 && blended < 200,
+    String(blended),
+  );
+  check("before the dissolve begins the first shot is still itself", lumaAt(soft.output, midway - 0.35) > 200, String(lumaAt(soft.output, midway - 0.35)));
+  check("after it ends the second shot is too", lumaAt(soft.output, midway + 0.35) < 40, String(lumaAt(soft.output, midway + 0.35)));
+
+  // Nothing to dissolve between is not an error, and not silence either.
+  const nothingToJoin = await renderPlan(
+    twoShots,
+    { version: 1, operations: [{ type: "dissolve", durationMs: 400 }] },
+    { workDir: await scratch() },
+  );
+  check(
+    "a dissolve on an uncut video says there was nothing to join",
+    nothingToJoin.notes.some((n) => /no cuts in this edit to dissolve between/.test(n)),
+    JSON.stringify(nothingToJoin.notes),
+  );
+  const untouched = Number(ffprobe(nothingToJoin.output, "format=duration")[0]);
+  check("and leaves the video exactly as long as it was", Math.abs(untouched - 7) < 0.3, String(untouched));
+
+  // An overlap that will not fit inside the shortest piece is shortened to
+  // fit rather than refused — and admitted. Built from half-second bursts:
+  // 400ms of dissolve on a 500ms shot would leave it never once on screen by
+  // itself, which is not a transition, it is a smear.
+  const staccato = path.join(dir, "staccato.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y",
+    "-f", "lavfi", "-i", "color=c=white:size=320x240:rate=25:duration=5",
+    "-f", "lavfi", "-i",
+    "sine=frequency=440:duration=5,volume='if(lt(mod(t,1.2),0.5),1,0)':eval=frame",
+    "-map", "0:v", "-map", "1:a",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", staccato,
+  ]);
+  const greedy = await renderPlan(
+    staccato,
+    { version: 1, operations: [...cutOps, { type: "dissolve", durationMs: 400 }] },
+    { workDir: await scratch() },
+  );
+  check(
+    "an overlap longer than the pieces allow is shrunk, and says so",
+    greedy.notes.some((n) => /dissolved between the cuts over 0\.\d\ds — shorter than asked, so the shortest piece/.test(n)),
     JSON.stringify(greedy.notes),
   );
 }

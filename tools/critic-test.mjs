@@ -150,6 +150,40 @@ section("Punches pulled together by the cut are thinned back out");
   check("the note calls it bunching, not a cut", Boolean(noteMatching(result, /bunched up/)));
 }
 
+section("A dissolve moves the clock, and the critic moves with it");
+{
+  // The critic decides where a punch may land, and "where" is a position on
+  // the edited clock. A dissolve makes that clock run short by one overlap per
+  // join. If the critic reads the un-overlapped clock it guards splices that
+  // are no longer there and lets punches sit inside the ones that are.
+  const OVERLAP = 0.4;
+  const shortened = EFFECTIVE - (KEPT.length - 1) * OVERLAP;
+
+  const withOverlap = criticise({
+    operations: [{ type: "zoomPunch", at: [25], amount: 1.1, holdMs: 400 }],
+    kept: KEPT,
+    effectiveDuration: shortened,
+    overlap: OVERLAP,
+  });
+  const at = withOverlap.operations.find((o) => o.type === "zoomPunch")?.at ?? [];
+  check("the punch survives the shorter clock", at.length === 1, JSON.stringify(at));
+  check(
+    "and lands where remapTime with the same overlap says it should",
+    Math.abs(at[0] - remapTime(25, KEPT, OVERLAP)) < 0.2,
+    `${at[0]} vs ${remapTime(25, KEPT, OVERLAP)}`,
+  );
+  check(
+    "which is earlier than the same punch on a hard cut",
+    remapTime(25, KEPT, OVERLAP) < remapTime(25, KEPT),
+    `${remapTime(25, KEPT, OVERLAP)} vs ${remapTime(25, KEPT)}`,
+  );
+  check(
+    "passing no overlap is the old behaviour exactly",
+    remapTime(25, KEPT, 0) === remapTime(25, KEPT),
+    String(remapTime(25, KEPT)),
+  );
+}
+
 section("A punch sitting on a splice is nudged forward, never back");
 {
   // 7.95s source → 7.95s edited, and the first splice is at 8s.

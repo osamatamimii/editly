@@ -597,6 +597,11 @@ console.log("\nAsking for a fade is a plan for the ends");
     !plain.operations.some((o) => o.type === "fade"),
     JSON.stringify(plain.operations.map((o) => o.type)),
   );
+  check(
+    "and nobody gets a dissolve either",
+    !plain.operations.some((o) => o.type === "dissolve"),
+    JSON.stringify(plain.operations.map((o) => o.type)),
+  );
 
   // The model path: an out-of-range duration is clamped, not refused — the
   // person plainly wanted a fade, and losing it to a keyword fallback would
@@ -652,6 +657,61 @@ console.log("\nThe frame follows the platform that was named");
   );
 }
 
+// The other transition: the join, not the ends.
+console.log("\nAsking for a dissolve is a plan for the joins");
+{
+  const planner = createPlanner({ apiKey: "" });
+
+  const asked = await planner.plan("cut the silences and crossfade between the cuts", {});
+  const dissolve = asked.operations.find((o) => o.type === "dissolve");
+  check("'crossfade' becomes a dissolve", Boolean(dissolve), JSON.stringify(asked.operations.map((o) => o.type)));
+  check("a quarter of a second by default", dissolve?.durationMs === 250, String(dissolve?.durationMs));
+  check(
+    "and it rides along with the cut it needs to have something to join",
+    asked.operations.some((o) => o.type === "removeSilence"),
+    JSON.stringify(asked.operations.map((o) => o.type)),
+  );
+  check(
+    "the reply says what the viewer will see",
+    /dissolve between the cuts/.test(asked.willDo.join(" ")),
+    JSON.stringify(asked.willDo),
+  );
+
+  // "fade to black" and "crossfade" are opposite ends of the same word. The
+  // one must never trip the other.
+  check(
+    "a crossfade ask is not also a fade to black",
+    !asked.operations.some((o) => o.type === "fade"),
+    JSON.stringify(asked.operations.map((o) => o.type)),
+  );
+  const ends = await planner.plan("fade it in and out please", {});
+  check(
+    "and a fade ask is not also a dissolve",
+    !ends.operations.some((o) => o.type === "dissolve"),
+    JSON.stringify(ends.operations.map((o) => o.type)),
+  );
+
+  const smooth = await planner.plan("make the cuts smoother, less jumpy", {});
+  check(
+    "'smooth the cuts' is heard as the join",
+    smooth.operations.some((o) => o.type === "dissolve"),
+    JSON.stringify(smooth.operations.map((o) => o.type)),
+  );
+
+  const arabic = await planner.plan("خلي انتقال ناعم بين القصات", {});
+  check(
+    "and so is the Arabic",
+    arabic.operations.some((o) => o.type === "dissolve"),
+    JSON.stringify(arabic.operations.map((o) => o.type)),
+  );
+
+  // Said plainly, with nothing else, "transitions" means both — because that
+  // is what the word means to someone who has never seen this menu.
+  const both = await planner.plan("add some transitions please", {});
+  const types = both.operations.map((o) => o.type);
+  check("a bare transitions ask produces both kinds", types.includes("fade") && types.includes("dissolve"), JSON.stringify(types));
+}
+
 // The list of things we cannot do has to shrink as things get built, or it
 // lies in the other direction.
 console.log("\nWhat we cannot do yet is claimed no wider than it is");
@@ -672,9 +732,26 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
 
   const between = await planner.plan("crossfade between the cuts", {});
   check(
-    "the join between two cuts is still admitted as missing",
-    between.cannotYet.some((c) => /between the cuts/i.test(c)),
+    "the join between two cuts now produces the dissolve that exists",
+    between.operations.some((o) => o.type === "dissolve"),
+    JSON.stringify(between.operations.map((o) => o.type)),
+  );
+  check(
+    "and is no longer claimed as missing",
+    !between.cannotYet.some((c) => /between the cuts|crossfade|dissolve/i.test(c)),
     JSON.stringify(between.cannotYet),
+  );
+
+  const shaped = await planner.plan("wipe from one shot to the next", {});
+  check(
+    "a transition with a shape is still admitted as missing",
+    shaped.cannotYet.some((c) => /wipe or slide/i.test(c)),
+    JSON.stringify(shaped.cannotYet),
+  );
+  check(
+    "and the admission names what we do have instead",
+    shaped.cannotYet.some((c) => /a fade and a dissolve I can do/.test(c)),
+    JSON.stringify(shaped.cannotYet),
   );
 
   const hook = await planner.plan("add a hook at the start", {});
