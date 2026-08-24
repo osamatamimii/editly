@@ -21,11 +21,29 @@ export interface ParsedIntent {
   cannotYet: string[];
 }
 
+/**
+ * Order is priority: the first pattern that matches wins.
+ *
+ * "shorts" is tested before plain "youtube" on purpose — "youtube shorts" is a
+ * vertical frame and "youtube" on its own is not, and until widescreen existed
+ * both fell into the same bucket. Instagram is last for the same reason:
+ * "instagram feed" is a square, "instagram" alone is a reel.
+ */
 const PLATFORM_WORDS: Array<{ platform: Platform; patterns: RegExp }> = [
   { platform: "tiktok", patterns: /\btiktok|tik tok\b/i },
-  { platform: "reels", patterns: /\breels?|instagram|insta\b/i },
-  { platform: "shorts", patterns: /\bshorts?|youtube|yt\b/i },
+  { platform: "reels", patterns: /\breels?\b/i },
+  { platform: "shorts", patterns: /\bshorts?\b/i },
+  { platform: "square", patterns: /\bsquare\b|1:1|\bfeed post\b|\blinkedin\b|مربع/i },
+  { platform: "youtube", patterns: /\byoutube\b|\byt\b|\blandscape\b|\bwidescreen\b|16:9|أفقي|عريض/i },
+  { platform: "reels", patterns: /\binstagram|insta\b/i },
 ];
+
+/** What the frame will actually be, said the way a person would say it. */
+function shapeLabel(platform: Platform): string {
+  if (platform === "youtube") return "16:9";
+  if (platform === "square") return "1:1";
+  return "9:16";
+}
 
 /** Asked-for things that are real product ideas but have no operation yet. */
 const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
@@ -232,7 +250,7 @@ export function planFromText(
   if (wantsVertical) {
     const target = platform ?? options.defaultPlatform ?? "tiktok";
     operations.push({ type: "formatForPlatform", platform: target });
-    willDo.push(`reframe it to 9:16 for ${target}`);
+    willDo.push(`reframe it to ${shapeLabel(target)} for ${target}`);
   }
 
   // The words are in the video, not in this sentence, so the plan asks for
@@ -372,7 +390,7 @@ export function replyFor(
   },
 ): string {
   if (!context.hasVideo) {
-    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts, add motion, fade it in and out, and level the audio.";
+    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts - or 16:9 for YouTube, or square for a feed - add motion, fade it in and out, and level the audio.";
   }
 
   const parts: string[] = [];
@@ -396,7 +414,7 @@ export function replyFor(
   if (parts.length === 0) {
     return (
       "I'm not sure what to change from that. Right now I can pull out the best 30 seconds of a clip, " +
-      "keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it, reframe it to 9:16, " +
+      "keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it, reframe it to 9:16 or 16:9 or square, " +
       "add punch-in zooms or a slow push, fade it in and out, and level the audio — try something like " +
       '"give me the strongest 30 seconds, captioned, vertical for TikTok".'
     );

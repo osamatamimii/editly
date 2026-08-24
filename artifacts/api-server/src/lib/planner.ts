@@ -128,7 +128,10 @@ function buildSchema(assets: PlannerAsset[]) {
           ],
           properties: {
             type: { type: "string", enum: types },
-            platform: { type: ["string", "null"], enum: ["tiktok", "reels", "shorts", null] },
+            platform: {
+              type: ["string", "null"],
+              enum: ["tiktok", "reels", "shorts", "youtube", "square", null],
+            },
             captionStyle: { type: ["string", "null"], enum: ["bold-white", "bold-yellow", "karaoke-box", null] },
             captionAnimation: { type: ["string", "null"], enum: ["none", "pop", "karaoke", null] },
             /** 1.02–1.5. How far a slow push travels. */
@@ -201,6 +204,9 @@ function instructionFor(assets: PlannerAsset[]): string {
     "for N clips, to split it into shorts, or for pieces to post separately. clipCount is how many (2-6),",
     "targetSeconds how long each should be. The worker chooses where each clip lives, from the speech.",
     "One clip of the best material is extractHighlight, not extractClips with clipCount 1.",
+    "formatForPlatform reframes the picture. tiktok, reels and shorts are the vertical 9:16 feeds; youtube is",
+    "widescreen 16:9 for a long-form player; square is 1:1, the shape a feed post shares. Choose the one they",
+    "named - 'for YouTube' is widescreen unless they said shorts, which is vertical.",
     "fade opens the video from black and closes it to black — choose it when they ask for a fade, a fade in or",
     "out, or a soft opening or ending. durationSeconds is how long each fade runs (0.1-2, default 0.5). It never",
     "goes between cuts, only at the ends.",
@@ -491,7 +497,10 @@ function describeAll(operations: EditOperation[]): string[] {
       case "extractRange": return `cut it down to ${clock(op.startSeconds)}\u2013${clock(op.endSeconds)}, the stretch you named`;
       case "extractClips": return `cut it into ${op.count} separate clips of about ${Math.round(op.targetSeconds)} seconds each`;
       case "fade": return `open it from black and close it to black over ${(op.durationMs / 1000).toFixed(1)}s`;
-      case "formatForPlatform": return `reframe it to 9:16 for ${op.platform}`;
+      case "formatForPlatform":
+        return `reframe it to ${
+          op.platform === "youtube" ? "16:9" : op.platform === "square" ? "1:1" : "9:16"
+        } for ${op.platform}`;
       case "autoCaptions": return "caption it from what is actually said";
       case "kenBurns": return "add a slow push so the frame is not static";
       case "zoomPunch": return "punch in where you lean on a word";
