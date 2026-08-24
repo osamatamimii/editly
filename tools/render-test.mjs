@@ -131,6 +131,17 @@ function measureLoudness(file) {
   }
 }
 
+/** Mean volume of one stretch of a file's audio, in dB. */
+function segmentMeanVolume(file, from, to) {
+  const r = spawnSync(
+    "ffmpeg",
+    ["-hide_banner", "-i", file, "-af", `atrim=start=${from}:end=${to},volumedetect`, "-f", "null", "-"],
+    { encoding: "utf8" },
+  );
+  const m = r.stderr.match(/mean_volume: ([-\d.]+) dB/);
+  return m ? Number(m[1]) : NaN;
+}
+
 /** PSNR between two files, in dB. Infinity when they are identical. */
 function psnr(a, b) {
   const r = spawnSync(
@@ -867,15 +878,6 @@ console.log("\nThe fade opens from black, closes to black, and touches no clock"
     const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number);
     return vals.length > 0 ? vals[vals.length - 1] : NaN;
   };
-  const segmentMeanVolume = (file, from, to) => {
-    const r = spawnSync(
-      "ffmpeg",
-      ["-hide_banner", "-i", file, "-af", `atrim=start=${from}:end=${to},volumedetect`, "-f", "null", "-"],
-      { encoding: "utf8" },
-    );
-    const m = r.stderr.match(/mean_volume: ([-\d.]+) dB/);
-    return m ? Number(m[1]) : NaN;
-  };
 
   const faded = await renderPlan(
     bright,
@@ -932,6 +934,33 @@ console.log("\nThe fade opens from black, closes to black, and touches no clock"
     "a fade longer than a third of the clip is shrunk, and says so",
     greedy.notes.some((n) => /shorter than asked/.test(n)),
     JSON.stringify(greedy.notes),
+  );
+}
+
+console.log("\nCut edges are ramped under the ear's threshold, so joins do not click");
+{
+  // A cut rarely lands on a zero crossing, and a waveform that jumps
+  // mid-cycle is a broadband click stitched into the join. Every audio edge
+  // gets a 15ms ramp — too short to register as a fade, long enough that the
+  // step is gone. Measured here on the first edge of a real silence-removed
+  // render: the opening milliseconds rise out of zero instead of slamming in.
+  const cut = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 0 }] },
+    { workDir: await scratch() },
+  );
+  const head = segmentMeanVolume(cut.output, 0, 0.008);
+  const steady = segmentMeanVolume(cut.output, 0.1, 0.5);
+  check("the first blink of audio rises out of zero", head < steady - 6, `head ${head} dB, steady ${steady} dB`);
+  check(
+    "the cut itself still happened",
+    cut.notes.some((n) => /removed .* of silence/.test(n)),
+    JSON.stringify(cut.notes),
+  );
+  check(
+    "and no note announces the ramp — a cut done properly is not a decision",
+    !cut.notes.some((n) => /ramp|click|declick/i.test(n)),
+    JSON.stringify(cut.notes),
   );
 }
 
