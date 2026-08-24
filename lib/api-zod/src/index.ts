@@ -718,11 +718,29 @@ export const ExtractClipsOperation = z.object({
   targetSeconds: z.number().min(5).max(120).default(30),
 });
 
+/**
+ * Fade in from black and out to black — the first transition.
+ *
+ * Deliberately the ends only, and deliberately symmetric: fading the joins
+ * *inside* a silence-removed cut would overlap segments and shift every
+ * timestamp after the first join, which is the clock captions and punches
+ * live on. A fade at the ends touches no clock at all — the video is exactly
+ * as long with it as without it — so it composes with everything else for
+ * free. One duration for both ends because an edit whose opening and closing
+ * disagree reads as an accident, not a choice.
+ */
+export const FadeOperation = z.object({
+  type: z.literal("fade"),
+  /** How long each fade runs. Bounded: past 2s a fade is a scene, not a transition. */
+  durationMs: z.number().min(100).max(2000).default(500),
+});
+
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
   ExtractHighlightOperation,
   ExtractRangeOperation,
   ExtractClipsOperation,
+  FadeOperation,
   FormatForPlatformOperation,
   BurnCaptionsOperation,
   AutoCaptionsOperation,
