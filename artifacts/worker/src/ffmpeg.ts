@@ -453,16 +453,49 @@ function escapeForFilter(text: string): string {
 /**
  * The export frame, from its height.
  *
- * All three targets are 9:16, so the height is the only number: 1920 gives
- * 1080x1920, 2160 gives 1216x2160, 1280 gives 720x1280. Widths are rounded to
- * even because H.264 chroma subsampling requires it and an odd dimension fails
- * the encode with a message about nothing in particular.
+ * The height is the number that is asked for and the shape decides the width:
+ * 1920 vertical gives 1080x1920, 1080 square gives 1080x1080, 1080 widescreen
+ * gives 1920x1080. Widths are rounded to even because H.264 chroma
+ * subsampling requires it and an odd dimension fails the encode with a message
+ * about nothing in particular.
  */
+export type FrameShape = "vertical" | "square" | "widescreen";
+
+/** Width divided by height, for each shape we export. */
+const SHAPE_RATIO: Record<FrameShape, number> = {
+  vertical: 9 / 16,
+  square: 1,
+  widescreen: 16 / 9,
+};
+
+/**
+ * Which shape a platform wants.
+ *
+ * Vertical for the three short-form feeds, widescreen for YouTube, and square
+ * for the shape that is not a platform at all — the one several feeds share.
+ */
+export function shapeFor(platform: string | null | undefined): FrameShape {
+  if (platform === "youtube") return "widescreen";
+  if (platform === "square") return "square";
+  return "vertical";
+}
+
+/**
+ * The height to export at when nobody names one.
+ *
+ * 1920 tall for vertical is 1080 across; asking for 1920 on a widescreen frame
+ * would be 3413 across, which is nobody's idea of a default. So the default is
+ * per shape, and it is the same 1080 on the short edge in every case.
+ */
+export function defaultHeightFor(shape: FrameShape): number {
+  return shape === "vertical" ? 1920 : 1080;
+}
+
 const DEFAULT_FRAME_HEIGHT = 1920;
 
-export function frameFor(height: number): { w: number; h: number } {
+export function frameFor(height: number, shape: FrameShape = "vertical"): { w: number; h: number } {
   const h = Math.round(height / 2) * 2;
-  return { w: Math.round((h * 9) / 16 / 2) * 2, h };
+  return { w: Math.round((h * SHAPE_RATIO[shape]) / 2) * 2, h };
 }
 
 /**
@@ -782,12 +815,16 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   let frameHeight = source.height;
 
   if (reframe) {
-    const asked = frameFor(reframe.maxHeight ?? DEFAULT_FRAME_HEIGHT);
-    // What the source can honestly fill: the 9:16 window out of it, at the
-    // scale that window is already being taken at.
-    const sourceWindowHeight = Math.min(source.height, (source.width * 16) / 9);
-    const ceiling = Math.max(DEFAULT_FRAME_HEIGHT, sourceWindowHeight * HONEST_UPSCALE);
-    const target = asked.h > ceiling ? frameFor(ceiling) : asked;
+    const shape = shapeFor(reframe.platform);
+    const defaultHeight = defaultHeightFor(shape);
+    const asked = frameFor(reframe.maxHeight ?? defaultHeight, shape);
+    // What the source can honestly fill: the window of this shape taken out of
+    // it, at the scale that window is already being taken at. Generalised from
+    // the 9:16-only version — for a widescreen target out of a vertical phone
+    // clip the same arithmetic runs the other way round, and it has to.
+    const sourceWindowHeight = Math.min(source.height, source.width / SHAPE_RATIO[shape]);
+    const ceiling = Math.max(defaultHeight, sourceWindowHeight * HONEST_UPSCALE);
+    const target = asked.h > ceiling ? frameFor(ceiling, shape) : asked;
     if (target.h !== asked.h) {
       notes.push(
         `exported at ${target.h}p rather than ${asked.h}p — this footage has no more detail than that, and the larger file would only be a bigger copy of the same picture`,

@@ -46,6 +46,13 @@ const SAFE_AREAS: Record<Platform, SafeArea> = {
   tiktok: { top: 0.068, bottom: 0.13, side: 0.056, rail: 0.16 },
   reels: { top: 0.056, bottom: 0.167, side: 0.056, rail: 0.15 },
   shorts: { top: 0.05, bottom: 0.15, side: 0.056, rail: 0.13 },
+  // The two shapes that are not vertical feeds have no side rail at all —
+  // nothing stacks a like/comment/share column down the right of a YouTube
+  // player or a square post. Inheriting the vertical rail would push every
+  // caption a sixth of the frame left of centre for no reason. What YouTube
+  // does reserve is the bottom strip its progress bar and controls sit over.
+  youtube: { top: 0.05, bottom: 0.1, side: 0.05, rail: 0 },
+  square: { top: 0.05, bottom: 0.08, side: 0.05, rail: 0 },
 };
 
 /** When no platform is named, the strictest of the three keeps us safe everywhere. */
