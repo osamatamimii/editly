@@ -87,6 +87,7 @@ function buildSchema(assets: PlannerAsset[]) {
     "extractClips",
     "coldOpen",
     "fade",
+    "dissolve",
     "formatForPlatform",
     "autoCaptions",
     "kenBurns",
@@ -214,6 +215,10 @@ function instructionFor(assets: PlannerAsset[]): string {
     "fade opens the video from black and closes it to black — choose it when they ask for a fade, a fade in or",
     "out, or a soft opening or ending. durationSeconds is how long each fade runs (0.1-2, default 0.5). It never",
     "goes between cuts, only at the ends.",
+    "dissolve is the other transition: each cut mixes into the next instead of jumping. Choose it for a crossfade,",
+    "a dissolve, or asking for the cuts to be smooth or less jumpy. durationSeconds is how long each join overlaps",
+    "(0.08-1, default 0.25). It only does anything when there are cuts to join, so it goes with removeSilence.",
+    "If they just say 'transitions' with nothing else, choose both fade and dissolve.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
     "motionTitle animates words onto the screen. Use the person's own words — never write copy they did not ask for.",
   ];
@@ -403,6 +408,11 @@ function toOperation(
           type,
           durationMs: Math.min(2000, Math.max(100, Math.round(numberOr(raw["durationSeconds"], 0.5) * 1000))),
         };
+      case "dissolve":
+        return {
+          type,
+          durationMs: Math.min(1000, Math.max(80, Math.round(numberOr(raw["durationSeconds"], 0.25) * 1000))),
+        };
       case "formatForPlatform":
         return { type, platform: raw["platform"] ?? defaultPlatform ?? "tiktok" };
       case "autoCaptions":
@@ -504,6 +514,7 @@ function describeAll(operations: EditOperation[]): string[] {
       case "extractClips": return `cut it into ${op.count} separate clips of about ${Math.round(op.targetSeconds)} seconds each`;
       case "coldOpen": return `open on the strongest ${Math.round(op.seconds)} seconds, then play the rest from the top`;
       case "fade": return `open it from black and close it to black over ${(op.durationMs / 1000).toFixed(1)}s`;
+      case "dissolve": return `dissolve between the cuts over ${(op.durationMs / 1000).toFixed(2)}s instead of jumping`;
       case "formatForPlatform":
         return `reframe it to ${
           op.platform === "youtube" ? "16:9" : op.platform === "square" ? "1:1" : "9:16"

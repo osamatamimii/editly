@@ -54,8 +54,8 @@ function shapeLabel(platform: Platform): string {
  * after transitions shipped is as dishonest as one that promises what it
  * cannot do. Two entries were narrowed for exactly that reason:
  *
- * - Transitions: a fade at the ends exists now, so only the *between-cuts*
- *   kind is still missing, and only that is claimed.
+ * - Transitions: the fade at the ends and the dissolve between the cuts both
+ *   exist now, so only the geometric kinds — a wipe, a slide — are claimed.
  * - Colour: matching a reference video's colour exists, so the reply points
  *   at it rather than refusing the whole subject.
  */
@@ -67,10 +67,11 @@ const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
     label: "grade the colour on its own — but upload a video whose look you want and I will match it",
   },
   {
-    // "fade" is deliberately absent: the fade is built. What is still missing
-    // is the join between two cuts — a crossfade, a wipe, a slide.
-    patterns: /\bcross ?fade|dissolve|\bwipe\b|\bslide\b|transition between|between (the )?(cuts|clips)/i,
-    label: "put a transition between the cuts",
+    // "fade", "crossfade" and "dissolve" are all deliberately absent: all three
+    // are built. What is still missing is a transition with a *shape* — one
+    // frame pushing the other off the screen rather than mixing into it.
+    patterns: /\bwipe\b|\bslide\b|\bswipe\b|\bspin\b|whip ?pan/i,
+    label: "wipe or slide from one shot to the next — but a fade and a dissolve I can do",
   },
 ];
 
@@ -225,6 +226,17 @@ const LOUDNESS_WORDS = /\bloud|volume|quiet|audio level|sound level|normali[sz]/
 const HOOK_WORDS =
   /\bhook\b|\bcold open\b|start (?:it )?with the (?:best|strongest)|open (?:it )?(?:on|with) the (?:best|strongest)|\bهوك\b|ابدأ بالأقوى|ابدأ بأقوى/i;
 
+/**
+ * The join, not the ends.
+ *
+ * Kept apart from FADE_WORDS on purpose even though "fade" appears in both
+ * vocabularies: "fade to black" and "crossfade" are opposite ends of the same
+ * word, and a sentence containing "cross fade" must not also trip the ends.
+ * The English side therefore requires the *compound*, never bare "fade".
+ */
+const DISSOLVE_WORDS =
+  /\bcross ?-?fade|\bdissolve|\bblend (?:between|the cuts)|smooth(?:er)? (?:the )?(?:cuts|joins|transitions?)|(?:cuts|joins|transitions?) smooth(?:er)?|less jump(?:y|ing)|between (?:the )?(?:cuts|clips)|تلاش(?:ي|ٍ) بين|مزج|انتقال ناعم|بين القصات|بين القطعات/i;
+
 const FADE_WORDS = /\bfade|fade[- ]?(?:in|out)|to black|soft (?:opening|ending|start|end)|تلاشي|تلاشى/i;
 
 export function planFromText(
@@ -315,9 +327,19 @@ export function planFromText(
     willDo.push("open on the strongest moment, then play the rest from the top");
   }
 
-  if (FADE_WORDS.test(text) || /\btransitions?\b|\bانتقال|انتقالات/i.test(text)) {
+  // Two different transitions, asked for in overlapping words. "Transitions"
+  // with nothing else said means both — the ends and the joins — because that
+  // is what the word means to someone who has never seen this menu, and both
+  // now exist. Naming one gets exactly the one named.
+  const wantsAnyTransition = /\btransitions?\b|\bانتقال|انتقالات/i.test(text);
+  const wantsDissolve = DISSOLVE_WORDS.test(text);
+  if (FADE_WORDS.test(text) || wantsAnyTransition) {
     operations.push({ type: "fade", durationMs: 500 });
     willDo.push("open it from black and close it to black");
+  }
+  if (wantsDissolve || wantsAnyTransition) {
+    operations.push({ type: "dissolve", durationMs: 250 });
+    willDo.push("dissolve between the cuts instead of jumping");
   }
 
   // ── The project's own files ────────────────────────────────────────────────
