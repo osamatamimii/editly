@@ -745,20 +745,48 @@ export const ExtractClipsOperation = z.object({
 });
 
 /**
- * Fade in from black and out to black — the first transition.
+ * Fade in from black and out to black — the transition at the ends.
  *
- * Deliberately the ends only, and deliberately symmetric: fading the joins
- * *inside* a silence-removed cut would overlap segments and shift every
- * timestamp after the first join, which is the clock captions and punches
- * live on. A fade at the ends touches no clock at all — the video is exactly
- * as long with it as without it — so it composes with everything else for
- * free. One duration for both ends because an edit whose opening and closing
- * disagree reads as an accident, not a choice.
+ * Deliberately the ends only, and deliberately symmetric: a fade at the ends
+ * touches no clock at all — the video is exactly as long with it as without
+ * it — so it composes with everything else for free. One duration for both
+ * ends because an edit whose opening and closing disagree reads as an
+ * accident, not a choice. Softening the joins *inside* the cut is a different
+ * operation with a different cost; see `DissolveOperation`.
  */
 export const FadeOperation = z.object({
   type: z.literal("fade"),
   /** How long each fade runs. Bounded: past 2s a fade is a scene, not a transition. */
   durationMs: z.number().min(100).max(2000).default(500),
+});
+
+/**
+ * Dissolve between the cuts — one shot melting into the next.
+ *
+ * The transition the fade deliberately was not. Where `fade` touches only the
+ * two ends and therefore no clock, a dissolve overlaps every join: each pair
+ * of kept stretches plays its last `durationMs` on top of the next one's
+ * first, so the edit comes out `(joins × durationMs)` shorter than the sum of
+ * its parts.
+ *
+ * That shortening is the whole difficulty, and it is why this arrived after
+ * everything else rather than before. Captions, punch-ins, overlays and titles
+ * are all placed by moving a source timestamp onto the edited clock, and that
+ * clock now runs at a different rate through every join. The answer is not to
+ * approximate it: the overlap is a single number, it is known before a frame
+ * is rendered, and it is handed to the same mapping every one of those
+ * features already uses — so a caption written at 0:41 of the recording still
+ * lands on the syllable it was written for.
+ *
+ * Bounded well under the fade's ceiling because a dissolve is a join, not a
+ * scene: past about a second it stops reading as one shot becoming another and
+ * starts reading as two videos playing at once. It also has to fit inside the
+ * shortest thing it joins, so the renderer may shorten it further and say so.
+ */
+export const DissolveOperation = z.object({
+  type: z.literal("dissolve"),
+  /** How long each join overlaps. */
+  durationMs: z.number().min(80).max(1000).default(250),
 });
 
 /**
@@ -790,6 +818,7 @@ export const EditOperation = z.discriminatedUnion("type", [
   ExtractClipsOperation,
   ColdOpenOperation,
   FadeOperation,
+  DissolveOperation,
   FormatForPlatformOperation,
   BurnCaptionsOperation,
   AutoCaptionsOperation,
