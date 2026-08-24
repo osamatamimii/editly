@@ -1172,6 +1172,38 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   return { output, notes, sourceSeconds: source.duration, estimatedSeconds: effectiveDuration };
 }
 
+/**
+ * A still from the middle of a finished clip.
+ *
+ * The panel used to mount one <video> per clip just to show what a piece was;
+ * six pieces meant six players fetching metadata at once. A poster is one
+ * small image each, and the player then loads nothing until somebody presses
+ * play.
+ *
+ * Best-effort by construction: it returns null rather than throwing, because
+ * a still is a convenience and a render is paid work.
+ */
+export async function grabPosterFrame(video: string, seconds: number, destination: string): Promise<string | null> {
+  try {
+    await run(FFMPEG, [
+      "-hide_banner", "-y",
+      // Seeking before the input is the fast path, and precision does not
+      // matter for a poster: any frame from the middle is the middle.
+      "-ss", Math.max(0, seconds).toFixed(2),
+      "-i", video,
+      "-frames:v", "1",
+      // Tall enough to stay sharp on a retina panel row, small enough that
+      // six of them cost less than one second of video.
+      "-vf", "scale=-2:360",
+      "-q:v", "4",
+      destination,
+    ]);
+    return destination;
+  } catch {
+    return null;
+  }
+}
+
 function describeWork(plan: EditPlan): string {
   const types = new Set(plan.operations.map((o) => o.type));
   if (types.has("burnCaptions")) return "Cutting, reframing and burning captions";

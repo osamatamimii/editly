@@ -18,7 +18,7 @@ import pino from "pino";
 import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
 import { EditPlan, type EditOperation } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
-import { renderPlan, probeDuration, probeSource, FfmpegError } from "./ffmpeg";
+import { renderPlan, probeDuration, probeSource, grabPosterFrame, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
 import { reviewOutput } from "./review";
 import { chooseClips } from "./highlight";
@@ -721,6 +721,22 @@ async function renderClipSet(args: {
       log.warn({ err: error, clip: i + 1 }, "clip preview encode failed; the master is the only copy");
     }
 
+    // The poster, from the middle of what was actually rendered rather than
+    // of the source window: a clip whose silences were cut is shorter than
+    // its window, and the middle of the window could be past its end.
+    let thumbnailPath: string | null = null;
+    try {
+      const posterFile = path.join(subDir, "poster.jpg");
+      const grabbed = await grabPosterFrame(output, (estimatedSeconds || 1) / 2, posterFile);
+      if (grabbed) {
+        const key = outputPath.replace(/\.mp4$/i, "") + ".jpg";
+        await uploadObject(key, grabbed);
+        thumbnailPath = key;
+      }
+    } catch (error) {
+      log.warn({ err: error, clip: i + 1 }, "clip poster upload failed; the row keeps no still");
+    }
+
     const measured = await measureOutput(() => probeDuration(output), {
       estimate: estimatedSeconds,
       sourceSeconds: window.end - window.start,
@@ -744,6 +760,7 @@ async function renderClipSet(args: {
       outputSeconds: measured.seconds,
       note: clipNote,
       title: clipTitle(window, words),
+      thumbnailPath,
     });
 
     notes.push(
