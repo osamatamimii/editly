@@ -346,6 +346,13 @@ export interface Clip {
   createdAt: string;
 }
 
+/** Open on the strongest moment, then play from the top without it. */
+export interface ColdOpenOperation {
+  type: "coldOpen";
+  /** How much of the strongest moment to open on. */
+  seconds?: number;
+}
+
 /** Fade in from black and out to black — the first transition. Ends only. */
 export interface FadeOperation {
   type: "fade";
@@ -412,6 +419,7 @@ export type EditOperation =
   | ExtractHighlightOperation
   | ExtractRangeOperation
   | ExtractClipsOperation
+  | ColdOpenOperation
   | FadeOperation
   | FormatForPlatformOperation
   | BurnCaptionsOperation
