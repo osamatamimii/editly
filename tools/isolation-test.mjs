@@ -336,6 +336,17 @@ console.log("\nToken enforcement");
     !/[0-9a-f]{8}-[0-9a-f]{4}/.test(JSON.stringify(healthBody)),
     JSON.stringify(healthBody),
   );
+  // Whether the console's allowlist reached this deployment. It says yes here
+  // because this suite sets ADMIN_USER_IDS before the bundle is required — and
+  // the check below proves it is a boolean and not the list, because the one
+  // above would catch a uuid but not a count, and a count is still more than
+  // this endpoint has any business saying.
+  check("it says whether an admin allowlist reached this deployment", healthBody?.capabilities?.admins === true, JSON.stringify(healthBody?.capabilities));
+  check(
+    "as a yes or no, never a number and never a name",
+    typeof healthBody?.capabilities?.admins === "boolean",
+    JSON.stringify(healthBody?.capabilities?.admins),
+  );
 }
 
 console.log("\nOwnership isolation");
