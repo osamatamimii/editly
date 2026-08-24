@@ -9,7 +9,9 @@ import {
   useGetSubscription,
   getListProjectsQueryKey,
   getGetDashboardStatsQueryKey,
-  getGetSubscriptionQueryKey
+  getGetSubscriptionQueryKey,
+  useGetAdminOverview,
+  getGetAdminOverviewQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -21,7 +23,7 @@ import { Label } from "@/components/ui/label";
 import {
   Video, Plus, Clock, PlayCircle, CheckCircle2,
   Trash2, AlertCircle, Loader2, Sparkles, Activity, TrendingUp, UserRound,
-  UploadCloud
+  UploadCloud, Gauge
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -108,6 +110,14 @@ export default function Dashboard() {
   const statsQuery = useGetDashboardStats({
     query: { queryKey: getGetDashboardStatsQueryKey() }
   });
+  // Asking the server whether this person is an admin, by asking for the thing
+  // only an admin can have. Everyone else gets a 404, which is not retried and
+  // costs one request. Nothing about the answer is stored or trusted beyond
+  // showing a link — the console asks again for itself.
+  const adminQuery = useGetAdminOverview({
+    query: { queryKey: getGetAdminOverviewQueryKey(), retry: false, staleTime: 5 * 60_000 }
+  });
+  const isAdmin = adminQuery.isSuccess;
   const projectsQuery = useListProjects({
     query: { queryKey: getListProjectsQueryKey() }
   });
@@ -282,6 +292,24 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-3">
           <ThemeToggle />
+          {/*
+            Shown only when the server has already answered the admin overview.
+            The client is not deciding anything here — it asked, and a 404 (what
+            everyone else gets) simply leaves this out. One cheap request per
+            dashboard load, and no way to make the link appear by editing
+            anything in the browser, because the page behind it asks again.
+          */}
+          {isAdmin ? (
+            <Button
+              variant="outline"
+              className="border-hairline rounded-full h-12 px-5"
+              onClick={() => setLocation("/admin")}
+              data-testid="button-admin"
+            >
+              <Gauge className="w-4 h-4 mr-2" />
+              Operations
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             className="border-hairline rounded-full h-12 px-5"
