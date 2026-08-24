@@ -608,6 +608,7 @@ export default function Home() {
                 "Every silence and pause cut automatically",
                 "Captions burned in from what you actually say",
                 "Reframed to 9:16 for TikTok, Reels and Shorts — or 16:9 for YouTube, or square for a feed",
+                "Fades at the ends, and a dissolve between every cut",
                 "Renders while you close the tab",
                 "Your footage stays private to your account",
               ].map((feat, i) => (
