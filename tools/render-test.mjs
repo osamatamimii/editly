@@ -823,6 +823,118 @@ console.log("\nThe stretch they name is kept exactly, with honest clamping");
   );
 }
 
+console.log("\nThe fade opens from black, closes to black, and touches no clock");
+{
+  // Measured on the pixels, not on the filter string: the first and last
+  // frames must actually be dark and the middle actually bright, and the file
+  // must be exactly as long as it would have been without the fade — that
+  // no-clock property is the whole reason this transition exists.
+  const dir = await scratch();
+  const bright = path.join(dir, "bright.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y",
+    "-f", "lavfi", "-i", "color=c=white:size=320x240:rate=25:duration=4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", bright,
+  ]);
+
+  const frameLuma = (file, from, to) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},trim=start=${from}:end=${to},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.YAVG",
+        "-of", "default=nw=1:nk=1",
+      ],
+      { encoding: "utf8" },
+    );
+    const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number);
+    return vals.length > 0 ? vals[0] : NaN;
+  };
+  /** The very last decodable frame's luma — window past the end reads as NaN. */
+  const lastFrameLuma = (file, duration) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},trim=start=${Math.max(0, duration - 0.3)},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.YAVG",
+        "-of", "default=nw=1:nk=1",
+      ],
+      { encoding: "utf8" },
+    );
+    const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number);
+    return vals.length > 0 ? vals[vals.length - 1] : NaN;
+  };
+  const segmentMeanVolume = (file, from, to) => {
+    const r = spawnSync(
+      "ffmpeg",
+      ["-hide_banner", "-i", file, "-af", `atrim=start=${from}:end=${to},volumedetect`, "-f", "null", "-"],
+      { encoding: "utf8" },
+    );
+    const m = r.stderr.match(/mean_volume: ([-\d.]+) dB/);
+    return m ? Number(m[1]) : NaN;
+  };
+
+  const faded = await renderPlan(
+    bright,
+    { version: 1, operations: [{ type: "fade", durationMs: 500 }] },
+    { workDir: await scratch() },
+  );
+  const fadedSeconds = Number(ffprobe(faded.output, "format=duration")[0]);
+  check("the video is exactly as long with the fade as without", fadedSeconds > 3.8 && fadedSeconds < 4.25, String(fadedSeconds));
+  const first = frameLuma(faded.output, 0, 0.06);
+  const middle = frameLuma(faded.output, 2.0, 2.06);
+  const last = lastFrameLuma(faded.output, fadedSeconds);
+  check("the first frame is black, not white", first < 30, String(first));
+  check("the middle is untouched", middle > 150, String(middle));
+  check("and the last frame has sunk back to black", last < 45, String(last));
+  check(
+    "the note says what happened",
+    faded.notes.some((n) => /faded in from black and out to black over 0\.5s/.test(n)),
+    JSON.stringify(faded.notes),
+  );
+  const edgeVol = segmentMeanVolume(faded.output, 0, 0.15);
+  const midVol = segmentMeanVolume(faded.output, 1.5, 2.5);
+  check("the audio rises out of silence with the picture", edgeVol < midVol - 6, `edge ${edgeVol}, middle ${midVol}`);
+
+  // Composed with the cut: the fade is applied to the edited length, so the
+  // fade-out lands at the end of what survived, not at the end of the source.
+  const cutAndFaded = await renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+        { type: "fade", durationMs: 500 },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  const cutSeconds = Number(ffprobe(cutAndFaded.output, "format=duration")[0]);
+  check("the cut still cuts — the fade added nothing back", cutSeconds > 8 && cutSeconds < 12, String(cutSeconds));
+  const cutLast = lastFrameLuma(cutAndFaded.output, cutSeconds);
+  check("and the fade-out lands at the edited end", cutLast < 45, String(cutLast));
+  check(
+    "with both decisions in the notes",
+    cutAndFaded.notes.some((n) => /silence/.test(n)) && cutAndFaded.notes.some((n) => /faded/.test(n)),
+    JSON.stringify(cutAndFaded.notes),
+  );
+
+  // A two-second fade on a four-second clip would be black more than picture.
+  const greedy = await renderPlan(
+    bright,
+    { version: 1, operations: [{ type: "fade", durationMs: 2000 }] },
+    { workDir: await scratch() },
+  );
+  check(
+    "a fade longer than a third of the clip is shrunk, and says so",
+    greedy.notes.some((n) => /shorter than asked/.test(n)),
+    JSON.stringify(greedy.notes),
+  );
+}
+
 console.log("\nThe worker looks at what it made before handing it over");
 {
   const dir = await scratch();

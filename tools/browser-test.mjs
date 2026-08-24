@@ -1240,6 +1240,11 @@ section("The landing page's feature list keeps up with what is actually built");
     "and the line sells the titles, which is what makes them worth having",
     /titled by its speaker's own words/i.test(home),
   );
+  check(
+    "the Transitions cell is lit now that a fade ships",
+    /\{ label: "Transitions", dimmed: false \}/.test(home),
+    "the fade shipped but the grid still calls transitions future work",
+  );
 }
 
 section("A render that finished is a project that changed");

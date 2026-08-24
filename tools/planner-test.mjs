@@ -552,6 +552,59 @@ console.log("\nAsking for clips is a plan for several outputs");
   );
 }
 
+// The first transition: a fade at the ends, never between cuts.
+console.log("\nAsking for a fade is a plan for the ends");
+{
+  const planner = createPlanner({ apiKey: "" });
+
+  const asked = await planner.plan("fade it in and out please", {});
+  const fade = asked.operations.find((o) => o.type === "fade");
+  check("'fade it in and out' becomes a fade", Boolean(fade), JSON.stringify(asked.operations));
+  check("half a second by default", fade?.durationMs === 500, String(fade?.durationMs));
+  check(
+    "and the reply promises black at both ends",
+    /from black/.test(asked.willDo.join(" ")),
+    JSON.stringify(asked.willDo),
+  );
+
+  const toBlack = await planner.plan("end it with a fade to black", {});
+  check(
+    "'fade to black' is heard",
+    toBlack.operations.some((o) => o.type === "fade"),
+    JSON.stringify(toBlack.operations.map((o) => o.type)),
+  );
+
+  const arabic = await planner.plan("أضف تلاشي في البداية والنهاية", {});
+  check(
+    "and so is the Arabic",
+    arabic.operations.some((o) => o.type === "fade"),
+    JSON.stringify(arabic.operations.map((o) => o.type)),
+  );
+
+  const composed = await planner.plan("cut the silences and fade it out, vertical for tiktok", {});
+  const types = composed.operations.map((o) => o.type);
+  check(
+    "it composes with the rest of the plan",
+    types.includes("removeSilence") && types.includes("fade") && types.includes("formatForPlatform"),
+    JSON.stringify(types),
+  );
+
+  const plain = await planner.plan("tighten it up for tiktok", {});
+  check(
+    "nobody asked for a fade, nobody gets one",
+    !plain.operations.some((o) => o.type === "fade"),
+    JSON.stringify(plain.operations.map((o) => o.type)),
+  );
+
+  // The model path: an out-of-range duration is clamped, not refused — the
+  // person plainly wanted a fade, and losing it to a keyword fallback would
+  // lose the rest of their plan's nuance with it.
+  const modelled = createPlanner({ apiKey: "k", fetchImpl: answering([{ type: "fade", durationSeconds: 9 }]) });
+  const clamped = await modelled.plan("a slow fade at the end", {});
+  const mFade = clamped.operations.find((o) => o.type === "fade");
+  check("a nine-second fade from the model becomes the two-second cap", mFade?.durationMs === 2000, JSON.stringify(clamped.operations));
+}
+
 console.log("\nAsking for what the project does not have");
 {
   const planner = createPlanner({ apiKey: "" });
