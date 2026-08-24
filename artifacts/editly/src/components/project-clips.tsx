@@ -11,7 +11,7 @@
  * disappearing — their files still exist and still belong to the person, but
  * a panel of every set ever made is an archive, not an editor.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Scissors, Download, Trash2, ChevronDown, ChevronRight, SquareArrowOutUpRight } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
@@ -46,6 +46,24 @@ function ClipRow({
   // The preview.webm mirror is tried first, exactly as the main player does —
   // a browser that cannot decode H.264 should not lose the clips too.
   const { url, previewUrl } = usePlayableVideo(clip.outputPath);
+
+  // The still the worker grabbed. With a poster the player needs to fetch
+  // nothing at all until somebody presses play — which is the difference
+  // between a panel of six clips and six videos loading at once.
+  const [poster, setPoster] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (!clip.thumbnailPath) {
+      setPoster(null);
+      return;
+    }
+    void signedVideoUrl(clip.thumbnailPath).then((signed) => {
+      if (alive) setPoster(signed);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [clip.thumbnailPath]);
 
   async function download(): Promise<void> {
     const signed = await signedVideoUrl(clip.outputPath);
@@ -100,7 +118,10 @@ function ClipRow({
       {(previewUrl || url) && (
         <video
           controls
-          preload="metadata"
+          // With a still to show, nothing is fetched until play is pressed;
+          // without one the player still needs a frame of its own.
+          preload={poster ? "none" : "metadata"}
+          {...(poster ? { poster } : {})}
           playsInline
           className="w-full rounded-lg bg-black/40 max-h-48"
           data-testid={`clip-video-${clip.idx}`}
