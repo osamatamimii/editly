@@ -49,6 +49,11 @@ export const clipsTable = pgTable(
      * title the speaker never said.
      */
     title: text("title"),
+    /**
+     * A frame from the middle of the clip, so the panel can show the piece
+     * without loading it. Null when it could not be grabbed.
+     */
+    thumbnailPath: text("thumbnail_path"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
