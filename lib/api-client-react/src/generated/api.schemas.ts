@@ -27,6 +27,8 @@ export interface HealthStatus {
     stockLibrary: boolean;
     /** Without it the payment webhook refuses every request. */
     billing: boolean;
+    /** Whether anyone is on the operations console's allowlist. Never the ids. */
+    admins: boolean;
   };
   message?: string;
 }
