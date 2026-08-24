@@ -486,3 +486,75 @@ export interface TemplateSummary {
   description: string;
   bestFor: string;
 }
+
+/**
+ * The admin console's shapes.
+ *
+ * Metadata only, deliberately: nothing here carries a customer's video, a
+ * storage path or a signed URL, because the console is an operations tool and
+ * not a way to watch people's footage.
+ */
+export interface AdminOverview {
+  queue: {
+    processing: number;
+    waiting: number;
+    unattended: number;
+    failedLastDay: number;
+    doneLastDay: number;
+  };
+  worker: WorkerStatus;
+  accounts: { total: number; newLastWeek: number };
+  revenue: {
+    byPlan: { plan: SubscriptionPlan; count: number }[];
+    monthlyRecurringUsd: number;
+  };
+  billing: {
+    eventId: string;
+    type: string;
+    email: string | null;
+    plan: SubscriptionPlan | null;
+    receivedAt: string;
+    applied: boolean;
+    outcome: string | null;
+  }[];
+  minutesRenderedThisMonth: number;
+}
+
+export interface AdminAccount {
+  userId: string;
+  email: string | null;
+  createdAt: string;
+  lastSignInAt: string | null;
+  plan: SubscriptionPlan;
+  projectCount: number;
+  minutesUsedThisMonth: number;
+  minutesIncluded: number;
+}
+
+export interface ListAdminAccountsResponse {
+  accounts: AdminAccount[];
+  /** Counted independently of the page — a total derived from a page lies on page two. */
+  total: number;
+}
+
+export interface AdminJob {
+  id: string;
+  userId: string;
+  projectId: string;
+  status: string;
+  progress: number;
+  stage: string | null;
+  /** Verbatim. A message rewritten for reassurance has had the answer taken out. */
+  error: string | null;
+  attempts: number;
+  billedSeconds: number | null;
+  createdAt: string;
+  lockedAt: string | null;
+  finishedAt: string | null;
+  unattended: boolean;
+}
+
+export interface ListAdminJobsResponse {
+  jobs: AdminJob[];
+  total: number;
+}

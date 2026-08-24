@@ -17,12 +17,15 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AdminOverview,
   Clip,
   CreateProjectBody,
   DashboardStats,
   ErrorResponse,
   ExportJob,
   HealthStatus,
+  ListAdminAccountsResponse,
+  ListAdminJobsResponse,
   Message,
   MessagePair,
   Project,
@@ -1196,6 +1199,242 @@ export function useGetDashboardStats<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetDashboardStatsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * The admin console.
+ *
+ * Every one of these answers 404 to a signed-in caller who is not on the
+ * server's allowlist, which is why the console asks for the overview first and
+ * renders nothing at all if that fails: the client never decides who is an
+ * admin, it only reports what the server said.
+ *
+ * @summary How the platform is doing right now
+ */
+export const getAdminOverviewUrl = () => {
+  return `/api/admin/overview`;
+};
+
+export const getAdminOverview = async (
+  options?: RequestInit,
+): Promise<AdminOverview> => {
+  return customFetch<AdminOverview>(getAdminOverviewUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAdminOverviewQueryKey = () => {
+  return [`/api/admin/overview`] as const;
+};
+
+export const getGetAdminOverviewQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAdminOverview>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAdminOverview>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAdminOverviewQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getAdminOverview>>
+  > = ({ signal }) => getAdminOverview({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAdminOverview>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export function useGetAdminOverview<
+  TData = Awaited<ReturnType<typeof getAdminOverview>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAdminOverview>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAdminOverviewQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Who has signed up, and what they have used
+ */
+export const getListAdminAccountsUrl = (params?: {
+  q?: string;
+  limit?: number;
+  offset?: number;
+}) => {
+  const search = new URLSearchParams();
+  if (params?.q) search.set("q", params.q);
+  if (params?.limit !== undefined) search.set("limit", String(params.limit));
+  if (params?.offset !== undefined) search.set("offset", String(params.offset));
+  const query = search.toString();
+  return query ? `/api/admin/accounts?${query}` : `/api/admin/accounts`;
+};
+
+export const listAdminAccounts = async (
+  params?: { q?: string; limit?: number; offset?: number },
+  options?: RequestInit,
+): Promise<ListAdminAccountsResponse> => {
+  return customFetch<ListAdminAccountsResponse>(getListAdminAccountsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListAdminAccountsQueryKey = (params?: {
+  q?: string;
+  limit?: number;
+  offset?: number;
+}) => {
+  return [`/api/admin/accounts`, params] as const;
+};
+
+export const getListAdminAccountsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAdminAccounts>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: { q?: string; limit?: number; offset?: number },
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAdminAccounts>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListAdminAccountsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listAdminAccounts>>
+  > = ({ signal }) => listAdminAccounts(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAdminAccounts>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export function useListAdminAccounts<
+  TData = Awaited<ReturnType<typeof listAdminAccounts>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: { q?: string; limit?: number; offset?: number },
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAdminAccounts>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAdminAccountsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Recent renders, with their errors as they were written
+ */
+export const getListAdminJobsUrl = (params?: { status?: string; limit?: number }) => {
+  const search = new URLSearchParams();
+  if (params?.status) search.set("status", params.status);
+  if (params?.limit !== undefined) search.set("limit", String(params.limit));
+  const query = search.toString();
+  return query ? `/api/admin/jobs?${query}` : `/api/admin/jobs`;
+};
+
+export const listAdminJobs = async (
+  params?: { status?: string; limit?: number },
+  options?: RequestInit,
+): Promise<ListAdminJobsResponse> => {
+  return customFetch<ListAdminJobsResponse>(getListAdminJobsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListAdminJobsQueryKey = (params?: { status?: string; limit?: number }) => {
+  return [`/api/admin/jobs`, params] as const;
+};
+
+export const getListAdminJobsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAdminJobs>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: { status?: string; limit?: number },
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAdminJobs>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListAdminJobsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdminJobs>>> = ({
+    signal,
+  }) => listAdminJobs(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAdminJobs>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export function useListAdminJobs<
+  TData = Awaited<ReturnType<typeof listAdminJobs>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: { status?: string; limit?: number },
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAdminJobs>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAdminJobsQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
