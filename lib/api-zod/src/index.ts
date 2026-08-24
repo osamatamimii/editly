@@ -761,11 +761,34 @@ export const FadeOperation = z.object({
   durationMs: z.number().min(100).max(2000).default(500),
 });
 
+/**
+ * Open on the strongest moment, then play from the top without it.
+ *
+ * The thing every short-form editor does by hand and calls a hook: the best
+ * line is lifted out of the middle and becomes the first thing anyone hears,
+ * because the first two seconds are the only two seconds you are given for
+ * free.
+ *
+ * It **moves** the moment rather than copying it. A copy would be the more
+ * obvious reading of "hook", and it would put the same sentence on screen
+ * twice — but more importantly it would break the one property the whole
+ * timeline rests on: that every source moment appears exactly once in the
+ * output, which is what lets captions and punch-ins be moved with arithmetic
+ * instead of guesswork. Moving keeps that, and a cold open is a real edit in
+ * its own right.
+ */
+export const ColdOpenOperation = z.object({
+  type: z.literal("coldOpen"),
+  /** How much of the strongest moment to open on. */
+  seconds: z.number().min(1).max(15).default(4),
+});
+
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
   ExtractHighlightOperation,
   ExtractRangeOperation,
   ExtractClipsOperation,
+  ColdOpenOperation,
   FadeOperation,
   FormatForPlatformOperation,
   BurnCaptionsOperation,
