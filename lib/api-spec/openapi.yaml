@@ -1239,6 +1239,7 @@ components:
         - $ref: "#/components/schemas/ExtractHighlightOperation"
         - $ref: "#/components/schemas/ExtractRangeOperation"
         - $ref: "#/components/schemas/ExtractClipsOperation"
+        - $ref: "#/components/schemas/ColdOpenOperation"
         - $ref: "#/components/schemas/FadeOperation"
         - $ref: "#/components/schemas/FormatForPlatformOperation"
         - $ref: "#/components/schemas/BurnCaptionsOperation"
@@ -1555,6 +1556,25 @@ components:
           minimum: 5
           maximum: 120
           default: 30
+      required: [type]
+
+    ColdOpenOperation:
+      description: >
+        Open on the strongest moment, then play from the top without it - the
+        hook every short-form editor builds by hand. The moment is moved, not
+        copied: every source moment still appears exactly once in the output,
+        which is what keeps captions and punch-ins movable by arithmetic.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [coldOpen]
+        seconds:
+          description: How much of the strongest moment to open on.
+          type: number
+          minimum: 1
+          maximum: 15
+          default: 4
       required: [type]
 
     FadeOperation:
