@@ -1241,6 +1241,7 @@ components:
         - $ref: "#/components/schemas/ExtractClipsOperation"
         - $ref: "#/components/schemas/ColdOpenOperation"
         - $ref: "#/components/schemas/FadeOperation"
+        - $ref: "#/components/schemas/DissolveOperation"
         - $ref: "#/components/schemas/FormatForPlatformOperation"
         - $ref: "#/components/schemas/BurnCaptionsOperation"
         - $ref: "#/components/schemas/AutoCaptionsOperation"
@@ -1579,12 +1580,12 @@ components:
 
     FadeOperation:
       description: >
-        Fade in from black and out to black - the first transition. The ends
-        only, deliberately: fading the joins inside a silence-removed cut would
-        overlap segments and shift the clock every caption lives on, while a
-        fade at the ends leaves the video exactly as long as it was. One
+        Fade in from black and out to black - the transition at the ends. The
+        ends only, deliberately: a fade there leaves the video exactly as long
+        as it was, so it composes with every other operation for free. One
         duration for both ends, because an opening and a closing that disagree
-        read as an accident.
+        read as an accident. Softening the joins inside the cut is a different
+        operation with a different cost - see DissolveOperation.
       type: object
       properties:
         type:
@@ -1596,6 +1597,29 @@ components:
           minimum: 100
           maximum: 2000
           default: 500
+      required: [type]
+
+    DissolveOperation:
+      description: >
+        Dissolve between the cuts - one shot melting into the next. Where fade
+        touches only the two ends and therefore no clock, a dissolve overlaps
+        every join, so the edit comes out (joins x durationMs) shorter than the
+        sum of its parts. That shortening is handed to the same mapping that
+        places captions, punches, overlays and titles, so a caption written at
+        0:41 of the recording still lands on the syllable it was written for.
+        The renderer shortens the overlap further when the shortest piece it
+        joins cannot hold it, and says so in the notes.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [dissolve]
+        durationMs:
+          description: How long each join overlaps, in milliseconds.
+          type: number
+          minimum: 80
+          maximum: 1000
+          default: 250
       required: [type]
 
     Clip:
