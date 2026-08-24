@@ -14,6 +14,7 @@ import Dashboard from "@/pages/dashboard";
 import ProjectEditor from "@/pages/project-editor";
 import ExportPage from "@/pages/export";
 import AccountPage from "@/pages/account";
+import AdminPage from "@/pages/admin";
 
 const queryClient = new QueryClient();
 
@@ -60,6 +61,16 @@ function Router() {
       </Route>
       <Route path="/account">
         <Protected component={AccountPage} />
+      </Route>
+      {/*
+        Registered for everyone, and refused by the server for almost everyone.
+        There is no client-side admin check here on purpose: the page asks the
+        API and renders the ordinary not-found screen when the API says no, so
+        reading the bundle tells an attacker nothing they could not have
+        guessed from the URL.
+      */}
+      <Route path="/admin">
+        <Protected component={AdminPage} />
       </Route>
       <Route component={NotFound} />
     </Switch>
