@@ -580,6 +580,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const watermark = find("watermark");
   const loudness = find("normalizeLoudness");
   const grade = find("grade");
+  const fade = find("fade");
 
   ctx.onProgress?.(0.02, "Looking at your footage");
 
@@ -1084,14 +1085,44 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   graphParts.push(...overlayLinks);
   if (source.hasAudio && audioParts.length > 0) graphParts.push(`[${aLabel}]${audioParts.join(",")}[aout]`);
 
-  const graph = graphPrefix + graphParts.join(";");
-
   // A bracketed name is a filter label; a bare one is an input stream. Mixing
   // them up makes ffmpeg look for "0:a" inside the graph and fail on a plan
   // that touches only the picture.
   const overlayTail = overlayLinks.length > 0 ? `[ov${overlayLinks.length / 2}]` : null;
-  const finalV = overlayTail ?? (videoParts.length > 0 ? "[vout]" : kept ? `[${vLabel}]` : "0:v");
-  const finalA = audioParts.length > 0 ? "[aout]" : kept ? `[${aLabel}]` : "0:a";
+  let finalV = overlayTail ?? (videoParts.length > 0 ? "[vout]" : kept ? `[${vLabel}]` : "0:v");
+  let finalA = audioParts.length > 0 ? "[aout]" : kept ? `[${aLabel}]` : "0:a";
+
+  // ── The fade ──────────────────────────────────────────────────────────────
+  //
+  // Last, on the finished picture, so the captions, the watermark and every
+  // overlay sink into black together — a fade that spared the watermark would
+  // read as a rendering fault, not a style. It touches no clock: the video is
+  // exactly as long with it as without it, which is why it composes with the
+  // cut map for free where a crossfade at the joins would not. The duration
+  // shrinks on a very short clip so the two fades never eat more of it than a
+  // fade should.
+  if (fade) {
+    const asked = fade.durationMs / 1000;
+    const d = Math.min(asked, effectiveDuration / 3);
+    const outStart = Math.max(0, effectiveDuration - d).toFixed(3);
+    const vIn = finalV.startsWith("[") ? finalV : `[${finalV}]`;
+    graphParts.push(`${vIn}fade=t=in:st=0:d=${d.toFixed(3)},fade=t=out:st=${outStart}:d=${d.toFixed(3)}[fadev]`);
+    finalV = "[fadev]";
+    if (source.hasAudio) {
+      const aIn = finalA.startsWith("[") ? finalA : `[${finalA}]`;
+      graphParts.push(
+        `${aIn}afade=t=in:st=0:d=${d.toFixed(3)},afade=t=out:st=${outStart}:d=${d.toFixed(3)}[fadea]`,
+      );
+      finalA = "[fadea]";
+    }
+    notes.push(
+      d < asked - 0.001
+        ? `faded in and out over ${d.toFixed(1)}s — shorter than asked, so the fades stay a third of this short clip at most`
+        : `faded in from black and out to black over ${d.toFixed(1)}s`,
+    );
+  }
+
+  const graph = graphPrefix + graphParts.join(";");
 
   const args = ["-hide_banner", "-y", "-i", input, ...extraInputs];
   if (graph.length > 0) args.push("-filter_complex", graph);
@@ -1138,6 +1169,7 @@ export function describe(op: EditOperation): string {
     // renderer ever sees a plan — see index.ts. Named here so the switch stays
     // exhaustive and a future path that skips the expansion fails to compile.
     case "extractClips": return "Cutting it into clips";
+    case "fade": return "Fading in and out";
     case "formatForPlatform": return `Reframing for ${op.platform}`;
     case "burnCaptions": return "Burning in captions";
     // Replaced by burnCaptions before the renderer ever sees a plan — see
