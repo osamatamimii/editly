@@ -252,6 +252,8 @@ export const SubscriptionPlan = {
 export interface SubscriptionUsage {
   plan: SubscriptionPlan;
   minutesIncluded: number;
+  /** Of minutesIncluded, how much was granted by hand this month rather than paid for. */
+  minutesGranted: number;
   minutesUsedThisMonth: number;
   minutesRemaining: number;
   maxUploadMinutes: number;
@@ -556,5 +558,22 @@ export interface AdminJob {
 
 export interface ListAdminJobsResponse {
   jobs: AdminJob[];
+  total: number;
+}
+
+/** One act of the admin console, with the reason it was done. */
+export interface AdminActionRecord {
+  id: string;
+  actorUserId: string;
+  action: string;
+  subjectUserId: string | null;
+  subjectJobId: string | null;
+  reason: string;
+  detail: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface ListAdminActionsResponse {
+  actions: AdminActionRecord[];
   total: number;
 }

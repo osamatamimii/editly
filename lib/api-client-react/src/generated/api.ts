@@ -25,12 +25,14 @@ import type {
   ExportJob,
   HealthStatus,
   ListAdminAccountsResponse,
+  ListAdminActionsResponse,
   ListAdminJobsResponse,
   Message,
   MessagePair,
   Project,
   SendMessageBody,
   StartExportBody,
+  SubscriptionPlan,
   SubscriptionUsage,
   UpdateProjectBody,
   UpdateSubscriptionBody,
@@ -1442,3 +1444,206 @@ export function useListAdminJobs<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * The console's actions, and the log of them.
+ *
+ * Each action takes a `reason` the server refuses to let be blank, so these
+ * signatures make it required too — a client that let it be optional would be
+ * a client whose calls fail at the last moment for a reason nobody typed.
+ *
+ * @summary What the console has done, and why
+ */
+export const getListAdminActionsUrl = (params?: { limit?: number }) => {
+  const search = new URLSearchParams();
+  if (params?.limit !== undefined) search.set("limit", String(params.limit));
+  const query = search.toString();
+  return query ? `/api/admin/actions?${query}` : `/api/admin/actions`;
+};
+
+export const listAdminActions = async (
+  params?: { limit?: number },
+  options?: RequestInit,
+): Promise<ListAdminActionsResponse> => {
+  return customFetch<ListAdminActionsResponse>(getListAdminActionsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListAdminActionsQueryKey = (params?: { limit?: number }) => {
+  return [`/api/admin/actions`, params] as const;
+};
+
+export const getListAdminActionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listAdminActions>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: { limit?: number },
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAdminActions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getListAdminActionsQueryKey(params);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdminActions>>> = ({
+    signal,
+  }) => listAdminActions(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listAdminActions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export function useListAdminActions<
+  TData = Awaited<ReturnType<typeof listAdminActions>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: { limit?: number },
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listAdminActions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListAdminActionsQueryOptions(params, options);
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/** @summary Put a stuck render back in the queue */
+export const requeueJob = async (
+  jobId: string,
+  data: { reason: string },
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(`/api/admin/jobs/${jobId}/requeue`, {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(data),
+  });
+};
+
+export const useRequeueJob = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<void, TError, { jobId: string; data: { reason: string } }, TContext>;
+}): UseMutationResult<void, TError, { jobId: string; data: { reason: string } }, TContext> => {
+  return useMutation({
+    mutationFn: ({ jobId, data }) => requeueJob(jobId, data),
+    ...options?.mutation,
+  });
+};
+
+/** @summary Hand somebody minutes for this month */
+export const grantMinutes = async (
+  userId: string,
+  data: { minutes: number; reason: string },
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(`/api/admin/accounts/${userId}/minutes`, {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(data),
+  });
+};
+
+export const useGrantMinutes = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    void,
+    TError,
+    { userId: string; data: { minutes: number; reason: string } },
+    TContext
+  >;
+}): UseMutationResult<
+  void,
+  TError,
+  { userId: string; data: { minutes: number; reason: string } },
+  TContext
+> => {
+  return useMutation({
+    mutationFn: ({ userId, data }) => grantMinutes(userId, data),
+    ...options?.mutation,
+  });
+};
+
+/** @summary Set a plan by hand when the webhook did not */
+export const setPlanByHand = async (
+  userId: string,
+  data: { plan: SubscriptionPlan; reason: string },
+  options?: RequestInit,
+): Promise<{ plan: SubscriptionPlan; note: string }> => {
+  return customFetch<{ plan: SubscriptionPlan; note: string }>(
+    `/api/admin/accounts/${userId}/plan`,
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(data),
+    },
+  );
+};
+
+export const useSetPlanByHand = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    { plan: SubscriptionPlan; note: string },
+    TError,
+    { userId: string; data: { plan: SubscriptionPlan; reason: string } },
+    TContext
+  >;
+}): UseMutationResult<
+  { plan: SubscriptionPlan; note: string },
+  TError,
+  { userId: string; data: { plan: SubscriptionPlan; reason: string } },
+  TContext
+> => {
+  return useMutation({
+    mutationFn: ({ userId, data }) => setPlanByHand(userId, data),
+    ...options?.mutation,
+  });
+};
+
+/** @summary Stop or restart new renders for an account */
+export const setSuspended = async (
+  userId: string,
+  data: { suspended: boolean; reason: string },
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(`/api/admin/accounts/${userId}/suspend`, {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(data),
+  });
+};
+
+export const useSetSuspended = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    void,
+    TError,
+    { userId: string; data: { suspended: boolean; reason: string } },
+    TContext
+  >;
+}): UseMutationResult<
+  void,
+  TError,
+  { userId: string; data: { suspended: boolean; reason: string } },
+  TContext
+> => {
+  return useMutation({
+    mutationFn: ({ userId, data }) => setSuspended(userId, data),
+    ...options?.mutation,
+  });
+};
