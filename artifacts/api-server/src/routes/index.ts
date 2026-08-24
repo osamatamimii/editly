@@ -11,6 +11,7 @@ import accountRouter from "./account";
 import assetsRouter from "./assets";
 import clipsRouter from "./clips";
 import stockRouter from "./stock";
+import adminRouter from "./admin";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -39,5 +40,10 @@ router.use(accountRouter);
 router.use(assetsRouter);
 router.use(clipsRouter);
 router.use(stockRouter);
+
+// The operations console. Its own gate on top of requireAuth: every path under
+// /admin answers 404 to anyone not on the allowlist, which is a list in the
+// environment and not a column anything can write. See lib/admin.ts.
+router.use(adminRouter);
 
 export default router;
