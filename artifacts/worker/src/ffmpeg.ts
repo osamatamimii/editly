@@ -432,6 +432,14 @@ function videoEncodeFor(frameHeight: number): string[] {
 const AUDIO_ENCODE = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000"];
 
 /**
+ * The ramp at every cut edge of the audio. 15ms sits in the gap between the
+ * two perceptual thresholds that matter: far too short to register as a fade,
+ * far too long to leave a click — a waveform cut mid-cycle steps
+ * discontinuously, and a step is a click across the whole spectrum.
+ */
+const DECLICK_SECONDS = 0.015;
+
+/**
  * Moves the moov atom to the front. Without it a browser must download the
  * whole file before it can show a single frame — which, for a video served
  * from object storage, looks exactly like a broken player.
@@ -722,7 +730,19 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     const pieces: string[] = [];
     kept.forEach((segment, i) => {
       pieces.push(`[0:v]trim=start=${segment.start}:end=${segment.end},setpts=PTS-STARTPTS[cv${i}]`);
-      pieces.push(`[0:a]atrim=start=${segment.start}:end=${segment.end},asetpts=PTS-STARTPTS[ca${i}]`);
+      // Every audio edge gets a blink-long ramp (15ms — under any perceptual
+      // threshold for a fade, well over the one for a click). A cut lands
+      // wherever the detector put it, which is rarely a zero crossing, and a
+      // waveform that jumps mid-cycle is a broadband click stitched into the
+      // join. This is the audio analogue of lanczos on the downscale: not a
+      // decision anyone is told about, just the cut done properly — so no
+      // note, and no way to turn it off.
+      const len = segment.end - segment.start;
+      const ramp = Math.min(DECLICK_SECONDS, len / 4);
+      pieces.push(
+        `[0:a]atrim=start=${segment.start}:end=${segment.end},asetpts=PTS-STARTPTS,` +
+          `afade=t=in:st=0:d=${ramp.toFixed(4)},afade=t=out:st=${Math.max(0, len - ramp).toFixed(4)}:d=${ramp.toFixed(4)}[ca${i}]`,
+      );
     });
     pieces.push(`${kept.map((_, i) => `[cv${i}][ca${i}]`).join("")}concat=n=${kept.length}:v=1:a=1[cutv][cuta]`);
     graphPrefix = `${pieces.join(";")};`;
