@@ -20,6 +20,7 @@ import { HealthCheckResponse } from "@workspace/api-zod";
 import { checkSchema, BEHIND_MESSAGE } from "../lib/schema-health";
 import { storageAdminConfigured, verifyStorageAdmin } from "../lib/storage";
 import { stockConfigured } from "../lib/stock";
+import { adminCount } from "../lib/admin";
 
 const router: IRouter = Router();
 
@@ -37,6 +38,7 @@ async function capabilities(): Promise<{
   planner: boolean;
   stockLibrary: boolean;
   billing: boolean;
+  admins: boolean;
 }> {
   return {
     // Configured, which is not the same as working — see storageCheck.
@@ -47,6 +49,16 @@ async function capabilities(): Promise<{
     planner: Boolean(process.env["OPENAI_API_KEY"]?.trim()),
     stockLibrary: stockConfigured,
     billing: Boolean(process.env["FREEMIUS_SECRET_KEY"]?.trim()),
+    // Whether anybody at all is on the operations console's allowlist.
+    //
+    // A boolean, never the count and never the ids: what this has to answer is
+    // "did the variable reach this deployment", and the console answering 404
+    // to its owner looks exactly the same whether the list is missing, empty,
+    // or simply does not include them. That ambiguity cost an evening once, and
+    // it is the only question this line exists to settle. Read at request time
+    // like the rest, because the failure being diagnosed is precisely a value
+    // that was set but never reached a running deployment.
+    admins: adminCount() > 0,
   };
 }
 
