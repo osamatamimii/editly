@@ -1191,6 +1191,7 @@ components:
         - $ref: "#/components/schemas/ExtractHighlightOperation"
         - $ref: "#/components/schemas/ExtractRangeOperation"
         - $ref: "#/components/schemas/ExtractClipsOperation"
+        - $ref: "#/components/schemas/FadeOperation"
         - $ref: "#/components/schemas/FormatForPlatformOperation"
         - $ref: "#/components/schemas/BurnCaptionsOperation"
         - $ref: "#/components/schemas/AutoCaptionsOperation"
@@ -1506,6 +1507,27 @@ components:
           minimum: 5
           maximum: 120
           default: 30
+      required: [type]
+
+    FadeOperation:
+      description: >
+        Fade in from black and out to black - the first transition. The ends
+        only, deliberately: fading the joins inside a silence-removed cut would
+        overlap segments and shift the clock every caption lives on, while a
+        fade at the ends leaves the video exactly as long as it was. One
+        duration for both ends, because an opening and a closing that disagree
+        read as an accident.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [fade]
+        durationMs:
+          description: How long each fade runs, in milliseconds.
+          type: number
+          minimum: 100
+          maximum: 2000
+          default: 500
       required: [type]
 
     Clip:
