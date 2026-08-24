@@ -12,7 +12,8 @@
  * a panel of every set ever made is an archive, not an editor.
  */
 import { useState } from "react";
-import { Scissors, Download, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { Scissors, Download, Trash2, ChevronDown, ChevronRight, SquareArrowOutUpRight } from "lucide-react";
+import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useListClips, getListClipsQueryKey, type Clip } from "@workspace/api-client-react";
 import { usePlayableVideo, signedVideoUrl } from "@/lib/video-storage";
@@ -31,7 +32,17 @@ async function authHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function ClipRow({ clip, onDelete }: { clip: Clip; onDelete: (clip: Clip) => void }) {
+function ClipRow({
+  clip,
+  onDelete,
+  onOpen,
+  opening,
+}: {
+  clip: Clip;
+  onDelete: (clip: Clip) => void;
+  onOpen: (clip: Clip) => void;
+  opening: boolean;
+}) {
   // The preview.webm mirror is tried first, exactly as the main player does —
   // a browser that cannot decode H.264 should not lose the clips too.
   const { url, previewUrl } = usePlayableVideo(clip.outputPath);
@@ -59,6 +70,17 @@ function ClipRow({ clip, onDelete }: { clip: Clip; onDelete: (clip: Clip) => voi
             data-testid={`clip-download-${clip.idx}`}
           >
             <Download className="w-3.5 h-3.5" />
+          </button>
+          {/* A clip is a video, so it can be edited like one — this makes a
+              project of its own from a copy of it, and opens it. */}
+          <button
+            onClick={() => onOpen(clip)}
+            disabled={opening}
+            title="Open this clip as its own project"
+            className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+            data-testid={`clip-open-${clip.idx}`}
+          >
+            <SquareArrowOutUpRight className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => onDelete(clip)}
@@ -98,6 +120,8 @@ export function ProjectClips({ projectId }: { projectId: string }) {
   const { data: clips } = useListClips(projectId);
   const queryClient = useQueryClient();
   const [showEarlier, setShowEarlier] = useState(false);
+  const [opening, setOpening] = useState<string | null>(null);
+  const [, navigate] = useLocation();
 
   if (!clips || clips.length === 0) return null;
 
@@ -117,6 +141,25 @@ export function ProjectClips({ projectId }: { projectId: string }) {
     queryClient.invalidateQueries({ queryKey: getListClipsQueryKey(projectId) });
   }
 
+  async function open(clip: Clip): Promise<void> {
+    // The server copies the bytes and answers with the new project; landing
+    // on it is the whole point, so nothing is navigated until it exists.
+    setOpening(clip.id);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/clips/${clip.id}/open`, {
+        method: "POST",
+        headers: await authHeaders(),
+      });
+      if (!res.ok) return;
+      const project = (await res.json()) as { id: string };
+      navigate(`/projects/${project.id}`);
+    } catch {
+      // Nothing was created on a failure — the row is taken back server-side.
+    } finally {
+      setOpening(null);
+    }
+  }
+
   return (
     <div className="rounded-xl glass-panel border border-hairline flex flex-col gap-2 px-4 py-4 mt-3" data-testid="panel-clips">
       <div className="flex items-center gap-2">
@@ -126,7 +169,13 @@ export function ProjectClips({ projectId }: { projectId: string }) {
         </span>
       </div>
       {latest.map((clip) => (
-        <ClipRow key={clip.id} clip={clip} onDelete={(c) => void remove(c)} />
+        <ClipRow
+          key={clip.id}
+          clip={clip}
+          onDelete={(c) => void remove(c)}
+          onOpen={(c) => void open(c)}
+          opening={opening === clip.id}
+        />
       ))}
       {earlier.length > 0 && (
         <>
@@ -140,7 +189,13 @@ export function ProjectClips({ projectId }: { projectId: string }) {
           </button>
           {showEarlier &&
             earlier.map((clip) => (
-              <ClipRow key={clip.id} clip={clip} onDelete={(c) => void remove(c)} />
+              <ClipRow
+                key={clip.id}
+                clip={clip}
+                onDelete={(c) => void remove(c)}
+                onOpen={(c) => void open(c)}
+                opening={opening === clip.id}
+              />
             ))}
         </>
       )}
