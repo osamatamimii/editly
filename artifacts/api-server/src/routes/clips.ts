@@ -12,12 +12,20 @@
  * verified owner on exactly this reasoning. Ownership is checked the same
  * way, and a wrong id gets the same 404 whether it exists or not.
  */
+import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { and, desc, asc, eq } from "drizzle-orm";
 import { db, clipsTable, projectsTable } from "@workspace/db";
-import { DeleteClipParams, ListClipsParams, ListClipsResponse } from "@workspace/api-zod";
+import {
+  DeleteClipParams,
+  GetProjectResponse,
+  ListClipsParams,
+  ListClipsResponse,
+  PromoteClipParams,
+} from "@workspace/api-zod";
 import { currentUserId } from "../middlewares/auth";
-import { deleteObjects } from "../lib/storage";
+import { copyObject, deleteObjects, storageAdminConfigured } from "../lib/storage";
+import { serializeProject } from "../lib/transformers";
 
 const router: IRouter = Router();
 
@@ -111,6 +119,117 @@ router.delete("/projects/:id/clips/:clipId", async (req, res): Promise<void> => 
   void deleteObjects([master, master.replace(/\.mp4$/i, "") + ".preview.webm"]);
 
   res.status(204).end();
+});
+
+/**
+ * Opening a clip as a project of its own.
+ *
+ * Until now a clip was a dead end: play it, download it, delete it. But a
+ * clip is a video, and everything this product does it does to a video — so
+ * the piece the worker chose should be able to become the thing being
+ * edited, captioned, reframed and rendered.
+ *
+ * The bytes are copied, never shared. Pointing the new project's row at the
+ * clip's existing key would be one line shorter and would mean two projects
+ * owning one file: deleting either would break the other, and the bug would
+ * surface weeks later as "my video disappeared". Every object in this bucket
+ * belongs to exactly one "<userId>/<projectId>/" prefix, and that invariant
+ * is what makes deleting a project mean deleting its bytes and nobody else's.
+ *
+ * Order is row-then-bytes, the inverse of deletion, and for the same reason
+ * read the other way round: bytes written under a project id that has no row
+ * are invisible and unreclaimable, while a row whose copy failed is something
+ * we can — and do — take back before answering.
+ */
+router.post("/projects/:id/clips/:clipId/open", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  const params = PromoteClipParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  // Refused rather than half-done: without the service role key the copy
+  // cannot happen, and a project row whose video is not there would be a
+  // worse answer than "not on this deployment".
+  if (!storageAdminConfigured) {
+    res.status(503).json({ error: "This deployment cannot copy stored video, so a clip cannot be opened on its own." });
+    return;
+  }
+
+  const [clip] = await db
+    .select()
+    .from(clipsTable)
+    .where(
+      and(
+        eq(clipsTable.id, params.data.clipId),
+        eq(clipsTable.projectId, params.data.id),
+        eq(clipsTable.userId, userId),
+      ),
+    )
+    .limit(1);
+  if (!clip) {
+    res.status(404).json({ error: "Clip not found." });
+    return;
+  }
+
+  // The parent is read for what the clip cannot know about itself: the frame
+  // it was rendered at, and the name it should be recognisable by.
+  const [parent] = await db
+    .select()
+    .from(projectsTable)
+    .where(and(eq(projectsTable.id, params.data.id), eq(projectsTable.userId, userId)))
+    .limit(1);
+  if (!parent) {
+    res.status(404).json({ error: "Project not found." });
+    return;
+  }
+
+  // The clip's own words when it has them, its position when it does not —
+  // never a title nobody said. Trimmed to something that fits a project card.
+  const title = (clip.title?.trim() ? `${clip.title.trim()}` : `${parent.title} - clip ${clip.idx}`).slice(0, 120);
+
+  const id = randomUUID();
+  const destination = `${userId}/${id}/source.mp4`;
+  const [project] = await db
+    .insert(projectsTable)
+    .values({
+      id,
+      userId,
+      title,
+      // "uploading" until the bytes are actually there, which is what the
+      // word means everywhere else in this product.
+      status: "uploading",
+      duration: clip.outputSeconds,
+      // The clip came out of a render, so the render's frame is its frame.
+      width: parent.editedWidth ?? parent.width,
+      height: parent.editedHeight ?? parent.height,
+      platform: parent.platform,
+    })
+    .returning();
+
+  const copied = await copyObject(clip.outputPath, destination);
+  if (!copied.copied) {
+    // Take the row back rather than leave a project that cannot play. No clip
+    // or job points at it yet, so this deletes cleanly.
+    await db.delete(projectsTable).where(eq(projectsTable.id, id));
+    res.status(503).json({ error: "The clip could not be copied into a new project. Nothing was changed." });
+    return;
+  }
+
+  // The VP9 mirror, on the same naming convention the player already looks
+  // for. Best-effort on purpose: without it a browser that cannot decode
+  // H.264 loses the preview, which is a smaller loss than refusing the whole
+  // thing over a file that is itself only a fallback.
+  void copyObject(clip.outputPath.replace(/\.mp4$/i, "") + ".preview.webm", `${userId}/${id}/source.preview.webm`);
+
+  const [ready] = await db
+    .update(projectsTable)
+    .set({ videoPath: destination, status: "ready", updatedAt: new Date() })
+    .where(eq(projectsTable.id, id))
+    .returning();
+
+  res.status(201).json(GetProjectResponse.parse(serializeProject({ ...(ready ?? project), renderStalled: false })));
 });
 
 export default router;
