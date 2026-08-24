@@ -41,6 +41,7 @@ function serialize(row: typeof clipsTable.$inferSelect): unknown {
     outputSeconds: row.outputSeconds,
     note: row.note,
     title: row.title,
+    thumbnailPath: row.thumbnailPath,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -116,7 +117,8 @@ router.delete("/projects/:id/clips/:clipId", async (req, res): Promise<void> => 
   // wrote them under. Best-effort: a failure here leaves orphan bytes that
   // deleting the project reclaims, not a lie in the response.
   const master = removed[0].outputPath;
-  void deleteObjects([master, master.replace(/\.mp4$/i, "") + ".preview.webm"]);
+  const stem = master.replace(/\.mp4$/i, "");
+  void deleteObjects([master, `${stem}.preview.webm`, `${stem}.jpg`]);
 
   res.status(204).end();
 });
@@ -221,11 +223,18 @@ router.post("/projects/:id/clips/:clipId/open", async (req, res): Promise<void> 
   // for. Best-effort on purpose: without it a browser that cannot decode
   // H.264 loses the preview, which is a smaller loss than refusing the whole
   // thing over a file that is itself only a fallback.
-  void copyObject(clip.outputPath.replace(/\.mp4$/i, "") + ".preview.webm", `${userId}/${id}/source.preview.webm`);
+  const clipStem = clip.outputPath.replace(/\.mp4$/i, "");
+  void copyObject(`${clipStem}.preview.webm`, `${userId}/${id}/source.preview.webm`);
+
+  // The clip's own still becomes the new project's poster, so its card on the
+  // dashboard shows the piece rather than a grey box until a browser happens
+  // to open it and make one.
+  const poster = clip.thumbnailPath ? `${userId}/${id}/thumb.jpg` : null;
+  if (clip.thumbnailPath) void copyObject(clip.thumbnailPath, poster as string);
 
   const [ready] = await db
     .update(projectsTable)
-    .set({ videoPath: destination, status: "ready", updatedAt: new Date() })
+    .set({ videoPath: destination, thumbnailPath: poster, status: "ready", updatedAt: new Date() })
     .where(eq(projectsTable.id, id))
     .returning();
 
