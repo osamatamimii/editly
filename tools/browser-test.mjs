@@ -1225,6 +1225,23 @@ section("The pricing page says nothing about your plan until it has been told");
   );
 }
 
+section("The landing page's feature list keeps up with what is actually built");
+{
+  // "What it does today" is kept honest by hand — everything on it works, and
+  // what is not built stays off it. That honesty cuts both ways: a feature
+  // that shipped and never made the list is the page understating the product.
+  const home = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/home.tsx"), "utf8");
+  check(
+    "clips are on the list now that they exist",
+    /cut into separate clips/i.test(home),
+    "the clips feature shipped but the landing page does not mention it",
+  );
+  check(
+    "and the line sells the titles, which is what makes them worth having",
+    /titled by its speaker's own words/i.test(home),
+  );
+}
+
 section("A render that finished is a project that changed");
 {
   // The page rewarded the person who stayed and watched with the worse

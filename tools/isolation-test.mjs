@@ -46,6 +46,15 @@ const jwk = { ...(await exportJWK(publicKey)), alg: "ES256", use: "sig", kid: "t
  */
 const storageCalls = [];
 let storageFailsWith = null;
+// The bucket the stub pretends to be, now stateful: list answers a page of
+// what is actually under the prefix and delete removes the named keys. The
+// sweep in storage.ts drains pages until the prefix answers empty, so a stub
+// that answered the same one object forever would spin it to its pass cap. A
+// prefix nobody seeded gets one source.mp4 on first sight — which is exactly
+// what the old always-one-object stub gave every project.
+const storageObjects = new Set();
+const storageSeeded = new Set();
+let storageDeleteIsALie = false;
 
 const jwksServer = http.createServer((req, res) => {
   if (req.url === "/auth/v1/.well-known/jwks.json") {
@@ -57,19 +66,27 @@ const jwksServer = http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
-      const prefix = (() => {
+      const parsed = (() => {
         try {
-          return JSON.parse(body).prefix;
+          return JSON.parse(body);
         } catch {
-          return null;
+          return {};
         }
       })();
+      const prefix = parsed.prefix ?? null;
       storageCalls.push({ op: "list", prefix });
+      if (prefix && !storageSeeded.has(prefix)) {
+        storageSeeded.add(prefix);
+        storageObjects.add(`${prefix}/source.mp4`);
+      }
       if (storageFailsWith) return res.writeHead(storageFailsWith).end("{}");
+      const limit = typeof parsed.limit === "number" ? parsed.limit : 100;
+      const page = [...storageObjects]
+        .filter((k) => prefix && k.startsWith(`${prefix}/`))
+        .slice(0, limit)
+        .map((k) => ({ name: k.slice(prefix.length + 1), id: k }));
       res.writeHead(200, { "Content-Type": "application/json" });
-      // One object per project, which is enough for the route to have something
-      // to delete and therefore something to fail at.
-      res.end(JSON.stringify([{ name: "source.mp4", id: "obj-1" }]));
+      res.end(JSON.stringify(page));
     });
     return;
   }
@@ -79,6 +96,13 @@ const jwksServer = http.createServer((req, res) => {
     req.on("end", () => {
       storageCalls.push({ op: "delete", body });
       if (storageFailsWith) return res.writeHead(storageFailsWith).end("{}");
+      if (!storageDeleteIsALie) {
+        try {
+          for (const k of JSON.parse(body).prefixes ?? []) storageObjects.delete(k);
+        } catch {
+          // an unparsable body removes nothing, exactly like the real endpoint
+        }
+      }
       res.writeHead(200, { "Content-Type": "application/json" }).end("[]");
     });
     return;
@@ -996,6 +1020,58 @@ console.log("\nDeleting a project is never reported as done while the video is s
     emptyGone.status === 204,
     `got ${emptyGone.status}`,
   );
+}
+
+console.log("\nDeleting a project sweeps every page of its bytes, not just the first");
+{
+  // The sweep used to ask Storage once — one page of a hundred — and report
+  // everything gone. One clips render writes up to a dozen objects, so a
+  // project a person actually used could hold more than a page, and every
+  // object past the hundredth quietly survived its own deletion while the
+  // route said 204. The fix drains pages until the prefix answers empty, and
+  // this measures it against an inventory bigger than two pages.
+  const made = await call(ALICE, "/api/projects", "POST", { title: "Two hundred files" });
+  const id = made.json?.id;
+  await call(ALICE, `/api/projects/${id}`, "PATCH", { videoPath: `${ALICE}/${id}/source.mp4` });
+
+  const prefix = `${ALICE}/${id}`;
+  storageSeeded.add(prefix);
+  for (let i = 0; i < 237; i++) {
+    storageObjects.add(`${prefix}/clip-fill-${String(i).padStart(3, "0")}.mp4`);
+  }
+
+  storageCalls.length = 0;
+  const gone = await call(ALICE, `/api/projects/${id}`, "DELETE");
+  check("a project holding 237 objects deletes", gone.status === 204, `got ${gone.status}`);
+  const leftovers = [...storageObjects].filter((k) => k.startsWith(`${prefix}/`));
+  check(
+    "and not one of its objects survives the sweep",
+    leftovers.length === 0,
+    `${leftovers.length} left, e.g. ${leftovers.slice(0, 3).join(", ")}`,
+  );
+  check(
+    "which took more than one page to do",
+    storageCalls.filter((c) => c.op === "delete").length >= 3,
+    JSON.stringify(storageCalls.map((c) => c.op)),
+  );
+
+  // And a Storage that answers 200 while removing nothing must exhaust the
+  // sweep's patience into a refusal — never into a confirmed deletion. A cap
+  // that gave up quietly with `removed: true` would be the same lie with more
+  // steps.
+  const lie = await call(ALICE, "/api/projects", "POST", { title: "Storage that lies" });
+  const lieId = lie.json?.id;
+  await call(ALICE, `/api/projects/${lieId}`, "PATCH", { videoPath: `${ALICE}/${lieId}/source.mp4` });
+  storageDeleteIsALie = true;
+  const refused = await call(ALICE, `/api/projects/${lieId}`, "DELETE");
+  storageDeleteIsALie = false;
+  check(
+    "a delete that removes nothing is never reported as done",
+    refused.status === 503,
+    `got ${refused.status}`,
+  );
+  const cleanup = await call(ALICE, `/api/projects/${lieId}`, "DELETE");
+  check("and succeeds once storage tells the truth again", cleanup.status === 204, `got ${cleanup.status}`);
 }
 
 console.log("\nA payment cannot be lost, reordered, or applied twice");
