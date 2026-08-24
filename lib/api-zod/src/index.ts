@@ -204,6 +204,15 @@ export const HealthCheckResponse = z.object({
       stockLibrary: z.boolean(),
       /** Merchant of record. Without it the webhook refuses every payment. */
       billing: z.boolean(),
+      /**
+       * Whether anyone is on the operations console's allowlist.
+       *
+       * A boolean, never the ids and never the count: the only question it
+       * answers is whether `ADMIN_USER_IDS` reached this deployment, because a
+       * console that answers 404 to its own owner looks identical whether the
+       * list is missing, empty, or simply does not name them.
+       */
+      admins: z.boolean().default(false),
     })
     .optional(),
   message: z.string().optional(),
