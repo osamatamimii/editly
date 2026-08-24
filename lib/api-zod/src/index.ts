@@ -618,6 +618,8 @@ export const Clip = z.object({
    * title the speaker never said.
    */
   title: z.string().nullable(),
+  /** A frame from the middle of the clip. Null when none could be made. */
+  thumbnailPath: z.string().nullable(),
   createdAt: z.string(),
 });
 export type Clip = z.infer<typeof Clip>;
