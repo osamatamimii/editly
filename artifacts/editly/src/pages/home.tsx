@@ -603,6 +603,7 @@ export default function Home() {
                 // Kept honest by hand: everything on this list works today,
                 // and anything not built yet says so on its own line.
                 "The strongest 30 seconds pulled out of a long take",
+                "A long take cut into separate clips, each titled by its speaker's own words",
                 "Every silence and pause cut automatically",
                 "Captions burned in from what you actually say",
                 "Reframed to 9:16 for TikTok, Reels and Shorts",
