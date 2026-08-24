@@ -17,7 +17,21 @@ export const ProjectStatus = z.enum([
 ]);
 export type ProjectStatus = z.infer<typeof ProjectStatus>;
 
-export const Platform = z.enum(["tiktok", "reels", "shorts"]);
+/**
+ * What the finished frame is shaped for.
+ *
+ * Three of these are platforms and two are shapes, which looks inconsistent
+ * until you notice that is exactly how creators talk: "for TikTok" names a
+ * place, "square" and "16:9" name a picture. The three vertical entries stay
+ * separate because their safe areas differ — Reels reserves a taller caption
+ * sheet than Shorts — while "square" is one shape several feeds share, and
+ * "youtube" is the widescreen every long-form player expects.
+ *
+ * The list existed as vertical-only while the pricing page sold Pro as
+ * "Long-form: YouTube and podcasts". That was a promise the renderer could
+ * not keep.
+ */
+export const Platform = z.enum(["tiktok", "reels", "shorts", "youtube", "square"]);
 export type Platform = z.infer<typeof Platform>;
 
 export const Project = z.object({
@@ -382,8 +396,9 @@ export const FormatForPlatformOperation = z.object({
   type: z.literal("formatForPlatform"),
   platform: Platform,
   /**
-   * Height of the exported frame. The width follows from 9:16, so 1920 is
-   * 1080x1920 and 2160 is 1216x2160.
+   * Height of the exported frame. The width follows from the platform's
+   * shape: 1920 vertical is 1080x1920, 1080 square is 1080x1080, and 1080
+   * widescreen is 1920x1080.
    *
    * Requesting one is not the same as getting it. The plan clamps it — nothing
    * the client sends widens what the tier allows — and the renderer clamps it
