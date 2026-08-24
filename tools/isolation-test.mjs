@@ -150,6 +150,13 @@ process.env.FREEMIUS_PLAN_MAP = "9001:creator,9002:pro,9003:studio";
 process.env.FREEMIUS_PRODUCT_ID = "36845";
 process.env.FREEMIUS_PUBLIC_KEY = "pk_test_public_value";
 process.env.DATABASE_URL ??= "postgresql://postgres:postgres@127.0.0.1:5432/editly_test";
+// The admin console's allowlist. Set before the bundle is required, because
+// `lib/admin.ts` reads it once at import — which is the property under test as
+// much as the routing is: an allowlist that can be re-read mid-process is an
+// allowlist somebody can race. Alice is an admin here and Bob is not, so every
+// check below is the difference between two real signed-in users rather than
+// between a user and nobody.
+process.env.ADMIN_USER_IDS = ALICE;
 
 console.log("Rebuilding the API bundle against the local test issuer...");
 const buildResult = spawnSync(
@@ -1577,6 +1584,108 @@ console.log("\nOne person cannot spend everybody's money");
 
   sql(`DELETE FROM rate_limits`);
   await call(ALICE, `/api/projects/${projectId}`, "DELETE");
+}
+
+// ── The admin console is a door, not a curtain ──────────────────────────────
+console.log("\nThe admin console answers everyone but its allowlist with 404");
+{
+  const PATHS = ["/api/admin/overview", "/api/admin/accounts", "/api/admin/jobs"];
+
+  for (const path of PATHS) {
+    const bob = await call(BOB, path);
+    check(`Bob gets 404 on ${path} — not 403, which would confirm it exists`, bob.status === 404, `got ${bob.status}`);
+  }
+
+  const anon = await fetch(`${BASE}/api/admin/overview`);
+  check("and an anonymous caller is refused before the allowlist is even consulted", anon.status === 401, `got ${anon.status}`);
+
+  const overview = await call(ALICE, "/api/admin/overview");
+  check("the admin is let in", overview.status === 200, `got ${overview.status}`);
+  check(
+    "the queue is reported in the three states that mean different things",
+    typeof overview.json?.queue?.processing === "number" &&
+      typeof overview.json?.queue?.waiting === "number" &&
+      typeof overview.json?.queue?.unattended === "number",
+    JSON.stringify(overview.json?.queue),
+  );
+  check(
+    "the worker's own answer is carried, not inferred from the queue",
+    typeof overview.json?.worker?.online === "boolean",
+    JSON.stringify(overview.json?.worker),
+  );
+  check(
+    "revenue is what the plans actually cost, summed",
+    typeof overview.json?.revenue?.monthlyRecurringUsd === "number" &&
+      Array.isArray(overview.json?.revenue?.byPlan),
+    JSON.stringify(overview.json?.revenue),
+  );
+  check(
+    "and nothing on the overview carries a video, a path or a signed URL",
+    !/\bvideoPath|storagePath|outputPath|signedUrl|https:\/\/[^"]*\/storage\//.test(
+      JSON.stringify(overview.json),
+    ),
+    JSON.stringify(overview.json).slice(0, 200),
+  );
+
+  const accounts = await call(ALICE, "/api/admin/accounts?limit=5");
+  check("the accounts page is served", accounts.status === 200, `got ${accounts.status}`);
+  check(
+    "with a total counted independently of the page — a total derived from a page lies on page two",
+    typeof accounts.json?.total === "number" && accounts.json.total >= (accounts.json?.accounts?.length ?? 0),
+    JSON.stringify({ total: accounts.json?.total, page: accounts.json?.accounts?.length }),
+  );
+
+  const jobs = await call(ALICE, "/api/admin/jobs?limit=5");
+  check("the jobs page is served", jobs.status === 200, `got ${jobs.status}`);
+  check(
+    "every job carries its error verbatim or null — never a reassuring rewrite",
+    (jobs.json?.jobs ?? []).every((job) => job.error === null || typeof job.error === "string"),
+    JSON.stringify((jobs.json?.jobs ?? []).slice(0, 2)),
+  );
+  const failedOnly = await call(ALICE, "/api/admin/jobs?status=failed&limit=5");
+  check(
+    "and filtering by status returns only that status",
+    failedOnly.status === 200 && (failedOnly.json?.jobs ?? []).every((job) => job.status === "failed"),
+    JSON.stringify((failedOnly.json?.jobs ?? []).map((j) => j.status)),
+  );
+
+  // The allowlist itself, on its own. The unset case is the one that matters:
+  // it must mean *nobody*, never everybody and never the first user, because
+  // that failure is silent and looks fine everywhere except production.
+  const { mkdtemp: mkd } = await import("node:fs/promises");
+  const { tmpdir: tmp } = await import("node:os");
+  const nodePath = await import("node:path");
+  const adminDir = await mkd(nodePath.join(tmp(), "editly-admin-"));
+
+  const bundleAdmin = (outfile) =>
+    spawnSync(
+      require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+      [
+        "artifacts/api-server/src/lib/admin.ts",
+        "--bundle", "--platform=node", "--format=esm", "--target=node22",
+        `--outfile=${outfile}`, "--log-level=error",
+      ],
+      { stdio: "inherit" },
+    );
+
+  const withList = nodePath.join(adminDir, "admin-with-list.mjs");
+  const withoutList = nodePath.join(adminDir, "admin-without-list.mjs");
+  check("the allowlist bundles on its own", bundleAdmin(withList).status === 0 && bundleAdmin(withoutList).status === 0);
+
+  process.env.ADMIN_USER_IDS = `${ALICE}, ${BOB.toUpperCase()}`;
+  const listed = await import(pathToFileURL(withList).href);
+  check("an id on the list is an admin", listed.isAdmin(ALICE) === true);
+  check("and matching is case-insensitive, because ids get pasted", listed.isAdmin(BOB) === true);
+  check("anyone else is not", listed.isAdmin("33333333-3333-4333-8333-333333333333") === false);
+  check("neither is nobody", listed.isAdmin(null) === false && listed.isAdmin("") === false);
+  check("and the count is reported without the ids", listed.adminCount() === 2);
+
+  delete process.env.ADMIN_USER_IDS;
+  const unset = await import(pathToFileURL(withoutList).href);
+  check("with no list configured, nobody is an admin", unset.isAdmin(ALICE) === false);
+  check("not the first user either", unset.isAdmin(BOB) === false);
+  check("and the count says so", unset.adminCount() === 0);
+  process.env.ADMIN_USER_IDS = ALICE;
 }
 
 // Leave the database as we found it.

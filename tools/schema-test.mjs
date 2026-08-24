@@ -569,6 +569,47 @@ section("The rules the schema itself enforces");
     JSON.stringify(tables.find((t) => t.name === "schema_migrations")),
   );
 
+  // Every SECURITY DEFINER function in `public` runs with its *owner's* rights,
+  // which is the whole reason it exists — and the reason a mistake with one is
+  // worse than a mistake with a table. Supabase hands EXECUTE on every new
+  // public function to the PostgREST roles through ALTER DEFAULT PRIVILEGES,
+  // and that grant is independent of PUBLIC: revoking from PUBLIC alone leaves
+  // the function callable by anyone holding the anon key over /rest/v1/rpc.
+  // A definer function reachable that way is not a narrow door, it is a hole
+  // with the door's name on it.
+  const definers = await pool2(scratchUrl, async (p) =>
+    (
+      await p.query(`
+        SELECT p.proname AS name,
+               p.proconfig AS config,
+               coalesce(array_to_string(p.proacl, ','), '') AS acl
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public' AND p.prosecdef
+         ORDER BY p.proname`)
+    ).rows,
+  );
+
+  check("there are definer functions to check at all", definers.length >= 1, JSON.stringify(definers.map((d) => d.name)));
+
+  const exposed = definers.filter((d) => /(^|,)(anon|authenticated)=/.test(d.acl)).map((d) => d.name);
+  check(
+    "no SECURITY DEFINER function is executable by the roles the anon key reaches",
+    exposed.length === 0,
+    exposed.join(", "),
+  );
+
+  // A definer function with a mutable search_path can be hijacked by an object
+  // created earlier on the path — the classic escalation, and free to prevent.
+  const mutable = definers
+    .filter((d) => !(d.config ?? []).some((entry) => /^search_path=/.test(entry)))
+    .map((d) => d.name);
+  check(
+    "and every one of them pins its search_path",
+    mutable.length === 0,
+    mutable.join(", "),
+  );
+
   await pool.end();
 }
 

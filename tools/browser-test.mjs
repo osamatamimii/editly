@@ -915,6 +915,45 @@ section("An empty account and a broken one are different sentences");
   check("and that it is our fault, not something they did", /on our side/i.test(copy), copy);
 }
 
+section("The operations console stays an operations console");
+{
+  // A source check, and a boundary rather than a bug. The console exists to
+  // answer "is the platform healthy" and "why did that render fail", and both
+  // are metadata questions. The moment it can play somebody's footage it stops
+  // being a tool for running the product and becomes a way to watch the people
+  // using it — and that change would arrive as one innocent-looking line.
+  const { readFileSync } = await import("node:fs");
+  const admin = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/admin.tsx"), "utf8");
+
+  check(
+    "it never renders a player",
+    !/<video|<audio|signedVideoUrl|createSignedUrl/.test(admin),
+    "a player appeared on the admin page",
+  );
+  check(
+    "and never links into anyone's storage",
+    !/storage\/v1|videoPath|storagePath|outputPath/.test(admin),
+    "a storage path appeared on the admin page",
+  );
+  check(
+    "it writes nothing: no mutation hook, no non-GET call",
+    !/useMutation|useCreate|useUpdate|useDelete|method:\s*"(POST|PATCH|PUT|DELETE)"/.test(admin),
+    "the read-only console grew a write",
+  );
+  check(
+    "and it decides nothing about who may see it — the server does",
+    !/isAdmin|ADMIN_USER_IDS|allowlist\s*=/.test(admin),
+    "a client-side admin check appeared, which is a curtain and not a door",
+  );
+
+  const dashboard = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/dashboard.tsx"), "utf8");
+  check(
+    "the link to it is shown only because the server answered, not because the client decided",
+    /useGetAdminOverview/.test(dashboard) && /adminQuery\.isSuccess/.test(dashboard),
+    "the operations link is gated on something other than the server's answer",
+  );
+}
+
 section("No screen can render an empty state without handling a failed one");
 {
   // A source check, deliberately. What went wrong was not a bug in a function —
