@@ -213,6 +213,39 @@ export async function deleteObjects(
 }
 
 /**
+ * Duplicates one object inside the bucket.
+ *
+ * Used when a clip is opened as its own project. The alternative — pointing
+ * the new project's row at the clip's existing key — would make two rows own
+ * one set of bytes, and the first deletion of either would break the other.
+ * Storage-level copy keeps the invariant this whole codebase leans on: every
+ * object lives under exactly one "<userId>/<projectId>/" prefix, so deleting
+ * a project still means deleting its bytes and nobody else's.
+ *
+ * Returns whether it worked rather than throwing, so the caller can undo the
+ * row it made instead of leaving a project pointing at a file that is not
+ * there.
+ */
+export async function copyObject(
+  sourceKey: string,
+  destinationKey: string,
+): Promise<{ copied: boolean; reason?: "not-configured" | "failed" }> {
+  if (!storageAdminConfigured) return { copied: false, reason: "not-configured" };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/copy`, {
+      method: "POST",
+      headers: adminHeaders(),
+      body: JSON.stringify({ bucketId: VIDEOS_BUCKET, sourceKey, destinationKey }),
+    });
+    if (!res.ok) throw new Error(`copy failed: ${res.status} ${await res.text()}`);
+    return { copied: true };
+  } catch (error) {
+    logger.error({ err: error, sourceKey, destinationKey }, "could not copy object");
+    return { copied: false, reason: "failed" };
+  }
+}
+
+/**
  * Removes the login itself.
  *
  * The one operation in this file that is not about bytes, and the one that
