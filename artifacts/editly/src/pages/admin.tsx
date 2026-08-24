@@ -4,10 +4,16 @@ import {
   useGetAdminOverview,
   useListAdminAccounts,
   useListAdminJobs,
+  useListAdminActions,
+  useRequeueJob,
+  useGrantMinutes,
+  useSetSuspended,
   getGetAdminOverviewQueryKey,
   getListAdminAccountsQueryKey,
   getListAdminJobsQueryKey,
+  getListAdminActionsQueryKey,
 } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, ArrowLeft, Search } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import { loadState, isNotFound, COULD_NOT_LOAD } from "@/lib/load-state";
@@ -37,13 +43,34 @@ export default function AdminPage() {
   const overview = useGetAdminOverview({
     query: { queryKey: getGetAdminOverviewQueryKey(), retry: false, refetchInterval: 30_000 },
   });
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  /**
+   * Nothing is done without a reason typed here first.
+   *
+   * The buttons are disabled until it is filled in, and it is cleared after
+   * every action — so the reason belongs to the thing that was just done and
+   * cannot be inherited by the next one, which is how audit logs fill up with
+   * one plausible sentence repeated forty times.
+   */
+  const [reason, setReason] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
   const [jobFilter, setJobFilter] = useState<string>("");
   const accounts = useListAdminAccounts(
     { q: search || undefined, limit: 50 },
     {
       query: {
         queryKey: getListAdminAccountsQueryKey({ q: search || undefined, limit: 50 }),
+        retry: false,
+        enabled: overview.isSuccess,
+      },
+    },
+  );
+  const actions = useListAdminActions(
+    { limit: 25 },
+    {
+      query: {
+        queryKey: getListAdminActionsQueryKey({ limit: 25 }),
         retry: false,
         enabled: overview.isSuccess,
       },
@@ -62,6 +89,23 @@ export default function AdminPage() {
   );
 
   const overviewState = loadState(overview);
+
+  const refreshEverything = () => {
+    setReason("");
+    setActionError(null);
+    void queryClient.invalidateQueries({ queryKey: getGetAdminOverviewQueryKey() });
+    void queryClient.invalidateQueries({ queryKey: [`/api/admin/accounts`] });
+    void queryClient.invalidateQueries({ queryKey: [`/api/admin/jobs`] });
+    void queryClient.invalidateQueries({ queryKey: [`/api/admin/actions`] });
+  };
+  const onFailure = (error: unknown) => {
+    const message = (error as { message?: string } | undefined)?.message;
+    setActionError(message && message.length < 300 ? message : "That did not work.");
+  };
+  const requeue = useRequeueJob({ mutation: { onSuccess: refreshEverything, onError: onFailure } });
+  const grant = useGrantMinutes({ mutation: { onSuccess: refreshEverything, onError: onFailure } });
+  const suspend = useSetSuspended({ mutation: { onSuccess: refreshEverything, onError: onFailure } });
+  const canAct = reason.trim().length >= 6;
 
   if (overviewState === "loading") {
     return (
@@ -100,6 +144,7 @@ export default function AdminPage() {
   // particular the second is the one worth waking up for.
   const accountsState = loadState(accounts, (page) => page.accounts.length === 0);
   const jobsState = loadState(jobs, (page) => page.jobs.length === 0);
+  const actionsState = loadState(actions, (page) => page.actions.length === 0);
   const seenAgo = worker.lastSeenAt
     ? Math.round((Date.now() - new Date(worker.lastSeenAt).getTime()) / 1000)
     : null;
@@ -122,6 +167,34 @@ export default function AdminPage() {
             </p>
           </div>
         </div>
+
+        {/*
+          The reason, before the act.
+
+          It sits above the buttons rather than inside a dialog because that is
+          the honest order: you decide why first. Every button below is dead
+          until it holds six characters, and it empties itself after each
+          action so the next one cannot inherit it — which is how audit logs end
+          up with one plausible sentence repeated forty times.
+        */}
+        <section className="rounded-xl border border-border bg-card p-4 space-y-2">
+          <label className="text-sm font-medium" htmlFor="admin-reason">
+            Reason — required before anything below can be done
+          </label>
+          <input
+            id="admin-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Why are you doing this? It goes in the log with your name."
+            data-testid="admin-reason"
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+          />
+          {actionError ? (
+            <p className="text-sm text-destructive" data-testid="admin-action-error">
+              {actionError}
+            </p>
+          ) : null}
+        </section>
 
         {/* ── Health ───────────────────────────────────────────────────── */}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="admin-health">
@@ -215,7 +288,7 @@ export default function AdminPage() {
             <Problem>{COULD_NOT_LOAD}</Problem>
           ) : (
             <Table
-              head={["Email", "Plan", "Minutes", "Projects", "Joined", "Last seen"]}
+              head={["Email", "Plan", "Minutes", "Projects", "Joined", "Last seen", ""]}
               rows={(accounts.data?.accounts ?? []).map((account) => [
                 account.email ?? account.userId,
                 account.plan,
@@ -223,6 +296,32 @@ export default function AdminPage() {
                 String(account.projectCount),
                 new Date(account.createdAt).toLocaleDateString(),
                 account.lastSignInAt ? new Date(account.lastSignInAt).toLocaleDateString() : "never",
+                <span key="act" className="flex gap-2 whitespace-nowrap">
+                  <RowButton
+                    disabled={!canAct || grant.isPending}
+                    onClick={() =>
+                      grant.mutate({
+                        userId: account.userId,
+                        data: { minutes: 30, reason: reason.trim() },
+                      })
+                    }
+                    testId={`admin-grant-${account.userId}`}
+                  >
+                    +30 min
+                  </RowButton>
+                  <RowButton
+                    disabled={!canAct || suspend.isPending}
+                    onClick={() =>
+                      suspend.mutate({
+                        userId: account.userId,
+                        data: { suspended: true, reason: reason.trim() },
+                      })
+                    }
+                    testId={`admin-suspend-${account.userId}`}
+                  >
+                    Suspend
+                  </RowButton>
+                </span>,
               ])}
               empty={accountsState === "loading" ? "Loading…" : "Nobody yet."}
             />
@@ -254,7 +353,7 @@ export default function AdminPage() {
             <Problem>{COULD_NOT_LOAD}</Problem>
           ) : (
             <Table
-              head={["Status", "Project", "Billed", "Created", "Finished", "Error"]}
+              head={["Status", "Project", "Billed", "Created", "Finished", "Error", ""]}
               rows={(jobs.data?.jobs ?? []).map((job) => [
                 job.unattended ? `${job.status} · unattended` : job.status,
                 job.projectId.slice(0, 8),
@@ -264,13 +363,74 @@ export default function AdminPage() {
                 // Verbatim, and not truncated to something tidy: the whole
                 // value of this column is that it says what actually happened.
                 job.error ?? "—",
+                // A finished render has no requeue button at all: doing it
+                // would bill the customer twice, and the server refuses it, so
+                // offering it here would only be a button that says no.
+                job.status === "done" ? (
+                  <span key="none" className="text-muted-foreground">—</span>
+                ) : (
+                  <RowButton
+                    key="requeue"
+                    disabled={!canAct || requeue.isPending}
+                    onClick={() => requeue.mutate({ jobId: job.id, data: { reason: reason.trim() } })}
+                    testId={`admin-requeue-${job.id}`}
+                  >
+                    Requeue
+                  </RowButton>
+                ),
               ])}
               empty={jobsState === "loading" ? "Loading…" : "No renders yet."}
             />
           )}
         </section>
+        {/* ── The log ──────────────────────────────────────────────────── */}
+        <section>
+          <h2 className="text-xl font-semibold mb-1">What has been done here</h2>
+          <p className="text-sm text-muted-foreground mb-3">
+            Every action above writes a row. Nothing removes one.
+          </p>
+          {actionsState === "failed" ? (
+            <Problem>{COULD_NOT_LOAD}</Problem>
+          ) : (
+            <Table
+              head={["When", "Action", "Subject", "Reason", "Detail"]}
+              rows={(actions.data?.actions ?? []).map((entry) => [
+                new Date(entry.createdAt).toLocaleString(),
+                entry.action,
+                entry.subjectUserId ?? entry.subjectJobId ?? "—",
+                entry.reason,
+                entry.detail ? JSON.stringify(entry.detail) : "—",
+              ])}
+              empty={actionsState === "loading" ? "Loading…" : "Nothing has been done here yet."}
+            />
+          )}
+        </section>
       </div>
     </div>
+  );
+}
+
+function RowButton({
+  children,
+  onClick,
+  disabled,
+  testId,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled: boolean;
+  testId: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      data-testid={testId}
+      title={disabled ? "Type a reason first" : undefined}
+      className="px-2.5 py-1 rounded-md border border-border text-xs hover:border-primary/60 hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -304,7 +464,7 @@ function Table({
   empty,
 }: {
   head: string[];
-  rows: string[][];
+  rows: React.ReactNode[][];
   empty: string;
 }) {
   if (rows.length === 0) {
