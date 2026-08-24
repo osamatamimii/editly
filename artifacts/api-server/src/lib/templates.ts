@@ -141,6 +141,33 @@ export const TEMPLATES: Template[] = [
       ),
   },
   {
+    id: "three-clips",
+    name: "Three clips",
+    description: "Cuts the take into three posts, each captioned and titled by what is said in it.",
+    bestFor: "One long recording, a week of posting",
+    build: (context) =>
+      withWatermark(
+        [
+          // The one look that produces several files. Thirty seconds each
+          // because that is what these platforms reward, and three because
+          // a long take rarely holds more than three moments worth posting
+          // — the worker returns fewer rather than padding to a number.
+          { type: "extractClips", count: 3, targetSeconds: 30 },
+          { type: "removeSilence", thresholdDb: -34, minSilenceMs: 700, paddingMs: 120 },
+          { type: "formatForPlatform", platform: context.platform },
+          // Same reasoning as the highlight: a clip made to be posted is a
+          // clip read with the sound off.
+          { type: "autoCaptions", style: "bold-white", animation: "pop", dropFillers: true },
+          { type: "normalizeLoudness", targetLufs: -14 },
+          // Half a second at each end. A piece cut out of the middle of a
+          // recording starts and stops mid-room; the fade is what makes it
+          // read as a post rather than as an excerpt.
+          { type: "fade", durationMs: 500 },
+        ],
+        context,
+      ),
+  },
+  {
     id: "podcast-clip",
     name: "Podcast clip",
     description: "Keeps the natural rhythm, adds a gentle push and even levels.",
