@@ -38,6 +38,32 @@ export async function startRenderForProject(
   requestedOperations: EditOperation[],
   log?: { info: (obj: unknown, msg: string) => void },
 ): Promise<StartRenderOutcome> {
+  // Read before anything else is judged, because suspension is the more
+  // fundamental fact about this request than anything about the project. An
+  // account that has been stopped and is told "upload a video first" will
+  // upload a video, and be stopped anyway — which is a worse experience than
+  // being told the truth immediately, and a worse log for us to read later.
+  const [sub] = await db
+    .select()
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, userId))
+    .limit(1);
+
+  // 403 rather than 402: this is not about running out of minutes, and
+  // offering more would be a lie. The message says what happened and that
+  // nothing was deleted, because that is the first thing anybody seeing it
+  // will fear.
+  if (sub?.suspendedAt) {
+    return {
+      ok: false,
+      status: 403,
+      body: {
+        error:
+          "This account is suspended, so new renders cannot start. Nothing has been deleted — your projects and videos are all still here.",
+      },
+    };
+  }
+
   if (!project.videoPath) {
     return { ok: false, status: 409, body: { error: "Upload a video before rendering." } };
   }
@@ -66,12 +92,6 @@ export async function startRenderForProject(
 
   // Everything above this line is what the caller *asked for*. Everything
   // below is what the plan they pay for actually allows.
-  const [sub] = await db
-    .select()
-    .from(subscriptionsTable)
-    .where(eq(subscriptionsTable.userId, userId))
-    .limit(1);
-
   const planKey = planKeyFrom(sub?.plan);
   const decision = decideRender({
     plan: planKey,

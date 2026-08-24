@@ -11,12 +11,22 @@
  * that died on our side is our problem, not the customer's balance.
  */
 import { and, eq, gte, sql } from "drizzle-orm";
-import { db, jobsTable } from "@workspace/db";
+import { db, jobsTable, adminActionsTable } from "@workspace/db";
 import { exhaustedMessage as messageFor, minutesFrom, PLAN_LIMITS, type PlanKey } from "./plan-limits";
 
 export interface Usage {
   minutesUsed: number;
+  /**
+   * The plan's minutes plus anything granted by hand this month.
+   *
+   * One number rather than two, because every reader of this — the render
+   * gate, the subscription route, the interface — asks the same question:
+   * how much may this person render. A grant that only some of them knew
+   * about would let the console promise minutes the gate then refuses.
+   */
   minutesIncluded: number;
+  /** Of `minutesIncluded`, how much was granted by hand rather than paid for. */
+  minutesGranted: number;
   minutesRemaining: number;
   /** True when the next render would exceed the allowance. */
   exhausted: boolean;
@@ -47,12 +57,31 @@ export async function usageFor(userId: string, plan: PlanKey): Promise<Usage> {
       ),
     );
 
-  const minutesIncluded = PLAN_LIMITS[plan].minutesPerMonth;
+  // Minutes handed out by hand this month, read from the audit log — which is
+  // where the grant lives, not merely where it is described. The console has
+  // no other way to grant one, so a grant that reaches the meter is a grant
+  // somebody signed their name to.
+  const [granted] = await db
+    .select({
+      seconds: sql<number>`coalesce(sum((${adminActionsTable.detail} ->> 'seconds')::numeric), 0)`,
+    })
+    .from(adminActionsTable)
+    .where(
+      and(
+        eq(adminActionsTable.action, "grant_minutes"),
+        eq(adminActionsTable.subjectUserId, userId),
+        gte(adminActionsTable.createdAt, startOfMonthUtc()),
+      ),
+    );
+
+  const minutesGranted = minutesFrom(Number(granted?.seconds ?? 0));
+  const minutesIncluded = PLAN_LIMITS[plan].minutesPerMonth + minutesGranted;
   const minutesUsed = minutesFrom(Number(row?.seconds ?? 0));
 
   return {
     minutesUsed,
     minutesIncluded,
+    minutesGranted,
     minutesRemaining: Math.max(0, minutesIncluded - minutesUsed),
     exhausted: minutesUsed >= minutesIncluded,
   };
