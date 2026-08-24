@@ -85,6 +85,7 @@ function buildSchema(assets: PlannerAsset[]) {
     "extractHighlight",
     "extractRange",
     "extractClips",
+    "fade",
     "formatForPlatform",
     "autoCaptions",
     "kenBurns",
@@ -200,6 +201,9 @@ function instructionFor(assets: PlannerAsset[]): string {
     "for N clips, to split it into shorts, or for pieces to post separately. clipCount is how many (2-6),",
     "targetSeconds how long each should be. The worker chooses where each clip lives, from the speech.",
     "One clip of the best material is extractHighlight, not extractClips with clipCount 1.",
+    "fade opens the video from black and closes it to black — choose it when they ask for a fade, a fade in or",
+    "out, or a soft opening or ending. durationSeconds is how long each fade runs (0.1-2, default 0.5). It never",
+    "goes between cuts, only at the ends.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
     "motionTitle animates words onto the screen. Use the person's own words — never write copy they did not ask for.",
   ];
@@ -380,6 +384,13 @@ function toOperation(
         const end = Math.max(a, b) > start ? Math.max(a, b) : start + 30;
         return { type, startSeconds: Math.min(start, 86400), endSeconds: Math.min(end, 86400) };
       }
+      case "fade":
+        // Seconds from the model, milliseconds in the contract; clamped rather
+        // than rejected, like every other numeric the model hands us.
+        return {
+          type,
+          durationMs: Math.min(2000, Math.max(100, Math.round(numberOr(raw["durationSeconds"], 0.5) * 1000))),
+        };
       case "formatForPlatform":
         return { type, platform: raw["platform"] ?? defaultPlatform ?? "tiktok" };
       case "autoCaptions":
@@ -479,6 +490,7 @@ function describeAll(operations: EditOperation[]): string[] {
       case "extractHighlight": return `pull the strongest ${Math.round(op.targetSeconds)} seconds into its own cut`;
       case "extractRange": return `cut it down to ${clock(op.startSeconds)}\u2013${clock(op.endSeconds)}, the stretch you named`;
       case "extractClips": return `cut it into ${op.count} separate clips of about ${Math.round(op.targetSeconds)} seconds each`;
+      case "fade": return `open it from black and close it to black over ${(op.durationMs / 1000).toFixed(1)}s`;
       case "formatForPlatform": return `reframe it to 9:16 for ${op.platform}`;
       case "autoCaptions": return "caption it from what is actually said";
       case "kenBurns": return "add a slow push so the frame is not static";

@@ -180,6 +180,9 @@ export function parseClips(text: string): { count: number; targetSeconds: number
 const PUNCH_WORDS = /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b/i;
 const PUSH_WORDS = /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b/i;
 const LOUDNESS_WORDS = /\bloud|volume|quiet|audio level|sound level|normali[sz]/i;
+// "fade" alone is enough — every reading of it in an edit request means the
+// ends ("fade it in", "fade to black", "soft ending"). Arabic: تلاشي/تلاشى.
+const FADE_WORDS = /\bfade|fade[- ]?(?:in|out)|to black|soft (?:opening|ending|start|end)|تلاشي|تلاشى/i;
 
 export function planFromText(
   text: string,
@@ -258,6 +261,11 @@ export function planFromText(
   if (LOUDNESS_WORDS.test(text)) {
     operations.push({ type: "normalizeLoudness", targetLufs: -14 });
     willDo.push("level the audio to what these platforms expect");
+  }
+
+  if (FADE_WORDS.test(text)) {
+    operations.push({ type: "fade", durationMs: 500 });
+    willDo.push("open it from black and close it to black");
   }
 
   // ── The project's own files ────────────────────────────────────────────────
