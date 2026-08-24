@@ -66,7 +66,6 @@ const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
     patterns: /\bcolou?r|grade|cinematic|filter\b/i,
     label: "grade the colour on its own — but upload a video whose look you want and I will match it",
   },
-  { patterns: /\bhook|first (two|2|three|3) seconds\b/i, label: "build a hook from the opening" },
   {
     // "fade" is deliberately absent: the fade is built. What is still missing
     // is the join between two cuts — a crossfade, a wipe, a slide.
@@ -221,6 +220,11 @@ const PUSH_WORDS = /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic mov
 const LOUDNESS_WORDS = /\bloud|volume|quiet|audio level|sound level|normali[sz]/i;
 // "fade" alone is enough — every reading of it in an edit request means the
 // ends ("fade it in", "fade to black", "soft ending"). Arabic: تلاشي/تلاشى.
+// A hook is the one edit everyone names the same way. "Cold open" is the film
+// term; "start with the best bit" is what people actually type.
+const HOOK_WORDS =
+  /\bhook\b|\bcold open\b|start (?:it )?with the (?:best|strongest)|open (?:it )?(?:on|with) the (?:best|strongest)|\bهوك\b|ابدأ بالأقوى|ابدأ بأقوى/i;
+
 const FADE_WORDS = /\bfade|fade[- ]?(?:in|out)|to black|soft (?:opening|ending|start|end)|تلاشي|تلاشى/i;
 
 export function planFromText(
@@ -306,6 +310,11 @@ export function planFromText(
   // is a transition and it is built, so the ask now produces it — and the
   // narrower "between the cuts" entry above still says what is missing, so
   // nobody is told they got something they did not.
+  if (HOOK_WORDS.test(text)) {
+    operations.push({ type: "coldOpen", seconds: 4 });
+    willDo.push("open on the strongest moment, then play the rest from the top");
+  }
+
   if (FADE_WORDS.test(text) || /\btransitions?\b|\bانتقال|انتقالات/i.test(text)) {
     operations.push({ type: "fade", durationMs: 500 });
     willDo.push("open it from black and close it to black");
