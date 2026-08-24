@@ -628,6 +628,15 @@ export const ListClipsResponse = z.array(Clip);
 export const DeleteClipParams = z.object({ id: z.string().min(1), clipId: z.string().min(1) });
 
 /**
+ * Opening a clip as its own project: same identifiers as deleting one, and
+ * deliberately no body. Everything the new project needs — its length, its
+ * frame, the words it opens with — is already known from the clip and the
+ * project it came from, and a body would only be a chance for the browser to
+ * disagree with the row.
+ */
+export const PromoteClipParams = DeleteClipParams;
+
+/**
  * Type that arrives with weight.
  *
  * Rendered in a browser rather than by a filter, because a spring — overshoot
