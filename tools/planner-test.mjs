@@ -605,6 +605,51 @@ console.log("\nAsking for a fade is a plan for the ends");
   check("a nine-second fade from the model becomes the two-second cap", mFade?.durationMs === 2000, JSON.stringify(clamped.operations));
 }
 
+// Three shapes now: the vertical feeds, YouTube's widescreen, and the square
+// several feeds share. The pricing page sold "Long-form: YouTube" long before
+// the renderer could make anything but 9:16.
+console.log("\nThe frame follows the platform that was named");
+{
+  const planner = createPlanner({ apiKey: "" });
+
+  const yt = await planner.plan("make this landscape for youtube", {});
+  const ytOp = yt.operations.find((o) => o.type === "formatForPlatform");
+  check("'for youtube' is widescreen, not shorts", ytOp?.platform === "youtube", JSON.stringify(ytOp));
+  check("and the reply says 16:9, not 9:16", /16:9/.test(yt.willDo.join(" ")), JSON.stringify(yt.willDo));
+
+  const shorts = await planner.plan("cut this up for youtube shorts", {});
+  const shortsOp = shorts.operations.find((o) => o.type === "formatForPlatform");
+  check("'youtube shorts' is still vertical", shortsOp?.platform === "shorts", JSON.stringify(shortsOp));
+
+  const square = await planner.plan("make it square for the feed", {});
+  const squareOp = square.operations.find((o) => o.type === "formatForPlatform");
+  check("'square' is its own shape", squareOp?.platform === "square", JSON.stringify(squareOp));
+  check("and the reply says 1:1", /1:1/.test(square.willDo.join(" ")), JSON.stringify(square.willDo));
+
+  const insta = await planner.plan("for instagram please", {});
+  check(
+    "instagram on its own is still a reel",
+    insta.operations.find((o) => o.type === "formatForPlatform")?.platform === "reels",
+    JSON.stringify(insta.operations),
+  );
+
+  const tik = await planner.plan("vertical for tiktok", {});
+  check(
+    "and nothing about the vertical feeds changed",
+    tik.operations.find((o) => o.type === "formatForPlatform")?.platform === "tiktok",
+    JSON.stringify(tik.operations),
+  );
+
+  // The model path: the widened enum reaches it too.
+  const modelled = createPlanner({ apiKey: "k", fetchImpl: answering([{ type: "formatForPlatform", platform: "youtube" }]) });
+  const fromModel = await modelled.plan("put it on youtube", {});
+  check(
+    "the model may choose widescreen as well",
+    fromModel.operations.find((o) => o.type === "formatForPlatform")?.platform === "youtube",
+    JSON.stringify(fromModel.operations),
+  );
+}
+
 console.log("\nAsking for what the project does not have");
 {
   const planner = createPlanner({ apiKey: "" });

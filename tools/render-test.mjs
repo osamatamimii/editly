@@ -44,7 +44,7 @@ if (esbuild.status !== 0) {
   process.exit(1);
 }
 
-const { renderPlan, probeSource, keepSegmentsFrom, remapTime, zoomExpression, writeSubtitleFile, frameFor, chooseHighlight, chooseClips } =
+const { renderPlan, probeSource, keepSegmentsFrom, remapTime, zoomExpression, writeSubtitleFile, frameFor, shapeFor, defaultHeightFor, chooseHighlight, chooseClips } =
   await import(pathToFileURL(modulePath).href);
 
 // The reference command below has to crop where the pipeline crops, or it
@@ -187,6 +187,26 @@ console.log("\nFrame arithmetic");
     check(`${h}p exports even dimensions`, f.w % 2 === 0 && f.h % 2 === 0, JSON.stringify(f));
   }
   check("taller asks give taller frames", frameFor(2160).h > frameFor(1920).h);
+
+  // Three shapes now, because the pricing page sells "Long-form: YouTube" and
+  // a renderer that only makes 9:16 could not keep that promise.
+  check("square is square", JSON.stringify(frameFor(1080, "square")) === JSON.stringify({ w: 1080, h: 1080 }), JSON.stringify(frameFor(1080, "square")));
+  check(
+    "widescreen is 16:9, the long edge across",
+    JSON.stringify(frameFor(1080, "widescreen")) === JSON.stringify({ w: 1920, h: 1080 }),
+    JSON.stringify(frameFor(1080, "widescreen")),
+  );
+  for (const shape of ["vertical", "square", "widescreen"]) {
+    const f = frameFor(1080, shape);
+    check(`${shape} exports even dimensions`, f.w % 2 === 0 && f.h % 2 === 0, JSON.stringify(f));
+  }
+  check("the three vertical feeds are vertical", ["tiktok", "reels", "shorts"].every((p) => shapeFor(p) === "vertical"));
+  check("youtube is widescreen", shapeFor("youtube") === "widescreen");
+  check("square is its own shape", shapeFor("square") === "square");
+  check("an unknown or absent platform stays vertical, as it always was", shapeFor(null) === "vertical" && shapeFor("mystery") === "vertical");
+  // 1920 tall is right for a vertical frame and absurd for a widescreen one
+  // (it would be 3413 across), so the default follows the shape.
+  check("the default height follows the shape", defaultHeightFor("vertical") === 1920 && defaultHeightFor("widescreen") === 1080 && defaultHeightFor("square") === 1080);
 }
 
 console.log("\nZoom expressions");
@@ -832,6 +852,43 @@ console.log("\nThe stretch they name is kept exactly, with honest clamping");
     both.notes.some((n) => /the stretch you named won/.test(n)),
     JSON.stringify(both.notes),
   );
+}
+
+console.log("\nThe frame is shaped by the platform, and measured");
+{
+  // Rendered, not calculated: the source is 640x360 landscape, and each of
+  // these asks it for a different shape.
+  const square = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "formatForPlatform", platform: "square" }] },
+    { workDir: await scratch() },
+  );
+  const [sw, sh] = ffprobe(square.output, "stream=width,height", ["-select_streams", "v:0"]).map(Number);
+  check("a square ask really comes out square", sw === sh && sw > 0, `${sw}x${sh}`);
+  check(
+    "and the note names the frame it made",
+    square.notes.some((n) => new RegExp(`reframed to ${sw}x${sh} for square`).test(n)),
+    JSON.stringify(square.notes),
+  );
+
+  const wide = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "formatForPlatform", platform: "youtube" }] },
+    { workDir: await scratch() },
+  );
+  const [ww, wh] = ffprobe(wide.output, "stream=width,height", ["-select_streams", "v:0"]).map(Number);
+  check("a YouTube ask comes out widescreen", Math.abs(ww / wh - 16 / 9) < 0.02, `${ww}x${wh}`);
+  // The honest-upscale cap applies per shape: a 640x360 source cannot fill
+  // 1920x1080, so it is exported smaller and says so.
+  check("and is not upscaled past what the source can carry", wh <= 1080, `${ww}x${wh}`);
+
+  const vertical = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "formatForPlatform", platform: "tiktok" }] },
+    { workDir: await scratch() },
+  );
+  const [vw, vh] = ffprobe(vertical.output, "stream=width,height", ["-select_streams", "v:0"]).map(Number);
+  check("and the vertical feeds are unchanged by any of this", Math.abs(vw / vh - 9 / 16) < 0.02, `${vw}x${vh}`);
 }
 
 console.log("\nThe fade opens from black, closes to black, and touches no clock");
