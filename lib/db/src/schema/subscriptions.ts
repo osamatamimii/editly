@@ -28,6 +28,16 @@ export const subscriptionsTable = pgTable("subscriptions", {
    * unknown never causes an event to be ignored: the comparison only rejects an
    * event when both sides are known and the incoming one is genuinely older.
    */
+  /**
+   * Set when the console suspends the account: no new renders, nothing
+   * deleted.
+   *
+   * A suspended account keeps every byte, every project and every clip, and
+   * can still sign in and look at them. The only thing it cannot do is start
+   * work that costs us money. Deleting somebody's footage is not a moderation
+   * action, it is destruction of their property.
+   */
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   licenseId: text("license_id"),
   planSourceAt: timestamp("plan_source_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
