@@ -72,7 +72,7 @@ router.post("/projects/:id/render", rateLimit(LIMITS.render), async (req, res): 
       return;
     }
     requested = template.build({
-      platform: (project.platform ?? "tiktok") as "tiktok" | "reels" | "shorts",
+      platform: (project.platform ?? "tiktok") as "tiktok" | "reels" | "shorts" | "youtube" | "square",
       // Templates place their punches proportionally. When nothing has measured
       // this file, they are told so rather than told "30 seconds".
       durationSeconds: project.duration ?? null,
