@@ -243,6 +243,14 @@ sweepSeededJobs();
  * checks are written as deltas so they survive that, and this sweeps anyway so
  * the database does not accumulate a test's leavings forever.
  */
+function sweepSeededUsers() {
+  spawnSync(
+    "psql",
+    [process.env.DATABASE_URL, "-c", `delete from auth.users where id in ('${ALICE}','${BOB}')`],
+    { encoding: "utf8" },
+  );
+}
+
 function sweepSeededGrants() {
   spawnSync(
     "psql",
@@ -255,6 +263,7 @@ function sweepSeededGrants() {
   );
 }
 sweepSeededGrants();
+sweepSeededUsers();
 
 async function call(user, path, method = "GET", body) {
   const res = await fetch(BASE + path, {
@@ -1668,12 +1677,52 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
     JSON.stringify(overview.json).slice(0, 200),
   );
 
+  // Seeded first, and that is the point of this check rather than a detail of
+  // it. The accounts list reads `auth.users` through a definer function, and
+  // the first version of the route read the driver's result object as if it
+  // were the row array — which does not throw, it yields nothing. Against an
+  // empty stand-in table that is indistinguishable from working, and it
+  // shipped: the console showed "Nobody yet." beside a card counting one
+  // account. An empty fixture cannot tell an empty answer from a broken one.
+  psqlGlobal(
+    `insert into auth.users (id, email) values ('${ALICE}', 'alice@example.com') on conflict (id) do nothing`,
+  );
+
   const accounts = await call(ALICE, "/api/admin/accounts?limit=5");
   check("the accounts page is served", accounts.status === 200, `got ${accounts.status}`);
+  check(
+    "and it actually contains the account that exists",
+    (accounts.json?.accounts ?? []).some((a) => a.email === "alice@example.com"),
+    JSON.stringify(accounts.json?.accounts),
+  );
   check(
     "with a total counted independently of the page — a total derived from a page lies on page two",
     typeof accounts.json?.total === "number" && accounts.json.total >= (accounts.json?.accounts?.length ?? 0),
     JSON.stringify({ total: accounts.json?.total, page: accounts.json?.accounts?.length }),
+  );
+  check(
+    "and a total that is not zero when somebody is there",
+    (accounts.json?.total ?? 0) >= 1,
+    String(accounts.json?.total),
+  );
+  check(
+    "each row carries what the account has used, joined from our own tables",
+    typeof accounts.json?.accounts?.[0]?.minutesUsedThisMonth === "number" &&
+      typeof accounts.json?.accounts?.[0]?.plan === "string",
+    JSON.stringify(accounts.json?.accounts?.[0]),
+  );
+
+  const found = await call(ALICE, "/api/admin/accounts?q=alice");
+  check(
+    "searching by address finds them",
+    (found.json?.accounts ?? []).some((a) => a.email === "alice@example.com"),
+    JSON.stringify(found.json?.accounts),
+  );
+  const absent = await call(ALICE, "/api/admin/accounts?q=nobody-by-this-name");
+  check(
+    "and searching for somebody who is not there finds nobody",
+    (absent.json?.accounts ?? []).length === 0 && absent.json?.total === 0,
+    JSON.stringify(absent.json),
   );
 
   const jobs = await call(ALICE, "/api/admin/jobs?limit=5");
@@ -1833,6 +1882,7 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
   check("test data cleaned up", del.status === 204, `got ${del.status}`);
   sweepSeededJobs();
   sweepSeededGrants();
+  sweepSeededUsers();
 }
 
 server.close();
