@@ -638,13 +638,13 @@ export default function Home() {
             <div className="glass-panel p-6 rounded-2xl relative z-10 transition-all duration-500 hover:shadow-[0_0_60px_rgba(108,59,255,0.2)]">
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  // Dimmed means "not built yet" — B-roll and captions both
-                  // ship today, so pretending they are future work undersells
-                  // the product on its own landing page.
+                  // Dimmed means "not built yet". All four ship today —
+                  // transitions arrived last, as fade in/out — so nothing on
+                  // this grid pretends to be future work any more.
                   { label: "B-Roll", dimmed: false },
                   { label: null, icon: true },
                   { label: "Captions", dimmed: false },
-                  { label: "Transitions", dimmed: true },
+                  { label: "Transitions", dimmed: false },
                 ].map((cell, i) => (
                   <div
                     key={i}
