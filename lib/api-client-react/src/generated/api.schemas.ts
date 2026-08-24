@@ -353,10 +353,17 @@ export interface ColdOpenOperation {
   seconds?: number;
 }
 
-/** Fade in from black and out to black — the first transition. Ends only. */
+/** Fade in from black and out to black — the transition at the ends. */
 export interface FadeOperation {
   type: "fade";
   /** How long each fade runs, in milliseconds. */
+  durationMs?: number;
+}
+
+/** Dissolve between the cuts — each shot mixes into the next instead of jumping. */
+export interface DissolveOperation {
+  type: "dissolve";
+  /** How long each join overlaps, in milliseconds. */
   durationMs?: number;
 }
 
@@ -421,6 +428,7 @@ export type EditOperation =
   | ExtractClipsOperation
   | ColdOpenOperation
   | FadeOperation
+  | DissolveOperation
   | FormatForPlatformOperation
   | BurnCaptionsOperation
   | WatermarkOperation
