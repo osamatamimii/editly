@@ -961,7 +961,7 @@ components:
           type: ["integer", "null"]
         platform:
           type: ["string", "null"]
-          enum: [tiktok, reels, shorts, null]
+          enum: [tiktok, reels, shorts, youtube, square, null]
         renderStalled:
           description: The render is queued but no worker has claimed it.
           type: boolean
@@ -1026,7 +1026,7 @@ components:
           type: integer
         platform:
           type: string
-          enum: [tiktok, reels, shorts]
+          enum: [tiktok, reels, shorts, youtube, square]
 
     Message:
       type: object
@@ -1080,7 +1080,7 @@ components:
           enum: [pending, processing, done, failed]
         platform:
           type: string
-          enum: [tiktok, reels, shorts]
+          enum: [tiktok, reels, shorts, youtube, square]
         downloadUrl:
           type: ["string", "null"]
         # The storage key this export produced, which the browser signs for
@@ -1135,7 +1135,7 @@ components:
       properties:
         platform:
           type: string
-          enum: [tiktok, reels, shorts]
+          enum: [tiktok, reels, shorts, youtube, square]
       required:
         - platform
 
@@ -1678,7 +1678,7 @@ components:
           enum: [formatForPlatform]
         platform:
           type: string
-          enum: [tiktok, reels, shorts]
+          enum: [tiktok, reels, shorts, youtube, square]
         maxHeight:
           description: >
             Height of the exported frame; the width follows from 9:16. Asking is
