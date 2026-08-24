@@ -360,6 +360,132 @@ paths:
         "404":
           description: Not an admin, or no such route.
 
+  /admin/actions:
+    get:
+      operationId: listAdminActions
+      tags: [admin]
+      summary: What the console has done, and why
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: The audit log, newest first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListAdminActionsResponse"
+        "404":
+          description: Not an admin, or no such route.
+
+  /admin/jobs/{id}/requeue:
+    post:
+      operationId: requeueJob
+      tags: [admin]
+      summary: Put a stuck render back in the queue
+      description: >
+        Clears the lock a dead worker left behind. Refuses a finished render,
+        which would bill the customer twice, and refuses one a live worker is
+        holding, because that worker is working rather than stuck.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminReasonBody"
+      responses:
+        "204": { description: Requeued, and written down }
+        "400": { description: No reason given }
+        "404": { description: Not an admin, or no such job }
+        "409": { description: Finished, or held by a live worker }
+
+  /admin/accounts/{userId}/minutes:
+    post:
+      operationId: grantMinutes
+      tags: [admin]
+      summary: Hand somebody minutes for this month
+      description: >
+        The grant is stored as the audit row itself and the meter reads it, so
+        there is no path that grants minutes without recording who did it and
+        why. It expires with the month, like the plan's own allowance.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantMinutesBody"
+      responses:
+        "204": { description: Granted, and written down }
+        "400": { description: No reason, or minutes out of range }
+        "404": { description: Not an admin, or no such route }
+
+  /admin/accounts/{userId}/plan:
+    post:
+      operationId: setPlanByHand
+      tags: [admin]
+      summary: Set a plan by hand when the webhook did not
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPlanBody"
+      responses:
+        "200":
+          description: Set, with a warning that Freemius still disagrees
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plan: { $ref: "#/components/schemas/SubscriptionPlan" }
+                  note: { type: string }
+                required: [plan, note]
+        "400": { description: No reason, or unknown plan }
+        "404": { description: Not an admin, or no such route }
+
+  /admin/accounts/{userId}/suspend:
+    post:
+      operationId: setSuspended
+      tags: [admin]
+      summary: Stop or restart new renders for an account
+      description: >
+        Suspension stops new renders and deletes nothing. Every byte, project
+        and clip stays, and the person can still sign in and look at their
+        work. There is no delete-account action.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetSuspendedBody"
+      responses:
+        "204": { description: Set, and written down }
+        "400": { description: No reason, or `suspended` not a boolean }
+        "404": { description: Not an admin, or no such route }
+
   /projects/{id}/render:
     post:
       operationId: startRender
@@ -1226,6 +1352,9 @@ components:
       properties:
         plan:
           $ref: "#/components/schemas/SubscriptionPlan"
+        minutesGranted:
+          description: Of minutesIncluded, how much was granted by hand this month rather than paid for.
+          type: number
         minutesIncluded:
           type: number
         minutesUsedThisMonth:
@@ -1771,6 +1900,68 @@ components:
           items: { $ref: "#/components/schemas/AdminJob" }
         total: { type: integer }
       required: [jobs, total]
+
+    AdminActionRecord:
+      description: >
+        One act of the console. `reason` is required everywhere, because it is
+        the only part of an audit row a future reader cannot reconstruct from
+        the rest of the database.
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        actorUserId: { type: string, format: uuid }
+        action:
+          type: string
+          enum: [requeue_job, grant_minutes, set_plan, set_suspended]
+        subjectUserId: { type: string, format: uuid, nullable: true }
+        subjectJobId: { type: string, nullable: true }
+        reason: { type: string }
+        detail: { type: object, additionalProperties: true, nullable: true }
+        createdAt: { type: string, format: date-time }
+      required: [id, actorUserId, action, subjectUserId, subjectJobId, reason, detail, createdAt]
+
+    ListAdminActionsResponse:
+      type: object
+      properties:
+        actions:
+          type: array
+          items: { $ref: "#/components/schemas/AdminActionRecord" }
+        total: { type: integer }
+      required: [actions, total]
+
+    AdminReasonBody:
+      type: object
+      properties:
+        reason:
+          description: Six characters at least. A bar people route around is worse than a low one.
+          type: string
+          minLength: 6
+          maxLength: 500
+      required: [reason]
+
+    GrantMinutesBody:
+      allOf:
+        - $ref: "#/components/schemas/AdminReasonBody"
+        - type: object
+          properties:
+            minutes: { type: number, minimum: 1, maximum: 600 }
+          required: [minutes]
+
+    SetPlanBody:
+      allOf:
+        - $ref: "#/components/schemas/AdminReasonBody"
+        - type: object
+          properties:
+            plan: { $ref: "#/components/schemas/SubscriptionPlan" }
+          required: [plan]
+
+    SetSuspendedBody:
+      allOf:
+        - $ref: "#/components/schemas/AdminReasonBody"
+        - type: object
+          properties:
+            suspended: { type: boolean }
+          required: [suspended]
 
     FadeOperation:
       description: >
