@@ -372,7 +372,7 @@ export function replyFor(
   },
 ): string {
   if (!context.hasVideo) {
-    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts, add motion, and level the audio.";
+    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts, add motion, fade it in and out, and level the audio.";
   }
 
   const parts: string[] = [];
@@ -397,7 +397,7 @@ export function replyFor(
     return (
       "I'm not sure what to change from that. Right now I can pull out the best 30 seconds of a clip, " +
       "keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it, reframe it to 9:16, " +
-      "add punch-in zooms or a slow push, and level the audio — try something like " +
+      "add punch-in zooms or a slow push, fade it in and out, and level the audio — try something like " +
       '"give me the strongest 30 seconds, captioned, vertical for TikTok".'
     );
   }
