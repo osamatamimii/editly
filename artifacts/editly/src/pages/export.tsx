@@ -27,7 +27,7 @@ export default function ExportPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  const [platform, setPlatform] = useState<"tiktok" | "reels" | "shorts">("tiktok");
+  const [platform, setPlatform] = useState<"tiktok" | "reels" | "shorts" | "youtube" | "square">("tiktok");
   const [isExporting, setIsExporting] = useState(false);
 
   const projectQuery = useGetProject(id, {
@@ -294,7 +294,7 @@ export default function ExportPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <RadioGroup value={platform} onValueChange={(v) => setPlatform(v as "tiktok" | "reels" | "shorts")} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <RadioGroup value={platform} onValueChange={(v) => setPlatform(v as "tiktok" | "reels" | "shorts" | "youtube" | "square")} className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <RadioGroupItem value="tiktok" id="tiktok" className="peer sr-only" />
                       <Label

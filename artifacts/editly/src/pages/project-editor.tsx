@@ -655,7 +655,7 @@ export default function ProjectEditor() {
       ? [...chatPlan.operations]
       : [
           { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
-          { type: "formatForPlatform", platform: (project?.platform ?? "tiktok") as "tiktok" | "reels" | "shorts" },
+          { type: "formatForPlatform", platform: (project?.platform ?? "tiktok") as "tiktok" | "reels" | "shorts" | "youtube" | "square" },
         ];
 
     // The mark is not sent from here, and deliberately so. It used to be, with
