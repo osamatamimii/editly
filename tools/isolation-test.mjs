@@ -790,6 +790,32 @@ console.log("\nNamed looks");
     JSON.stringify(punch?.at),
   );
 
+  // The one look that makes several files rather than one. Its own project,
+  // because the queue allows one render in flight per project.
+  const clipsLook = await call(ALICE, "/api/projects", "POST", { title: "Clips look check" });
+  const clipsLookId = clipsLook.json?.id;
+  await call(ALICE, `/api/projects/${clipsLookId}`, "PATCH", {
+    videoPath: `${ALICE}/${clipsLookId}/source.mp4`,
+    duration: 300,
+  });
+  const three = await call(ALICE, `/api/projects/${clipsLookId}/render`, "POST", { templateId: "three-clips" });
+  check("the clips look starts a render", three.status === 202, `got ${three.status} ${three.text.slice(0, 160)}`);
+  const threeOps = three.json?.plan?.operations ?? [];
+  const clipsOp = threeOps.find((o) => o.type === "extractClips");
+  check("it asks for clips, which is what makes it several files", Boolean(clipsOp), JSON.stringify(threeOps.map((o) => o.type)));
+  check("three of them, thirty seconds each", clipsOp?.count === 3 && clipsOp?.targetSeconds === 30, JSON.stringify(clipsOp));
+  check(
+    "captioned and levelled like anything made to be posted",
+    threeOps.some((o) => o.type === "autoCaptions") && threeOps.some((o) => o.type === "normalizeLoudness"),
+    JSON.stringify(threeOps.map((o) => o.type)),
+  );
+  check(
+    "and faded, so a piece cut from the middle does not start mid-room",
+    threeOps.some((o) => o.type === "fade"),
+    JSON.stringify(threeOps.map((o) => o.type)),
+  );
+  await call(ALICE, `/api/projects/${clipsLookId}`, "DELETE");
+
   await call(ALICE, `/api/projects/${templateProjectId}`, "DELETE");
 }
 
