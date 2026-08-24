@@ -64,3 +64,11 @@ CREATE TABLE IF NOT EXISTS auth.users (
   id    uuid PRIMARY KEY,
   email text
 );
+
+-- Two more columns, added when the admin console started asking auth.users
+-- when an account was made and when it was last used. Written as ALTERs rather
+-- than folded into the CREATE above so a database standing since before this
+-- line gains them too — a shim that only helps a fresh database is a shim that
+-- passes locally and fails in CI's cache.
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS last_sign_in_at timestamptz;
