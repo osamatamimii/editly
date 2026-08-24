@@ -70,13 +70,33 @@ export function keepSegmentsFrom(
  * belongs.
  */
 export function remapTime(seconds: number, kept: Segment[]): number {
+  // Where each kept stretch lands in the output, in the order the concat will
+  // play them — which since the cold open exists is no longer necessarily the
+  // order they occur in the source.
   let elapsed = 0;
-  for (const segment of kept) {
-    if (seconds < segment.start) return elapsed;
-    if (seconds <= segment.end) return elapsed + (seconds - segment.start);
+  const placed = kept.map((segment) => {
+    const at = elapsed;
     elapsed += segment.end - segment.start;
+    return { segment, at };
+  });
+
+  for (const { segment, at } of placed) {
+    if (seconds >= segment.start && seconds <= segment.end) return at + (seconds - segment.start);
   }
-  return elapsed;
+
+  // Not inside anything that was kept: this moment was cut away. It lands on
+  // the seam where the nearest *following* source material begins — which is
+  // what a caption pinned to a deleted sentence should do, and what this
+  // function has always done. Written as a search rather than as "the first
+  // segment we walked past" so that a reordered list gets the same answer a
+  // sorted one would.
+  let best: { at: number; start: number } | null = null;
+  for (const { segment, at } of placed) {
+    if (segment.start > seconds && (best === null || segment.start < best.start)) {
+      best = { at, start: segment.start };
+    }
+  }
+  return best ? best.at : elapsed;
 }
 
 /**

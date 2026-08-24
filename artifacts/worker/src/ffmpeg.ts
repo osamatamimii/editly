@@ -622,6 +622,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const loudness = find("normalizeLoudness");
   const grade = find("grade");
   const fade = find("fade");
+  const coldOpen = find("coldOpen");
 
   ctx.onProgress?.(0.02, "Looking at your footage");
 
@@ -750,6 +751,66 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           ? `kept the strongest ${Math.round(window.end - window.start)}s — ${window.start.toFixed(1)}s to ${window.end.toFixed(1)}s, where the speech runs densest`
           : `we could not hear the words in this clip, so the highlight is its middle ${Math.round(window.end - window.start)}s`,
       );
+    }
+  }
+
+  // ── The cold open ─────────────────────────────────────────────────────────
+  //
+  // Last of the cut decisions, and the only one that reorders rather than
+  // removes: the strongest moment is lifted out of wherever it sits and made
+  // the first thing anyone hears, then the rest plays from the top without it.
+  //
+  // It moves the moment instead of copying it, which is the whole reason this
+  // is expressible at all. Every source moment still appears exactly once, so
+  // `remapTime` stays a one-to-one map and captions, punches, overlays and
+  // titles keep landing where they belong — they simply land in a different
+  // order. A copy would have put one sentence on screen twice and made "where
+  // does this caption go" a question with two answers.
+  if (coldOpen) {
+    const base = kept ?? [{ start: 0, end: source.duration }];
+    const spanned = base.reduce((sum, s) => sum + (s.end - s.start), 0);
+    if (spanned <= coldOpen.seconds * 2) {
+      notes.push(
+        `this clip is too short to open on part of itself, so it plays in order`,
+      );
+    } else {
+      const choice = chooseHighlight(source.duration, coldOpen.seconds, ctx.words);
+      let window = choice.window;
+      if (ctx.words && ctx.words.length > 0) {
+        const snapped = snapToWords([window], ctx.words);
+        if (snapped.length === 1) window = { start: snapped[0].start, end: Math.min(source.duration, snapped[0].end) };
+      }
+
+      // The hook is whatever of that window survived the earlier cuts; the
+      // body is everything else, in source order, with the hook's stretch
+      // taken out of it. Splitting rather than filtering, because the window
+      // usually falls in the *middle* of a kept stretch and that stretch has
+      // to become two.
+      const hook: Segment[] = [];
+      const body: Segment[] = [];
+      for (const segment of base) {
+        const start = Math.max(segment.start, window.start);
+        const end = Math.min(segment.end, window.end);
+        if (end - start > 0.05) {
+          hook.push({ start, end });
+          if (start - segment.start > 0.05) body.push({ start: segment.start, end: start });
+          if (segment.end - end > 0.05) body.push({ start: end, end: segment.end });
+        } else {
+          body.push(segment);
+        }
+      }
+
+      if (hook.length === 0) {
+        notes.push("could not find a moment strong enough to open on, so it plays in order");
+      } else {
+        kept = [...hook, ...body];
+        const hookSeconds = hook.reduce((sum, s) => sum + (s.end - s.start), 0);
+        notes.push(
+          choice.how === "speech"
+            ? `opened on the strongest ${hookSeconds.toFixed(1)}s — from ${window.start.toFixed(1)}s — then the rest plays from the top without it`
+            : `we could not hear the words, so it opens on ${hookSeconds.toFixed(1)}s from the middle and the rest plays from the top`,
+        );
+      }
     }
   }
 
@@ -1258,6 +1319,7 @@ export function describe(op: EditOperation): string {
     // renderer ever sees a plan — see index.ts. Named here so the switch stays
     // exhaustive and a future path that skips the expansion fails to compile.
     case "extractClips": return "Cutting it into clips";
+    case "coldOpen": return "Opening on the strongest moment";
     case "fade": return "Fading in and out";
     case "formatForPlatform": return `Reframing for ${op.platform}`;
     case "burnCaptions": return "Burning in captions";
