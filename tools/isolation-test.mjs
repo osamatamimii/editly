@@ -46,6 +46,9 @@ const jwk = { ...(await exportJWK(publicKey)), alg: "ES256", use: "sig", kid: "t
  */
 const storageCalls = [];
 let storageFailsWith = null;
+// Copy fails on its own switch: a deployment whose delete works and whose
+// copy does not is exactly the case the promote route has to survive.
+let storageCopyFailsWith = null;
 // The bucket the stub pretends to be, now stateful: list answers a page of
 // what is actually under the prefix and delete removes the named keys. The
 // sweep in storage.ts drains pages until the prefix answers empty, so a stub
@@ -87,6 +90,25 @@ const jwksServer = http.createServer((req, res) => {
         .map((k) => ({ name: k.slice(prefix.length + 1), id: k }));
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(page));
+    });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/storage/v1/object/copy") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const parsed = (() => {
+        try {
+          return JSON.parse(body);
+        } catch {
+          return {};
+        }
+      })();
+      storageCalls.push({ op: "copy", from: parsed.sourceKey ?? null, to: parsed.destinationKey ?? null });
+      if (storageCopyFailsWith) return res.writeHead(storageCopyFailsWith).end("{}");
+      if (parsed.destinationKey) storageObjects.add(parsed.destinationKey);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ Key: parsed.destinationKey }));
     });
     return;
   }
@@ -361,6 +383,66 @@ console.log("\nClips are the owner's, and their paths reach only the owner");
   check("Bob cannot delete Alice's clip", theft.status === 404, `got ${theft.status}`);
   const survived = await call(ALICE, `/api/projects/${aliceProjectId}/clips`);
   check("and it is still there for Alice", survived.json?.length === 1, JSON.stringify(survived.json));
+
+  // ── Opening a clip as its own project ───────────────────────────────────
+  //
+  // A clip stops being a dead end here: the bytes are copied into a project
+  // of its own, so the piece can be edited like any other upload. What these
+  // check is that the copy really is a copy (two prefixes, not one shared
+  // file), that a failure leaves nothing behind, and that Bob still cannot.
+  {
+    const stolen = await call(BOB, `/api/projects/${aliceProjectId}/clips/clip-iso-1/open`, "POST");
+    check("Bob cannot open Alice's clip as a project", stolen.status === 404, `got ${stolen.status}`);
+
+    const copyMark = storageCalls.length;
+    const opened = await call(ALICE, `/api/projects/${aliceProjectId}/clips/clip-iso-1/open`, "POST");
+    check("Alice opens her clip as a project", opened.status === 201, `got ${opened.status} ${opened.text.slice(0, 200)}`);
+    const born = opened.json?.id;
+    check("which is a new project, not the one it came from", Boolean(born) && born !== aliceProjectId, String(born));
+    check(
+      "its source is its own copy, under its own prefix",
+      opened.json?.videoPath === `${ALICE}/${born}/source.mp4`,
+      JSON.stringify(opened.json?.videoPath),
+    );
+    check("and it is ready to edit, not stuck uploading", opened.json?.status === "ready", String(opened.json?.status));
+    check("carrying the clip's length", opened.json?.duration === 5, String(opened.json?.duration));
+    check(
+      "and named after the clip it came from, since this one had no words",
+      typeof opened.json?.title === "string" && /clip 1$/.test(opened.json.title),
+      String(opened.json?.title),
+    );
+
+    const copies = storageCalls.slice(copyMark).filter((c) => c.op === "copy");
+    check(
+      "storage was asked to copy the master into the new project",
+      copies.some((c) => c.from === `${ALICE}/${aliceProjectId}/clip-job-iso-1-1.mp4` && c.to === `${ALICE}/${born}/source.mp4`),
+      JSON.stringify(copies),
+    );
+    await new Promise((r) => setTimeout(r, 300));
+    check(
+      "with the preview mirror behind it, for browsers that cannot decode H.264",
+      storageCalls.slice(copyMark).some((c) => c.op === "copy" && String(c.to).endsWith("/source.preview.webm")),
+      JSON.stringify(storageCalls.slice(copyMark).filter((c) => c.op === "copy")),
+    );
+
+    // The clip is a source, not a sacrifice: nothing about it or its project
+    // changes when a copy of it goes somewhere else.
+    const stillThere = await call(ALICE, `/api/projects/${aliceProjectId}/clips`);
+    check("the clip itself is untouched", stillThere.json?.length === 1, JSON.stringify(stillThere.json));
+
+    const bobsView = await call(BOB, `/api/projects/${born}`);
+    check("and the new project is Alice's alone", bobsView.status === 404, `got ${bobsView.status}`);
+
+    // A deployment whose copy fails must not leave a project pointing at a
+    // file that was never written.
+    const countBefore = (await call(ALICE, "/api/projects")).json?.length ?? -1;
+    storageCopyFailsWith = 500;
+    const refused = await call(ALICE, `/api/projects/${aliceProjectId}/clips/clip-iso-1/open`, "POST");
+    storageCopyFailsWith = null;
+    check("a copy that fails is refused, not half-answered", refused.status === 503, `got ${refused.status}`);
+    const countAfter = (await call(ALICE, "/api/projects")).json?.length ?? -2;
+    check("and takes its own project row back with it", countAfter === countBefore, `${countBefore} → ${countAfter}`);
+  }
 
   // The owner can, and the row goes with the request for the files.
   const before = storageCalls.length;
