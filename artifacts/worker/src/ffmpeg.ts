@@ -16,7 +16,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { criticise } from "./critic";
 import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle } from "./motion";
-import type { EditOperation, EditPlan } from "@workspace/api-zod";
+import type { EditOperation, EditPlan, TransitionStyle } from "@workspace/api-zod";
 import { captionLayout, type CaptionLayout } from "./caption-layout";
 import {
   chooseCropCenter,
@@ -438,6 +438,42 @@ const AUDIO_ENCODE = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000"];
  * discontinuously, and a step is a click across the whole spectrum.
  */
 const DECLICK_SECONDS = 0.015;
+/**
+ * Our style names to ffmpeg's.
+ *
+ * A map rather than passing the value straight through, because the contract's
+ * names are ours to keep stable and ffmpeg's are ffmpeg's to change. `flash` is
+ * `fadewhite` — named for what it looks like rather than for how it is done,
+ * which is the only one of the ten where those differ.
+ */
+const XFADE_STYLE: Record<TransitionStyle, string> = {
+  dissolve: "fade",
+  wipeLeft: "wipeleft",
+  wipeRight: "wiperight",
+  wipeUp: "wipeup",
+  wipeDown: "wipedown",
+  slideLeft: "slideleft",
+  slideRight: "slideright",
+  slideUp: "slideup",
+  slideDown: "slidedown",
+  flash: "fadewhite",
+};
+
+/** The same ten, as the render notes say them. */
+const STYLE_IN_WORDS: Record<TransitionStyle, string> = {
+  dissolve: "dissolved between the cuts",
+  wipeLeft: "wiped left between the cuts",
+  wipeRight: "wiped right between the cuts",
+  wipeUp: "wiped up between the cuts",
+  wipeDown: "wiped down between the cuts",
+  slideLeft: "slid left between the cuts",
+  slideRight: "slid right between the cuts",
+  slideUp: "slid up between the cuts",
+  slideDown: "slid down between the cuts",
+  flash: "flashed white between the cuts",
+};
+
+
 
 /**
  * Moves the moov atom to the front. Without it a browser must download the
@@ -622,7 +658,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const loudness = find("normalizeLoudness");
   const grade = find("grade");
   const fade = find("fade");
-  const dissolve = find("dissolve");
+  const transition = find("transition");
   const coldOpen = find("coldOpen");
 
   ctx.onProgress?.(0.02, "Looking at your footage");
@@ -830,31 +866,34 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // all placed against that clock further down. One number, computed once,
   // handed to everything.
   let overlap = 0;
-  if (dissolve) {
+  /** The ffmpeg name for the style asked for. */
+  let joinStyle = "fade";
+  if (transition) {
     const joins = kept ? kept.length - 1 : 0;
     if (joins < 1) {
-      // Asking for a dissolve on an edit with nothing to dissolve between is
-      // not an error — it is usually a plan built for a longer recording than
-      // this one turned out to be. Say what happened rather than silently
-      // doing nothing.
-      notes.push("there are no cuts in this edit to dissolve between, so nothing was crossfaded");
+      // Asking for a transition on an edit with nothing to join is not an
+      // error — it is usually a plan built for a longer recording than this one
+      // turned out to be. Say what happened rather than silently doing nothing.
+      notes.push("there are no cuts in this edit to put a transition between, so nothing was joined");
     } else {
-      const asked = dissolve.durationMs / 1000;
+      const asked = transition.durationMs / 1000;
       // The overlap has to fit inside the shortest thing it joins — twice, in
-      // fact, since an interior piece is dissolved into on its way in and out
-      // of on its way out. Two fifths keeps both inside it with room left that
-      // is actually the shot itself; anything more and the shortest piece is
-      // never on screen alone, which is not a transition, it is a smear.
+      // fact, since an interior piece is transitioned into on its way in and
+      // out of on its way out. Two fifths keeps both inside it with room left
+      // that is actually the shot itself; anything more and the shortest piece
+      // is never on screen alone, which is not a transition, it is a smear.
       const shortest = Math.min(...kept!.map((segment) => segment.end - segment.start));
       const room = shortest * 0.4;
       if (room < 0.05) {
-        notes.push("the pieces this edit is cut into are too short to dissolve between, so the cuts stay hard");
+        notes.push("the pieces this edit is cut into are too short to put a transition between, so the cuts stay hard");
       } else {
         overlap = Math.min(asked, room);
+        joinStyle = XFADE_STYLE[transition.style];
+        const named = STYLE_IN_WORDS[transition.style];
         notes.push(
           overlap < asked - 0.001
-            ? `dissolved between the cuts over ${overlap.toFixed(2)}s — shorter than asked, so the shortest piece is still on screen by itself`
-            : `dissolved between the cuts over ${overlap.toFixed(2)}s`,
+            ? `${named} over ${overlap.toFixed(2)}s — shorter than asked, so the shortest piece is still on screen by itself`
+            : `${named} over ${overlap.toFixed(2)}s`,
         );
       }
     }
@@ -914,7 +953,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         const offset = elapsed - i * overlap;
         const vOut = i === last ? "cutv" : `xv${i}`;
         pieces.push(
-          `[${vPrevious}][cv${i}]xfade=transition=fade:duration=${overlap.toFixed(4)}:` +
+          `[${vPrevious}][cv${i}]xfade=transition=${joinStyle}:duration=${overlap.toFixed(4)}:` +
             `offset=${Math.max(0, offset).toFixed(4)}[${vOut}]`,
         );
         vPrevious = vOut;
@@ -1412,7 +1451,7 @@ export function describe(op: EditOperation): string {
     case "extractClips": return "Cutting it into clips";
     case "coldOpen": return "Opening on the strongest moment";
     case "fade": return "Fading in and out";
-    case "dissolve": return "Dissolving between the cuts";
+    case "transition": return "Joining the cuts";
     case "formatForPlatform": return `Reframing for ${op.platform}`;
     case "burnCaptions": return "Burning in captions";
     // Replaced by burnCaptions before the renderer ever sees a plan — see
