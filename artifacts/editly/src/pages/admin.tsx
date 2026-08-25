@@ -4,6 +4,7 @@ import {
   useGetAdminOverview,
   useListAdminAccounts,
   useListAdminJobs,
+  useListWaitlist,
   useListAdminActions,
   useRequeueJob,
   useGrantMinutes,
@@ -11,6 +12,7 @@ import {
   getGetAdminOverviewQueryKey,
   getListAdminAccountsQueryKey,
   getListAdminJobsQueryKey,
+  getListWaitlistQueryKey,
   getListAdminActionsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -56,6 +58,10 @@ export default function AdminPage() {
   const [reason, setReason] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [jobFilter, setJobFilter] = useState<string>("");
+  const waitlist = useListWaitlist(
+    { limit: 200 },
+    { query: { queryKey: getListWaitlistQueryKey({ limit: 200 }), retry: false } },
+  );
   const accounts = useListAdminAccounts(
     { q: search || undefined, limit: 50 },
     {
@@ -324,6 +330,37 @@ export default function AdminPage() {
                 </span>,
               ])}
               empty={accountsState === "loading" ? "Loading…" : "Nobody yet."}
+            />
+          )}
+        </section>
+
+        {/* ── The waiting list ─────────────────────────────────────────── */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-semibold">Waiting list</h2>
+            <span className="text-sm text-muted-foreground">
+              {waitlist.data ? `${waitlist.data.total} waiting` : ""}
+            </span>
+          </div>
+          {/*
+            The only table here made of people who are not customers. Shown
+            with the page each came from, because the landing page and the
+            waiting-list domain are two different promises and this column is
+            the only place a difference between them will appear.
+          */}
+          {loadState(waitlist) === "loading" ? (
+            <div className="text-sm text-muted-foreground py-6">Loading…</div>
+          ) : loadState(waitlist) === "failed" ? (
+            <Problem>{COULD_NOT_LOAD}</Problem>
+          ) : (
+            <Table
+              head={["Email", "From", "Joined"]}
+              empty="Nobody has asked yet."
+              rows={(waitlist.data?.entries ?? []).map((entry) => [
+                entry.email,
+                entry.source ?? "—",
+                new Date(entry.createdAt).toLocaleString(),
+              ])}
             />
           )}
         </section>
