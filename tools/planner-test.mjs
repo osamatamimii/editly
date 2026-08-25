@@ -980,50 +980,32 @@ console.log("\nMusic comes from the person's own library or not at all");
   check("the Arabic ask is heard too", arabic.operations.some((o) => o.type === "addMusic"), JSON.stringify(arabic.operations));
 }
 
-console.log("\nA hook and a transition cannot both happen, and the reply says so first");
+console.log("\nA hook and a transition happen together again");
 {
   const planner = createPlanner({ apiKey: "" });
 
-  // The renderer refuses this pair — a cold open reorders the cut list, and a
-  // chained crossfade over branches that read the file backwards deadlocks. It
-  // says so in the render notes. But by then the reply has already promised
-  // the dissolve, and a promise broken that we knew we would break while
-  // making it is worse than one the footage turned out not to allow.
+  // For one round this pair was refused at plan time: a cold open reorders the
+  // cut list, and the renderer's chained crossfade over a reordered list
+  // deadlocked. The renderer now seeks each piece on its own input, so both
+  // halves happen — and the reply is allowed to promise both again. This is
+  // here so that a future refusal has to be a deliberate act rather than a
+  // regression nobody noticed.
   const both = await planner.plan("start with the best bit and put dissolves between the cuts", {});
   check(
-    "the hook is planned, because that is the distinctive half of the ask",
+    "the hook is planned",
     both.operations.some((o) => o.type === "coldOpen"),
     JSON.stringify(both.operations.map((o) => o.type)),
   );
   check(
-    "and the transition is not, because it cannot happen",
-    !both.operations.some((o) => o.type === "transition"),
+    "and so is the transition",
+    both.operations.some((o) => o.type === "transition"),
     JSON.stringify(both.operations.map((o) => o.type)),
   );
-  check(
-    "the reply says which half it dropped and why",
-    both.cannotYet.some((c) => /opening on the hook/.test(c) && /out of order/.test(c)),
-    JSON.stringify(both.cannotYet),
-  );
-  // Split at the refusal: everything before it is what we promised, and the
-  // word must not appear there. Testing the whole string would pass on a reply
-  // that promised the dissolve and then took it back in the same breath.
+  check("with nothing withheld", both.cannotYet.length === 0, JSON.stringify(both.cannotYet));
+
   const reply = replyFor(both, { hasVideo: true });
-  const promised = reply.split("I can't")[0];
-  check("and the promise it makes never mentions the dissolve", !/dissolve/.test(promised), promised);
-  check("while the refusal does", /dissolve/.test(reply.slice(promised.length)), reply);
+  check("and the reply promises both", /open on the strongest moment/.test(reply) && /dissolve between the cuts/.test(reply), reply);
 
-  // Without the hook it is a plain transition and nothing is withheld.
-  const alone = await planner.plan("dissolve between the cuts", {});
-  check(
-    "asking for the transition on its own still gets it",
-    alone.operations.some((o) => o.type === "transition"),
-    JSON.stringify(alone.operations.map((o) => o.type)),
-  );
-  check("with nothing withheld", alone.cannotYet.length === 0, JSON.stringify(alone.cannotYet));
-
-  // The fade is at the ends, not between the cuts, so it composes with a hook
-  // and must not be caught by the same guard.
   const faded = await planner.plan("give it a hook and fade it in and out", {});
   check(
     "a fade still composes with a hook",

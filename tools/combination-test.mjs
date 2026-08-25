@@ -93,6 +93,15 @@ async function withDeadline(promise, ms, label) {
 }
 const workDir = await scratch();
 
+/** Mean volume of a whole file, in dB. NaN if ffmpeg could not measure it. */
+function meanVolume(file) {
+  const r = spawnSync("ffmpeg", ["-hide_banner", "-i", file, "-af", "volumedetect", "-f", "null", "-"], {
+    encoding: "utf8",
+  });
+  const m = r.stderr.match(/mean_volume: ([-\d.]+) dB/);
+  return m ? Number(m[1]) : NaN;
+}
+
 function ffprobe(file, entries, extra = []) {
   const r = spawnSync(
     "ffprobe",
@@ -341,19 +350,22 @@ console.log("\nEvery clock against every other clock");
 
 // ── The cold open is the one edit that plays out of order ───────────────────
 //
-// And that is not a detail. Every piece of an edit is a `trim` branch off one
-// decode, and ffmpeg feeds those branches in the order the decoder produces
-// frames. A chained `acrossfade` over branches that want the file out of order
-// deadlocks — measured, not theorised: before this was caught, this exact plan
-// ran for over two hundred seconds on a twelve-second clip and had produced
-// nothing. In production that is a job that burns to the worker's timeout with
-// the customer's minute already spent.
+// Every piece of an edit is normally a `trim` branch off one decode, and
+// ffmpeg feeds those branches in the order the decoder produces frames. A cold
+// open breaks that: the hook comes from the middle of the file and plays
+// first. Chained `acrossfade` over branches that read the file backwards does
+// not come out wrong, it deadlocks — measured, not theorised: this exact plan
+// once ran for over two hundred seconds on a twelve-second clip and had
+// produced nothing, and two out-of-order pieces produced a file with almost no
+// audio in it.
 //
-// So the join is refused and the hook kept. What this checks is both halves:
-// that it finishes quickly, and that it says which of the two it dropped —
-// a silent refusal would leave someone waiting for a dissolve that was never
-// coming and no way to find out why.
-console.log("\nA cold open with a transition asked for");
+// Seeking each piece on its own input removes the shared decoder and with it
+// the ordering constraint. What is checked here is that the fix holds on all
+// three fronts the bug had: that it finishes quickly, that both halves of the
+// ask actually happen, and — the quiet one — that the sound is still *there*.
+// A near-silent file is the failure mode that would otherwise pass every other
+// check in this suite.
+console.log("\nA cold open with a transition, which used to deadlock");
 {
   const started = Date.now();
   let out = null;
@@ -388,24 +400,49 @@ console.log("\nA cold open with a transition asked for");
     process.exit(1);
   }
   check("and quickly, rather than deadlocking on the audio", seconds < 60, `${seconds.toFixed(1)}s`);
+
   if (out) {
     check(
-      "the hook is kept, because that is what was actually asked for",
+      "the hook is moved to the front",
       out.notes.some((n) => /opens on|hook/.test(n)),
       JSON.stringify(out.notes),
     );
     check(
-      "and the dropped join is said out loud rather than silently skipped",
-      out.notes.some((n) => /plays out of order/.test(n) && /cuts stay hard/.test(n)),
+      "and the cuts are dissolved rather than the join being dropped",
+      out.notes.some((n) => /dissolved between the cuts/.test(n)),
       JSON.stringify(out.notes),
     );
+
     const measured = Number(ffprobe(out.output, "format=duration")[0]);
     check(
-      "the file is the length of a hard-cut edit",
+      "the file is one overlap per join shorter, which is what a dissolve costs",
       Math.abs(measured - out.estimatedSeconds) <= TOLERANCE,
       `said ${out.estimatedSeconds.toFixed(2)}s, measured ${measured}`,
     );
-    check("with its sound", ffprobe(out.output, "stream=codec_type").includes("audio"), "");
+
+    // The bug's other face. Two out-of-order pieces did not hang, they wrote a
+    // file with an audio stream in it and nothing audible inside — which every
+    // stream-shaped check here would have called a pass.
+    const audioSeconds = Number(ffprobe(out.output, "stream=duration", ["-select_streams", "a:0"])[0]);
+    check(
+      "its audio runs the whole length rather than stopping short",
+      Number.isFinite(audioSeconds) && Math.abs(audioSeconds - measured) <= 0.35,
+      `audio ${audioSeconds}s of ${measured}s`,
+    );
+
+    const level = meanVolume(out.output);
+    const plain = await renderPlan(
+      source,
+      { version: 1, operations: [{ type: "coldOpen", seconds: 2 }] },
+      { workDir: await scratch(), assets },
+    );
+    rendered += 1;
+    const plainLevel = meanVolume(plain.output);
+    check(
+      "and is as loud as the same edit without the dissolve — not a silent file with an audio stream",
+      Number.isFinite(level) && level > plainLevel - 3,
+      `${level} dB against ${plainLevel} dB`,
+    );
   }
 }
 
