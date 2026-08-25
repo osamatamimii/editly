@@ -12,6 +12,7 @@ import assetsRouter from "./assets";
 import clipsRouter from "./clips";
 import stockRouter from "./stock";
 import adminRouter from "./admin";
+import waitlistRouter from "./waitlist";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -23,6 +24,11 @@ router.use(healthRouter);
 // with no session. Its authentication is the signature over the raw body, not a
 // bearer token — see routes/billing.ts. It must stay above requireAuth.
 router.use(billingWebhookRouter);
+
+// Also public, and the only public *write* in the product: somebody joining the
+// waiting list has no account yet, which is the whole point of a waiting list.
+// It is rate limited by address instead of by user — see routes/waitlist.ts.
+router.use(waitlistRouter);
 
 // Everything below this line is per-user data. `requireAuth` populates
 // `req.userId`, and each handler filters on it — mounting a data route outside

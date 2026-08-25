@@ -8,12 +8,14 @@ import {
   jobsTable,
   projectsTable,
   subscriptionsTable,
+  waitlistTable,
   workerHeartbeatsTable,
 } from "@workspace/db";
 import {
   GetAdminOverviewResponse,
   ListAdminAccountsResponse,
   ListAdminJobsResponse,
+  ListWaitlistResponse,
   ListAdminActionsResponse,
   isPlanKeyGuard,
 } from "@workspace/api-zod";
@@ -279,6 +281,37 @@ router.get("/admin/accounts", async (req, res): Promise<void> => {
           minutesIncluded: PLAN_LIMITS[plan].minutesPerMonth,
         };
       }),
+    }),
+  );
+});
+
+/**
+ * The waiting list, newest first.
+ *
+ * The one screen in the console that shows addresses belonging to people who
+ * are not customers yet, which is exactly why it is here and nowhere else: the
+ * route that *writes* to this table is public, and the route that reads it is
+ * the most private one we have.
+ */
+router.get("/admin/waitlist", async (req, res): Promise<void> => {
+  const limit = Math.min(500, Math.max(1, Number(req.query["limit"] ?? 100) || 100));
+
+  const rows = await db
+    .select()
+    .from(waitlistTable)
+    .orderBy(desc(waitlistTable.createdAt))
+    .limit(limit);
+
+  const [totalRow] = await db.select({ n: count() }).from(waitlistTable);
+
+  res.json(
+    ListWaitlistResponse.parse({
+      total: Number(totalRow?.n ?? 0),
+      entries: rows.map((row) => ({
+        email: row.email,
+        source: row.source ?? null,
+        createdAt: new Date(row.createdAt).toISOString(),
+      })),
     }),
   );
 });
