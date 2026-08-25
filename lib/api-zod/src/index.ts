@@ -584,6 +584,44 @@ export const InsertBRollOperation = z.object({
  * renders to 1080×1920 and 1080×1350 and a pixel size that is right for one is
  * wrong for the other.
  */
+/**
+ * Lay a music bed under the whole edit.
+ *
+ * The asset is named by id, like b-roll and overlays, and for the same reason:
+ * an id is checked against the project's own library, a path is a request to
+ * render whatever the caller can spell. The library is also the *only* source
+ * of music here. We ship no catalogue, and we will not, because a track we
+ * hand you is a licence we would have to have bought on your behalf — so this
+ * operation carries what the person already owns, and nothing else.
+ *
+ * It has no `at`: a bed runs the length of the edit by definition. Everything
+ * else in this file is placed on the source clock and moved through the cut
+ * map; this one is placed on the *output* clock, because it is scored to the
+ * finished thing, not to a moment in the recording.
+ */
+export const AddMusicOperation = z.object({
+  type: z.literal("addMusic"),
+  assetId: z.string().min(1),
+  /**
+   * How far under the programme the bed sits. -18 dB is a bed you feel and
+   * stop hearing, which is what a bed is for; 0 would put the music level with
+   * the voice and make the edit unwatchable.
+   */
+  gainDb: z.number().min(-40).max(0).default(-18),
+  /**
+   * Pull the music down further whenever someone is speaking, and let it back
+   * up in the gaps. On a clip with no speech there is nothing to duck under,
+   * and the render says so rather than pretending it happened.
+   */
+  duck: z.boolean().default(true),
+  /** Ease the bed in at the start and out at the end. */
+  fadeSeconds: z.number().min(0).max(5).default(1.5),
+  /** Start the track somewhere other than its first second — songs have intros. */
+  fromSeconds: z.number().min(0).max(3600).default(0),
+  /** Repeat the track if it runs out before the edit does. */
+  loop: z.boolean().default(true),
+});
+
 export const OverlayImageOperation = z.object({
   type: z.literal("overlayImage"),
   assetId: z.string().min(1),
@@ -883,6 +921,7 @@ export const EditOperation = z.discriminatedUnion("type", [
   NormalizeLoudnessOperation,
   GradeOperation,
   InsertBRollOperation,
+  AddMusicOperation,
   OverlayImageOperation,
   MotionTitleOperation,
 ]);
