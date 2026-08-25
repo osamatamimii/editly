@@ -112,6 +112,18 @@ export interface LimitOptions {
   windowMs: number;
   /** Shown to the person. Says what they hit and what to do, never a number of milliseconds. */
   message: string;
+  /**
+   * How many times one person doing the thing the page describes plausibly
+   * needs to do it in this window.
+   *
+   * Recorded because the ceiling is meaningless without it. "Forty is a lot"
+   * is true of joining a waiting list and false of sending chat messages, and
+   * a policy check that asserts a flat floor across both is asserting a number
+   * rather than the rule the number came from. The rule is: every limit sits
+   * at least five times above this, so the only person who meets one is the
+   * one writing a loop.
+   */
+  perPerson: number;
 }
 
 /** The sentence for a limit that has been hit. */
@@ -160,6 +172,55 @@ export function rateLimit(options: LimitOptions): RequestHandler {
 }
 
 /**
+ * The same limiter, for a route with nobody signed in.
+ *
+ * `rateLimit` keys on the authenticated user and, on a public route, finds
+ * none — so it logs and lets the request through. That is the right answer for
+ * a route that was *supposed* to be behind auth, and the wrong one for a route
+ * that is public on purpose: the waiting-list signup is open to the internet by
+ * design, and open with no limit is an invitation to fill the table.
+ *
+ * The key is the client address. It is a weak identity — a shared office is one
+ * key, a phone changes keys between rooms — and that is acceptable here because
+ * the limit is set where no person reaches it and only a script does. Behind
+ * Vercel the address arrives in `x-forwarded-for`, whose first entry is the
+ * client and whose remainder is the chain of proxies; taking the last would key
+ * every request in the world to one edge node.
+ */
+export function rateLimitByIp(options: LimitOptions): RequestHandler {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const forwarded = req.headers["x-forwarded-for"];
+    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    const address = (first ?? "").split(",")[0]?.trim() || req.ip || "unknown";
+
+    let verdict: Verdict;
+    try {
+      verdict = await consume(`ip:${address}:${options.name}`, options.limit, options.windowMs);
+    } catch (error) {
+      logger.error({ err: error, name: options.name }, "rate limiter unavailable — allowing the request");
+      next();
+      return;
+    }
+
+    res.setHeader("X-RateLimit-Limit", String(options.limit));
+    res.setHeader("X-RateLimit-Remaining", String(verdict.remaining));
+
+    if (verdict.allowed) {
+      next();
+      return;
+    }
+
+    res.setHeader("Retry-After", String(verdict.retryAfterSeconds));
+    req.log?.warn({ name: options.name }, "rate limited by address");
+    res.status(429).json({
+      error: options.message,
+      retryAfterSeconds: verdict.retryAfterSeconds,
+      rateLimited: true,
+    });
+  };
+}
+
+/**
  * The limits themselves, in one place so they can be read as a policy rather
  * than found one route at a time.
  *
@@ -168,11 +229,28 @@ export function rateLimit(options: LimitOptions): RequestHandler {
  * who does is the one writing a loop.
  */
 export const LIMITS = {
+  /**
+   * The only public write in the product, so the only one a stranger can loop.
+   *
+   * Six in ten minutes is far more than a person signing themselves up needs —
+   * they need one, and a second if they typo'd — and far less than a script
+   * filling the table is after.
+   */
+  waitlist: {
+    name: "waitlist",
+    limit: 6,
+    windowMs: 10 * 60 * 1000,
+    // One, and a second if they typo'd the first.
+    perPerson: 1,
+    message: "That's a lot of sign-ups from one place. Give it a few minutes.",
+  },
   /** The one that had nothing at all, and the one that costs money per call. */
   chat: {
     name: "chat",
     limit: 40,
     windowMs: 10 * 60 * 1000,
+    // A back-and-forth about one video in ten minutes.
+    perPerson: 8,
     message:
       "You're sending messages faster than we can think. Give it a minute — nothing you've asked for has been lost.",
   },
@@ -181,12 +259,17 @@ export const LIMITS = {
     name: "render",
     limit: 30,
     windowMs: 10 * 60 * 1000,
+    // Asking again is free, and people do — but not more than a handful of
+    // times before they go and watch the result.
+    perPerson: 6,
     message:
       "That's a lot of renders at once. Give it a few minutes — the ones already queued are still running.",
   },
   /** Creating projects, which is the loop that walks past the per-project guard. */
   createProject: {
     name: "create-project",
+    // Uploading a batch of takes in one sitting.
+    perPerson: 12,
     limit: 60,
     windowMs: 10 * 60 * 1000,
     message: "You've created a lot of projects very quickly. Give it a few minutes.",
@@ -196,6 +279,8 @@ export const LIMITS = {
     name: "write",
     limit: 300,
     windowMs: 10 * 60 * 1000,
+    // Renaming, deleting, editing — the small writes of an ordinary session.
+    perPerson: 60,
     message: "Too many changes at once. Give it a moment and try again.",
   },
 } as const satisfies Record<string, LimitOptions>;
