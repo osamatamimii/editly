@@ -21,6 +21,13 @@ const STATIC_ORIGINS = new Set(
     "http://localhost:5173",
     "http://localhost:3000",
     process.env["APP_ORIGIN"],
+    // The waiting-list page. A different domain and a different deployment, so
+    // it has to be named here or the browser refuses the one call it makes.
+    // Listing it costs nothing extra: what an origin is allowed to *do* is
+    // decided by the bearer token, and the waiting-list page has none — the
+    // single route it can reach is the single route that needs none.
+    "https://editlyai.io",
+    "https://www.editlyai.io",
   ].filter((o): o is string => Boolean(o)),
 );
 
