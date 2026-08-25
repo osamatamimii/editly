@@ -70,6 +70,27 @@ const check = (name, ok, detail = "") => {
 };
 
 const scratch = () => mkdtemp(path.join(tmpdir(), "editly-c-"));
+
+/**
+ * A render that hangs must fail this file, not stall it.
+ *
+ * The fault this suite was extended to catch is a *deadlock*, and a check that
+ * waits for a deadlock is not a check — it is a CI job that eventually times
+ * out with no idea which line it was on. So the one case that can deadlock is
+ * run against a clock, and blowing the clock is reported and exits, taking the
+ * stuck ffmpeg down with the process.
+ */
+async function withDeadline(promise, ms, label) {
+  let timer;
+  const deadline = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`did not finish within ${ms / 1000}s — ${label}`)), ms);
+  });
+  try {
+    return await Promise.race([promise, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 const workDir = await scratch();
 
 function ffprobe(file, entries, extra = []) {
@@ -277,6 +298,114 @@ console.log("\nOne plan carrying nearly everything");
         out.notes.some((n) => /cut to b-roll/.test(n)),
       JSON.stringify(out.notes),
     );
+  }
+}
+
+// ── Clocks against each other ───────────────────────────────────────────────
+//
+// The matrix above pairs one clock with one thing placed on it. It never pairs
+// two clocks, and a person asking for an edit in one sentence does exactly
+// that: "cut the silences, keep the middle minute, and start on the best bit"
+// is three of them. Every pair is rendered here for the same three properties.
+console.log("\nEvery clock against every other clock");
+{
+  const pairs = [];
+  for (let i = 0; i < clocks.length; i += 1) {
+    for (let j = i + 1; j < clocks.length; j += 1) pairs.push([clocks[i], clocks[j]]);
+  }
+
+  const broke = [];
+  const drifted = [];
+  const mute = [];
+  for (const [a, b] of pairs) {
+    const plan = { version: 1, operations: [...a.ops, ...b.ops] };
+    let out = null;
+    try {
+      out = await renderPlan(source, plan, { workDir: await scratch(), assets });
+    } catch (e) {
+      broke.push(`${a.name}+${b.name}: ${String(e?.message ?? e).slice(0, 140)}`);
+      continue;
+    }
+    rendered += 1;
+    const measured = Number(ffprobe(out.output, "format=duration")[0]);
+    if (!Number.isFinite(measured) || Math.abs(measured - out.estimatedSeconds) > TOLERANCE) {
+      drifted.push(`${a.name}+${b.name}: said ${out.estimatedSeconds?.toFixed?.(2)}s, measured ${measured}`);
+    }
+    if (!ffprobe(out.output, "stream=codec_type").includes("audio")) mute.push(`${a.name}+${b.name}`);
+  }
+
+  check(`all ${pairs.length} pairs of clocks render`, broke.length === 0, broke.join(" | "));
+  check("each is as long as the renderer said", drifted.length === 0, drifted.join(" | "));
+  check("and none of them loses the sound", mute.length === 0, mute.join(", "));
+}
+
+// ── The cold open is the one edit that plays out of order ───────────────────
+//
+// And that is not a detail. Every piece of an edit is a `trim` branch off one
+// decode, and ffmpeg feeds those branches in the order the decoder produces
+// frames. A chained `acrossfade` over branches that want the file out of order
+// deadlocks — measured, not theorised: before this was caught, this exact plan
+// ran for over two hundred seconds on a twelve-second clip and had produced
+// nothing. In production that is a job that burns to the worker's timeout with
+// the customer's minute already spent.
+//
+// So the join is refused and the hook kept. What this checks is both halves:
+// that it finishes quickly, and that it says which of the two it dropped —
+// a silent refusal would leave someone waiting for a dissolve that was never
+// coming and no way to find out why.
+console.log("\nA cold open with a transition asked for");
+{
+  const started = Date.now();
+  let out = null;
+  let error = null;
+  try {
+    out = await withDeadline(
+      renderPlan(
+        source,
+        {
+          version: 1,
+          operations: [
+            { type: "coldOpen", seconds: 2 },
+            { type: "transition", style: "dissolve", durationMs: 200 },
+          ],
+        },
+        { workDir: await scratch(), assets },
+      ),
+      90_000,
+      "a cold open with a transition deadlocks the audio crossfade",
+    );
+  } catch (e) {
+    error = e;
+  }
+  rendered += 1;
+  const seconds = (Date.now() - started) / 1000;
+
+  check("it finishes at all", error === null, String(error?.message ?? "").slice(0, 200));
+  if (error && /did not finish within/.test(String(error.message))) {
+    console.log("\nSTOPPING: the render is stuck, and every check after this one would wait on the same fault.");
+    console.log(`\n${rendered} renders, ${checks - failures}/${checks} checks passed`);
+    console.log(`${failures} FAILED`);
+    process.exit(1);
+  }
+  check("and quickly, rather than deadlocking on the audio", seconds < 60, `${seconds.toFixed(1)}s`);
+  if (out) {
+    check(
+      "the hook is kept, because that is what was actually asked for",
+      out.notes.some((n) => /opens on|hook/.test(n)),
+      JSON.stringify(out.notes),
+    );
+    check(
+      "and the dropped join is said out loud rather than silently skipped",
+      out.notes.some((n) => /plays out of order/.test(n) && /cuts stay hard/.test(n)),
+      JSON.stringify(out.notes),
+    );
+    const measured = Number(ffprobe(out.output, "format=duration")[0]);
+    check(
+      "the file is the length of a hard-cut edit",
+      Math.abs(measured - out.estimatedSeconds) <= TOLERANCE,
+      `said ${out.estimatedSeconds.toFixed(2)}s, measured ${measured}`,
+    );
+    check("with its sound", ffprobe(out.output, "stream=codec_type").includes("audio"), "");
   }
 }
 
