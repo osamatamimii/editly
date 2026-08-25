@@ -352,7 +352,12 @@
  * happened and whether it is worth trying again.
  */
 (function () {
-  var API = "https://editly-eta.vercel.app/api/waitlist";
+  // The app's own domain, not the Vercel-generated one. A `*.vercel.app`
+  // hostname is derived from the project name and changes if the project is
+  // ever renamed — this page would then post into nothing, and the only
+  // symptom would be a sign-up form that quietly stops working. Both origins
+  // are on the CORS allowlist; this one belongs to us.
+  var API = "https://app.editlyai.io/api/waitlist";
 
   var form = document.getElementById("join");
   var input = document.getElementById("email");
