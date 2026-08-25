@@ -429,6 +429,17 @@ function videoEncodeFor(frameHeight: number): string[] {
   });
 }
 
+/**
+ * Do these pieces play in the order they appear in the file?
+ *
+ * True for every edit that only *removes* material, which is all of them
+ * except a cold open. See the transition block for why the difference matters
+ * to ffmpeg and not to anything else.
+ */
+function inSourceOrder(kept: Segment[]): boolean {
+  return kept.every((segment, i) => i === 0 || segment.start >= kept[i - 1]!.start);
+}
+
 const AUDIO_ENCODE = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000"];
 
 /**
@@ -886,6 +897,29 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       // error — it is usually a plan built for a longer recording than this one
       // turned out to be. Say what happened rather than silently doing nothing.
       notes.push("there are no cuts in this edit to put a transition between, so nothing was joined");
+    } else if (!inSourceOrder(kept!)) {
+      // The one plan that gets here is a cold open with a transition, because
+      // the cold open is the only thing in this file that *reorders* the cut
+      // list rather than shortening it.
+      //
+      // Every piece of the edit is a `trim` branch off one decode of the
+      // source, and ffmpeg feeds those branches in the order the decoder
+      // produces frames. Chained `acrossfade` over branches that want the file
+      // out of order does not merely come out wrong — it deadlocks: measured
+      // here, three out-of-order pieces never finish at all, and two produce a
+      // file with almost no audio in it. A render that never returns is worse
+      // than one that refuses, because the customer's minute is spent either
+      // way and only one of them says anything.
+      //
+      // Making both work together means giving the reordered piece its own
+      // input (`-ss` on a second `-i`) so no branch has to read backwards.
+      // That is a change to how every cut plan is built, not a special case,
+      // and it is not worth risking the ordinary path for the decoration. So
+      // the hook stays — it is the thing that was actually asked for — and the
+      // join goes, out loud.
+      notes.push(
+        "the hook was moved to the front, and a transition cannot be laid across a cut list that plays out of order — so the cuts stay hard and the cold open stands",
+      );
     } else {
       const asked = transition.durationMs / 1000;
       // The overlap has to fit inside the shortest thing it joins — twice, in
