@@ -78,7 +78,8 @@ export interface PlannerAsset {
 function buildSchema(assets: PlannerAsset[]) {
   const clips = assets.filter((a) => a.kind === "video").map((a) => a.id);
   const stills = assets.filter((a) => a.kind === "image").map((a) => a.id);
-  const assetIds = [...clips, ...stills];
+  const tracks = assets.filter((a) => a.kind === "audio").map((a) => a.id);
+  const assetIds = [...clips, ...stills, ...tracks];
 
   const types = [
     "removeSilence",
@@ -96,6 +97,9 @@ function buildSchema(assets: PlannerAsset[]) {
     "motionTitle",
     ...(clips.length > 0 ? ["insertBRoll"] : []),
     ...(stills.length > 0 ? ["overlayImage"] : []),
+    // No catalogue: without a track of their own there is nothing to lay under
+    // the edit, so the operation is not in the model's vocabulary at all.
+    ...(tracks.length > 0 ? ["addMusic"] : []),
   ];
 
   return {
@@ -188,6 +192,7 @@ function buildSchema(assets: PlannerAsset[]) {
 function instructionFor(assets: PlannerAsset[]): string {
   const clips = assets.filter((a) => a.kind === "video");
   const stills = assets.filter((a) => a.kind === "image");
+  const tracks = assets.filter((a) => a.kind === "audio");
 
   const lines = [
     "You choose video edit operations from a fixed list. You never invent one.",
@@ -225,23 +230,32 @@ function instructionFor(assets: PlannerAsset[]): string {
     "motionTitle animates words onto the screen. Use the person's own words — never write copy they did not ask for.",
   ];
 
-  if (clips.length > 0 || stills.length > 0) {
+  if (clips.length > 0 || stills.length > 0 || tracks.length > 0) {
     lines.push(
       "This project has files of its own, listed with the request. Their ids are the only ones that exist:",
       "an id you have not been given is not a file. Choose one that matches what was asked for, by its label.",
     );
     if (clips.length > 0) lines.push("insertBRoll cuts away to one of their clips and keeps the speaker's audio under it.");
     if (stills.length > 0) lines.push("overlayImage holds one of their images over the frame.");
+    if (tracks.length > 0) {
+      lines.push(
+        "addMusic lays one of their audio files under the whole edit. It has no atSeconds: a bed runs the",
+        "length of the finished cut. gainDb is how far under the voice it sits (-40 to 0, default -18) and",
+        "duck true pulls it down while they speak. Choose it when they ask for music, a song, a soundtrack or",
+        "a bed — never to 'cut to the beat', which nothing here does.",
+      );
+    }
   } else {
     lines.push(
-      "This project has no files of its own, so there is nothing to cut away to and nothing to lay over the frame.",
-      "If they ask for b-roll or a logo, return no operation for it — the answer is that they need to add the file first.",
+      "This project has no files of its own, so there is nothing to cut away to, nothing to lay over the frame,",
+      "and no music to put under it.",
+      "If they ask for b-roll, a logo or music, return no operation for it — the answer is that they need to add the file first.",
     );
   }
 
   lines.push(
-    "If the request is about something none of these operations do — music, emojis, colour grading —",
-    "return no operations for it rather than substituting something else.",
+    "If the request is about something none of these operations do — emojis, colour grading, cutting in time",
+    "with a beat — return no operations for it rather than substituting something else.",
   );
   return lines.join(" ");
 }
@@ -363,9 +377,10 @@ function toOperation(
    * The schema already restricts the id to this project's files. This checks it
    * again, and against the *kind* as well, because the schema cannot express
    * "a video id here and an image id there" — and an image handed to insertBRoll
-   * is not a wrong edit, it is a worker crash.
+   * is not a wrong edit, it is a worker crash. A video handed to addMusic is
+   * the same mistake in the other direction.
    */
-  const assetOfKind = (kind: "video" | "image"): string | null => {
+  const assetOfKind = (kind: "video" | "image" | "audio"): string | null => {
     const id = raw["assetId"];
     if (typeof id !== "string") return null;
     return assets.some((a) => a.id === id && a.kind === kind) ? id : null;
@@ -452,6 +467,22 @@ function toOperation(
           fit: "cover",
           // A cutaway that silences the speaker is not a cutaway, it is a cut.
           keepSourceAudio: true,
+        };
+      }
+      case "addMusic": {
+        // Same rule as b-roll: the model may pick the track, but only from the
+        // ids it was offered, and the kind is checked as well as the id. There
+        // is no catalogue to fall back to, so no library means no music.
+        const assetId = assetOfKind("audio");
+        if (!assetId) return null;
+        return {
+          type,
+          assetId,
+          gainDb: numberOr(raw["gainDb"], -18),
+          duck: raw["duck"] !== false,
+          fadeSeconds: numberOr(raw["fadeSeconds"], 1.5),
+          fromSeconds: Math.max(0, numberOr(raw["fromSeconds"], 0)),
+          loop: raw["loop"] !== false,
         };
       }
       case "overlayImage": {
@@ -545,6 +576,10 @@ function describeAll(operations: EditOperation[]): string[] {
       // name, because this list is read back to them as a promise.
       case "insertBRoll":
         return `cut away to one of your clips at ${Math.round(op.at)}s`;
+      case "addMusic":
+        return op.duck
+          ? "lay your music under the whole edit, ducking out of the way while you talk"
+          : "lay your music under the whole edit";
       case "overlayImage":
         return `hold one of your images over the frame at ${Math.round(op.at)}s`;
       case "motionTitle":

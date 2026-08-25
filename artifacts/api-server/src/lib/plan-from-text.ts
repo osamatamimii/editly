@@ -45,7 +45,27 @@ function shapeLabel(platform: Platform): string {
   return "9:16";
 }
 
-/** Asked-for things that are real product ideas but have no operation yet. */
+/**
+ * Asking for a music bed.
+ *
+ * Bare "beat" is deliberately *not* here. "cut it to the beat" is a request to
+ * sync the picture to a rhythm, which we do not do — matching it would lay a
+ * bed nobody asked for and then, in the same reply, admit we cannot do the
+ * thing they actually asked for. Only "a beat under it" reads as a bed, so
+ * only that shape matches. The Arabic covers موسيقى / أغنية / خلفية موسيقية.
+ */
+const MUSIC_WORDS =
+  /\bmusic|music ?bed|sound ?track|\bsong\b|\bbeat under\b|\btrack under\b|موسيق|أغنية|اغنية|خلفية موسيقية|صوت خلفي/i;
+
+/**
+ * Asking for a beat *cut*, which we do not do.
+ *
+ * Separated from MUSIC_WORDS so that "add music" lays a bed and "cut to the
+ * beat" still gets an honest no — and so that "add music and cut to the beat"
+ * gets both answers instead of the friendlier one.
+ */
+const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?) )?to (the )?(beat|music|rhythm|drop)\b|على الإيقاع|مع الإيقاع/i;
+
 /**
  * Asked-for things that are real product ideas but have no operation yet.
  *
@@ -59,10 +79,13 @@ function shapeLabel(platform: Platform): string {
  *   flash — are all built, so there is nothing left here to admit.
  * - Colour: matching a reference video's colour exists, so the reply points
  *   at it rather than refusing the whole subject.
+ * - Music: narrowed to beat-*syncing*. Laying a bed under an edit is built;
+ *   cutting the picture in time with one is not, and saying "I can't add
+ *   music" to someone who just got music would be the same lie in reverse.
  */
 const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
   { patterns: /\bemoji/i, label: "add emojis" },
-  { patterns: /\bmusic|beat|sound ?track\b/i, label: "add music or sync to a beat" },
+  { patterns: BEAT_SYNC_WORDS, label: "cut the picture to the beat" },
   {
     patterns: /\bcolou?r|grade|cinematic|filter\b/i,
     label: "grade the colour on its own — but upload a video whose look you want and I will match it",
@@ -424,6 +447,32 @@ export function planFromText(
     }
   }
 
+  const tracks = library.filter((a) => a.kind === "audio");
+
+  // Music is the person's own file or it is nothing. We ship no catalogue and
+  // will not: a track we handed out would be a licence we bought on their
+  // behalf. So the honest reply when the library is empty names the fix rather
+  // than the limitation — upload the track and it goes under.
+  if (MUSIC_WORDS.test(text)) {
+    if (tracks.length === 0) {
+      cannotYet.push(
+        "add music, because this project has no audio file yet — upload the track you have the rights to and I will lay it under the whole edit",
+      );
+    } else {
+      const track = tracks[0]!;
+      operations.push({
+        type: "addMusic",
+        assetId: track.id,
+        gainDb: -18,
+        duck: true,
+        fadeSeconds: 1.5,
+        fromSeconds: 0,
+        loop: true,
+      });
+      willDo.push(`lay ${describeFile(track)} under the whole edit, ducking under your voice`);
+    }
+  }
+
   if (OVERLAY_WORDS.test(text)) {
     if (stills.length === 0) {
       cannotYet.push("put an image over the frame, because this project has no images yet");
@@ -480,7 +529,7 @@ function clockOf(seconds: number): string {
 /** A file by its own name where it has one, and by its kind where it does not. */
 function describeFile(file: LibraryFile): string {
   const label = (file.label ?? "").trim();
-  if (!label) return file.kind === "image" ? "your image" : "your clip";
+  if (!label) return file.kind === "image" ? "your image" : file.kind === "audio" ? "your track" : "your clip";
   return `"${label.slice(0, 60)}"`;
 }
 
@@ -504,7 +553,7 @@ export function replyFor(
   },
 ): string {
   if (!context.hasVideo) {
-    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts - or 16:9 for YouTube, or square for a feed - add motion, fade it in and out, and level the audio.";
+    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts - or 16:9 for YouTube, or square for a feed - add motion, lay your own music under it, fade it in and out, and level the audio.";
   }
 
   const parts: string[] = [];
@@ -529,7 +578,7 @@ export function replyFor(
     return (
       "I'm not sure what to change from that. Right now I can pull out the best 30 seconds of a clip, " +
       "keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it, reframe it to 9:16 or 16:9 or square, " +
-      "add punch-in zooms or a slow push, fade it in and out, and level the audio — try something like " +
+      "add punch-in zooms or a slow push, lay a track you've uploaded under the whole thing, fade it in and out, and level the audio — try something like " +
       '"give me the strongest 30 seconds, captioned, vertical for TikTok".'
     );
   }
