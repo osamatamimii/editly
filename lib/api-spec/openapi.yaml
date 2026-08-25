@@ -285,6 +285,64 @@ paths:
               schema:
                 $ref: "#/components/schemas/DashboardStats"
 
+  /waitlist:
+    post:
+      operationId: joinWaitlist
+      tags: [waitlist]
+      summary: Ask to be told when it opens
+      description: >
+        The only public write in the product: the person signing up has no
+        account yet, which is the whole point of a waiting list. Rate limited by
+        client address rather than by user, because there is no user. The
+        address is normalised before storage, and signing up twice is the same
+        row and the same friendly answer rather than an error.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinWaitlistBody"
+      responses:
+        "201":
+          description: On the list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinWaitlistResponse"
+        "400":
+          description: Not an email address
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many sign-ups from one address
+
+  /admin/waitlist:
+    get:
+      operationId: listWaitlist
+      tags: [admin]
+      summary: Who has asked to be told, newest first
+      description: >
+        The one screen in the console showing addresses belonging to people who
+        are not customers yet — which is why it is here and nowhere else. The
+        route that writes this table is public; the route that reads it is the
+        most private one in the product.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        "200":
+          description: The waiting list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListWaitlistResponse"
+        "404":
+          description: Not an admin, or no such route.
+
   /admin/overview:
     get:
       operationId: getAdminOverview
@@ -1790,6 +1848,55 @@ components:
           maximum: 15
           default: 4
       required: [type]
+
+    JoinWaitlistBody:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 3
+          maxLength: 320
+        source:
+          description: >
+            Which page they signed up from. Sent by the page rather than
+            inferred from the Origin header, because the two answer different
+            questions - the header says which host served the script, this says
+            which promise the person was reading.
+          type: string
+          maxLength: 120
+      required: [email]
+
+    JoinWaitlistResponse:
+      type: object
+      properties:
+        joined:
+          type: boolean
+          enum: [true]
+        total:
+          description: >
+            How many people are on the list, not this person's index in it. An
+            index is a promise about order, and nothing stops us admitting
+            people out of order.
+          type: integer
+      required: [joined, total]
+
+    WaitlistEntrySummary:
+      type: object
+      properties:
+        email: { type: string }
+        source: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+      required: [email, source, createdAt]
+
+    ListWaitlistResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/WaitlistEntrySummary" }
+        total: { type: integer }
+      required: [entries, total]
 
     AdminOverview:
       description: >
