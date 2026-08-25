@@ -97,7 +97,7 @@ export function ProjectLibrary({ projectId, userId }: { projectId: string; userI
         <div>
           <div className="text-sm font-medium">Files in this project</div>
           <div className="text-xs text-muted-foreground">
-            B-roll, screenshots, a logo, music — anything the edit can put on screen.
+            B-roll, screenshots, a logo — and music, which goes under the edit rather than on it.
           </div>
         </div>
         <button
@@ -132,8 +132,8 @@ export function ProjectLibrary({ projectId, userId }: { projectId: string; userI
 
       {assets.length === 0 ? (
         <div className="text-xs text-muted-foreground">
-          Nothing yet. Files you add here can be cut in as b-roll or laid over the frame — up to{" "}
-          {formatBytes(MAX_ASSET_BYTES)} each.
+          Nothing yet. Files you add here can be cut in as b-roll, laid over the frame, or — if it is
+          a track you have the rights to — played under the whole edit. Up to {formatBytes(MAX_ASSET_BYTES)} each.
         </div>
       ) : (
         <ul className="flex flex-col gap-1.5">
