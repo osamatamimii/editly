@@ -1542,6 +1542,178 @@ console.log("\nThe worker looks at what it made before handing it over");
   await rm(dir, { recursive: true, force: true });
 }
 
+// ── The music bed ───────────────────────────────────────────────────────────
+//
+// Everything below measures the mix that came out, not the filter string that
+// went in: a bed that is silent, a duck that does not duck, and a track laid
+// under a silent clip that never reaches the file all produce a perfectly
+// well-formed command.
+console.log("\nMusic");
+{
+  const dir = await scratch();
+
+  // Source: a loud tone for the first two seconds, then nothing. The tone is
+  // what the ducking listens to, and the silence is where the bed is naked and
+  // can be measured on its own.
+  const spoken = path.join(dir, "spoken.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=4",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=4",
+    "-filter_complex", "[1:a]volume='if(between(t,0,2),1,0)':eval=frame[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", spoken,
+  ]);
+
+  // A silent clip — no audio stream at all, which is what a phone screen
+  // recording or an exported animation actually is.
+  const mute = path.join(dir, "mute.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=4",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", mute,
+  ]);
+
+  // The "track": deliberately shorter than every edit it is laid under, so
+  // looping is exercised rather than assumed.
+  const track = path.join(dir, "track.m4a");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "sine=frequency=900:duration=1.5",
+    "-c:a", "aac", track,
+  ]);
+
+  const assets = new Map([
+    ["song", { file: track, kind: "audio" }],
+    ["reel", { file: spoken, kind: "video" }],
+  ]);
+  const music = (extra = {}) => ({
+    type: "addMusic", assetId: "song", gainDb: 0, duck: true,
+    fadeSeconds: 0, fromSeconds: 0, loop: true, ...extra,
+  });
+
+  // 1. A clip with no audio track comes out with sound.
+  const alone = await renderPlan(mute, { version: 1, operations: [music()] }, { workDir: await scratch(), assets });
+  const aloneStreams = ffprobe(alone.output, "stream=codec_type").join(",");
+  check("a silent clip with music under it comes out with an audio stream", /audio/.test(aloneStreams), aloneStreams);
+  const aloneLevel = segmentMeanVolume(alone.output, 0.5, 3.5);
+  check("and that stream is audible, not a silent placeholder", aloneLevel > -40, `${aloneLevel} dB`);
+  check(
+    "the note says the music is all of it rather than claiming a mix",
+    alone.notes.some((n) => /no sound of its own/.test(n)),
+    JSON.stringify(alone.notes),
+  );
+
+  // 2. The bed runs the whole edit, looping past the end of a 1.5s track.
+  const aloneDuration = Number(ffprobe(alone.output, "stream=duration", ["-select_streams", "a:0"])[0]);
+  check("a short track loops to the length of the edit", aloneDuration > 3.5, String(aloneDuration));
+  const tail = segmentMeanVolume(alone.output, 3.0, 3.9);
+  check("the last second is still music, not the silence after the track ran out", tail > -40, `${tail} dB`);
+
+  // 3. Ducking. Both renders carry the same speech, so the difference in the
+  //    loud window is the bed being pulled down and nothing else.
+  const ducked = await renderPlan(spoken, { version: 1, operations: [music({ duck: true })] }, { workDir: await scratch(), assets });
+  const flat = await renderPlan(spoken, { version: 1, operations: [music({ duck: false })] }, { workDir: await scratch(), assets });
+  const duckedUnderSpeech = segmentMeanVolume(ducked.output, 0.4, 1.8);
+  const flatUnderSpeech = segmentMeanVolume(flat.output, 0.4, 1.8);
+  check(
+    "under speech the ducked mix sits below the unducked one",
+    duckedUnderSpeech < flatUnderSpeech - 0.5,
+    `ducked ${duckedUnderSpeech} dB vs flat ${flatUnderSpeech} dB`,
+  );
+  const duckedInGap = segmentMeanVolume(ducked.output, 2.6, 3.8);
+  check(
+    "in the gap the bed comes back up",
+    duckedInGap > duckedUnderSpeech - 12 && duckedInGap > -40,
+    `gap ${duckedInGap} dB vs under speech ${duckedUnderSpeech} dB`,
+  );
+  check(
+    "the note admits which of the two happened",
+    ducked.notes.some((n) => /ducking under the speech/.test(n)) &&
+      flat.notes.some((n) => /laid music under the whole edit/.test(n) && !/ducking/.test(n)),
+    JSON.stringify([ducked.notes, flat.notes]),
+  );
+
+  // 4. The voice is not quieter for having a bed under it. amix averages by
+  //    default, which would drop the speech 6dB and make the level note a lie.
+  const bare = await renderPlan(spoken, { version: 1, operations: [{ type: "grade", saturation: 1 }] }, { workDir: await scratch() });
+  const bareSpeech = segmentMeanVolume(bare.output, 0.4, 1.8);
+  check(
+    "the speech is no quieter for having music under it",
+    flatUnderSpeech > bareSpeech - 1,
+    `with music ${flatUnderSpeech} dB vs alone ${bareSpeech} dB`,
+  );
+
+  // 5. A track that is not in the library, and one that is not audio.
+  const missing = await renderPlan(spoken, { version: 1, operations: [music({ assetId: "nope" })] }, { workDir: await scratch(), assets });
+  check(
+    "music naming an asset outside the project is skipped, not rendered",
+    missing.notes.some((n) => /not in this project/.test(n)),
+    JSON.stringify(missing.notes),
+  );
+  const wrongKind = await renderPlan(spoken, { version: 1, operations: [music({ assetId: "reel" })] }, { workDir: await scratch(), assets });
+  check(
+    "music pointing at a video file is skipped with the reason",
+    wrongKind.notes.some((n) => /not an audio file/.test(n)),
+    JSON.stringify(wrongKind.notes),
+  );
+
+  // 6. Fades are the bed's own and are clamped to a third of a short edit.
+  const faded = await renderPlan(spoken, { version: 1, operations: [music({ fadeSeconds: 3 })] }, { workDir: await scratch(), assets });
+  check(
+    "a fade longer than a third of the edit is shortened and said so",
+    faded.notes.some((n) => /music fades run 1\.3s rather than the 3\.0s asked/.test(n)),
+    JSON.stringify(faded.notes),
+  );
+
+  await rm(dir, { recursive: true, force: true });
+}
+
+// ── Two overlays of different shapes ────────────────────────────────────────
+//
+// The stream index for an extra input used to be derived from the length of
+// the args array on the assumption that every input is `-i file`. A still is
+// six args and the motion layer is four, so the *second* extra input was
+// addressed wrongly whenever the first was not b-roll — and ffmpeg failed on
+// a filtergraph error, which reads as our bug and is invisible until a plan
+// happens to combine the two.
+console.log("\nMixed overlay inputs");
+{
+  const dir = await scratch();
+  const still = path.join(dir, "still.png");
+  spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=red:size=64x64", "-frames:v", "1", still]);
+  const cut = path.join(dir, "cut.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "color=c=green:size=320x240:rate=25:duration=3",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", cut,
+  ]);
+  const assets = new Map([
+    ["logo", { file: still, kind: "image" }],
+    ["cutaway", { file: cut, kind: "video" }],
+  ]);
+  const both = await renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        { type: "extractRange", startSeconds: 0, endSeconds: 6 },
+        { type: "overlayImage", assetId: "logo", at: 0.5, durationSeconds: 2, position: "top-left", scale: 0.2, opacity: 1 },
+        { type: "insertBRoll", assetId: "cutaway", at: 3, durationSeconds: 2, fit: "cover", keepSourceAudio: true },
+      ],
+    },
+    { workDir: await scratch(), assets },
+  );
+  check(
+    "a still and a b-roll clip in one plan both reach the frame",
+    both.notes.some((n) => /laid an image over the frame/.test(n)) && both.notes.some((n) => /cut to b-roll/.test(n)),
+    JSON.stringify(both.notes),
+  );
+  const frames = Number(ffprobe(both.output, "stream=nb_read_frames", ["-select_streams", "v:0", "-count_frames"])[0]);
+  check("and the render finished rather than dying on a bad stream index", Number.isFinite(frames) && frames > 100, String(frames));
+  await rm(dir, { recursive: true, force: true });
+}
+
 await rm(workDir, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });
 

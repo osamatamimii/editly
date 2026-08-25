@@ -226,14 +226,61 @@ console.log("\nWhat the model is allowed to choose from");
   check("b-roll is offered, because there is a clip", item.properties.type.enum.includes("insertBRoll"));
   check("so is an overlay, because there is an image", item.properties.type.enum.includes("overlayImage"));
   check("titles need no file, so they are always offered", item.properties.type.enum.includes("motionTitle"));
+  check("music is offered, because there is a track", item.properties.type.enum.includes("addMusic"));
   check(
     "the only ids that exist are this project's",
-    JSON.stringify(item.properties.assetId.enum) === JSON.stringify(["a1", "a2", null]),
+    JSON.stringify(item.properties.assetId.enum) === JSON.stringify(["a1", "a2", "a3", null]),
     JSON.stringify(item.properties.assetId.enum),
   );
+  // The audio id is offered now — addMusic is a real operation and a track is
+  // a real choice. What must not happen is the model reaching for that id with
+  // an operation that puts a file *on screen*, which the schema cannot express
+  // and the kind check downstream has to catch. That is the check below, and
+  // it is stronger than the one it replaced: the old version only proved the
+  // id was withheld, which stopped being true the moment music shipped.
+  const misuse = createPlanner({
+    apiKey: "k",
+    fetchImpl: answering([{ type: "insertBRoll", assetId: "a3", atSeconds: 4, durationSeconds: 3 }]),
+  });
+  const misused = await misuse.plan("cut away to something", { assets: LIBRARY });
   check(
-    "the audio file is not offered as something to put on screen",
-    !(item.properties.assetId.enum ?? []).includes("a3"),
+    "a track handed to b-roll is discarded, not rendered as a picture",
+    !misused.operations.some((o) => o.assetId === "a3" && o.type !== "addMusic"),
+    JSON.stringify(misused.operations),
+  );
+  // And the fallback then does the sane thing rather than leaving them with
+  // nothing: the request really was for a cutaway, and there really is a clip.
+  check(
+    "and the keyword fallback cuts away to the clip that does exist",
+    misused.operations.some((o) => o.type === "insertBRoll" && o.assetId === "a1"),
+    JSON.stringify(misused.operations),
+  );
+  const overlaid = await createPlanner({
+    apiKey: "k",
+    fetchImpl: answering([{ type: "overlayImage", assetId: "a3", atSeconds: 1, durationSeconds: 3 }]),
+  }).plan("put it on screen", { assets: LIBRARY });
+  check(
+    "and so is a track handed to an image overlay",
+    !overlaid.operations.some((o) => o.type === "overlayImage"),
+    JSON.stringify(overlaid.operations),
+  );
+  const clipAsSong = await createPlanner({
+    apiKey: "k",
+    fetchImpl: answering([{ type: "addMusic", assetId: "a1" }]),
+  }).plan("put music under it", { assets: LIBRARY });
+  check(
+    "the reverse too: a clip handed to addMusic is not played as a song",
+    !clipAsSong.operations.some((o) => o.type === "addMusic" && o.assetId === "a1"),
+    JSON.stringify(clipAsSong.operations),
+  );
+  const rightTrack = await createPlanner({
+    apiKey: "k",
+    fetchImpl: answering([{ type: "addMusic", assetId: "a3" }]),
+  }).plan("put music under it", { assets: LIBRARY });
+  check(
+    "while the track itself is accepted, with the bed under the voice",
+    rightTrack.operations.some((o) => o.type === "addMusic" && o.assetId === "a3" && o.duck === true),
+    JSON.stringify(rightTrack.operations),
   );
   check(
     "every property is required, because strict mode refuses anything else",
@@ -882,6 +929,55 @@ console.log("\nAn audio file is not something to put on screen");
   });
   check("nothing is placed", result.operations.length === 0, JSON.stringify(result.operations));
   check("and both are explained", result.cannotYet.length === 2, JSON.stringify(result.cannotYet));
+}
+
+console.log("\nMusic comes from the person's own library or not at all");
+{
+  const planner = createPlanner({ apiKey: "" });
+  const withTrack = await planner.plan("add some music under it", { assets: LIBRARY });
+  const op = withTrack.operations.find((o) => o.type === "addMusic");
+  check("a music ask places a bed from the library", !!op, JSON.stringify(withTrack.operations));
+  check("named by id, and the id is the audio file", op?.assetId === "a3", JSON.stringify(op));
+  check("under the voice rather than level with it", op?.gainDb === -18 && op?.duck === true, JSON.stringify(op));
+  check(
+    "and the reply says which file it used",
+    withTrack.willDo.some((w) => /a voice note/.test(w) && /under the whole edit/.test(w)),
+    JSON.stringify(withTrack.willDo),
+  );
+
+  // No catalogue. The honest answer names the fix, not the limitation.
+  const without = await planner.plan("can you put background music on this", { assets: [] });
+  check("with nothing to play, no bed is invented", !without.operations.some((o) => o.type === "addMusic"), JSON.stringify(without.operations));
+  check(
+    "and the reply asks for the track rather than refusing music",
+    without.cannotYet.some((c) => /upload the track you have the rights to/.test(c)),
+    JSON.stringify(without.cannotYet),
+  );
+
+  // Syncing the cuts to a rhythm is a different feature and still unbuilt.
+  const beat = await planner.plan("cut it to the beat", { assets: LIBRARY });
+  check(
+    "asking to cut to the beat still gets an honest no",
+    beat.cannotYet.some((c) => /cut the picture to the beat/.test(c)),
+    JSON.stringify(beat.cannotYet),
+  );
+  check(
+    "and does not quietly lay a bed instead of the thing asked for",
+    !beat.operations.some((o) => o.type === "addMusic"),
+    JSON.stringify(beat.operations),
+  );
+
+  // Both asks in one sentence get both answers.
+  const bothAsks = await planner.plan("add music and cut to the beat", { assets: LIBRARY });
+  check(
+    "a sentence asking for both gets the bed and the refusal",
+    bothAsks.operations.some((o) => o.type === "addMusic") &&
+      bothAsks.cannotYet.some((c) => /cut the picture to the beat/.test(c)),
+    JSON.stringify([bothAsks.operations, bothAsks.cannotYet]),
+  );
+
+  const arabic = await planner.plan("ضيف موسيقى خلفية", { assets: LIBRARY });
+  check("the Arabic ask is heard too", arabic.operations.some((o) => o.type === "addMusic"), JSON.stringify(arabic.operations));
 }
 
 await rm(buildDir, { recursive: true, force: true });
