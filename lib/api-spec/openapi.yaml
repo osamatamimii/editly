@@ -1522,6 +1522,7 @@ components:
         - $ref: "#/components/schemas/NormalizeLoudnessOperation"
         - $ref: "#/components/schemas/GradeOperation"
         - $ref: "#/components/schemas/InsertBRollOperation"
+        - $ref: "#/components/schemas/AddMusicOperation"
         - $ref: "#/components/schemas/OverlayImageOperation"
         - $ref: "#/components/schemas/MotionTitleOperation"
       discriminator:
@@ -1641,6 +1642,60 @@ components:
           type: string
           format: uri
       required: [id, kind, label, previewUrl, viewUrl, width, height, credit, creditUrl]
+
+    AddMusicOperation:
+      description: >
+        Lay a music bed under the whole edit, from a track already in this
+        project's library. There is no catalogue here and there will not be
+        one: a track we handed out would be a licence bought on the customer's
+        behalf. Unlike every other operation this one carries no `at` — a bed
+        runs the length of the finished edit by definition, so it is the one
+        thing placed on the output clock rather than the source clock.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [addMusic]
+        assetId:
+          description: >
+            Must name an audio file already in this project. Checked against
+            the kind as well as the id: a video file here is a plan asking to
+            play a picture as a song.
+          type: string
+        gainDb:
+          description: >
+            How far under the programme the bed sits. -18 dB is a bed you feel
+            and stop hearing; 0 puts the music level with the voice.
+          type: number
+          minimum: -40
+          maximum: 0
+          default: -18
+        duck:
+          description: >
+            Pull the music down while someone is speaking and let it back up in
+            the gaps. On a clip with no speech there is nothing to duck under,
+            and the render note says so rather than claiming it happened.
+          type: boolean
+          default: true
+        fadeSeconds:
+          description: >
+            The bed's own fade in and out, shortened to a third of the edit on a
+            clip too short to carry the whole of it.
+          type: number
+          minimum: 0
+          maximum: 5
+          default: 1.5
+        fromSeconds:
+          description: Start the track past its intro rather than at its first second.
+          type: number
+          minimum: 0
+          maximum: 3600
+          default: 0
+        loop:
+          description: Repeat the track if it runs out before the edit does.
+          type: boolean
+          default: true
+      required: [type, assetId]
 
     InsertBRollOperation:
       description: >
