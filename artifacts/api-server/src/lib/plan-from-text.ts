@@ -11,7 +11,7 @@
  * model behind this, the model's job is to emit one of these plans; everything
  * downstream stays as it is.
  */
-import type { EditOperation, Platform } from "@workspace/api-zod";
+import type { EditOperation, Platform, TransitionStyle } from "@workspace/api-zod";
 
 export interface ParsedIntent {
   operations: EditOperation[];
@@ -54,8 +54,9 @@ function shapeLabel(platform: Platform): string {
  * after transitions shipped is as dishonest as one that promises what it
  * cannot do. Two entries were narrowed for exactly that reason:
  *
- * - Transitions: the fade at the ends and the dissolve between the cuts both
- *   exist now, so only the geometric kinds — a wipe, a slide — are claimed.
+ * - Transitions: gone from this list entirely. The fade at the ends, the
+ *   dissolve between the cuts, and the shaped joins — wipes, slides, a white
+ *   flash — are all built, so there is nothing left here to admit.
  * - Colour: matching a reference video's colour exists, so the reply points
  *   at it rather than refusing the whole subject.
  */
@@ -65,13 +66,6 @@ const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
   {
     patterns: /\bcolou?r|grade|cinematic|filter\b/i,
     label: "grade the colour on its own — but upload a video whose look you want and I will match it",
-  },
-  {
-    // "fade", "crossfade" and "dissolve" are all deliberately absent: all three
-    // are built. What is still missing is a transition with a *shape* — one
-    // frame pushing the other off the screen rather than mixing into it.
-    patterns: /\bwipe\b|\bslide\b|\bswipe\b|\bspin\b|whip ?pan/i,
-    label: "wipe or slide from one shot to the next — but a fade and a dissolve I can do",
   },
 ];
 
@@ -227,6 +221,61 @@ const HOOK_WORDS =
   /\bhook\b|\bcold open\b|start (?:it )?with the (?:best|strongest)|open (?:it )?(?:on|with) the (?:best|strongest)|\bهوك\b|ابدأ بالأقوى|ابدأ بأقوى/i;
 
 /**
+ * The shaped joins, and the words people use for them.
+ *
+ * Ordered longest-intent-first so "wipe left" is not eaten by the bare "wipe".
+ * The direction words are checked next to the style word rather than anywhere
+ * in the sentence, because "slide it left" and "cut the left third and slide
+ * between the shots" are different requests and only one of them is about the
+ * transition.
+ */
+/** The nine shaped styles as the reply says them. */
+const STYLE_IN_WORDS: Record<Exclude<TransitionStyle, "dissolve">, string> = {
+  wipeLeft: "wipe to the left",
+  wipeRight: "wipe to the right",
+  wipeUp: "wipe upward",
+  wipeDown: "wipe downward",
+  slideLeft: "slide to the left",
+  slideRight: "slide to the right",
+  slideUp: "slide upward",
+  slideDown: "slide downward",
+  flash: "flash of white",
+};
+
+const TRANSITION_STYLES: Array<{ patterns: RegExp; style: TransitionStyle }> = [
+  { patterns: /\bwipe\s*(?:to\s*the\s*)?right|مسح(?:ة)?\s*لليمين/i, style: "wipeRight" },
+  { patterns: /\bwipe\s*(?:to\s*the\s*)?up|\bwipe\s*upward/i, style: "wipeUp" },
+  { patterns: /\bwipe\s*(?:to\s*the\s*)?down|\bwipe\s*downward/i, style: "wipeDown" },
+  { patterns: /\bwipe|مسح(?:ة)?/i, style: "wipeLeft" },
+  { patterns: /\bslide\s*(?:to\s*the\s*)?right|\bpush\s*right|انزلاق\s*لليمين/i, style: "slideRight" },
+  { patterns: /\bslide\s*(?:to\s*the\s*)?up|\bpush\s*up/i, style: "slideUp" },
+  { patterns: /\bslide\s*(?:to\s*the\s*)?down|\bpush\s*down/i, style: "slideDown" },
+  { patterns: /\bslide|\bpush\b|\bswipe|whip ?pan|انزلاق/i, style: "slideLeft" },
+  { patterns: /\bflash\b|white flash|ومضة|فلاش/i, style: "flash" },
+];
+
+/**
+ * Whether the sentence is talking about the joins at all.
+ *
+ * Required before any of the patterns above counts, because every one of those
+ * words has an ordinary meaning in a sentence about video: "make a slideshow
+ * of my photos" is not a request for a slide transition, and it matched one
+ * until this existed. A shaped join is a statement *about the cuts*, so the
+ * sentence has to mention them — which every real way of asking already does.
+ *
+ * Written as a separate condition rather than folded into each pattern so
+ * there is one place to read the rule, instead of nine places to forget it.
+ */
+const JOIN_CONTEXT =
+  /\bbetween\b|\btransitions?\b|\bcuts?\b|\bshots?\b|\bclips?\b|\bjoins?\b|بين|انتقال|القصات|القطعات|اللقطات/i;
+
+/** Which shaped join a sentence asks for, if any. */
+function transitionStyleFrom(text: string): TransitionStyle | null {
+  if (!JOIN_CONTEXT.test(text)) return null;
+  return TRANSITION_STYLES.find((entry) => entry.patterns.test(text))?.style ?? null;
+}
+
+/**
  * The join, not the ends.
  *
  * Kept apart from FADE_WORDS on purpose even though "fade" appears in both
@@ -332,14 +381,23 @@ export function planFromText(
   // is what the word means to someone who has never seen this menu, and both
   // now exist. Naming one gets exactly the one named.
   const wantsAnyTransition = /\btransitions?\b|\bانتقال|انتقالات/i.test(text);
+  const shapedStyle = transitionStyleFrom(text);
   const wantsDissolve = DISSOLVE_WORDS.test(text);
   if (FADE_WORDS.test(text) || wantsAnyTransition) {
     operations.push({ type: "fade", durationMs: 500 });
     willDo.push("open it from black and close it to black");
   }
-  if (wantsDissolve || wantsAnyTransition) {
-    operations.push({ type: "dissolve", durationMs: 250 });
-    willDo.push("dissolve between the cuts instead of jumping");
+  // A named shape wins over the general ask: somebody who said "wipe" asked
+  // for a wipe, and giving them the default because they also said the word
+  // "transitions" would be answering the vaguer half of their sentence.
+  if (shapedStyle || wantsDissolve || wantsAnyTransition) {
+    const style = shapedStyle ?? "dissolve";
+    operations.push({ type: "transition", style, durationMs: 250 });
+    willDo.push(
+      style === "dissolve"
+        ? "dissolve between the cuts instead of jumping"
+        : `join the cuts with a ${STYLE_IN_WORDS[style]} instead of jumping`,
+    );
   }
 
   // ── The project's own files ────────────────────────────────────────────────
