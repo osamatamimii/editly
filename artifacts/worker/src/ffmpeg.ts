@@ -660,6 +660,17 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const fade = find("fade");
   const transition = find("transition");
   const coldOpen = find("coldOpen");
+  const music = find("addMusic");
+  /**
+   * Resolved here rather than at the mix, because two decisions upstream of
+   * the mix depend on whether there will be music: whether the loudness pass
+   * has anything to level, and whether the command maps an audio stream at
+   * all. A clip with no audio track and a bed under it still has to come out
+   * with sound.
+   */
+  const musicAsset = music ? (ctx.assets?.get(music.assetId) ?? null) : null;
+  const musicUsable = musicAsset !== null && musicAsset.kind === "audio";
+  const hasAudioOut = source.hasAudio || musicUsable;
 
   ctx.onProgress?.(0.02, "Looking at your footage");
 
@@ -1173,7 +1184,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   }
 
   // ── Audio ─────────────────────────────────────────────────────────────────
-  if (loudness && source.hasAudio) {
+  if (loudness && hasAudioOut) {
     // -14 LUFS is what every one of these platforms normalises to. Arriving at
     // the right level means they leave the audio alone.
     audioParts.push(`loudnorm=I=${loudness.targetLufs}:TP=-1.5:LRA=11`);
@@ -1237,6 +1248,26 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const extraInputs: string[] = [];
   const overlayLinks: string[] = [];
 
+  /**
+   * ffmpeg's stream index for the next `-i`, counted rather than derived.
+   *
+   * It used to be `extraInputs.length / 2 + 1`, which reads as "two args per
+   * input" and is true of `-i file` and of nothing else here: a still is
+   * `-loop 1 -t D -i file` (six) and the motion layer is `-framerate N -i P`
+   * (four). So the first extra input was always right and the second was right
+   * only if the first happened to be b-roll — a plan that laid an image over
+   * the frame and *then* cut to b-roll asked ffmpeg for stream 4 of a command
+   * with three inputs, and the render died on a filtergraph error rather than
+   * on anything the person had done. One counter, incremented where the input
+   * is actually pushed, cannot drift from the args the way arithmetic over
+   * their length can.
+   */
+  let nextInput = 1; // input 0 is the source
+  const addInput = (...args: string[]): number => {
+    extraInputs.push(...args);
+    return nextInput++;
+  };
+
   /** Frames the motion layer contributes, averaged back down to one. */
   const motionInputArgs = (): string[] =>
     motionLayer ? ["-framerate", String(motionLayer.fps), "-i", motionLayer.pattern] : [];
@@ -1265,15 +1296,22 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         continue;
       }
 
-      const idx = extraInputs.length / 2 + 1; // input 0 is the source
-      const inLabel = overlayLinks.length === 0 ? "OVBASE" : `ov${overlayLinks.length}`;
-      const outLabel = `ov${overlayLinks.length + 1}`;
+      // Each overlay is *two* links — one to prepare the layer, one to composite
+      // it — so the number of links is twice the number of stages, and naming
+      // the labels after the link count made the second overlay read from a
+      // link that was never written: `[ov2]` after a first stage that produced
+      // `[ov1]`. Every plan with two or more overlays built a graph ffmpeg
+      // could not initialise. Count stages, not links.
+      const stage = overlayLinks.length / 2;
+      const inLabel = stage === 0 ? "OVBASE" : `ov${stage}`;
+      const outLabel = `ov${stage + 1}`;
 
+      let idx: number;
       if (op.type === "overlayImage") {
         // A still needs `-loop 1` to have a duration at all, and a `-t` so the
         // loop is finite: without it ffmpeg never reaches the end of the input
         // and the render does not stop.
-        extraInputs.push("-loop", "1", "-t", (end + 0.5).toFixed(3), "-i", asset.file);
+        idx = addInput("-loop", "1", "-t", (end + 0.5).toFixed(3), "-i", asset.file);
         const w = Math.max(2, Math.round(frameWidth * op.scale));
         const alpha = op.opacity < 1 ? `,format=rgba,colorchannelmixer=aa=${op.opacity.toFixed(3)}` : "";
         overlayLinks.push(`[${idx}:v]scale=${w}:-2${alpha}[img${idx}]`);
@@ -1286,7 +1324,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         // B-roll: a second clip filling the frame for a while. The source audio
         // is kept underneath, which is what a cutaway is — the picture changes
         // and the person keeps talking.
-        extraInputs.push("-i", asset.file);
+        idx = addInput("-i", asset.file);
         const fit =
           op.fit === "cover"
             ? `scale=${frameWidth}:${frameHeight}:force_original_aspect_ratio=increase:flags=lanczos,crop=${frameWidth}:${frameHeight}`
@@ -1304,10 +1342,10 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   }
 
   if (motionLayer) {
-    const idx = extraInputs.length / 2 + 1;
-    extraInputs.push(...motionInputArgs());
-    const inLabel = overlayLinks.length === 0 ? "OVBASE" : `ov${overlayLinks.length}`;
-    const outLabel = `ov${overlayLinks.length + 1}`;
+    const idx = addInput(...motionInputArgs());
+    const stage = overlayLinks.length / 2;
+    const inLabel = stage === 0 ? "OVBASE" : `ov${stage}`;
+    const outLabel = `ov${stage + 1}`;
     // `tmix` is the shutter: four samples averaged into one frame, so fast
     // movement smears and slow movement stays sharp without anyone deciding
     // which is which. `select` then keeps one frame per group so the layer
@@ -1318,6 +1356,103 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         `scale=${frameWidth}:${frameHeight}[mot]`,
     );
     overlayLinks.push(`[${inLabel}][mot]overlay=0:0:eof_action=pass[${outLabel}]`);
+  }
+
+  // ── The bed ───────────────────────────────────────────────────────────────
+  //
+  // Music is the one thing in this file laid on the *output* clock. Everything
+  // else arrives on the source clock and is carried through the cut map,
+  // because everything else is pinned to a moment in the recording. A bed is
+  // pinned to the finished edit: it starts when the edit starts and ends when
+  // it ends, whatever survived the cuts in between.
+  //
+  // Three shapes come out of here, and which one you get is decided by what is
+  // actually in the file, not by what the plan hoped:
+  //
+  //   speech + music + duck  →  the bed is compressed by the speech itself
+  //   speech + music         →  a straight mix at the asked-for level
+  //   music alone            →  the bed *is* the audio, and the render maps it
+  //
+  // The third is why `hasAudioOut` exists. A silent phone clip with a track
+  // under it used to come out silent, because every audio decision in here
+  // asked whether the *source* had audio.
+  const musicParts: string[] = [];
+  let musicMixed = false;
+  if (music) {
+    if (!musicAsset) {
+      notes.push(`skipped the music: asset ${music.assetId} is not in this project`);
+    } else if (!musicUsable) {
+      // The kind is re-derived from the bytes on upload, so this is a plan
+      // asking to play a video file as a song, not a mislabelled file.
+      notes.push("skipped the music: that asset is not an audio file");
+    } else {
+      const inputArgs: string[] = [];
+      // `-stream_loop` before `-i` repeats the decoded input; the trim below
+      // is what makes the repetition finite. Without the trim a looped bed is
+      // an input that never ends and a render that never returns.
+      if (music.loop) inputArgs.push("-stream_loop", "-1");
+      // Seeking the input rather than trimming the filter means each repeat
+      // also starts past the intro, which is the point of asking for it.
+      if (music.fromSeconds > 0) inputArgs.push("-ss", music.fromSeconds.toFixed(3));
+      inputArgs.push("-i", musicAsset.file);
+      const idx = addInput(...inputArgs);
+
+      // The fades are the bed's own, not the edit's: `fade` ramps the finished
+      // picture and mix together, and a bed that snapped in under a fade-in
+      // would announce itself as an edit. Clamped to a third of the output so
+      // the two never meet in the middle of a short clip.
+      const askedFade = music.fadeSeconds;
+      const fadeSeconds = Math.min(askedFade, effectiveDuration / 3);
+      const fadeChain =
+        fadeSeconds > 0.01
+          ? `,afade=t=in:st=0:d=${fadeSeconds.toFixed(3)}` +
+            `,afade=t=out:st=${Math.max(0, effectiveDuration - fadeSeconds).toFixed(3)}:d=${fadeSeconds.toFixed(3)}`
+          : "";
+
+      musicParts.push(
+        `[${idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,` +
+          `atrim=0:${effectiveDuration.toFixed(3)},asetpts=PTS-STARTPTS,` +
+          `volume=${music.gainDb.toFixed(1)}dB${fadeChain}[mus]`,
+      );
+
+      const wantsDuck = music.duck && source.hasAudio;
+      if (source.hasAudio) {
+        if (wantsDuck) {
+          // The speech keys its own ducking. `asplit` because the same stream
+          // has to be both the thing you hear and the thing the compressor
+          // listens to — ffmpeg will not read one link twice.
+          musicParts.push(`[${aLabel}]asplit=2[spmain][spkey]`);
+          musicParts.push(
+            `[mus][spkey]sidechaincompress=threshold=0.02:ratio=6:attack=15:release=350[musduck]`,
+          );
+          // `normalize=0` is not a detail. amix averages its inputs by default,
+          // so mixing a bed in at -18dB would also drop the voice 6dB — the
+          // edit would come out quieter than it went in and the level note
+          // above it would be a lie.
+          musicParts.push(`[spmain][musduck]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[amix]`);
+        } else {
+          musicParts.push(`[${aLabel}][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[amix]`);
+        }
+        aLabel = "amix";
+      } else {
+        // Nothing to duck under and nothing to mix with: the bed is the track.
+        aLabel = "mus";
+      }
+      musicMixed = true;
+
+      notes.push(
+        !source.hasAudio
+          ? `laid music under the whole edit at ${music.gainDb.toFixed(0)}dB — this clip had no sound of its own, so the music is all of it`
+          : wantsDuck
+            ? `laid music under the whole edit at ${music.gainDb.toFixed(0)}dB, ducking under the speech`
+            : `laid music under the whole edit at ${music.gainDb.toFixed(0)}dB`,
+      );
+      if (fadeSeconds < askedFade - 0.001 && askedFade > 0) {
+        notes.push(
+          `the music fades run ${fadeSeconds.toFixed(1)}s rather than the ${askedFade.toFixed(1)}s asked — shorter, so they stay a third of this short edit at most`,
+        );
+      }
+    }
   }
 
   // ── Assemble ──────────────────────────────────────────────────────────────
@@ -1331,14 +1466,15 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   if (videoParts.length > 0) graphParts.push(`[${vLabel}]${videoParts.join(",")}[${mainVideoOut}]`);
   else if (hasOverlays) graphParts.push(`[${kept ? vLabel : "0:v"}]null[OVBASE]`);
   graphParts.push(...overlayLinks);
-  if (source.hasAudio && audioParts.length > 0) graphParts.push(`[${aLabel}]${audioParts.join(",")}[aout]`);
+  graphParts.push(...musicParts);
+  if (hasAudioOut && audioParts.length > 0) graphParts.push(`[${aLabel}]${audioParts.join(",")}[aout]`);
 
   // A bracketed name is a filter label; a bare one is an input stream. Mixing
   // them up makes ffmpeg look for "0:a" inside the graph and fail on a plan
   // that touches only the picture.
   const overlayTail = overlayLinks.length > 0 ? `[ov${overlayLinks.length / 2}]` : null;
   let finalV = overlayTail ?? (videoParts.length > 0 ? "[vout]" : kept ? `[${vLabel}]` : "0:v");
-  let finalA = audioParts.length > 0 ? "[aout]" : kept ? `[${aLabel}]` : "0:a";
+  let finalA = audioParts.length > 0 ? "[aout]" : kept || musicMixed ? `[${aLabel}]` : "0:a";
 
   // ── The fade ──────────────────────────────────────────────────────────────
   //
@@ -1356,7 +1492,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     const vIn = finalV.startsWith("[") ? finalV : `[${finalV}]`;
     graphParts.push(`${vIn}fade=t=in:st=0:d=${d.toFixed(3)},fade=t=out:st=${outStart}:d=${d.toFixed(3)}[fadev]`);
     finalV = "[fadev]";
-    if (source.hasAudio) {
+    if (hasAudioOut) {
       const aIn = finalA.startsWith("[") ? finalA : `[${finalA}]`;
       graphParts.push(
         `${aIn}afade=t=in:st=0:d=${d.toFixed(3)},afade=t=out:st=${outStart}:d=${d.toFixed(3)}[fadea]`,
@@ -1376,10 +1512,10 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   if (graph.length > 0) args.push("-filter_complex", graph);
 
   args.push("-map", finalV);
-  if (source.hasAudio) args.push("-map", finalA);
+  if (hasAudioOut) args.push("-map", finalA);
 
   args.push(...videoEncodeFor(frameHeight));
-  if (source.hasAudio) args.push(...AUDIO_ENCODE);
+  if (hasAudioOut) args.push(...AUDIO_ENCODE);
   args.push(...FASTSTART, output);
 
   ctx.onProgress?.(0.15, describeWork(plan));
@@ -1463,6 +1599,7 @@ export function describe(op: EditOperation): string {
     case "kenBurns": return "Adding a slow push";
     case "zoomPunch": return "Adding punch-in zooms";
     case "normalizeLoudness": return "Levelling the audio";
+    case "addMusic": return "Laying the music under it";
     case "insertBRoll": return "Cutting in your b-roll";
     case "overlayImage": return "Laying your image over the frame";
     case "motionTitle": return "Animating your titles";
