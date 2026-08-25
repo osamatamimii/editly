@@ -968,6 +968,22 @@ section("The operations console stays an operations console");
     "a client-side admin check appeared, which is a curtain and not a door",
   );
 
+  // The waiting list is addresses belonging to people who have no account, so
+  // it is the one table here whose contents nobody outside this page should
+  // ever see. Reading it is the console's alone — asserted on the route it
+  // calls, because a section that quietly fetched from somewhere public would
+  // look identical on screen.
+  check(
+    "the waiting list is read through the console's own route",
+    /useListWaitlist/.test(admin) && !/\/api\/waitlist(?!\?)/.test(admin),
+    "the console reads the waiting list from somewhere other than /api/admin/waitlist",
+  );
+  check(
+    "and it shows where each person came from, so two promises can be told apart",
+    /entry\.source/.test(admin),
+    "the source column is missing",
+  );
+
   const dashboard = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/dashboard.tsx"), "utf8");
   check(
     "the link to it is shown only because the server answered, not because the client decided",
