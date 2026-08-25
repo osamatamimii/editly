@@ -243,6 +243,11 @@ sweepSeededJobs();
  * checks are written as deltas so they survive that, and this sweeps anyway so
  * the database does not accumulate a test's leavings forever.
  */
+/** One-line SQL that returns its output, for asserting on what was written. */
+function psqlGlobalRead(query) {
+  return spawnSync("psql", [process.env.DATABASE_URL, "-tAc", query], { encoding: "utf8" }).stdout ?? "";
+}
+
 function sweepSeededUsers() {
   spawnSync(
     "psql",
@@ -1528,10 +1533,21 @@ console.log("\nOne person cannot spend everybody's money");
     "a timestamp from the future is clock skew, not an hour-long lockout",
     verdictFor(41, new Date(Date.now() + 60_000), 40, 600_000).retryAfterSeconds <= 600,
   );
+  // The floor is not one number, and it used to be — a flat 30, which was true
+  // of every limit written while every limited action was one people repeat.
+  // Joining a waiting list is a one-time act: six is six times over, and a
+  // check demanding thirty there is asserting a number rather than the rule
+  // the number came from. The rule is the ratio, and each limit now records
+  // what one person doing the thing legitimately needs.
   check(
-    "every limit is well above what the product's own copy invites",
-    Object.values(LIMITS).every((l) => l.limit >= 30 && l.windowMs >= 60_000),
-    JSON.stringify(Object.values(LIMITS).map((l) => [l.name, l.limit])),
+    "every limit sits at least five times above what one person needs",
+    Object.values(LIMITS).every((l) => l.limit >= 5 * l.perPerson && l.windowMs >= 60_000),
+    JSON.stringify(Object.values(LIMITS).map((l) => [l.name, l.perPerson, l.limit])),
+  );
+  check(
+    "and every limit says what one person needs, so the ceiling can be read against something",
+    Object.values(LIMITS).every((l) => Number.isFinite(l.perPerson) && l.perPerson >= 1),
+    JSON.stringify(Object.values(LIMITS).map((l) => [l.name, l.perPerson])),
   );
   check(
     "and every one says what to do rather than quoting a number of milliseconds",
@@ -1885,6 +1901,113 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
   check("not the first user either", unset.isAdmin(BOB) === false);
   check("and the count says so", unset.adminCount() === 0);
   process.env.ADMIN_USER_IDS = ALICE;
+}
+
+// ── The one public write in the product ─────────────────────────────────────
+console.log("\nThe waiting list takes anyone, and is the only thing that does");
+{
+  psqlGlobal(`delete from waitlist where email like '%@iso-test.invalid'`);
+  psqlGlobal(`delete from rate_limits where bucket like 'ip:%'`);
+
+  const join = (body, headers = {}) =>
+    fetch(`${BASE}/api/waitlist`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
+
+  // No token at all. Every other write in this file is 401 without one; this is
+  // the single exception, and it is the point of a waiting list.
+  const first = await join({ email: "Someone@ISO-test.invalid ", source: "editlyai.io" });
+  check("somebody with no account can join", first.status === 201, `got ${first.status}`);
+  check("and is told they are on it", first.json?.joined === true, JSON.stringify(first.json));
+  check(
+    "with the size of the list, not a position we would have to break later",
+    typeof first.json?.total === "number" && first.json.total >= 1,
+    JSON.stringify(first.json),
+  );
+
+  const stored = psqlGlobalRead(
+    `select email, source from waitlist where email = 'someone@iso-test.invalid'`,
+  );
+  check(
+    "the address is stored trimmed and lowercased, so the primary key can do its job",
+    stored.includes("someone@iso-test.invalid"),
+    stored,
+  );
+  check("and the page it came from is kept", stored.includes("editlyai.io"), stored);
+
+  // Signing up twice is somebody clicking again, not an error.
+  const again = await join({ email: "someone@iso-test.invalid" });
+  check("signing up twice is not an error", again.status === 201, `got ${again.status}`);
+  const rows = psqlGlobalRead(
+    `select count(*)::int from waitlist where email = 'someone@iso-test.invalid'`,
+  );
+  check("and does not make a second row", rows.trim() === "1", rows);
+
+  const bad = await join({ email: "not-an-address" });
+  check("an address that is not one is refused", bad.status === 400, `got ${bad.status}`);
+  const empty = await join({});
+  check("and so is no address at all", empty.status === 400, `got ${empty.status}`);
+
+  // The source is a label, not a payload: bounded server-side whatever arrives.
+  await join({ email: "long-source@iso-test.invalid", source: "x".repeat(400) });
+  const sourceLength = psqlGlobalRead(
+    `select coalesce(length(source),0)::int from waitlist where email = 'long-source@iso-test.invalid'`,
+  );
+  check("a source longer than the column expects is cut, not stored whole", Number(sourceLength.trim()) <= 120, sourceLength);
+
+  // Open with no limit is an invitation to fill the table. The limiter here
+  // keys on the address rather than the user, because there is no user.
+  psqlGlobal(`delete from rate_limits where bucket like 'ip:%'`);
+  let limited = null;
+  for (let i = 0; i < 9 && limited === null; i += 1) {
+    const attempt = await join(
+      { email: `flood-${i}@iso-test.invalid` },
+      { "x-forwarded-for": "203.0.113.7, 70.41.3.18" },
+    );
+    if (attempt.status === 429) limited = attempt;
+  }
+  check("a script looping on it is stopped", limited !== null, "never rate limited");
+  check(
+    "and told what happened rather than left guessing",
+    typeof limited?.json?.error === "string" && limited.json.error.length > 0,
+    JSON.stringify(limited?.json),
+  );
+  const bucket = psqlGlobalRead(`select bucket from rate_limits where bucket like 'ip:203.0.113.7:%'`);
+  check(
+    "keyed on the client address, not on the edge node that forwarded it",
+    bucket.includes("203.0.113.7") && !bucket.includes("70.41.3.18"),
+    bucket,
+  );
+
+  // A different address is a different person and is not punished for it.
+  const other = await join(
+    { email: "elsewhere@iso-test.invalid" },
+    { "x-forwarded-for": "198.51.100.4" },
+  );
+  check("somebody else at another address still gets through", other.status === 201, `got ${other.status}`);
+
+  // The list is written by anyone and read by nobody but the console.
+  const bobsPeek = await call(BOB, "/api/admin/waitlist");
+  check("a signed-in stranger cannot read the list", bobsPeek.status === 404, `got ${bobsPeek.status}`);
+  const anonPeek = await fetch(`${BASE}/api/admin/waitlist`);
+  check("and neither can somebody with no account", anonPeek.status === 401, `got ${anonPeek.status}`);
+
+  const list = await call(ALICE, "/api/admin/waitlist");
+  check("the console can", list.status === 200, `got ${list.status}`);
+  check(
+    "and sees the addresses that joined",
+    (list.json?.entries ?? []).some((e) => e.email === "someone@iso-test.invalid"),
+    JSON.stringify(list.json?.entries?.slice(0, 3)),
+  );
+  check("newest first", (() => {
+    const dates = (list.json?.entries ?? []).map((e) => new Date(e.createdAt).getTime());
+    return dates.every((d, i) => i === 0 || dates[i - 1] >= d);
+  })(), JSON.stringify(list.json?.entries?.slice(0, 3)));
+
+  psqlGlobal(`delete from waitlist where email like '%@iso-test.invalid'`);
+  psqlGlobal(`delete from rate_limits where bucket like 'ip:%'`);
 }
 
 // Leave the database as we found it.

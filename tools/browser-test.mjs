@@ -1489,6 +1489,101 @@ section("Sizes are written the way a person reads them");
   check("and gigabytes two", formatted[5] === "2.50 GB", JSON.stringify(formatted));
 }
 
+section("The waiting-list page signs somebody up, and says so when it cannot");
+{
+  /*
+   * The page is the deliverable, so it is loaded and driven rather than read.
+   * Its API is stubbed by route interception, which lets each answer the real
+   * endpoint can give be played back in turn — including the two that have no
+   * status code at all: a request that never leaves, and a server that is
+   * simply not there. Those are the branches a form usually forgets, and they
+   * are the ones that make somebody close the tab.
+   */
+  const pagePath = path.join(repoRoot, "artifacts/waitlist/index.html");
+  check("the page exists where the deploy expects it", existsSync(pagePath));
+
+  const html = readFileSync(pagePath, "utf8");
+  check(
+    "it carries the product's own mark rather than a second logo file",
+    html.includes("M186.0 573.4"),
+  );
+  check(
+    "and the product's own purple, not a colour picked again by eye",
+    html.includes("255 100% 62%") && html.includes("259 100% 71%"),
+  );
+  check(
+    "the email field is large enough that iOS does not zoom the page on focus",
+    /input\[type="email"\][\s\S]*?font-size:\s*16px/.test(html),
+  );
+
+  const wl = await browser.newPage();
+  const pageErrors = [];
+  wl.on("pageerror", (error) => pageErrors.push(String(error)));
+
+  let lastRequest = null;
+  let reply = { status: 201, body: { joined: true, total: 42 } };
+  await wl.route("**/api/waitlist", async (route) => {
+    lastRequest = JSON.parse(route.request().postData() || "{}");
+    if (reply === "abort") return route.abort("failed");
+    await route.fulfill({
+      status: reply.status,
+      contentType: "application/json",
+      body: JSON.stringify(reply.body ?? {}),
+    });
+  });
+
+  await wl.goto("file://" + pagePath);
+
+  // An address that is not one never reaches the network.
+  await wl.fill("#email", "nope");
+  await wl.click("#submit");
+  check(
+    "a malformed address is refused without a request",
+    lastRequest === null && (await wl.textContent("#note")).includes("does not look like"),
+    await wl.textContent("#note"),
+  );
+
+  await wl.fill("#email", "  Someone@Example.COM ");
+  await wl.click("#submit");
+  await wl.waitForSelector("#done", { state: "visible" });
+  check("a good address is sent", lastRequest?.email?.trim().toLowerCase() === "someone@example.com", JSON.stringify(lastRequest));
+  check("with the page it came from", lastRequest?.source === "editlyai.io", JSON.stringify(lastRequest));
+  check("the form is replaced by the confirmation", await wl.isHidden("#join"));
+  check(
+    "and the count is shown as people waiting, never as a position",
+    (await wl.textContent("#doneText")).includes("42") &&
+      !/position|you are #|number \d+ in/i.test(await wl.textContent("#doneText")),
+    await wl.textContent("#doneText"),
+  );
+
+  // Each failure says something different, because the advice is different.
+  const answers = [
+    { reply: { status: 429, body: { error: "slow down" } }, expect: /few minutes/i, name: "rate limited" },
+    { reply: { status: 500, body: {} }, expect: /our side/i, name: "a server error" },
+    { reply: "abort", expect: /connection/i, name: "no network at all" },
+  ];
+  for (const answer of answers) {
+    await wl.reload();
+    reply = answer.reply;
+    await wl.fill("#email", "someone@example.com");
+    await wl.click("#submit");
+    await wl.waitForFunction(
+      () => !document.getElementById("note").textContent.includes("Adding you"),
+      { timeout: 5000 },
+    );
+    const said = await wl.textContent("#note");
+    check(`${answer.name} is explained in words`, answer.expect.test(said), said);
+    check(
+      `and after ${answer.name} they can try again`,
+      (await wl.isDisabled("#submit")) === false,
+    );
+    check(`${answer.name} does not show the confirmation`, await wl.isHidden("#done"));
+  }
+
+  check("nothing threw in the waiting-list page", pageErrors.length === 0, pageErrors.slice(0, 2).join(" | "));
+  await wl.close();
+}
+
 check("nothing threw in the page while all that ran", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
 
 await browser.close();
