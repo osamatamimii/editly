@@ -1071,3 +1071,50 @@ export type SetSuspendedBody = z.infer<typeof SetSuspendedBody>;
 
 export const RequeueJobBody = AdminReasonBody;
 export type RequeueJobBody = z.infer<typeof RequeueJobBody>;
+
+// ---------------------------------------------------------------------------
+// the waiting list
+//
+// The only public write in the product: the person signing up does not have an
+// account yet, which is the entire point of a waiting list.
+// ---------------------------------------------------------------------------
+
+export const JoinWaitlistBody = z.object({
+  email: z.string().trim().min(3).max(320).email(),
+  /**
+   * Which page they signed up from.
+   *
+   * Sent by the page rather than inferred from the Origin header, because the
+   * two answer different questions — the header says which host served the
+   * script, this says which promise the person was reading. Bounded and
+   * trimmed server-side; it is a label, not a payload.
+   */
+  source: z.string().max(120).optional(),
+});
+export type JoinWaitlistBody = z.infer<typeof JoinWaitlistBody>;
+
+export const JoinWaitlistResponse = z.object({
+  joined: z.literal(true),
+  /**
+   * How many people are on the list, not this person's index in it.
+   *
+   * An index is a promise about order, and nothing stops us admitting people
+   * out of order. A number we would have to break later is worth less than the
+   * honest one.
+   */
+  total: z.number().int(),
+});
+export type JoinWaitlistResponse = z.infer<typeof JoinWaitlistResponse>;
+
+export const WaitlistEntrySummary = z.object({
+  email: z.string(),
+  source: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type WaitlistEntrySummary = z.infer<typeof WaitlistEntrySummary>;
+
+export const ListWaitlistResponse = z.object({
+  entries: z.array(WaitlistEntrySummary),
+  total: z.number().int(),
+});
+export type ListWaitlistResponse = z.infer<typeof ListWaitlistResponse>;
