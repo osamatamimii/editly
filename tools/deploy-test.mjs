@@ -388,6 +388,46 @@ section("CI has what the suites need");
   check("and it runs on pull requests, not only on main", /pull_request/.test(checksWorkflow));
 }
 
+section("The waiting-list page can actually reach the API");
+{
+  // This page is the one part of the product served from a different origin
+  // than the API it calls, which makes it the one part where a browser can
+  // refuse the request for a reason no server log records. A CORS failure is
+  // invisible from our side: the API never sees the call, the page shows its
+  // "could not reach us" branch, and every sign-up is silently lost. So the
+  // two ends are checked against each other here rather than trusted to stay
+  // in step.
+  const page = read("artifacts/waitlist/index.html");
+  const app = read("artifacts/api-server/src/app.ts");
+
+  const apiUrl = /var API = "([^"]+)"/.exec(page)?.[1] ?? "";
+  check("the page names an absolute API endpoint", /^https:\/\/\S+\/api\/waitlist$/.test(apiUrl), apiUrl);
+
+  // Not a *.vercel.app host. That hostname is derived from the project name,
+  // so renaming the project in the dashboard — a thing with no other
+  // consequence — would point this page at nothing, and the only symptom
+  // would be a sign-up form that quietly stopped working.
+  check(
+    "on a domain we own rather than one the platform generated",
+    /^https:\/\/[a-z0-9.-]*editlyai\.io\//.test(apiUrl),
+    apiUrl,
+  );
+
+  // The origins the page is *served* from are what CORS actually turns on, and
+  // they are not the same string as the one above.
+  for (const origin of ["https://editlyai.io", "https://www.editlyai.io"]) {
+    check(`the API allows ${origin} to call it`, app.includes(`"${origin}"`), "missing from STATIC_ORIGINS");
+  }
+
+  // And the route it calls has to be the one that needs no bearer token: this
+  // page has no session and never will.
+  check(
+    "the route it calls is the one public write there is",
+    /\/api\/waitlist$/.test(apiUrl) && existsSync(path.join(repoRoot, "artifacts/api-server/src/routes/waitlist.ts")),
+    apiUrl,
+  );
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);
