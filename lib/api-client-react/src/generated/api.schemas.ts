@@ -579,3 +579,27 @@ export interface ListAdminActionsResponse {
   actions: AdminActionRecord[];
   total: number;
 }
+
+/** Asking to be told when it opens. The only public write in the product. */
+export interface JoinWaitlistBody {
+  email: string;
+  /** Which page they signed up from. */
+  source?: string;
+}
+
+export interface JoinWaitlistResponse {
+  joined: true;
+  /** How many people are on the list, not this person's index in it. */
+  total: number;
+}
+
+export interface WaitlistEntrySummary {
+  email: string;
+  source: string | null;
+  createdAt: string;
+}
+
+export interface ListWaitlistResponse {
+  entries: WaitlistEntrySummary[];
+  total: number;
+}
