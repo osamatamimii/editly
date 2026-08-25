@@ -364,9 +364,23 @@ export interface FadeOperation {
   durationMs?: number;
 }
 
-/** Dissolve between the cuts — each shot mixes into the next instead of jumping. */
-export interface DissolveOperation {
-  type: "dissolve";
+/** How one shot becomes the next. Ten styles, no invalid combination representable. */
+export type TransitionStyle =
+  | "dissolve"
+  | "wipeLeft"
+  | "wipeRight"
+  | "wipeUp"
+  | "wipeDown"
+  | "slideLeft"
+  | "slideRight"
+  | "slideUp"
+  | "slideDown"
+  | "flash";
+
+/** The transition between the cuts. Overlaps every join, so the edit comes out shorter. */
+export interface TransitionOperation {
+  type: "transition";
+  style?: TransitionStyle;
   /** How long each join overlaps, in milliseconds. */
   durationMs?: number;
 }
@@ -432,7 +446,7 @@ export type EditOperation =
   | ExtractClipsOperation
   | ColdOpenOperation
   | FadeOperation
-  | DissolveOperation
+  | TransitionOperation
   | FormatForPlatformOperation
   | BurnCaptionsOperation
   | WatermarkOperation
