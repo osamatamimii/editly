@@ -27,6 +27,7 @@ import type {
   ListAdminAccountsResponse,
   ListAdminActionsResponse,
   ListAdminJobsResponse,
+  ListWaitlistResponse,
   Message,
   MessagePair,
   Project,
@@ -1437,6 +1438,76 @@ export function useListAdminJobs<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListAdminJobsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * The waiting list, for the console.
+ *
+ * The one list here made of people who are not customers yet. Written by a
+ * public route and read by the most private one in the product.
+ */
+export const getListWaitlistUrl = (params?: { limit?: number }) => {
+  const search = new URLSearchParams();
+  if (params?.limit !== undefined) search.set("limit", String(params.limit));
+  const query = search.toString();
+  return query ? `/api/admin/waitlist?${query}` : `/api/admin/waitlist`;
+};
+
+export const listWaitlist = async (
+  params?: { limit?: number },
+  options?: RequestInit,
+): Promise<ListWaitlistResponse> => {
+  return customFetch<ListWaitlistResponse>(getListWaitlistUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListWaitlistQueryKey = (params?: { limit?: number }) => {
+  return [`/api/admin/waitlist`, params] as const;
+};
+
+export const getListWaitlistQueryOptions = <
+  TData = Awaited<ReturnType<typeof listWaitlist>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: { limit?: number },
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof listWaitlist>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListWaitlistQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listWaitlist>>> = ({ signal }) =>
+    listWaitlist(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listWaitlist>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export function useListWaitlist<
+  TData = Awaited<ReturnType<typeof listWaitlist>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: { limit?: number },
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof listWaitlist>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListWaitlistQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
