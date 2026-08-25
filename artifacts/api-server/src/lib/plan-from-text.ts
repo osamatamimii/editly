@@ -415,26 +415,18 @@ export function planFromText(
   // "transitions" would be answering the vaguer half of their sentence.
   if (shapedStyle || wantsDissolve || wantsAnyTransition) {
     const style = shapedStyle ?? "dissolve";
-    const named =
+    // This briefly refused to run alongside a cold open, because a reordered
+    // cut list deadlocked the renderer's audio crossfade. The renderer now
+    // seeks each piece on its own input instead of branching one decode, so
+    // the pair works and the promise is good again. The note is left here
+    // because the two features still interact, and the next person to touch
+    // either one should know that they do.
+    operations.push({ type: "transition", style, durationMs: 250 });
+    willDo.push(
       style === "dissolve"
         ? "dissolve between the cuts instead of jumping"
-        : `join the cuts with a ${STYLE_IN_WORDS[style]} instead of jumping`;
-
-    // A cold open moves the hook to the front, which makes the edit play its
-    // own source out of order — and a transition cannot be laid across that.
-    // The renderer refuses it and says so, but by then the reply has already
-    // promised it, and a promise we knew we would break while making it is
-    // worse than one the footage turned out not to allow. So it is said here,
-    // where it is already knowable.
-    const hasHook = operations.some((op) => op.type === "coldOpen");
-    if (hasHook) {
-      cannotYet.push(
-        `${named} while also opening on the hook — the hook moves to the front, and a transition cannot cross an edit that plays out of order`,
-      );
-    } else {
-      operations.push({ type: "transition", style, durationMs: 250 });
-      willDo.push(named);
-    }
+        : `join the cuts with a ${STYLE_IN_WORDS[style]} instead of jumping`,
+    );
   }
 
   // ── The project's own files ────────────────────────────────────────────────
