@@ -1153,7 +1153,7 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
 
   const soft = await renderPlan(
     twoShots,
-    { version: 1, operations: [...cutOps, { type: "dissolve", durationMs: 400 }] },
+    { version: 1, operations: [...cutOps, { type: "transition", style: "dissolve", durationMs: 400 }] },
     { workDir: await scratch() },
   );
   const softSeconds = Number(ffprobe(soft.output, "format=duration")[0]);
@@ -1191,15 +1191,146 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
   check("before the dissolve begins the first shot is still itself", lumaAt(soft.output, midway - 0.35) > 200, String(lumaAt(soft.output, midway - 0.35)));
   check("after it ends the second shot is too", lumaAt(soft.output, midway + 0.35) < 40, String(lumaAt(soft.output, midway + 0.35)));
 
-  // Nothing to dissolve between is not an error, and not silence either.
-  const nothingToJoin = await renderPlan(
+  // ── A shape, not a blend ─────────────────────────────────────────────────
+  //
+  // This is the check that tells a wipe from a dissolve, and it has to measure
+  // *geometry* rather than "something changed" — both make the frame differ
+  // from either shot, and a test that only asserts that would pass with the
+  // dissolve wired to every style. Halfway through a left wipe the frame is
+  // split: one side is entirely the outgoing shot and the other entirely the
+  // incoming one, with a hard edge between. Halfway through a dissolve both
+  // sides are the same grey. So each side is measured on its own.
+  const sideLuma = (file, at, side) => {
+    const crop = side === "left" ? "iw/3:ih:0:0" : "iw/3:ih:2*iw/3:0";
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},trim=start=${at}:end=${at + 0.06},crop=${crop},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.YAVG",
+        "-of", "default=nw=1:nk=1",
+      ],
+      { encoding: "utf8" },
+    );
+    const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number);
+    return vals.length > 0 ? vals[0] : NaN;
+  };
+
+  const wiped = await renderPlan(
     twoShots,
-    { version: 1, operations: [{ type: "dissolve", durationMs: 400 }] },
+    { version: 1, operations: [...cutOps, { type: "transition", style: "wipeLeft", durationMs: 400 }] },
     { workDir: await scratch() },
   );
   check(
-    "a dissolve on an uncut video says there was nothing to join",
-    nothingToJoin.notes.some((n) => /no cuts in this edit to dissolve between/.test(n)),
+    "a wipe says it wiped, and which way",
+    wiped.notes.some((n) => /wiped left between the cuts over 0\.40s/.test(n)),
+    JSON.stringify(wiped.notes),
+  );
+  const wipedSeconds = Number(ffprobe(wiped.output, "format=duration")[0]);
+  check(
+    "and costs the same overlap as the dissolve — the shape is free, the join is not",
+    Math.abs(wipedSeconds - softSeconds) < 0.12,
+    `wipe ${wipedSeconds}, dissolve ${softSeconds}`,
+  );
+
+  // The same instant as `midway` above, and computed the same way rather than
+  // from this file's own duration: the transition occupies the last overlap of
+  // the first kept stretch, so it is measured from the *hard cut* length. The
+  // first attempt subtracted the overlap twice and landed before the join had
+  // begun — where both sides are legitimately the same shot, which is exactly
+  // what a broken wipe would also look like.
+  const wipeMid = midway;
+  const wipeLeftSide = sideLuma(wiped.output, wipeMid, "left");
+  const wipeRightSide = sideLuma(wiped.output, wipeMid, "right");
+  check(
+    "halfway through a wipe the two sides are different shots, not one average",
+    Math.abs(wipeLeftSide - wipeRightSide) > 120,
+    `left ${wipeLeftSide}, right ${wipeRightSide}`,
+  );
+  check(
+    "one side is fully the shot arriving and the other fully the shot leaving",
+    (wipeLeftSide < 60 && wipeRightSide > 190) || (wipeLeftSide > 190 && wipeRightSide < 60),
+    `left ${wipeLeftSide}, right ${wipeRightSide}`,
+  );
+
+  // The same measurement on the dissolve, which is what makes the one above
+  // mean something: a dissolve has no side to be on.
+  const dissolveLeftSide = sideLuma(soft.output, midway, "left");
+  const dissolveRightSide = sideLuma(soft.output, midway, "right");
+  check(
+    "whereas halfway through a dissolve both sides are the same mix",
+    Math.abs(dissolveLeftSide - dissolveRightSide) < 30,
+    `left ${dissolveLeftSide}, right ${dissolveRightSide}`,
+  );
+
+  // The flash goes through white, which neither shot is — white is the tell.
+  const flashed = await renderPlan(
+    twoShots,
+    { version: 1, operations: [...cutOps, { type: "transition", style: "flash", durationMs: 400 }] },
+    { workDir: await scratch() },
+  );
+  const flashSeconds = Number(ffprobe(flashed.output, "format=duration")[0]);
+  check(
+    "the flash costs the same overlap too",
+    Math.abs(flashSeconds - softSeconds) < 0.12,
+    `flash ${flashSeconds}, dissolve ${softSeconds}`,
+  );
+  // "Passes through white" is a claim about the *brightest* moment of the join,
+  // not about one frame of it: the whitest instant is a single frame near the
+  // middle and which frame that is depends on the frame rate. So the window is
+  // scanned and the peak taken — measuring the claim rather than a sample of it.
+  const peakOver = (file, from, to) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},trim=start=${from}:end=${to},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.YAVG",
+        "-of", "default=nw=1:nk=1",
+      ],
+      { encoding: "utf8" },
+    );
+    const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number).filter(Number.isFinite);
+    return vals.length > 0 ? Math.max(...vals) : NaN;
+  };
+  // A narrow window around the middle of the join, not the whole of it: the
+  // first frames of any transition are still almost entirely the outgoing shot
+  // — which here is white — so a window spanning the whole overlap peaks at
+  // white for every style and discriminates nothing.
+  const flashPeak = peakOver(flashed.output, midway - 0.07, midway + 0.07);
+  const dissolvePeak = peakOver(soft.output, midway - 0.07, midway + 0.07);
+  check(
+    "a flash passes through white on its way from one shot to the next",
+    flashPeak > 200,
+    String(flashPeak),
+  );
+  // What makes that mean something: at the very same instant the dissolve is
+  // halfway grey. Without this line the check above would pass on any style
+  // measured a moment early, while the white shot was still on screen.
+  // What makes that mean something: across the same window the dissolve never
+  // gets near white. Without this line the check above would pass on any style
+  // measured while the white shot was still on screen.
+  check(
+    "and the dissolve never does across the same window, so the tell is the flash",
+    flashPeak > dissolvePeak + 40,
+    `flash peak ${flashPeak}, dissolve peak ${dissolvePeak}`,
+  );
+  check(
+    "and says so",
+    flashed.notes.some((n) => /flashed white between the cuts/.test(n)),
+    JSON.stringify(flashed.notes),
+  );
+
+  // Nothing to dissolve between is not an error, and not silence either.
+
+  const nothingToJoin = await renderPlan(
+    twoShots,
+    { version: 1, operations: [{ type: "transition", style: "dissolve", durationMs: 400 }] },
+    { workDir: await scratch() },
+  );
+  check(
+    "a transition on an uncut video says there was nothing to join",
+    nothingToJoin.notes.some((n) => /no cuts in this edit to put a transition between/.test(n)),
     JSON.stringify(nothingToJoin.notes),
   );
   const untouched = Number(ffprobe(nothingToJoin.output, "format=duration")[0]);
@@ -1220,7 +1351,7 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
   ]);
   const greedy = await renderPlan(
     staccato,
-    { version: 1, operations: [...cutOps, { type: "dissolve", durationMs: 400 }] },
+    { version: 1, operations: [...cutOps, { type: "transition", style: "dissolve", durationMs: 400 }] },
     { workDir: await scratch() },
   );
   check(

@@ -599,7 +599,7 @@ console.log("\nAsking for a fade is a plan for the ends");
   );
   check(
     "and nobody gets a dissolve either",
-    !plain.operations.some((o) => o.type === "dissolve"),
+    !plain.operations.some((o) => o.type === "transition"),
     JSON.stringify(plain.operations.map((o) => o.type)),
   );
 
@@ -663,8 +663,8 @@ console.log("\nAsking for a dissolve is a plan for the joins");
   const planner = createPlanner({ apiKey: "" });
 
   const asked = await planner.plan("cut the silences and crossfade between the cuts", {});
-  const dissolve = asked.operations.find((o) => o.type === "dissolve");
-  check("'crossfade' becomes a dissolve", Boolean(dissolve), JSON.stringify(asked.operations.map((o) => o.type)));
+  const dissolve = asked.operations.find((o) => o.type === "transition");
+  check("'crossfade' becomes a transition", Boolean(dissolve), JSON.stringify(asked.operations.map((o) => o.type)));
   check("a quarter of a second by default", dissolve?.durationMs === 250, String(dissolve?.durationMs));
   check(
     "and it rides along with the cut it needs to have something to join",
@@ -687,21 +687,21 @@ console.log("\nAsking for a dissolve is a plan for the joins");
   const ends = await planner.plan("fade it in and out please", {});
   check(
     "and a fade ask is not also a dissolve",
-    !ends.operations.some((o) => o.type === "dissolve"),
+    !ends.operations.some((o) => o.type === "transition"),
     JSON.stringify(ends.operations.map((o) => o.type)),
   );
 
   const smooth = await planner.plan("make the cuts smoother, less jumpy", {});
   check(
     "'smooth the cuts' is heard as the join",
-    smooth.operations.some((o) => o.type === "dissolve"),
+    smooth.operations.some((o) => o.type === "transition"),
     JSON.stringify(smooth.operations.map((o) => o.type)),
   );
 
   const arabic = await planner.plan("خلي انتقال ناعم بين القصات", {});
   check(
     "and so is the Arabic",
-    arabic.operations.some((o) => o.type === "dissolve"),
+    arabic.operations.some((o) => o.type === "transition"),
     JSON.stringify(arabic.operations.map((o) => o.type)),
   );
 
@@ -709,7 +709,43 @@ console.log("\nAsking for a dissolve is a plan for the joins");
   // is what the word means to someone who has never seen this menu.
   const both = await planner.plan("add some transitions please", {});
   const types = both.operations.map((o) => o.type);
-  check("a bare transitions ask produces both kinds", types.includes("fade") && types.includes("dissolve"), JSON.stringify(types));
+  check("a bare transitions ask produces both kinds", types.includes("fade") && types.includes("transition"), JSON.stringify(types));
+}
+
+// The shapes, and the direction words that pick between them.
+console.log("\nA transition with a shape is heard as that shape");
+{
+  const planner = createPlanner({ apiKey: "" });
+  const styleOf = async (sentence) => {
+    const plan = await planner.plan(sentence, {});
+    return plan.operations.find((o) => o.type === "transition")?.style ?? null;
+  };
+
+  check("'wipe' alone is a left wipe", (await styleOf("cut the silences and wipe between the shots")) === "wipeLeft");
+  check("'wipe right' is the other way", (await styleOf("wipe right between the shots")) === "wipeRight");
+  check("'wipe up' too", (await styleOf("wipe up between the cuts")) === "wipeUp");
+  check("'slide' alone is a left slide", (await styleOf("slide between the shots")) === "slideLeft");
+  check("'push right' is a slide, because that is what people call it", (await styleOf("push right between the shots")) === "slideRight");
+  check("'flash' is the white one", (await styleOf("put a white flash between the cuts")) === "flash");
+  check("and the Arabic is heard", (await styleOf("خلي ومضة بين القصات")) === "flash");
+
+  // A named shape beats the general word. Somebody who said "wipe" asked for a
+  // wipe; answering the vaguer half of their sentence is answering somebody
+  // else's question.
+  check(
+    "a named shape wins over a bare 'transitions'",
+    (await styleOf("add transitions, wipe between the cuts")) === "wipeLeft",
+  );
+  check("and with nothing named it is still the dissolve", (await styleOf("add some transitions please")) === "dissolve");
+
+  // The word has to be about the join. "Slide" turns up in sentences that are
+  // not asking for one at all.
+  const notATransition = await planner.plan("make a slideshow of my photos", {});
+  check(
+    "a sentence that merely contains the word is not a transition ask",
+    !notATransition.operations.some((o) => o.type === "transition"),
+    JSON.stringify(notATransition.operations.map((o) => o.type)),
+  );
 }
 
 // The list of things we cannot do has to shrink as things get built, or it
@@ -733,7 +769,7 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
   const between = await planner.plan("crossfade between the cuts", {});
   check(
     "the join between two cuts now produces the dissolve that exists",
-    between.operations.some((o) => o.type === "dissolve"),
+    between.operations.some((o) => o.type === "transition"),
     JSON.stringify(between.operations.map((o) => o.type)),
   );
   check(
@@ -744,13 +780,13 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
 
   const shaped = await planner.plan("wipe from one shot to the next", {});
   check(
-    "a transition with a shape is still admitted as missing",
-    shaped.cannotYet.some((c) => /wipe or slide/i.test(c)),
-    JSON.stringify(shaped.cannotYet),
+    "a shaped transition is built now, not admitted as missing",
+    shaped.operations.some((o) => o.type === "transition"),
+    JSON.stringify(shaped.operations.map((o) => o.type)),
   );
   check(
-    "and the admission names what we do have instead",
-    shaped.cannotYet.some((c) => /a fade and a dissolve I can do/.test(c)),
+    "and nothing about transitions is left on the cannot-do list",
+    !shaped.cannotYet.some((c) => /wipe|slide|transition/i.test(c)),
     JSON.stringify(shaped.cannotYet),
   );
 
