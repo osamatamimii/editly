@@ -9,4 +9,5 @@ export * from "./rate-limits";
 export * from "./assets";
 export * from "./followups";
 export * from "./clips";
+export * from "./waitlist";
 export * from "./admin-actions";
