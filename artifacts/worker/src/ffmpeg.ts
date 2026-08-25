@@ -430,6 +430,29 @@ function videoEncodeFor(frameHeight: number): string[] {
 }
 
 /**
+ * How many pieces may be given their own decode of the source.
+ *
+ * An edit that plays out of order cannot share one decoder — see the cut chain
+ * for why — so each piece opens the file for itself. That is not free, and it
+ * is not linear. Measured on this machine against a 1080p source, peak
+ * resident memory for the whole ffmpeg process:
+ *
+ *     2 pieces   602 MB      5 pieces   912 MB
+ *     3 pieces   676 MB      6 pieces  1088 MB
+ *     4 pieces   776 MB      8 pieces  1532 MB
+ *
+ * The worker has 1 GB (fly.toml). Six pieces is already over the box, and an
+ * OOM kill is worse than the deadlock this replaced: the job dies with no note
+ * and no output, and the customer's minute is spent either way.
+ *
+ * Four is where the line goes. A cold open on its own produces three pieces —
+ * the hook, what came before it, what came after — so the ordinary case fits
+ * with room to spare. It takes a cold open *and* a silence cut to make more,
+ * and on that plan the join is dropped rather than the render.
+ */
+const MAX_SEPARATE_DECODES = 4;
+
+/**
  * Do these pieces play in the order they appear in the file?
  *
  * True for every edit that only *removes* material, which is all of them
@@ -930,6 +953,15 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       const room = shortest * 0.4;
       if (room < 0.05) {
         notes.push("the pieces this edit is cut into are too short to put a transition between, so the cuts stay hard");
+      } else if (!inSourceOrder(kept!) && kept!.length > MAX_SEPARATE_DECODES) {
+        // Overlapping the joins of an out-of-order edit costs one decoder per
+        // piece, and past four of them on a 1080p source that is more memory
+        // than the worker has. Trading a missing dissolve for an OOM kill is
+        // not a trade: the kill takes the whole render with it and says
+        // nothing. See MAX_SEPARATE_DECODES for the measurements.
+        notes.push(
+          `this edit opens on a hook and is cut into ${kept!.length} pieces — too many to overlap the joins of an edit that plays out of order, so the cuts stay hard and the hook stands`,
+        );
       } else {
         overlap = Math.min(asked, room);
         joinStyle = XFADE_STYLE[transition.style];
