@@ -879,6 +879,28 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   let vLabel = "0:v";
   let aLabel = "0:a";
 
+  const extraInputs: string[] = [];
+
+  /**
+   * ffmpeg's stream index for the next `-i`, counted rather than derived.
+   *
+   * It used to be `extraInputs.length / 2 + 1`, which reads as "two args per
+   * input" and is true of `-i file` and of nothing else here: a still is
+   * `-loop 1 -t D -i file` (six) and the motion layer is `-framerate N -i P`
+   * (four). So the first extra input was always right and the second was right
+   * only if the first happened to be b-roll — a plan that laid an image over
+   * the frame and *then* cut to b-roll asked ffmpeg for stream 4 of a command
+   * with three inputs, and the render died on a filtergraph error rather than
+   * on anything the person had done. One counter, incremented where the input
+   * is actually pushed, cannot drift from the args the way arithmetic over
+   * their length can.
+   */
+  let nextInput = 1; // input 0 is the source
+  const addInput = (...args: string[]): number => {
+    extraInputs.push(...args);
+    return nextInput++;
+  };
+
   // ── The join ──────────────────────────────────────────────────────────────
   //
   // How long each cut overlaps the next. Zero is a hard cut, which is what
@@ -897,29 +919,6 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       // error — it is usually a plan built for a longer recording than this one
       // turned out to be. Say what happened rather than silently doing nothing.
       notes.push("there are no cuts in this edit to put a transition between, so nothing was joined");
-    } else if (!inSourceOrder(kept!)) {
-      // The one plan that gets here is a cold open with a transition, because
-      // the cold open is the only thing in this file that *reorders* the cut
-      // list rather than shortening it.
-      //
-      // Every piece of the edit is a `trim` branch off one decode of the
-      // source, and ffmpeg feeds those branches in the order the decoder
-      // produces frames. Chained `acrossfade` over branches that want the file
-      // out of order does not merely come out wrong — it deadlocks: measured
-      // here, three out-of-order pieces never finish at all, and two produce a
-      // file with almost no audio in it. A render that never returns is worse
-      // than one that refuses, because the customer's minute is spent either
-      // way and only one of them says anything.
-      //
-      // Making both work together means giving the reordered piece its own
-      // input (`-ss` on a second `-i`) so no branch has to read backwards.
-      // That is a change to how every cut plan is built, not a special case,
-      // and it is not worth risking the ordinary path for the decoration. So
-      // the hook stays — it is the thing that was actually asked for — and the
-      // join goes, out loud.
-      notes.push(
-        "the hook was moved to the front, and a transition cannot be laid across a cut list that plays out of order — so the cuts stay hard and the cold open stands",
-      );
     } else {
       const asked = transition.durationMs / 1000;
       // The overlap has to fit inside the shortest thing it joins — twice, in
@@ -948,14 +947,46 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     const pieces: string[] = [];
     const withAudio = source.hasAudio;
     const last = kept.length - 1;
+
+    /**
+     * Does each piece get its own decode of the source, instead of being a
+     * `trim` branch off one shared one?
+     *
+     * Normally not, and normally it would be waste: one decode feeding several
+     * trims is exactly what a filter graph is for. But ffmpeg feeds those
+     * branches in the order the decoder produces frames, and a cold open is
+     * the one thing here that *reorders* the cut list rather than shortening
+     * it — the hook comes from the middle of the file and plays first. Chained
+     * `acrossfade` over branches that want the file out of order does not come
+     * out wrong, it **deadlocks**: measured, three out-of-order pieces never
+     * finish at all, and two produce a file with almost no audio in it. That
+     * is a job that burns to the worker's timeout with the customer's minute
+     * already spent.
+     *
+     * Seeking each piece on its own input removes the shared decoder, and with
+     * it the ordering constraint. It costs one extra seek per piece, which on
+     * an input-level `-ss` is close to free, and it is only paid on the plans
+     * that need it: an edit that only removes material still reads the file
+     * once, forwards, exactly as before.
+     */
+    const perPieceInput = overlap > 0 && !inSourceOrder(kept);
+
     kept.forEach((segment, i) => {
       // `fps` is only forced when the joins overlap: xfade reads two streams in
       // lockstep and a variable frame rate walks them out of it, where concat
       // simply plays one after the other and never has to care.
       const cadence = overlap > 0 ? `,fps=${source.fps.toFixed(4)}` : "";
-      pieces.push(
-        `[0:v]trim=start=${segment.start}:end=${segment.end},setpts=PTS-STARTPTS${cadence}[cv${i}]`,
-      );
+
+      // `-ss` before `-i` is an input seek: ffmpeg lands on the keyframe before
+      // the mark and decodes forward to it, so the piece is frame-accurate and
+      // the reading is cheap. `-t` bounds it, which is what `trim` did before.
+      const idx = perPieceInput
+        ? addInput("-ss", segment.start.toFixed(4), "-t", (segment.end - segment.start).toFixed(4), "-i", input)
+        : 0;
+      const vSource = perPieceInput
+        ? `[${idx}:v]setpts=PTS-STARTPTS${cadence}[cv${i}]`
+        : `[0:v]trim=start=${segment.start}:end=${segment.end},setpts=PTS-STARTPTS${cadence}[cv${i}]`;
+      pieces.push(vSource);
       if (!withAudio) return;
       // Every audio edge gets a blink-long ramp (15ms — under any perceptual
       // threshold for a fade, well over the one for a click). A cut lands
@@ -979,7 +1010,9 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         rampOut > 0 ? `afade=t=out:st=${Math.max(0, len - rampOut).toFixed(4)}:d=${rampOut.toFixed(4)}` : null,
       ].filter((part): part is string => part !== null);
       pieces.push(
-        `[0:a]atrim=start=${segment.start}:end=${segment.end},asetpts=PTS-STARTPTS` +
+        (perPieceInput
+          ? `[${idx}:a]asetpts=PTS-STARTPTS`
+          : `[0:a]atrim=start=${segment.start}:end=${segment.end},asetpts=PTS-STARTPTS`) +
           (fades.length > 0 ? `,${fades.join(",")}` : "") +
           `[ca${i}]`,
       );
@@ -1279,28 +1312,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const overlayOps = plan.operations.filter(
     (o): o is Op<"overlayImage"> | Op<"insertBRoll"> => o.type === "overlayImage" || o.type === "insertBRoll",
   );
-  const extraInputs: string[] = [];
   const overlayLinks: string[] = [];
-
-  /**
-   * ffmpeg's stream index for the next `-i`, counted rather than derived.
-   *
-   * It used to be `extraInputs.length / 2 + 1`, which reads as "two args per
-   * input" and is true of `-i file` and of nothing else here: a still is
-   * `-loop 1 -t D -i file` (six) and the motion layer is `-framerate N -i P`
-   * (four). So the first extra input was always right and the second was right
-   * only if the first happened to be b-roll — a plan that laid an image over
-   * the frame and *then* cut to b-roll asked ffmpeg for stream 4 of a command
-   * with three inputs, and the render died on a filtergraph error rather than
-   * on anything the person had done. One counter, incremented where the input
-   * is actually pushed, cannot drift from the args the way arithmetic over
-   * their length can.
-   */
-  let nextInput = 1; // input 0 is the source
-  const addInput = (...args: string[]): number => {
-    extraInputs.push(...args);
-    return nextInput++;
-  };
 
   /** Frames the motion layer contributes, averaged back down to one. */
   const motionInputArgs = (): string[] =>
