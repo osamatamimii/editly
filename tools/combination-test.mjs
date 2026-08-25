@@ -446,6 +446,91 @@ console.log("\nA cold open with a transition, which used to deadlock");
   }
 }
 
+// ── How many decoders an out-of-order edit is allowed to open ───────────────
+//
+// The fix above costs one decode of the source per piece, and that cost is not
+// linear: measured against a 1080p source, four pieces peak at 776 MB of
+// resident memory and six at 1088 MB, against a worker with 1 GB. So past four
+// the join is dropped rather than the render, because an OOM kill takes the
+// whole job with it and says nothing — which is the deadlock's failure mode
+// again, wearing a different hat.
+//
+// A cold open on its own is three pieces and stays under the line. It takes a
+// silence cut as well to go over it. Both sides are pinned here: without this,
+// raising the cap for convenience one day would look free.
+console.log("\nAn out-of-order edit only opens so many decoders");
+{
+  // Under the cap: a hook, what came before it, what came after.
+  const few = await renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        { type: "coldOpen", seconds: 2 },
+        { type: "transition", style: "dissolve", durationMs: 200 },
+      ],
+    },
+    { workDir: await scratch(), assets },
+  );
+  rendered += 1;
+  check(
+    "three pieces are dissolved, because three decoders fit",
+    few.notes.some((n) => /dissolved between the cuts/.test(n)),
+    JSON.stringify(few.notes),
+  );
+
+  // Over it. This needs its own clip: on the twelve-second one the cold open
+  // leaves a sliver of a piece and the transition is refused for being too
+  // short to cross, which is a different guard and would make this check pass
+  // for the wrong reason. Long, evenly spaced bursts leave nine real pieces.
+  const spaced = path.join(workDir, "spaced.mp4");
+  {
+    const windows = [];
+    for (let t = 0; t < 48; t += 6) windows.push(`between(t,${t},${t + 4})`);
+    spawnSync("ffmpeg", [
+      "-y", "-loglevel", "error",
+      "-f", "lavfi", "-i", "testsrc=size=320x240:rate=24:duration=48",
+      "-f", "lavfi", "-i", "sine=frequency=320:duration=48",
+      "-filter_complex", `[1:a]volume='if(${windows.join("+")},1,0)':eval=frame[a]`,
+      "-map", "0:v", "-map", "[a]",
+      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", spaced,
+    ]);
+  }
+
+  const many = await renderPlan(
+    spaced,
+    {
+      version: 1,
+      operations: [
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 400, paddingMs: 60 },
+        { type: "coldOpen", seconds: 3 },
+        { type: "transition", style: "dissolve", durationMs: 200 },
+      ],
+    },
+    { workDir: await scratch(), assets },
+  );
+  rendered += 1;
+  check(
+    "a plan cut into more of them keeps the hook rather than the join",
+    many.notes.some((n) => /opens on|hook/.test(n)) &&
+      !many.notes.some((n) => /dissolved between the cuts/.test(n)),
+    JSON.stringify(many.notes),
+  );
+  // Named precisely. Both refusals end in "the cuts stay hard", so matching
+  // that alone would pass on the too-short guard and never touch the cap.
+  check(
+    "and says the number of pieces is why, not their length",
+    many.notes.some((n) => /cut into \d+ pieces/.test(n) && /out of order/.test(n)),
+    JSON.stringify(many.notes),
+  );
+  const measured = Number(ffprobe(many.output, "format=duration")[0]);
+  check(
+    "and it is still the length the renderer said",
+    Math.abs(measured - many.estimatedSeconds) <= TOLERANCE,
+    `said ${many.estimatedSeconds.toFixed(2)}s, measured ${measured}`,
+  );
+}
+
 // ── The title layer, which is an overlay too ────────────────────────────────
 //
 // A motion title is rendered in a browser and then composited like any other
