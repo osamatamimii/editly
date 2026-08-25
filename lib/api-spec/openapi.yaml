@@ -1512,7 +1512,7 @@ components:
         - $ref: "#/components/schemas/ExtractClipsOperation"
         - $ref: "#/components/schemas/ColdOpenOperation"
         - $ref: "#/components/schemas/FadeOperation"
-        - $ref: "#/components/schemas/DissolveOperation"
+        - $ref: "#/components/schemas/TransitionOperation"
         - $ref: "#/components/schemas/FormatForPlatformOperation"
         - $ref: "#/components/schemas/BurnCaptionsOperation"
         - $ref: "#/components/schemas/AutoCaptionsOperation"
@@ -2100,21 +2100,40 @@ components:
           default: 500
       required: [type]
 
-    DissolveOperation:
+    TransitionOperation:
       description: >
-        Dissolve between the cuts - one shot melting into the next. Where fade
-        touches only the two ends and therefore no clock, a dissolve overlaps
+        The transition between the cuts - one shot becoming the next. Where
+        fade touches only the two ends and therefore no clock, this overlaps
         every join, so the edit comes out (joins x durationMs) shorter than the
         sum of its parts. That shortening is handed to the same mapping that
         places captions, punches, overlays and titles, so a caption written at
         0:41 of the recording still lands on the syllable it was written for.
-        The renderer shortens the overlap further when the shortest piece it
-        joins cannot hold it, and says so in the notes.
+        The renderer shortens the overlap when the shortest piece it joins
+        cannot hold it, and says so in the notes.
+
+
+        Shipped first as `dissolve` and renamed the same day, before anything
+        had been stored under the old name - a type that appears in saved plans
+        has to keep working, because a job row is a billing record and
+        replaying it must produce what was paid for. Nothing was owed, so the
+        honest name won: dissolve is one style among ten rather than the name
+        of the whole idea.
       type: object
       properties:
         type:
           type: string
-          enum: [dissolve]
+          enum: [transition]
+        style:
+          description: >
+            A style and a direction as two fields would let
+            {style: dissolve, direction: up} be written down, and a field
+            silently ignored for half the values it accepts is a field that
+            will be set wrongly and never noticed. Every value here is a thing
+            that happens.
+          type: string
+          enum:
+            [dissolve, wipeLeft, wipeRight, wipeUp, wipeDown, slideLeft, slideRight, slideUp, slideDown, flash]
+          default: dissolve
         durationMs:
           description: How long each join overlaps, in milliseconds.
           type: number
