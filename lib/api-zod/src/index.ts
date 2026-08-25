@@ -763,7 +763,7 @@ export const ExtractClipsOperation = z.object({
  * it — so it composes with everything else for free. One duration for both
  * ends because an edit whose opening and closing disagree reads as an
  * accident, not a choice. Softening the joins *inside* the cut is a different
- * operation with a different cost; see `DissolveOperation`.
+ * operation with a different cost; see `TransitionOperation`.
  */
 export const FadeOperation = z.object({
   type: z.literal("fade"),
@@ -794,8 +794,52 @@ export const FadeOperation = z.object({
  * starts reading as two videos playing at once. It also has to fit inside the
  * shortest thing it joins, so the renderer may shorten it further and say so.
  */
-export const DissolveOperation = z.object({
-  type: z.literal("dissolve"),
+/**
+ * How one shot becomes the next.
+ *
+ * Ten styles, and they are the ffmpeg names one-to-one on purpose: a style and
+ * a direction as two fields would let `{ style: "dissolve", direction: "up" }`
+ * be written down, and a field that is silently ignored for half the values it
+ * accepts is a field that will be set wrongly and never noticed. Every value
+ * here is a thing that happens.
+ *
+ * Deliberately not all fifty-eight ffmpeg offers. The rest are pixelate,
+ * squeeze, spiral, hexagonal — effects that read as a video editor showing off
+ * rather than as an edit, and the product is not richer for a menu nobody
+ * should pick from.
+ */
+export const TransitionStyle = z.enum([
+  /** The two shots mix. The one everything else is measured against. */
+  "dissolve",
+  "wipeLeft",
+  "wipeRight",
+  "wipeUp",
+  "wipeDown",
+  "slideLeft",
+  "slideRight",
+  "slideUp",
+  "slideDown",
+  /** Through white. The short-form cut that reads as energy rather than as time passing. */
+  "flash",
+]);
+export type TransitionStyle = z.infer<typeof TransitionStyle>;
+
+/**
+ * The transition between the cuts.
+ *
+ * This shipped as `dissolve` and was renamed the same day, before anything had
+ * been stored under the old name — the plan column was checked, and no job in
+ * the database carried one. That is the only reason the rename was allowed: a
+ * type that appears in saved plans is a type that has to keep working, because
+ * a job row is a billing record and replaying it must produce what was paid
+ * for. Nothing was owed here, so the honest name won.
+ *
+ * `dissolve` is now one style among ten rather than the name of the whole
+ * idea, which is what it always was.
+ */
+export const TransitionOperation = z.object({
+  type: z.literal("transition"),
+  style: TransitionStyle.default("dissolve"),
   /** How long each join overlaps. */
   durationMs: z.number().min(80).max(1000).default(250),
 });
@@ -829,7 +873,7 @@ export const EditOperation = z.discriminatedUnion("type", [
   ExtractClipsOperation,
   ColdOpenOperation,
   FadeOperation,
-  DissolveOperation,
+  TransitionOperation,
   FormatForPlatformOperation,
   BurnCaptionsOperation,
   AutoCaptionsOperation,
