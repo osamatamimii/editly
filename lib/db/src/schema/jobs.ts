@@ -51,6 +51,18 @@ export const jobsTable = pgTable(
     error: text("error"),
 
     /**
+     * Which language this render's notes are written in.
+     *
+     * Taken from the sentence that started the render and snapshotted here at
+     * enqueue, for the same reason `referencePath` is: the worker never sees
+     * the sentence, only the plan, and a render already accepted must not
+     * change because the project changed while it sat in the queue. Someone
+     * who types an English sentence and then an Arabic one while the first is
+     * still rendering gets their first answer in English.
+     */
+    language: text("language").notNull().default("en"),
+
+    /**
      * What the render did that the person should know about, in their language:
      * captions skipped for want of a key, punches dropped because the words
      * they landed on were cut, words the two speech models disagreed on.
