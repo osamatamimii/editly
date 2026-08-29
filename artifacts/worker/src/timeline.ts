@@ -51,11 +51,28 @@ export function keepSegmentsFrom(
   const isProtected = (silence: Segment): boolean =>
     protect.some((range) => silence.start < range.end && silence.end > range.start);
 
+  // Padding exists to stop a cut clipping a word: the leading pad gives the
+  // speech *before* a silence room to finish, the trailing pad gives the speech
+  // *after* it room to start. Where there is no speech on that side there is
+  // nothing to protect — and padding anyway does real damage, because it
+  // manufactures a kept piece out of pure silence.
+  //
+  // A clip that ends in silence, which is nearly all of them — people stop
+  // talking before they stop recording — was coming out with a tenth of a
+  // second of nothing welded to the end. Two harms, and the second is the one
+  // that mattered: that sliver became the shortest piece in the edit, and the
+  // transition's headroom is measured against the shortest piece, so **any
+  // video that ended in silence quietly lost its dissolves** and was told its
+  // pieces were too short to put a transition between. Found by rendering our
+  // own templates, which is a thing nothing did until now.
+  const EDGE = 1e-3;
   for (const silence of silences) {
     if (isProtected(silence)) continue;
-    const start = Math.max(0, silence.start + padding);
+    const opensTheFile = silence.start <= EDGE;
+    const closesTheFile = silence.end >= duration - EDGE;
+    const start = opensTheFile ? 0 : Math.max(0, silence.start + padding);
     if (start > cursor) kept.push({ start: cursor, end: start });
-    cursor = Math.max(cursor, Math.min(duration, silence.end - padding));
+    cursor = closesTheFile ? duration : Math.max(cursor, Math.min(duration, silence.end - padding));
   }
   if (cursor < duration) kept.push({ start: cursor, end: duration });
 
