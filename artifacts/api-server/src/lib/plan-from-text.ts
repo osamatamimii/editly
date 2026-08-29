@@ -30,9 +30,9 @@ export interface ParsedIntent {
  * "instagram feed" is a square, "instagram" alone is a reel.
  */
 const PLATFORM_WORDS: Array<{ platform: Platform; patterns: RegExp }> = [
-  { platform: "tiktok", patterns: /\btiktok|tik tok\b/i },
-  { platform: "reels", patterns: /\breels?\b/i },
-  { platform: "shorts", patterns: /\bshorts?\b/i },
+  { platform: "tiktok", patterns: /\btiktok|tik tok\b|تيك ?توك/i },
+  { platform: "reels", patterns: /\breels?\b|ريلز/i },
+  { platform: "shorts", patterns: /\bshorts?\b|شورتس/i },
   { platform: "square", patterns: /\bsquare\b|1:1|\bfeed post\b|\blinkedin\b|مربع/i },
   { platform: "youtube", patterns: /\byoutube\b|\byt\b|\blandscape\b|\bwidescreen\b|16:9|أفقي|عريض/i },
   { platform: "reels", patterns: /\binstagram|insta\b/i },
@@ -153,10 +153,22 @@ const CUTAWAY_DURATION = 3;
 /** A phrase in quotes is the one case where the words are unambiguously theirs. */
 const QUOTED = /["“”']([^"“”']{1,120})["“”']/;
 
+/**
+ * The Arabic half was missing entirely, and this is the most-asked-for edit in
+ * the product. Everything else here reads Arabic — the highlight, the hook,
+ * the transitions, the looks, the music — but "اقصّ الصمت" produced *no
+ * operations at all*, which means the reply fell through to "I'm not sure what
+ * to change from that". Found by rendering the sentences a person would type
+ * rather than the ones the checks already had.
+ *
+ * No `\b` on the Arabic alternatives: word boundaries are defined against
+ * ASCII word characters, so `\b` before an Arabic letter never matches. That
+ * has bitten this file once before.
+ */
 const SILENCE_WORDS =
-  /\bsilence|silent|quiet|pause|dead air|um+s?\b|\bfiller|tighten|trim|short|fast|snapp|pace|boring|drag/i;
+  /\bsilence|silent|quiet|pause|dead air|um+s?\b|\bfiller|tighten|trim|short|fast|snapp|pace|boring|drag|صمت|سكتات|سكوت|وقفات|فراغات|اختصر|قصّر|قصر الفيديو|سرّع/i;
 
-const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b/i;
+const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b|عمودي|عامودي|طولي/i;
 
 const CAPTION_WORDS = /\bcaption|subtitle|sub ?titles?|text on screen|on-?screen text\b/i;
 const KARAOKE_WORDS = /\bkaraoke|word by word|word-by-word|highlight/i;
@@ -259,7 +271,14 @@ export function parseClips(text: string): { count: number; targetSeconds: number
 
 const PUNCH_WORDS = /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b/i;
 const PUSH_WORDS = /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b/i;
-const LOUDNESS_WORDS = /\bloud|volume|quiet|audio level|sound level|normali[sz]/i;
+/**
+ * "level the audio" was not in here, and that is the phrase this file's own
+ * reply uses: "I'll level the audio to what these platforms expect". The
+ * product said the words and could not hear them. Only "audio level" matched,
+ * which is the same two words in the order nobody says them in.
+ */
+const LOUDNESS_WORDS =
+  /\bloud|volume|quiet|audio level|sound level|normali[sz]|\blevel(l?ing)? (the |my )?(audio|sound|volume)\b|مستوى الصوت|اضبط الصوت|وحّد الصوت/i;
 // "fade" alone is enough — every reading of it in an edit request means the
 // ends ("fade it in", "fade to black", "soft ending"). Arabic: تلاشي/تلاشى.
 // A hook is the one edit everyone names the same way. "Cold open" is the film
