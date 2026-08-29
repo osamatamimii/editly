@@ -118,7 +118,17 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
   let render: { started: true } | { started: false; because: string } | undefined;
   let startedJob: ReturnType<typeof serializeJob> | null = null;
   if (intent.operations.length > 0 && project.videoPath) {
-    const outcome = await startRenderForProject(userId, project, intent.operations, req.log);
+    // The render's notes come back in the language the sentence was written
+    // in. `intent.language` is read from what they typed, not from what the
+    // model chose to answer in, so the whole exchange — reply now, notes when
+    // it finishes — stays in one language.
+    const outcome = await startRenderForProject(
+      userId,
+      project,
+      intent.operations,
+      req.log,
+      intent.language,
+    );
     if (outcome.ok) {
       render = { started: true };
       startedJob = serializeJob(outcome.job);
