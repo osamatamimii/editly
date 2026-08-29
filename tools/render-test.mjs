@@ -44,7 +44,7 @@ if (esbuild.status !== 0) {
   process.exit(1);
 }
 
-const { renderPlan, probeSource, keepSegmentsFrom, remapTime, outputDuration, zoomExpression, writeSubtitleFile, frameFor, shapeFor, defaultHeightFor, chooseHighlight, chooseClips } =
+const { renderPlan, probeSource, keepSegmentsFrom, remapTime, outputDuration, zoomExpression, writeSubtitleFile, wrapToLayout, frameFor, shapeFor, defaultHeightFor, chooseHighlight, chooseClips } =
   await import(pathToFileURL(modulePath).href);
 
 // The reference command below has to crop where the pipeline crops, or it
@@ -329,6 +329,57 @@ console.log("\nCaption files");
   const withoutWords = path.join(dir, "n.ass");
   await writeSubtitleFile(withoutWords, [{ startMs: 0, endMs: 1000, text: "hello there" }], "karaoke-box", "karaoke", { width: 1080, height: 1920 });
   check("without word timings it does not fake a rhythm", !/\\kf/.test(readFileSync(withoutWords, "utf8")), "");
+
+  /**
+   * And it draws on the lines the layout chose.
+   *
+   * `wrapToLayout` decides where a cue breaks, for a box that clears the
+   * platform's furniture, and marks a cue too long for that box by ending it in
+   * an ellipsis. This branch ignored both: it read the cue's *words* and never
+   * looked at its text, so a caption that "pop" drew as three lines inside the
+   * safe band, karaoke drew as one unbroken run — which libass rewraps by its
+   * own margins into as many lines as it likes, climbing over the speaker's
+   * face and out of the band the layout exists to protect.
+   *
+   * Nothing failed. The captions were legible, timed to the voice and correctly
+   * coloured, in the wrong half of the frame — and one of the three animations
+   * was simply not subject to the module that places captions.
+   */
+  const longWords = "this is a very long sentence that will certainly not fit on one line"
+    .split(" ")
+    .map((text, i) => ({ text, startMs: i * 300, endMs: i * 300 + 280 }));
+  const longCue = {
+    startMs: 0,
+    endMs: longWords.length * 300,
+    text: longWords.map((w) => w.text).join(" "),
+    words: longWords,
+  };
+  const wrapped = wrapToLayout([longCue], { maxCharsPerLine: 19, maxLines: 3 });
+  const linesOf = (file) => {
+    const dialogue = readFileSync(file, "utf8").split("\n").filter((l) => l.startsWith("Dialogue"));
+    return (dialogue[0].match(/\\N/g) ?? []).length + 1;
+  };
+
+  const longKaraoke = path.join(dir, "long-k.ass");
+  const longPop = path.join(dir, "long-p.ass");
+  await writeSubtitleFile(longKaraoke, wrapped, "karaoke-box", "karaoke", { width: 1080, height: 1920 });
+  await writeSubtitleFile(longPop, wrapped, "bold-white", "pop", { width: 1080, height: 1920 });
+
+  check(
+    "a karaoke cue breaks where the layout broke it",
+    linesOf(longKaraoke) === linesOf(longPop),
+    `karaoke drew ${linesOf(longKaraoke)} line(s), pop drew ${linesOf(longPop)} — one unbroken run is libass choosing the wrapping instead of the layout`,
+  );
+  check(
+    "and is truncated where the layout truncated it",
+    readFileSync(longKaraoke, "utf8").includes("…"),
+    "a cue too long for the band must end in an ellipsis in every animation, not only in two of them",
+  );
+  check(
+    "every word still carries its own wipe",
+    (readFileSync(longKaraoke, "utf8").match(/\\kf\d+/g) ?? []).length === wrapped[0].text.split(/\s+/).filter(Boolean).length,
+    readFileSync(longKaraoke, "utf8").split("\n").pop(),
+  );
 
   const popped = path.join(dir, "p.ass");
   await writeSubtitleFile(popped, [{ startMs: 0, endMs: 900, text: "hi" }], "bold-yellow", "pop", { width: 1080, height: 1920 });
@@ -616,6 +667,43 @@ console.log("\nCaptions on the frame");
   const difference = psnr(plain.output, captioned.output);
   check("burning captions changes the picture", Number.isFinite(difference) && difference < 45, `PSNR ${difference}`);
   check("and reports the animation used", captioned.notes.some((n) => /captions \(karaoke\)/.test(n)), JSON.stringify(captioned.notes));
+
+  /**
+   * And says so when it could not wipe.
+   *
+   * A wipe is per word, so a cue with no word timings can only fade — which is
+   * the right thing to draw and was the wrong thing to say. The note claimed
+   * "(karaoke)" either way, so somebody who asked for the wipe, did not get it,
+   * and was told they did had nowhere to look. Which provider answered decides
+   * this, and the person can act on that; a note that lies about it, they
+   * cannot.
+   */
+  const unwipeable = await renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        base,
+        {
+          type: "burnCaptions",
+          style: "bold-yellow",
+          animation: "karaoke",
+          cues: [{ startMs: 0, endMs: 4000, text: "no word times came back with this" }],
+        },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  check(
+    "a karaoke ask with no word timings says it faded instead",
+    unwipeable.notes.some((n) => /fade in rather than wiping|بتلاشٍ بدل المسح/.test(n)),
+    JSON.stringify(unwipeable.notes),
+  );
+  check(
+    "and does not claim the wipe it could not draw",
+    !unwipeable.notes.some((n) => /captions \(karaoke\)/.test(n)),
+    JSON.stringify(unwipeable.notes),
+  );
 }
 
 console.log("\nEverything at once");
