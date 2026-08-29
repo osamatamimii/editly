@@ -117,6 +117,11 @@ console.log("\nThe scene");
   check("carries the spring, not a bezier", html.includes("linear(") && !html.includes("cubic-bezier"));
   check("escapes the text instead of trusting it", html.includes("Hello &amp; &lt;world&gt;") && !html.includes("<world>"));
   check("paints on nothing", html.includes("background:transparent"));
+  // The title is the one piece of the person's own language that gets *burned
+  // into the file*, where they cannot fix it afterwards. `dir="auto"` is the
+  // same answer the editor gives, and for the same reason: the browser reads
+  // the first strong character, which is a better rule than one we would write.
+  check("lets the title work out its own direction", html.includes('dir="auto"'));
 }
 
 console.log("\nRendering");
@@ -153,6 +158,91 @@ if (!first) {
   const early = await readFile(path.join(outA, framesA[0]));
   const mid = await readFile(path.join(outA, framesA[Math.floor(framesA.length / 2)]));
   check("frames differ over time", !early.equals(mid), "frame 0 and the middle frame are identical");
+}
+
+/**
+ * The titles read in the direction of their language.
+ *
+ * A title is user text laid into the frame permanently, and until this round
+ * the page had no direction at all — so Chromium laid every line out left to
+ * right. A wholly Arabic title survived that, because its own letters carry
+ * their direction. What did not survive is everything with no direction of its
+ * own: the full stop, the question mark, the ellipsis. «٥ أسرار للنجاح!» came
+ * out with the bang four fifths of the way across the line, at the wrong end,
+ * in an exported file.
+ *
+ * So the measurement is a *comparison between the two languages*, not an
+ * absolute position. The same shape of string — a run of tall strokes followed
+ * by an ellipsis — must lean opposite ways in Arabic and in English. Under the
+ * old behaviour both leaned the same way, which is precisely the failure, and
+ * no single-language check could see it.
+ */
+console.log("\nThe titles read in the direction of their language");
+if (!first) {
+  console.log("  · no browser here, so the direction checks are skipped (not failed)");
+} else {
+  const outC = await mkdtemp(path.join(tmpdir(), "editly-motion-dir-"));
+  // Tall strokes on one side, a small neutral mark on the other. Alef and I are
+  // both bare vertical strokes, so the two languages weigh the same and the
+  // only thing being compared is which end each one is drawn at.
+  const heavyThenDots = { arabic: "ااااااااا…", latin: "IIIIIIIII…", overridden: "\u202Dااااااااا…" };
+
+  const leanOf = async (text, name) => {
+    const dir = path.join(outC, name);
+    const layer = await renderMotionLayer(
+      {
+        width: 540, height: 960, fps: 25, durationSeconds: 1,
+        titles: [{ text, at: 0.05, durationSeconds: 0.9, style: "card", position: "center" }],
+      },
+      dir,
+    );
+    // Well after the spring has settled and well before the title fades.
+    const frames = (await readdir(dir)).filter((f) => f.endsWith(".png")).sort();
+    const frame = path.join(dir, frames[Math.floor(frames.length * 0.6)]);
+    // The frames are transparent, so every unpainted pixel is already black and
+    // the ink is whatever is above it. Halves rather than coordinates: this
+    // survives a font change, a size change and a layout change, and a check
+    // pinned to a pixel column survives none of them.
+    const ink = (crop) => {
+      const r = spawnSync(
+        "ffprobe",
+        ["-v", "error", "-f", "lavfi", "-i", `movie=${frame},crop=${crop},signalstats`,
+         "-show_entries", "frame_tags=lavfi.signalstats.YAVG", "-of", "default=nw=1:nk=1"],
+        { encoding: "utf8" },
+      );
+      return Number(r.stdout.trim().split("\n")[0]);
+    };
+    const left = ink("iw/2:ih:0:0");
+    const right = ink("iw/2:ih:iw/2:0");
+    return { leansRight: right > left, left, right, layer };
+  };
+
+  const ar = await leanOf(heavyThenDots.arabic, "ar");
+  const en = await leanOf(heavyThenDots.latin, "en");
+
+  check(
+    "an Arabic title's ellipsis ends the sentence, so the weight sits on the right",
+    ar.leansRight,
+    `left ${ar.left.toFixed(4)}, right ${ar.right.toFixed(4)}`,
+  );
+  check(
+    "the same shape in English leans the other way — the direction follows the language",
+    !en.leansRight,
+    `left ${en.left.toFixed(4)}, right ${en.right.toFixed(4)} — the same lean in both languages means neither is being read`,
+  );
+
+  // The control, and the reason the pair above is worth anything: a left-to-
+  // right override in front of the Arabic reproduces exactly what a page with
+  // no direction did, and the lean goes back the other way. Without this both
+  // checks could be satisfied by a browser that happened to centre the ink.
+  const forced = await leanOf(heavyThenDots.overridden, "forced");
+  check(
+    "and Arabic forced left-to-right leans like English — so that is what is being read",
+    !forced.leansRight,
+    `left ${forced.left.toFixed(4)}, right ${forced.right.toFixed(4)}`,
+  );
+
+  await rm(outC, { recursive: true, force: true });
 }
 
 await rm(outA, { recursive: true, force: true });

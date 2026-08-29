@@ -2091,6 +2091,107 @@ console.log("\nThe captions can draw Arabic, not just accept it");
     !leansRight(overridden),
     `left ${inkIn(overridden, BAND.left)}, right ${inkIn(overridden, BAND.right)}`,
   );
+
+  // ── And the line reads in the direction of its language ─────────────────
+  //
+  // Everything above is about the letters. This is about everything that is
+  // *not* a letter: the full stop, the question mark, the ellipsis this
+  // renderer appends when a caption is truncated. Those characters have no
+  // direction of their own, so they take the line's — and ASS has no way to
+  // state one, so libass used left to right. An Arabic sentence ending in `…`
+  // was drawn with the ellipsis at its beginning.
+  //
+  // A single-language check cannot see this: a run of alefs leans right either
+  // way, because the alefs carry their own direction. What gives it away is
+  // that the *same shape of string* must lean opposite ways in the two
+  // languages. Under the old behaviour both leaned the same way.
+  const arabicTail = await captioned("ااااااااا…");
+  const latinTail = await captioned("IIIIIIIII…");
+  check(
+    "an Arabic caption's ellipsis ends the sentence, so the weight sits on the right",
+    leansRight(arabicTail),
+    `left ${inkIn(arabicTail, BAND.left)}, right ${inkIn(arabicTail, BAND.right)}`,
+  );
+  check(
+    "the same shape in English leans the other way — the direction follows the language",
+    !leansRight(latinTail),
+    `left ${inkIn(latinTail, BAND.left)}, right ${inkIn(latinTail, BAND.right)} — the same lean in both means neither is being read`,
+  );
+
+  // ── The karaoke wipe does not reverse the sentence ──────────────────────
+  //
+  // The worst of the three, and the one that could only ever be found by
+  // looking at a frame. A `\kf` tag starts a new layout run — a colour tag in
+  // the same place does not, which is how we know it is the tag and not the
+  // markup — so libass ordered each word correctly *within itself* and then
+  // laid the words down left to right. Every word shaped, every wipe on the
+  // beat, and the sentence backwards. Nothing failed; nothing could.
+  //
+  // What is asserted is that the wipe changes nothing about where the words
+  // are: the same sentence, with and without karaoke, must put its heavy word
+  // on the same side.
+  const heavy = "اااااااا";
+  const light = "بب";
+  const sentence = `${heavy} ${light}`;
+  const withWords = async (text, words, animation) => {
+    const { output } = await renderPlan(
+      dark,
+      {
+        version: 1,
+        operations: [
+          {
+            type: "burnCaptions",
+            style: "karaoke-box",
+            animation,
+            cues: [{ startMs: 0, endMs: 2000, text, words }],
+          },
+        ],
+      },
+      { workDir: await scratch() },
+    );
+    return output;
+  };
+  const spoken = [
+    { text: heavy, startMs: 0, endMs: 1000 },
+    { text: light, startMs: 1000, endMs: 2000 },
+  ];
+  const plainSentence = await captioned(sentence);
+  const sungSentence = await withWords(sentence, spoken, "karaoke");
+  check(
+    "a karaoke wipe leaves the words where the sentence puts them",
+    leansRight(sungSentence) === leansRight(plainSentence),
+    `karaoke left ${inkIn(sungSentence, BAND.left)}/right ${inkIn(sungSentence, BAND.right)} against plain left ${inkIn(plainSentence, BAND.left)}/right ${inkIn(plainSentence, BAND.right)} — a difference means the wipe reversed the sentence`,
+  );
+
+  // The control for that one: saying the words in the other order must move
+  // the weight. Without it the check above passes for a renderer that ignores
+  // word order entirely and centres everything.
+  const sungBackwards = await withWords(`${light} ${heavy}`, [
+    { text: light, startMs: 0, endMs: 1000 },
+    { text: heavy, startMs: 1000, endMs: 2000 },
+  ], "karaoke");
+  check(
+    "and saying them in the other order moves the weight — so word order is what is being read",
+    leansRight(sungBackwards) !== leansRight(sungSentence),
+    `left ${inkIn(sungBackwards, BAND.left)}, right ${inkIn(sungBackwards, BAND.right)}`,
+  );
+
+  // English is the other half of the same claim: the reversal is conditional
+  // on the line, not applied to every karaoke cue. An English sentence must
+  // sit identically with the wipe and without it — and this is the check that
+  // fails if somebody ever "simplifies" the condition away.
+  const englishSentence = "WWWWWWWW ii";
+  const englishWords = [
+    { text: "WWWWWWWW", startMs: 0, endMs: 1000 },
+    { text: "ii", startMs: 1000, endMs: 2000 },
+  ];
+  const plainEnglish = await captioned(englishSentence);
+  const sungEnglish = await withWords(englishSentence, englishWords, "karaoke");
+  check(
+    "an English sentence is not touched by any of this",
+    leansRight(sungEnglish) === leansRight(plainEnglish) && !leansRight(plainEnglish),
+    `karaoke left ${inkIn(sungEnglish, BAND.left)}/right ${inkIn(sungEnglish, BAND.right)} against plain left ${inkIn(plainEnglish, BAND.left)}/right ${inkIn(plainEnglish, BAND.right)}`,
+  );
 }
 
 /**
