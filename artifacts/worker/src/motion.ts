@@ -56,6 +56,28 @@ export function spring(damping = 7.2, frequency = 10.5, samples = 60): string {
   return `linear(${points.join(",")})`;
 }
 
+/**
+ * How long between one word landing and the next, in seconds.
+ *
+ * Fast enough that a three-word line is finished in a third of a second, slow
+ * enough that the eye catches each arrival. Under about 60 ms the stagger stops
+ * reading as a sequence and starts reading as a wobble in a single block.
+ */
+const STAGGER_S = 0.11;
+
+/**
+ * The pieces a kinetic line arrives in.
+ *
+ * Whitespace, and nothing cleverer. Splitting on characters would animate
+ * Arabic letter by letter, which breaks shaping — the letters are joined, and
+ * a joined script pulled apart is a different word. Splitting on punctuation
+ * would strand a comma on its own line. A word is what a reader tracks, so a
+ * word is the unit.
+ */
+export function wordsOf(text: string): string[] {
+  return text.trim().split(/\s+/).filter((word) => word.length > 0);
+}
+
 export interface MotionTitle {
   text: string;
   /** Seconds on the *output* clock. The caller has already remapped it. */
@@ -98,29 +120,92 @@ export function sceneHtml(options: MotionSceneOptions): string {
       const weight = title.style === "word" ? 900 : 800;
       // Escaped here rather than trusted: a title is user text, and a page is a
       // place where user text becomes markup if nobody stops it.
-      const safe = title.text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-      return {
-        css: `
+      const escape = (value: string) =>
+        value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const safe = escape(title.text);
+      const rise = Math.round(height * 0.05);
+
+      /**
+       * The kinetic style, which until this round was not kinetic.
+       *
+       * `word` is documented — in the schema, and in the instructions the model
+       * reads — as words arriving on the screen. It rendered the whole string
+       * as one block with the same curve as a card, so a three-word line
+       * landed as a slab. Nothing failed: the frames had ink on them, the
+       * export played, and the only thing wrong was that the feature named
+       * after words did not treat them as words. That is this codebase's
+       * oldest enemy, and it had been sitting inside the one operation whose
+       * entire purpose is to be *seen*.
+       *
+       * Each word is an inline-block, which matters for more than the
+       * transform it needs: an atomic inline is neutral to the bidi algorithm,
+       * so a run of them is laid out in the paragraph's own direction. The
+       * first word of an Arabic line therefore lands on the **right**, and the
+       * first word of an English line on the left, with no direction logic
+       * here at all — the same reason `dir="auto"` is on the span rather than a
+       * rule we wrote ourselves.
+       */
+      const pieces = title.style === "word" ? wordsOf(title.text) : [];
+      const kinetic = pieces.length > 1;
+      /**
+       * Every word must be on screen while the title still is.
+       *
+       * A fixed stagger is fine for three words and wrong for twelve: at 0.11 s
+       * a twelve-word line is still arriving 1.2 s in, and a two-second title
+       * begins fading before its last word has landed — a word nobody ever
+       * reads, in a file nobody re-renders. So the stagger compresses until the
+       * final word arrives no later than halfway through the title's life.
+       */
+      const stagger = kinetic
+        ? Math.min(STAGGER_S, (title.durationSeconds * 0.5) / (pieces.length - 1))
+        : 0;
+
+      const shared = `
         .${cls} {
           position:absolute; inset:0; display:flex; justify-content:center;
           ${PLACEMENT[title.position]};
-          opacity:0;
-          animation: in-${cls} 620ms ${curve} ${title.at}s forwards,
-                     out-${cls} 320ms ease-in ${(title.at + title.durationSeconds).toFixed(3)}s forwards;
         }
         .${cls} span {
           font: ${weight} ${Math.round(height * size)}px/1.1 Inter, "DejaVu Sans", system-ui, sans-serif;
           color:#fff; text-align:center; max-width:82%;
           letter-spacing:-0.02em;
           text-shadow: 0 ${Math.round(height * 0.004)}px ${Math.round(height * 0.012)}px rgba(0,0,0,.55);
-          transform: translateY(${Math.round(height * 0.05)}px) scale(.94);
+        }
+        @keyframes out-${cls} { to { opacity:0 } }`;
+
+      if (kinetic) {
+        return {
+          css: `${shared}
+        .${cls} {
+          opacity:1;
+          animation: out-${cls} 320ms ease-in ${(title.at + title.durationSeconds).toFixed(3)}s forwards;
+        }
+        .${cls} i {
+          font-style:normal; display:inline-block; opacity:0;
+          transform: translateY(${rise}px) scale(.86);
+          animation: word-in 620ms ${curve} forwards;
+        }`,
+          html: `<div class="${cls}"><span dir="auto">${pieces
+            .map(
+              (word, w) =>
+                `<i style="animation-delay:${(title.at + w * stagger).toFixed(3)}s">${escape(word)}</i>`,
+            )
+            .join(" ")}</span></div>`,
+        };
+      }
+
+      return {
+        css: `${shared}
+        .${cls} {
+          opacity:0;
+          animation: in-${cls} 620ms ${curve} ${title.at}s forwards,
+                     out-${cls} 320ms ease-in ${(title.at + title.durationSeconds).toFixed(3)}s forwards;
+        }
+        .${cls} span {
+          transform: translateY(${rise}px) scale(.94);
           animation: rise-${cls} 620ms ${curve} ${title.at}s forwards;
         }
         @keyframes in-${cls} { to { opacity:1 } }
-        @keyframes out-${cls} { to { opacity:0 } }
         @keyframes rise-${cls} { to { transform: translateY(0) scale(1) } }`,
         // `dir="auto"` for the same reason the editor carries it, and with more
         // at stake: a title is *burned into the file*. The browser reads the
@@ -135,6 +220,7 @@ export function sceneHtml(options: MotionSceneOptions): string {
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   html,body { margin:0; padding:0; width:${width}px; height:${height}px; background:transparent; overflow:hidden }
+  @keyframes word-in { to { opacity:1; transform: translateY(0) scale(1) } }
   ${blocks.map((b) => b.css).join("\n")}
   </style></head><body>${blocks.map((b) => b.html).join("")}</body></html>`;
 }
