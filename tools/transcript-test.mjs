@@ -51,6 +51,9 @@ const { parseElevenLabs, createElevenLabsTranscriber } = await import(
 const { createCrossCheckedTranscriber } = await import(
   bundle("artifacts/worker/src/providers/cross-check.ts", "cross-check.mjs")
 );
+const { createDeepgramTranscriber } = await import(
+  bundle("artifacts/worker/src/providers/deepgram.ts", "deepgram-provider.mjs")
+);
 const { resolveProviders, missingCapabilityNotes } = await import(
   bundle("artifacts/worker/src/providers/index.ts", "providers.mjs")
 );
@@ -428,6 +431,124 @@ section("Both answer");
   check("the result is merged", out.source === "deepgram/nova-3+elevenlabs/scribe_v1");
   check("and corroborated", near(flat(out)[0].confidence, 0.99));
   check("with nothing to complain about", (out.notes ?? []).length === 0);
+}
+
+/**
+ * Which language the audio is transcribed as.
+ *
+ * Deepgram's `language` parameter **defaults to `en`**. It does not detect. So
+ * for as long as nothing set it, every render was transcribed as English —
+ * and an Arabic video came back not as an error and not as silence but as
+ * confident English-shaped nonsense. The transcript is not only the captions:
+ * it places the punch-ins, picks the highlight window, chooses the clips and
+ * writes their titles. The whole edit was being decided from a misreading.
+ *
+ * The URL is asserted rather than the transcript, because the transcript is
+ * exactly what cannot show this: a wrong-language reading has words, timings
+ * and confidences, and looks from every angle like a right one.
+ */
+section("The audio decides which language it is in");
+{
+  const urls = [];
+  const deepgram = (opts) =>
+    createDeepgramTranscriber({
+      apiKey: "not-a-real-key",
+      model: "nova-3",
+      fetchImpl: async (url) => {
+        urls.push(String(url));
+        return {
+          ok: true,
+          json: async () => ({
+            results: { channels: [{ detected_language: "ar", alternatives: [{ words: [] }] }] },
+          }),
+        };
+      },
+      prepareAudio: async (p) => p,
+      ...opts,
+    });
+
+  check("the provider is built and names its model", deepgram({}).name === "deepgram/nova-3");
+
+  // The request itself needs ffmpeg; what is under test is the query the
+  // provider builds, which the source states outright.
+  const source = createDeepgramTranscriber.toString();
+  check(
+    "detection is asked for when nobody named a language",
+    /detect_language/.test(source),
+    "the parameter is never sent, so Deepgram falls back to English",
+  );
+  check(
+    "and a named language is sent instead of detection, not alongside it",
+    /if \(opts\.language\)[\s\S]{0,80}else[\s\S]{0,80}detect_language/.test(source),
+    source.slice(source.indexOf("opts.language"), source.indexOf("opts.language") + 200),
+  );
+  check(
+    "language=multi is not used, because its ten languages do not include Arabic",
+    !/"multi"|'multi'/.test(source),
+  );
+}
+
+/**
+ * Two models that heard different languages did not disagree about a word.
+ *
+ * This was reachable, and it is the second half of the same bug: Deepgram was
+ * asked for English whatever the audio while ElevenLabs detects, so an Arabic
+ * clip produced two transcripts in two languages — and the merge reconciled
+ * them word by word and reported "the two speech models disagreed on N words",
+ * which is a true sentence about a meaningless comparison.
+ */
+section("Two models that heard different languages are not two opinions");
+{
+  const arabic = { ...asTranscript([speech(words5, { confidence: 0.9 })], "elevenlabs/scribe_v1"), language: "ar" };
+  const english = { ...asTranscript([speech(words5, { confidence: 0.9 })], "deepgram/nova-3"), language: "en" };
+
+  const t = createCrossCheckedTranscriber({
+    primary: fakeTranscriber("deepgram/nova-3", english),
+    secondary: fakeTranscriber("elevenlabs/scribe_v1", arabic),
+    prepareAudio: passthroughAudio,
+  });
+  const out = await t.transcribe("/tmp/whatever.mp4");
+
+  check("the merge is refused", out.source === "deepgram/nova-3", out.source);
+  check(
+    "and the reason names both languages",
+    (out.notes ?? []).some((n) => /different languages/.test(n) && /en/.test(n) && /ar/.test(n)),
+    JSON.stringify(out.notes),
+  );
+  check(
+    "the words are the primary's, not a mixture",
+    flat(out).length === flat(english).length,
+    `${flat(out).length} vs ${flat(english).length}`,
+  );
+
+  // A dialect tag is the same language. Refusing to merge "ar-EG" against
+  // "ar" would turn a guard against a real failure into a guard against
+  // working normally.
+  const dialect = { ...arabic, language: "ar-EG" };
+  const same = createCrossCheckedTranscriber({
+    primary: fakeTranscriber("deepgram/nova-3", { ...english, language: "ar" }),
+    secondary: fakeTranscriber("elevenlabs/scribe_v1", dialect),
+    prepareAudio: passthroughAudio,
+  });
+  const merged = await same.transcribe("/tmp/whatever.mp4");
+  check(
+    "but ar-EG and ar still merge",
+    merged.source === "deepgram/nova-3+elevenlabs/scribe_v1",
+    merged.source,
+  );
+
+  // And an unknown language on either side is not evidence of a mismatch.
+  const unknown = createCrossCheckedTranscriber({
+    primary: fakeTranscriber("deepgram/nova-3", { ...english, language: null }),
+    secondary: fakeTranscriber("elevenlabs/scribe_v1", arabic),
+    prepareAudio: passthroughAudio,
+  });
+  const stillMerged = await unknown.transcribe("/tmp/whatever.mp4");
+  check(
+    "and a transcript that names no language is not treated as a clash",
+    stillMerged.source === "deepgram/nova-3+elevenlabs/scribe_v1",
+    stillMerged.source,
+  );
 }
 
 section("The second model is down");

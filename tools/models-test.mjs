@@ -373,6 +373,59 @@ console.log("\nFilling in what only the video knows");
     check("the transcript is handed back so nobody pays for it twice", out.transcript !== null, "");
   }
 
+  /**
+   * The language the audio was heard as, said only when it is not the one
+   * they wrote in.
+   *
+   * Captions in the wrong language are the one failure that looks completely
+   * normal from the outside: the render succeeds, the words are confident, the
+   * timings are right, and the file is wrong. A line in the notes is how
+   * somebody catches it in two seconds instead of by watching the whole thing.
+   *
+   * And *only* when it differs. Telling an English speaker we heard English
+   * is noise — and a pipeline that writes a note when nothing deviated has
+   * lost the ability to say when something did, which is the check directly
+   * above this one.
+   */
+  {
+    const arabicHeard = { ...transcript, language: "ar-EG" };
+    const arabicProviders = {
+      ...withTranscriber,
+      transcriber: { name: "stub", transcribe: async () => arabicHeard },
+    };
+
+    const mismatch = await enrich.enrichPlan("unused.mp4", captionPlan, {
+      providers: arabicProviders,
+      language: "en",
+    });
+    check(
+      "a clip heard in another language than the one they wrote in says so",
+      mismatch.notes.some((n) => /heard the speech as ar/.test(n)),
+      JSON.stringify(mismatch.notes),
+    );
+
+    const agrees = await enrich.enrichPlan("unused.mp4", captionPlan, {
+      providers: arabicProviders,
+      language: "ar",
+    });
+    check(
+      "and says nothing when it is the language they wrote in — a dialect tag included",
+      agrees.notes.length === 0,
+      JSON.stringify(agrees.notes),
+    );
+
+    const asked = await enrich.enrichPlan(
+      "unused.mp4",
+      { version: 1, operations: [{ ...captionPlan.operations[0], language: "ar" }] },
+      { providers: arabicProviders, language: "en" },
+    );
+    check(
+      "and says nothing when they named the language themselves",
+      !asked.notes.some((n) => /heard the speech as/.test(n)),
+      JSON.stringify(asked.notes),
+    );
+  }
+
   {
     const out = await enrich.enrichPlan("unused.mp4", captionPlan, { providers: withNothing });
     check("with no recogniser the captions are dropped, not faked", out.plan.operations.length === 0, "");
