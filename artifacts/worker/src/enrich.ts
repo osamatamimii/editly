@@ -74,7 +74,16 @@ export async function enrichPlan(
     options.onProgress?.("Listening to what was said");
     const language = plan.operations.find((op) => op.type === "autoCaptions")?.language;
     try {
-      transcript = await providers.transcriber.transcribe(mediaPath, language ? { language } : {});
+      // The language of the request travels with it as a *belief*, not an
+      // instruction: whoever wrote in Arabic probably filmed in Arabic, and a
+      // provider whose detector cannot name Arabic has nothing better to go
+      // on. A provider that can detect the language ignores this and detects,
+      // because a working detector beats an assumption — and because two
+      // models handed the same answer stop being a cross-check.
+      transcript = await providers.transcriber.transcribe(mediaPath, {
+        ...(language ? { language } : {}),
+        ...(options.language ? { expected: options.language } : {}),
+      });
       // How the words were arrived at is part of what was done to the video.
       // A transcript that was corroborated and one that was not are worth
       // different amounts, and only one of them can say so.
