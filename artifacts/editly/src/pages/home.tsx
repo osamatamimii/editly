@@ -610,6 +610,7 @@ export default function Home() {
                 "Reframed to 9:16 for TikTok, Reels and Shorts — or 16:9 for YouTube, or square for a feed",
                 "Fades at the ends — and between the cuts a dissolve, a wipe, a slide or a flash",
                 "Your own music laid under it, ducking out of the way while you talk",
+                "Graded warm, cool, cinematic, black and white — or matched to a clip whose colour you like",
                 "Renders while you close the tab",
                 "Your footage stays private to your account",
               ].map((feat, i) => (
