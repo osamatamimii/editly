@@ -1602,6 +1602,101 @@ section("The waiting-list page signs somebody up, and says so when it cannot");
 
 check("nothing threw in the page while all that ran", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
 
+
+/**
+ * Text in the person's own language is laid out in that language's direction.
+ *
+ * Nothing in this app carried a `dir` until now, which was survivable while
+ * every word on screen was English. It is not survivable any more: the reply
+ * answers in Arabic, the render notes come back in Arabic, and a clip is
+ * titled with the speaker's own words — which have been Arabic since titles
+ * shipped, so this was already wrong for real users before it was wrong for
+ * the new work.
+ *
+ * `dir="auto"` rather than a page-level `dir="rtl"`: the chrome around the
+ * text — the buttons, the tabs, the dates — is English and stays where it is.
+ * Only the person's own words turn round, and only when they actually are
+ * right-to-left. The browser decides that from the first strong character,
+ * which is a better rule than anything we would write.
+ */
+section("The person's own words are laid out in their own direction");
+{
+  const page = await browser.newPage();
+  await page.setContent(`
+    <div id="ltr" dir="auto">Right — I'll cut out the silences and dead air.</div>
+    <div id="rtl" dir="auto">تمام — سأقصّ الصمت والفراغات.</div>
+    <div id="mixed" dir="auto">هذا ما فعلته.\nreframed to 1080x1920 for tiktok</div>
+    <div id="digits" dir="auto">٥ أسرار</div>
+    <div id="fixed">تمام — سأقصّ الصمت والفراغات.</div>
+  `);
+  const direction = (id) =>
+    page.evaluate((sel) => getComputedStyle(document.querySelector(sel)).direction, `#${id}`);
+
+  check("an English line stays left-to-right", (await direction("ltr")) === "ltr");
+  check("an Arabic line turns round", (await direction("rtl")) === "rtl", await direction("rtl"));
+  check(
+    "a summary that opens in Arabic reads right-to-left, English lines and all",
+    (await direction("mixed")) === "rtl",
+    await direction("mixed"),
+  );
+  check("a title that starts with an Arabic digit still reads as Arabic", (await direction("digits")) === "rtl");
+  // The control: without the attribute the same string lays out the wrong way,
+  // so these checks are measuring `dir` and not the browser being clever.
+  check("and without dir the same Arabic lays out left-to-right", (await direction("fixed")) === "ltr");
+  await page.close();
+}
+
+/**
+ * And the rule, over the places that actually carry those words.
+ *
+ * A list rather than a pattern, because "text that came from the person" is
+ * not something a regex can recognise — but forgetting one of these is, and
+ * the next person to render a title or a note will find their field named
+ * here with the reason next to it.
+ */
+section("Every field that carries the person's words declares its direction");
+{
+  const { readFileSync } = await import("node:fs");
+  const CARRIES_THEIR_WORDS = [
+    ["pages/project-editor.tsx", "{msg.content}", "what they wrote, and what Noah answered"],
+    ["pages/project-editor.tsx", "{project.title}", "a project named after their file"],
+    ["pages/project-editor.tsx", "value={chatInput}", "the sentence they are typing right now"],
+    ["pages/export.tsx", "{project.title}", "the same name, on the export screen"],
+    ["pages/export.tsx", "{note}", "the render notes, which are in the language they asked in"],
+    ["pages/dashboard.tsx", "{project.title}", "every card on the dashboard"],
+    ["components/project-clips.tsx", "{clip.title}", "the speaker's own first words"],
+    ["components/project-clips.tsx", "{clip.note}", "why that stretch was chosen"],
+  ];
+
+  for (const [file, expression, why] of CARRIES_THEIR_WORDS) {
+    const source = readFileSync(path.join(repoRoot, "artifacts/editly/src", file), "utf8");
+
+    // Every place the expression appears, minus the ones that are an
+    // attribute's value rather than rendered text. `alt={project.title}` is
+    // read aloud, not laid out, and demanding a direction of it would be a
+    // check nobody could satisfy honestly — which is how a rule gets a
+    // meaningless `dir` added to shut it up. The tell is the character before
+    // the brace: `=` means it is an attribute.
+    const rendered = [];
+    for (let at = source.indexOf(expression); at >= 0; at = source.indexOf(expression, at + 1)) {
+      if (!expression.includes("=") && source[at - 1] === "=") continue;
+      rendered.push(at);
+    }
+
+    check(
+      `${file} — ${why}`,
+      rendered.length > 0 &&
+        rendered.every((at) => /\bdir="auto"/.test(source.slice(source.lastIndexOf("<", at), at))),
+      rendered.length === 0
+        ? "the expression is gone; update this list"
+        : rendered
+            .filter((at) => !/\bdir="auto"/.test(source.slice(source.lastIndexOf("<", at), at)))
+            .map((at) => source.slice(source.lastIndexOf("<", at), at).slice(0, 90).replace(/\s+/g, " "))
+            .join(" | "),
+    );
+  }
+}
+
 await browser.close();
 server.close();
 await rm(workDir, { recursive: true, force: true });
