@@ -13,12 +13,44 @@
  */
 import type { EditOperation, GradeLook, Platform, TransitionStyle } from "@workspace/api-zod";
 
+/**
+ * One thing to say, in both languages.
+ *
+ * Not an English string with a translation table beside it: a note that can
+ * exist without its Arabic is a note that will ship without its Arabic, and
+ * the reply will quietly fall back to English on exactly the sentence nobody
+ * checked. Both halves are required by the type, so the compiler asks the
+ * question at the moment the note is written, which is the only moment anyone
+ * knows the answer.
+ */
+export interface Phrase {
+  en: string;
+  ar: string;
+}
+
+/** Written as `say(en, ar)` at every call site, to keep them on one line. */
+const say = (en: string, ar: string): Phrase => ({ en, ar });
+
+/**
+ * Which language to answer in.
+ *
+ * Any Arabic letter anywhere in the ask. Somebody who typed «اقصّ الصمت make
+ * it vertical» reads Arabic, and a mixed sentence answered in English is the
+ * same failure as a pure one. There is no setting for this and there should
+ * not be: the person already told us, by typing.
+ */
+export type Language = "en" | "ar";
+export const languageOf = (text: string): Language =>
+  /[\u0600-\u06ff\u0750-\u077f]/.test(text) ? "ar" : "en";
+
 export interface ParsedIntent {
   operations: EditOperation[];
   /** What we understood and will do, phrased for the user. */
-  willDo: string[];
+  willDo: Phrase[];
   /** Things they asked for that we recognise but cannot do yet. */
-  cannotYet: string[];
+  cannotYet: Phrase[];
+  /** The language they asked in, which is the language of the reply. */
+  language: Language;
 }
 
 /**
@@ -102,9 +134,12 @@ const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?)
  *   cutting the picture in time with one is not, and saying "I can't add
  *   music" to someone who just got music would be the same lie in reverse.
  */
-const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
-  { patterns: /\bemoji|إيموجي|ايموجي|رموز تعبيرية/i, label: "add emojis yet" },
-  { patterns: BEAT_SYNC_WORDS, label: "cut the picture to the beat yet" },
+const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
+  { patterns: /\bemoji|إيموجي|ايموجي|رموز تعبيرية/i, label: say("add emojis yet", "أضيف إيموجي بعد") },
+  {
+    patterns: BEAT_SYNC_WORDS,
+    label: say("cut the picture to the beat yet", "أقصّ الصورة على الإيقاع بعد"),
+  },
   {
     // Narrowed twice now. Reference matching removed the whole subject from
     // this list; the named looks removed most of what was left. What survives
@@ -112,8 +147,10 @@ const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
     // "grade it like Wes Anderson", "make the reds deeper" — where the honest
     // answer is still that we cannot.
     patterns: /\bcolou?r ?(grade|grading)\b|\bgrade it like\b|\bLUT\b/i,
-    label:
+    label: say(
       "grade the colour to a look I do not have yet — name warm, cool, cinematic, black and white or punchy, or upload a video whose colour you want matched",
+      "أدرّج اللون إلى لوك لا أملكه بعد — سمّ warm أو cool أو cinematic أو الأبيض والأسود أو punch، أو ارفع فيديو تريد مطابقة لونه",
+    ),
   },
 ];
 
@@ -382,6 +419,19 @@ const STYLE_IN_WORDS: Record<Exclude<TransitionStyle, "dissolve">, string> = {
   flash: "flash of white",
 };
 
+/** The same nine, as the reply says them in Arabic. */
+const STYLE_IN_WORDS_AR: Record<Exclude<TransitionStyle, "dissolve">, string> = {
+  wipeLeft: "مسحة إلى اليسار",
+  wipeRight: "مسحة إلى اليمين",
+  wipeUp: "مسحة إلى الأعلى",
+  wipeDown: "مسحة إلى الأسفل",
+  slideLeft: "انزلاقة إلى اليسار",
+  slideRight: "انزلاقة إلى اليمين",
+  slideUp: "انزلاقة إلى الأعلى",
+  slideDown: "انزلاقة إلى الأسفل",
+  flash: "ومضة بيضاء",
+};
+
 const TRANSITION_STYLES: Array<{ patterns: RegExp; style: TransitionStyle }> = [
   { patterns: /\bwipe\s*(?:to\s*the\s*)?right|مسح(?:ة)?\s*لليمين/i, style: "wipeRight" },
   { patterns: /\bwipe\s*(?:to\s*the\s*)?up|\bwipe\s*upward/i, style: "wipeUp" },
@@ -424,7 +474,7 @@ function transitionStyleFrom(text: string): TransitionStyle | null {
  * The English side therefore requires the *compound*, never bare "fade".
  */
 const DISSOLVE_WORDS =
-  /\bcross ?-?fade|\bdissolve|\bblend (?:between|the cuts)|smooth(?:er)? (?:the )?(?:cuts|joins|transitions?)|(?:cuts|joins|transitions?) smooth(?:er)?|less jump(?:y|ing)|between (?:the )?(?:cuts|clips)|تلاش(?:ي|ٍ) بين|مزج|انتقال ناعم|بين القصات|بين القطعات/i;
+  /\bcross ?-?fade|\bdissolve|\bblend (?:between|the cuts)|smooth(?:er)? (?:the )?(?:cuts|joins|transitions?)|(?:cuts|joins|transitions?) smooth(?:er)?|less jump(?:y|ing)|between (?:the )?(?:cuts|clips)|تلاش(?:ي|ٍ) بين|مزج|انتقال ناعم|بين القصات|بين القطعات|ذوّب|ذوب بين|تذويب|بين المقاطع/i;
 
 const FADE_WORDS = /\bfade|fade[- ]?(?:in|out)|to black|soft (?:opening|ending|start|end)|تلاشي|تلاشى/i;
 
@@ -436,8 +486,8 @@ export function planFromText(
   // what the quoted-title read below uses, because those are their words.
   const text = withAsciiDigits(asked);
   const operations: EditOperation[] = [];
-  const willDo: string[] = [];
-  const cannotYet: string[] = [];
+  const willDo: Phrase[] = [];
+  const cannotYet: Phrase[] = [];
 
   const wantsSilenceCut = SILENCE_WORDS.test(text);
   const platform = PLATFORM_WORDS.find((p) => p.patterns.test(text))?.platform ?? null;
@@ -445,7 +495,7 @@ export function planFromText(
 
   if (wantsSilenceCut) {
     operations.push({ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 });
-    willDo.push("cut out the silences and dead air");
+    willDo.push(say("cut out the silences and dead air", "أقصّ الصمت والفراغات"));
   }
 
   // Several pieces, each its own output. Checked before the highlight and the
@@ -455,7 +505,10 @@ export function planFromText(
   if (clipsAsk) {
     operations.push({ type: "extractClips", ...clipsAsk });
     willDo.push(
-      `cut it into ${clipsAsk.count} separate clips of about ${clipsAsk.targetSeconds} seconds each`,
+      say(
+        `cut it into ${clipsAsk.count} separate clips of about ${clipsAsk.targetSeconds} seconds each`,
+        `أقسّمه إلى ${clipsAsk.count} مقاطع منفصلة، كلٌّ منها نحو ${clipsAsk.targetSeconds} ثانية`,
+      ),
     );
   }
 
@@ -465,7 +518,7 @@ export function planFromText(
     const asked = HIGHLIGHT_SECONDS.exec(text);
     const targetSeconds = Math.min(120, Math.max(5, asked ? Number(asked[1]) : 30));
     operations.push({ type: "extractHighlight", targetSeconds });
-    willDo.push(`pull the strongest ${targetSeconds} seconds into its own cut`);
+    willDo.push(say(`pull the strongest ${targetSeconds} seconds into its own cut`, `أستخرج أقوى ${targetSeconds} ثانية في مقطع مستقلّ`));
   }
 
   // The stretch they named, kept exactly. The mirror of the highlight: there
@@ -473,13 +526,18 @@ export function planFromText(
   const range = clipsAsk ? null : parseRange(text);
   if (range) {
     operations.push({ type: "extractRange", ...range });
-    willDo.push(`keep just ${clockOf(range.startSeconds)}\u2013${clockOf(range.endSeconds)}, the stretch you named`);
+    willDo.push(
+      say(
+        `keep just ${clockOf(range.startSeconds)}\u2013${clockOf(range.endSeconds)}, the stretch you named`,
+        `أبقي ${clockOf(range.startSeconds)}\u2013${clockOf(range.endSeconds)} وحدها، المدى الذي سمّيته`,
+      ),
+    );
   }
 
   if (wantsVertical) {
     const target = platform ?? options.defaultPlatform ?? "tiktok";
     operations.push({ type: "formatForPlatform", platform: target });
-    willDo.push(`reframe it to ${shapeLabel(target)} for ${target}`);
+    willDo.push(say(`reframe it to ${shapeLabel(target)} for ${target}`, `أعيد تأطيره ${shapeLabel(target)} لـ${target}`));
   }
 
   // The words are in the video, not in this sentence, so the plan asks for
@@ -492,7 +550,10 @@ export function planFromText(
   const wantsTranslation = TRANSLATE_WORDS.test(text);
   if (wantsTranslation) {
     cannotYet.push(
-      "put it into another language yet — captions come out in whatever language is spoken",
+      say(
+        "put it into another language yet — captions come out in whatever language is spoken",
+        "أنقله إلى لغة أخرى بعد — الترجمة تخرج باللغة المنطوقة نفسها",
+      ),
     );
   }
 
@@ -503,7 +564,7 @@ export function planFromText(
       animation: KARAOKE_WORDS.test(text) ? "karaoke" : "pop",
       dropFillers: true,
     });
-    willDo.push("caption it from what is actually said");
+    willDo.push(say("caption it from what is actually said", "أكتب الترجمة من الكلام المنطوق نفسه"));
   }
 
   // An empty `at` means "you choose": the worker puts the punches where the
@@ -515,15 +576,15 @@ export function planFromText(
   // defeated it. Most specific first, and it survives.
   if (PUSH_WORDS.test(text)) {
     operations.push({ type: "kenBurns", to: 1.08 });
-    willDo.push("add a slow push so the frame is not static");
+    willDo.push(say("add a slow push so the frame is not static", "أضيف حركة بطيئة كي لا تبقى الصورة ثابتة"));
   } else if (PUNCH_WORDS.test(text)) {
     operations.push({ type: "zoomPunch", at: [], amount: 0.13, holdMs: 1000 });
-    willDo.push("punch in where you lean on a word");
+    willDo.push(say("punch in where you lean on a word", "أقرّب الصورة عند الكلمات التي تشدّد عليها"));
   }
 
   if (LOUDNESS_WORDS.test(text)) {
     operations.push({ type: "normalizeLoudness", targetLufs: -14 });
-    willDo.push("level the audio to what these platforms expect");
+    willDo.push(say("level the audio to what these platforms expect", "أضبط مستوى الصوت على ما تتوقّعه هذه المنصّات"));
   }
 
   // A bare "add transitions" used to be refused outright. The fade at the ends
@@ -532,7 +593,7 @@ export function planFromText(
   // nobody is told they got something they did not.
   if (HOOK_WORDS.test(text)) {
     operations.push({ type: "coldOpen", seconds: 4 });
-    willDo.push("open on the strongest moment, then play the rest from the top");
+    willDo.push(say("open on the strongest moment, then play the rest from the top", "أفتح على أقوى لحظة، ثم يُعرض الباقي من البداية"));
   }
 
   // Two different transitions, asked for in overlapping words. "Transitions"
@@ -544,7 +605,7 @@ export function planFromText(
   const wantsDissolve = DISSOLVE_WORDS.test(text);
   if (FADE_WORDS.test(text) || wantsAnyTransition) {
     operations.push({ type: "fade", durationMs: 500 });
-    willDo.push("open it from black and close it to black");
+    willDo.push(say("open it from black and close it to black", "أفتحه من السواد وأُغلقه إليه"));
   }
   // A named shape wins over the general ask: somebody who said "wipe" asked
   // for a wipe, and giving them the default because they also said the word
@@ -560,8 +621,11 @@ export function planFromText(
     operations.push({ type: "transition", style, durationMs: 250 });
     willDo.push(
       style === "dissolve"
-        ? "dissolve between the cuts instead of jumping"
-        : `join the cuts with a ${STYLE_IN_WORDS[style]} instead of jumping`,
+        ? say("dissolve between the cuts instead of jumping", "أذوّب بين القصّات بدل القفز بينها")
+        : say(
+            `join the cuts with a ${STYLE_IN_WORDS[style]} instead of jumping`,
+            `أصل القصّات بـ${STYLE_IN_WORDS_AR[style]} بدل القفز بينها`,
+          ),
     );
   }
 
@@ -572,7 +636,7 @@ export function planFromText(
 
   if (BROLL_WORDS.test(text)) {
     if (clips.length === 0) {
-      cannotYet.push("cut in B-roll yet, because this project has no clips to cut to");
+      cannotYet.push(say("cut in B-roll yet, because this project has no clips to cut to", "أضيف لقطات مساندة بعد، لأن المشروع لا يحوي مقاطع أقطع إليها"));
     } else {
       clips.slice(0, CUTAWAY_SECONDS.length).forEach((clip, index) => {
         const at = CUTAWAY_SECONDS[index]!;
@@ -584,7 +648,7 @@ export function planFromText(
           fit: "cover",
           keepSourceAudio: true,
         });
-        willDo.push(`cut away to ${describeFile(clip)} at ${at}s`);
+        willDo.push(say(`cut away to ${describeFile(clip)} at ${at}s`, `أقطع إلى ${describeFile(clip)} عند الثانية ${at}`));
       });
     }
   }
@@ -595,10 +659,10 @@ export function planFromText(
     operations.push({ type: "grade", saturation: 1, look });
     willDo.push(
       look === "mono"
-        ? "take the colour out"
+        ? say("take the colour out", "أنزع اللون")
         : look === "punch"
-          ? "push the contrast and the colour"
-          : `grade it ${look}`,
+          ? say("push the contrast and the colour", "أرفع التباين واللون")
+          : say(`grade it ${look}`, `أدرّجه ${look}`),
     );
   }
 
@@ -611,7 +675,10 @@ export function planFromText(
   if (MUSIC_WORDS.test(text)) {
     if (tracks.length === 0) {
       cannotYet.push(
-        "add music yet, because this project has no audio file — upload the track you have the rights to and I will lay it under the whole edit",
+        say(
+          "add music yet, because this project has no audio file — upload the track you have the rights to and I will lay it under the whole edit",
+          "أضيف موسيقى بعد، لأن المشروع لا يحوي ملفًّا صوتيًّا — ارفع المقطوعة التي تملك حقوقها وأضعها تحت التعديل كلّه",
+        ),
       );
     } else {
       const track = tracks[0]!;
@@ -624,13 +691,13 @@ export function planFromText(
         fromSeconds: 0,
         loop: true,
       });
-      willDo.push(`lay ${describeFile(track)} under the whole edit, ducking under your voice`);
+      willDo.push(say(`lay ${describeFile(track)} under the whole edit, ducking under your voice`, `أضع ${describeFile(track)} تحت التعديل كلّه، تنخفض تحت صوتك`));
     }
   }
 
   if (OVERLAY_WORDS.test(text)) {
     if (stills.length === 0) {
-      cannotYet.push("put an image over the frame yet, because this project has no images");
+      cannotYet.push(say("put an image over the frame yet, because this project has no images", "أضع صورة فوق الكادر بعد، لأن المشروع لا يحوي صورًا"));
     } else {
       const still = stills[0]!;
       operations.push({
@@ -644,7 +711,7 @@ export function planFromText(
         scale: 0.25,
         opacity: 1,
       });
-      willDo.push(`hold ${describeFile(still)} in the corner from 1s`);
+      willDo.push(say(`hold ${describeFile(still)} in the corner from 1s`, `أثبّت ${describeFile(still)} في الزاوية من الثانية الأولى`));
     }
   }
 
@@ -662,17 +729,22 @@ export function planFromText(
         style: "card",
         position: "center",
       });
-      willDo.push(`bring in the words "${words}" near the start`);
+      willDo.push(say(`bring in the words "${words}" near the start`, `أُدخل عبارة "${words}" قرب البداية`));
     }
   } else if (/\btitle|\btext on screen\b/i.test(text) && !CAPTION_WORDS.test(text)) {
-    cannotYet.push('animate a title yet, because I do not know the words — put them in quotes and I will');
+    cannotYet.push(
+      say(
+        "animate a title yet, because I do not know the words — put them in quotes and I will",
+        "أحرّك عنوانًا بعد، لأنني لا أعرف كلماته — ضعها بين علامتَي اقتباس وسأفعل",
+      ),
+    );
   }
 
   for (const { patterns, label } of NOT_YET) {
     if (patterns.test(text)) cannotYet.push(label);
   }
 
-  return { operations, willDo, cannotYet };
+  return { operations, willDo, cannotYet, language: languageOf(asked) };
 }
 
 /** Seconds as m:ss, because "80s" is a number and "1:20" is a moment. */
@@ -707,19 +779,38 @@ export function replyFor(
     render?: { started: true } | { started: false; because: string };
   },
 ): string {
-  if (!context.hasVideo) {
-    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts - or 16:9 for YouTube, or square for a feed - add motion, lay your own music under it, grade it warm or cool or cinematic or black and white, fade it in and out, and level the audio.";
-  }
+  const lang = intent.language;
+
+  if (!context.hasVideo) return EMPTY_PROJECT[lang];
 
   const parts: string[] = [];
+  const listed = (phrases: Phrase[]): string =>
+    joinNaturally(phrases.map((p) => p[lang]), lang);
 
   if (intent.willDo.length > 0) {
+    const doing = listed(intent.willDo);
     if (context.render?.started) {
-      parts.push(`On it — I'll ${joinNaturally(intent.willDo)}. It's rendering now; you'll see it here the moment it's done.`);
+      parts.push(
+        lang === "ar"
+          ? `تمام — س${doing}. التصيير يعمل الآن؛ سيظهر هنا لحظة انتهائه.`
+          : `On it — I'll ${doing}. It's rendering now; you'll see it here the moment it's done.`,
+      );
     } else if (context.render && !context.render.started) {
-      parts.push(`I'd ${joinNaturally(intent.willDo)} — but I can't start it right now: ${context.render.because}`);
+      // The reason comes from the server in English. It is left as it is
+      // rather than guessed at: half a sentence in each language reads worse
+      // than one, and inventing an Arabic reason we did not write would be
+      // putting words in the product's mouth about why it refused.
+      parts.push(
+        lang === "ar"
+          ? `كنت س${doing} — لكن لا أستطيع البدء الآن: ${context.render.because}`
+          : `I'd ${doing} — but I can't start it right now: ${context.render.because}`,
+      );
     } else {
-      parts.push(`Right — I'll ${joinNaturally(intent.willDo)}. Hit Generate Edit and I'll start.`);
+      parts.push(
+        lang === "ar"
+          ? `تمام — س${doing}. اضغط Generate Edit وأبدأ.`
+          : `Right — I'll ${doing}. Hit Generate Edit and I'll start.`,
+      );
     }
   }
 
@@ -730,25 +821,61 @@ export function replyFor(
     // "I can't cut in B-roll, because this project has no clips to cut to yet
     // yet, so I'll leave that out". The product's most careful sentence — the
     // one where it admits a limit — was the one that came out mangled.
+    const missing = listed(intent.cannotYet);
+    const plural = intent.cannotYet.length > 1;
     parts.push(
-      `I can't ${joinNaturally(intent.cannotYet)}, so I'll leave ${intent.cannotYet.length > 1 ? "those" : "that"} out rather than pretend.`,
+      lang === "ar"
+        ? `لا أستطيع أن ${missing}، فأترك ${plural ? "تلك الأمور" : "ذلك"} خارج التعديل بدل أن أدّعي.`
+        : `I can't ${missing}, so I'll leave ${plural ? "those" : "that"} out rather than pretend.`,
     );
   }
 
-  if (parts.length === 0) {
-    return (
-      "I'm not sure what to change from that. Right now I can pull out the best 30 seconds of a clip, " +
-      "keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it, reframe it to 9:16 or 16:9 or square, " +
-      "add punch-in zooms or a slow push, lay a track you've uploaded under the whole thing, fade it in and out, and level the audio — try something like " +
-      '"give me the strongest 30 seconds, captioned, vertical for TikTok".'
-    );
-  }
+  if (parts.length === 0) return NOTHING_UNDERSTOOD[lang];
 
   return parts.join(" ");
 }
 
-function joinNaturally(items: string[]): string {
+/**
+ * The two long sentences, which are the product describing itself.
+ *
+ * They are the most-read text here — one greets every empty project and the
+ * other answers every sentence we could not parse — and until now an Arabic
+ * speaker got both in English. Keeping them as data rather than inline
+ * template literals is what makes it obvious when one language grows a
+ * capability the other has not been told about.
+ */
+const EMPTY_PROJECT: Record<Language, string> = {
+  en:
+    "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts - or 16:9 for YouTube, or square for a feed - add motion, lay your own music under it, grade it warm or cool or cinematic or black and white, fade it in and out, and level the audio.",
+  ar:
+    "ارفع فيديو أوّلًا وأبدأ العمل — أستطيع أن أستخرج أقوى 30 ثانية، وأبقي مدًى تسمّيه بالضبط (من 1:20 إلى 2:10)، وأقسّمه إلى مقاطع منفصلة، وأقصّ الصمت، وأكتب الترجمة من كلامك نفسه، وأعيد التأطير لتيك توك أو ريلز أو شورتس — أو 16:9 ليوتيوب، أو مربّعًا للفيد — وأضيف حركة، وأضع موسيقاك تحته، وأدرّجه warm أو cool أو cinematic أو أبيض وأسود، وأفتحه من السواد وأُغلقه إليه، وأضبط مستوى الصوت.",
+};
+
+const NOTHING_UNDERSTOOD: Record<Language, string> = {
+  en:
+    "I'm not sure what to change from that. Right now I can pull out the best 30 seconds of a clip, " +
+    "keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it, reframe it to 9:16 or 16:9 or square, " +
+    "add punch-in zooms or a slow push, lay a track you've uploaded under the whole thing, fade it in and out, and level the audio — try something like " +
+    '"give me the strongest 30 seconds, captioned, vertical for TikTok".',
+  ar:
+    "لست متأكّدًا ما الذي أغيّره من ذلك. أستطيع الآن أن أستخرج أفضل 30 ثانية من المقطع، " +
+    "وأبقي مدًى تسمّيه بالضبط (من 1:20 إلى 2:10)، وأقسّمه إلى مقاطع منفصلة، وأقصّ الصمت، وأكتب الترجمة، وأعيد التأطير إلى 9:16 أو 16:9 أو مربّع، " +
+    "وأقرّب الصورة عند التشديد أو أضيف حركة بطيئة، وأضع مقطوعة رفعتَها تحت التعديل كلّه، وأفتحه من السواد وأُغلقه إليه، وأضبط مستوى الصوت — جرّب مثلًا " +
+    "«أعطني أقوى 30 ثانية، مع ترجمة، عمودية للتيك توك».",
+};
+
+/**
+ * A list, joined the way the language joins lists.
+ *
+ * Arabic does not use the Oxford comma and does not put "and" only before the
+ * last item — every item after the first takes a و, and the separator is the
+ * Arabic comma ، not the Latin one. Joining an Arabic list with English
+ * punctuation is the tell that a page was translated rather than written.
+ */
+function joinNaturally(items: string[], lang: Language = "en"): string {
+  if (items.length === 0) return "";
   if (items.length === 1) return items[0];
+  if (lang === "ar") return items.join("، و");
   if (items.length === 2) return `${items[0]} and ${items[1]}`;
   return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
 }

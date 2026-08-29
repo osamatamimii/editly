@@ -25,7 +25,7 @@
  * and it means a missing key degrades the product instead of breaking it.
  */
 import { EditOperation, TransitionStyle, type Platform } from "@workspace/api-zod";
-import { planFromText, replyFor, type ParsedIntent } from "./plan-from-text";
+import { languageOf, planFromText, replyFor, type ParsedIntent, type Phrase } from "./plan-from-text";
 
 const ENDPOINT = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL = "gpt-5-mini";
@@ -342,7 +342,16 @@ export function createPlanner(options: PlannerOptions = {}) {
           return { ...fallback(), degraded: "the planner returned nothing we could execute" };
         }
 
-        return { operations, willDo: describeAll(operations), cannotYet: [], source: "model" };
+        // The language is the person's, not the model's: it comes from the
+        // sentence they typed, so a model that answers in English about an
+        // Arabic ask cannot change what language they are replied to in.
+        return {
+          operations,
+          willDo: describeAll(operations),
+          cannotYet: [],
+          language: languageOf(text),
+          source: "model",
+        };
       } catch (error) {
         return {
           ...fallback(),
@@ -565,54 +574,115 @@ function clock(seconds: number): string {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
-/** The user-facing phrasing, derived from operations so it cannot overpromise. */
-function describeAll(operations: EditOperation[]): string[] {
-  return operations.map((op) => {
+/**
+ * The user-facing phrasing, derived from operations so it cannot overpromise.
+ *
+ * Both languages, for the same reason the matcher's notes carry both: the
+ * model path and the keyword path reach the same reply, and one of them
+ * answering in English would mean an Arabic speaker's reply changed language
+ * depending on whether a key was configured that day.
+ */
+function describeAll(operations: EditOperation[]): Phrase[] {
+  return operations.map((op): Phrase => {
     switch (op.type) {
-      case "removeSilence": return "cut out the silences and dead air";
-      case "extractHighlight": return `pull the strongest ${Math.round(op.targetSeconds)} seconds into its own cut`;
-      case "extractRange": return `cut it down to ${clock(op.startSeconds)}\u2013${clock(op.endSeconds)}, the stretch you named`;
-      case "extractClips": return `cut it into ${op.count} separate clips of about ${Math.round(op.targetSeconds)} seconds each`;
-      case "coldOpen": return `open on the strongest ${Math.round(op.seconds)} seconds, then play the rest from the top`;
-      case "fade": return `open it from black and close it to black over ${(op.durationMs / 1000).toFixed(1)}s`;
+      case "removeSilence":
+        return { en: "cut out the silences and dead air", ar: "أقصّ الصمت والفراغات" };
+      case "extractHighlight":
+        return {
+          en: `pull the strongest ${Math.round(op.targetSeconds)} seconds into its own cut`,
+          ar: `أستخرج أقوى ${Math.round(op.targetSeconds)} ثانية في مقطع مستقلّ`,
+        };
+      case "extractRange":
+        return {
+          en: `cut it down to ${clock(op.startSeconds)}\u2013${clock(op.endSeconds)}, the stretch you named`,
+          ar: `أقصّه إلى ${clock(op.startSeconds)}\u2013${clock(op.endSeconds)}، المدى الذي سمّيته`,
+        };
+      case "extractClips":
+        return {
+          en: `cut it into ${op.count} separate clips of about ${Math.round(op.targetSeconds)} seconds each`,
+          ar: `أقسّمه إلى ${op.count} مقاطع منفصلة، كلٌّ منها نحو ${Math.round(op.targetSeconds)} ثانية`,
+        };
+      case "coldOpen":
+        return {
+          en: `open on the strongest ${Math.round(op.seconds)} seconds, then play the rest from the top`,
+          ar: `أفتح على أقوى ${Math.round(op.seconds)} ثوانٍ، ثم يُعرض الباقي من البداية`,
+        };
+      case "fade":
+        return {
+          en: `open it from black and close it to black over ${(op.durationMs / 1000).toFixed(1)}s`,
+          ar: `أفتحه من السواد وأُغلقه إليه خلال ${(op.durationMs / 1000).toFixed(1)} ثانية`,
+        };
       case "transition":
         return op.style === "dissolve"
-          ? `dissolve between the cuts over ${(op.durationMs / 1000).toFixed(2)}s instead of jumping`
-          : `join the cuts with a ${op.style.replace(/([A-Z])/g, " $1").toLowerCase()} over ${(op.durationMs / 1000).toFixed(2)}s`;
-      case "formatForPlatform":
-        return `reframe it to ${
-          op.platform === "youtube" ? "16:9" : op.platform === "square" ? "1:1" : "9:16"
-        } for ${op.platform}`;
-      case "autoCaptions": return "caption it from what is actually said";
-      case "kenBurns": return "add a slow push so the frame is not static";
-      case "zoomPunch": return "punch in where you lean on a word";
-      case "normalizeLoudness": return "level the audio to what these platforms expect";
-      case "burnCaptions": return "burn in the captions";
-      case "watermark": return "add the watermark";
+          ? {
+              en: `dissolve between the cuts over ${(op.durationMs / 1000).toFixed(2)}s instead of jumping`,
+              ar: `أذوّب بين القصّات خلال ${(op.durationMs / 1000).toFixed(2)} ثانية بدل القفز بينها`,
+            }
+          : {
+              en: `join the cuts with a ${spaced(op.style)} over ${(op.durationMs / 1000).toFixed(2)}s`,
+              ar: `أصل القصّات بـ${spaced(op.style)} خلال ${(op.durationMs / 1000).toFixed(2)} ثانية`,
+            };
+      case "formatForPlatform": {
+        const shape = op.platform === "youtube" ? "16:9" : op.platform === "square" ? "1:1" : "9:16";
+        return {
+          en: `reframe it to ${shape} for ${op.platform}`,
+          ar: `أعيد تأطيره ${shape} لـ${op.platform}`,
+        };
+      }
+      case "autoCaptions":
+        return { en: "caption it from what is actually said", ar: "أكتب الترجمة من الكلام المنطوق نفسه" };
+      case "kenBurns":
+        return { en: "add a slow push so the frame is not static", ar: "أضيف حركة بطيئة كي لا تبقى الصورة ثابتة" };
+      case "zoomPunch":
+        return { en: "punch in where you lean on a word", ar: "أقرّب الصورة عند الكلمات التي تشدّد عليها" };
+      case "normalizeLoudness":
+        return {
+          en: "level the audio to what these platforms expect",
+          ar: "أضبط مستوى الصوت على ما تتوقّعه هذه المنصّات",
+        };
+      case "burnCaptions":
+        return { en: "burn in the captions", ar: "أحرق الترجمة في الصورة" };
+      case "watermark":
+        return { en: "add the watermark", ar: "أضيف العلامة المائية" };
       case "grade":
         // Read back as a promise, so it has to say which of the two it is.
         return op.look === "mono"
-          ? "take the colour out"
+          ? { en: "take the colour out", ar: "أنزع اللون" }
           : op.look === "punch"
-            ? "push the contrast and the colour"
+            ? { en: "push the contrast and the colour", ar: "أرفع التباين واللون" }
             : op.look && op.look !== "none"
-              ? `grade it ${op.look}`
-              : "match the colour to your reference";
+              ? { en: `grade it ${op.look}`, ar: `أدرّجه ${op.look}` }
+              : { en: "match the colour to your reference", ar: "أطابق اللون مع مرجعك" };
       // The three that put something from the project's library on screen.
       // Phrased by what a person would see rather than by the operation's
       // name, because this list is read back to them as a promise.
       case "insertBRoll":
-        return `cut away to one of your clips at ${Math.round(op.at)}s`;
+        return {
+          en: `cut away to one of your clips at ${Math.round(op.at)}s`,
+          ar: `أقطع إلى أحد مقاطعك عند الثانية ${Math.round(op.at)}`,
+        };
       case "addMusic":
         return op.duck
-          ? "lay your music under the whole edit, ducking out of the way while you talk"
-          : "lay your music under the whole edit";
+          ? {
+              en: "lay your music under the whole edit, ducking out of the way while you talk",
+              ar: "أضع موسيقاك تحت التعديل كلّه، تنخفض بينما تتكلّم",
+            }
+          : { en: "lay your music under the whole edit", ar: "أضع موسيقاك تحت التعديل كلّه" };
       case "overlayImage":
-        return `hold one of your images over the frame at ${Math.round(op.at)}s`;
+        return {
+          en: `hold one of your images over the frame at ${Math.round(op.at)}s`,
+          ar: `أثبّت إحدى صورك فوق الكادر عند الثانية ${Math.round(op.at)}`,
+        };
       case "motionTitle":
-        return `bring in the words "${op.text}" at ${Math.round(op.at)}s`;
+        return {
+          en: `bring in the words "${op.text}" at ${Math.round(op.at)}s`,
+          ar: `أُدخل عبارة "${op.text}" عند الثانية ${Math.round(op.at)}`,
+        };
     }
   });
 }
+
+/** "wipeLeft" as "wipe left", which is how both languages name the shapes. */
+const spaced = (style: string): string => style.replace(/([A-Z])/g, " $1").toLowerCase();
 
 export { replyFor };
