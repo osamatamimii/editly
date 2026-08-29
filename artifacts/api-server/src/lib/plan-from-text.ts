@@ -137,10 +137,6 @@ const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?)
 const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
   { patterns: /\bemoji|إيموجي|ايموجي|رموز تعبيرية/i, label: say("add emojis yet", "أضيف إيموجي بعد") },
   {
-    patterns: BEAT_SYNC_WORDS,
-    label: say("cut the picture to the beat yet", "أقصّ الصورة على الإيقاع بعد"),
-  },
-  {
     // Narrowed twice now. Reference matching removed the whole subject from
     // this list; the named looks removed most of what was left. What survives
     // is a colour ask that names no look we have and no reference to match —
@@ -578,7 +574,7 @@ export function planFromText(
     operations.push({ type: "kenBurns", to: 1.08 });
     willDo.push(say("add a slow push so the frame is not static", "أضيف حركة بطيئة كي لا تبقى الصورة ثابتة"));
   } else if (PUNCH_WORDS.test(text)) {
-    operations.push({ type: "zoomPunch", at: [], amount: 0.13, holdMs: 1000 });
+    operations.push({ type: "zoomPunch", at: [], amount: 0.13, holdMs: 1000, on: "emphasis" });
     willDo.push(say("punch in where you lean on a word", "أقرّب الصورة عند الكلمات التي تشدّد عليها"));
   }
 
@@ -692,6 +688,70 @@ export function planFromText(
         loop: true,
       });
       willDo.push(say(`lay ${describeFile(track)} under the whole edit, ducking under your voice`, `أضع ${describeFile(track)} تحت التعديل كلّه، تنخفض تحت صوتك`));
+    }
+  }
+
+  /**
+   * Cutting to the beat.
+   *
+   * This sat on the "cannot yet" list next to emojis for the whole life of the
+   * product, and it is one of the three or four edits short-form video is
+   * actually made of. What it needs is a *reading of the music*, which the
+   * worker can now do — see beats.ts, and note that it answers "no beat here"
+   * far more often than it answers with a grid.
+   *
+   * It is placed in this section rather than with the other motion asks for one
+   * reason: this is where the library is known. An edit with no bed has no beat
+   * to land on, and the honest reply names the fix — the same shape as music,
+   * b-roll and overlays above.
+   */
+  if (BEAT_SYNC_WORDS.test(text)) {
+    if (tracks.length === 0) {
+      cannotYet.push(
+        say(
+          "cut to the beat yet, because this project has no music to cut to — upload the track and the punches will land on it",
+          "أقصّ على الإيقاع بعد، لأن المشروع لا يحوي موسيقى أقصّ عليها — ارفع المقطوعة وستقع التقريبات عليها",
+        ),
+      );
+    } else {
+      const track = tracks[0]!;
+      // Asking for the cuts to follow the music is also asking for the music.
+      // Making them say both would be the product being pedantic about its own
+      // internal shape.
+      if (!operations.some((op) => op.type === "addMusic")) {
+        operations.push({
+          type: "addMusic",
+          assetId: track.id,
+          gainDb: -18,
+          duck: true,
+          fadeSeconds: 1.5,
+          fromSeconds: 0,
+          loop: true,
+        });
+        willDo.push(
+          say(
+            `lay ${describeFile(track)} under the whole edit, ducking under your voice`,
+            `أضع ${describeFile(track)} تحت التعديل كلّه، تنخفض تحت صوتك`,
+          ),
+        );
+      }
+      // One punch operation, not two. Somebody who asks for punches *and* for
+      // the beat is asking for one thing, and the beat is the more specific
+      // answer — the same most-specific-wins rule that "slow zoom" taught this
+      // file the hard way.
+      const punchAt = operations.findIndex((op) => op.type === "zoomPunch");
+      if (punchAt >= 0) {
+        const existing = operations[punchAt] as Extract<EditOperation, { type: "zoomPunch" }>;
+        operations[punchAt] = { ...existing, at: [], on: "beat" };
+      } else {
+        operations.push({ type: "zoomPunch", at: [], amount: 0.13, holdMs: 1000, on: "beat" });
+      }
+      willDo.push(
+        say(
+          "land the punches on the beat of that track rather than on your voice",
+          "أُوقع التقريبات على إيقاع تلك المقطوعة بدل صوتك",
+        ),
+      );
     }
   }
 

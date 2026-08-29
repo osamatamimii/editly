@@ -94,6 +94,10 @@ export const TEMPLATES: Template[] = [
           { type: "formatForPlatform", platform: context.platform },
           {
             type: "zoomPunch",
+            // Named moments, so "choose for me" never comes up — but the field
+            // is not optional, and a template that leaves it to a default is a
+            // template that changes meaning the day the default does.
+            on: "emphasis",
             at: evenlySpacedPunches(context.durationSeconds, 4),
             amount: 0.14,
             holdMs: 900,
