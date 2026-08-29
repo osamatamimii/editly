@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { eq, and, desc } from "drizzle-orm";
-import { db, projectsTable, jobsTable, messagesTable, renderFollowupsTable } from "@workspace/db";
+import { db, projectsTable, jobsTable, messagesTable, renderFollowupsTable, assetsTable } from "@workspace/db";
 import {
   StartRenderParams,
   StartRenderBody,
@@ -71,7 +71,32 @@ router.post("/projects/:id/render", rateLimit(LIMITS.render), async (req, res): 
       res.status(400).json({ error: `Unknown template "${body.data.templateId}".` });
       return;
     }
+    /**
+     * The track this project has, if it has one.
+     *
+     * Read before the template is built rather than inside it, because one
+     * template cannot be built at all without a track and the refusal belongs
+     * here — before anything is queued, billed, or half-rendered. Newest first,
+     * matching every other place in the product that picks "your music" out of
+     * a library without being told which.
+     */
+    const [track] = await db
+      .select({ id: assetsTable.id })
+      .from(assetsTable)
+      .where(and(eq(assetsTable.projectId, project.id), eq(assetsTable.kind, "audio")))
+      .orderBy(desc(assetsTable.createdAt))
+      .limit(1);
+
+    if (template.needs === "music" && !track) {
+      res.status(400).json({
+        error:
+          "This look cuts to a track, and this project has no audio file yet. Upload one and press it again.",
+      });
+      return;
+    }
+
     requested = template.build({
+      musicAssetId: track?.id ?? null,
       platform: (project.platform ?? "tiktok") as "tiktok" | "reels" | "shorts" | "youtube" | "square",
       // Templates place their punches proportionally. When nothing has measured
       // this file, they are told so rather than told "30 seconds".
@@ -175,7 +200,13 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
 /** The named looks. Public shape, no per-user data — but still behind auth. */
 router.get("/templates", async (_req, res): Promise<void> => {
   res.json(
-    TEMPLATES.map(({ id, name, description, bestFor }) => ({ id, name, description, bestFor })),
+    TEMPLATES.map(({ id, name, description, bestFor, needs }) => ({
+      id,
+      name,
+      description,
+      bestFor,
+      needs: needs ?? null,
+    })),
   );
 });
 

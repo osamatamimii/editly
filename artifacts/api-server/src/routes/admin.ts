@@ -356,6 +356,10 @@ router.get("/admin/jobs", async (req, res): Promise<void> => {
         lockedAt: job.lockedAt ? new Date(job.lockedAt).toISOString() : null,
         finishedAt: job.finishedAt ? new Date(job.finishedAt).toISOString() : null,
         unattended: isUnattended(job, newest?.lastSeenAt, now),
+        // The half of the story the console was missing: a render that
+        // finished and did not do what was asked leaves no error and no
+        // failure, only these.
+        notes: job.notes ?? null,
       })),
     }),
   );
