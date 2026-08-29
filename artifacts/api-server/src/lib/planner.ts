@@ -95,6 +95,7 @@ function buildSchema(assets: PlannerAsset[]) {
     "zoomPunch",
     "normalizeLoudness",
     "motionTitle",
+    "grade",
     ...(clips.length > 0 ? ["insertBRoll"] : []),
     ...(stills.length > 0 ? ["overlayImage"] : []),
     // No catalogue: without a track of their own there is nothing to lay under
@@ -130,6 +131,7 @@ function buildSchema(assets: PlannerAsset[]) {
             "durationSeconds",
             "titleText",
             "titleStyle",
+            "look",
             "placement",
           ],
           properties: {
@@ -166,6 +168,8 @@ function buildSchema(assets: PlannerAsset[]) {
             /** The words for a motion title. Theirs, not yours to embellish. */
             titleText: { type: ["string", "null"] },
             titleStyle: { type: ["string", "null"], enum: ["card", "lower-third", "word", null] },
+            /** For grade: the named look. Nothing else is a look we have. */
+            look: { type: ["string", "null"], enum: ["warm", "cool", "cinematic", "mono", "punch", null] },
             /** Where on the frame. Titles use top/center/bottom; overlays use the corners. */
             placement: {
               type: ["string", "null"],
@@ -228,6 +232,9 @@ function instructionFor(assets: PlannerAsset[]): string {
     "If they just say 'transitions' with nothing else, choose fade and a dissolve transition.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
     "motionTitle animates words onto the screen. Use the person's own words — never write copy they did not ask for.",
+    "grade sets a named look: warm, cool, cinematic, mono (black and white) or punch. Choose it when they ask",
+    "for a look or a colour, and choose the one they named — cinematic is the teal-and-orange film look, punch is",
+    "just more contrast and colour. If they name no look you have, choose no grade rather than guessing at one.",
   ];
 
   if (clips.length > 0 || stills.length > 0 || tracks.length > 0) {
@@ -456,6 +463,13 @@ function toOperation(
         return { type, at: [], amount: numberOr(raw["punchAmount"], 0.13), holdMs: 1000 };
       case "normalizeLoudness":
         return { type, targetLufs: -14 };
+      case "grade": {
+        // No saturation from the model: that number belongs to the reference
+        // matcher, which measures it. The model chooses a mood, nothing more.
+        const look = raw["look"];
+        if (!GRADE_LOOKS.has(look as string)) return null;
+        return { type, saturation: 1, look };
+      }
       case "insertBRoll": {
         const assetId = assetOfKind("video");
         if (!assetId) return null;
@@ -533,6 +547,11 @@ const OVERLAY_PLACEMENTS = new Set([
   "center",
   "bottom-left", "bottom-center", "bottom-right",
 ]);
+/** The looks the model may name. "none" is absent on purpose: a grade with no
+ * look and no saturation is an operation that does nothing, and the model
+ * choosing it would be the model saying nothing while appearing to answer. */
+const GRADE_LOOKS = new Set(["warm", "cool", "cinematic", "mono", "punch"]);
+
 const TITLE_PLACEMENTS = new Set(["top", "center", "bottom"]);
 const TITLE_STYLES = new Set(["card", "lower-third", "word"]);
 
@@ -570,7 +589,15 @@ function describeAll(operations: EditOperation[]): string[] {
       case "normalizeLoudness": return "level the audio to what these platforms expect";
       case "burnCaptions": return "burn in the captions";
       case "watermark": return "add the watermark";
-      case "grade": return "match the colour to your reference";
+      case "grade":
+        // Read back as a promise, so it has to say which of the two it is.
+        return op.look === "mono"
+          ? "take the colour out"
+          : op.look === "punch"
+            ? "push the contrast and the colour"
+            : op.look && op.look !== "none"
+              ? `grade it ${op.look}`
+              : "match the colour to your reference";
       // The three that put something from the project's library on screen.
       // Phrased by what a person would see rather than by the operation's
       // name, because this list is read back to them as a promise.

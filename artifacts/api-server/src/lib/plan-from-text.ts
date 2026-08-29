@@ -11,7 +11,7 @@
  * model behind this, the model's job is to emit one of these plans; everything
  * downstream stays as it is.
  */
-import type { EditOperation, Platform, TransitionStyle } from "@workspace/api-zod";
+import type { EditOperation, GradeLook, Platform, TransitionStyle } from "@workspace/api-zod";
 
 export interface ParsedIntent {
   operations: EditOperation[];
@@ -44,6 +44,25 @@ function shapeLabel(platform: Platform): string {
   if (platform === "square") return "1:1";
   return "9:16";
 }
+
+/**
+ * The named looks, in the words people use for them.
+ *
+ * Order matters: the list is walked top to bottom and the first hit wins, so
+ * the specific sits above the general. "black and white and cinematic" is a
+ * sentence somebody will write, and mono is the half that is unambiguous.
+ *
+ * "cinematic" is the one word here that means nothing precise — it is a mood,
+ * not a measurement — so it maps to the teal-and-orange split, which is what
+ * the word has come to mean in practice whatever it used to mean.
+ */
+const LOOK_WORDS: Array<{ look: GradeLook; patterns: RegExp }> = [
+  { look: "mono", patterns: /\bblack ?(and|&) ?white\b|\bb\s?&\s?w\b|\bmonochrome|\bgrayscale|\bgreyscale|أبيض وأسود|ابيض واسود|بالأبيض والأسود/i },
+  { look: "cinematic", patterns: /\bcinematic|\bfilm ?look|\bmovie ?look|\bteal ?(and|&) ?orange|سينمائ/i },
+  { look: "warm", patterns: /\bwarm(er)?\b|\bgolden\b|\bsunny\b|دافئ|دافي|حار/i },
+  { look: "cool", patterns: /\bcool(er)?\b|\bcold(er)?\b|\bblue ?tone|بارد/i },
+  { look: "punch", patterns: /\bpunch(y|ier)?\b|\bmake it pop\b|\bmore contrast\b|\bvivid\b|\bvibrant\b|أوضح|أقوى ألوان|ألوان أقوى/i },
+];
 
 /**
  * Asking for a music bed.
@@ -87,8 +106,13 @@ const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
   { patterns: /\bemoji/i, label: "add emojis" },
   { patterns: BEAT_SYNC_WORDS, label: "cut the picture to the beat" },
   {
-    patterns: /\bcolou?r|grade|cinematic|filter\b/i,
-    label: "grade the colour on its own — but upload a video whose look you want and I will match it",
+    // Narrowed twice now. Reference matching removed the whole subject from
+    // this list; the named looks removed most of what was left. What survives
+    // is a colour ask that names no look we have and no reference to match —
+    // "grade it like Wes Anderson", "make the reds deeper" — where the honest
+    // answer is still that we cannot.
+    patterns: /\bcolou?r ?(grade|grading)\b|\bgrade it like\b|\bLUT\b/i,
+    label: "grade the colour to a look I do not have — name warm, cool, cinematic, black and white or punchy, or upload a video whose colour you want matched",
   },
 ];
 
@@ -453,6 +477,19 @@ export function planFromText(
     }
   }
 
+  // A named look. Before the library block, because it needs no file of theirs.
+  const look = LOOK_WORDS.find((entry) => entry.patterns.test(text))?.look;
+  if (look) {
+    operations.push({ type: "grade", saturation: 1, look });
+    willDo.push(
+      look === "mono"
+        ? "take the colour out"
+        : look === "punch"
+          ? "push the contrast and the colour"
+          : `grade it ${look}`,
+    );
+  }
+
   const tracks = library.filter((a) => a.kind === "audio");
 
   // Music is the person's own file or it is nothing. We ship no catalogue and
@@ -559,7 +596,7 @@ export function replyFor(
   },
 ): string {
   if (!context.hasVideo) {
-    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts - or 16:9 for YouTube, or square for a feed - add motion, lay your own music under it, fade it in and out, and level the audio.";
+    return "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts - or 16:9 for YouTube, or square for a feed - add motion, lay your own music under it, grade it warm or cool or cinematic or black and white, fade it in and out, and level the audio.";
   }
 
   const parts: string[] = [];
