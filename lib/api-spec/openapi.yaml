@@ -2484,6 +2484,20 @@ components:
           minimum: 0.5
           maximum: 1.5
           default: 1
+        look:
+          description: >
+            A named look, for people who cannot hand us a reference clip.
+            Matching a reference is the better answer and came first, because
+            it is measured against footage the person actually chose — but most
+            people asking for "make it cinematic" have no reference to give,
+            and the honest reply to them used to be a refusal. Applied before
+            the saturation multiplier, so a look and a reference match compose:
+            the look decides the mood, the reference decides how much colour.
+            Deliberately few and deliberately gentle — the fastest way to make
+            footage look cheap is to over-grade it.
+          type: string
+          enum: [none, warm, cool, cinematic, mono, punch]
+          default: none
       required: [type]
 
     EditPlan:
