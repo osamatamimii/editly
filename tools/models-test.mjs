@@ -324,8 +324,11 @@ console.log("\nWhat happens with no keys at all");
   check("no scene reader is invented", none.sceneReader === null, "");
   check(
     "and the reason is in words a render note can carry",
-    typeof none.status.transcription === "string" && none.status.transcription.length > 20,
-    `${none.status.transcription}`,
+    typeof none.status.transcription?.en === "string" &&
+      none.status.transcription.en.length > 20 &&
+      typeof none.status.transcription.ar === "string" &&
+      none.status.transcription.ar.length > 20,
+    JSON.stringify(none.status.transcription),
   );
 
   const notes = providers.missingCapabilityNotes(none.status, { transcript: true, vision: false });

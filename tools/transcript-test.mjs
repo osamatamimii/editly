@@ -484,7 +484,14 @@ section("Which models are configured decides which pipeline runs");
 
   const dgOnly = resolveProviders({ DEEPGRAM_API_KEY: "a" });
   check("one key still transcribes", dgOnly.transcriber?.name === "deepgram/nova-3");
-  check("but says the words rest on a single reading", /single reading/.test(dgOnly.status.crossCheck ?? ""), dgOnly.status.crossCheck ?? "");
+  // The statuses carry both languages now — they are built once at start-up,
+  // before any job knows which one it was asked in — so the English half is
+  // what these read. bilingual-test guards the other one.
+  check(
+    "but says the words rest on a single reading",
+    /single reading/.test(dgOnly.status.crossCheck?.en ?? ""),
+    JSON.stringify(dgOnly.status.crossCheck ?? ""),
+  );
   check(
     "and that reaches the render notes",
     missingCapabilityNotes(dgOnly.status, { transcript: true, vision: false }).some((n) => /single reading/.test(n)),
@@ -496,7 +503,7 @@ section("Which models are configured decides which pipeline runs");
 
   const elOnly = resolveProviders({ ELEVENLABS_API_KEY: "b" });
   check("the accurate reader alone is better than nothing", elOnly.transcriber?.name === "elevenlabs/scribe_v1");
-  check("and it too is declared as a single reading", /single reading/.test(elOnly.status.crossCheck ?? ""));
+  check("and it too is declared as a single reading", /single reading/.test(elOnly.status.crossCheck?.en ?? ""));
 
   const none = resolveProviders({});
   check("no keys, no transcriber", none.transcriber === null);

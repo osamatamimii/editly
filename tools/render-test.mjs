@@ -1955,6 +1955,59 @@ console.log("\nColour looks are measured on the pixels, not on the filter");
   await rm(dir, { recursive: true, force: true });
 }
 
+/**
+ * The render answers in the language it was asked in.
+ *
+ * Round 35 gave the reply both languages; the render's notes stayed English,
+ * so a conversation that opened in Arabic finished in English — a note that
+ * arrives minutes later in the other language reads as a different program
+ * answering. The notes are the only place that admits a caption was skipped or
+ * a punch dropped, so they are exactly the text that must not switch.
+ *
+ * These render for real rather than reading the source, because the note that
+ * matters is the one a finished file produces.
+ */
+console.log("\nThe render answers in the language it was asked in");
+{
+  const plan = {
+    version: 1,
+    operations: [
+      { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+      { type: "normalizeLoudness", targetLufs: -14 },
+    ],
+  };
+
+  const english = await renderPlan(source, plan, { workDir: await scratch() });
+  const arabic = await renderPlan(source, plan, { workDir: await scratch(), language: "ar" });
+
+  const arabicScript = /[\u0600-\u06ff]/;
+  check(
+    "an English render's notes are English",
+    english.notes.length > 0 && english.notes.every((n) => !arabicScript.test(n)),
+    JSON.stringify(english.notes),
+  );
+  check(
+    "an Arabic render's notes are Arabic",
+    arabic.notes.length > 0 && arabic.notes.every((n) => arabicScript.test(n)),
+    JSON.stringify(arabic.notes),
+  );
+  check(
+    "and it is the same edit either way — one note per thing done, both times",
+    english.notes.length === arabic.notes.length,
+    JSON.stringify([english.notes, arabic.notes]),
+  );
+  check(
+    "the numbers are the same numbers",
+    JSON.stringify((english.notes.join(" ").match(/[\d.]+/g) ?? []).sort()) ===
+      JSON.stringify((arabic.notes.join(" ").match(/[\d.]+/g) ?? []).sort()),
+    JSON.stringify([english.notes, arabic.notes]),
+  );
+  check(
+    "an unset language is English, which is what a button in an English interface gives",
+    (await renderPlan(source, plan, { workDir: await scratch() })).notes.every((n) => !arabicScript.test(n)),
+  );
+}
+
 await rm(workDir, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });
 
