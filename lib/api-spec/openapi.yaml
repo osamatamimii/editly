@@ -2060,8 +2060,17 @@ components:
         lockedAt: { type: string, format: date-time, nullable: true }
         finishedAt: { type: string, format: date-time, nullable: true }
         unattended: { type: boolean }
+        notes:
+          type: array
+          nullable: true
+          items: { type: string }
+          description: >-
+            What the renderer said it did, in its own words — the only record of
+            a render that finished without doing what was asked. The renderer's
+            own sentences about its own decisions: counts, seconds and values
+            out of the plan. Nothing from inside the video.
       required:
-        [id, userId, projectId, status, progress, stage, error, attempts, billedSeconds, createdAt, lockedAt, finishedAt, unattended]
+        [id, userId, projectId, status, progress, stage, error, attempts, billedSeconds, createdAt, lockedAt, finishedAt, unattended, notes]
 
     ListAdminJobsResponse:
       type: object
@@ -2566,7 +2575,16 @@ components:
           type: string
         bestFor:
           type: string
-      required: [id, name, description, bestFor]
+        needs:
+          type: string
+          nullable: true
+          enum: [music, null]
+          description: >-
+            A file this look cannot be built without. Null for every look that
+            needs nothing. The one value that exists today is `music`: the
+            template lays the project's own track under the edit and cuts to it,
+            so a project with no audio is refused before anything is queued.
+      required: [id, name, description, bestFor, needs]
 
     # ── Paying, and leaving ───────────────────────────────────────────────────
 
