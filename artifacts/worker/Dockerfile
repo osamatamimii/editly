@@ -31,6 +31,12 @@ WORKDIR /app
 # font that drawtext and the ASS caption style both name; without it the
 # watermark and captions render as nothing at all, silently.
 #
+# fonts-noto-color-emoji is what makes a sticker a picture. Without it an emoji
+# a person typed comes back as an empty box — the same silent shape as a missing
+# Arabic font, and for the same reason: nothing fails, the render succeeds, and
+# the file is wrong. Emojis go through the browser, not through ffmpeg: neither
+# drawtext nor libass draws colour bitmap glyphs.
+#
 # Python and OpenCV are here for the subject tracker, which decides where the
 # 9:16 window goes. opencv-python-headless rather than the full package because
 # nothing in this container has a display, and headless drops the GTK and GUI
@@ -42,7 +48,7 @@ WORKDIR /app
 # working deployment down without a single line of code changing.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ffmpeg fonts-dejavu-core ca-certificates python3 python3-numpy python3-pip \
+      ffmpeg fonts-dejavu-core fonts-noto-color-emoji ca-certificates python3 python3-numpy python3-pip \
       chromium \
  && pip3 install --no-cache-dir --break-system-packages "opencv-python-headless==4.13.0.*" \
  && rm -rf /var/lib/apt/lists/*
@@ -120,6 +126,37 @@ RUN set -eu; \
 # in production is a support ticket.
 RUN chromium --headless --no-sandbox --dump-dom about:blank > /dev/null \
  && echo "motion renderer ready: $(chromium --version)"
+
+# And that it can draw an emoji, in colour.
+#
+# Same argument as the Arabic proof above, one layer along: a missing colour
+# font does not fail, it draws an empty box, and the render succeeds with a
+# hole in it. So the image draws one and *measures the colour*: saturation is
+# the whole difference between a picture and a glyph, and white text on black
+# has none of it. The letter is the control — it must come back at zero, which
+# is what makes the emoji's number mean something.
+# The escapes are in the *format* string, not in an argument: printf expands
+# them there and copies them through %s untouched. That is the same trap the
+# Arabic proof fell into one round ago wearing different clothes — and the
+# measurement is what caught it both times. A proof that reads its own subject
+# wrong passes for the wrong reason, or, as here, fails for one.
+RUN printf '<body style="margin:0;background:#000"><div style="font-size:140px;color:#fff">\360\237\224\245</div></body>' \
+      > /tmp/emoji.html \
+ && printf '<body style="margin:0;background:#000"><div style="font-size:140px;color:#fff">W</div></body>' \
+      > /tmp/letter.html \
+ && chromium --headless --no-sandbox --disable-gpu --hide-scrollbars \
+      --screenshot=/tmp/emoji.png --window-size=240,240 file:///tmp/emoji.html > /dev/null 2>&1 \
+ && chromium --headless --no-sandbox --disable-gpu --hide-scrollbars \
+      --screenshot=/tmp/letter.png --window-size=240,240 file:///tmp/letter.html > /dev/null 2>&1 \
+ && e="$(ffprobe -v error -f lavfi -i "movie=/tmp/emoji.png,signalstats" \
+      -show_entries frame_tags=lavfi.signalstats.SATAVG -of default=nw=1:nk=1 | head -1)" \
+ && l="$(ffprobe -v error -f lavfi -i "movie=/tmp/letter.png,signalstats" \
+      -show_entries frame_tags=lavfi.signalstats.SATAVG -of default=nw=1:nk=1 | head -1)" \
+ && awk -v e="$e" -v l="$l" 'BEGIN { \
+      if (e < 3) { print "the emoji drew no colour (" e "): this image has no colour emoji font"; exit 1 } \
+      if (l > 0.5) { print "the control letter drew colour (" l "): the measurement is reading something else"; exit 1 } \
+      print "colour emoji ready: " e " against " l " for a plain letter" }' \
+ && rm -f /tmp/emoji.html /tmp/letter.html /tmp/emoji.png /tmp/letter.png
 
 # playwright-core only — the driver, not the browsers. It is a few megabytes
 # and it is deliberately NOT bundled: see build.mjs.
