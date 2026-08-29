@@ -506,6 +506,19 @@ export const ZoomPunchOperation = z.object({
   at: z.array(z.number().min(0)).max(40),
   amount: z.number().min(0.02).max(0.6).default(0.12),
   holdMs: z.number().int().min(200).max(6000).default(1200),
+  /**
+   * What "choose for me" means.
+   *
+   * `emphasis` is the original and the default: the moments the speaker leaned
+   * on a word, read out of the transcript. `beat` is the other thing people
+   * mean by an edit with rhythm — the punches land on the music instead of on
+   * the voice — and it needs a bed to land on, so the renderer says so out loud
+   * when there is none rather than falling back to a different edit silently.
+   *
+   * It only has any meaning when `at` is empty. A plan that names its own
+   * moments has already answered this question.
+   */
+  on: z.enum(["emphasis", "beat"]).default("emphasis"),
 });
 
 /**
