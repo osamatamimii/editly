@@ -220,11 +220,16 @@ const PAIRS = [
     refuses: "add emojis",
   },
   {
-    what: "cutting to the beat",
+    // The refusal did not disappear this round, it moved: cutting to the beat
+    // needs a bed, and these pairs are planned against an empty library. Which
+    // makes this the pair that checks the *reason* is bilingual, not just the
+    // "no" — the reason names the fix, and a fix named only in English is a
+    // dead end for the half of the users who wrote in Arabic.
+    what: "cutting to the beat with nothing to cut against",
     en: "cut it to the beat",
     ar: "قص على الإيقاع",
     expect: [],
-    refuses: "cut the picture to the beat",
+    refuses: "no music to cut to",
   },
 ];
 

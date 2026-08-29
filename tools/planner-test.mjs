@@ -967,26 +967,58 @@ console.log("\nMusic comes from the person's own library or not at all");
     JSON.stringify(without.cannotYet),
   );
 
-  // Syncing the cuts to a rhythm is a different feature and still unbuilt.
+  // Cutting to the beat, which stopped being on the "cannot yet" list this
+  // round. It needs a bed to land on, and asking for it is also asking for the
+  // bed — making somebody say both would be the product being pedantic about
+  // its own internal shape.
   const beat = await planner.plan("cut it to the beat", { assets: LIBRARY });
+  const beatPunch = beat.operations.find((o) => o.type === "zoomPunch");
   check(
-    "asking to cut to the beat still gets an honest no",
-    beat.cannotYet.map(inEnglish).some((c) => /cut the picture to the beat/.test(c)),
-    JSON.stringify(beat.cannotYet),
-  );
-  check(
-    "and does not quietly lay a bed instead of the thing asked for",
-    !beat.operations.some((o) => o.type === "addMusic"),
+    "cutting to the beat lays the bed as well, because it cannot happen without one",
+    beat.operations.some((o) => o.type === "addMusic"),
     JSON.stringify(beat.operations),
   );
-
-  // Both asks in one sentence get both answers.
-  const bothAsks = await planner.plan("add music and cut to the beat", { assets: LIBRARY });
   check(
-    "a sentence asking for both gets the bed and the refusal",
-    bothAsks.operations.some((o) => o.type === "addMusic") &&
-      bothAsks.cannotYet.map(inEnglish).some((c) => /cut the picture to the beat/.test(c)),
-    JSON.stringify([bothAsks.operations, bothAsks.cannotYet]),
+    "and the punches are told to follow the music, not the voice",
+    beatPunch?.on === "beat" && beatPunch?.at.length === 0,
+    JSON.stringify(beatPunch),
+  );
+  check(
+    "and the reply says which of the two it is",
+    beat.willDo.map(inEnglish).some((w) => /on the beat of that track rather than on your voice/.test(w)),
+    JSON.stringify(beat.willDo),
+  );
+
+  // The refusal did not disappear, it moved: with nothing to cut against there
+  // is still no beat, and the reply names the fix rather than the limitation.
+  const noTrack = await planner.plan("cut it to the beat", { assets: [] });
+  check(
+    "with no music in the project the answer is still no",
+    noTrack.cannotYet.map(inEnglish).some((c) => /no music to cut to/.test(c)),
+    JSON.stringify(noTrack.cannotYet),
+  );
+  check(
+    "and no punch operation is emitted that could never land anywhere",
+    !noTrack.operations.some((o) => o.type === "zoomPunch"),
+    JSON.stringify(noTrack.operations),
+  );
+
+  // Asking for punches *and* for the beat is one ask, not two. The more
+  // specific answer wins — the same rule "slow zoom" taught this file.
+  const bothAsks = await planner.plan("punch in on the words and cut to the beat", { assets: LIBRARY });
+  const punches = bothAsks.operations.filter((o) => o.type === "zoomPunch");
+  check(
+    "a sentence asking for punches and for the beat gets one punch operation, on the beat",
+    punches.length === 1 && punches[0]?.on === "beat",
+    JSON.stringify(punches),
+  );
+
+  // And the bed is laid once, however many ways the sentence asks for it.
+  const musicTwice = await planner.plan("add music and cut to the beat", { assets: LIBRARY });
+  check(
+    "and the bed is laid once, not twice",
+    musicTwice.operations.filter((o) => o.type === "addMusic").length === 1,
+    JSON.stringify(musicTwice.operations),
   );
 
   const arabic = await planner.plan("ضيف موسيقى خلفية", { assets: LIBRARY });

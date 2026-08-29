@@ -1974,6 +1974,93 @@ console.log("\nColour looks are measured on the pixels, not on the filter");
  * update: a joined word fits inside a box that the same letters spaced apart
  * spill out of, and the tall strokes swap sides when the word is reversed.
  */
+/**
+ * The punches land on the music, or they do not happen.
+ *
+ * "Cut it to the beat" left the "cannot yet" list this round, and the thing
+ * that makes it safe to ship is not the detector — it is what the renderer does
+ * when the detector says no. A track with no pulse must not quietly become the
+ * *other* edit: punches on the speaker's emphasis are a different film, and
+ * doing that without saying so is the exact failure this pipeline's notes exist
+ * to prevent.
+ *
+ * So all three answers are asserted here, on real renders: a beat, no beat, and
+ * no music at all.
+ */
+console.log("\nPunches land on the beat, or the render says why not");
+{
+  const dir = await scratch();
+
+  // Eight seconds of clicks half a second apart: 120 bpm, chosen by us.
+  const clicks = path.join(dir, "clicks.m4a");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "aevalsrc='0.9*sin(2*PI*1000*t)*exp(-mod(t\\,0.5)*250)':d=8:s=22050",
+    "-c:a", "aac", clicks,
+  ]);
+  // The same length of a held tone: audible, and with no pulse in it at all.
+  const flat = path.join(dir, "flat.m4a");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=8",
+    "-c:a", "aac", flat,
+  ]);
+  const clip = path.join(dir, "eight.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=8",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", clip,
+  ]);
+
+  const beatPlan = (assetId) => ({
+    version: 1,
+    operations: [
+      ...(assetId
+        ? [{ type: "addMusic", assetId, gainDb: -6, duck: false, fadeSeconds: 0, fromSeconds: 0, loop: true }]
+        : []),
+      { type: "zoomPunch", at: [], amount: 0.13, holdMs: 800, on: "beat" },
+    ],
+  });
+  const beatAssets = new Map([
+    ["clicks", { file: clicks, kind: "audio" }],
+    ["flat", { file: flat, kind: "audio" }],
+  ]);
+
+  const onBeat = await renderPlan(clip, beatPlan("clicks"), { workDir: await scratch(), assets: beatAssets });
+  check(
+    "with a beat under it, the note says how many punches and at what tempo",
+    onBeat.notes.some((n) => /on the beat, one a bar at 120 bpm/.test(n)),
+    JSON.stringify(onBeat.notes),
+  );
+  check(
+    "and the file is still a file",
+    Number(ffprobe(onBeat.output, "format=duration")[0]) > 7,
+    JSON.stringify(ffprobe(onBeat.output, "format=duration")),
+  );
+
+  const noPulse = await renderPlan(clip, beatPlan("flat"), { workDir: await scratch(), assets: beatAssets });
+  check(
+    "a track with no pulse is admitted, not guessed at",
+    noPulse.notes.some((n) => /could not find a steady beat/.test(n)),
+    JSON.stringify(noPulse.notes),
+  );
+  // The whole point: the other edit did not happen instead.
+  check(
+    "and the punches are simply not there, rather than moved to the voice",
+    !noPulse.notes.some((n) => /on the beat/.test(n)),
+    JSON.stringify(noPulse.notes),
+  );
+
+  const noMusic = await renderPlan(clip, beatPlan(null), { workDir: await scratch(), assets: beatAssets });
+  check(
+    "and with no music at all the note names that, not the detector",
+    noMusic.notes.some((n) => /no music under this edit/.test(n)),
+    JSON.stringify(noMusic.notes),
+  );
+
+  await rm(dir, { recursive: true, force: true });
+}
+
 console.log("\nThe captions can draw Arabic, not just accept it");
 {
   // A black 1080x1920 clip, so every lit pixel in the caption band is ink.
