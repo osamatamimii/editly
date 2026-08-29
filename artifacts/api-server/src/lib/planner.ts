@@ -283,6 +283,9 @@ function instructionFor(assets: PlannerAsset[]): string {
     "If they just say 'transitions' with nothing else, choose fade and a dissolve transition.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
     "motionTitle animates words onto the screen. Use the person's own words — never write copy they did not ask for.",
+    "titleStyle: card is a full sentence held in the middle; lower-third is a name or label along the bottom;",
+    "word is kinetic type, where the words land one after another - choose it when they ask for words that move,",
+    "for kinetic or animated text, or for a short punchy line rather than a sentence.",
     "Emojis they typed are their own words: if they ask for emojis and put some in the message, a motionTitle",
     "carrying those emojis is the right answer. If they ask for emojis and typed none, do not choose any.",
     "zoomPunch has punchOn: emphasis puts the punches where the speaker leans on a word, beat puts them on the",
@@ -317,9 +320,27 @@ function instructionFor(assets: PlannerAsset[]): string {
     );
   }
 
+  /**
+   * What the product genuinely cannot do — and nothing else.
+   *
+   * This line used to name emojis, colour grading and cutting in time with a
+   * beat. All three were built, and the sentence stayed, so the same prompt
+   * both explained `punchOn: beat` and told the model that cutting to a beat
+   * was outside the product; explained the five named looks and told it colour
+   * grading was outside the product; asked it to carry the person's emojis
+   * into a motionTitle and told it emojis were outside the product. A model
+   * handed a contradiction resolves it about half the time, which is the
+   * shape of bug this codebase keeps finding: nothing fails, some requests
+   * quietly come back refused, and the refusal reads like a considered answer.
+   *
+   * What is left is what the keyword matcher's own list is down to — a colour
+   * ask that names no look we have and offers no reference to match.
+   */
   lines.push(
-    "If the request is about something none of these operations do — emojis, colour grading, cutting in time",
-    "with a beat — return no operations for it rather than substituting something else.",
+    "If the request is about something none of these operations do, return no operations for it rather than",
+    "substituting something else. The one that comes up is a colour look nobody has named — 'grade it like",
+    "this film', 'make the reds deeper' — where the honest answer is that you cannot, because grade only has",
+    "the five looks above.",
   );
   return lines.join(" ");
 }
@@ -388,9 +409,12 @@ export function createPlanner(options: PlannerOptions = {}) {
         }
 
         const chosen = readOperations(await response.json());
-        const operations = chosen
-          .map((raw) => toOperation(raw, context.defaultPlatform ?? null, assets))
-          .filter((op): op is EditOperation => op !== null);
+        const operations = pairBeatWithMusic(
+          chosen
+            .map((raw) => toOperation(raw, context.defaultPlatform ?? null, assets))
+            .filter((op): op is EditOperation => op !== null),
+          assets,
+        );
 
         // Nothing survived validation: the model answered in a shape we do not
         // recognise. The keyword matcher is a worse answer than a good plan and
@@ -528,17 +552,16 @@ function toOperation(
         // the emphasis, which it can only know after hearing the clip, or on
         // the beat of the bed when it was asked for one.
         //
-        // Beat only when this project actually has a track. The renderer says
-        // so out loud when there is no bed, which is the right behaviour at run
-        // time and the wrong thing to ship deliberately from here: a plan we
-        // know cannot land is a plan we should not write.
-        const wantsBeat = raw["punchOn"] === "beat" && assets.some((a) => a.kind === "audio");
+        // Whether a beat punch can land is a question about the *plan*, not
+        // about this operation — it depends on whether a bed is under the edit,
+        // which is a different operation entirely. It is decided once, in
+        // `pairBeatWithMusic`, after everything the model chose is known.
         return {
           type,
           at: [],
           amount: numberOr(raw["punchAmount"], 0.13),
           holdMs: 1000,
-          on: wantsBeat ? "beat" : "emphasis",
+          on: raw["punchOn"] === "beat" ? "beat" : "emphasis",
         };
       }
       case "normalizeLoudness":
@@ -630,6 +653,61 @@ function toOperation(
   const validated = EditOperation.safeParse(candidate);
   return validated.success ? validated.data : null;
 }
+
+/**
+ * A punch on the beat needs a beat to be on.
+ *
+ * The instructions say so — "it needs a bed to land on, so the two go together"
+ * — and an instruction is not a guarantee. A model that chooses `punchOn: beat`
+ * and forgets `addMusic` produces a plan the renderer can only answer with a
+ * note: there is no music under this edit, so there is nothing to find a beat
+ * in, so no punches at all. The person asked for cuts on the beat and got a
+ * video with nothing done to it.
+ *
+ * The keyword matcher has always added the bed itself in exactly this case, so
+ * this is also the two-heads rule: the cheap head must not be able to produce
+ * an edit the paid head cannot. Whichever chose it, the plan that comes out is
+ * the same one.
+ *
+ * With no track in the project at all, the punch is put back on the speaker's
+ * emphasis rather than dropped. That is an edit that works on any footage and
+ * it is what the person would have got had they never mentioned the music —
+ * and the renderer's notes say what was done either way.
+ */
+export function pairBeatWithMusic(
+  operations: EditOperation[],
+  assets: PlannerAsset[],
+): EditOperation[] {
+  if (!operations.some((op) => op.type === "zoomPunch" && op.on === "beat")) return operations;
+  if (operations.some((op) => op.type === "addMusic")) return operations;
+
+  const track = assets.find((asset) => asset.kind === "audio");
+  // A plan is at most twelve operations. Adding a thirteenth would fail the
+  // whole plan on the way out, which is a worse answer than a punch on the
+  // emphasis — so a full plan takes the same road as a project with no track.
+  if (!track || operations.length >= MAX_OPERATIONS) {
+    return operations.map((op) =>
+      op.type === "zoomPunch" && op.on === "beat" ? { ...op, on: "emphasis" as const } : op,
+    );
+  }
+  return [
+    {
+      type: "addMusic",
+      assetId: track.id,
+      // The same bed the matcher lays: under the voice, ducked, faded in, from
+      // the top of the track, looped to the length of the cut.
+      gainDb: -18,
+      duck: true,
+      fadeSeconds: 1.5,
+      fromSeconds: 0,
+      loop: true,
+    },
+    ...operations,
+  ];
+}
+
+/** What `EditPlan` allows. A thirteenth operation fails the plan, not the operation. */
+const MAX_OPERATIONS = 12;
 
 /** The two placement vocabularies, kept apart because the model conflates them. */
 const OVERLAY_PLACEMENTS = new Set([

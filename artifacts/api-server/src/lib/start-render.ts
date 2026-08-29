@@ -90,11 +90,24 @@ export async function startRenderForProject(
     return { ok: false, status: 409, body: { error: ALREADY_RENDERING, jobId: pending.id } };
   }
 
-  // A plan can arrive with punch timestamps left empty — the chat knows you
-  // want emphasis but not where the interesting moments are. Space them out
-  // over whatever the clip actually is.
+  /**
+   * A plan can arrive with punch timestamps left empty — the chat knows you
+   * want emphasis but not where the interesting moments are. Space them out
+   * over whatever the clip actually is.
+   *
+   * **Only for emphasis punches.** An empty list means two entirely different
+   * things depending on what the punch is following, and until this line said
+   * so it meant the wrong one. A beat punch is empty *because the beats are a
+   * fact about the audio* — the worker decodes the track, finds the grid and
+   * fills them in, and it does that only when it is handed an empty list.
+   * Spacing them out here filled the list before the worker ever saw it, so
+   * the beat detector never ran on a single real render: every "cut to the
+   * beat" landed on four evenly spaced arithmetic moments instead, which look
+   * completely deliberate and are on nothing at all. Exactly the failure the
+   * detector itself was written to refuse, reintroduced one layer up.
+   */
   const requested = requestedOperations.map((op) =>
-    op.type === "zoomPunch" && op.at.length === 0
+    op.type === "zoomPunch" && op.on !== "beat" && op.at.length === 0
       ? { ...op, at: evenlySpacedPunches(project.duration ?? null, 4) }
       : op,
   );

@@ -149,9 +149,17 @@ const EMOJI_RUN = new RegExp(
   "gu",
 );
 
-/** The emojis somebody actually typed, at most three: a wall of them is noise. */
+/**
+ * The emojis somebody actually typed, at most three: a wall of them is noise.
+ *
+ * Joined with a space rather than run together, and the space is doing work
+ * rather than styling: the `word` title style animates whitespace-separated
+ * pieces one at a time, so three spaced emojis pop onto the frame in sequence
+ * and three crammed ones arrive as a single lump. The renderer decides what a
+ * piece is; this decides that these are three things and not one.
+ */
 export function emojiIn(text: string): string {
-  return (text.match(EMOJI_RUN) ?? []).slice(0, 3).join("");
+  return (text.match(EMOJI_RUN) ?? []).slice(0, 3).join(" ");
 }
 
 const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?) )?to (the )?(beat|music|rhythm|drop)\b|على الإيقاع|مع الإيقاع/i;

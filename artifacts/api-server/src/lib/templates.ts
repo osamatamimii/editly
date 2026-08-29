@@ -19,6 +19,20 @@ export interface Template {
   description: string;
   /** Best suited to this kind of footage. */
   bestFor: string;
+  /**
+   * A file this look cannot be built without.
+   *
+   * Only one template has ever needed one, and it is the reason this field
+   * exists rather than a boolean buried in `build`: a look that cuts to a track
+   * has nothing to cut to in a project with no track, and the two dishonest
+   * answers are both easy to reach by accident. It could quietly place its
+   * punches on the speaker's emphasis instead — an edit nobody asked for,
+   * wearing the name of one they did — or it could return an empty operation
+   * list and render a video that is identical to the one that went in. So the
+   * requirement is data: the route refuses before anything is queued, and the
+   * button says what is missing.
+   */
+  needs?: "music";
   build: (context: TemplateContext) => EditOperation[];
 }
 
@@ -37,6 +51,14 @@ export interface TemplateContext {
   durationSeconds: number | null;
   /** Free plans carry the mark. */
   watermark: boolean;
+  /**
+   * The track to lay under the edit, or null when this project has no audio.
+   *
+   * Null reaches only the one template that declares `needs: "music"`, because
+   * the route refuses that template before calling it — so `build` never has to
+   * decide what a beat-cut look means without a beat.
+   */
+  musicAssetId: string | null;
 }
 
 function withWatermark(operations: EditOperation[], context: TemplateContext): EditOperation[] {
@@ -196,6 +218,52 @@ export const TEMPLATES: Template[] = [
           // recording starts and stops mid-room; the fade is what makes it
           // read as a post rather than as an excerpt.
           { type: "fade", durationMs: 500 },
+        ],
+        context,
+      ),
+  },
+  {
+    id: "on-the-beat",
+    name: "On the beat",
+    description: "Lays your track under the cut and punches in on the bar.",
+    bestFor: "B-roll, montages, anything with music",
+    needs: "music",
+    build: (context) =>
+      withWatermark(
+        [
+          // The track first: everything below is timed against it, and the
+          // worker reads the beat from the file this names.
+          {
+            type: "addMusic",
+            assetId: context.musicAssetId ?? "",
+            gainDb: -14,
+            duck: true,
+            fadeSeconds: 1.5,
+            fromSeconds: 0,
+            loop: true,
+          },
+          { type: "removeSilence", thresholdDb: -32, minSilenceMs: 400, paddingMs: 70 },
+          { type: "formatForPlatform", platform: context.platform },
+          {
+            type: "zoomPunch",
+            on: "beat",
+            // Deliberately empty, and the only template that leaves it so.
+            // Every other look places its punches by arithmetic on the running
+            // time; this one cannot, because where the beats are is a fact
+            // about the audio and nothing here has heard it. The worker reads
+            // the track, finds the grid, and fills these in — or finds no
+            // steady pulse and says so in the notes rather than inventing one.
+            at: [],
+            // Bigger than the emphasis punches, and shorter. A punch on the bar
+            // is a hit; a punch on a word is a lean.
+            amount: 0.16,
+            holdMs: 420,
+          },
+          // A flash on a cut that lands on the beat is the oldest music-video
+          // trick there is, and it only works because the cut is already there:
+          // the silence removal makes the joins, this makes them read.
+          { type: "transition", style: "flash", durationMs: 140 },
+          { type: "normalizeLoudness", targetLufs: -13 },
         ],
         context,
       ),
