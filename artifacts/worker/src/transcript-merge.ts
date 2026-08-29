@@ -38,6 +38,7 @@
  */
 import type { Transcript, TranscriptSegment, TranscriptWord } from "./providers/types";
 import { sayIn, type Language } from "./say";
+import { isFiller } from "./providers/fillers";
 
 /** A pause this long is a safe place to break the comparison in two. */
 const SPLIT_GAP_MS = 400;
@@ -72,8 +73,6 @@ const UNCORROBORATED_TRUST = 0.9;
 
 /** Below this there is no room to place a word the primary never heard. */
 const MIN_INSERT_ROOM_MS = 40;
-
-const FILLERS = new Set(["um", "uh", "mm", "hmm", "er", "ah", "uhh", "umm"]);
 
 export interface MergeResult {
   transcript: Transcript;
@@ -324,7 +323,7 @@ function contest(primary: Placed, secondary: TranscriptWord, stats: MergeResult[
   return {
     ...primary,
     text: carryPunctuation(primary.text, secondary.text),
-    filler: FILLERS.has(normalise(secondary.text)),
+    filler: isFiller(secondary.text),
     confidence: round(Math.min(clamp(primary.confidence), clamp(secondary.confidence)) * CONTESTED_TRUST),
   };
 }
@@ -363,7 +362,7 @@ function place(
     startMs: Math.round(floor + each * index),
     endMs: Math.round(floor + each * (index + 1)),
     confidence: round(clamp(word.confidence) * UNCORROBORATED_TRUST),
-    filler: FILLERS.has(normalise(word.text)),
+    filler: isFiller(word.text),
     segment,
   }));
 }
