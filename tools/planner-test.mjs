@@ -15,6 +15,7 @@
  * Requires: nothing. No keys, no network, no ffmpeg.
  */
 import { mkdtemp, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -1039,6 +1040,114 @@ console.log("\nMusic comes from the person's own library or not at all");
  * politeness into the video would be the product reading punctuation as an
  * instruction.
  */
+/**
+ * The two heads have to be able to say the same things.
+ *
+ * This product plans a sentence twice over: a keyword matcher that runs
+ * everywhere, and a model that runs where there is a key. They are not meant to
+ * be identical — the model reads sentences the matcher cannot — but the matcher
+ * must never be able to express an *edit* the model cannot, because that means
+ * paying for a key makes the product worse and nothing anywhere says so.
+ *
+ * It happened the round beat sync was built: the matcher could say "put the
+ * punches on the beat" and the model's vocabulary had no word for it, so a
+ * deployment with a key would have quietly gone back to punching the voice. The
+ * check below is what would have caught it, and it works the only way this kind
+ * of check can: it reads the *matcher's source* for the literal values it
+ * assigns to operation fields, and asks whether each one appears anywhere in
+ * the schema the model is handed.
+ */
+console.log("\nThe matcher cannot say anything the model has no word for");
+{
+  const calls = [];
+  const spy = (url, init) => {
+    calls.push([url, init]);
+    return answering([])(url, init);
+  };
+  const planner = createPlanner({ apiKey: "k", fetchImpl: spy });
+  await planner.plan("do everything", { assets: LIBRARY });
+  const schema = JSON.stringify(sentBody(calls).response_format.json_schema.schema);
+
+  const matcher = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/plan-from-text.ts"), "utf8");
+
+  /**
+   * Values the matcher writes into an operation, taken from the source rather
+   * than from a list somebody maintains — a list is the thing that goes stale
+   * the week this matters.
+   */
+  const chosen = new Set();
+  // Every place the matcher names one of these fields, and whatever it assigns
+  // on the rest of that line — which covers the ternary chains, the multi-line
+  // object literals and the one-line pushes alike. The first version of this
+  // only read lines that *began* with a field name, and the one value the
+  // section was written to catch is written mid-line: it passed while reading
+  // nothing, which is the failure a guard is most likely to have.
+  const ASSIGNMENT = /\b(?:type|style|animation|platform|look|position|on)\s*:\s*([^,}\n]*)/g;
+  for (const [, assigned] of matcher.matchAll(ASSIGNMENT)) {
+    for (const [, value] of assigned.matchAll(/"([a-z][a-zA-Z-]*)"/g)) chosen.add(value);
+  }
+
+  /**
+   * What the model legitimately cannot choose, each with the reason. Anything
+   * not on this list and not in the schema is the drift this section exists to
+   * catch — so adding to it should feel like a decision, not a fix.
+   */
+  const NOT_THE_MODEL_S_TO_CHOOSE = new Map([
+    // Chosen by the renderer from what it hears, never by a planner.
+    ["burnCaptions", "the worker turns autoCaptions into this once it has words"],
+    ["watermark", "forced by the server on free plans, never asked for"],
+    // Read off the person's own sentence, not selected from a vocabulary.
+    ["and", "a word in a joined list, not a value"],
+  ]);
+
+  const missing = [...chosen].filter(
+    (value) => !schema.includes(`"${value}"`) && !NOT_THE_MODEL_S_TO_CHOOSE.has(value),
+  );
+  check(
+    "every value the matcher can choose is a value the model can choose",
+    missing.length === 0,
+    `the model has no word for: ${missing.join(", ")} — a key would make the product worse at these`,
+  );
+
+  // The model can now actually choose the transition it was told to choose.
+  {
+    const chosenStyle = [];
+    const styled = createPlanner({
+      apiKey: "k",
+      fetchImpl: answering([{ type: "transition", transitionStyle: "wipeLeft", durationSeconds: 0.3 }]),
+    });
+    const out = await styled.plan("wipe between the cuts", { assets: [] });
+    const op = out.operations.find((o) => o.type === "transition");
+    chosenStyle.push(op?.style);
+    check(
+      "a transition style the model names is the style it gets",
+      op?.style === "wipeLeft",
+      JSON.stringify(op),
+    );
+  }
+  // And an invented one still becomes the dissolve, which is what the comment
+  // in the transformer has always claimed and was never once exercised.
+  {
+    const invented = createPlanner({
+      apiKey: "k",
+      fetchImpl: answering([{ type: "transition", transitionStyle: "swirl", durationSeconds: 0.3 }]),
+    });
+    const out = await invented.plan("swirl between the cuts", { assets: [] });
+    check(
+      "and a style it invented becomes the dissolve rather than a failure",
+      out.operations.find((o) => o.type === "transition")?.style === "dissolve",
+      JSON.stringify(out.operations),
+    );
+  }
+
+  // And the guard is reading something: a value nobody has is reported.
+  check(
+    "and a value neither of them has would be caught",
+    !schema.includes('"wesAnderson"'),
+    "the schema contains a look that does not exist, so this check reads nothing",
+  );
+}
+
 console.log("\nEmojis are theirs or they do not happen");
 {
   const planner = createPlanner({ apiKey: "" });
