@@ -1074,6 +1074,48 @@ console.log("\nA look can be named, because most people have no reference to han
   check("and the reply says it in words a person uses", /take the colour out/.test(reply), reply);
 }
 
+console.log("\nThe two most basic asks, in the other language");
+{
+  const planner = createPlanner({ apiKey: "" });
+
+  // Everything else in the matcher reads Arabic — the highlight, the hook, the
+  // transitions, the looks, the music. Cutting silence and going vertical, the
+  // two most-asked-for edits in the product, did not: this sentence produced
+  // *no operations at all*, so the reply fell through to "I'm not sure what to
+  // change from that". Found by rendering sentences a person would type.
+  const arabic = await planner.plan("اقصّ الصمت وخليها عمودية للتيك توك", {});
+  const types = arabic.operations.map((o) => o.type);
+  check("the Arabic for cutting silence is heard", types.includes("removeSilence"), JSON.stringify(types));
+  check("and the Arabic for vertical reframes it", types.includes("formatForPlatform"), JSON.stringify(types));
+  check(
+    "to the platform it names, not a default",
+    arabic.operations.find((o) => o.type === "formatForPlatform")?.platform === "tiktok",
+    JSON.stringify(arabic.operations),
+  );
+
+  // The phrase this product's own reply uses. "I'll level the audio to what
+  // these platforms expect" was a sentence we wrote and could not hear: only
+  // "audio level" matched, which is the same two words in the order nobody
+  // says them in.
+  const levelled = await planner.plan("cut the silences and level the audio", {});
+  check(
+    "and the words our own reply uses are words we can hear",
+    levelled.operations.some((o) => o.type === "normalizeLoudness"),
+    JSON.stringify(levelled.operations.map((o) => o.type)),
+  );
+  const reply = replyFor(levelled, { hasVideo: true });
+  check("so the promise it makes is one it planned", /level the audio/.test(reply), reply);
+
+  // The guard on the other side: "level" is a common word and must not fire on
+  // its own.
+  const notLevel = await planner.plan("cut it down to the next level of tight", {});
+  check(
+    "while 'level' on its own does not level anything",
+    !notLevel.operations.some((o) => o.type === "normalizeLoudness"),
+    JSON.stringify(notLevel.operations.map((o) => o.type)),
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
