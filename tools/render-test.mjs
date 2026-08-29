@@ -1839,50 +1839,50 @@ console.log("\nColour looks are measured on the pixels, not on the filter");
   check("without tinting it one way or the other", Math.abs(p.v - base.v) < 3 && Math.abs(p.u - base.u) < 3, `V ${base.v.toFixed(1)}→${p.v.toFixed(1)}, U ${base.u.toFixed(1)}→${p.u.toFixed(1)}`);
 
   // Cinematic is the only look that has to treat the ends of the range
-  // differently, so measuring the frame as a whole would miss the entire
-  // point: a uniform blue cast would pass a whole-frame check and be the
-  // wrong look. This reads the dark end and the bright end separately, off a
-  // black-to-white ramp, and asks that they moved in *opposite* directions.
-  const ramp = path.join(dir, "ramp.mp4");
-  spawnSync("ffmpeg", [
-    "-hide_banner", "-y", "-loglevel", "error",
-    "-f", "lavfi", "-i", "gradients=size=320x240:c0=black:c1=white:x0=0:y0=0:x1=0:y1=240:duration=2:rate=25",
-    "-t", "2", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", ramp,
-  ]);
-  /** Mean U and V of a horizontal band, so shadows and highlights read apart. */
-  const band = (file, y) => {
-    const r = spawnSync(
-      "ffprobe",
-      [
-        "-v", "error", "-f", "lavfi",
-        "-i", `movie=${file},crop=320:60:0:${y},signalstats`,
-        "-show_entries", "frame_tags=lavfi.signalstats.UAVG,lavfi.signalstats.VAVG",
-        "-of", "csv=p=0",
-      ],
-      { encoding: "utf8" },
+  // differently, so measuring one frame as a whole would miss the entire
+  // point: a uniform blue cast would pass a whole-frame check and be the wrong
+  // look. It is measured on two flat clips instead — one dark, one bright —
+  // and asked to move them in *opposite* directions.
+  //
+  // This first used a black-to-white ramp from the `gradients` source, read in
+  // two horizontal bands. It passed here and failed in CI, where the shadow
+  // band measured as a highlight: that filter does not render identically
+  // across ffmpeg builds, so the test was really asserting which way one
+  // generator happened to paint. Two flat colours at named levels cannot be
+  // ambiguous about which one is the dark one.
+  const flat = async (colour) => {
+    const file = path.join(dir, `flat-${colour}.mp4`);
+    spawnSync("ffmpeg", [
+      "-hide_banner", "-y", "-loglevel", "error",
+      "-f", "lavfi", "-i", `color=c=${colour}:size=320x240:rate=25:duration=2`,
+      "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", file,
+    ]);
+    const { output, notes } = await renderPlan(
+      file,
+      { version: 1, operations: [{ type: "grade", saturation: 1, look: "cinematic" }] },
+      { workDir: await scratch() },
     );
-    const row = r.stdout.trim().split("\n").filter(Boolean)[0]?.split(",").map(Number) ?? [];
-    return { u: row[0], v: row[1] };
+    return { before: planes(file), after: planes(output), notes };
   };
-  const cine = await renderPlan(
-    ramp,
-    { version: 1, operations: [{ type: "grade", saturation: 1, look: "cinematic" }] },
-    { workDir: await scratch() },
-  );
-  const shadowsBefore = band(ramp, 10);
-  const shadowsAfter = band(cine.output, 10);
-  const highsBefore = band(ramp, 170);
-  const highsAfter = band(cine.output, 170);
+
+  const dark = await flat("0x202020");
+  const bright = await flat("0xD8D8D8");
   check(
     "cinematic puts blue into the shadows",
-    shadowsAfter.u > shadowsBefore.u + 2,
-    `U ${shadowsBefore.u?.toFixed(1)}→${shadowsAfter.u?.toFixed(1)}`,
+    dark.after.u > dark.before.u + 3,
+    `U ${dark.before.u?.toFixed(1)}→${dark.after.u?.toFixed(1)}`,
   );
   check(
     "and takes it out of the highlights, which is the whole look",
-    highsAfter.u < highsBefore.u - 2 && highsAfter.v > highsBefore.v + 1,
-    `U ${highsBefore.u?.toFixed(1)}→${highsAfter.u?.toFixed(1)}, V ${highsBefore.v?.toFixed(1)}→${highsAfter.v?.toFixed(1)}`,
+    bright.after.u < bright.before.u - 3 && bright.after.v > bright.before.v + 1,
+    `U ${bright.before.u?.toFixed(1)}→${bright.after.u?.toFixed(1)}, V ${bright.before.v?.toFixed(1)}→${bright.after.v?.toFixed(1)}`,
   );
+  check(
+    "so the two ends really do move apart, which a uniform cast would not",
+    dark.after.u - bright.after.u > 10,
+    `shadows U ${dark.after.u?.toFixed(1)} against highlights U ${bright.after.u?.toFixed(1)}`,
+  );
+  const cine = { notes: dark.notes };
   check("and names what it did", cine.notes.some((n) => /blue in the shadows/.test(n)), JSON.stringify(cine.notes));
 
   // A look and a reference match compose. Mono is the one pair that cannot,
