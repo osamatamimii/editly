@@ -503,6 +503,12 @@ export interface TemplateSummary {
   name: string;
   description: string;
   bestFor: string;
+  /**
+   * A file this look cannot be built without, or null. On the wire so the
+   * button can say what is missing before it is pressed.
+   * @nullable
+   */
+  needs: "music" | null;
 }
 
 /**
@@ -570,6 +576,12 @@ export interface AdminJob {
   lockedAt: string | null;
   finishedAt: string | null;
   unattended: boolean;
+  /**
+   * What the renderer said it did, in its own words. The only record of a
+   * render that finished without doing what was asked.
+   * @nullable
+   */
+  notes: string[] | null;
 }
 
 export interface ListAdminJobsResponse {
