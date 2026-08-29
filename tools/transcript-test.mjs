@@ -58,6 +58,7 @@ const { resolveProviders, missingCapabilityNotes } = await import(
   bundle("artifacts/worker/src/providers/index.ts", "providers.mjs")
 );
 const { buildCaptionCues } = await import(bundle("artifacts/worker/src/captions.ts", "captions.mjs"));
+const { isFiller } = await import(bundle("artifacts/worker/src/providers/fillers.ts", "fillers.mjs"));
 
 let checks = 0;
 let failures = 0;
@@ -447,6 +448,74 @@ section("Both answer");
  * exactly what cannot show this: a wrong-language reading has words, timings
  * and confidences, and looks from every angle like a right one.
  */
+/**
+ * A hesitation is not a word — and a word is not a hesitation.
+ *
+ * `dropFillers` is on for every captions plan this product makes, and a word
+ * marked as a filler is not merely hidden: it ends a caption group, and it is
+ * excluded from the scoring that picks the highlight window, chooses the clips
+ * and **writes their titles from the first words spoken**. So this flag can
+ * title somebody's clip with a grunt if it says no, and can delete a word they
+ * meant if it says yes.
+ *
+ * For Arabic it had only ever said no. The list was English, in three copies,
+ * behind three different normalisers, and Deepgram's own filler marking is
+ * documented English-only — so every Arabic caption kept every hesitation.
+ *
+ * What is asserted here is both directions, because only one of them is
+ * tempting to get wrong: it is easy to add «يعني» and «إيه» to a filler list
+ * and much harder to explain to somebody why the product deleted the word they
+ * said. Those are ordinary words — *means*, and *yes* — and the check that
+ * they survive is the point of this section.
+ */
+section("A hesitation is a sound; a word is not");
+{
+  const sounds = ["um", "Uh,", "HMM", "آآ", "ااا", "ممم", "ههه", "اااه", "آآه", "اهه", "آاـاـه"];
+  for (const word of sounds) {
+    check(`«${word}» is a held sound`, isFiller(word), "kept, so it can end up in a caption or a clip title");
+  }
+
+  // The other half, and the one worth the trouble. Each of these is a word
+  // somebody means: «يعني» is *means*, «إيه» is *yes* in the Levant and *what*
+  // in Egypt, «طيب» is *fine*, «اه» is *yes*, «أمم» is *nations*, «همم» is
+  // *aspirations*, «ماما» is *mum*. A filler list that eats any of them is
+  // deleting speech, which is the failure this list is shaped to avoid — the
+  // same shape as reading «ترجم» for «ترجمة».
+  const words = ["يعني", "إيه", "طيب", "اه", "آه", "أمم", "همم", "ماما", "ما", "هم", "am", "her", "meme"];
+  for (const word of words) {
+    check(`«${word}» is a word, and survives`, !isFiller(word), "dropped, so the person's own word never reaches the screen");
+  }
+
+  check("and nothing at all is not a hesitation", !isFiller("…"), "punctuation-only tokens would flag as fillers");
+}
+
+/**
+ * And it is defined once.
+ *
+ * It was defined three times, identically, behind three different normalisers
+ * — which is the arrangement that produces a provider whose Arabic
+ * hesitations are marked and another whose are not, months after somebody
+ * "added Arabic support" to the one they happened to be looking at. Same rule
+ * as the suite list in checks.yml and the Supabase shim: a copy in each place
+ * is how the two drift apart.
+ */
+section("The filler list is defined once");
+{
+  const workerSrc = path.join(repoRoot, "artifacts/worker/src");
+  // "uhh" rather than "um": the shorter one appears in prose all over this
+  // codebase — every comment that says what a filler is contains it — and a
+  // guard that matches its own explanation catches nothing.
+  const files = spawnSync("grep", ["-rl", "--include=*.ts", '"uhh"', workerSrc], { encoding: "utf8" })
+    .stdout.split("\n")
+    .filter(Boolean)
+    .map((f) => path.relative(repoRoot, f));
+  check(
+    "only one file in the worker names the English hesitations",
+    files.length === 1 && files[0].endsWith("providers/fillers.ts"),
+    files.join(", ") || "none — the list has moved and this check no longer reads anything",
+  );
+}
+
 section("The audio decides which language it is in");
 {
   // A real request, not a reading of the source.
