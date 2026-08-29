@@ -16,6 +16,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { criticise } from "./critic";
 import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle } from "./motion";
+import { beatsOf, everyNth } from "./beats";
 import type { EditOperation, EditPlan, GradeLook, TransitionStyle } from "@workspace/api-zod";
 import { captionLayout, type CaptionLayout } from "./caption-layout";
 import {
@@ -1331,6 +1332,65 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     kenBurns = reviewedFind("kenBurns");
     zoomPunch = reviewedFind("zoomPunch");
     captions = reviewedFind("burnCaptions");
+  }
+
+  // ── Punches on the beat ───────────────────────────────────────────────────
+  //
+  // Deliberately here, immediately after the critic, because this is the first
+  // line in the file where `zoomPunch.at` is on the **output** clock. Emphasis
+  // moments are read from the recording and remapped through the cuts; beats
+  // come from a bed that is laid under the finished edit, and there is no
+  // remapping to do. Placing this earlier would put two different clocks in one
+  // array, which is the shape of the bug this renderer keeps finding.
+  //
+  // And a beat plan with no bed does not quietly become an emphasis plan. Those
+  // are different edits, and doing the other one without saying so is the
+  // failure this pipeline's notes exist to prevent.
+  if (zoomPunch && zoomPunch.on === "beat" && zoomPunch.at.length === 0) {
+    if (!musicUsable) {
+      notes.push(
+        t(
+          "there is no music under this edit, so there was no beat to put the punches on",
+          "لا موسيقى تحت هذا التعديل، فلم يكن هناك إيقاع أضع عليه التقريبات",
+        ),
+      );
+    } else {
+      ctx.onProgress?.(0.42, "Listening for the beat");
+      const grid = await beatsOf(musicAsset.file);
+      if (!grid) {
+        notes.push(
+          t(
+            "could not find a steady beat in that track, so the punches were left out rather than placed on a guess",
+            "لم أجد إيقاعًا ثابتًا في ذلك المقطع، فتُركت التقريبات بدل وضعها على تخمين",
+          ),
+        );
+      } else {
+        // The bed may start partway into the track, so a beat at 12.4s in the
+        // file is at 12.4 − fromSeconds in the edit. Beats before the bed
+        // starts are not beats anybody hears.
+        const onEdit = grid.beats
+          .map((at) => at - music!.fromSeconds)
+          .filter((at) => at >= 0);
+        const at = everyNth({ ...grid, beats: onEdit }, 4, { from: 0, to: effectiveDuration }).slice(0, 40);
+        if (at.length === 0) {
+          notes.push(
+            t(
+              "the beat in that track starts after this edit ends, so the punches were left out",
+              "إيقاع ذلك المقطع يبدأ بعد نهاية هذا التعديل، فتُركت التقريبات",
+            ),
+          );
+        } else {
+          zoomPunch = { ...zoomPunch, at };
+          const bpm = Math.round(grid.bpm);
+          notes.push(
+            t(
+              `put ${at.length} punch${at.length === 1 ? "" : "es"} on the beat, one a bar at ${bpm} bpm`,
+              `وضعت ${at.length} تقريبة على الإيقاع، واحدة كل مازورة عند ${bpm} نبضة في الدقيقة`,
+            ),
+          );
+        }
+      }
+    }
   }
 
   // ── Framing ───────────────────────────────────────────────────────────────

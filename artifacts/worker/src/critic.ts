@@ -117,6 +117,24 @@ export function criticise(input: CriticInput): CriticResult {
 
   for (const operation of input.operations) {
     if (operation.type === "zoomPunch") {
+      /**
+       * A punch that is going to land on the beat has nothing here to review.
+       *
+       * Everything below reads `at` as seconds into the *recording* and moves
+       * them onto the edited timeline. Beat moments are not on that clock and
+       * do not exist yet: they are read off the music, which is laid under the
+       * finished edit, so they are chosen after this pass and are already in
+       * output time. Passing this through untouched is the only correct thing
+       * to do — and it has to be said, because the branch below reads an empty
+       * `at` as "every punch was cut" and drops the operation, which is how the
+       * first version of beat sync produced a render with no punches and a note
+       * explaining that none had survived a cut that never happened.
+       */
+      if (operation.on === "beat" && operation.at.length === 0) {
+        operations.push({ ...operation, amount: zoom.punchAmount ?? operation.amount });
+        continue;
+      }
+
       const holdSeconds = operation.holdMs / 1000;
       const original = operation.at.length;
 
