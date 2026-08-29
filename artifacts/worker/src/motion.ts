@@ -122,7 +122,14 @@ export function sceneHtml(options: MotionSceneOptions): string {
         @keyframes in-${cls} { to { opacity:1 } }
         @keyframes out-${cls} { to { opacity:0 } }
         @keyframes rise-${cls} { to { transform: translateY(0) scale(1) } }`,
-        html: `<div class="${cls}"><span>${safe}</span></div>`,
+        // `dir="auto"` for the same reason the editor carries it, and with more
+        // at stake: a title is *burned into the file*. The browser reads the
+        // first strong character and lays the line out that way, so an Arabic
+        // title's question mark ends the sentence instead of opening it, and an
+        // English title is laid out exactly as it was before. Measured, not
+        // assumed: without it the bang in «٥ أسرار للنجاح!» sits four fifths of
+        // the way across the line — at the wrong end, permanently.
+        html: `<div class="${cls}"><span dir="auto">${safe}</span></div>`,
       };
     });
 

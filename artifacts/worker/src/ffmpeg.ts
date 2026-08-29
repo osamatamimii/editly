@@ -290,20 +290,83 @@ function captionStyleRow(style: string, layout: CaptionLayout): string {
 }
 
 /**
+ * The two Unicode characters that say "decide this line's direction from what
+ * is in it".
+ *
+ * ASS has no `dir` attribute, and libass lays a line out left to right unless
+ * something in the text says otherwise. For a wholly Arabic line the letters
+ * themselves say so and it comes out right — which is exactly why this went
+ * unseen. What has no direction of its own is the punctuation: a full stop, a
+ * question mark, the ellipsis this renderer appends when a caption is
+ * truncated. Those take the *paragraph's* direction, so an Arabic sentence
+ * ending in `…` was drawn with the ellipsis at its beginning.
+ *
+ * FSI takes the direction from the first strong character in the run and PDI
+ * closes it — the same rule as `dir="auto"`, chosen for the same reason: it is
+ * a better rule than any we would write, and it leaves an English line
+ * byte-for-byte where it already was.
+ */
+const FSI = "\u2068";
+const PDI = "\u2069";
+
+/** One line, told to work out its own direction. */
+function isolate(line: string): string {
+  return line ? `${FSI}${line}${PDI}` : line;
+}
+
+/**
+ * Whether a line reads right to left — first strong character wins.
+ *
+ * Deliberately the same rule as the isolate above and as `dir="auto"` in the
+ * editor, because three different answers to "which way does this read" is
+ * three chances for the frame, the reply and the caption to disagree.
+ */
+export function readsRightToLeft(text: string): boolean {
+  for (const ch of text) {
+    const c = ch.codePointAt(0) ?? 0;
+    // Arabic, Hebrew, Syriac, Thaana and the Arabic presentation forms.
+    if ((c >= 0x0590 && c <= 0x08ff) || (c >= 0xfb1d && c <= 0xfdff) || (c >= 0xfe70 && c <= 0xfeff)) return true;
+    // Latin, Greek and Cyrillic — enough to settle any line this renderer sees.
+    if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || (c >= 0xc0 && c <= 0x52f)) return false;
+  }
+  return false;
+}
+
+/**
  * Per-cue animation. These are the effects that make short-form captions read
  * as deliberate rather than as an accessibility track: a small overshoot on
  * entry, and a word-level wipe that tracks the speaker.
  */
 function animateCue(cue: CaptionCue, animation: string): string {
-  const body = cue.text.replace(/\r?\n/g, "\\N").replace(/[{}]/g, "");
+  const body = cue.text
+    .replace(/\r?\n/g, "\\N")
+    .replace(/[{}]/g, "")
+    .split("\\N")
+    .map(isolate)
+    .join("\\N");
 
   if (animation === "karaoke" && cue.words && cue.words.length > 0) {
     // \kf wipes the fill across each word for exactly its own duration, so the
     // highlight follows the voice instead of a fixed rhythm.
-    return cue.words
+    //
+    // And the words are emitted in reverse for a right-to-left line, which
+    // looks like vandalism and is the only correct thing to do. A `\kf` tag
+    // starts a new layout run — measurably: a colour tag in the same place
+    // changes nothing, a karaoke tag splits the line — so libass reorders
+    // *within* each word and then sets the words down left to right. Every
+    // word was shaped perfectly and the sentence was backwards: a caption that
+    // is legible, timed to the voice, and says the sentence in reverse. Laying
+    // the runs down in reverse order puts them back where the bidi algorithm
+    // would have put them, and an embedded English word still reads left to
+    // right because its own run does.
+    const spoken = readsRightToLeft(cue.text) ? [...cue.words].reverse() : cue.words;
+    return spoken
       .map((w) => {
         const cs = Math.max(1, Math.round((w.endMs - w.startMs) / 10));
-        return `{\\kf${cs}}${w.text.replace(/[{}]/g, "")} `;
+        // Each word is isolated too: the run boundary the tag creates is also
+        // a boundary the line's own isolate cannot reach across, so a word
+        // carrying its sentence's full stop needs its own.
+        return `{\\kf${cs}}${isolate(w.text.replace(/[{}]/g, ""))} `;
       })
       .join("")
       .trimEnd();
