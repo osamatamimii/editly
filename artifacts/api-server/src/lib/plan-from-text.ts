@@ -115,6 +115,45 @@ const MUSIC_WORDS =
  * beat" still gets an honest no — and so that "add music and cut to the beat"
  * gets both answers instead of the friendlier one.
  */
+/**
+ * Asking for emojis, and the emojis themselves.
+ *
+ * Two patterns rather than one, because the difference between them is the
+ * whole feature. This product does not write copy nobody asked for — the
+ * animated title refuses to invent words for the same reason — and choosing
+ * somebody's emojis for them is writing copy. So the ask alone gets a refusal
+ * that names the fix, and the emojis they typed get placed.
+ *
+ * And typing an emoji is *not* on its own an ask. «اقصّ الصمت 🙏» is a person
+ * being polite; burning a praying-hands sticker into their video because of it
+ * would be the product reading punctuation as an instruction.
+ */
+const EMOJI_WORDS = /\bemoji|\bemojis\b|إيموجي|ايموجي|رموز تعبيرية|ستيكر|sticker/i;
+
+/**
+ * One run of emoji, keeping a sequence together: the joiner, the variation
+ * selector and the skin-tone modifiers all belong to the glyph before them, and
+ * splitting them turns one picture into two broken ones.
+ *
+ * Deliberately not `\p{Extended_Pictographic}`, which also matches ©, ® and ™ —
+ * three characters that turn up in the text of somebody asking about their
+ * rights, not asking for a sticker.
+ */
+const EMOJI_BASE = "[\\u{1F000}-\\u{1FAFF}\\u{2600}-\\u{27BF}\\u{2B00}-\\u{2BFF}]";
+const EMOJI_TAIL = "[\\u{FE0F}\\u{1F3FB}-\\u{1F3FF}]*";
+const EMOJI_RUN = new RegExp(
+  // One *picture*: a base, its modifiers, and any joined parts. Matching whole
+  // runs instead would make "🔥😂🎉🚀💯" a single match and the cap below
+  // meaningless, which is exactly how it first shipped.
+  `${EMOJI_BASE}${EMOJI_TAIL}(?:\\u{200D}${EMOJI_BASE}${EMOJI_TAIL})*`,
+  "gu",
+);
+
+/** The emojis somebody actually typed, at most three: a wall of them is noise. */
+export function emojiIn(text: string): string {
+  return (text.match(EMOJI_RUN) ?? []).slice(0, 3).join("");
+}
+
 const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?) )?to (the )?(beat|music|rhythm|drop)\b|على الإيقاع|مع الإيقاع/i;
 
 /**
@@ -135,7 +174,6 @@ const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?)
  *   music" to someone who just got music would be the same lie in reverse.
  */
 const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
-  { patterns: /\bemoji|إيموجي|ايموجي|رموز تعبيرية/i, label: say("add emojis yet", "أضيف إيموجي بعد") },
   {
     // Narrowed twice now. Reference matching removed the whole subject from
     // this list; the named looks removed most of what was left. What survives
@@ -799,6 +837,38 @@ export function planFromText(
       ),
     );
   }
+
+  /**
+   * Emojis — the last thing on the "cannot yet" list but one.
+   *
+   * They are read from `asked`, not from the normalised text, for the same
+   * reason a quoted title is: what goes back onto the person's video has to be
+   * exactly the characters they typed.
+   */
+  if (EMOJI_WORDS.test(text)) {
+    const emojis = emojiIn(asked);
+    if (emojis) {
+      operations.push({
+        type: "motionTitle",
+        text: emojis,
+        at: 0.5,
+        durationSeconds: 2,
+        style: "word",
+        // Over the top of the frame rather than the middle of it: a sticker
+        // sits beside what is happening, and the middle is where the face is.
+        position: "top",
+      });
+      willDo.push(say(`put ${emojis} on the opening`, `أضع ${emojis} على البداية`));
+    } else {
+      cannotYet.push(
+        say(
+          "pick emojis for you — type the ones you want in your message and I will put them on",
+          "أختار لك الإيموجي — اكتب التي تريدها في رسالتك وسأضعها",
+        ),
+      );
+    }
+  }
+
 
   for (const { patterns, label } of NOT_YET) {
     if (patterns.test(text)) cannotYet.push(label);
