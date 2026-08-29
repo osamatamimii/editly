@@ -26,12 +26,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Transcriber, Transcript, TranscribeOptions, TranscriptSegment, TranscriptWord } from "./types";
 import { withDeadline } from "./deadline";
+import { isFiller } from "./fillers";
 
 const ENDPOINT = "https://api.deepgram.com/v1/listen";
 const DEFAULT_MODEL = "nova-3";
-
-/** Deepgram marks these itself; the list is only for providers that do not. */
-const FILLERS = new Set(["um", "uh", "mm", "hmm", "er", "ah", "uhh", "umm"]);
 
 /**
  * The languages Deepgram's detector can actually name.
@@ -190,7 +188,7 @@ export function parseDeepgram(payload: unknown, source: string): Transcript {
       startMs: Math.round((w.start ?? 0) * 1000),
       endMs: Math.round((w.end ?? 0) * 1000),
       confidence: typeof w.confidence === "number" ? w.confidence : 1,
-      filler: FILLERS.has(stripPunctuation(text).toLowerCase()),
+      filler: isFiller(text),
     };
   });
 
@@ -274,10 +272,6 @@ function groupByGaps(words: TranscriptWord[], speakerOf: Map<number, number>): T
   flush();
 
   return segments;
-}
-
-function stripPunctuation(text: string): string {
-  return text.replace(/[^\p{L}\p{N}]/gu, "");
 }
 
 async function safeBody(response: Response): Promise<string> {

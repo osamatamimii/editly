@@ -25,13 +25,12 @@ import path from "node:path";
 import { extractSpeechAudio } from "./deepgram";
 import type { Transcriber, Transcript, TranscribeOptions, TranscriptSegment, TranscriptWord } from "./types";
 import { withDeadline } from "./deadline";
+import { isFiller } from "./fillers";
 
 const ENDPOINT = "https://api.elevenlabs.io/v1/speech-to-text";
 const DEFAULT_MODEL = "scribe_v1";
 
 /** Scribe does not flag these, so we do. */
-const FILLERS = new Set(["um", "uh", "mm", "hmm", "er", "ah", "uhh", "umm"]);
-
 /** A pause this long between words is a sentence break by any reasonable ear. */
 const SEGMENT_GAP_MS = 700;
 
@@ -129,7 +128,7 @@ export function parseElevenLabs(payload: unknown, source: string): Transcript {
       startMs: Math.round((raw.start ?? 0) * 1000),
       endMs: Math.round((raw.end ?? 0) * 1000),
       confidence: fromLogProb(raw.logprob),
-      filler: FILLERS.has(text.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase()),
+      filler: isFiller(text),
     });
     speakers.push(raw.speaker_id);
   }
