@@ -753,8 +753,10 @@ export const MotionTitleOperation = z.object({
   durationSeconds: z.number().min(0.4).max(20).default(2.5),
   /**
    * "card" is a full statement held in the middle of frame; "lower-third" is a
-   * name or label that does not interrupt; "word" is one emphasised word,
-   * bigger and shorter than either.
+   * name or label that does not interrupt; "word" is kinetic type — bigger and
+   * shorter than either, and its words arrive **one at a time**, in the order
+   * the line is read rather than the order it was written, so an Arabic line
+   * fills in from the right.
    */
   style: z.enum(["card", "lower-third", "word"]).default("card"),
   position: z.enum(["top", "center", "bottom"]).default("center"),
@@ -1035,6 +1037,15 @@ export const TemplateSummary = z.object({
   name: z.string(),
   description: z.string(),
   bestFor: z.string(),
+  /**
+   * A file the look cannot be built without, or null.
+   *
+   * On the wire so the button can say so before it is pressed. A template that
+   * needs a track and is offered identically to one that does not is a button
+   * whose only feedback is an error, and an error after a click is a worse
+   * place to learn a requirement than the label.
+   */
+  needs: z.enum(["music"]).nullable().default(null),
 });
 export type TemplateSummary = z.infer<typeof TemplateSummary>;
 
@@ -1140,6 +1151,24 @@ export const AdminJob = z.object({
   finishedAt: z.string().nullable(),
   /** Queued, unclaimed, and nothing is listening. */
   unattended: z.boolean(),
+  /**
+   * What the renderer said it did, in its own words.
+   *
+   * The console could see that a render succeeded and could see the message
+   * when one failed, and had nothing at all for the case that actually
+   * arrives in support: it worked, and it did not do what the person asked.
+   * The notes are the only record of that — "there is no music under this
+   * edit", "dropped a title whose moment did not survive the cut", "could not
+   * find a steady beat in that track". Every one of those is a finished render
+   * with an unhappy customer and, until now, no explanation this side of the
+   * worker's logs.
+   *
+   * They are the renderer's own sentences about its own decisions: counts,
+   * seconds, and values out of the plan the account itself wrote. Nothing from
+   * inside the video — no transcript, no caption text — which is the same line
+   * the rest of the console holds.
+   */
+  notes: z.array(z.string()).nullable(),
 });
 export type AdminJob = z.infer<typeof AdminJob>;
 
