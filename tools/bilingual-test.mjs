@@ -74,7 +74,8 @@ const check = (name, ok, detail = "") => {
 };
 
 const typesOf = (text) => (planFromText(text).operations ?? []).map((o) => o.type).sort().join(",");
-const refusalsOf = (text) => [...(planFromText(text).cannotYet ?? [])].sort().join(" | ");
+const refusalsOf = (text) => (planFromText(text).cannotYet ?? []).map((p) => p.en).sort().join(" | ");
+const refusalsArOf = (text) => (planFromText(text).cannotYet ?? []).map((p) => p.ar).sort().join(" | ");
 
 /**
  * The pairs.
@@ -312,7 +313,7 @@ for (const sentence of SPOKEN) {
   const reply = replyFor(planFromText(sentence), { hasVideo: true });
   check(
     `«${sentence}» is answered with a refusal, not a shrug`,
-    /I can't /.test(reply),
+    /I can't |لا أستطيع أن /.test(reply),
     reply.slice(0, 120),
   );
   check(
@@ -415,6 +416,82 @@ const titled = planFromText('ضع العنوان "٥ أسرار"');
 check("a title in quotes keeps the digits they typed",
   titled.operations.some((o) => o.type === "motionTitle" && o.text === "٥ أسرار"),
   JSON.stringify(titled.operations.map((o) => o.text)));
+
+/**
+ * The reply answers in the language it was asked in.
+ *
+ * Round 34 made «ضيف ترجمة» produce captions. It still answered "Right — I'll
+ * caption it from what is actually said." — in English, to somebody who had
+ * just written Arabic. The matcher understood and the product replied in a
+ * language the person had not used, which is its own kind of not listening.
+ *
+ * The checks below are written against the *frames* rather than the notes,
+ * because a half-translated reply — an Arabic sentence with an English clause
+ * inside it — is the failure mode this will actually have, and it reads worse
+ * than either language on its own.
+ */
+console.log("\nthe reply answers in the language it was asked in");
+
+const ENGLISH_FRAMES = [/\bOn it —/, /\bRight — I'll /, /\bI can't /, /\bI'd .* — but I can't/, /I'm not sure what to change/, /Upload a video first/];
+const ARABIC_FRAMES = [/تمام — س/, /لا أستطيع أن /, /كنت س/, /لست متأكّدًا/, /ارفع فيديو أوّلًا/];
+const hasAny = (patterns, text) => patterns.some((p) => p.test(text));
+
+const REPLY_CASES = [
+  { what: "a plan that starts rendering", ctx: { hasVideo: true, render: { started: true } },
+    en: "cut the silence and caption it", ar: "اقصّ الصمت وضيف ترجمة" },
+  { what: "a plan waiting on the button", ctx: { hasVideo: true },
+    en: "cut the silence", ar: "اقصّ الصمت" },
+  { what: "a render that could not start", ctx: { hasVideo: true, render: { started: false, because: "a render is already running" } },
+    en: "cut the silence", ar: "اقصّ الصمت" },
+  { what: "a refusal", ctx: { hasVideo: true },
+    en: "add background music", ar: "ضيف موسيقى خلفية" },
+  { what: "a sentence we could not read", ctx: { hasVideo: true },
+    en: "asdfgh qwerty", ar: "شي حلو بسرعة كذا" },
+  { what: "an empty project", ctx: { hasVideo: false },
+    en: "cut the silence", ar: "اقصّ الصمت" },
+];
+
+for (const c of REPLY_CASES) {
+  const english = replyFor(planFromText(c.en), c.ctx);
+  const arabic = replyFor(planFromText(c.ar), c.ctx);
+
+  check(`${c.what}: the English ask is answered in English`,
+    hasAny(ENGLISH_FRAMES, english) && !hasAny(ARABIC_FRAMES, english), english.slice(0, 100));
+  check(`${c.what}: the Arabic ask is answered in Arabic`,
+    hasAny(ARABIC_FRAMES, arabic) && !hasAny(ENGLISH_FRAMES, arabic), arabic.slice(0, 100));
+  check(`${c.what}: and the Arabic reply is not half-English`,
+    !/\b(?:and|the|it|with|from|into|your|so I'll|rather than)\b/.test(arabic), arabic.slice(0, 160));
+}
+
+/**
+ * A mixed sentence is an Arabic sentence. Somebody who typed any Arabic reads
+ * Arabic, and there is no setting for this because they already told us.
+ */
+check("a sentence with Arabic and English in it is answered in Arabic",
+  hasAny(ARABIC_FRAMES, replyFor(planFromText("اقصّ الصمت and make it vertical"), { hasVideo: true })),
+  replyFor(planFromText("اقصّ الصمت and make it vertical"), { hasVideo: true }).slice(0, 120));
+
+/**
+ * Arabic joins lists with و, not with a Latin comma and a trailing "and".
+ * Punctuation is the tell that a page was translated rather than written.
+ */
+const three = replyFor(planFromText("اقصّ الصمت وضيف ترجمة وخليها عمودية"), { hasVideo: true });
+check("three things are joined the way Arabic joins them", /، و/.test(three) && !/, and /.test(three), three.slice(0, 160));
+
+/** Both halves exist for every note a real sentence can produce. */
+console.log("\nno note has one half missing");
+for (const pair of PAIRS) {
+  for (const asked of [pair.en, pair.ar]) {
+    const plan = planFromText(asked);
+    const notes = [...plan.willDo, ...plan.cannotYet];
+    check(`«${asked}» — every note carries both languages`,
+      notes.every((n) => typeof n.en === "string" && n.en.length > 0 && typeof n.ar === "string" && n.ar.length > 0),
+      JSON.stringify(notes));
+    check(`«${asked}» — and the Arabic half is actually Arabic`,
+      notes.every((n) => /[\u0600-\u06ff]/.test(n.ar)),
+      JSON.stringify(notes.map((n) => n.ar)));
+  }
+}
 
 await rm(buildDir, { recursive: true, force: true });
 

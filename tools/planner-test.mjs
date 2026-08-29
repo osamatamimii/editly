@@ -42,6 +42,14 @@ if (built.status !== 0) {
 
 const { createPlanner, replyFor } = await import(pathToFileURL(outfile).href);
 
+/**
+ * Every note the planner produces now carries both languages (`{ en, ar }`),
+ * because the reply answers in the language it was asked in. These checks are
+ * about the English wording, so they read the English half; the Arabic half is
+ * checked by tools/bilingual-test.mjs.
+ */
+const inEnglish = (phrase) => phrase.en;
+
 let checks = 0;
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -331,7 +339,7 @@ console.log("\nAn id the model invented");
     JSON.stringify(result.operations.map((o) => o.type)),
   );
   check("and the real operation beside it survives", result.operations.some((o) => o.type === "autoCaptions"));
-  check("so nothing in the reply promises the cutaway", !/cut away/i.test(result.willDo.join(" ")));
+  check("so nothing in the reply promises the cutaway", !/cut away/i.test(result.willDo.map(inEnglish).join(" ")));
 }
 
 console.log("\nAn image where a clip belongs");
@@ -373,7 +381,7 @@ console.log("\nWhen it chooses well");
   check("in the style asked for", byType.motionTitle?.style === "word" && byType.motionTitle?.position === "bottom");
   check(
     "and the reply describes all three",
-    result.willDo.length === 3 && /half the price/i.test(result.willDo.join(" ")),
+    result.willDo.length === 3 && /half the price/i.test(result.willDo.map(inEnglish).join(" ")),
     JSON.stringify(result.willDo),
   );
 }
@@ -426,7 +434,7 @@ console.log("\nThe keyword matcher can reach the library too");
   check("the rest of the request still works", result.operations.some((o) => o.type === "removeSilence"));
   check(
     "and the reply names the file and the moment",
-    /street at night/.test(result.willDo.join(" ")) && /5s/.test(result.willDo.join(" ")),
+    /street at night/.test(result.willDo.map(inEnglish).join(" ")) && /5s/.test(result.willDo.map(inEnglish).join(" ")),
     JSON.stringify(result.willDo),
   );
   check("nothing is listed as impossible", result.cannotYet.length === 0, JSON.stringify(result.cannotYet));
@@ -442,7 +450,7 @@ console.log("\nThe best N seconds is a plan, not a shrug");
   check("with the length they said, not our default", highlight?.targetSeconds === 45, String(highlight?.targetSeconds));
   check(
     "and the reply promises the judgement, not the mechanism",
-    /strongest 45 seconds/.test(asked.willDo.join(" ")),
+    /strongest 45 seconds/.test(asked.willDo.map(inEnglish).join(" ")),
     JSON.stringify(asked.willDo),
   );
 
@@ -482,7 +490,7 @@ console.log("\nThe stretch they name is kept exactly");
   check("in seconds on the source clock", range?.startSeconds === 80 && range?.endSeconds === 130, JSON.stringify(range));
   check(
     "said back as moments, not numbers",
-    /1:20/.test(mmss.willDo.join(" ")) && /2:10/.test(mmss.willDo.join(" ")),
+    /1:20/.test(mmss.willDo.map(inEnglish).join(" ")) && /2:10/.test(mmss.willDo.map(inEnglish).join(" ")),
     JSON.stringify(mmss.willDo),
   );
   check("and composes with captions", mmss.operations.some((o) => o.type === "autoCaptions"));
@@ -555,7 +563,7 @@ console.log("\nAsking for clips is a plan for several outputs");
   );
   check(
     "the reply promises pieces, not one video",
-    /3 separate clips/.test(counted.willDo.join(" ")),
+    /3 separate clips/.test(counted.willDo.map(inEnglish).join(" ")),
     JSON.stringify(counted.willDo),
   );
 
@@ -612,7 +620,7 @@ console.log("\nAsking for a fade is a plan for the ends");
   check("half a second by default", fade?.durationMs === 500, String(fade?.durationMs));
   check(
     "and the reply promises black at both ends",
-    /from black/.test(asked.willDo.join(" ")),
+    /from black/.test(asked.willDo.map(inEnglish).join(" ")),
     JSON.stringify(asked.willDo),
   );
 
@@ -669,7 +677,7 @@ console.log("\nThe frame follows the platform that was named");
   const yt = await planner.plan("make this landscape for youtube", {});
   const ytOp = yt.operations.find((o) => o.type === "formatForPlatform");
   check("'for youtube' is widescreen, not shorts", ytOp?.platform === "youtube", JSON.stringify(ytOp));
-  check("and the reply says 16:9, not 9:16", /16:9/.test(yt.willDo.join(" ")), JSON.stringify(yt.willDo));
+  check("and the reply says 16:9, not 9:16", /16:9/.test(yt.willDo.map(inEnglish).join(" ")), JSON.stringify(yt.willDo));
 
   const shorts = await planner.plan("cut this up for youtube shorts", {});
   const shortsOp = shorts.operations.find((o) => o.type === "formatForPlatform");
@@ -678,7 +686,7 @@ console.log("\nThe frame follows the platform that was named");
   const square = await planner.plan("make it square for the feed", {});
   const squareOp = square.operations.find((o) => o.type === "formatForPlatform");
   check("'square' is its own shape", squareOp?.platform === "square", JSON.stringify(squareOp));
-  check("and the reply says 1:1", /1:1/.test(square.willDo.join(" ")), JSON.stringify(square.willDo));
+  check("and the reply says 1:1", /1:1/.test(square.willDo.map(inEnglish).join(" ")), JSON.stringify(square.willDo));
 
   const insta = await planner.plan("for instagram please", {});
   check(
@@ -720,7 +728,7 @@ console.log("\nAsking for a dissolve is a plan for the joins");
   );
   check(
     "the reply says what the viewer will see",
-    /dissolve between the cuts/.test(asked.willDo.join(" ")),
+    /dissolve between the cuts/.test(asked.willDo.map(inEnglish).join(" ")),
     JSON.stringify(asked.willDo),
   );
 
@@ -809,7 +817,7 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
   );
   check(
     "and no longer claims transitions are impossible",
-    !asked.cannotYet.some((c) => /transition/i.test(c)),
+    !asked.cannotYet.map(inEnglish).some((c) => /transition/i.test(c)),
     JSON.stringify(asked.cannotYet),
   );
 
@@ -821,7 +829,7 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
   );
   check(
     "and is no longer claimed as missing",
-    !between.cannotYet.some((c) => /between the cuts|crossfade|dissolve/i.test(c)),
+    !between.cannotYet.map(inEnglish).some((c) => /between the cuts|crossfade|dissolve/i.test(c)),
     JSON.stringify(between.cannotYet),
   );
 
@@ -833,7 +841,7 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
   );
   check(
     "and nothing about transitions is left on the cannot-do list",
-    !shaped.cannotYet.some((c) => /wipe|slide|transition/i.test(c)),
+    !shaped.cannotYet.map(inEnglish).some((c) => /wipe|slide|transition/i.test(c)),
     JSON.stringify(shaped.cannotYet),
   );
 
@@ -845,7 +853,7 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
   );
   check(
     "and the hook is no longer on the cannot-do list",
-    !hook.cannotYet.some((c) => /hook/i.test(c)),
+    !hook.cannotYet.map(inEnglish).some((c) => /hook/i.test(c)),
     JSON.stringify(hook.cannotYet),
   );
   const arabicHook = await planner.plan("ابدأ بالأقوى", {});
@@ -870,7 +878,7 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
   const music = await planner.plan("add music to it", {});
   check(
     "and what really is missing is still refused plainly",
-    music.cannotYet.some((c) => /music/i.test(c)),
+    music.cannotYet.map(inEnglish).some((c) => /music/i.test(c)),
     JSON.stringify(music.cannotYet),
   );
 }
@@ -882,7 +890,7 @@ console.log("\nAsking for what the project does not have");
   check("no operation is invented", result.operations.length === 0);
   check(
     "and the reason is the missing file, not a missing feature",
-    /no clips to cut to/.test(result.cannotYet.join(" ")),
+    /no clips to cut to/.test(result.cannotYet.map(inEnglish).join(" ")),
     JSON.stringify(result.cannotYet),
   );
 }
@@ -912,7 +920,7 @@ console.log("\nTitles: their words or none");
   );
   check(
     "but they are told how to get one",
-    /put them in quotes/.test(unquoted.cannotYet.join(" ")),
+    /put them in quotes/.test(unquoted.cannotYet.map(inEnglish).join(" ")),
     JSON.stringify(unquoted.cannotYet),
   );
 
@@ -946,7 +954,7 @@ console.log("\nMusic comes from the person's own library or not at all");
   check("under the voice rather than level with it", op?.gainDb === -18 && op?.duck === true, JSON.stringify(op));
   check(
     "and the reply says which file it used",
-    withTrack.willDo.some((w) => /a voice note/.test(w) && /under the whole edit/.test(w)),
+    withTrack.willDo.map(inEnglish).some((w) => /a voice note/.test(w) && /under the whole edit/.test(w)),
     JSON.stringify(withTrack.willDo),
   );
 
@@ -955,7 +963,7 @@ console.log("\nMusic comes from the person's own library or not at all");
   check("with nothing to play, no bed is invented", !without.operations.some((o) => o.type === "addMusic"), JSON.stringify(without.operations));
   check(
     "and the reply asks for the track rather than refusing music",
-    without.cannotYet.some((c) => /upload the track you have the rights to/.test(c)),
+    without.cannotYet.map(inEnglish).some((c) => /upload the track you have the rights to/.test(c)),
     JSON.stringify(without.cannotYet),
   );
 
@@ -963,7 +971,7 @@ console.log("\nMusic comes from the person's own library or not at all");
   const beat = await planner.plan("cut it to the beat", { assets: LIBRARY });
   check(
     "asking to cut to the beat still gets an honest no",
-    beat.cannotYet.some((c) => /cut the picture to the beat/.test(c)),
+    beat.cannotYet.map(inEnglish).some((c) => /cut the picture to the beat/.test(c)),
     JSON.stringify(beat.cannotYet),
   );
   check(
@@ -977,7 +985,7 @@ console.log("\nMusic comes from the person's own library or not at all");
   check(
     "a sentence asking for both gets the bed and the refusal",
     bothAsks.operations.some((o) => o.type === "addMusic") &&
-      bothAsks.cannotYet.some((c) => /cut the picture to the beat/.test(c)),
+      bothAsks.cannotYet.map(inEnglish).some((c) => /cut the picture to the beat/.test(c)),
     JSON.stringify([bothAsks.operations, bothAsks.cannotYet]),
   );
 
@@ -1059,7 +1067,7 @@ console.log("\nA look can be named, because most people have no reference to han
   );
   check(
     "and the refusal names the looks we do have, rather than just saying no",
-    unknown.cannotYet.some((c) => /warm, cool, cinematic, black and white or punchy/.test(c)),
+    unknown.cannotYet.map(inEnglish).some((c) => /warm, cool, cinematic, black and white or punchy/.test(c)),
     JSON.stringify(unknown.cannotYet),
   );
 
