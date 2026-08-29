@@ -1,3 +1,4 @@
+import type { NotePair } from "../say";
 /**
  * What we ask of a model, stated independently of who answers.
  *
@@ -99,14 +100,20 @@ export interface SceneReadOptions {
   signal?: AbortSignal;
 }
 
-/** Why a capability is unavailable, in words a render note can carry. */
+/**
+ * Why a capability is unavailable, in words a render note can carry.
+ *
+ * Both languages, because these are built once at start-up and read by every
+ * job afterwards — long before any of them knows which language it was asked
+ * in. The job resolves the pair when it writes its notes.
+ */
 export interface ProviderStatus {
-  transcription: string | null;
-  vision: string | null;
+  transcription: NotePair | null;
+  vision: NotePair | null;
   /**
    * Null when two speech models are configured and the words get corroborated.
    * Otherwise why they do not — a capability that is *half* configured is the
    * easiest one to lose without noticing, because everything still works.
    */
-  crossCheck: string | null;
+  crossCheck: NotePair | null;
 }

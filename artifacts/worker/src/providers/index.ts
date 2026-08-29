@@ -19,6 +19,7 @@ import { createDeepgramTranscriber } from "./deepgram";
 import { createElevenLabsTranscriber } from "./elevenlabs";
 import { createGeminiSceneReader } from "./gemini";
 import type { ProviderStatus, SceneReader, Transcriber } from "./types";
+import { pick, sayIn, type Say } from "../say";
 
 export interface Providers {
   transcriber: Transcriber | null;
@@ -73,15 +74,24 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
     status: {
       transcription: transcriber
         ? null
-        : "no speech recognition is configured, so captions and word-accurate cuts are unavailable — silence detection is doing the cutting",
+        : {
+            en: "no speech recognition is configured, so captions and word-accurate cuts are unavailable — silence detection is doing the cutting",
+            ar: "لا يوجد تعرّف على الكلام مُهيّأ، فالكابشن والقصّ الدقيق على الكلمات غير متاحين — كشف الصمت هو الذي يقصّ",
+          },
       vision: sceneReader
         ? null
-        : "no scene understanding is configured, so shot selection is based on speech alone",
+        : {
+            en: "no scene understanding is configured, so shot selection is based on speech alone",
+            ar: "لا يوجد فهم للمشهد مُهيّأ، فاختيار اللقطات يعتمد على الكلام وحده",
+          },
       crossCheck:
         deepgram && elevenLabs
           ? null
           : transcriber
-            ? "only one speech model is configured, so captions rest on a single reading instead of two that agree"
+            ? {
+                en: "only one speech model is configured, so captions rest on a single reading instead of two that agree",
+                ar: "نموذج كلام واحد فقط مُهيّأ، فالكابشن يستند إلى قراءة واحدة بدل قراءتين تتّفقان",
+              }
             : null,
     },
   };
@@ -91,11 +101,15 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
  * The sentence a render note carries when something was skipped. Empty when
  * everything the plan asked for was available.
  */
-export function missingCapabilityNotes(status: ProviderStatus, needs: { transcript: boolean; vision: boolean }): string[] {
+export function missingCapabilityNotes(
+  status: ProviderStatus,
+  needs: { transcript: boolean; vision: boolean },
+  say: Say = sayIn("en"),
+): string[] {
   const notes: string[] = [];
-  if (needs.transcript && status.transcription) notes.push(status.transcription);
-  if (needs.transcript && status.crossCheck) notes.push(status.crossCheck);
-  if (needs.vision && status.vision) notes.push(status.vision);
+  if (needs.transcript && status.transcription) notes.push(pick(say, status.transcription));
+  if (needs.transcript && status.crossCheck) notes.push(pick(say, status.crossCheck));
+  if (needs.vision && status.vision) notes.push(pick(say, status.vision));
   return notes;
 }
 
