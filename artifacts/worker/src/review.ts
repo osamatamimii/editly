@@ -31,9 +31,12 @@ import { spawn } from "node:child_process";
 import { rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { EditOperation } from "@workspace/api-zod";
+import { sayIn, type Language } from "./say";
 
 export interface ReviewContext {
   operations: EditOperation[];
+  /** The language the notes come back in. Absent means English. */
+  language?: Language;
   /** The file the render started from, for "was it like this when it arrived". */
   sourcePath: string;
   /** Whether the source carried an audio track, probed before the render. */
@@ -89,6 +92,7 @@ const SOURCE_LUMA_FLOOR = 36;
 const LUMA_SAMPLE_SECONDS = 30;
 
 export async function reviewOutput(file: string, ctx: ReviewContext): Promise<ReviewResult> {
+  const t = sayIn(ctx.language);
   const notes: string[] = [];
   const warnings: string[] = [];
   let repaired = false;
@@ -115,7 +119,12 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
   // floor. Deterministic, so not retried — but said out loud.
   if (ctx.sourceHadAudio && !probe.hasAudio) {
     warnings.push("source had an audio track and the output does not");
-    notes.push("the sound did not survive this edit — that is a fault on our side, not in your footage");
+    notes.push(
+      t(
+        "the sound did not survive this edit — that is a fault on our side, not in your footage",
+        "لم ينجُ الصوت من هذا التعديل — وهذا عطل عندنا، لا في لقطتك",
+      ),
+    );
   }
 
   // ── The level actually reached ────────────────────────────────────────────
@@ -137,14 +146,20 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
           repaired = true;
           measuredLufs = corrected;
           notes.push(
-            `the levelling missed on the first pass — the mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected`,
+            t(
+              `the levelling missed on the first pass — the mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected`,
+              `أخطأت التسوية في التمريرة الأولى — خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقيس وصُحّح`,
+            ),
           );
         } else {
           warnings.push(
             `mix measured ${measured.inputI.toFixed(1)} LUFS against a ${target} target and the correction did not land`,
           );
           notes.push(
-            `the mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target} and a correction did not take, so it ships as it is`,
+            t(
+              `the mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target} and a correction did not take, so it ships as it is`,
+              `خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target} ولم ينجح التصحيح، فيُسلَّم كما هو`,
+            ),
           );
         }
       }
@@ -163,7 +178,12 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
         warnings.push(
           `output luma ${outLuma.toFixed(1)} against source luma ${sourceLuma.toFixed(1)} — the picture is black`,
         );
-        notes.push("the picture came out black — that is a bug on our side, not in your footage");
+        notes.push(
+          t(
+            "the picture came out black — that is a bug on our side, not in your footage",
+            "خرجت الصورة سوداء — وهذا عطل عندنا، لا في لقطتك",
+          ),
+        );
       }
     }
   }

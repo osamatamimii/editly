@@ -24,6 +24,7 @@
  */
 import type { EditOperation } from "@workspace/api-zod";
 import type { StyleProfile, StyleSettings } from "./style-measure";
+import { sayIn, type Language } from "./say";
 
 export interface StyleApplication {
   operations: EditOperation[];
@@ -42,8 +43,9 @@ const MIN_PUNCHES = 1;
 export function applyReferenceStyle(
   operations: EditOperation[],
   settings: StyleSettings,
-  context: { reference: StyleProfile; sourceSeconds: number },
+  context: { reference: StyleProfile; sourceSeconds: number; language?: Language },
 ): StyleApplication {
+  const t = sayIn(context.language);
   const notes: string[] = [];
   const minutes = Math.max(0.1, context.sourceSeconds / 60);
   const out: EditOperation[] = [];
@@ -59,7 +61,10 @@ export function applyReferenceStyle(
         paddingMs: settings.leadInMs,
       });
       notes.push(
-        `your reference keeps pauses of about ${settings.maxSilenceMs}ms, so anything longer than that comes out`,
+        t(
+          `your reference keeps pauses of about ${settings.maxSilenceMs}ms, so anything longer than that comes out`,
+          `مرجعك يُبقي وقفات بنحو ${settings.maxSilenceMs} مللي ثانية، فكل ما طال عن ذلك يخرج`,
+        ),
       );
       continue;
     }
@@ -67,7 +72,10 @@ export function applyReferenceStyle(
     if (operation.type === "kenBurns") {
       out.push({ ...operation, to: settings.kenBurnsTo });
       notes.push(
-        `it cuts about ${round(context.reference.cutsPerMinute)} times a minute, which is ${context.reference.cutsPerMinute > 12 ? "restless" : "calm"} — the push is set to match`,
+        t(
+          `it cuts about ${round(context.reference.cutsPerMinute)} times a minute, which is ${context.reference.cutsPerMinute > 12 ? "restless" : "calm"} — the push is set to match`,
+          `يقصّ نحو ${round(context.reference.cutsPerMinute)} مرّة في الدقيقة، وهذا ${context.reference.cutsPerMinute > 12 ? "إيقاع لا يهدأ" : "إيقاع هادئ"} — فضُبطت الحركة لتطابقه`,
+        ),
       );
       continue;
     }
@@ -83,8 +91,14 @@ export function applyReferenceStyle(
       out.push({ ...operation, at: chosen, amount: settings.punchAmount });
       notes.push(
         operation.at.length > wanted
-          ? `its punches land about ${settings.punchesPerMinute} times a minute, so ${operation.at.length - chosen.length} of the ${operation.at.length} we found were left out`
-          : `punch strength set to ${settings.punchAmount} to match how much your reference moves`,
+          ? t(
+              `its punches land about ${settings.punchesPerMinute} times a minute, so ${operation.at.length - chosen.length} of the ${operation.at.length} we found were left out`,
+              `تقريباته تقع نحو ${settings.punchesPerMinute} مرّة في الدقيقة، فتُركت ${operation.at.length - chosen.length} من ${operation.at.length} وجدناها`,
+            )
+          : t(
+              `punch strength set to ${settings.punchAmount} to match how much your reference moves`,
+              `ضُبطت قوّة التقريب على ${settings.punchAmount} لتطابق مقدار حركة مرجعك`,
+            ),
       );
       continue;
     }
@@ -92,7 +106,12 @@ export function applyReferenceStyle(
     if (operation.type === "normalizeLoudness") {
       out.push({ ...operation, targetLufs: settings.targetLufs });
       if (context.reference.audioMeasured) {
-        notes.push(`levelled to ${round(settings.targetLufs)} LUFS, which is where your reference sits`);
+        notes.push(
+          t(
+            `levelled to ${round(settings.targetLufs)} LUFS, which is where your reference sits`,
+            `سُوّي المستوى إلى ${round(settings.targetLufs)} LUFS، وهو حيث يجلس مرجعك`,
+          ),
+        );
       }
       continue;
     }
@@ -104,15 +123,26 @@ export function applyReferenceStyle(
   // suggestion, a number someone typed is an instruction.
   const boost = settings.saturationBoost;
   if (operations.some((op) => op.type === "grade")) {
-    notes.push("kept the colour setting already in the plan rather than the reference's");
+    notes.push(
+      t(
+        "kept the colour setting already in the plan rather than the reference's",
+        "أبقيت إعداد اللون الموجود في الخطّة بدل إعداد المرجع",
+      ),
+    );
   } else if (Math.abs(boost - 1) >= GRADE_DEADBAND) {
     // No look: the reference decides how much colour, and nothing about mood.
     // Inventing a look here would be putting words in the reference's mouth.
     out.push({ type: "grade", saturation: boost, look: "none" });
     notes.push(
       boost > 1
-        ? `your reference is more saturated than this footage, so the colour is pushed ${percent(boost)} toward it`
-        : `your reference is flatter than this footage, so the colour is pulled back ${percent(boost)}`,
+        ? t(
+            `your reference is more saturated than this footage, so the colour is pushed ${percent(boost)} toward it`,
+            `مرجعك أكثر تشبّعًا من هذه اللقطة، فدُفع اللون ${percent(boost)} نحوه`,
+          )
+        : t(
+            `your reference is flatter than this footage, so the colour is pulled back ${percent(boost)}`,
+            `مرجعك أقلّ تشبّعًا من هذه اللقطة، فسُحب اللون ${percent(boost)}`,
+          ),
     );
   }
 

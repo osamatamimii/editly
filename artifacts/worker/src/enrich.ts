@@ -19,6 +19,7 @@ import type { Providers } from "./providers";
 import { measureStyle, styleToSettings } from "./style-measure";
 import { applyReferenceStyle } from "./reference-style";
 import type { Transcript } from "./providers/types";
+import { pick, sayIn, type Language } from "./say";
 
 export interface EnrichResult {
   plan: EditPlan;
@@ -29,6 +30,8 @@ export interface EnrichResult {
 
 export interface EnrichOptions {
   providers: Providers;
+  /** The language every note this returns is written in. Absent means English. */
+  language?: Language;
   onProgress?: (stage: string) => void;
   /** Overridable so tests do not need a key. */
   now?: () => number;
@@ -49,6 +52,7 @@ export async function enrichPlan(
   options: EnrichOptions,
 ): Promise<EnrichResult> {
   const { providers } = options;
+  const t = sayIn(options.language);
   const notes: string[] = [];
 
   const wantsCaptions = plan.operations.some((op) => op.type === "autoCaptions");
@@ -77,10 +81,15 @@ export async function enrichPlan(
       notes.push(...(transcript.notes ?? []));
     } catch (error) {
       // A provider being down is not a reason to fail someone's render.
-      notes.push(`we could not hear the words in this clip${visionExcuse(error)}, so this render has no captions`);
+      notes.push(
+        t(
+          `we could not hear the words in this clip${visionExcuse(error)}, so this render has no captions`,
+          `لم نستطع سماع الكلام في هذا المقطع${visionExcuse(error)}، فهذا التصيير بلا كابشن`,
+        ),
+      );
     }
   } else if (needsTranscript && providers.status.transcription) {
-    notes.push(providers.status.transcription);
+    notes.push(pick(t, providers.status.transcription));
   }
 
   // What only someone who watched the video could know: where a demo is
@@ -102,7 +111,10 @@ export async function enrichPlan(
         .slice(0, 60);
       if (protect.length > 0) {
         notes.push(
-          `${protect.length} ${protect.length === 1 ? "stretch is" : "stretches are"} quiet because something is happening on screen, not because nothing is — ${protect.length === 1 ? "it was" : "they were"} left in`,
+          t(
+            `${protect.length} ${protect.length === 1 ? "stretch is" : "stretches are"} quiet because something is happening on screen, not because nothing is — ${protect.length === 1 ? "it was" : "they were"} left in`,
+            `${protect.length} فترة هادئة لأن شيئًا يحدث على الشاشة، لا لأن لا شيء يحدث — فأُبقيت`,
+          ),
         );
       }
     } catch (error) {
@@ -114,10 +126,15 @@ export async function enrichPlan(
       // once, verbatim, and taught us that anything pushed onto `notes` is
       // copy, not telemetry. The raw error still goes to the log, where it is
       // for the people it is for.
-      notes.push(`we could not watch this clip for things worth keeping${visionExcuse(error)}, so the cut is from the audio alone`);
+      notes.push(
+        t(
+          `we could not watch this clip for things worth keeping${visionExcuse(error)}, so the cut is from the audio alone`,
+          `لم نستطع مشاهدة هذا المقطع بحثًا عمّا يستحقّ الإبقاء${visionExcuse(error)}، فالقصّ من الصوت وحده`,
+        ),
+      );
     }
   } else if (cutsSilence && providers.status.vision) {
-    notes.push(providers.status.vision);
+    notes.push(pick(t, providers.status.vision));
   }
 
   const operations: EditOperation[] = [];
@@ -139,7 +156,9 @@ export async function enrichPlan(
         maxLines: layout.maxLines,
       });
       if (cues.length === 0) {
-        notes.push("no speech was found in this clip, so there is nothing to caption");
+        notes.push(
+          t("no speech was found in this clip, so there is nothing to caption", "لم يُعثر على كلام في هذا المقطع، فلا شيء يُكتب"),
+        );
         continue;
       }
       operations.push({
@@ -164,7 +183,12 @@ export async function enrichPlan(
         operations.push({ ...operation, at });
         continue;
       }
-      notes.push("the delivery was even, so punches were left out rather than placed arbitrarily");
+      notes.push(
+        t(
+          "the delivery was even, so punches were left out rather than placed arbitrarily",
+          "كان الإلقاء متساويًا، فتُركت التقريبات بدل وضعها اعتباطًا",
+        ),
+      );
       continue;
     }
 
@@ -188,13 +212,19 @@ export async function enrichPlan(
       const applied = applyReferenceStyle(shaped, styleToSettings(reference, own), {
         reference,
         sourceSeconds: own?.sampledSeconds ?? reference.sampledSeconds,
+        language: options.language,
       });
       shaped = applied.operations;
       notes.push(...applied.notes);
     } catch (error) {
       // A reference we could not read is a worse edit, not a failed one. The
       // plan the user asked for still renders.
-      notes.push(`we could not read the video you asked us to match${visionExcuse(error)}, so this is edited to the plan alone`);
+      notes.push(
+        t(
+          `we could not read the video you asked us to match${visionExcuse(error)}, so this is edited to the plan alone`,
+          `لم نستطع قراءة الفيديو الذي طلبت مطابقته${visionExcuse(error)}، فهذا مُعدَّل على الخطّة وحدها`,
+        ),
+      );
     }
   }
 

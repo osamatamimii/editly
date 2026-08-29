@@ -37,6 +37,7 @@
  * transcript and a line in the render notes, never with a failed render.
  */
 import type { Transcript, TranscriptSegment, TranscriptWord } from "./providers/types";
+import { sayIn, type Language } from "./say";
 
 /** A pause this long is a safe place to break the comparison in two. */
 const SPLIT_GAP_MS = 400;
@@ -93,7 +94,7 @@ export interface MergeResult {
  * @param primary   The timing authority. Its segmentation and word boundaries survive.
  * @param secondary The wording authority. Its text wins where the two differ.
  */
-export function mergeTranscripts(primary: Transcript, secondary: Transcript): MergeResult {
+export function mergeTranscripts(primary: Transcript, secondary: Transcript, language?: Language): MergeResult {
   const stats = { agreed: 0, contested: 0, primaryOnly: 0, secondaryOnly: 0, inserted: 0, unchecked: 0 };
 
   const primaryFlat = flatten(primary);
@@ -128,15 +129,22 @@ export function mergeTranscripts(primary: Transcript, secondary: Transcript): Me
     merged.push(...reconcile(chunk.primary, chunk.secondary, stats));
   }
 
+  const t = sayIn(language);
   const notes: string[] = [];
   if (stats.contested > 0) {
     notes.push(
-      `${stats.contested} word${stats.contested === 1 ? "" : "s"} the two speech models disagreed on ${stats.contested === 1 ? "was" : "were"} resolved in favour of the more accurate one, and the shakiest of them are shown as "…" rather than guessed at`,
+      t(
+        `${stats.contested} word${stats.contested === 1 ? "" : "s"} the two speech models disagreed on ${stats.contested === 1 ? "was" : "were"} resolved in favour of the more accurate one, and the shakiest of them are shown as "…" rather than guessed at`,
+        `${stats.contested} كلمة اختلف عليها نموذجا الكلام حُسمت لصالح الأدقّ منهما، وأشدّها اهتزازًا تُعرض "…" بدل تخمينها`,
+      ),
     );
   }
   if (stats.unchecked > 0) {
     notes.push(
-      `${stats.unchecked} words came in one unbroken stretch too long to cross-check, so they are as the first model heard them`,
+      t(
+        `${stats.unchecked} words came in one unbroken stretch too long to cross-check, so they are as the first model heard them`,
+        `${stats.unchecked} كلمة جاءت في دفعة واحدة أطول من أن تُقابَل، فهي كما سمعها النموذج الأول`,
+      ),
     );
   }
 

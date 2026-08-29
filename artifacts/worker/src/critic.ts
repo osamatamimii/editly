@@ -24,9 +24,12 @@
  */
 import type { EditOperation } from "@workspace/api-zod";
 import { remapTime, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
+import { sayIn, type Language } from "./say";
 
 export interface CriticInput {
   operations: EditOperation[];
+  /** The language the notes come back in. Absent means English. */
+  language?: Language;
   /** The kept stretches after silence removal, or null if nothing was cut. */
   kept: Segment[] | null;
   /** Length of the video the viewer will actually receive, in seconds. */
@@ -79,6 +82,7 @@ const MIN_PUNCH_GAP_SECONDS = 0.9;
 const MAX_UPSCALE = 1.25;
 
 export function criticise(input: CriticInput): CriticResult {
+  const t = sayIn(input.language);
   const notes: string[] = [];
   const { kept, effectiveDuration } = input;
   const overlap = input.overlap ?? 0;
@@ -109,7 +113,7 @@ export function criticise(input: CriticInput): CriticResult {
     kenBurns?.type === "kenBurns" ? kenBurns.to : null,
     punch?.type === "zoomPunch" ? punch.amount : null,
   );
-  if (zoom.note) notes.push(zoom.note);
+  if (zoom.note) notes.push(t(zoom.note, zoom.noteAr!));
 
   for (const operation of input.operations) {
     if (operation.type === "zoomPunch") {
@@ -146,23 +150,46 @@ export function criticise(input: CriticInput): CriticResult {
       at = spaced.map((seconds) => nudgeOffSplice(seconds, kept, effectiveDuration, overlap));
 
       if (lost > 0) {
-        notes.push(`${lost} punch${lost === 1 ? "" : "es"} fell in silence that was cut, so ${lost === 1 ? "it was" : "they were"} dropped`);
+        notes.push(
+          t(
+            `${lost} punch${lost === 1 ? "" : "es"} fell in silence that was cut, so ${lost === 1 ? "it was" : "they were"} dropped`,
+            `${lost} تقريبة وقعت في صمت مقصوص، فأُسقطت`,
+          ),
+        );
       }
       const trimmed = original - lost - hesitations - at.length - crowded;
       if (trimmed > 0) {
-        notes.push(`${trimmed} punch${trimmed === 1 ? "" : "es"} landed past the end of the edit and ${trimmed === 1 ? "was" : "were"} dropped`);
+        notes.push(
+          t(
+            `${trimmed} punch${trimmed === 1 ? "" : "es"} landed past the end of the edit and ${trimmed === 1 ? "was" : "were"} dropped`,
+            `${trimmed} تقريبة وقعت بعد نهاية التعديل فأُسقطت`,
+          ),
+        );
       }
       if (hesitations > 0) {
         notes.push(
-          `${hesitations} punch${hesitations === 1 ? "" : "es"} would have landed on "um" or "uh", so ${hesitations === 1 ? "it was" : "they were"} dropped`,
+          t(
+            `${hesitations} punch${hesitations === 1 ? "" : "es"} would have landed on "um" or "uh", so ${hesitations === 1 ? "it was" : "they were"} dropped`,
+            `${hesitations} تقريبة كانت ستقع على تردّد ("أمم" أو "اه")، فأُسقطت`,
+          ),
         );
       }
       if (crowded > 0) {
-        notes.push(`${crowded} punch${crowded === 1 ? "" : "es"} bunched up once the pauses were cut, so the ${crowded === 1 ? "extra one was" : "extras were"} dropped`);
+        notes.push(
+          t(
+            `${crowded} punch${crowded === 1 ? "" : "es"} bunched up once the pauses were cut, so the ${crowded === 1 ? "extra one was" : "extras were"} dropped`,
+            `${crowded} تقريبة تكدّست بعد قصّ الوقفات، فأُسقطت الزائدة`,
+          ),
+        );
       }
 
       if (at.length === 0) {
-        notes.push("no punch survived the cut, so the clip is left without them rather than with arbitrary ones");
+        notes.push(
+          t(
+            "no punch survived the cut, so the clip is left without them rather than with arbitrary ones",
+            "لم تنجُ أي تقريبة من القصّ، فتُرك المقطع بلا تقريبات بدل تقريبات اعتباطية",
+          ),
+        );
         continue;
       }
 
@@ -196,11 +223,18 @@ export function criticise(input: CriticInput): CriticResult {
 
       const dropped = operation.cues.length - cues.length;
       if (dropped > 0) {
-        notes.push(`${dropped} caption${dropped === 1 ? "" : "s"} covered speech that was cut, so ${dropped === 1 ? "it was" : "they were"} removed`);
+        notes.push(
+          t(
+            `${dropped} caption${dropped === 1 ? "" : "s"} covered speech that was cut, so ${dropped === 1 ? "it was" : "they were"} removed`,
+            `${dropped} كابشن كانت تغطّي كلامًا مقصوصًا، فأُزيلت`,
+          ),
+        );
       }
 
       if (cues.length === 0) {
-        notes.push("every caption belonged to speech that was cut, so none were burned");
+        notes.push(
+          t("every caption belonged to speech that was cut, so none were burned", "كل الكابشنات تخصّ كلامًا مقصوصًا، فلم يُحرق أيّ منها"),
+        );
         continue;
       }
 
@@ -227,7 +261,7 @@ export function criticise(input: CriticInput): CriticResult {
 function capZoom(
   kenBurnsTo: number | null,
   punchAmount: number | null,
-): { kenBurnsTo: number | null; punchAmount: number | null; note?: string } {
+): { kenBurnsTo: number | null; punchAmount: number | null; note?: string; noteAr?: string } {
   if (kenBurnsTo == null && punchAmount == null) return { kenBurnsTo: null, punchAmount: null };
 
   const base = MOTION_OVERSCAN;
@@ -257,6 +291,8 @@ function capZoom(
     kenBurnsTo: to != null && to !== kenBurnsTo ? round(to) : null,
     punchAmount: amount != null && amount !== punchAmount ? round(amount) : null,
     note: "the push and the punches together would have magnified past the frame we kept, so both were eased back",
+    noteAr:
+      "الحركة البطيئة والتقريبات معًا كانت ستكبّر الصورة أبعد من الكادر الذي أبقيناه، فخُفّفت الاثنتان",
   };
 }
 

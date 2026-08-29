@@ -25,6 +25,7 @@ import { chooseClips } from "./highlight";
 import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAllowanceMessage } from "./duration";
 import { enrichPlan } from "./enrich";
 import { resolveProviders } from "./providers";
+import { sayIn, type Language } from "./say";
 
 const WORKER_ID = `${hostname()}-${randomUUID().slice(0, 8)}`;
 const POLL_INTERVAL_MS = Number(process.env["POLL_INTERVAL_MS"] ?? 5000);
@@ -247,6 +248,17 @@ async function reportProgress(jobId: string, progress: number, stage: string): P
 async function processJob(job: Job): Promise<void> {
   const log = logger.child({ jobId: job.id, projectId: job.projectId });
   const workDir = await mkdtemp(path.join(tmpdir(), "editly-render-"));
+  /**
+   * The language this job answers in.
+   *
+   * Written onto the row at enqueue by whoever had the sentence, so the worker
+   * — which only ever sees a plan — does not have to guess, and a render
+   * already accepted cannot change language because the next thing they typed
+   * was in the other one. `say.language` is passed down; `say(en, ar)` writes
+   * the notes this function owns.
+   */
+  const language: Language = job.language === "ar" ? "ar" : "en";
+  const say = Object.assign(sayIn(language), { language });
 
   try {
     const plan = EditPlan.parse(job.plan);
@@ -304,6 +316,10 @@ async function processJob(job: Job): Promise<void> {
     // degrades rather than fails, and every degradation comes back as a note.
     const enriched = await enrichPlan(inputFile, plan, {
       providers,
+      // The language the sentence was written in, snapshotted onto the job at
+      // enqueue. Every note from here down comes back in it, so the render's
+      // answer is in the same language as the reply that promised it.
+      language: say.language,
       referencePath: referenceFile,
       onProgress: (stage) => {
         void reportProgress(job.id, 8, stage).catch(() => {});
@@ -392,6 +408,7 @@ async function processJob(job: Job): Promise<void> {
         inputFile,
         sourceSeconds,
         sourceHadAudio: sourceProbe.hasAudio,
+        language,
         log,
       });
       return;
@@ -399,6 +416,7 @@ async function processJob(job: Job): Promise<void> {
 
     const { output, notes: renderNotes, estimatedSeconds } = await renderPlan(inputFile, enriched.plan, {
       workDir,
+      language: say.language,
       words,
       assets,
       onProgress: (fraction, stage) => {
@@ -422,6 +440,7 @@ async function processJob(job: Job): Promise<void> {
     try {
       const review = await reviewOutput(output, {
         operations: enriched.plan.operations,
+        language: say.language,
         sourcePath: inputFile,
         sourceHadAudio: sourceProbe.hasAudio,
         expectedSeconds: estimatedSeconds,
@@ -528,8 +547,8 @@ async function processJob(job: Job): Promise<void> {
         role: "assistant",
         content:
           notes.length > 0
-            ? `Here's what I did.\n${notes.map((note) => `• ${note}`).join("\n")}`
-            : "Done — your edit is ready to watch.",
+            ? `${say("Here's what I did.", "هذا ما فعلته.")}\n${notes.map((note) => `• ${note}`).join("\n")}`
+            : say("Done — your edit is ready to watch.", "تمّ — تعديلك جاهز للمشاهدة."),
       });
     } catch (error) {
       log.warn({ err: error }, "could not write the summary into the conversation");
@@ -581,7 +600,11 @@ async function processJob(job: Job): Promise<void> {
           userId: job.userId,
           projectId: job.projectId,
           role: "assistant",
-          content: `I couldn't finish that edit — ${message}`,
+          // The reason comes from ffmpeg or from infrastructure and is written
+          // in English at its source. Only the sentence around it is ours to
+          // say, so only that is translated: inventing an Arabic reason we did
+          // not write would be a different claim about what went wrong.
+          content: say(`I couldn't finish that edit — ${message}`, `لم أستطع إنهاء ذلك التعديل — ${message}`),
         });
       } catch (insertError) {
         log.warn({ err: insertError }, "could not write the failure into the conversation");
@@ -615,9 +638,11 @@ async function renderClipSet(args: {
   inputFile: string;
   sourceSeconds: number;
   sourceHadAudio: boolean;
+  language: Language;
   log: pino.Logger;
 }): Promise<void> {
   const { job, clipsOp, enriched, words, assets, workDir, inputFile, sourceSeconds, sourceHadAudio, log } = args;
+  const t = sayIn(args.language);
 
   await reportProgress(job.id, 9, "Choosing the clips");
 
@@ -642,23 +667,37 @@ async function renderClipSet(args: {
   );
   const notes: string[] = [...enriched.notes];
   if (rest.length !== enriched.plan.operations.length - 1) {
-    notes.push("the plan asked for clips and another cut at once — the clips won");
+    notes.push(
+      t("the plan asked for clips and another cut at once — the clips won", "طلبت الخطّة قصاصات وقصًّا آخر معًا — والقصاصات فازت"),
+    );
   }
   if (chosen.windows.length < clipsOp.count) {
     notes.push(
-      `the video is ${sourceSeconds.toFixed(0)}s long, which holds ${chosen.windows.length} clip${chosen.windows.length === 1 ? "" : "s"} of ${Math.round(clipsOp.targetSeconds)}s — not the ${clipsOp.count} asked for`,
+      t(
+        `the video is ${sourceSeconds.toFixed(0)}s long, which holds ${chosen.windows.length} clip${chosen.windows.length === 1 ? "" : "s"} of ${Math.round(clipsOp.targetSeconds)}s — not the ${clipsOp.count} asked for`,
+        `الفيديو طوله ${sourceSeconds.toFixed(0)} ثانية، وهو يسع ${chosen.windows.length} قصاصة من ${Math.round(clipsOp.targetSeconds)} ثانية — لا ${clipsOp.count} المطلوبة`,
+      ),
     );
   }
   notes.push(
     chosen.how === "speech"
-      ? `chose ${chosen.windows.length} stretches where the speech runs densest`
-      : `we could not hear words in this clip, so it was divided evenly into ${chosen.windows.length}`,
+      ? t(
+          `chose ${chosen.windows.length} stretches where the speech runs densest`,
+          `اخترت ${chosen.windows.length} مقاطع حيث الكلام أكثف`,
+        )
+      : t(
+          `we could not hear words in this clip, so it was divided evenly into ${chosen.windows.length}`,
+          `لم نستطع سماع كلام في هذا المقطع، فقُسّم بالتساوي إلى ${chosen.windows.length}`,
+        ),
   );
   // The charge, said where the person will read it. Clips are metered by the
   // source they read, not by the pieces — the whole file was transcribed and
   // scored to choose them — and a charge nobody saw coming is a dispute.
   notes.push(
-    `counted as ${Math.round(sourceSeconds)}s against your minutes — clips are metered by the source they read, not by the pieces`,
+    t(
+      `counted as ${Math.round(sourceSeconds)}s against your minutes — clips are metered by the source they read, not by the pieces`,
+      `حُسبت ${Math.round(sourceSeconds)} ثانية من دقائقك — القصاصات تُحاسب بالمصدر الذي قرأته، لا بالقطع`,
+    ),
   );
 
   const total = chosen.windows.length;
@@ -748,6 +787,12 @@ async function renderClipSet(args: {
 
     const clipNote =
       chosen.how === "speech" ? "the speech runs densest here" : "an even division of the video";
+
+    // Whether the silences came out is a fact about the plan, not about the
+    // wording of a note. It used to be read with /silence/ over the render's
+    // own notes, which worked only for as long as those notes were guaranteed
+    // to be English — and they are not, from this round on.
+    const cutSilence = subPlan.operations.some((op) => op.type === "removeSilence");
     await db.insert(clipsTable).values({
       id: randomUUID(),
       projectId: job.projectId,
@@ -764,7 +809,10 @@ async function renderClipSet(args: {
     });
 
     notes.push(
-      `clip ${i + 1}: kept ${clock(window.start)}–${clock(window.end)} (${measured.seconds.toFixed(1)}s${renderNotes.some((n) => /silence/.test(n)) ? ", silences cut" : ""})`,
+      t(
+        `clip ${i + 1}: kept ${clock(window.start)}–${clock(window.end)} (${measured.seconds.toFixed(1)}s${cutSilence ? ", silences cut" : ""})`,
+        `القصاصة ${i + 1}: أُبقي ${clock(window.start)}–${clock(window.end)} (${measured.seconds.toFixed(1)} ثانية${cutSilence ? "، مع قصّ الصمت" : ""})`,
+      ),
     );
   }
 
@@ -805,7 +853,7 @@ async function renderClipSet(args: {
       userId: job.userId,
       projectId: job.projectId,
       role: "assistant",
-      content: `Here's what I did.\n${notes.map((note) => `• ${note}`).join("\n")}`,
+      content: `${t("Here's what I did.", "هذا ما فعلته.")}\n${notes.map((note) => `• ${note}`).join("\n")}`,
     });
   } catch (error) {
     log.warn({ err: error }, "could not write the summary into the conversation");
