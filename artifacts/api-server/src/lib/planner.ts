@@ -135,6 +135,8 @@ function buildSchema(assets: PlannerAsset[]) {
             "placement",
             "punchOn",
             "transitionStyle",
+            "gainDb",
+            "duck",
           ],
           properties: {
             type: { type: "string", enum: types },
@@ -208,6 +210,15 @@ function buildSchema(assets: PlannerAsset[]) {
                 null,
               ],
             },
+            /**
+             * For addMusic: the two knobs the instructions have always
+             * described, and which the model has never until now been able to
+             * turn. Same shape as the transition style: told about, then
+             * forbidden by the schema, so every bed came out at -18 dB and
+             * ducking whatever anybody asked for.
+             */
+            gainDb: { type: ["number", "null"] },
+            duck: { type: ["boolean", "null"] },
             /** For grade: the named look. Nothing else is a look we have. */
             look: { type: ["string", "null"], enum: ["warm", "cool", "cinematic", "mono", "punch", null] },
             /** Where on the frame. Titles use top/center/bottom; overlays use the corners. */
@@ -294,7 +305,8 @@ function instructionFor(assets: PlannerAsset[]): string {
         "addMusic lays one of their audio files under the whole edit. It has no atSeconds: a bed runs the",
         "length of the finished cut. gainDb is how far under the voice it sits (-40 to 0, default -18) and",
         "duck true pulls it down while they speak. Choose it when they ask for music, a song, a soundtrack or",
-        "a bed — never to 'cut to the beat', which nothing here does.",
+        "a bed. If they also want the cuts to follow the music, that is zoomPunch with punchOn beat, alongside",
+        "this — it needs a bed to land on, so the two go together.",
       );
     }
   } else {
@@ -560,11 +572,21 @@ function toOperation(
         return {
           type,
           assetId,
-          gainDb: numberOr(raw["gainDb"], -18),
+          // Clamped rather than rejected, like every other numeric here: "way
+          // louder" arriving as 12 becomes 0 rather than a plan the schema
+          // would refuse.
+          gainDb: Math.min(0, Math.max(-40, numberOr(raw["gainDb"], -18))),
           duck: raw["duck"] !== false,
-          fadeSeconds: numberOr(raw["fadeSeconds"], 1.5),
-          fromSeconds: Math.max(0, numberOr(raw["fromSeconds"], 0)),
-          loop: raw["loop"] !== false,
+          // Not the model's to choose, and no longer pretending otherwise.
+          // These three were read from a schema that could never carry them,
+          // which is a more expensive way of writing a constant: it reads as a
+          // knob the model turns and is one nobody can reach. A bed runs the
+          // length of the edit from its own beginning and eases in; if any of
+          // that ever becomes somebody's decision, it becomes a property here
+          // first.
+          fadeSeconds: 1.5,
+          fromSeconds: 0,
+          loop: true,
         };
       }
       case "overlayImage": {
