@@ -424,6 +424,44 @@ console.log("\nFilling in what only the video knows");
       !asked.notes.some((n) => /heard the speech as/.test(n)),
       JSON.stringify(asked.notes),
     );
+
+    // ── What the recogniser is actually asked ───────────────────────────
+    //
+    // The provider knows which languages its detector can name; only this
+    // layer knows which language the person wrote in. Neither is any use
+    // without the other, and the wiring between them is exactly the kind of
+    // thing that gets written once, believed, and never called — so it is
+    // asserted here rather than assumed. A belief, not an instruction: it is
+    // sent as `expected`, and a provider that can detect the language is free
+    // to ignore it.
+    const seen = [];
+    const spy = {
+      ...arabicProviders,
+      transcriber: {
+        name: "stub",
+        transcribe: async (_path, opts) => {
+          seen.push(opts ?? {});
+          return arabicHeard;
+        },
+      },
+    };
+    await enrich.enrichPlan("unused.mp4", captionPlan, { providers: spy, language: "ar" });
+    check(
+      "the language they wrote in reaches the recogniser as a belief",
+      seen[0]?.expected === "ar" && seen[0]?.language === undefined,
+      JSON.stringify(seen[0] ?? null),
+    );
+
+    await enrich.enrichPlan(
+      "unused.mp4",
+      { version: 1, operations: [{ ...captionPlan.operations[0], language: "en" }] },
+      { providers: spy, language: "ar" },
+    );
+    check(
+      "and a language named on the plan travels as an instruction, alongside it",
+      seen[1]?.language === "en" && seen[1]?.expected === "ar",
+      JSON.stringify(seen[1] ?? null),
+    );
   }
 
   {

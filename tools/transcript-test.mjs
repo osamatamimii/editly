@@ -449,43 +449,129 @@ section("Both answer");
  */
 section("The audio decides which language it is in");
 {
-  const urls = [];
-  const deepgram = (opts) =>
-    createDeepgramTranscriber({
-      apiKey: "not-a-real-key",
-      model: "nova-3",
-      fetchImpl: async (url) => {
-        urls.push(String(url));
-        return {
-          ok: true,
-          json: async () => ({
-            results: { channels: [{ detected_language: "ar", alternatives: [{ words: [] }] }] },
-          }),
-        };
-      },
-      prepareAudio: async (p) => p,
-      ...opts,
-    });
+  // A real request, not a reading of the source.
+  //
+  // The previous version of this section asserted the *shape of the code* —
+  // `if (opts.language) … else … detect_language` — which passed for the right
+  // reason once and then failed the first time the same behaviour was written
+  // differently. A check that breaks when correct code is rearranged is a
+  // check on the author, not on the product. So the provider is now actually
+  // called, with an injected `fetch` that keeps the URL, over a third of a
+  // second of local silence. Still no network and still no key.
+  const audioDir = await mkdtemp(path.join(tmpdir(), "editly-transcript-audio-"));
+  const silence = path.join(audioDir, "silence.wav");
+  spawnSync("ffmpeg", ["-y", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "0.3", silence], {
+    stdio: "ignore",
+  });
 
-  check("the provider is built and names its model", deepgram({}).name === "deepgram/nova-3");
+  let lastUrl = "";
+  const deepgram = createDeepgramTranscriber({
+    apiKey: "not-a-real-key",
+    model: "nova-3",
+    fetchImpl: async (url) => {
+      lastUrl = String(url);
+      return {
+        ok: true,
+        json: async () => ({
+          results: { channels: [{ detected_language: "ar", alternatives: [{ words: [] }] }] },
+        }),
+      };
+    },
+  });
 
-  // The request itself needs ffmpeg; what is under test is the query the
-  // provider builds, which the source states outright.
+  const asked = async (opts) => {
+    await deepgram.transcribe(silence, opts);
+    return new URL(lastUrl).searchParams;
+  };
+
+  check("the provider is built and names its model", deepgram.name === "deepgram/nova-3");
+
+  const detecting = await asked({});
+  check(
+    "detection is asked for when nobody named a language and nothing is believed",
+    detecting.get("detect_language") === "true" && detecting.get("language") === null,
+    lastUrl,
+  );
+
+  const named = await asked({ language: "ar" });
+  check(
+    "a named language is sent instead of detection, not alongside it",
+    named.get("language") === "ar" && named.get("detect_language") === null,
+    lastUrl,
+  );
+
+  // ── The round's finding ─────────────────────────────────────────────────
+  //
+  // Turning detection on fixed thirty-five languages and left the one this
+  // product was built for exactly where it was. Deepgram's detector cannot
+  // name Arabic; Nova-3 transcribes it fine when told. So a believed Arabic —
+  // the language the person wrote their request in — has to be *said*, or the
+  // audio comes back as one of the thirty-five, confidently.
+  const believedArabic = await asked({ expected: "ar" });
+  check(
+    "a believed language the detector cannot name is sent, because detection can never reach it",
+    believedArabic.get("language") === "ar" && believedArabic.get("detect_language") === null,
+    lastUrl,
+  );
+
+  // And the other half, which is what stops this from becoming "always trust
+  // the interface language": where detection works, it wins. Someone who
+  // writes in English and uploads a French clip gets French.
+  const believedEnglish = await asked({ expected: "en" });
+  check(
+    "a believed language it can detect is left to the detector — a working detector beats an assumption",
+    believedEnglish.get("detect_language") === "true" && believedEnglish.get("language") === null,
+    lastUrl,
+  );
+
+  // A stated language outranks a believed one. Someone who says the clip is
+  // English has said more than we inferred from the language they typed in.
+  const both = await asked({ language: "en", expected: "ar" });
+  check(
+    "and a stated language outranks a believed one",
+    both.get("language") === "en" && both.get("detect_language") === null,
+    lastUrl,
+  );
+
+  // Filler words are documented English-only. This is the one request option
+  // in this file that is a *feature ask* rather than a setting, and asking for
+  // it on a language the provider says cannot have it is at best noise.
+  check("filler words are asked for while English is still on the table", detecting.get("filler_words") === "true");
+  check("and not asked for once the language is known not to be English", believedArabic.get("filler_words") === null);
+
   const source = createDeepgramTranscriber.toString();
-  check(
-    "detection is asked for when nobody named a language",
-    /detect_language/.test(source),
-    "the parameter is never sent, so Deepgram falls back to English",
-  );
-  check(
-    "and a named language is sent instead of detection, not alongside it",
-    /if \(opts\.language\)[\s\S]{0,80}else[\s\S]{0,80}detect_language/.test(source),
-    source.slice(source.indexOf("opts.language"), source.indexOf("opts.language") + 200),
-  );
   check(
     "language=multi is not used, because its ten languages do not include Arabic",
     !/"multi"|'multi'/.test(source),
   );
+
+  // ── The second model is not told what we guessed ────────────────────────
+  //
+  // ElevenLabs detects Arabic on its own. Handing it the same belief would
+  // make both models answer our assumption instead of the audio, and the
+  // cross-check between them — the thing that caught the first half of this
+  // bug — would be two copies of one guess.
+  let sentForm = null;
+  const elevenlabs = createElevenLabsTranscriber({
+    apiKey: "not-a-real-key",
+    fetchImpl: async (_url, init) => {
+      sentForm = init.body;
+      return { ok: true, json: async () => ({ words: [] }) };
+    },
+  });
+  await elevenlabs.transcribe(silence, { expected: "ar" });
+  check(
+    "the second model is not handed the language we merely believe",
+    sentForm !== null && !sentForm.has("language_code"),
+    "both models answering the same assumption is not a cross-check",
+  );
+  await elevenlabs.transcribe(silence, { language: "ar" });
+  check(
+    "but it obeys a language somebody actually stated",
+    sentForm !== null && sentForm.get("language_code") === "ar",
+  );
+
+  await rm(audioDir, { recursive: true, force: true });
 }
 
 /**
