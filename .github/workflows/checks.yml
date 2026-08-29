@@ -134,6 +134,7 @@ jobs:
       - run: node tools/bilingual-test.mjs
       - run: node tools/overlay-test.mjs
       - run: node tools/motion-test.mjs
+      - run: node tools/beat-test.mjs
       - run: node tools/checkout-test.mjs
       - run: node tools/stock-test.mjs
       - run: node tools/browser-test.mjs
