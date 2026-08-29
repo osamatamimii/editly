@@ -339,12 +339,13 @@ export function readsRightToLeft(text: string): boolean {
  * entry, and a word-level wipe that tracks the speaker.
  */
 function animateCue(cue: CaptionCue, animation: string): string {
-  const body = cue.text
-    .replace(/\r?\n/g, "\\N")
+  // `wrapToLayout` has already chosen where this cue breaks, for a box that
+  // clears the platform's furniture. Those are the lines every animation draws.
+  const lines = cue.text
     .replace(/[{}]/g, "")
-    .split("\\N")
-    .map(isolate)
-    .join("\\N");
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0);
+  const body = lines.map(isolate).join("\\N");
 
   if (animation === "karaoke" && cue.words && cue.words.length > 0) {
     // \kf wipes the fill across each word for exactly its own duration, so the
@@ -360,17 +361,47 @@ function animateCue(cue: CaptionCue, animation: string): string {
     // the runs down in reverse order puts them back where the bidi algorithm
     // would have put them, and an embedded English word still reads left to
     // right because its own run does.
-    const spoken = readsRightToLeft(cue.text) ? [...cue.words].reverse() : cue.words;
-    return spoken
-      .map((w) => {
-        const cs = Math.max(1, Math.round((w.endMs - w.startMs) / 10));
+    //
+    // ## And it is laid onto the lines the layout chose
+    //
+    // This branch used to ignore `cue.text` completely and emit every word of
+    // the cue as one unbroken run. The wrapping was computed, the truncation
+    // was computed, and karaoke threw both away — so a cue that "pop" drew as
+    // three lines ending in an ellipsis, karaoke drew as seven lines climbing
+    // over the speaker's face and out of the safe band. Nothing failed: the
+    // captions were legible, timed and correctly coloured, in the wrong half
+    // of the frame. The whole point of `caption-layout.ts` is that a caption
+    // never lands under a username, and one of the three animations was not
+    // subject to it.
+    const rtl = readsRightToLeft(cue.text);
+    const remaining = [...cue.words];
+    const drawn = lines.map((line) => {
+      const tokens = line.split(/\s+/).filter(Boolean);
+      const runs = tokens.map((token) => {
+        const word = remaining.shift();
+        // The tokens come from this cue's own text, so they line up with its
+        // words. When they do not — a provider whose text and word list
+        // disagree — the line is drawn with what is left rather than dropped,
+        // and the timing degrades before the words do.
+        if (!word) return { text: token, cs: 0 };
+        // `wrapToLayout` marks a truncated cue by appending the ellipsis to the
+        // last token it kept. That mark belongs to the caption, not to the
+        // word, so it is carried over rather than lost with the tail.
+        const text = token.endsWith("…") && !word.text.endsWith("…") ? `${word.text}…` : word.text;
+        return { text, cs: Math.max(1, Math.round((word.endMs - word.startMs) / 10)) };
+      });
+      // Per line, not per cue: lines stack top to bottom in every language, and
+      // only the order *within* a line follows the direction of its script.
+      const ordered = rtl ? [...runs].reverse() : runs;
+      return ordered
         // Each word is isolated too: the run boundary the tag creates is also
         // a boundary the line's own isolate cannot reach across, so a word
         // carrying its sentence's full stop needs its own.
-        return `{\\kf${cs}}${isolate(w.text.replace(/[{}]/g, ""))} `;
-      })
-      .join("")
-      .trimEnd();
+        .map((run) => `{\\kf${run.cs}}${isolate(run.text.replace(/[{}]/g, ""))} `)
+        .join("")
+        .trimEnd();
+    });
+    return drawn.join("\\N");
   }
 
   if (animation === "pop") {
@@ -1597,7 +1628,27 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       layout,
     );
     videoParts.push(`subtitles=${subtitlePath.replace(/[\\:']/g, "\\$&")}`);
-    notes.push(t(`burned ${cues.length} captions (${captions.animation})`, `حرقت ${cues.length} كابشن (${captions.animation})`));
+    /**
+     * A wipe needs word times, and the note used to claim it either way.
+     *
+     * `animateCue` draws a plain fade when a cue has no word timings — the only
+     * honest thing it can do, since the wipe is per word — and the note went on
+     * saying "(karaoke)". Somebody who asked for the wipe, did not get it, and
+     * was told they did has no way to find out why. The provider is what
+     * decides this: word times come back from transcription, and a fallback
+     * that returns only sentences cannot carry them.
+     */
+    const wipeable = cues.some((cue) => cue.words && cue.words.length > 0);
+    if (captions.animation === "karaoke" && !wipeable) {
+      notes.push(
+        t(
+          `burned ${cues.length} captions, but the words came back without their own timings, so they fade in rather than wiping across`,
+          `حرقت ${cues.length} كابشن، لكن الكلمات عادت بلا توقيت خاصّ بها، فتظهر بتلاشٍ بدل المسح كلمةً كلمة`,
+        ),
+      );
+    } else {
+      notes.push(t(`burned ${cues.length} captions (${captions.animation})`, `حرقت ${cues.length} كابشن (${captions.animation})`));
+    }
   }
 
   if (watermark) {
