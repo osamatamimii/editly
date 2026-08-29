@@ -37,6 +37,15 @@ export async function startRenderForProject(
   project: ProjectRow,
   requestedOperations: EditOperation[],
   log?: { info: (obj: unknown, msg: string) => void },
+  /**
+   * Which language the render's notes come back in.
+   *
+   * Passed by the caller that has the sentence — the messages route — because
+   * this module never sees it. The two render routes are buttons, not
+   * sentences, so they leave it unset and the notes stay English, which is
+   * what a button in an English interface should give.
+   */
+  language: "en" | "ar" = "en",
 ): Promise<StartRenderOutcome> {
   // Read before anything else is judged, because suspension is the more
   // fundamental fact about this request than anything about the project. An
@@ -128,6 +137,10 @@ export async function startRenderForProject(
         // Snapshotted so that changing or clearing the reference while this
         // sits in the queue cannot quietly alter a render already accepted.
         referencePath: project.referenceVideoPath ?? null,
+        // Snapshotted for the same reason, one line up: a render already
+        // accepted must not change language because the next thing they typed
+        // was in the other one.
+        language,
         // The worker re-checks this against the file it actually downloads.
         maxSourceSeconds: decision.maxSourceSeconds,
         remainingSeconds: decision.remainingSeconds,
