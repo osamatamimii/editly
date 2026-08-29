@@ -245,6 +245,64 @@ if (!first) {
   await rm(outC, { recursive: true, force: true });
 }
 
+/**
+ * An emoji is a picture, and a picture has colour.
+ *
+ * Emojis left the "cannot yet" list this round, and the thing that can go
+ * wrong is not the placing — it is that a font with no colour glyph draws an
+ * empty box instead. The render succeeds, the frame has ink on it, the file
+ * plays, and the sticker somebody asked for is a rectangle. Same silent shape
+ * as a missing Arabic font, one layer along, and neither ffmpeg's drawtext nor
+ * libass can draw these at all: emojis exist because the titles go through a
+ * browser.
+ *
+ * Saturation is the whole difference between a picture and a glyph. White text
+ * on a transparent frame has none, which is what makes the number mean
+ * something — so the plain word is measured too, and must come back at zero.
+ */
+console.log("\nAn emoji draws as a picture, not as a box");
+if (!first) {
+  console.log("  · no browser here, so the emoji checks are skipped (not failed)");
+} else {
+  const outE = await mkdtemp(path.join(tmpdir(), "editly-motion-emoji-"));
+
+  const saturationOf = async (text, name) => {
+    const dir = path.join(outE, name);
+    await renderMotionLayer(
+      {
+        width: 540, height: 960, fps: 25, durationSeconds: 1,
+        titles: [{ text, at: 0.05, durationSeconds: 0.9, style: "word", position: "center" }],
+      },
+      dir,
+    );
+    const frames = (await readdir(dir)).filter((f) => f.endsWith(".png")).sort();
+    const frame = path.join(dir, frames[Math.floor(frames.length * 0.6)]);
+    const r = spawnSync(
+      "ffprobe",
+      ["-v", "error", "-f", "lavfi", "-i", `movie=${frame},signalstats`,
+       "-show_entries", "frame_tags=lavfi.signalstats.SATAVG", "-of", "default=nw=1:nk=1"],
+      { encoding: "utf8" },
+    );
+    return Number(r.stdout.trim().split("\n")[0]);
+  };
+
+  const fire = await saturationOf("\u{1F525}", "fire");
+  const words = await saturationOf("Ship it", "words");
+
+  check(
+    "an emoji comes out in colour, so the font has the glyph and not a box",
+    fire > 0.5,
+    `saturation ${fire} — zero is a tofu box, which renders and plays and is wrong`,
+  );
+  check(
+    "and a plain word comes out with none — so that is what is being measured",
+    words === 0,
+    `saturation ${words} for white text, which should have no colour at all`,
+  );
+
+  await rm(outE, { recursive: true, force: true });
+}
+
 await rm(outA, { recursive: true, force: true });
 await rm(outB, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });

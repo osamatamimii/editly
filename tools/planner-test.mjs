@@ -1025,6 +1025,70 @@ console.log("\nMusic comes from the person's own library or not at all");
   check("the Arabic ask is heard too", arabic.operations.some((o) => o.type === "addMusic"), JSON.stringify(arabic.operations));
 }
 
+/**
+ * Emojis: theirs, or none.
+ *
+ * This was the oldest item on the "cannot yet" list, and the reason it stayed
+ * there is not that stickers are hard. It is that choosing somebody's emojis
+ * for them is writing copy nobody asked for, which is the one thing the
+ * animated title already refuses to do. So the ask alone gets a refusal that
+ * names the fix, and the emojis they typed get placed.
+ *
+ * And the third case is the one worth the section: typing an emoji is not an
+ * ask. "cut the silence 🙏" is a person being polite, and burning their
+ * politeness into the video would be the product reading punctuation as an
+ * instruction.
+ */
+console.log("\nEmojis are theirs or they do not happen");
+{
+  const planner = createPlanner({ apiKey: "" });
+
+  const typed = await planner.plan("add the emoji 🔥 at the start", { assets: [] });
+  const sticker = typed.operations.find((o) => o.type === "motionTitle");
+  check("an emoji they typed is placed", sticker?.text === "🔥", JSON.stringify(typed.operations));
+  check("and the reply says which one", typed.willDo.map(inEnglish).some((w) => /🔥/.test(w)), JSON.stringify(typed.willDo));
+
+  const asked = await planner.plan("can you add some emojis", { assets: [] });
+  check(
+    "asking for emojis without typing any is refused",
+    !asked.operations.some((o) => o.type === "motionTitle"),
+    JSON.stringify(asked.operations),
+  );
+  check(
+    "and the refusal names the fix rather than the limitation",
+    asked.cannotYet.map(inEnglish).some((c) => /type the ones you want/.test(c)),
+    JSON.stringify(asked.cannotYet),
+  );
+
+  // The case that matters most, because it is the one that would embarrass
+  // somebody: an emoji in a sentence is not a request for a sticker.
+  const polite = await planner.plan("cut the silence please 🙏", { assets: [] });
+  check(
+    "an emoji used as punctuation is left alone",
+    !polite.operations.some((o) => o.type === "motionTitle"),
+    JSON.stringify(polite.operations),
+  );
+  check(
+    "and the rest of that sentence still happens",
+    polite.operations.some((o) => o.type === "removeSilence"),
+    JSON.stringify(polite.operations),
+  );
+
+  // Three is enough. A wall of them is not a sticker, it is noise, and the cap
+  // is the difference between placing what they meant and pasting what they
+  // typed.
+  const many = await planner.plan("emojis: 🔥😂🎉🚀💯", { assets: [] });
+  const wall = many.operations.find((o) => o.type === "motionTitle");
+  check("at most three emojis are placed, in the order typed", wall?.text === "🔥😂🎉", JSON.stringify(wall));
+
+  const arabic = await planner.plan("ضيف إيموجي 🎉", { assets: [] });
+  check(
+    "the Arabic ask is heard, with their emoji",
+    arabic.operations.some((o) => o.type === "motionTitle" && o.text === "🎉"),
+    JSON.stringify(arabic.operations),
+  );
+}
+
 console.log("\nA hook and a transition happen together again");
 {
   const planner = createPlanner({ apiKey: "" });

@@ -213,11 +213,21 @@ const PAIRS = [
     expect: ["fade"],
   },
   {
-    what: "emojis",
+    // Emojis left the "cannot yet" list this round, and what is left in its
+    // place is a refusal with a *fix* in it: type the ones you want. Which
+    // makes this pair a check that the fix is bilingual — a way out named only
+    // in English is not a way out for the half of the users who wrote Arabic.
+    what: "emojis nobody typed",
     en: "add emojis",
     ar: "ضيف إيموجي",
     expect: [],
-    refuses: "add emojis",
+    refuses: "type the ones you want",
+  },
+  {
+    what: "an emoji they did type",
+    en: "add the emoji 🔥",
+    ar: "ضيف الإيموجي 🔥",
+    expect: ["motionTitle"],
   },
   {
     // The refusal did not disappear this round, it moved: cutting to the beat
