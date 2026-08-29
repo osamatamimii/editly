@@ -324,6 +324,98 @@ console.log("\nA project with nothing in it");
   );
 }
 
+/**
+ * The prompt must not refuse what the product does.
+ *
+ * The instructions carried a sentence naming emojis, colour grading and
+ * cutting in time with a beat as things "none of these operations do". All
+ * three had been built, and the same prompt explained each of them a few
+ * paragraphs earlier — so the model was handed a flat contradiction and
+ * resolved it whichever way it liked. Nothing failed: some requests simply
+ * came back refused, in a sentence that reads like a considered answer.
+ *
+ * This is the same rule the two-heads guard enforces on the matcher, pointed
+ * at the prose: the model may not be told it cannot do a thing its own schema
+ * offers it.
+ */
+console.log("\nThe prompt does not refuse what the product does");
+{
+  const calls = [];
+  const spy = (url, init) => {
+    calls.push([url, init]);
+    return answering([])(url, init);
+  };
+  const planner = createPlanner({ apiKey: "k", fetchImpl: spy });
+  await planner.plan("do something", { assets: LIBRARY });
+  const instructions = sentBody(calls).messages[0].content;
+
+  for (const [subject, probe] of [
+    ["emojis", "emoji"],
+    ["colour grading to a look we have", "colou?r grading"],
+    ["cutting to the beat", "cutting in time with a beat|to the beat"],
+  ]) {
+    const refuses = new RegExp(
+      `(?:${probe})[^.]{0,120}return no operations|return no operations[^.]{0,120}(?:${probe})`,
+      "i",
+    ).test(instructions);
+    check(`the model is not told to refuse ${subject}`, !refuses, instructions.slice(-400));
+  }
+
+  // And the one thing it should still refuse is still refused, so the checks
+  // above cannot be satisfied by deleting the sentence.
+  check(
+    "but a colour look nobody has named is still outside the product",
+    /colour look nobody has named/i.test(instructions),
+    instructions.slice(-400),
+  );
+}
+
+/**
+ * A punch on the beat needs a beat to be on.
+ *
+ * The instructions say the two go together; an instruction is not a guarantee.
+ * A plan with `punchOn: beat` and no `addMusic` is one the renderer can only
+ * answer with a note — no music, so no beat, so no punches — and the person
+ * who asked for cuts on the beat gets a video with nothing done to it. The
+ * keyword matcher has always laid the bed itself here, so this is the
+ * two-heads rule as well: the cheap head must not produce an edit the paid one
+ * cannot.
+ */
+console.log("\nA beat punch the model forgot to give a beat");
+{
+  const planner = createPlanner({
+    apiKey: "k",
+    fetchImpl: answering([{ type: "zoomPunch", punchOn: "beat", punchAmount: 0.15 }]),
+  });
+  const result = await planner.plan("cut it to the beat", { assets: LIBRARY });
+  const punch = result.operations.find((o) => o.type === "zoomPunch");
+  const music = result.operations.find((o) => o.type === "addMusic");
+  check("the bed is laid for it", Boolean(music), JSON.stringify(result.operations));
+  check(
+    "using this project's own track",
+    music?.assetId === LIBRARY.find((a) => a.kind === "audio")?.id,
+    JSON.stringify(music),
+  );
+  check("and the punch stays on the beat", punch?.on === "beat", JSON.stringify(punch));
+  check(
+    "and the reply says the music is going under",
+    result.willDo.map(inEnglish).some((w) => /music/i.test(w)),
+    JSON.stringify(result.willDo),
+  );
+
+  // With no track in the project there is no bed to lay, so the punch goes
+  // back to the speaker's emphasis — an edit that works on any footage, and
+  // the one they would have got had they never mentioned the music.
+  const bare = createPlanner({
+    apiKey: "k",
+    fetchImpl: answering([{ type: "zoomPunch", punchOn: "beat", punchAmount: 0.15 }]),
+  });
+  const nothing = await bare.plan("cut it to the beat", { assets: [] });
+  const barePunch = nothing.operations.find((o) => o.type === "zoomPunch");
+  check("with no track at all, the punch goes back on the voice", barePunch?.on === "emphasis", JSON.stringify(nothing.operations));
+  check("and no music is invented for it", !nothing.operations.some((o) => o.type === "addMusic"), JSON.stringify(nothing.operations));
+}
+
 console.log("\nAn id the model invented");
 {
   const planner = createPlanner({
@@ -1243,7 +1335,11 @@ console.log("\nEmojis are theirs or they do not happen");
   // typed.
   const many = await planner.plan("emojis: 🔥😂🎉🚀💯", { assets: [] });
   const wall = many.operations.find((o) => o.type === "motionTitle");
-  check("at most three emojis are placed, in the order typed", wall?.text === "🔥😂🎉", JSON.stringify(wall));
+  // Spaced, not run together: the kinetic style animates whitespace-separated
+  // pieces, so this is the difference between three stickers popping on one
+  // after another and one lump of three arriving at once.
+  check("at most three emojis are placed, in the order typed", wall?.text === "🔥 😂 🎉", JSON.stringify(wall));
+  check("and spaced, so they land one at a time", wall?.style === "word", JSON.stringify(wall));
 
   const arabic = await planner.plan("ضيف إيموجي 🎉", { assets: [] });
   check(

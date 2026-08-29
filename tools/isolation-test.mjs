@@ -886,6 +886,105 @@ console.log("\nNamed looks");
   );
   await call(ALICE, `/api/projects/${clipsLookId}`, "DELETE");
 
+  /**
+   * The look that cannot be built out of nothing.
+   *
+   * Every other template is a function of the platform and the running time,
+   * so it can be built for any project at all. This one lays the project's own
+   * track under the edit and cuts to it, and a project with no audio has no
+   * beat to cut to. The two ways to get that wrong are both quiet: place the
+   * punches on the speaker's emphasis instead — an edit nobody asked for
+   * wearing the name of one they did — or return an empty plan and hand back a
+   * video identical to the one that went in. So the refusal is asserted before
+   * the success is.
+   */
+  const beatLook = await call(ALICE, "/api/projects", "POST", { title: "Beat look check" });
+  const beatLookId = beatLook.json?.id;
+  await call(ALICE, `/api/projects/${beatLookId}`, "PATCH", {
+    videoPath: `${ALICE}/${beatLookId}/source.mp4`,
+    duration: 60,
+  });
+
+  const catalogue = list.json ?? [];
+  const beatEntry = catalogue.find((t) => t.id === "on-the-beat");
+  check("the catalogue says which look needs a file", beatEntry?.needs === "music", JSON.stringify(beatEntry));
+  check(
+    "and says nothing of the sort about the ones that need none",
+    catalogue.filter((t) => t.id !== "on-the-beat").every((t) => t.needs === null),
+    JSON.stringify(catalogue.map((t) => [t.id, t.needs])),
+  );
+
+  const noTrack = await call(ALICE, `/api/projects/${beatLookId}/render`, "POST", { templateId: "on-the-beat" });
+  check("a beat look on a project with no track is refused", noTrack.status === 400, `got ${noTrack.status}`);
+  check(
+    "and the refusal names the missing file rather than apologising",
+    /audio|track/i.test(noTrack.json?.error ?? ""),
+    JSON.stringify(noTrack.json),
+  );
+  check(
+    "and nothing was queued by the attempt",
+    Number(psqlGlobalRead(`select count(*) from jobs where project_id = '${beatLookId}'`).trim()) === 0,
+    psqlGlobalRead(`select count(*) from jobs where project_id = '${beatLookId}'`).trim(),
+  );
+
+  const track = await call(ALICE, `/api/projects/${beatLookId}/assets`, "POST", {
+    path: `${ALICE}/${beatLookId}/track.mp3`,
+    kind: "audio",
+    bytes: 4096,
+  });
+  check("a track can be registered on the project", track.status === 201, `got ${track.status} ${track.text.slice(0, 120)}`);
+
+  const beat = await call(ALICE, `/api/projects/${beatLookId}/render`, "POST", { templateId: "on-the-beat" });
+  check("and then the beat look starts a render", beat.status === 202, `got ${beat.status} ${beat.text.slice(0, 160)}`);
+  const beatOps = beat.json?.plan?.operations ?? [];
+  const music = beatOps.find((o) => o.type === "addMusic");
+  check(
+    "it lays the project's own track under the edit",
+    music?.assetId === track.json?.id,
+    `${JSON.stringify(music)} against ${JSON.stringify(track.json?.id)}`,
+  );
+  const beatPunch = beatOps.find((o) => o.type === "zoomPunch");
+  check("and punches on the beat rather than on the speaker", beatPunch?.on === "beat", JSON.stringify(beatPunch));
+  // The one template that hands over an empty list on purpose. Where the beats
+  // are is a fact about the audio, and nothing on this side of the wire has
+  // heard it — the worker reads the track and fills these in, or finds no
+  // steady pulse and says so.
+  check(
+    "leaving the moments to the worker, which is the only thing that hears the track",
+    Array.isArray(beatPunch?.at) && beatPunch.at.length === 0,
+    JSON.stringify(beatPunch?.at),
+  );
+  /**
+   * And the other half of the pair, which is what makes the check above mean
+   * something.
+   *
+   * An empty punch list means two different things. For an emphasis punch it
+   * means "you decide" — the chat knows the person wants punches and not where
+   * they go, so the server spaces them across the clip. For a beat punch it
+   * means "the worker decides, once it has heard the track". One line served
+   * both for three rounds, which silently turned every beat-synced edit into
+   * four evenly spaced zooms; asserting only the beat side would leave the
+   * spacing free to disappear next.
+   */
+  const bothProject = await call(ALICE, "/api/projects", "POST", { title: "Empty punch list check" });
+  const bothId = bothProject.json?.id;
+  await call(ALICE, `/api/projects/${bothId}`, "PATCH", {
+    videoPath: `${ALICE}/${bothId}/source.mp4`,
+    duration: 40,
+  });
+  const spaced = await call(ALICE, `/api/projects/${bothId}/render`, "POST", {
+    plan: { version: 1, operations: [{ type: "zoomPunch", on: "emphasis", at: [], amount: 0.12, holdMs: 600 }] },
+  });
+  const spacedPunch = (spaced.json?.plan?.operations ?? []).find((o) => o.type === "zoomPunch");
+  check(
+    "an emphasis punch with no moments is spread across the clip instead",
+    spacedPunch?.at?.length > 0 && spacedPunch.at.every((t) => t > 0 && t < 40),
+    JSON.stringify(spacedPunch),
+  );
+  await call(ALICE, `/api/projects/${bothId}`, "DELETE");
+
+  await call(ALICE, `/api/projects/${beatLookId}`, "DELETE");
+
   await call(ALICE, `/api/projects/${templateProjectId}`, "DELETE");
 }
 
@@ -1759,6 +1858,37 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
     (jobs.json?.jobs ?? []).every((job) => job.error === null || typeof job.error === "string"),
     JSON.stringify((jobs.json?.jobs ?? []).slice(0, 2)),
   );
+  /**
+   * The render that worked and did nothing.
+   *
+   * The console could see a render succeed and could read the message when one
+   * failed. The case that actually arrives in support is neither: it finished,
+   * it is green, and it did not do what was asked. There is no error on that
+   * row and never will be — the only record is what the renderer wrote as it
+   * decided, and until now that never left the worker.
+   */
+  const notedJobId = "admin-notes-test-job";
+  psqlGlobal(
+    `insert into jobs (id, project_id, user_id, status, plan, input_path, notes, created_at, updated_at) ` +
+      `values ('${notedJobId}', '${aliceProjectId}', '${ALICE}', 'done', ` +
+      `'{"version":1,"operations":[]}'::jsonb, '${ALICE}/${aliceProjectId}/source.mp4', ` +
+      `'["there is no music under this edit, so there was no beat to cut to"]'::jsonb, now(), now())`,
+  );
+  const noted = await call(ALICE, "/api/admin/jobs?limit=200");
+  const notedRow = (noted.json?.jobs ?? []).find((job) => job.id === notedJobId);
+  check("the console can read what a render said it did", Boolean(notedRow), `job ${notedJobId} not in the page`);
+  check(
+    "verbatim, which is the only reason it is worth showing",
+    notedRow?.notes?.[0] === "there is no music under this edit, so there was no beat to cut to",
+    JSON.stringify(notedRow?.notes),
+  );
+  check(
+    "and a render that said nothing carries null rather than a missing field",
+    (noted.json?.jobs ?? []).every((job) => job.notes === null || Array.isArray(job.notes)),
+    JSON.stringify((noted.json?.jobs ?? []).map((j) => j.notes).slice(0, 3)),
+  );
+  psqlGlobal(`delete from jobs where id = '${notedJobId}'`);
+
   const failedOnly = await call(ALICE, "/api/admin/jobs?status=failed&limit=5");
   check(
     "and filtering by status returns only that status",

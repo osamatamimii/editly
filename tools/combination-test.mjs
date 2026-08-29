@@ -584,7 +584,16 @@ console.log("\nEvery template we ship renders");
   for (const template of TEMPLATES) {
     // Watermarked, because that is what a free account gets and it is the
     // variant with the most operations in it.
-    const operations = template.build({ platform: "tiktok", durationSeconds: 36, watermark: true });
+    // `musicAssetId` is only read by the one look that declares it needs a
+    // track, and the route refuses that look before building it when the
+    // project has none — so here it is always the fixture track, which is what
+    // a project that passed that check would have.
+    const operations = template.build({
+      platform: "tiktok",
+      durationSeconds: 36,
+      watermark: true,
+      musicAssetId: "track",
+    });
     let out = null;
     try {
       out = await renderPlan(spoken, { version: 1, operations }, { workDir: await scratch(), assets });
