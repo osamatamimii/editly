@@ -16,7 +16,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { criticise } from "./critic";
 import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle } from "./motion";
-import type { EditOperation, EditPlan, TransitionStyle } from "@workspace/api-zod";
+import type { EditOperation, EditPlan, GradeLook, TransitionStyle } from "@workspace/api-zod";
 import { captionLayout, type CaptionLayout } from "./caption-layout";
 import {
   chooseCropCenter,
@@ -462,6 +462,54 @@ const MAX_SEPARATE_DECODES = 4;
 function inSourceOrder(kept: Segment[]): boolean {
   return kept.every((segment, i) => i === 0 || segment.start >= kept[i - 1]!.start);
 }
+
+/**
+ * What each named look actually does to the picture.
+ *
+ * `curves` rather than `colorbalance`, and that is not a style preference. The
+ * first version of this used `colorbalance=rm=0.08:bm=-0.08`, which reads
+ * exactly like what it should do and, measured, does **nothing** — a flat grey
+ * frame came out with its U and V planes unmoved at 128, and still unmoved at
+ * an absurd 0.20. The check that measures pixels caught it; a check that read
+ * the filter string would have passed a feature that did not exist.
+ *
+ * Every one of these is a small move. The difference between a grade and a
+ * filter is restraint, and the fastest way to make footage look cheap is to
+ * over-grade it.
+ *
+ *   warm       red curve up, blue curve down, evenly — measured U 128→124,
+ *              V 128→131 on neutral grey. Sunlight, not sepia.
+ *   cool       the same curves swapped.
+ *   cinematic  the teal-and-orange split, which is the one look here that has
+ *              to treat the ends of the range differently: blue lifted in the
+ *              shadows and pulled out of the highlights, red the other way.
+ *              Measured on a black-to-white ramp, shadows U 128→135 while
+ *              highlights go U 128→117 and V 128→132. That gap between the two
+ *              ends *is* the look — it is what separates skin from background
+ *              without touching either on its own.
+ *   mono       saturation to zero, with a little contrast so it is not grey mush.
+ *   punch      no hue shift at all, just more contrast and more colour, which
+ *              is what people mean by "make it pop".
+ *
+ * All of these run in the same pass as the rest of the video chain, so a look
+ * costs no extra encode.
+ */
+const GRADE_LOOKS: Record<Exclude<GradeLook, "none">, { filter: string; inWords: string }> = {
+  warm: {
+    filter: "curves=r='0/0 0.5/0.55 1/1':b='0/0 0.5/0.45 1/1'",
+    inWords: "warmed the picture",
+  },
+  cool: {
+    filter: "curves=r='0/0 0.5/0.45 1/1':b='0/0 0.5/0.55 1/1'",
+    inWords: "cooled the picture",
+  },
+  cinematic: {
+    filter: "curves=b='0/0.12 0.5/0.48 1/0.88':r='0/0 0.55/0.60 1/1',eq=contrast=1.06",
+    inWords: "graded it cinematic — blue in the shadows, warmth in the highlights",
+  },
+  mono: { filter: "eq=saturation=0:contrast=1.08", inWords: "took the colour out" },
+  punch: { filter: "eq=contrast=1.12:saturation=1.18", inWords: "pushed the contrast and colour" },
+};
 
 const AUDIO_ENCODE = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000"];
 
@@ -1232,13 +1280,32 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // After motion and before anything drawn on top: the picture is graded, the
   // captions and the mark are not. A watermark whose white drifted with the
   // saturation of the footage under it would read as a rendering fault.
-  if (grade && Math.abs(grade.saturation - 1) > 0.001) {
-    videoParts.push(`eq=saturation=${grade.saturation.toFixed(3)}`);
-    notes.push(
-      grade.saturation > 1
-        ? `colour pushed ${Math.round((grade.saturation - 1) * 100)}% toward your reference`
-        : `colour pulled back ${Math.round((1 - grade.saturation) * 100)}% toward your reference`,
-    );
+  if (grade) {
+    // The look first, then the reference multiplier, so the two compose rather
+    // than argue: the look decides the mood and the match decides how much
+    // colour there is. Ordered, not merged — merging them would mean deciding
+    // for the person which of the two they meant more.
+    const look = grade.look ?? "none";
+    if (look !== "none") {
+      videoParts.push(GRADE_LOOKS[look].filter);
+      notes.push(GRADE_LOOKS[look].inWords);
+    }
+    if (Math.abs(grade.saturation - 1) > 0.001) {
+      // Mono has already taken the colour to zero. Multiplying zero is still
+      // zero, so the filter would do nothing — but the note would claim a
+      // push toward a reference that cannot happen, which is the kind of small
+      // lie this file exists to avoid.
+      if (look === "mono") {
+        notes.push("the reference match was left off, because there is no colour left in a black-and-white picture to match with");
+      } else {
+        videoParts.push(`eq=saturation=${grade.saturation.toFixed(3)}`);
+        notes.push(
+          grade.saturation > 1
+            ? `colour pushed ${Math.round((grade.saturation - 1) * 100)}% toward your reference`
+            : `colour pulled back ${Math.round((1 - grade.saturation) * 100)}% toward your reference`,
+        );
+      }
+    }
   }
 
   // ── Drawn on top ──────────────────────────────────────────────────────────
@@ -1673,7 +1740,7 @@ export function describe(op: EditOperation): string {
     // that skips enrichment fails to compile rather than silently doing nothing.
     case "autoCaptions": return "Burning in captions";
     case "watermark": return "Adding the watermark";
-    case "grade": return "Matching the colour to your reference";
+    case "grade": return op.look && op.look !== "none" ? "Grading the picture" : "Matching the colour to your reference";
     case "kenBurns": return "Adding a slow push";
     case "zoomPunch": return "Adding punch-in zooms";
     case "normalizeLoudness": return "Levelling the audio";

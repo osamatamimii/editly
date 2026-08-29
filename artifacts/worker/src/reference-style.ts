@@ -106,7 +106,9 @@ export function applyReferenceStyle(
   if (operations.some((op) => op.type === "grade")) {
     notes.push("kept the colour setting already in the plan rather than the reference's");
   } else if (Math.abs(boost - 1) >= GRADE_DEADBAND) {
-    out.push({ type: "grade", saturation: boost });
+    // No look: the reference decides how much colour, and nothing about mood.
+    // Inventing a look here would be putting words in the reference's mouth.
+    out.push({ type: "grade", saturation: boost, look: "none" });
     notes.push(
       boost > 1
         ? `your reference is more saturated than this footage, so the colour is pushed ${percent(boost)} toward it`
