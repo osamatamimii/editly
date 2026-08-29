@@ -518,10 +518,32 @@ export const ZoomPunchOperation = z.object({
  * saturation is the fastest way to make footage look cheap, and it is the first
  * thing anyone notices when an automatic edit has been over-eager.
  */
+/**
+ * A named look, for people who cannot hand us a reference clip.
+ *
+ * Matching a reference is the better answer and came first: it is measured
+ * against footage the person actually chose, so it cannot be wrong about their
+ * taste. But most people asking for "make it cinematic" have no reference to
+ * give, and the honest reply to them was a refusal.
+ *
+ * These five are deliberately few and deliberately gentle. A look is a
+ * suggestion about mood, not a costume: the fastest way to make footage look
+ * cheap is to over-grade it, and the second fastest is to offer forty presets
+ * so the choice feels like the product.
+ */
+export const GradeLook = z.enum(["none", "warm", "cool", "cinematic", "mono", "punch"]);
+export type GradeLook = z.infer<typeof GradeLook>;
+
 export const GradeOperation = z.object({
   type: z.literal("grade"),
   /** 1 leaves the picture alone. Below 1 drains colour, above 1 pushes it. */
   saturation: z.number().min(0.5).max(1.5).default(1),
+  /**
+   * Applied before the saturation multiplier, so a look and a reference match
+   * compose instead of fighting: the look decides the mood, the reference
+   * decides how much colour.
+   */
+  look: GradeLook.default("none"),
 });
 
 /**
