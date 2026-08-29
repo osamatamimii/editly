@@ -1,0 +1,69 @@
+# The platform watching itself.
+#
+# On 12 August the render worker stopped and the outage ran for two days. The
+# API was fine the whole time — it answered 200 to everything, because nothing
+# was wrong with the API. Every render simply queued and none of them started,
+# and the only thing that would have noticed was somebody choosing to look.
+#
+# This is the thing that looks. It is the same argument as checks.yml one level
+# out: a check that only runs when somebody remembers is a check that stops
+# running the week they are busy.
+#
+# ## Why a workflow rather than an alerting service
+#
+# Because it needs no new account, no new secret, and no new bill — and because
+# GitHub already emails the owner when a scheduled workflow fails, which is the
+# entire alerting requirement. The endpoint it reads is public and returns
+# booleans, so this file holds nothing.
+#
+# ## What it deliberately does not do
+#
+# It does not read the database, and it does not start a render to prove the
+# pipeline works. Both would be better evidence and both cost money on every
+# run — a synthetic render every fifteen minutes is a bill and a queue slot. The
+# heartbeat is the cheapest thing that would have caught the outage this file is
+# named after, and catching that is the whole requirement.
+name: Watch
+
+on:
+  schedule:
+    # Every fifteen minutes. The worker is declared offline after two minutes of
+    # silence, so this is slow enough that a restart never trips it and fast
+    # enough that nothing is dead for an afternoon.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: watch
+  cancel-in-progress: true
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ask the deployment how it is
+        run: |
+          set -uo pipefail
+          URL="https://app.editlyai.io/api/healthz"
+
+          # Two attempts, thirty seconds apart. A single failed request is a
+          # network, not an outage, and an alert that cries wolf gets muted —
+          # which is the same as not having one.
+          for attempt in 1 2; do
+            code=$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 20 "$URL" || echo 000)
+            body=$(cat /tmp/health.json 2>/dev/null || echo '{}')
+            status=$(printf '%s' "$body" | jq -r '.status // "unreadable"')
+            online=$(printf '%s' "$body" | jq -r '.worker.online // false')
+            age=$(printf '%s' "$body" | jq -r '.worker.lastSeenAgoSeconds // "never"')
+
+            echo "attempt $attempt: HTTP $code, status $status, worker online $online, last beat ${age}s ago"
+            if [ "$code" = "200" ] && [ "$status" = "ok" ] && [ "$online" = "true" ]; then
+              echo "The API is up and a render machine is listening."
+              exit 0
+            fi
+            [ "$attempt" = "1" ] && sleep 30
+          done
+
+          echo "::error::Editly is not healthy — HTTP $code, status $status, worker online $online, last beat ${age}s ago. $(printf '%s' "$body" | jq -c '{database, capabilities}' 2>/dev/null)"
+          exit 1
