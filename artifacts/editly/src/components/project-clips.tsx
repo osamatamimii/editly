@@ -113,7 +113,7 @@ function ClipRow({
       {/* The speaker's own words, never invented copy — absent when nothing
           was heard, rather than filled with something nobody said. */}
       {clip.title && (
-        <p className="text-[11px] leading-snug italic mb-1.5 truncate">“{clip.title}”</p>
+        <p dir="auto" className="text-[11px] leading-snug italic mb-1.5 truncate">“{clip.title}”</p>
       )}
       {(previewUrl || url) && (
         <video
@@ -131,7 +131,7 @@ function ClipRow({
         </video>
       )}
       {clip.note && (
-        <p className="text-[11px] leading-snug text-muted-foreground mt-1">{clip.note}</p>
+        <p dir="auto" className="text-[11px] leading-snug text-muted-foreground mt-1">{clip.note}</p>
       )}
     </div>
   );
