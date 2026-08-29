@@ -33,6 +33,32 @@ const DEFAULT_MODEL = "nova-3";
 /** Deepgram marks these itself; the list is only for providers that do not. */
 const FILLERS = new Set(["um", "uh", "mm", "hmm", "er", "ah", "uhh", "umm"]);
 
+/**
+ * The languages Deepgram's detector can actually name.
+ *
+ * Thirty-five entries on the language-detection page, checked 29 Aug 2026 —
+ * thirty-three here because two of them are regional variants of a base that
+ * is already listed, and the comparison is on the base. **Arabic is not among
+ * them.** This list is not decoration: it is the
+ * difference between asking the detector a question it can answer and asking
+ * it one it cannot, and the answer to the second kind is not an error. It is a
+ * confident wrong language.
+ *
+ * Nova-3 transcribes Arabic well when it is *told* the language — `ar` and
+ * sixteen regional variants are in its supported set. Detection and support
+ * are two different lists, and reading only the second is how the previous
+ * round left Arabic exactly as unheard as it found it while believing it
+ * fixed.
+ */
+const DETECTABLE = new Set([
+  "bg", "ca", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "hi", "hu",
+  "id", "it", "ja", "ko", "lt", "lv", "ms", "nl", "no", "pl", "pt", "ro", "ru",
+  "sk", "sv", "th", "tr", "uk", "vi", "zh",
+]);
+
+/** `ar-EG` and `ar` are the same question here. */
+const baseOf = (tag: string): string => tag.toLowerCase().split(/[-_]/)[0];
+
 export interface DeepgramOptions {
   apiKey: string;
   model?: string;
@@ -50,13 +76,31 @@ export function createDeepgramTranscriber(options: DeepgramOptions): Transcriber
     async transcribe(mediaPath: string, opts: TranscribeOptions = {}): Promise<Transcript> {
       const audio = await extractSpeechAudio(mediaPath);
       try {
+        // What language to transcribe as, in three steps.
+        //
+        // A stated language wins outright. Otherwise, if we have reason to
+        // believe a language the detector cannot name — Arabic being the one
+        // that matters here — believing it is strictly better than asking a
+        // question with no right answer available. Only when detection can
+        // actually reach the language do we let it decide, because a detector
+        // that works beats an assumption every time.
+        const stated = opts.language;
+        const believed = opts.expected;
+        const named = stated ?? (believed && !DETECTABLE.has(baseOf(believed)) ? believed : undefined);
+
         const query = new URLSearchParams({
           model,
           smart_format: "true",
           punctuate: "true",
           paragraphs: "true",
-          filler_words: "true",
         });
+        // Filler words are documented as an English-only feature. Asking a
+        // provider for something it has said it does not do on this language
+        // is at best noise in the request and at worst a rejected one — and
+        // this path had never run against the live API when it was written.
+        // When we are detecting, English is still on the table, so the ask
+        // stands.
+        if (!named || baseOf(named) === "en") query.set("filler_words", "true");
         // Deepgram's `language` **defaults to `en`** — it does not detect.
         // Nothing here ever set it, so every render was transcribed as
         // English, and an Arabic video came back as confident English-shaped
@@ -66,14 +110,21 @@ export function createDeepgramTranscriber(options: DeepgramOptions): Transcriber
         // being decided from a misreading.
         //
         // `language=multi` is not the fix: its ten languages do not include
-        // Arabic. Detection is, and this file already read `detected_language`
-        // off the response — a field that is only populated when detection is
-        // asked for, which it never was.
+        // Arabic. Detection was the fix for every language it can name, and
+        // this file already read `detected_language` off the response — a
+        // field that is only populated when detection is asked for, which it
+        // never was.
+        //
+        // But detection has a list too, and **Arabic is not on it**. Turning
+        // it on moved Arabic from "always heard as English" to "always heard
+        // as one of thirty-five other languages", which is the same failure
+        // wearing a better hat. Deepgram transcribes Arabic; it just cannot
+        // guess it. So it has to be told — see DETECTABLE above.
         //
         // A named language still wins: someone who says which language it is
         // knows better than a detector, and that is the whole reason the plan
         // can carry one.
-        if (opts.language) query.set("language", opts.language);
+        if (named) query.set("language", named);
         else query.set("detect_language", "true");
         if (opts.diarize) query.set("diarize", "true");
 

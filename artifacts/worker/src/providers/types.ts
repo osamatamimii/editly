@@ -64,8 +64,28 @@ export interface Transcriber {
 }
 
 export interface TranscribeOptions {
-  /** BCP-47 hint. Omit to let the provider detect. */
+  /**
+   * A language somebody stated. A provider must obey it, and must not detect
+   * instead — the person who says which language it is knows better than any
+   * detector.
+   */
   language?: string;
+  /**
+   * The language we have *reason to believe*, with nobody having said so —
+   * today, the language the request was written in.
+   *
+   * It is a belief, not a fact: someone writing Arabic may well have uploaded
+   * an English clip. So a provider that can detect this language should still
+   * detect, and use this only when detection cannot reach it — which is not a
+   * hypothetical. Deepgram's detection covers thirty-five languages and Arabic
+   * is not one of them, while Nova-3 transcribes Arabic perfectly well when it
+   * is told. For that language, saying so is the only way it is ever heard.
+   *
+   * And it is deliberately *not* handed to every provider at once. Two models
+   * told the same answer are not two opinions, and the cross-check between
+   * them is the thing that catches this class of mistake in the first place.
+   */
+  expected?: string;
   /** Ask for speaker labels. Costs more at some providers. */
   diarize?: boolean;
   signal?: AbortSignal;

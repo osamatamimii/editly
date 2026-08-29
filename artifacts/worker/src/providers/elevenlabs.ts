@@ -59,6 +59,11 @@ export function createElevenLabsTranscriber(options: ElevenLabsOptions): Transcr
         // without them there is nothing to align the two transcripts on.
         form.set("timestamps_granularity", "word");
         form.set("tag_audio_events", "false");
+        // A stated language is obeyed. `opts.expected` — the language we
+        // merely believe, from what the person wrote — is deliberately *not*
+        // used here: Scribe detects Arabic on its own, and handing both models
+        // the same assumption would turn the cross-check into two copies of
+        // one guess. This is the provider that is allowed to disagree with us.
         if (opts.language) form.set("language_code", opts.language);
         if (opts.diarize) form.set("diarize", "true");
 
