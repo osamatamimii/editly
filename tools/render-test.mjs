@@ -1956,6 +1956,144 @@ console.log("\nColour looks are measured on the pixels, not on the filter");
 }
 
 /**
+ * The captions can draw the language the transcript comes back in.
+ *
+ * Until the previous round every video was transcribed as English, so Arabic
+ * text had never reached the caption burner at all. Now that it does, the
+ * question is whether libass can actually draw it — and that is a question
+ * about the *image*, not about this code: an ffmpeg built without HarfBuzz
+ * renders Arabic as isolated, unjoined letters, one built without FriBidi
+ * renders the word backwards, and a font without the glyphs renders nothing.
+ *
+ * All three failures render successfully. There are captions on the frame,
+ * the file plays, the duration is right, and the words are unreadable. That is
+ * the same shape of bug as the transcription default, one layer further down,
+ * and it is why this is measured rather than assumed.
+ *
+ * The measurements are relationships, not pixel counts, so they survive a font
+ * update: a joined word fits inside a box that the same letters spaced apart
+ * spill out of, and the tall strokes swap sides when the word is reversed.
+ */
+console.log("\nThe captions can draw Arabic, not just accept it");
+{
+  // A black 1080x1920 clip, so every lit pixel in the caption band is ink.
+  const dark = path.join(workDir, "dark.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-f", "lavfi", "-i", "color=c=black:s=1080x1920:d=2",
+    "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+    "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", dark,
+  ], { stdio: "ignore" });
+
+  const captioned = async (text) => {
+    const { output } = await renderPlan(
+      dark,
+      {
+        version: 1,
+        operations: [
+          {
+            type: "burnCaptions",
+            style: "bold-white",
+            animation: "pop",
+            cues: [{ startMs: 0, endMs: 2000, text }],
+          },
+        ],
+      },
+      { workDir: await scratch() },
+    );
+    return output;
+  };
+
+  // Limited-range black is Y=16, not 0, so a crop with no ink in it reads 16.
+  // Subtracting that floor leaves a number proportional to the ink itself,
+  // which is what makes two renders comparable.
+  const BLACK = 16;
+  const BAND = { whole: "iw:400:0:ih-700", left: "iw/2:400:0:ih-700", right: "iw/2:400:iw/2:ih-700" };
+  const inkIn = (file, crop) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},trim=start=1:end=1.06,crop=${crop},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.YAVG",
+        "-of", "default=nw=1:nk=1",
+      ],
+      { encoding: "utf8" },
+    );
+    const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number);
+    return vals.length > 0 ? Math.max(0, vals[0] - BLACK) : NaN;
+  };
+
+  // ── The font has the glyphs at all ──────────────────────────────────────
+  const words = await captioned("السلام عليكم ورحمة الله");
+  check(
+    "Arabic captions put ink on the frame — the font covers the script",
+    inkIn(words, BAND.whole) > 1,
+    `${inkIn(words, BAND.whole)} above a black floor`,
+  );
+
+  // ── The letters join ────────────────────────────────────────────────────
+  //
+  // The same four letters, once as a word and once with spaces between them.
+  // Arabic joins, and the joined forms are simpler than the isolated ones, so
+  // the word carries visibly less ink than the spaced version. Without
+  // shaping the "word" renders as four isolated forms and the two carry the
+  // same ink — which is the whole test, and it needs no geometry: an ffmpeg
+  // built without HarfBuzz cannot make the difference appear.
+  const joined = await captioned("بببب");
+  const spaced = await captioned("ب ب ب ب");
+  check(
+    "a joined word carries less ink than the same letters spaced apart",
+    inkIn(joined, BAND.whole) < 0.8 * inkIn(spaced, BAND.whole),
+    `joined ${inkIn(joined, BAND.whole)} vs spaced ${inkIn(spaced, BAND.whole)} — equal means the letters are not being shaped`,
+  );
+
+  // The control, and the reason the check above is worth anything: a
+  // zero-width non-joiner between each letter forbids the joining while
+  // leaving the letters adjacent, which is precisely what an ffmpeg without
+  // HarfBuzz produces. It measures the same as the spaced version, so the
+  // check is reading the shaping and not the spaces.
+  const forbidden = await captioned("\u0628\u200C\u0628\u200C\u0628\u200C\u0628");
+  check(
+    "and letters forbidden to join measure the same as spaced ones — so that is what is being read",
+    inkIn(forbidden, BAND.whole) > 0.9 * inkIn(spaced, BAND.whole),
+    `forbidden ${inkIn(forbidden, BAND.whole)} vs spaced ${inkIn(spaced, BAND.whole)}`,
+  );
+
+  // ── And they run right to left ──────────────────────────────────────────
+  //
+  // Alef is a bare tall stroke and beh is a short bowl, so three alefs weigh
+  // one side of the line down. Put the beh last and the alefs sit on the
+  // right; put it first and they sit on the left. What is asserted is that
+  // the two answers are opposites, which needs no reference frame and no
+  // absolute number — only that reversing the word moves the weight.
+  const behLast = await captioned("اااب");
+  const behFirst = await captioned("بااا");
+  const leansRight = (file) => inkIn(file, BAND.right) > inkIn(file, BAND.left);
+
+  check(
+    "the last letter is drawn on the left, because Arabic runs right to left",
+    leansRight(behLast),
+    `left ${inkIn(behLast, BAND.left)}, right ${inkIn(behLast, BAND.right)}`,
+  );
+  check(
+    "and reversing the word moves the weight to the other side",
+    !leansRight(behFirst),
+    `left ${inkIn(behFirst, BAND.left)}, right ${inkIn(behFirst, BAND.right)} — the same lean both ways means the order is not being applied`,
+  );
+
+  // The control again: a left-to-right override in front of the same word
+  // makes it lay out the way an ffmpeg without FriBidi would lay it out, and
+  // the lean goes the other way. Without this the two checks above could both
+  // be satisfied by a renderer that never reorders anything.
+  const overridden = await captioned("\u202D\u0627\u0627\u0627\u0628");
+  check(
+    "a word forced left-to-right leans the other way — so that is what is being read",
+    !leansRight(overridden),
+    `left ${inkIn(overridden, BAND.left)}, right ${inkIn(overridden, BAND.right)}`,
+  );
+}
+
+/**
  * The render answers in the language it was asked in.
  *
  * Round 35 gave the reply both languages; the render's notes stayed English,
