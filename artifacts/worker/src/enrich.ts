@@ -79,6 +79,30 @@ export async function enrichPlan(
       // A transcript that was corroborated and one that was not are worth
       // different amounts, and only one of them can say so.
       notes.push(...(transcript.notes ?? []));
+
+      // Which language was heard — but only when it is not the one they wrote
+      // in.
+      //
+      // Captions in the wrong language are the one failure that looks
+      // completely normal from here: the render succeeds, the words are
+      // confident, the timings are right, and the file is wrong. So it is
+      // worth a line. But a note is for something worth knowing, and telling
+      // somebody who typed English that we heard English is noise — and a
+      // pipeline that produces a note when nothing deviated has stopped being
+      // able to say when something did.
+      //
+      // A mismatch is the whole signal: they wrote Arabic and we heard
+      // English, which is either a detector that slipped or a clip that is not
+      // the one they meant.
+      const heard = transcript.language?.toLowerCase().split(/[-_]/)[0];
+      if (!language && heard && heard !== (options.language ?? "en")) {
+        notes.push(
+          t(
+            `heard the speech as ${heard} — name the language if that is wrong and the captions will follow it`,
+            `سمعت الكلام على أنه ${heard} — سمِّ اللغة إن كان ذلك خطأً وستتبعها الترجمة`,
+          ),
+        );
+      }
     } catch (error) {
       // A provider being down is not a reason to fail someone's render.
       notes.push(
