@@ -1140,6 +1140,61 @@ console.log("\nThe matcher cannot say anything the model has no word for");
     );
   }
 
+  /**
+   * And the other half of the same question: a knob the transformer reads that
+   * the schema cannot carry is always undefined.
+   *
+   * This is where the transition style hid, and where four more were hiding
+   * behind it: gainDb, duck, fadeSeconds, fromSeconds and loop were all read
+   * off a model answer that could never contain them, because strict mode plus
+   * additionalProperties:false means the only fields that exist are the ones
+   * listed. Every bed came out at -18 dB, ducking, whatever anybody asked for —
+   * and the code read as though the model had chosen that.
+   *
+   * Reading the source is the only way to see it: at run time the value is
+   * `undefined` and the default is taken, which is exactly what a *legitimately
+   * absent* field looks like.
+   */
+  {
+    const source = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/planner.ts"), "utf8");
+    // Comments describe this bug at length; scanning them would find the words
+    // rather than the code.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const readFields = new Set([...code.matchAll(/raw\["([a-zA-Z]+)"\]/g)].map((m) => m[1]));
+    const offered = new Set(
+      Object.keys(sentBody(calls).response_format.json_schema.schema.properties.operations.items.properties),
+    );
+    const unreachable = [...readFields].filter((f) => !offered.has(f));
+    check(
+      "every field the transformer reads is a field the model can send",
+      unreachable.length === 0,
+      `read but never present: ${unreachable.join(", ")} — always undefined, always the default`,
+    );
+  }
+
+  // The two knobs the instructions promise, now actually turnable.
+  {
+    const loud = createPlanner({
+      apiKey: "k",
+      fetchImpl: answering([{ type: "addMusic", assetId: "a3", gainDb: -6, duck: false }]),
+    });
+    const out = await loud.plan("music, loud, and do not duck it", { assets: LIBRARY });
+    const bed = out.operations.find((o) => o.type === "addMusic");
+    check("a bed level the model names is the level it gets", bed?.gainDb === -6, JSON.stringify(bed));
+    check("and ducking it turned off stays off", bed?.duck === false, JSON.stringify(bed));
+  }
+  {
+    // Clamped, not refused — the same rule as every other numeric here.
+    const shouting = createPlanner({
+      apiKey: "k",
+      fetchImpl: answering([{ type: "addMusic", assetId: "a3", gainDb: 12, duck: null }]),
+    });
+    const out = await shouting.plan("music way louder", { assets: LIBRARY });
+    const bed = out.operations.find((o) => o.type === "addMusic");
+    check("a level above the ceiling is clamped rather than refused", bed?.gainDb === 0, JSON.stringify(bed));
+    check("and an unanswered duck stays on, which is what a bed is for", bed?.duck === true, JSON.stringify(bed));
+  }
+
   // And the guard is reading something: a value nobody has is reported.
   check(
     "and a value neither of them has would be caught",
