@@ -103,8 +103,8 @@ const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?)
  *   music" to someone who just got music would be the same lie in reverse.
  */
 const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
-  { patterns: /\bemoji/i, label: "add emojis" },
-  { patterns: BEAT_SYNC_WORDS, label: "cut the picture to the beat" },
+  { patterns: /\bemoji|إيموجي|ايموجي|رموز تعبيرية/i, label: "add emojis yet" },
+  { patterns: BEAT_SYNC_WORDS, label: "cut the picture to the beat yet" },
   {
     // Narrowed twice now. Reference matching removed the whole subject from
     // this list; the named looks removed most of what was left. What survives
@@ -112,7 +112,8 @@ const NOT_YET: Array<{ patterns: RegExp; label: string }> = [
     // "grade it like Wes Anderson", "make the reds deeper" — where the honest
     // answer is still that we cannot.
     patterns: /\bcolou?r ?(grade|grading)\b|\bgrade it like\b|\bLUT\b/i,
-    label: "grade the colour to a look I do not have — name warm, cool, cinematic, black and white or punchy, or upload a video whose colour you want matched",
+    label:
+      "grade the colour to a look I do not have yet — name warm, cool, cinematic, black and white or punchy, or upload a video whose colour you want matched",
   },
 ];
 
@@ -137,8 +138,10 @@ export interface LibraryFile {
   label: string | null;
 }
 
-const BROLL_WORDS = /\bb-?roll|cut ?away|cutaway|footage|insert (a |the )?(clip|shot)\b/i;
-const OVERLAY_WORDS = /\blogo|overlay|screenshot|graphic|show (the |my )?(image|picture|photo)\b/i;
+const BROLL_WORDS =
+  /\bb-?roll|cut ?away|cutaway|footage|insert (a |the )?(clip|shot)\b|بي ?رول|لقطات مساندة|لقطة مساندة|مقاطع مساندة|لقطات إضافية/i;
+const OVERLAY_WORDS =
+  /\blogo|overlay|screenshot|graphic|show (the |my )?(image|picture|photo)\b|الشعار|شعاري|لوجو|صورة فوق|لقطة شاشة|سكرين ?شوت/i;
 
 /**
  * Where cutaways go when nobody said.
@@ -170,9 +173,35 @@ const SILENCE_WORDS =
 
 const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b|عمودي|عامودي|طولي/i;
 
-const CAPTION_WORDS = /\bcaption|subtitle|sub ?titles?|text on screen|on-?screen text\b/i;
-const KARAOKE_WORDS = /\bkaraoke|word by word|word-by-word|highlight/i;
-const YELLOW_WORDS = /\byellow|gold\b/i;
+/**
+ * Captions, in both languages this product is asked in.
+ *
+ * The Arabic here is the whole reason this round exists: captions are the most
+ * asked-for edit there is, and until now `add captions` worked and «ضيف ترجمة»
+ * produced *nothing* — the reply fell through to "I'm not sure what to change
+ * from that". The product could do the thing and could not be asked for it.
+ */
+const CAPTION_WORDS =
+  /\bcaption|subtitle|sub ?titles?|text on screen|on-?screen text\b|ترجمة|ترجمه|سبتايتل|كتابة على الشاشة|نص على الشاشة|مكتوب على الشاشة/i;
+
+/**
+ * The one word that is two different requests.
+ *
+ * «ترجمة» is what an Arabic speaker calls captions — and «ترجم» is the verb for
+ * translating into another language, which we do not do. They share four
+ * letters, so the caption pattern above matches both, and without this the
+ * product would answer «ترجم الفيديو للإنجليزي» with same-language captions and
+ * call it done. That is the exact failure this file exists to prevent: doing
+ * something nobody asked for and reporting it as the thing they did.
+ *
+ * The lookahead is what separates them: «ترجم» only counts when it is *not*
+ * followed by the ta marbuta of «ترجمة». In English the verbs are unambiguous.
+ */
+const TRANSLATE_WORDS = /\btranslat(?:e|ed|ing|ion)\b|\bdubb?(?:ed|ing)?\b|ترجم(?![ةه])|مترجم|دبلجة/i;
+
+const KARAOKE_WORDS =
+  /\bkaraoke|word by word|word-by-word|highlight|كلمة كلمة|كلمة بكلمة|كلمة ورا كلمة|كاريوكي|تظليل/i;
+const YELLOW_WORDS = /\byellow|gold\b|أصفر|اصفر|ذهبي/i;
 
 /**
  * Asking for the strongest stretch, in the ways people actually ask.
@@ -183,7 +212,7 @@ const YELLOW_WORDS = /\byellow|gold\b/i;
  * "strongest 30 seconds", "a highlight reel", "just the good bit".
  */
 const HIGHLIGHT_WORDS =
-  /\b(best|strongest|good|top|most interesting) ?\d* ?(part|parts|bit|bits|moment|moments|section|seconds?|secs?|s\b)|highlight reel|the highlight\b|أفضل جزء|أقوى جزء|أفضل لقطة|أقوى لقطة|مقتطف|الزبدة|زبدة الفيديو/i;
+  /\b(best|strongest|good|top|most interesting) ?\d* ?(part|parts|bit|bits|moment|moments|section|seconds?|secs?|s\b)|highlight reel|the highlight\b|أفضل جزء|أقوى جزء|أهم جزء|أحسن جزء|أفضل لقطة|أقوى لقطة|أفضل لحظة|أقوى لحظة|أهم لحظة|مقتطف|الزبدة|زبدة الفيديو/i;
 /** "best 45 seconds", "the top 20s" — the number they said, not our default. */
 const HIGHLIGHT_SECONDS = /\b(\d{1,3}) ?(?:seconds?|secs?|s\b|ثانية|ثواني)/i;
 
@@ -198,6 +227,30 @@ const HIGHLIGHT_SECONDS = /\b(\d{1,3}) ?(?:seconds?|secs?|s\b|ثانية|ثوا�
  * and claiming it as a cut would do something nobody asked for.
  */
 const TO = "(?:to|until|till|thru|through|[-\u2013\u2192]|\u0625\u0644\u0649|\u0627\u0644\u0649|\u062d\u062a\u0649|\u0644\u063a\u0627\u064a\u0629)";
+/**
+ * The digits an Arabic keyboard types by default.
+ *
+ * Every number pattern in this file is written against 0-9, and an Arabic
+ * layout produces ٠-٩ (and ۰-۹ on a Persian one). They are the same numbers to
+ * a reader and different characters to a regex, so «من ١:٢٠ إلى ٢:١٠» matched
+ * nothing at all — as did every clip count, every "first N seconds", every
+ * length someone named.
+ *
+ * Normalising once here fixes all of them together, which is the point: the
+ * alternative is remembering to write two digit classes in every future
+ * pattern, and that is a thing nobody remembers twice.
+ *
+ * Only the digits are touched. The words are matched as typed, and anything
+ * echoed back to the person — a title they put in quotes — is read from what
+ * they actually wrote, not from this.
+ */
+export function withAsciiDigits(text: string): string {
+  return text.replace(/[\u0660-\u0669\u06f0-\u06f9]/g, (d) => {
+    const code = d.codePointAt(0)!;
+    return String(code - (code >= 0x06f0 ? 0x06f0 : 0x0660));
+  });
+}
+
 const RANGE_MMSS = new RegExp(String.raw`(\d{1,3}):([0-5]\d)\s*${TO}\s*(\d{1,3}):([0-5]\d)`, "i");
 const RANGE_MINUTES = new RegExp(
   String.raw`(?:minute|\u0627\u0644\u062f\u0642\u064a\u0642\u0629|\u062f\u0642\u064a\u0642\u0629)\s*(\d{1,3})\s*${TO}\s*(?:minute|\u0627\u0644\u062f\u0642\u064a\u0642\u0629|\u062f\u0642\u064a\u0642\u0629)?\s*(\d{1,3})`,
@@ -207,11 +260,16 @@ const RANGE_SECONDS = new RegExp(
   String.raw`(?:from|\u0645\u0646)\s*(?:second|\u0627\u0644\u062b\u0627\u0646\u064a\u0629)?\s*(\d{1,4})\s*(?:seconds?|secs?|s\b)?\s*${TO}\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|\u062b\u0627\u0646\u064a\u0629|\u062b\u0648\u0627\u0646\u064a)`,
   "i",
 );
-const RANGE_FIRST = /\b(?:first|opening|أول|اول)\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|ثانية|ثواني)/i;
-const RANGE_FIRST_MINUTES = /\b(?:first|opening|أول|اول)\s*(\d{1,3})?\s*(?:minutes?|دقيقة|دقائق)/i;
+// The \b sits inside the alternation, not in front of it. Outside, it is a
+// boundary test against an Arabic letter, which is never a word character, so
+// it never matches — «أول ٤٠ ثانية» found nothing while "the first 40 seconds"
+// worked. That is the third time this exact mistake has been made in this file.
+const RANGE_FIRST = /(?:\bfirst|\bopening|أول|اول)\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|ثانية|ثواني)/i;
+const RANGE_FIRST_MINUTES = /(?:\bfirst|\bopening|أول|اول)\s*(\d{1,3})?\s*(?:minutes?|دقيقة|دقائق)/i;
 
 /** The stretch the sentence names, or null when it names none. */
-export function parseRange(text: string): { startSeconds: number; endSeconds: number } | null {
+export function parseRange(asked: string): { startSeconds: number; endSeconds: number } | null {
+  const text = withAsciiDigits(asked);
   const mmss = RANGE_MMSS.exec(text);
   if (mmss) {
     const start = Number(mmss[1]) * 60 + Number(mmss[2]);
@@ -255,11 +313,26 @@ export function parseRange(text: string): { startSeconds: number; endSeconds: nu
  * "into shorts"), or the Arabic verb for dividing. The model path catches the
  * phrasings this matcher will not.
  */
-const CLIPS_COUNT = /\b(\d{1,2})\s*(?:clips?|shorts|\u0645\u0642\u0627\u0637\u0639|\u0642\u0635\u0627\u0635\u0627\u062a|\u0623\u062c\u0632\u0627\u0621)\b/i;
-const CLIPS_INTO = /\b(?:into|in ?to)\s+(?:clips|shorts|pieces)\b|\u0642\u0633\u0651?\u0645\u0647?[^.]*(?:\u0645\u0642\u0627\u0637\u0639|\u0642\u0635\u0627\u0635\u0627\u062a|\u0623\u062c\u0632\u0627\u0621)/i;
+/**
+ * How many, and the shapes people ask in.
+ *
+ * The trailing \b was the same mistake as above and it cost more, because this
+ * one *did not fail loudly*: «قسّمها إلى ٥ مقاطع» still matched CLIPS_INTO, so
+ * the split happened — with the count silently falling back to three. The
+ * person asked for five, got three, and was told it was done.
+ *
+ * "into 6 pieces" missed for a different reason: the noun had to follow "into"
+ * immediately, so a number or an adjective in between ("into separate clips",
+ * the phrase this file's own reply advertises) broke it.
+ */
+const CLIPS_COUNT =
+  /(?<!\d)(\d{1,2})\s*(?:clips?|shorts|pieces|segments|\u0645\u0642\u0627\u0637\u0639|\u0642\u0635\u0627\u0635\u0627\u062a|\u0623\u062c\u0632\u0627\u0621|\u0627\u062c\u0632\u0627\u0621|\u0643\u0644\u064a\u0628\u0627\u062a)/i;
+const CLIPS_INTO =
+  /\b(?:into|in ?to)\s+(?:\d{1,2}\s+)?(?:\w+\s+){0,2}(?:clips?|shorts|pieces|segments)\b|\u0642\u0633\u0651?\u0645\u0647?[^.]*(?:\u0645\u0642\u0627\u0637\u0639|\u0642\u0635\u0627\u0635\u0627\u062a|\u0623\u062c\u0632\u0627\u0621|\u0627\u062c\u0632\u0627\u0621|\u0643\u0644\u064a\u0628\u0627\u062a)/i;
 
 /** The clips ask, or null. Count clamps to [2, 6]; length reuses the seconds pattern. */
-export function parseClips(text: string): { count: number; targetSeconds: number } | null {
+export function parseClips(typed: string): { count: number; targetSeconds: number } | null {
+  const text = withAsciiDigits(typed);
   const counted = CLIPS_COUNT.exec(text);
   const into = CLIPS_INTO.test(text);
   if (!counted && !into) return null;
@@ -269,8 +342,9 @@ export function parseClips(text: string): { count: number; targetSeconds: number
   return { count, targetSeconds };
 }
 
-const PUNCH_WORDS = /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b/i;
-const PUSH_WORDS = /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b/i;
+const PUNCH_WORDS = /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b|زوم|تقريب|حماس|طاقة|حيوية/i;
+const PUSH_WORDS =
+  /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b|زوم بطيء|تقريب بطيء|حركة بطيئة|حركة سينمائية|كين بيرنز/i;
 /**
  * "level the audio" was not in here, and that is the phrase this file's own
  * reply uses: "I'll level the audio to what these platforms expect". The
@@ -278,13 +352,13 @@ const PUSH_WORDS = /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic mov
  * which is the same two words in the order nobody says them in.
  */
 const LOUDNESS_WORDS =
-  /\bloud|volume|quiet|audio level|sound level|normali[sz]|\blevel(l?ing)? (the |my )?(audio|sound|volume)\b|مستوى الصوت|اضبط الصوت|وحّد الصوت/i;
+  /\bloud|volume|quiet|audio level|sound level|normali[sz]|\blevel(l?ing)? (the |my )?(audio|sound|volume)\b|مستوى الصوت|اضبط الصوت|وحّد الصوت|عدّل الصوت|عدل الصوت|ظبط الصوت|ارفع الصوت|الصوت واطي|الصوت منخفض|الصوت عالي/i;
 // "fade" alone is enough — every reading of it in an edit request means the
 // ends ("fade it in", "fade to black", "soft ending"). Arabic: تلاشي/تلاشى.
 // A hook is the one edit everyone names the same way. "Cold open" is the film
 // term; "start with the best bit" is what people actually type.
 const HOOK_WORDS =
-  /\bhook\b|\bcold open\b|start (?:it )?with the (?:best|strongest)|open (?:it )?(?:on|with) the (?:best|strongest)|\bهوك\b|ابدأ بالأقوى|ابدأ بأقوى/i;
+  /\bhook\b|\bcold open\b|start (?:it )?with the (?:best|strongest)|open (?:it )?(?:on|with) the (?:best|strongest)|\bهوك\b|ابدأ بالأقوى|ابدأ بأقوى|ابدأ بأفضل|ابدأ بأهم|افتح بأقوى/i;
 
 /**
  * The shaped joins, and the words people use for them.
@@ -355,9 +429,12 @@ const DISSOLVE_WORDS =
 const FADE_WORDS = /\bfade|fade[- ]?(?:in|out)|to black|soft (?:opening|ending|start|end)|تلاشي|تلاشى/i;
 
 export function planFromText(
-  text: string,
+  asked: string,
   options: { defaultPlatform?: Platform | null; assets?: LibraryFile[] } = {},
 ): ParsedIntent {
+  // Matched against normalised digits; `asked` stays exactly as typed, and is
+  // what the quoted-title read below uses, because those are their words.
+  const text = withAsciiDigits(asked);
   const operations: EditOperation[] = [];
   const willDo: string[] = [];
   const cannotYet: string[] = [];
@@ -408,7 +485,18 @@ export function planFromText(
   // The words are in the video, not in this sentence, so the plan asks for
   // captions and the worker fills them in once it has heard the clip. If no
   // recogniser is configured there, the render comes back saying so.
-  if (CAPTION_WORDS.test(text)) {
+  // Translation is refused before captions are added, not after, and the
+  // captions are *not* added anyway. Someone who asked for English subtitles on
+  // an Arabic video and got Arabic ones has been handed the wrong file and told
+  // it is the right one — which is worse than being told no.
+  const wantsTranslation = TRANSLATE_WORDS.test(text);
+  if (wantsTranslation) {
+    cannotYet.push(
+      "put it into another language yet — captions come out in whatever language is spoken",
+    );
+  }
+
+  if (CAPTION_WORDS.test(text) && !wantsTranslation) {
     operations.push({
       type: "autoCaptions",
       style: KARAOKE_WORDS.test(text) ? "karaoke-box" : YELLOW_WORDS.test(text) ? "bold-yellow" : "bold-white",
@@ -420,12 +508,17 @@ export function planFromText(
 
   // An empty `at` means "you choose": the worker puts the punches where the
   // speaker leaned on a word, which it can only know after transcribing.
-  if (PUNCH_WORDS.test(text)) {
-    operations.push({ type: "zoomPunch", at: [], amount: 0.13, holdMs: 1000 });
-    willDo.push("punch in where you lean on a word");
-  } else if (PUSH_WORDS.test(text)) {
+  // The slow push is read first, and the order is the whole point: PUSH_WORDS
+  // has always named "slow zoom" explicitly, and PUNCH_WORDS' bare \bzoom ate
+  // it every time — so the one phrase that unambiguously means *gentle* was the
+  // one that produced hits. The author's intent was written down; the order
+  // defeated it. Most specific first, and it survives.
+  if (PUSH_WORDS.test(text)) {
     operations.push({ type: "kenBurns", to: 1.08 });
     willDo.push("add a slow push so the frame is not static");
+  } else if (PUNCH_WORDS.test(text)) {
+    operations.push({ type: "zoomPunch", at: [], amount: 0.13, holdMs: 1000 });
+    willDo.push("punch in where you lean on a word");
   }
 
   if (LOUDNESS_WORDS.test(text)) {
@@ -479,7 +572,7 @@ export function planFromText(
 
   if (BROLL_WORDS.test(text)) {
     if (clips.length === 0) {
-      cannotYet.push("cut in B-roll, because this project has no clips to cut to yet");
+      cannotYet.push("cut in B-roll yet, because this project has no clips to cut to");
     } else {
       clips.slice(0, CUTAWAY_SECONDS.length).forEach((clip, index) => {
         const at = CUTAWAY_SECONDS[index]!;
@@ -518,7 +611,7 @@ export function planFromText(
   if (MUSIC_WORDS.test(text)) {
     if (tracks.length === 0) {
       cannotYet.push(
-        "add music, because this project has no audio file yet — upload the track you have the rights to and I will lay it under the whole edit",
+        "add music yet, because this project has no audio file — upload the track you have the rights to and I will lay it under the whole edit",
       );
     } else {
       const track = tracks[0]!;
@@ -537,7 +630,7 @@ export function planFromText(
 
   if (OVERLAY_WORDS.test(text)) {
     if (stills.length === 0) {
-      cannotYet.push("put an image over the frame, because this project has no images yet");
+      cannotYet.push("put an image over the frame yet, because this project has no images");
     } else {
       const still = stills[0]!;
       operations.push({
@@ -557,7 +650,7 @@ export function planFromText(
 
   // A title needs words, and the only words we can be certain are theirs are
   // the ones they put in quotes. Anything else would be us writing their copy.
-  const quoted = QUOTED.exec(text);
+  const quoted = QUOTED.exec(asked);
   if (quoted) {
     const words = quoted[1]!.trim();
     if (words.length > 0) {
@@ -572,7 +665,7 @@ export function planFromText(
       willDo.push(`bring in the words "${words}" near the start`);
     }
   } else if (/\btitle|\btext on screen\b/i.test(text) && !CAPTION_WORDS.test(text)) {
-    cannotYet.push('animate a title, because I do not know the words — put them in quotes and I will');
+    cannotYet.push('animate a title yet, because I do not know the words — put them in quotes and I will');
   }
 
   for (const { patterns, label } of NOT_YET) {
@@ -631,8 +724,14 @@ export function replyFor(
   }
 
   if (intent.cannotYet.length > 0) {
+    // Each entry carries its own "yet", at the point in the phrase where it
+    // belongs. It used to be appended here instead, which read fine for the
+    // short labels it was written against and broke on every long one:
+    // "I can't cut in B-roll, because this project has no clips to cut to yet
+    // yet, so I'll leave that out". The product's most careful sentence — the
+    // one where it admits a limit — was the one that came out mangled.
     parts.push(
-      `I can't ${joinNaturally(intent.cannotYet)} yet, so I'll leave ${intent.cannotYet.length > 1 ? "those" : "that"} out rather than pretend.`,
+      `I can't ${joinNaturally(intent.cannotYet)}, so I'll leave ${intent.cannotYet.length > 1 ? "those" : "that"} out rather than pretend.`,
     );
   }
 
