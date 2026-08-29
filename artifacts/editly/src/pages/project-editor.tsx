@@ -914,7 +914,7 @@ export default function ProjectEditor() {
         <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
           <BackButton fallback="/dashboard" />
           <div className="h-6 w-px bg-surface-2 hidden sm:block" />
-          <h1 className="font-semibold text-lg truncate min-w-0" data-testid="text-editor-title">{project.title}</h1>
+          <h1 dir="auto" className="font-semibold text-lg truncate min-w-0" data-testid="text-editor-title">{project.title}</h1>
           <span className="px-2 py-0.5 rounded-full bg-surface-1 border border-hairline text-xs text-muted-foreground hidden sm:inline-block">
             {project.status}
           </span>
@@ -1212,7 +1212,7 @@ export default function ProjectEditor() {
                       {/* pre-line: the worker's summary arrives as one message
                           with a line per note, and collapsing those lines into
                           a paragraph turns a list of decisions into mush. */}
-                      <div className={`px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
+                      <div dir="auto" className={`px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
                         msg.role === 'user'
                           ? 'bg-primary/20 border border-primary/30 rounded-2xl rounded-tr-sm text-foreground max-w-[85%]'
                           : 'bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm'
@@ -1310,7 +1310,12 @@ export default function ProjectEditor() {
               onSubmit={(e) => { e.preventDefault(); handleSendChat(); }}
               className="relative"
             >
+              {/* dir="auto": typed Arabic reads right-to-left *as it is
+                  typed*, not once it is sent. An input laid out the other way
+                  puts the caret on the wrong side of the sentence someone is
+                  in the middle of writing. */}
               <Input
+                dir="auto"
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
                 placeholder="Describe your edit..."

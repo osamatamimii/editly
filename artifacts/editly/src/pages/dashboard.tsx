@@ -574,7 +574,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <CardContent className="p-5 flex-1">
-                    <CardTitle className="text-lg mb-1 group-hover:text-primary transition-colors line-clamp-1" data-testid={`text-project-title-${project.id}`}>
+                    <CardTitle dir="auto" className="text-lg mb-1 group-hover:text-primary transition-colors line-clamp-1" data-testid={`text-project-title-${project.id}`}>
                       {project.title}
                     </CardTitle>
                     <div className="flex items-center text-xs text-muted-foreground">

@@ -266,7 +266,7 @@ export default function ExportPage() {
         <div className="lg:col-span-7 flex flex-col gap-8">
           <div>
             <h1 className="text-4xl font-bold tracking-tight mb-2 glow-text">Export Project</h1>
-            <p className="text-xl text-muted-foreground">{project.title}</p>
+            <p dir="auto" className="text-xl text-muted-foreground">{project.title}</p>
           </div>
 
           {currentStatus === 'loading' && (
@@ -424,7 +424,7 @@ export default function ExportPage() {
                     <p className="text-sm font-semibold mb-2">What we did</p>
                     <ul className="space-y-1.5">
                       {exportStatus?.notes?.map((note, i) => (
-                        <li key={i} className="text-sm text-muted-foreground leading-relaxed">
+                        <li key={i} dir="auto" className="text-sm text-muted-foreground leading-relaxed">
                           {note}
                         </li>
                       ))}
