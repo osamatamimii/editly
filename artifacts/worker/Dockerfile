@@ -66,13 +66,24 @@ RUN python3 -c "import cv2, os; \
 # are unreadable. That is a support ticket nobody can describe, arriving weeks
 # after a base image changed under us.
 #
-# The build flags are checked because they are cheap. Then the drawing itself
-# is checked, because a flag is a claim and ink on a frame is a fact: the same
-# four letters are drawn as a word and again with a non-joiner between them,
-# and the word has to come out with *less* ink. Joined Arabic forms are simpler
-# than isolated ones, so that difference exists only if the letters are really
-# being shaped — and it is also what catches a missing font, because four
-# identical tofu boxes measure the same either way.
+# Only the drawing is checked, and that is the lesson this check learned the
+# hard way. The first version of it also required ffmpeg to advertise
+# --enable-libfribidi and --enable-libharfbuzz, and that failed the build on an
+# image whose Arabic is perfectly fine: those flags describe ffmpeg's own
+# drawtext filter, while captions go through libass, which links FriBidi and
+# HarfBuzz itself (Debian's libass9 depends on both). A flag is a claim about
+# how something was built; ink on a frame is a fact about what it does. This
+# file already says that about OpenCV and Chromium, and it is worth saying
+# twice.
+#
+# So: the same four letters are drawn as a word and again with a non-joiner
+# between them, and the word has to come out with *less* ink. Joined Arabic
+# forms are simpler than isolated ones, so that difference exists only if the
+# letters are really being shaped — and it is also what catches a missing font,
+# because four identical tofu boxes measure the same either way.
+#
+# libass is still required by name, because that one is about ffmpeg: without
+# it the subtitles filter does not exist and no caption is drawn at all.
 #
 # The letters are written as octal byte escapes because /bin/sh here is dash,
 # whose printf does not understand \u: it prints the six characters instead,
@@ -80,10 +91,8 @@ RUN python3 -c "import cv2, os; \
 #
 # Limited-range black is Y=16, so 16 means an empty frame, not a dark one.
 RUN set -eu; \
-    for lib in libass libfribidi libharfbuzz; do \
-      ffmpeg -hide_banner -version | grep -q -- "--enable-$lib" \
-        || { echo "ffmpeg in this image has no $lib; Arabic captions would render wrong, not fail"; exit 1; }; \
-    done; \
+    ffmpeg -hide_banner -version | grep -q -- "--enable-libass" \
+      || { echo "ffmpeg in this image has no libass; no caption would be drawn at all"; exit 1; }; \
     beh='\330\250'; zwnj='\342\200\214'; \
     ink() { \
       { echo '[Script Info]'; echo 'ScriptType: v4.00+'; echo 'PlayResX: 640'; echo 'PlayResY: 200'; \
