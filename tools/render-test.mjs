@@ -1714,6 +1714,208 @@ console.log("\nMixed overlay inputs");
   await rm(dir, { recursive: true, force: true });
 }
 
+// ── The named looks ─────────────────────────────────────────────────────────
+//
+// A grade is the easiest thing in this file to fake: emit a filter, write a
+// note, ship. So nothing here reads the filter string. Each look is measured
+// off the pixels that came out, against the same clip rendered with no grade
+// at all — U and V are the colour-difference planes, so "warmer" is a real
+// number (V up, U down) rather than a word.
+console.log("\nColour looks are measured on the pixels, not on the filter");
+{
+  const dir = await scratch();
+
+  // Mid-grey with real colour in it: a flat colour patch would make every
+  // channel move together and hide exactly what these filters do differently.
+  const colourful = path.join(dir, "colourful.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25:duration=3",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", colourful,
+  ]);
+
+  /** Mean Y, U, V and the spread of Y, averaged over the whole clip. */
+  const planes = (file) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.YAVG,lavfi.signalstats.UAVG,lavfi.signalstats.VAVG,lavfi.signalstats.YDIF",
+        "-of", "csv=p=0",
+      ],
+      { encoding: "utf8" },
+    );
+    const rows = r.stdout.trim().split("\n").filter(Boolean).map((line) => line.split(",").map(Number));
+    if (rows.length === 0) return { y: NaN, u: NaN, v: NaN };
+    const mean = (i) => rows.reduce((sum, row) => sum + row[i], 0) / rows.length;
+    return { y: mean(0), u: mean(1), v: mean(2) };
+  };
+
+  /** How far the colour planes sit from neutral — zero is grey. */
+  const chroma = (file) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.SATAVG",
+        "-of", "default=nw=1:nk=1",
+      ],
+      { encoding: "utf8" },
+    );
+    const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number);
+    return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : NaN;
+  };
+
+  const graded = async (look) => {
+    const { output, notes } = await renderPlan(
+      colourful,
+      { version: 1, operations: [{ type: "grade", saturation: 1, look }] },
+      { workDir: await scratch() },
+    );
+    return { output, notes };
+  };
+
+  const plain = await graded("none");
+  const base = planes(plain.output);
+  const baseChroma = chroma(plain.output);
+  check("the ungraded render is a usable baseline", Number.isFinite(base.u) && Number.isFinite(baseChroma), JSON.stringify(base));
+  check("and says nothing about colour when no look was asked for", !plain.notes.some((n) => /warm|cool|cinematic|colour/i.test(n)), JSON.stringify(plain.notes));
+
+  // Hue shifts are measured on neutral grey, not on the colourful clip. The
+  // first version of this check used the colour bars for everything and read a
+  // warm shift as 0.3 of a level — because a rainbow's saturated patches move
+  // in opposite directions and the frame mean cancels them out. On grey the
+  // same filter reads four levels. That is not a lowered bar, it is the right
+  // instrument: the colourful clip stays below for the saturation checks,
+  // where a flat grey would be the useless one.
+  const grey = path.join(dir, "grey.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "color=c=gray:size=320x240:rate=25:duration=2",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", grey,
+  ]);
+  const gradedGrey = async (look) => {
+    const { output } = await renderPlan(
+      grey,
+      { version: 1, operations: [{ type: "grade", saturation: 1, look }] },
+      { workDir: await scratch() },
+    );
+    return planes(output);
+  };
+
+  // V carries red, U carries blue. Warming pushes one up and the other down,
+  // and checking both is what separates a colour shift from the picture simply
+  // getting brighter.
+  const greyBase = planes(grey);
+  const w = await gradedGrey("warm");
+  check(
+    "warm moves red up and blue down",
+    w.v > greyBase.v + 1.5 && w.u < greyBase.u - 1.5,
+    `V ${greyBase.v.toFixed(1)}→${w.v.toFixed(1)}, U ${greyBase.u.toFixed(1)}→${w.u.toFixed(1)}`,
+  );
+  const c = await gradedGrey("cool");
+  check(
+    "and cool moves them the other way",
+    c.v < greyBase.v - 1.5 && c.u > greyBase.u + 1.5,
+    `V ${greyBase.v.toFixed(1)}→${c.v.toFixed(1)}, U ${greyBase.u.toFixed(1)}→${c.u.toFixed(1)}`,
+  );
+  check("so the two are not the same filter under two names", Math.abs(w.v - c.v) > 4, `${w.v.toFixed(1)} vs ${c.v.toFixed(1)}`);
+
+  // Mono: the whole point is that there is no colour left.
+  const mono = await graded("mono");
+  const monoChroma = chroma(mono.output);
+  check("mono takes the colour out", monoChroma < baseChroma * 0.2, `saturation ${baseChroma.toFixed(1)} → ${monoChroma.toFixed(1)}`);
+  check("and says so plainly", mono.notes.some((n) => /took the colour out/.test(n)), JSON.stringify(mono.notes));
+
+  // Punch: more colour, no hue shift. Both halves matter — a "punch" that
+  // tinted the picture would be a different look wearing the name.
+  const punch = await graded("punch");
+  const punchChroma = chroma(punch.output);
+  const p = planes(punch.output);
+  check("punch adds colour rather than removing it", punchChroma > baseChroma * 1.05, `saturation ${baseChroma.toFixed(1)} → ${punchChroma.toFixed(1)}`);
+  check("without tinting it one way or the other", Math.abs(p.v - base.v) < 3 && Math.abs(p.u - base.u) < 3, `V ${base.v.toFixed(1)}→${p.v.toFixed(1)}, U ${base.u.toFixed(1)}→${p.u.toFixed(1)}`);
+
+  // Cinematic is the only look that has to treat the ends of the range
+  // differently, so measuring the frame as a whole would miss the entire
+  // point: a uniform blue cast would pass a whole-frame check and be the
+  // wrong look. This reads the dark end and the bright end separately, off a
+  // black-to-white ramp, and asks that they moved in *opposite* directions.
+  const ramp = path.join(dir, "ramp.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "gradients=size=320x240:c0=black:c1=white:x0=0:y0=0:x1=0:y1=240:duration=2:rate=25",
+    "-t", "2", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", ramp,
+  ]);
+  /** Mean U and V of a horizontal band, so shadows and highlights read apart. */
+  const band = (file, y) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},crop=320:60:0:${y},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.UAVG,lavfi.signalstats.VAVG",
+        "-of", "csv=p=0",
+      ],
+      { encoding: "utf8" },
+    );
+    const row = r.stdout.trim().split("\n").filter(Boolean)[0]?.split(",").map(Number) ?? [];
+    return { u: row[0], v: row[1] };
+  };
+  const cine = await renderPlan(
+    ramp,
+    { version: 1, operations: [{ type: "grade", saturation: 1, look: "cinematic" }] },
+    { workDir: await scratch() },
+  );
+  const shadowsBefore = band(ramp, 10);
+  const shadowsAfter = band(cine.output, 10);
+  const highsBefore = band(ramp, 170);
+  const highsAfter = band(cine.output, 170);
+  check(
+    "cinematic puts blue into the shadows",
+    shadowsAfter.u > shadowsBefore.u + 2,
+    `U ${shadowsBefore.u?.toFixed(1)}→${shadowsAfter.u?.toFixed(1)}`,
+  );
+  check(
+    "and takes it out of the highlights, which is the whole look",
+    highsAfter.u < highsBefore.u - 2 && highsAfter.v > highsBefore.v + 1,
+    `U ${highsBefore.u?.toFixed(1)}→${highsAfter.u?.toFixed(1)}, V ${highsBefore.v?.toFixed(1)}→${highsAfter.v?.toFixed(1)}`,
+  );
+  check("and names what it did", cine.notes.some((n) => /blue in the shadows/.test(n)), JSON.stringify(cine.notes));
+
+  // A look and a reference match compose. Mono is the one pair that cannot,
+  // and the render says so rather than claiming a match it did not make.
+  const both = await renderPlan(
+    colourful,
+    { version: 1, operations: [{ type: "grade", saturation: 1.3, look: "warm" }] },
+    { workDir: await scratch() },
+  );
+  check(
+    "a look and a reference match both happen",
+    both.notes.some((n) => /warmed the picture/.test(n)) && both.notes.some((n) => /pushed 30%/.test(n)),
+    JSON.stringify(both.notes),
+  );
+  const monoBoth = await renderPlan(
+    colourful,
+    { version: 1, operations: [{ type: "grade", saturation: 1.3, look: "mono" }] },
+    { workDir: await scratch() },
+  );
+  check(
+    "but a reference match on a black-and-white picture is admitted, not claimed",
+    monoBoth.notes.some((n) => /no colour left/.test(n)) && !monoBoth.notes.some((n) => /pushed 30%/.test(n)),
+    JSON.stringify(monoBoth.notes),
+  );
+  check(
+    "and it really is still black and white",
+    chroma(monoBoth.output) < baseChroma * 0.2,
+    String(chroma(monoBoth.output)),
+  );
+
+  await rm(dir, { recursive: true, force: true });
+}
+
 await rm(workDir, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });
 

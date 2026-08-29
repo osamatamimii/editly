@@ -855,11 +855,16 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
     JSON.stringify(arabicHook.operations.map((o) => o.type)),
   );
 
+  // This used to assert that a colour ask was *refused* with a pointer at
+  // reference matching, which was the honest answer while a look could only
+  // come from a clip the person supplied. Named looks made it a real answer,
+  // so the check moves with it rather than being deleted: the property worth
+  // keeping is that a colour ask is answered at all.
   const colour = await planner.plan("make the colour more cinematic", {});
   check(
-    "a colour ask points at reference matching instead of refusing the subject",
-    colour.cannotYet.some((c) => /match it/i.test(c)),
-    JSON.stringify(colour.cannotYet),
+    "a colour ask is answered rather than refused",
+    colour.operations.some((o) => o.type === "grade" && o.look === "cinematic") && colour.cannotYet.length === 0,
+    JSON.stringify([colour.operations, colour.cannotYet]),
   );
 
   const music = await planner.plan("add music to it", {});
@@ -1012,6 +1017,61 @@ console.log("\nA hook and a transition happen together again");
     faded.operations.some((o) => o.type === "coldOpen") && faded.operations.some((o) => o.type === "fade"),
     JSON.stringify(faded.operations.map((o) => o.type)),
   );
+}
+
+console.log("\nA look can be named, because most people have no reference to hand us");
+{
+  const planner = createPlanner({ apiKey: "" });
+
+  // Matching a reference came first and is still the better answer: it is
+  // measured against footage the person chose. But "make it cinematic" from
+  // somebody with no reference used to get a flat refusal, which is a real ask
+  // answered with a shrug.
+  const named = {
+    "make it cinematic": "cinematic",
+    "make it black and white": "mono",
+    "can you make it warmer": "warm",
+    "cooler, more blue": "cool",
+    "make it pop": "punch",
+    "\u062e\u0644\u064a\u0647\u0627 \u0623\u0628\u064a\u0636 \u0648\u0623\u0633\u0648\u062f": "mono",
+  };
+  for (const [text, look] of Object.entries(named)) {
+    const r = await planner.plan(text, {});
+    const grade = r.operations.find((o) => o.type === "grade");
+    check(`"${text}" is heard as ${look}`, grade?.look === look, JSON.stringify(grade));
+  }
+
+  // The specific beats the general: somebody who writes both means the half
+  // that is unambiguous.
+  const mixed = await planner.plan("cinematic black and white", {});
+  check(
+    "and a sentence naming two takes the one that is not a mood",
+    mixed.operations.find((o) => o.type === "grade")?.look === "mono",
+    JSON.stringify(mixed.operations),
+  );
+
+  // The refusal that survives: a look we do not have and no reference either.
+  const unknown = await planner.plan("grade it like Wes Anderson", {});
+  check(
+    "a look we do not have is still refused",
+    !unknown.operations.some((o) => o.type === "grade"),
+    JSON.stringify(unknown.operations),
+  );
+  check(
+    "and the refusal names the looks we do have, rather than just saying no",
+    unknown.cannotYet.some((c) => /warm, cool, cinematic, black and white or punchy/.test(c)),
+    JSON.stringify(unknown.cannotYet),
+  );
+
+  // The looks must not fire on sentences that merely contain the words in
+  // another sense. "Cut the cold open" is not a request for a cool grade.
+  for (const text of ["cut the silences", "open on the strongest moment", "add captions"]) {
+    const r = await planner.plan(text, {});
+    check(`"${text}" does not grade anything`, !r.operations.some((o) => o.type === "grade"), JSON.stringify(r.operations.map((o) => o.type)));
+  }
+
+  const reply = replyFor(await planner.plan("make it black and white", {}), { hasVideo: true });
+  check("and the reply says it in words a person uses", /take the colour out/.test(reply), reply);
 }
 
 await rm(buildDir, { recursive: true, force: true });
