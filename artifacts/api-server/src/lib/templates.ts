@@ -119,6 +119,35 @@ export const TEMPLATES: Template[] = [
       ),
   },
   {
+    id: "the-look",
+    name: "The look",
+    description: "Cuts the pauses, dissolves between them, and grades it cinematic.",
+    bestFor: "A take you want to look produced rather than recorded",
+    build: (context) =>
+      withWatermark(
+        [
+          // The order here is the order the renderer applies them in, and two
+          // of these only make sense together. The silence cut is what creates
+          // the joins; the transition is what makes those joins stop reading as
+          // jump cuts. A dissolve on an uncut video has nothing to join and
+          // says so, which is why this template never ships one without the
+          // other.
+          { type: "removeSilence", thresholdDb: -34, minSilenceMs: 700, paddingMs: 120 },
+          // 220ms: long enough to read as a dissolve rather than a glitch,
+          // short enough that a one-second piece is still on screen by itself.
+          // The renderer shortens it further on pieces too short to carry it.
+          { type: "transition", style: "dissolve", durationMs: 220 },
+          { type: "formatForPlatform", platform: context.platform },
+          // The grade goes on the picture and not on what is drawn over it, so
+          // the captions below stay white rather than drifting with the look.
+          { type: "grade", saturation: 1, look: "cinematic" },
+          { type: "autoCaptions", style: "bold-white", animation: "pop", dropFillers: true },
+          { type: "normalizeLoudness", targetLufs: -14 },
+        ],
+        context,
+      ),
+  },
+  {
     id: "the-highlight",
     name: "The highlight",
     description: "Keeps only the strongest 30 seconds, reframed and captioned.",
