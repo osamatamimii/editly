@@ -57,7 +57,24 @@ export function createDeepgramTranscriber(options: DeepgramOptions): Transcriber
           paragraphs: "true",
           filler_words: "true",
         });
+        // Deepgram's `language` **defaults to `en`** — it does not detect.
+        // Nothing here ever set it, so every render was transcribed as
+        // English, and an Arabic video came back as confident English-shaped
+        // nonsense: not an error, not empty, just wrong. And the transcript is
+        // not only the captions — it places the punches, picks the highlight
+        // window, chooses the clips and titles them — so the whole edit was
+        // being decided from a misreading.
+        //
+        // `language=multi` is not the fix: its ten languages do not include
+        // Arabic. Detection is, and this file already read `detected_language`
+        // off the response — a field that is only populated when detection is
+        // asked for, which it never was.
+        //
+        // A named language still wins: someone who says which language it is
+        // knows better than a detector, and that is the whole reason the plan
+        // can carry one.
         if (opts.language) query.set("language", opts.language);
+        else query.set("detect_language", "true");
         if (opts.diarize) query.set("diarize", "true");
 
         const response = await doFetch(`${ENDPOINT}?${query.toString()}`, {

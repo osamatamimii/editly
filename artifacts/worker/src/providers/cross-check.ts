@@ -66,6 +66,25 @@ export function createCrossCheckedTranscriber(options: CrossCheckOptions): Trans
           ]);
         }
 
+        // Two readings of *different languages* are not two opinions on the
+        // same words, and merging them word by word produces a hybrid that
+        // belongs to neither. This was reachable: Deepgram used to be asked
+        // for English whatever the audio, while ElevenLabs detects — so on an
+        // Arabic clip the two came back in different languages and the merge
+        // called it "the models disagreed on a word". They did not disagree;
+        // they were listening for different things.
+        //
+        // Detection is on now, so this should not happen. The guard stays
+        // because "should not happen" is exactly the condition worth failing
+        // loudly on, and because a detector can be wrong about a quiet clip.
+        const heard = first.value.language;
+        const alsoHeard = second.value.language;
+        if (heard && alsoHeard && baseLanguage(heard) !== baseLanguage(alsoHeard)) {
+          return withNotes(first.value, [
+            `the two speech models heard different languages (${heard} and ${alsoHeard}), so the words are as ${primary.name} heard them rather than a mixture of the two`,
+          ]);
+        }
+
         const merged = mergeTranscripts(first.value, second.value);
         return withNotes(merged.transcript, merged.notes);
       } finally {
@@ -83,6 +102,18 @@ function withNotes(transcript: Transcript, notes: string[]): Transcript {
 /** Unreachable in practice; here so the type does not need a non-null assertion. */
 function emptyOf(transcriber: Transcriber): Transcript {
   return { segments: [], language: null, source: transcriber.name };
+}
+
+/**
+ * "ar-EG" and "ar" are the same language for this purpose.
+ *
+ * Comparing the full tags would refuse to merge two correct readings of the
+ * same Arabic just because one detector named the dialect and the other did
+ * not — which would turn a guard against a real failure into a guard against
+ * working normally.
+ */
+function baseLanguage(tag: string): string {
+  return tag.toLowerCase().split(/[-_]/)[0];
 }
 
 function short(error: unknown): string {
