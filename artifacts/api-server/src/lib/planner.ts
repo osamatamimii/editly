@@ -133,6 +133,8 @@ function buildSchema(assets: PlannerAsset[]) {
             "titleStyle",
             "look",
             "placement",
+            "punchOn",
+            "transitionStyle",
           ],
           properties: {
             type: { type: "string", enum: types },
@@ -168,6 +170,44 @@ function buildSchema(assets: PlannerAsset[]) {
             /** The words for a motion title. Theirs, not yours to embellish. */
             titleText: { type: ["string", "null"] },
             titleStyle: { type: ["string", "null"], enum: ["card", "lower-third", "word", null] },
+            /**
+             * For zoomPunch: what "choose for me" means.
+             *
+             * The keyword matcher has been able to say this since beat sync was
+             * built; without it here, a deployment that *has* a model key is a
+             * deployment where "cut it to the beat" quietly becomes ordinary
+             * punches on the voice. Two heads that cannot say the same things
+             * make the product worse for the people paying for the better one.
+             */
+            punchOn: { type: ["string", "null"], enum: ["emphasis", "beat", null] },
+            /**
+             * For transition: which join.
+             *
+             * The instructions have listed these ten since transitions were
+             * built, and there was no property here to put the answer in — with
+             * `additionalProperties: false` and strict mode the model could not
+             * have said "wipeLeft" if it wanted to. The transformer read
+             * `raw["style"]`, found nothing every single time, and fell back to
+             * the dissolve with a comment explaining that an *unknown* style is
+             * coerced. Every style was unknown. Nothing failed; the product
+             * simply only ever did one of the ten.
+             */
+            transitionStyle: {
+              type: ["string", "null"],
+              enum: [
+                "dissolve",
+                "wipeLeft",
+                "wipeRight",
+                "wipeUp",
+                "wipeDown",
+                "slideLeft",
+                "slideRight",
+                "slideUp",
+                "slideDown",
+                "flash",
+                null,
+              ],
+            },
             /** For grade: the named look. Nothing else is a look we have. */
             look: { type: ["string", "null"], enum: ["warm", "cool", "cinematic", "mono", "punch", null] },
             /** Where on the frame. Titles use top/center/bottom; overlays use the corners. */
@@ -232,6 +272,11 @@ function instructionFor(assets: PlannerAsset[]): string {
     "If they just say 'transitions' with nothing else, choose fade and a dissolve transition.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
     "motionTitle animates words onto the screen. Use the person's own words — never write copy they did not ask for.",
+    "Emojis they typed are their own words: if they ask for emojis and put some in the message, a motionTitle",
+    "carrying those emojis is the right answer. If they ask for emojis and typed none, do not choose any.",
+    "zoomPunch has punchOn: emphasis puts the punches where the speaker leans on a word, beat puts them on the",
+    "music instead. Choose beat only when they asked for the cuts to follow the beat, and only when this project",
+    "has a track to follow — otherwise emphasis.",
     "grade sets a named look: warm, cool, cinematic, mono (black and white) or punch. Choose it when they ask",
     "for a look or a colour, and choose the one they named — cinematic is the teal-and-orange film look, punch is",
     "just more contrast and colour. If they name no look you have, choose no grade rather than guessing at one.",
@@ -446,7 +491,7 @@ function toOperation(
         // like every other value a model hands us: the person asked for a
         // transition and a transition is what they get, even when the model
         // invented a name for it.
-        const asked = typeof raw["style"] === "string" ? raw["style"] : "";
+        const asked = typeof raw["transitionStyle"] === "string" ? raw["transitionStyle"] : "";
         const parsed = TransitionStyle.safeParse(asked);
         const style = parsed.success ? parsed.data : "dissolve";
         return {
@@ -466,10 +511,24 @@ function toOperation(
         };
       case "kenBurns":
         return { type, to: numberOr(raw["zoomTo"], 1.08) };
-      case "zoomPunch":
+      case "zoomPunch": {
         // Empty `at` is the plan saying "you choose" — the worker puts them on
-        // the emphasis, which it can only know after hearing the clip.
-        return { type, at: [], amount: numberOr(raw["punchAmount"], 0.13), holdMs: 1000 };
+        // the emphasis, which it can only know after hearing the clip, or on
+        // the beat of the bed when it was asked for one.
+        //
+        // Beat only when this project actually has a track. The renderer says
+        // so out loud when there is no bed, which is the right behaviour at run
+        // time and the wrong thing to ship deliberately from here: a plan we
+        // know cannot land is a plan we should not write.
+        const wantsBeat = raw["punchOn"] === "beat" && assets.some((a) => a.kind === "audio");
+        return {
+          type,
+          at: [],
+          amount: numberOr(raw["punchAmount"], 0.13),
+          holdMs: 1000,
+          on: wantsBeat ? "beat" : "emphasis",
+        };
+      }
       case "normalizeLoudness":
         return { type, targetLufs: -14 };
       case "grade": {
