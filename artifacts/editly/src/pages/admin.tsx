@@ -390,7 +390,7 @@ export default function AdminPage() {
             <Problem>{COULD_NOT_LOAD}</Problem>
           ) : (
             <Table
-              head={["Status", "Project", "Billed", "Created", "Finished", "Error", ""]}
+              head={["Status", "Project", "Billed", "Created", "Finished", "Error", "What it did", ""]}
               rows={(jobs.data?.jobs ?? []).map((job) => [
                 job.unattended ? `${job.status} · unattended` : job.status,
                 job.projectId.slice(0, 8),
@@ -400,6 +400,22 @@ export default function AdminPage() {
                 // Verbatim, and not truncated to something tidy: the whole
                 // value of this column is that it says what actually happened.
                 job.error ?? "—",
+                /*
+                  The column that answers the support question the other six
+                  cannot. "It worked and it did not do what I asked" leaves no
+                  error and no failure — only these sentences, written by the
+                  renderer as it made each decision: no music under the edit, no
+                  steady beat in the track, a title whose moment did not survive
+                  the cut. Ten seconds instead of a diagnosis session, which is
+                  what the whole jobs table is for.
+                */
+                job.notes && job.notes.length > 0 ? (
+                  <span key="notes" className="block max-w-xs whitespace-normal text-muted-foreground">
+                    {job.notes.join(" · ")}
+                  </span>
+                ) : (
+                  "—"
+                ),
                 // A finished render has no requeue button at all: doing it
                 // would bill the customer twice, and the server refuses it, so
                 // offering it here would only be a button that says no.

@@ -882,7 +882,9 @@ export default function ProjectEditor() {
           key={template.id}
           onClick={() => handleApplyTemplate(template.id)}
           disabled={isProcessingEdit || startRender.isPending}
-          title={`${template.description} — ${template.bestFor}`}
+          title={`${template.description} — ${template.bestFor}${
+            template.needs === "music" ? " — needs a music file in this project" : ""
+          }`}
           className={`flex-shrink-0 border border-hairline bg-surface-1 font-medium transition-all hover:border-primary/40 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed ${
             sideBySide ? "rounded-xl px-4 py-3 text-left" : "rounded-full px-3 py-1.5 text-xs"
           }`}
@@ -894,6 +896,17 @@ export default function ProjectEditor() {
               <span className="block text-[11px] leading-snug text-muted-foreground mt-0.5">
                 {template.description}
               </span>
+              {/*
+                A look that cannot be built without a file says so on the button.
+                The server refuses it before anything is queued, and an error
+                after a click is a worse place to learn a requirement than the
+                label — the person has already committed to the edit by then.
+              */}
+              {template.needs === "music" ? (
+                <span className="block text-[11px] leading-snug text-secondary/80 mt-0.5">
+                  Needs a music file in this project
+                </span>
+              ) : null}
             </>
           ) : (
             template.name
