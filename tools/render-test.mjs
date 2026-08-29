@@ -170,6 +170,45 @@ console.log("\nSegment arithmetic");
   const trailing = keepSegmentsFrom(10, [{ start: 8, end: 10 }], 0);
   check("a silence running to the end truncates the clip", trailing.length === 1 && trailing[0].end === 8, JSON.stringify(trailing));
 
+  // The same silence, *with* padding, and this is where it went wrong. The
+  // trailing pad exists to give the speech after a silence room to start; when
+  // the silence runs to the end of the file there is no speech after it, and
+  // padding anyway welded a tenth of a second of pure silence to the end of the
+  // edit. Nearly every real video ends this way, because people stop talking
+  // before they stop recording.
+  const paddedTail = keepSegmentsFrom(10, [{ start: 8, end: 10 }], 0.12);
+  check(
+    "and padding it does not leave a sliver of silence behind",
+    paddedTail.length === 1 && Math.abs(paddedTail[0].end - 8.12) < 1e-6,
+    JSON.stringify(paddedTail),
+  );
+  const paddedHead = keepSegmentsFrom(10, [{ start: 0, end: 2 }], 0.12);
+  check(
+    "nor at the front, where there is no speech before the silence either",
+    paddedHead.length === 1 && Math.abs(paddedHead[0].start - 1.88) < 1e-6,
+    JSON.stringify(paddedHead),
+  );
+  // Why it mattered more than a tenth of a second sounds like it should. The
+  // transition's headroom is measured against the *shortest* piece, so one
+  // sliver at the end told every such edit that its pieces were too short to
+  // put a transition between — and the dissolve was refused on nearly every
+  // real video, silently, with a note that was true about the sliver and
+  // misleading about the edit.
+  const withTail = keepSegmentsFrom(20, [{ start: 6, end: 8 }, { start: 18, end: 20 }], 0.12);
+  check(
+    "so the shortest piece is real content rather than an artefact of padding",
+    Math.min(...withTail.map((s) => s.end - s.start)) > 1,
+    JSON.stringify(withTail),
+  );
+  // A silence in the middle still gets both pads, because both sides have
+  // speech to protect. This is the half that must not change.
+  const middle = keepSegmentsFrom(20, [{ start: 8, end: 12 }], 0.5);
+  check(
+    "while a silence between two stretches of speech is still padded on both sides",
+    middle.length === 2 && Math.abs(middle[0].end - 8.5) < 1e-6 && Math.abs(middle[1].start - 11.5) < 1e-6,
+    JSON.stringify(middle),
+  );
+
   check("a moment after a cut moves earlier by the cut length", remapTime(8, kept) === 4, String(remapTime(8, kept)));
   check("a moment inside a cut lands on the seam", remapTime(5, kept) === 3, String(remapTime(5, kept)));
   check("a moment before any cut is unmoved", remapTime(2, kept) === 2, String(remapTime(2, kept)));

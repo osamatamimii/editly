@@ -58,6 +58,21 @@ if (built.status !== 0) {
 }
 const { renderPlan } = await import(pathToFileURL(modulePath).href);
 
+// The templates are plans we wrote and ship, and until now nothing rendered
+// one. They are also the first thing a new customer clicks, which makes them
+// the worst place in the product for a plan that does not execute.
+const templatesPath = path.join(buildDir, "templates.mjs");
+spawnSync(
+  require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+  [
+    path.join(repoRoot, "artifacts/api-server/src/lib/templates.ts"),
+    "--bundle", "--platform=node", "--format=esm", "--target=node22",
+    `--outfile=${templatesPath}`, "--log-level=error",
+  ],
+  { stdio: "inherit" },
+);
+const { TEMPLATES } = await import(pathToFileURL(templatesPath).href);
+
 let checks = 0;
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -528,6 +543,91 @@ console.log("\nAn out-of-order edit only opens so many decoders");
     "and it is still the length the renderer said",
     Math.abs(measured - many.estimatedSeconds) <= TOLERANCE,
     `said ${many.estimatedSeconds.toFixed(2)}s, measured ${measured}`,
+  );
+}
+
+// ── The plans we ship ourselves ─────────────────────────────────────────────
+//
+// A template is a saved edit plan, and the one-click buttons are the first
+// thing somebody does with this product. Until now the only check on them was
+// that they *build* — that calling build() returns operations. Nothing
+// rendered one, so a template could have named an operation the renderer
+// cannot execute, or promised a length nobody measured, and the first person
+// to find out would have been a customer clicking the button.
+//
+// This clip is deliberately unlike the one above: long, evenly spaced bursts,
+// so the silence cut leaves real pieces rather than slivers. The dissolve in
+// "the look" is refused on pieces too short to cross, which is correct and
+// which would also have made this section pass without ever testing it.
+console.log("\nEvery template we ship renders");
+{
+  const spoken = path.join(workDir, "template-source.mp4");
+  {
+    const windows = [];
+    for (let t = 0; t < 36; t += 6) windows.push(`between(t,${t},${t + 4})`);
+    spawnSync("ffmpeg", [
+      "-y", "-loglevel", "error",
+      "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25:duration=36",
+      "-f", "lavfi", "-i", "sine=frequency=320:duration=36",
+      "-filter_complex", `[1:a]volume='if(${windows.join("+")},1,0)':eval=frame[a]`,
+      "-map", "0:v", "-map", "[a]",
+      "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", spoken,
+    ]);
+  }
+
+  check("there are templates to render", TEMPLATES.length >= 5, String(TEMPLATES.length));
+
+  const results = new Map();
+  const broke = [];
+  const drifted = [];
+  const mute = [];
+  for (const template of TEMPLATES) {
+    // Watermarked, because that is what a free account gets and it is the
+    // variant with the most operations in it.
+    const operations = template.build({ platform: "tiktok", durationSeconds: 36, watermark: true });
+    let out = null;
+    try {
+      out = await renderPlan(spoken, { version: 1, operations }, { workDir: await scratch(), assets });
+    } catch (e) {
+      broke.push(`${template.id}: ${String(e?.message ?? e).slice(0, 140)}`);
+      continue;
+    }
+    rendered += 1;
+    results.set(template.id, out);
+    const measured = Number(ffprobe(out.output, "format=duration")[0]);
+    if (!Number.isFinite(measured) || Math.abs(measured - out.estimatedSeconds) > TOLERANCE) {
+      drifted.push(`${template.id}: said ${out.estimatedSeconds?.toFixed?.(2)}s, measured ${measured}`);
+    }
+    if (!ffprobe(out.output, "stream=codec_type").includes("audio")) mute.push(template.id);
+  }
+
+  check(`all ${TEMPLATES.length} of them render`, broke.length === 0, broke.join(" | "));
+  check("each is the length the renderer said", drifted.length === 0, drifted.join(" | "));
+  check("and none of them loses the sound", mute.length === 0, mute.join(", "));
+
+  // Every template carries the mark on a free account, and that is the one
+  // promise made to us rather than to the customer.
+  const unmarked = [...results.entries()].filter(([, out]) => !out.notes.some((n) => /watermarked/.test(n)));
+  check("and every one of them carries the mark", unmarked.length === 0, unmarked.map(([id]) => id).join(", "));
+
+  // "The look" is the only template whose name is a claim about the picture,
+  // so it is the only one whose notes are read: the dissolve and the grade are
+  // what the button says it does.
+  const look = results.get("the-look");
+  check(
+    "the look dissolves between the cuts, which is half of what it promises",
+    look?.notes.some((n) => /dissolved between the cuts/.test(n)),
+    JSON.stringify(look?.notes),
+  );
+  check(
+    "and grades the picture, which is the other half",
+    look?.notes.some((n) => /graded it cinematic/.test(n)),
+    JSON.stringify(look?.notes),
+  );
+  check(
+    "and is shorter than the same cut without the dissolve, because an overlap costs length",
+    look && results.get("clean-cut") && look.estimatedSeconds < results.get("clean-cut").estimatedSeconds - 0.1,
+    `${look?.estimatedSeconds?.toFixed(2)}s against ${results.get("clean-cut")?.estimatedSeconds?.toFixed(2)}s`,
   );
 }
 
