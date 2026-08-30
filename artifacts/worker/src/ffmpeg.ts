@@ -1483,10 +1483,48 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
       if (track && track.coverage >= MIN_SUBJECT_COVERAGE) {
         const path = subjectPath(track.samples, windowFraction);
-        cropXExpr = cropExpression(path.keyframes, scaledWidth, cropW);
-        const moves = (path.keyframes.length - 1) / 2;
+        /**
+         * Onto the edited clock, like everything else drawn on the frame.
+         *
+         * The tracker samples the *original* file, so its keyframes are seconds
+         * into the recording. This filter runs on `[cutv]` — after the trims,
+         * after `setpts=PTS-STARTPTS`, after the concat — where `t` is seconds
+         * into the *edit*. Every other thing placed in time here goes through
+         * `remapTime`: captions, punches, overlays, motion titles. The reframe
+         * was the one that did not.
+         *
+         * What that looked like: a ten-minute interview, silences cut to 7:30,
+         * the speaker moving at 6:00. The crop ramped at t=360 on the output,
+         * which is 7:12 in the source — the frame followed them about seventy
+         * seconds late, smoothly, while the note said "followed the speaker".
+         * On a clips render it is worse and not proportional: `extractClips`
+         * hands the renderer a 30-second window out of a ten-minute source, so
+         * every keyframe but the first sits past the end of the output and the
+         * window holds wherever the speaker stood in the first second and a
+         * quarter of the whole video, for every clip in the set.
+         *
+         * Nothing fails. The crop is valid, the picture moves, and it moves
+         * smoothly — only somebody comparing the move against the speaker would
+         * ever see it.
+         *
+         * Moments inside a removed stretch collapse onto their seam, which is
+         * right, and which can put two keyframes at the same instant; a
+         * zero-span ramp there would be a division guarded to 0.001 and a jump.
+         * Keeping the first of each cluster leaves the move on the seam, where
+         * the cut already is.
+         */
+        const keyframes = kept
+          ? path.keyframes
+              .map((frame) => ({ ...frame, t: remapTime(frame.t, kept, overlap) }))
+              .filter((frame, i, all) => i === 0 || frame.t > all[i - 1].t + 0.001)
+          : path.keyframes;
+        cropXExpr = cropExpression(keyframes, scaledWidth, cropW);
+        const moves = (keyframes.length - 1) / 2;
         notes.push(
-          path.moves
+          // Whether it moves *in the edit*, not whether it moved in the source.
+          // Two moves either side of a cut stretch collapse to one seam, and a
+          // note claiming two would be counting something the viewer cannot see.
+          keyframes.length > 1
             ? t(
                 `followed the speaker, moving the frame ${Math.round(moves)} time${Math.round(moves) === 1 ? "" : "s"} where they moved`,
                 `تابعت المتكلّم، وحرّكت الكادر ${Math.round(moves)} مرّة حيث تحرّك`,

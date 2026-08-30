@@ -311,6 +311,51 @@ if (!haveVision) {
   check("the speaker is near the middle at the start", near(mean(first), 0.5, 0.22), mean(first).toFixed(3));
   check("and still near the middle at the end", near(mean(last), 0.5, 0.22), mean(last).toFixed(3));
 
+  // ── The crop is drawn on the edit's clock, not the recording's ────────────
+  //
+  // The tracker samples the *original* file, so its keyframes are seconds into
+  // the recording. The crop filter runs after the trims and the concat, where
+  // `t` is seconds into the *edit*. Every other thing placed in time goes
+  // through `remapTime` — captions, punches, overlays, titles. The reframe did
+  // not, and nothing failed: the crop was valid, the picture moved, and it
+  // moved smoothly. It simply moved at the wrong moments.
+  //
+  // A cut render makes that a lag. This makes it total. `extractRange` keeps
+  // only the last four seconds, where the face is hard right — and every
+  // keyframe from the first twelve seconds now sits past the end of a
+  // four-second output, so the window holds whatever the first keyframe said,
+  // which is the far left. The face leaves the frame completely.
+  section("A window cut out of the middle still follows the person inside it");
+  {
+    const cutDir = path.join(workDir, "cut");
+    await mkdir(cutDir, { recursive: true });
+    const late = await renderPlan(
+      clip,
+      {
+        version: 1,
+        operations: [
+          { type: "extractRange", startSeconds: 12, endSeconds: 16 },
+          { type: "formatForPlatform", platform: "tiktok" },
+        ],
+      },
+      { workDir: cutDir },
+    );
+    check("it renders", Boolean(late.output), JSON.stringify(late.notes));
+
+    const lateSeen = (await trackSubject(late.output, 1080, 1920, { scriptPath: script }))?.samples ?? [];
+    const visible = lateSeen.filter((sample) => sample.x !== null);
+    check(
+      "the face is in the exported window at all",
+      visible.length >= lateSeen.length * 0.3,
+      `${visible.length} of ${lateSeen.length} frames`,
+    );
+    check(
+      "and near the middle of it, rather than pushed to an edge by a stale keyframe",
+      visible.length > 0 && near(mean(visible), 0.5, 0.25),
+      visible.length > 0 ? mean(visible).toFixed(3) : "no face found",
+    );
+  }
+
   section("And the old framing really does lose them");
   // The same clip with the tracker unavailable, which is the code path every
   // render took until now. Without this the checks above prove the pipeline
