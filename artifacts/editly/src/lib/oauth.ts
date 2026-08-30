@@ -72,3 +72,76 @@ export async function signInWithProvider(provider: OAuthProvider): Promise<never
     throw error;
   }
 }
+
+/**
+ * The other half of the redirect: the one that comes back carrying a refusal.
+ *
+ * `signInWithProvider` reports what goes wrong *before* the browser leaves.
+ * Everything that goes wrong after it leaves comes back the only way OAuth can
+ * answer — as `error` and `error_description` on the URL it returns to. And
+ * that URL is `/dashboard`, where there is no session, so the router redirects
+ * to `/login` and the redirect drops the query and the hash with it.
+ *
+ * The result was the worst answer this product knows how to give: somebody
+ * clicks "Continue with Google", disappears for two seconds, and arrives back
+ * at an empty sign-in form with nothing anywhere saying why. A misconfigured
+ * redirect URL, a provider switched on with the wrong credentials, Supabase's
+ * own "Database error saving new user" — every one of them looked identical to
+ * a button that does nothing.
+ *
+ * So the error is taken off the URL before the router can throw it away. This
+ * runs once, at start-up, before React renders.
+ *
+ * **It never touches a URL that is not an error.** A successful callback comes
+ * back with `access_token` in the hash, and the Supabase client reads that hash
+ * itself to establish the session — stripping it would turn every successful
+ * Google sign-in into a silent failure, which is the bug this exists to end,
+ * inverted.
+ */
+const ERROR_KEYS = ["error", "error_code", "error_description"] as const;
+
+let captured: string | null = null;
+
+/** What the provider said, in a sentence, or null when it said nothing. */
+function messageFrom(params: URLSearchParams): string | null {
+  const code = params.get("error");
+  if (!code) return null;
+  // Cancelling is not a failure, and an alarming red line about a decision the
+  // person made on purpose is worse than saying nothing at all.
+  if (code === "access_denied") return "Sign-in was cancelled.";
+  // `error_description` is the provider's own words and is written for people;
+  // the code is a slug. Prefer the sentence, fall back to the slug.
+  const described = params.get("error_description")?.trim();
+  return described && described.length > 0 ? described : `Sign-in failed (${code}).`;
+}
+
+export function captureOAuthError(): string | null {
+  if (typeof window === "undefined") return null;
+  const query = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+
+  const message = messageFrom(query) ?? messageFrom(hash);
+  if (!message) return null;
+
+  for (const key of ERROR_KEYS) {
+    query.delete(key);
+    hash.delete(key);
+  }
+  const search = query.toString();
+  const fragment = hash.toString();
+  window.history.replaceState(
+    null,
+    "",
+    `${window.location.pathname}${search ? `?${search}` : ""}${fragment ? `#${fragment}` : ""}`,
+  );
+
+  captured = message;
+  return message;
+}
+
+/** Read it once. The screen that shows it is not the screen it arrived on. */
+export function takeOAuthError(): string | null {
+  const message = captured;
+  captured = null;
+  return message;
+}
