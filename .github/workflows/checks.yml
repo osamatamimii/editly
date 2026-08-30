@@ -90,6 +90,17 @@ jobs:
 
       - run: pnpm run typecheck
 
+      # And the thing Vercel actually builds, built here.
+      #
+      # `typecheck` proves the types agree; it does not prove the bundle can be
+      # assembled. A vite plugin, an import that resolves for tsc and not for
+      # esbuild, an asset path that only exists in dev — each of those passes
+      # every check above and fails at deploy. And a failed Vercel deploy is
+      # quiet in the worst way: production keeps serving the previous commit,
+      # so `main` is green, the dashboard says shipped, and the change is not
+      # live. Twelve seconds to find that out here instead.
+      - run: pnpm run vercel:build
+
       # Three migrations touch `storage.buckets`, `auth.uid()` and the roles a
       # managed Supabase project provides. A plain Postgres has none of them, so
       # the names are created first — from the same file the schema suite uses,
