@@ -677,6 +677,51 @@ check(
   /silence|9:16|vertical|LUFS/i.test(opened),
   opened.replace(/\s+/g, " ").slice(0, 240),
 );
+// ── Getting the file out ─────────────────────────────────────────────────────
+//
+// The last mile, and until now the untested one. Every check above proves an
+// edit exists in a bucket. None of them proves the person can have it — and a
+// video they cannot download is a video they do not have. This is a second,
+// real render through the export route, because that is what the button does.
+section("And taking it away");
+await page.goto(`${SITE}/export/${id}`, { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(1500);
+const startExport = page.getByTestId("button-start-export");
+check("the export screen offers to render it", (await startExport.count()) > 0);
+await startExport.click().catch(() => {});
+
+const downloadButton = page.getByTestId("button-download");
+let downloadReady = false;
+for (let i = 0; i < 240 && !downloadReady; i++) {
+  await page.waitForTimeout(1000);
+  downloadReady = (await downloadButton.count()) > 0 && (await downloadButton.isEnabled().catch(() => false));
+}
+await page.screenshot({ path: path.join(SHOTS, "6-export.png") }).catch(() => {});
+check(
+  "and the download becomes something you can actually press",
+  downloadReady,
+  (await page.locator("body").innerText()).replace(/\s+/g, " ").slice(0, 200),
+);
+// Enabled is a claim about a button; the file is a claim about the product.
+// The button is deliberately dead until the URL exists — the comment beside it
+// says a "Download Video" that hands back nothing is worse than one that waits
+// — so the two are checked separately.
+if (downloadReady) {
+  const exported = [...objects.keys()].filter((k) => k.includes(id) && /\.mp4$/.test(k) && !/source/.test(k));
+  const newest = exported[exported.length - 1];
+  const bytes = newest ? objects.get(newest) : null;
+  check("and the file behind it is a real one", Boolean(bytes) && bytes.length > 10_000, String(bytes?.length));
+  if (bytes) {
+    const out = path.join(work, "exported.mp4");
+    await writeFile(out, bytes);
+    const probe = spawnSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
+      "-show_entries", "stream=width,height", "-of", "default=nw=1", out], { encoding: "utf8" });
+    const w = Number(/width=(\d+)/.exec(probe.stdout)?.[1]);
+    const h = Number(/height=(\d+)/.exec(probe.stdout)?.[1]);
+    check("that plays, and is still the shape that was asked for", h > w, `${w}x${h}`);
+  }
+}
+
 // The web fonts are fetched from Google and Fontshare, and this container has
 // no route to either. That is this machine's network, not the product — but it
 // is worth writing down that the app makes three blocking cross-origin
