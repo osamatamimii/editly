@@ -186,9 +186,26 @@
   --aura-ring: rgba(124, 78, 255, 0.42);
   --aura-ring-strong: rgba(124, 78, 255, 0.62);
   /* Recessed, not domed: dark at the top, light bounce at the bottom. */
-  --aura-inset-top: rgba(4, 2, 14, 0.42);
-  --aura-inset-top-deep: rgba(4, 2, 14, 0.5);
-  --aura-inset-bottom: rgba(255, 255, 255, 0.22);
+  /* The face, ramped rather than shadowed: dark at the top, light at the
+     bottom, the whole way down. */
+  --aura-face-dark: rgba(2, 0, 12, 0.10);
+  --aura-face-dark-deep: rgba(2, 0, 12, 0.26);
+  --aura-face-light: rgba(255, 255, 255, 0.09);
+  /* The shadow the ring casts onto the face it surrounds. The strongest depth
+     cue in the button, and the one we did not have. */
+  --aura-rim: rgba(2, 0, 12, 0.09);
+  --aura-rim-deep: rgba(2, 0, 12, 0.34);
+  /* The ring, graded. Lighter than the face, which is what makes it read as
+     light around the object rather than a shadow under it. */
+  /* The ring is the button's own colour, veiled — measured off the reference
+     at about 85% of the face over the page behind it, not a pale wash. The
+     two percentages are the grade: deeper along the top, fuller along the
+     bottom. */
+  --aura-ring-top-mix: 72%;
+  --aura-ring-bottom-mix: 92%;
+  --aura-ring-top-lit-mix: 84%;
+  --aura-ring-bottom-lit-mix: 100%;
+  --aura-neutral-ring-lo: rgba(255, 255, 255, 0.12);
   --aura-drop: rgba(8, 4, 24, 0.55);
   /* The neutral one — their white `+`. A surface, a ring of nothing much, and
      a shadow doing all the work of the border it does not have. */
@@ -467,9 +484,19 @@ html[data-page-theme="light"] body {
   --aura-ring: rgba(124, 78, 255, 0.30);
   --aura-ring-strong: rgba(124, 78, 255, 0.48);
   /* Shallower on a white page: the same dish, lit from a brighter room. */
-  --aura-inset-top: rgba(30, 10, 80, 0.22);
-  --aura-inset-top-deep: rgba(30, 10, 80, 0.34);
-  --aura-inset-bottom: rgba(255, 255, 255, 0.35);
+  /* The same five parts on a white page. The face ramp is shallower and the
+     ring is stronger, because a translucent ring over white loses more of
+     itself than one over near-black. */
+  --aura-face-dark: rgba(20, 4, 70, 0.09);
+  --aura-face-dark-deep: rgba(20, 4, 70, 0.22);
+  --aura-face-light: rgba(255, 255, 255, 0.13);
+  --aura-rim: rgba(20, 4, 70, 0.07);
+  --aura-rim-deep: rgba(20, 4, 70, 0.30);
+  --aura-ring-top-mix: 74%;
+  --aura-ring-bottom-mix: 92%;
+  --aura-ring-top-lit-mix: 86%;
+  --aura-ring-bottom-lit-mix: 100%;
+  --aura-neutral-ring-lo: rgba(20, 4, 70, 0.05);
   --aura-drop: rgba(60, 30, 140, 0.18);
   --aura-neutral-ring: rgba(40, 12, 110, 0.06);
   --aura-neutral-face: rgba(255, 255, 255, 0.9);
@@ -1409,68 +1436,82 @@ html[data-page-theme="light"] body {
 
 /* ── The aura button ────────────────────────────────────────────────────────
  *
- * The buttons Osama picked out, read closely rather than approximated. Four
- * things are happening at once and dropping any one of them loses the look:
+ * Measured off the reference rather than eyeballed. Sampling the pixels of
+ * that blue circle along its radius says five things are happening, and the
+ * two that were missing are the two that made ours look flat:
  *
- * **A concentric ring, always.** A crisp `0 0 0 Npx` spread of the same hue at
- * low alpha — a second, softer silhouette of the object, not a glow. A blur
- * would be haze; this has an edge. It is there at rest, which is the whole
- * difference between a filled shape and a control that looks lit, and it is
- * what the old `.glow-btn` drew only on hover — a considered look that existed
- * for a mouse and for nobody on a phone.
+ *   face, top      #5a9efc      face, bottom   #76b2f8
+ *   rim (0.86R)    #5698fd      ring (0.94R)   #6eacf9 top, #82b9f8 right
  *
- * **The face is recessed, not domed.** This is the "3D" of it, and it is the
- * opposite of what was here: a light lip along the *top* edge reads as a
- * surface bulging toward you, and these buttons read as a disc set *into* the
- * ring around it. So the dark inset is at the top and the light bounce is at
- * the bottom — the way a dish is lit, not a dome.
+ * **The face is a real gradient, dark at the top and light at the bottom** —
+ * about 6% down and 8% up from the fill. Ours faked that with inset shadows,
+ * which fall off from the edges and leave the middle flat. A `background-image`
+ * gradient ramps the whole face, which is what the numbers show.
  *
- * **The shadow is small and close.** A big soft drop makes a thing float; a
- * tight one makes it sit.
+ * **There is a darker rim just inside the edge, all the way round.** That is
+ * the shadow the ring casts onto a face that is set into it, and it is the
+ * single strongest depth cue in the whole button. We had a dark inset at the
+ * top only, which reads as a lit dome rather than a recessed disc.
  *
- * **Pressing goes further in.** The inset deepens and the ring tightens,
- * because a recessed face has somewhere to go.
+ * **The ring itself is graded**, lighter toward the bottom than the top. A
+ * `box-shadow` spread cannot hold a gradient, so it is two spreads of the same
+ * size offset a couple of pixels against each other: the lower one shows along
+ * the bottom, the upper one along the top, and at this size the seam reads as
+ * a ramp.
  *
- * No border anywhere. The edge is the ring and the inset; a stroke on top of
- * both is what makes a button look like a div with a background colour.
+ * **The ring is lighter than the face**, which is why it reads as light around
+ * the object rather than a shadow under it.
+ *
+ * And nothing grows on hover. A control that swells under the pointer is
+ * telling you about the pointer; this one is a fixed object that catches a
+ * little more light.
  */
 .aura-btn {
   /*
    * No `position` here, and that is a deliberate absence.
    *
-   * It was `position: relative` — left over from a first version that drew the
-   * ring with a `::before` disc — and a plain declaration on a class beats
+   * It was `position: relative` — left over from a version that drew the ring
+   * with a `::before` disc — and a plain declaration on a class beats
    * Tailwind's `.absolute`, so the send button, which positions itself inside
-   * the chat bar, computed `relative` and fell out of it. Exactly the bug
-   * `.hover-elevate` caused three weeks ago, from exactly the same cause: a
-   * component class quietly deciding a layout property it does not need.
-   *
-   * viewport-test caught it in the first run after the class was applied,
-   * which is the entire reason that check exists.
+   * the chat bar, computed `relative` and fell out of it. Exactly the
+   * `.hover-elevate` bug from three weeks ago, same cause: a component class
+   * quietly deciding a layout property it does not need. viewport-test caught
+   * it on the first run after the class was applied.
    */
   border: 0;
+  /*
+   * The ring is the *button's own* colour, veiled — which is why it belongs to
+   * the object instead of sitting behind it. Each variant declares its tint;
+   * this is the one every filled button starts from.
+   */
+  --aura-tint: hsl(var(--primary));
+  background-image: linear-gradient(to bottom, var(--aura-face-dark), var(--aura-face-light));
   box-shadow:
-    0 0 0 5px var(--aura-ring),
-    inset 0 2px 6px var(--aura-inset-top),
-    inset 0 -2px 4px var(--aura-inset-bottom),
+    0 -2px 0 5px color-mix(in srgb, var(--aura-tint) var(--aura-ring-top-mix), transparent),
+    0 3px 0 5px color-mix(in srgb, var(--aura-tint) var(--aura-ring-bottom-mix), transparent),
+    inset 0 0 0 1px var(--aura-rim),
+    inset 0 3px 6px -3px var(--aura-rim),
     0 2px 5px var(--aura-drop);
-  transition:
-    box-shadow 240ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform  240ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: box-shadow 200ms ease, background-image 200ms ease;
 }
 .aura-btn:hover:not(:disabled) {
   box-shadow:
-    0 0 0 7px var(--aura-ring),
-    inset 0 2px 5px var(--aura-inset-top),
-    inset 0 -2px 4px var(--aura-inset-bottom),
-    0 3px 9px var(--aura-drop);
+    0 -2px 0 5px color-mix(in srgb, var(--aura-tint) var(--aura-ring-top-lit-mix), transparent),
+    0 3px 0 5px color-mix(in srgb, var(--aura-tint) var(--aura-ring-bottom-lit-mix), transparent),
+    inset 0 0 0 1px var(--aura-rim),
+    inset 0 3px 6px -3px var(--aura-rim),
+    0 2px 5px var(--aura-drop);
 }
+/* Pressed is the one state that moves, and it moves *in*: the face loses its
+   gradient, the rim deepens, the ring tightens. A recessed disc has somewhere
+   to go and this is it. */
 .aura-btn:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.985);
+  background-image: linear-gradient(to bottom, var(--aura-face-dark-deep), var(--aura-face-dark));
   box-shadow:
-    0 0 0 2px var(--aura-ring-strong),
-    inset 0 4px 9px var(--aura-inset-top-deep),
-    inset 0 -1px 2px var(--aura-inset-bottom),
+    0 0 0 2px color-mix(in srgb, var(--aura-tint) 90%, transparent),
+    inset 0 0 0 1px var(--aura-rim),
+    inset 0 4px 9px -3px var(--aura-rim-deep),
     0 1px 2px var(--aura-drop);
 }
 .aura-btn:focus-visible {
@@ -1478,30 +1519,29 @@ html[data-page-theme="light"] body {
   box-shadow:
     0 0 0 3px var(--background),
     0 0 0 6px hsl(var(--primary)),
-    inset 0 2px 5px var(--aura-inset-top),
-    inset 0 -2px 4px var(--aura-inset-bottom);
+    inset 0 0 0 1px var(--aura-rim),
+    inset 0 3px 6px -3px var(--aura-rim);
 }
 .aura-btn:disabled {
-  box-shadow: inset 0 2px 5px var(--aura-inset-top);
+  box-shadow: inset 0 0 0 1px var(--aura-rim);
   opacity: 0.45;
 }
 
 /* The same object in the page's own colours rather than the brand's — their
-   white `+`. Depth from a ring and an inset, never from a stroke. */
+   white `+`. Depth from the ring and the rim, never from a stroke. */
 .aura-btn-neutral {
   background-color: var(--aura-neutral-face);
   box-shadow:
-    0 0 0 4px var(--aura-neutral-ring),
-    inset 0 2px 5px var(--aura-inset-top),
-    inset 0 -2px 4px var(--aura-inset-bottom),
+    0 -2px 0 5px var(--aura-neutral-ring-lo),
+    0 3px 0 5px var(--aura-neutral-ring),
+    inset 0 0 0 1px var(--aura-rim),
+    inset 0 3px 6px -3px var(--aura-rim),
     0 2px 5px var(--aura-drop);
 }
-.aura-btn-neutral:hover:not(:disabled) {
-  box-shadow:
-    0 0 0 7px var(--aura-neutral-ring),
-    inset 0 2px 5px var(--aura-inset-top),
-    inset 0 -2px 4px var(--aura-inset-bottom),
-    0 3px 9px var(--aura-drop);
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-btn { transition: none; }
+  .aura-btn:active:not(:disabled) { transform: none; }
 }
 
 /* A pill with no visible border: surface, a whisper of a ring, and a shadow
@@ -1518,28 +1558,22 @@ html[data-page-theme="light"] body {
     box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
     transform  220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* Nothing moves and nothing grows. A control that swells under the pointer is
+   telling you about the pointer; this one catches a little more light and
+   stays exactly where it is. */
 .aura-chip:hover:not(:disabled) {
-  transform: translateY(-1px);
   box-shadow:
-    0 0 0 1px var(--aura-ring),
-    0 2px 4px var(--aura-drop),
-    0 8px 20px color-mix(in srgb, var(--aura-drop) 65%, transparent);
+    0 0 0 1px color-mix(in srgb, hsl(var(--primary)) 34%, transparent),
+    0 1px 2px var(--aura-drop),
+    0 5px 14px color-mix(in srgb, var(--aura-drop) 65%, transparent);
 }
 .aura-chip:active:not(:disabled) {
-  transform: translateY(0) scale(0.985);
+  transform: scale(0.985);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .aura-btn,
-  .aura-chip {
-    transition: none;
-  }
-  .aura-btn:hover:not(:disabled),
-  .aura-chip:hover:not(:disabled),
-  .aura-btn:active:not(:disabled),
-  .aura-chip:active:not(:disabled) {
-    transform: none;
-  }
+  .aura-chip { transition: none; }
+  .aura-chip:active:not(:disabled) { transform: none; }
 }
 
 /* ── The odometer ───────────────────────────────────────────────────────────

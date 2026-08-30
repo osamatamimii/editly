@@ -29,14 +29,15 @@ const buttonVariants = cva(
         default:
            "bg-primary text-primary-foreground aura-btn no-default-hover-elevate",
         destructive:
-          "bg-destructive-fill text-destructive-foreground aura-btn no-default-hover-elevate",
-        outline:
-          // @replit Shows the background color of whatever card / sidebar / accent background it is inside of.
-          // Inherits the current text color. Uses shadow-xs. no shadow on active
-          // No hover state
-          " border [border-color:var(--button-outline)] shadow-xs active:shadow-none ",
+          "bg-destructive-fill text-destructive-foreground aura-btn no-default-hover-elevate [--aura-tint:hsl(var(--destructive-fill))]",
+        // The quiet button, given the same treatment as the loud one: a raised
+        // surface separated from the page by light rather than by a stroke.
+        // That is what the "Clone" and "Plan" pills in the reference are doing
+        // — white on white, held apart by a shadow — and a hairline border next
+        // to a filled button that has no border reads as two design systems.
+        outline: "aura-chip no-default-hover-elevate",
         secondary:
-          "bg-secondary text-secondary-foreground aura-btn no-default-hover-elevate",
+          "bg-secondary text-secondary-foreground aura-btn no-default-hover-elevate [--aura-tint:hsl(var(--secondary))]",
         // @replit no hover, transparent border
         ghost: "border border-transparent",
         // A text link inside a sentence keeps its type size, but the box a

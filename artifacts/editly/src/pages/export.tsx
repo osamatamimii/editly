@@ -227,6 +227,9 @@ export default function ExportPage() {
                 key={shown.preview ?? shown.url}
                 className="w-full h-full object-cover"
                 controls
+                /* See the note in project-editor: without this, pressing play
+                   on an iPhone hands the screen to the system player. */
+                playsInline
                 autoPlay
                 loop
                 muted

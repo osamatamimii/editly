@@ -1426,6 +1426,21 @@ export default function ProjectEditor() {
                       // `src`, swapping <source> children does not make the
                       // element look again on its own.
                       key={previewUrl ?? playbackUrl ?? "empty"}
+                      /*
+                        `playsInline`, or iOS takes the screen.
+                        
+                        Safari on iPhone treats a `<video>` without it as a
+                        request for the system player: pressing play throws the
+                        clip into fullscreen, hides the editor, and hands the
+                        person a set of controls that are not ours — mid-edit,
+                        on the screen this product is mostly used on. Nothing
+                        warns, nothing fails, and it is invisible in every
+                        desktop browser and in headless Chromium, which is why
+                        it survived. The webkit alias goes with it for the iOS
+                        versions that predate the standard attribute.
+                      */
+                      playsInline
+                      webkit-playsinline="true"
                       className="w-full h-full object-contain"
                       controls={false}
                       preload="metadata"

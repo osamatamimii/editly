@@ -1814,6 +1814,70 @@ section("A video dropped on the dashboard becomes a project that uploads itself"
   );
 }
 
+section("Every video plays where it was put");
+{
+  /*
+   * `playsInline`, on every `<video>` in the product.
+   *
+   * Safari on iPhone treats a video element without it as a request for the
+   * system player: pressing play throws the clip into fullscreen, hides the
+   * editor and hands the person controls that are not ours — mid-edit, on the
+   * screen this product is mostly used on.
+   *
+   * It is invisible everywhere it could be caught. Every desktop browser
+   * ignores the attribute, and so does the headless Chromium that runs every
+   * other check in this repo, so nothing here would ever have gone red. Two of
+   * the five video elements were missing it and had been since they were
+   * written; the person who found it was the owner, on his own phone.
+   *
+   * A source check rather than a rendered one, because the behaviour cannot be
+   * reproduced in anything this suite can drive.
+   */
+  const { readdirSync: readDir, readFileSync: readSrc } = await import("node:fs");
+  const searched = [];
+  const walk = (dir) => {
+    for (const entry of readDir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(entry.name)) searched.push(full);
+    }
+  };
+  walk(path.join(repoRoot, "artifacts/editly/src"));
+
+  /*
+   * Comments first, and this is not fussiness: the first version of this check
+   * went red on three files whose only `<video>` was inside a sentence
+   * explaining why a video element cannot carry an Authorization header. A
+   * check that reports prose as a defect gets muted, and a muted check is worse
+   * than no check.
+   */
+  const withoutComments = (text) =>
+    text
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((line) => !/^\s*(\/\/|\*)/.test(line))
+      .join("\n");
+
+  const offenders = [];
+  let videoElements = 0;
+  for (const file of searched) {
+    const text = withoutComments(readSrc(file, "utf8"));
+    // Each `<video` up to the end of its opening tag.
+    for (const match of text.matchAll(/<video\b[\s\S]*?>/g)) {
+      videoElements += 1;
+      if (!/playsInline/.test(match[0])) {
+        offenders.push(path.relative(repoRoot, file));
+      }
+    }
+  }
+  check("there are video elements to check", videoElements >= 4, String(videoElements));
+  check(
+    `all ${videoElements} video elements play inline rather than taking the screen`,
+    offenders.length === 0,
+    offenders.length ? `missing playsInline: ${[...new Set(offenders)].join(", ")}` : "",
+  );
+}
+
 section("The editor fits a phone, which is where the owner will test it");
 {
   // The editor lives inside h-screen + overflow-hidden. On a desktop the chat

@@ -83,6 +83,18 @@ if (!darkBlock || !lightBlock) {
 const dark = tokensIn(darkBlock);
 const light = tokensIn(lightBlock);
 
+/*
+ * `-mix` is a ratio, not a colour.
+ *
+ * `--aura-ring-bottom-mix: 92%` is a percentage handed to `color-mix`, and
+ * the colour it mixes is the button's own tint — so the same number produces
+ * a different colour in each theme, which is exactly the point. Requiring it
+ * to differ would mean writing two numbers that mean the same thing and
+ * changing one of them for the sake of a check.
+ */
+const THEME_INDEPENDENT = /^--(app-font|radius|.*-outline$|.*-mix$|opaque-button-border-intensity$)/;
+
+
 console.log("\nEvery dark token has a light counterpart");
 {
   /*
@@ -90,7 +102,6 @@ console.log("\nEvery dark token has a light counterpart");
    * theme with different corner radii is a different design, not a theme. Only
    * the tokens that carry *colour* have to be answered.
    */
-  const THEME_INDEPENDENT = /^--(app-font|radius|.*-outline$|opaque-button-border-intensity$)/;
 
   const missing = [...dark.keys()].filter(
     (name) => !THEME_INDEPENDENT.test(name) && !light.has(name),
@@ -172,7 +183,13 @@ console.log("\nThe two themes actually differ");
     // between themes would be the odd one out, not the consistent one.
     "--destructive-foreground",
   ]);
-  const unexpected = identical.filter((name) => !ALLOWED_SAME.has(name));
+  // A token that is not a colour has nothing to differ about: see
+  // THEME_INDEPENDENT above. This check used to have its own idea of that, so
+  // adding a ratio meant editing two lists or inventing a second number that
+  // meant the same as the first.
+  const unexpected = identical.filter(
+    (name) => !ALLOWED_SAME.has(name) && !THEME_INDEPENDENT.test(name),
+  );
   check(
     "no colour token was copied across unchanged by accident",
     unexpected.length === 0,
