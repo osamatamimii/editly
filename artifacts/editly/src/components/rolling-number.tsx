@@ -77,13 +77,23 @@ export function RollingNumber({
    * pressing the yearly toggle.
    */
   const [settled, setSettled] = useState(false);
-  const [previous, setPrevious] = useState(value);
   useEffect(() => {
-    if (value !== previous) {
-      setPrevious(value);
-      setSettled(true);
-    }
-  }, [value, previous]);
+    // After the first paint, never during it.
+    //
+    // The obvious version of this armed the transition on the first *value
+    // change* — and that does not animate, because a CSS transition does not
+    // run when the `transition` property and the value it would animate change
+    // in the same commit. The browser sees a new element state, not a change
+    // to an existing one. So the first toggle jumped and every one after it
+    // rolled, which is the kind of bug you only find by watching rather than
+    // by reading.
+    //
+    // Arming it after mount is both correct and enough: the strips are already
+    // sitting on the right digit by then, so there is nothing to roll *from*
+    // and the page does not open like a slot machine.
+    const id = requestAnimationFrame(() => setSettled(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const characters = [...value];
   let digitIndex = 0;

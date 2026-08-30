@@ -1205,12 +1205,17 @@ export default function Home() {
                             feedback at all — $12 simply became $115 between two
                             frames. Rolling also says which *way* the number
                             went, which on a pricing page is the point. */}
-                        <span className="text-4xl font-bold">$</span>
-                        <RollingNumber
-                          value={String(isYearly ? plan.yearlyPrice : plan.price)}
-                          className="text-4xl font-bold"
-                          testId={`price-${plan.key}`}
-                        />
+                        {/* The currency sign is part of the number, not a
+                            sibling of it: the row's `gap-1` was putting four
+                            pixels between "$" and "115", which reads as two
+                            things rather than a price. */}
+                        <span className="flex items-baseline text-4xl font-bold">
+                          $
+                          <RollingNumber
+                            value={String(isYearly ? plan.yearlyPrice : plan.price)}
+                            testId={`price-${plan.key}`}
+                          />
+                        </span>
                         <span className="text-muted-foreground text-sm">
                           /{isYearly ? "year" : "month"}
                         </span>
