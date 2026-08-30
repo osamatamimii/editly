@@ -410,7 +410,13 @@ export default function AdminPage() {
                   what the whole jobs table is for.
                 */
                 job.notes && job.notes.length > 0 ? (
-                  <span key="notes" className="block max-w-xs whitespace-normal text-muted-foreground">
+                  // `dir="auto"` for the same reason it is on every other place
+                  // in this product that renders a sentence: the render notes
+                  // are written in the language the job was asked in, so an
+                  // Arabic customer's notes arrive here in Arabic — and a line
+                  // laid out left-to-right puts their full stop at the wrong
+                  // end. One rule, everywhere a sentence is drawn.
+                  <span key="notes" dir="auto" className="block max-w-xs whitespace-normal text-muted-foreground">
                     {job.notes.join(" · ")}
                   </span>
                 ) : (
