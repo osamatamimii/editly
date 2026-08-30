@@ -41,7 +41,7 @@ export function statusFor(error: unknown): number {
   // CORS: `app.ts` rejects a disallowed origin by calling back with an Error,
   // which lands here. That is a refusal, not a fault — 500 makes an ordinary
   // configuration mistake look like an outage.
-  if (typeof e.message === "string" && e.message.startsWith("Origin not allowed:")) return 403;
+  if (isOriginRefusal(error)) return 403;
 
   // A body that is not JSON, or is larger than the parser allows. Express's
   // json parser sets both.
@@ -56,11 +56,33 @@ export function statusFor(error: unknown): number {
   return 500;
 }
 
+/**
+ * Is this the error `app.ts` throws for a browser origin that is not on the
+ * allowlist?
+ *
+ * Asked as its own question because the answer used to be assumed. `bodyFor`
+ * read a 403 and said "This origin is not allowed to call the API." — for
+ * *every* 403, whatever caused it. A suspended account, a storage bucket that
+ * answered 403, a library that sets `status` on its errors: each of them told
+ * the person, with total confidence, about a CORS rule they had not broken.
+ *
+ * It was true when it was written — CORS was the only thing here that could
+ * produce a 403. It stopped being true the first time anything else could, and
+ * nothing failed, because a wrong sentence is still a sentence.
+ */
+function isOriginRefusal(error: unknown): boolean {
+  const message = (error as { message?: unknown } | null)?.message;
+  return typeof message === "string" && message.startsWith("Origin not allowed:");
+}
+
 /** The sentence for a status. Never the error's own message above 499. */
 export function bodyFor(status: number, error: unknown): { error: string } {
-  if (status === 403) return { error: ORIGIN_REFUSED };
-  if (status === 400) return { error: "Body could not be read as JSON." };
-  if (status === 413) return { error: "That request body is too large." };
+  if (status === 403 && isOriginRefusal(error)) return { error: ORIGIN_REFUSED };
+  // Same rule as the 403 above: say what actually happened, not what usually
+  // happens at this status. The body parser marks its own failures with `type`.
+  const type = (error as { type?: unknown } | null)?.type;
+  if (status === 400 && type === "entity.parse.failed") return { error: "Body could not be read as JSON." };
+  if (status === 413 && type === "entity.too.large") return { error: "That request body is too large." };
   if (status >= 500) return { error: UNEXPECTED };
   // A 4xx somebody set deliberately is theirs to word, as long as it is a
   // string they chose rather than a driver's.

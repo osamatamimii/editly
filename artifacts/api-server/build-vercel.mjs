@@ -40,7 +40,19 @@ const define = {
 // Inline configuration that is known at build time so the function is fully
 // self-contained. Anything absent here still resolves from the runtime
 // environment, which is how Vercel supplies it in production.
-for (const key of ["DATABASE_URL", "SUPABASE_URL", "APP_ORIGIN"]) {
+//
+// APP_ORIGIN is deliberately NOT in this list, and the reason is worth keeping.
+// It was, and the sentence above was true of it in exactly the wrong way: it
+// was never absent, because the loader a few lines up reads it out of the
+// build machine's `.env.production.local`. So every locally built bundle froze
+// that file's origin into the CORS allowlist as a string literal — esbuild
+// substitutes `process.env["APP_ORIGIN"]` as well as the dotted form — and the
+// value set on the hosting dashboard could not override it, because there was
+// no read left for it to answer. The file still said `editly-eta.vercel.app`
+// months after the app moved to app.editlyai.io.
+//
+// An allowlist is a runtime decision. It stays a runtime decision.
+for (const key of ["DATABASE_URL", "SUPABASE_URL"]) {
   if (process.env[key]) {
     define[`process.env.${key}`] = JSON.stringify(process.env[key]);
   }
