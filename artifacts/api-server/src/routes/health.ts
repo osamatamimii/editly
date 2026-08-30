@@ -23,6 +23,7 @@ import { stockConfigured } from "../lib/stock";
 import { adminCount } from "../lib/admin";
 import { newestWorkerSeenAt } from "../lib/worker-presence";
 import { workerOnline } from "../lib/queue-health";
+import { authProviders } from "../lib/auth-providers";
 
 const router: IRouter = Router();
 
@@ -134,6 +135,10 @@ router.get("/healthz", async (_req, res): Promise<void> => {
       // gate something untrue. It means something because something reads it:
       // `.github/workflows/watch.yml`, every fifteen minutes.
       worker: await worker(),
+      // Which ways in are switched on. Not a health signal — email sign-in is
+      // a complete product — but the one question about turning Google on that
+      // otherwise has no answer except "open the site and click the button".
+      signIn: await authProviders(),
     }),
   );
 });

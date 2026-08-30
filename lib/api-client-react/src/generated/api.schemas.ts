@@ -39,6 +39,16 @@ export interface HealthStatus {
     /** Seconds since the last beat, or null when there has never been one. */
     lastSeenAgoSeconds: number | null;
   };
+  /**
+   * Which ways of signing in are switched on. Not a health signal — it exists
+   * so "is Google on in production" has an answer without opening the site.
+   */
+  signIn?: {
+    google: boolean;
+    apple: boolean;
+    /** False when Supabase could not be asked: "we do not know", not "off". */
+    known: boolean;
+  };
   message?: string;
 }
 

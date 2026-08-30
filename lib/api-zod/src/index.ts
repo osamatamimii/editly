@@ -244,6 +244,31 @@ export const HealthCheckResponse = z.object({
       lastSeenAgoSeconds: z.number().nullable(),
     })
     .optional(),
+  /**
+   * Which ways of signing in are switched on for this project.
+   *
+   * Not a health signal — email sign-in is a complete product and Google being
+   * off breaks nothing. It is here because turning Google on is four steps
+   * across two dashboards and every one of them fails the same way from the
+   * outside: you click "Continue with Google", you go away, you come back to a
+   * login form. This makes "is it on in production" a question with an answer,
+   * from anywhere, without an account.
+   *
+   * `known` is the whole point of the shape. It is false when Supabase could
+   * not be asked, and then the providers are false too — meaning "we do not
+   * know", not "they are off". Reporting the second when it means the first
+   * would send somebody to re-enter credentials that were already right.
+   *
+   * Booleans only. No key name, no key value: this endpoint is public, and the
+   * login page shows every visitor these same buttons anyway.
+   */
+  signIn: z
+    .object({
+      google: z.boolean(),
+      apple: z.boolean(),
+      known: z.boolean(),
+    })
+    .optional(),
   message: z.string().optional(),
 });
 export type HealthCheckResponse = z.infer<typeof HealthCheckResponse>;

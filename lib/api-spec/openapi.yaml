@@ -1189,6 +1189,30 @@ components:
               type: integer
               nullable: true
           required: [online, lastSeenAgoSeconds]
+        signIn:
+          description: >
+            Which ways of signing in are switched on for this project. Not a
+            health signal — email sign-in is a complete product and Google being
+            off breaks nothing. It is here because turning Google on is four
+            steps across two dashboards and every one of them fails the same way
+            from the outside: you click "Continue with Google", you go away, you
+            come back to a login form. This makes "is it on in production" a
+            question with an answer, from anywhere, without an account.
+          type: object
+          properties:
+            google:
+              type: boolean
+            apple:
+              type: boolean
+            known:
+              description: >
+                Whether the answer above is an answer. False when Supabase could
+                not be asked, and then the providers are false too — meaning "we
+                do not know", not "they are off". Reporting the second when it
+                means the first sends somebody to re-enter credentials that were
+                already correct.
+              type: boolean
+          required: [google, apple, known]
         message:
           type: string
       required:

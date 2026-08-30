@@ -564,6 +564,96 @@ console.log("\nThe platform watches itself");
   );
 }
 
+// ─── "Is Google on in production?" has to have an answer ────────────────────
+section("What the health endpoint says about signing in");
+{
+  /*
+   * Turning Google on is four steps across two dashboards, and every one of
+   * them fails identically from the outside: you click "Continue with Google",
+   * you go away, and you come back to a login form. So `/healthz` reports which
+   * providers the project has enabled.
+   *
+   * The whole design of that answer is the `known` flag, and it is the only
+   * part worth testing: "Supabase could not be asked" must never be reported as
+   * "the providers are off". They send you to different places — one is a
+   * network, the other is a credential — and only one of them is worth an
+   * evening of re-entering a client secret that was already correct.
+   */
+  const { createServer } = await import("node:http");
+  const { pathToFileURL } = await import("node:url");
+  const { createRequire } = await import("node:module");
+  const require = createRequire(import.meta.url);
+
+  const buildDir = mkdtempSync(path.join(tmpdir(), "editly-auth-providers-"));
+  const outfile = path.join(buildDir, "auth-providers.mjs");
+  const built = spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+    [
+      path.join(repoRoot, "artifacts/api-server/src/lib/auth-providers.ts"),
+      "--bundle", "--platform=node", "--format=esm", "--target=node22",
+      `--outfile=${outfile}`, "--log-level=error",
+    ],
+    { stdio: "inherit" },
+  );
+  check("the provider probe bundles", built.status === 0);
+
+  if (built.status === 0) {
+    const { authProviders, resetProviderCache } = await import(pathToFileURL(outfile).href);
+
+    let reply = { status: 200, body: JSON.stringify({ external: { google: true, apple: false } }) };
+    let asked = 0;
+    const stub = createServer((req, res) => {
+      asked += 1;
+      res.writeHead(reply.status, { "Content-Type": "application/json" });
+      res.end(reply.body);
+    });
+    await new Promise((r) => stub.listen(0, "127.0.0.1", r));
+    process.env.SUPABASE_URL = `http://127.0.0.1:${stub.address().port}`;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key-for-tests";
+
+    resetProviderCache();
+    const on = await authProviders();
+    check("a provider that is on is reported on", on.google === true && on.known === true, JSON.stringify(on));
+    check("and one that is off is reported off", on.apple === false, JSON.stringify(on));
+
+    const askedOnce = asked;
+    await authProviders();
+    check(
+      "the answer is cached, so a public endpoint is not a load generator",
+      asked === askedOnce,
+      `asked ${asked} times`,
+    );
+
+    reply = { status: 500, body: "nope" };
+    resetProviderCache();
+    const broken = await authProviders();
+    check(
+      "a failed probe says it does not know rather than saying they are off",
+      broken.known === false,
+      JSON.stringify(broken),
+    );
+
+    await new Promise((r) => stub.close(r));
+    process.env.SUPABASE_URL = "http://127.0.0.1:1";
+    resetProviderCache();
+    const unreachable = await authProviders();
+    check(
+      "and so does a probe that cannot connect at all",
+      unreachable.known === false,
+      JSON.stringify(unreachable),
+    );
+
+    delete process.env.SUPABASE_URL;
+    resetProviderCache();
+    const unset = await authProviders();
+    check(
+      "an unconfigured server does not claim to know either",
+      unset.known === false,
+      JSON.stringify(unset),
+    );
+  }
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);
