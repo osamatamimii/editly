@@ -58,19 +58,22 @@ export async function startRenderForProject(
     .where(eq(subscriptionsTable.userId, userId))
     .limit(1);
 
-  // 403 rather than 402: this is not about running out of minutes, and
-  // offering more would be a lie. The message says what happened and that
-  // nothing was deleted, because that is the first thing anybody seeing it
-  // will fear.
+  // The refusal itself lives in `decideRender` now, beside the mark, the meter
+  // and the upload ceiling — for the reason written there: this door had it and
+  // the Export door did not, so a suspended account could still render by
+  // pressing the other button.
+  //
+  // What stays here is the *ordering*. Suspension is judged before the project
+  // is, because an account that has been stopped and is told "upload a video
+  // first" will upload a video and be stopped anyway.
   if (sub?.suspendedAt) {
-    return {
-      ok: false,
-      status: 403,
-      body: {
-        error:
-          "This account is suspended, so new renders cannot start. Nothing has been deleted — your projects and videos are all still here.",
-      },
-    };
+    const stopped = decideRender({
+      plan: planKeyFrom(sub.plan),
+      usage: { minutesUsed: 0, minutesIncluded: 0, minutesRemaining: 0, exhausted: false, minutesGranted: 0 },
+      operations: [],
+      suspendedAt: sub.suspendedAt,
+    });
+    if (!stopped.allowed) return { ok: false, status: stopped.status, body: stopped.body };
   }
 
   if (!project.videoPath) {
@@ -120,6 +123,7 @@ export async function startRenderForProject(
     usage: await usageFor(userId, planKey),
     sourceDurationSeconds: project.duration,
     operations: requested,
+    suspendedAt: sub?.suspendedAt,
   });
 
   if (!decision.allowed) {

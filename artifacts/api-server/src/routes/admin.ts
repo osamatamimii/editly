@@ -26,6 +26,37 @@ import { DEFAULT_PLAN, PLAN_LIMITS, minutesFrom, type PlanKey } from "../lib/pla
 import { startOfMonthUtc } from "../lib/usage";
 
 /**
+ * The two statuses a job can be in while it is still going to happen.
+ *
+ * Named here because this file used to spell the second one `"processing"` — in
+ * four places, none of which errored, because a status nothing writes simply
+ * matches nothing. The queue writes `"running"` (`lib/db/src/schema/jobs.ts`:
+ * queued → running → done | failed) and the worker claims rows with it.
+ *
+ * What that cost, one place at a time:
+ *
+ *   - The overview's queue card selected `["queued", "processing"]`, so running
+ *     jobs were never fetched and `processing` could only ever be zero. Six
+ *     machines encoding and the console said the queue was empty.
+ *   - `GET /admin/jobs?status=running` was not in the list of known filters, so
+ *     the filter was dropped and the route answered with *every* job as though
+ *     they were all running.
+ *   - And the one that matters: the refusal that stops an admin requeueing a
+ *     job a live worker is holding compared against `"processing"`, so it could
+ *     never fire. Requeue a job at 60% and the row goes back to `queued` with
+ *     its lock cleared, a second worker claims it, and two workers encode the
+ *     same job and write the same output key while the customer's progress bar
+ *     jumps back to zero. The message "It is working, not stuck" was
+ *     unreachable code.
+ *
+ * `exports.ts` maps both of these to the word "processing" on the way out to a
+ * browser, which is a presentation choice and stays. This is the storage
+ * vocabulary, and it has exactly one spelling.
+ */
+const RUNNING = "running";
+const LIVE_STATUSES = ["queued", RUNNING] as const;
+
+/**
  * The operations console.
  *
  * Every number on it already existed in the database; none of it is new
@@ -115,14 +146,14 @@ router.get("/admin/overview", async (_req, res): Promise<void> => {
       lockedAt: jobsTable.lockedAt,
     })
     .from(jobsTable)
-    .where(inArray(jobsTable.status, ["queued", "processing"]));
+    .where(inArray(jobsTable.status, LIVE_STATUSES));
 
   let processing = 0;
   let waiting = 0;
   let unattended = 0;
   for (const job of live) {
     if (isUnattended(job, newest?.lastSeenAt, now)) unattended += 1;
-    else if (job.status === "processing") processing += 1;
+    else if (job.status === RUNNING) processing += 1;
     else waiting += 1;
   }
 
@@ -327,8 +358,18 @@ router.get("/admin/jobs", async (req, res): Promise<void> => {
     .orderBy(desc(workerHeartbeatsTable.lastSeenAt))
     .limit(1);
 
-  const known = ["queued", "processing", "done", "failed"];
-  const where = known.includes(filter) ? eq(jobsTable.status, filter) : undefined;
+  // An empty filter means "all". A filter naming a status the queue does not
+  // write means *nothing matches* — not "all", which is what `undefined` here
+  // used to mean. `?status=processing` answered with every job in the system as
+  // though every one of them were processing, which is a worse answer than an
+  // error and indistinguishable from a real page of results.
+  const known: string[] = [...LIVE_STATUSES, "done", "failed"];
+  const where =
+    filter === ""
+      ? undefined
+      : known.includes(filter)
+        ? eq(jobsTable.status, filter)
+        : sql`false`;
 
   const rows = await db
     .select()
@@ -433,7 +474,7 @@ router.post("/admin/jobs/:id/requeue", async (req, res): Promise<void> => {
     .from(workerHeartbeatsTable)
     .orderBy(desc(workerHeartbeatsTable.lastSeenAt))
     .limit(1);
-  if (job.status === "processing" && job.lockedAt && workerOnline(newest?.lastSeenAt)) {
+  if (job.status === RUNNING && job.lockedAt && workerOnline(newest?.lastSeenAt)) {
     res.status(409).json({ error: "A live worker is holding this job. It is working, not stuck." });
     return;
   }

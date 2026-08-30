@@ -36,8 +36,14 @@ export const FREE_WATERMARK = {
 
 export interface PolicyRefusal {
   allowed: false;
-  /** HTTP status. 429 for "you have used the month up", 413 for "this file is too long". */
-  status: 429 | 413;
+  /**
+   * HTTP status. 403 for "this account is suspended", 429 for "you have used
+   * the month up", 413 for "this file is too long".
+   *
+   * A union rather than `number`, so a route cannot invent a fourth answer to
+   * "may this render start" without coming here first and saying what it means.
+   */
+  status: 403 | 429 | 413;
   body: Record<string, unknown>;
 }
 
@@ -87,12 +93,45 @@ export interface PolicyInput {
   sourceDurationSeconds?: number | null;
   /** What the caller asked for. */
   operations: EditOperation[];
+  /**
+   * When this account was suspended, or null.
+   *
+   * It is here rather than at the routes for the same reason the mark, the
+   * meter and the upload ceiling are: a rule enforced at each door is a rule
+   * enforced at the doors somebody remembered. This one had already fallen
+   * through — the editor's button and the chat both refused a suspended
+   * account with 403, and Export queued the job, rendered it and billed the
+   * minutes. The suspension looked applied; one of the two doors was simply
+   * not locked, and nothing anywhere reported a suspended account still
+   * consuming render capacity.
+   */
+  suspendedAt?: Date | string | null;
 }
 
 export function decideRender(input: PolicyInput): PolicyResult {
   const limits = PLAN_LIMITS[input.plan];
 
-  // The allowance first, because it is the only refusal the user can fix by
+  // Suspension before everything, because it is the more fundamental fact
+  // about the request than anything about the plan or the file. An account
+  // that has been stopped and is told "that file is too long" will trim the
+  // file, and be stopped anyway.
+  //
+  // 403 rather than 402: this is not about running out of minutes, and
+  // offering more would be a lie. The message says what happened and that
+  // nothing was deleted, because that is the first thing anybody seeing it
+  // will fear.
+  if (input.suspendedAt) {
+    return {
+      allowed: false,
+      status: 403,
+      body: {
+        error:
+          "This account is suspended, so new renders cannot start. Nothing has been deleted — your projects and videos are all still here.",
+      },
+    };
+  }
+
+  // The allowance next, because it is the only refusal the user can fix by
   // waiting rather than by changing the request.
   if (input.usage.exhausted) {
     return {

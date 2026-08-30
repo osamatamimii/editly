@@ -2083,6 +2083,61 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
     JSON.stringify((failedOnly.json?.jobs ?? []).map((j) => j.status)),
   );
 
+  // ── The console's vocabulary is the queue's vocabulary ────────────────────
+  //
+  // This file spelled a running job `"processing"`, in four places, and not one
+  // of them raised anything: a status nothing writes simply matches nothing.
+  // The overview's queue card never fetched running jobs, so "Rendering now"
+  // could only ever be zero; `?status=running` was not a known filter, so the
+  // filter was dropped and *every* job came back as though it matched; and the
+  // refusal that stops an admin requeueing a job a live worker is holding
+  // compared against a string the worker never sets, so it was unreachable
+  // code and two workers could be put on the same job.
+  //
+  // A filter for a status that exists must not answer with rows that are not in
+  // it — which is the shape of the bug, not the spelling of it.
+  {
+    const runningJobId = "admin-running-test-job";
+    // Its own project: `jobs_one_active_per_project` is a partial unique index,
+    // and Alice's project already has an active job by this point in the file.
+    const runningHome = await call(ALICE, "/api/projects", "POST", { title: "a render in flight" });
+    const runningProjectId = runningHome.json?.id;
+    psqlGlobal(
+      `insert into jobs (id, project_id, user_id, status, progress, plan, input_path, attempts, locked_at, created_at, updated_at) ` +
+        `values ('${runningJobId}', '${runningProjectId}', '${ALICE}', 'running', 40, ` +
+        `'{"version":1,"operations":[]}'::jsonb, '${ALICE}/${runningProjectId}/source.mp4', 1, now(), now(), now())`,
+    );
+    const running = await call(ALICE, "/api/admin/jobs?status=running&limit=50");
+    check(
+      "a filter for `running` is a filter the console knows",
+      running.status === 200 && (running.json?.jobs ?? []).every((job) => job.status === "running"),
+      JSON.stringify((running.json?.jobs ?? []).map((j) => j.status)),
+    );
+    check(
+      "and it finds the running job rather than answering empty",
+      (running.json?.jobs ?? []).some((job) => job.id === runningJobId),
+      JSON.stringify((running.json?.jobs ?? []).map((j) => j.id)),
+    );
+
+    const overview = await call(ALICE, "/api/admin/overview");
+    check(
+      "and the queue card counts it, rather than reading zero while a machine works",
+      (overview.json?.queue?.processing ?? 0) + (overview.json?.queue?.unattended ?? 0) >= 1,
+      JSON.stringify(overview.json?.queue),
+    );
+
+    // A status nobody writes must not be quietly treated as "no filter".
+    const nonsense = await call(ALICE, "/api/admin/jobs?status=processing&limit=50");
+    check(
+      "and a status the queue does not use returns nothing, not everything",
+      (nonsense.json?.jobs ?? []).length === 0,
+      `${(nonsense.json?.jobs ?? []).length} rows came back for a status that is never written`,
+    );
+
+    psqlGlobal(`delete from jobs where id = '${runningJobId}'`);
+    await call(ALICE, `/api/projects/${runningProjectId}`, "DELETE");
+  }
+
   // ── Acting, and being unable to act without saying why ────────────────────
   {
     const before = await call(ALICE, "/api/admin/actions?limit=1");
@@ -2155,6 +2210,32 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
       "and is told plainly that nothing was deleted",
       /nothing has been deleted/i.test(bobRender.json?.error ?? ""),
       bobRender.json?.error,
+    );
+
+    // The other door.
+    //
+    // Suspension was enforced in `start-render`, which the editor's button and
+    // the chat both go through — and Export has its own route. It read the
+    // whole subscription row, used only the plan from it, and queued the job:
+    // 202, rendered, billed, with nothing anywhere reporting that a suspended
+    // account was still consuming render capacity. The suspension *looked*
+    // applied; one of the two doors was not locked.
+    //
+    // The refusal lives in `decideRender` now, which both doors already had to
+    // call, so this is a check on the arrangement rather than on somebody
+    // remembering. A third door would inherit it.
+    const bobExport = await call(BOB, `/api/projects/${bobProject.json?.id}/export`, "POST", {
+      platform: "tiktok",
+    });
+    check(
+      "and cannot start one through Export either",
+      bobExport.status === 403,
+      `got ${bobExport.status}: ${JSON.stringify(bobExport.json)}`,
+    );
+    check(
+      "with the same sentence, because it is the same refusal",
+      /nothing has been deleted/i.test(bobExport.json?.error ?? ""),
+      bobExport.json?.error,
     );
 
     const restored = await call(ALICE, `/api/admin/accounts/${BOB}/suspend`, "POST", {

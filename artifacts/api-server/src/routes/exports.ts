@@ -144,6 +144,30 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
     return;
   }
 
+  // Read before anything about the project is judged, and refused before it
+  // too — the same ordering `start-render` argues for, and for the same reason:
+  // an account that has been stopped and is told "upload a video first" will
+  // upload a video and be stopped anyway. The refusal itself is `decideRender`'s
+  // now; this is only the point at which the question gets asked.
+  const [sub] = await db
+    .select()
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, userId))
+    .limit(1);
+
+  if (sub?.suspendedAt) {
+    const stopped = decideRender({
+      plan: planKeyFrom(sub.plan),
+      usage: { minutesUsed: 0, minutesIncluded: 0, minutesGranted: 0, minutesRemaining: 0, exhausted: false },
+      operations: [],
+      suspendedAt: sub.suspendedAt,
+    });
+    if (!stopped.allowed) {
+      res.status(stopped.status).json(stopped.body);
+      return;
+    }
+  }
+
   if (!project.videoPath) {
     res.status(409).json({ error: "Upload a video before exporting." });
     return;
@@ -161,11 +185,6 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
     return;
   }
 
-  const [sub] = await db
-    .select()
-    .from(subscriptionsTable)
-    .where(eq(subscriptionsTable.userId, userId))
-    .limit(1);
 
   // The mark, the meter and the upload ceiling are one decision, and it lives
   // in `render-policy` so this route and the editor's cannot drift apart. They
@@ -210,6 +229,7 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
     usage: await usageFor(userId, planKey),
     sourceDurationSeconds: project.duration,
     operations: carried,
+    suspendedAt: sub?.suspendedAt,
   });
 
   if (!decision.allowed) {
