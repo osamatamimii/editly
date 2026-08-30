@@ -25,7 +25,7 @@
  * Requires: ffmpeg, and a Postgres carrying the schema (pnpm run migrate).
  */
 import http from "node:http";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -267,7 +267,26 @@ section("It says it is here, so the product does not have to guess");
   // is queued, which is the state right after a first deploy. Somebody who has
   // just set the secrets and run the workflow should be able to find out
   // without uploading a video.
-  const beat = await pool.query("SELECT * FROM worker_heartbeats ORDER BY last_seen_at DESC LIMIT 1");
+  /**
+   * Waited for, not read once.
+   *
+   * "worker ready" is logged just before the poll loop, and the first heartbeat
+   * is written at the top of that loop — so reading the table the instant the
+   * line appears is a race the test loses on a loaded machine. It lost it here
+   * twice tonight, and a check that fails for reasons unrelated to the thing it
+   * names is a check people learn to re-run rather than read.
+   *
+   * Two seconds is far inside the twenty the heartbeat is throttled to, so this
+   * still fails fast if the worker genuinely never writes one.
+   */
+  const beat = await (async () => {
+    const until = Date.now() + 5_000;
+    for (;;) {
+      const q = await pool.query("SELECT * FROM worker_heartbeats ORDER BY last_seen_at DESC LIMIT 1");
+      if (q.rows.length > 0 || Date.now() > until) return q;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  })();
   const row = beat.rows[0];
 
   check("a heartbeat row exists", Boolean(row), JSON.stringify(beat.rows));
@@ -294,7 +313,35 @@ section("It says it is here, so the product does not have to guess");
     `${row.last_seen_at} → ${again.rows[0]?.last_seen_at}`,
   );
 
-  check("one row per worker, not one per poll", (await pool.query("SELECT count(*)::int AS n FROM worker_heartbeats")).rows[0].n === 1);
+  // Counted for *this* worker rather than for the table. The property is that a
+  // second poll updates the row instead of inserting another one; counting
+  // every row in the table also fails when something else left one behind,
+  // which is a fact about the machine and not about the worker.
+  const mine = await pool.query("SELECT count(*)::int AS n FROM worker_heartbeats WHERE worker_id = $1", [row.worker_id]);
+  check("one row per worker, not one per poll", mine.rows[0].n === 1, JSON.stringify(mine.rows[0]));
+
+  /**
+   * And nothing else is listening to this queue.
+   *
+   * A second worker left running from an earlier, interrupted run claims jobs
+   * from the same table — with **its own older bundle** — so the assertions
+   * below stop describing the build under test and start describing whichever
+   * process won the race. That is not a hypothetical: it happened repeatedly on
+   * one machine tonight and cost an hour, because every symptom it produces is
+   * a plausible product bug. Six stray processes were the answer.
+   *
+   * The check cannot fail on a fresh CI runner, and that is the point: it is
+   * here to turn an hour of confusion on a developer's machine into one line.
+   */
+  const listeners = await pool.query(
+    "SELECT worker_id FROM worker_heartbeats WHERE last_seen_at > now() - interval '1 minute'",
+  );
+  check(
+    "and nothing else is polling this queue — a stray worker renders with its own build",
+    listeners.rows.length === 1,
+    `${listeners.rows.length} workers beating: ${JSON.stringify(listeners.rows.map((r) => r.worker_id))}. ` +
+      `Kill them (pkill -f 'artifacts/worker/dist/index.mjs') and run again — anything below this line may be measuring one of them.`,
+  );
 }
 
 section("A queued job becomes an edited file");
@@ -407,6 +454,126 @@ section("A queued job becomes an edited file");
 }
 
 // ─── A clips plan becomes several files ──────────────────────────────────────
+
+/**
+ * The files the job has to go and fetch.
+ *
+ * Every render suite in this repository calls `renderPlan` with an assets map
+ * built by hand, which means the one place that decides *which files a job
+ * downloads* has never had a test through it. It read `insertBRoll` and
+ * `overlayImage` and not `addMusic` — so the bed was never fetched, the
+ * renderer looked the id up in an empty map, and it wrote "the track this plan
+ * names is not in this project" onto a render whose track was sitting in the
+ * project the whole time.
+ *
+ * **Music has therefore never once played under a finished edit.** The render
+ * succeeded. The note was truthful about what it could see. The only thing
+ * wrong was three operation names where there should have been four — and the
+ * one look built on top of it, "On the beat", could not have worked either.
+ *
+ * So this section goes through the worker, the database and the bucket, and
+ * asserts the thing the map cannot fake: **a source with no sound of its own
+ * comes back with sound on it.**
+ */
+section("A plan that names a file makes the worker go and get it");
+{
+  // Silent on purpose. If the output has audio, it came from the bed — there is
+  // nowhere else it could have come from, and no assertion about notes or
+  // filter strings can say that as plainly.
+  const silentClip = path.join(workDir, "silent.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=6",
+    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-an", silentClip,
+  ]);
+  const bed = path.join(workDir, "bed.m4a");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "sine=frequency=330:duration=6",
+    "-c:a", "aac", bed,
+  ]);
+
+  // Everything the job will need, in place *before* the job exists. The worker
+  // is polling the whole time this file runs, so anything seeded after the row
+  // is a race the test can lose — and losing it looks exactly like the bug.
+  const assetId = "asset-bed-1";
+  const projectId = "proj-music-1";
+  await pool.query(
+    `INSERT INTO projects (id, user_id, title, status) VALUES ($1, $2, $3, 'processing')
+     ON CONFLICT (id) DO NOTHING`,
+    [projectId, ALICE, "Project music-1"],
+  );
+  // The row and the object, exactly as registering an upload leaves them.
+  await pool.query(
+    `INSERT INTO assets (id, project_id, user_id, path, kind, bytes)
+     VALUES ($1, $2, $3, $4, 'audio', $5)
+     ON CONFLICT (id) DO UPDATE SET project_id = EXCLUDED.project_id, path = EXCLUDED.path`,
+    [assetId, projectId, ALICE, `${ALICE}/${projectId}/bed.m4a`, statSync(bed).size],
+  );
+  putObject(`${ALICE}/${projectId}/source.mp4`, silentClip);
+  putObject(`${ALICE}/${projectId}/bed.m4a`, bed);
+
+  await queue("music-1", {
+    over: { project_id: projectId },
+    plan: {
+      version: 1,
+      operations: [
+        { type: "addMusic", assetId, gainDb: -6, duck: false, fadeSeconds: 0, fromSeconds: 0, loop: true },
+      ],
+    },
+  });
+
+  const row = await settle("music-1");
+  check("the job finishes", row?.status === "done", `${row?.status}: ${row?.error}`);
+
+  const outputFile = path.join(objects, row?.output_path ?? "missing");
+  check("and an output is in storage", existsSync(outputFile));
+
+  const streams = spawnSync(
+    "ffprobe",
+    ["-v", "error", "-show_entries", "stream=codec_type", "-of", "default=nw=1:nk=1", outputFile],
+    { encoding: "utf8" },
+  ).stdout.trim().split("\n");
+  check(
+    "and the silent clip came back with sound on it — so the bed was fetched and mixed",
+    streams.includes("audio"),
+    `streams ${JSON.stringify(streams)} — no audio means the worker never downloaded the track`,
+  );
+
+  const notes = row?.notes ?? [];
+  check(
+    "the notes say the music was laid, not that the track is missing",
+    notes.some((n) => /music/i.test(n)) && !notes.some((n) => /not in this project|ليس في هذا المشروع/.test(n)),
+    JSON.stringify(notes),
+  );
+
+  // The other half of the rule, and the reason the list is a list: an id that
+  // is not this project's own resolves to nothing and is said out loud, rather
+  // than opening whatever file that id happens to name.
+  const strayProject = "proj-music-2";
+  await pool.query(
+    `INSERT INTO projects (id, user_id, title, status) VALUES ($1, $2, $3, 'processing')
+     ON CONFLICT (id) DO NOTHING`,
+    [strayProject, ALICE, "Project music-2"],
+  );
+  putObject(`${ALICE}/${strayProject}/source.mp4`, silentClip);
+  await queue("music-2", {
+    over: { project_id: strayProject },
+    plan: {
+      version: 1,
+      operations: [
+        { type: "addMusic", assetId: "asset-belonging-to-nobody", gainDb: -6, duck: false, fadeSeconds: 0, fromSeconds: 0, loop: true },
+      ],
+    },
+  });
+  const stray = await settle("music-2");
+  check("a track this project does not have is a note, not a failure", stray?.status === "done", `${stray?.status}: ${stray?.error}`);
+  check(
+    "and the render says so rather than going quiet",
+    (stray?.notes ?? []).some((n) => /not in this project|ليس في هذا المشروع/.test(n)),
+    JSON.stringify(stray?.notes),
+  );
+}
 
 section("A clips plan becomes several files, each its own artifact");
 {
@@ -695,8 +862,15 @@ section("A render that failed on infrastructure is tried again");
 
   // The decision to retry is the thing under test, and it is visible in the log
   // whichever way the race between the two attempts falls.
+  //
+  // Waited for rather than read once: the job row settles as soon as the second
+  // attempt writes `done`, and the first attempt's log line arrives through a
+  // pipe that has no obligation to be drained by then. Reading immediately is a
+  // race, and it lost tonight — a check that fails for reasons unrelated to
+  // what it names is a check people re-run instead of reading.
+  const retryable = await waitForLog(/"willRetry":true/, 10_000);
   const decided = workerLog.filter((l) => /render failed/.test(l));
-  check("the first failure was recorded as retryable", decided.some((l) => /"willRetry":true/.test(l)), decided.slice(-1)[0] ?? "");
+  check("the first failure was recorded as retryable", retryable !== null, decided.slice(-1)[0] ?? "");
   check(
     "with a message that does not leak the plumbing",
     decided.some((l) => /Rendering failed/.test(l)) || /Rendering failed/.test(String(row?.error ?? "")) || row?.error === null,
