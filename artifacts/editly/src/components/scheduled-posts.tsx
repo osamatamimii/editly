@@ -52,7 +52,7 @@ const ENDING: Record<
   failed: { label: "Did not go", tone: "text-destructive", Icon: CircleAlert },
   // Not a failure. Nothing went wrong; it was simply too late to be worth
   // sending, and what it needs is a new time rather than a fix.
-  missed: { label: "Not sent — too late", tone: "text-warning", Icon: CircleAlert },
+  missed: { label: "Not sent, too late", tone: "text-warning", Icon: CircleAlert },
   cancelled: { label: "Called back", tone: "text-muted-foreground", Icon: CircleSlash },
 };
 

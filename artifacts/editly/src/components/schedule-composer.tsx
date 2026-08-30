@@ -237,7 +237,7 @@ export function ScheduleComposer({
         </div>
         <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
           Once an account is connected, this edit can go out on a schedule with the caption
-          written here — to several accounts at once.{" "}
+          written here, to several accounts at once.{" "}
           {waiting > 0
             ? `${waiting} of the platforms review every app before it may post on your behalf, which is the part that is waiting on them.`
             : "No platform is switched on for this deployment yet."}
@@ -403,7 +403,7 @@ export function ScheduleComposer({
             <li key={i} className="flex items-start gap-2 text-xs text-warning leading-snug">
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>
-                <span className="font-medium">{refusal.handle}</span> — {refusal.message}
+                <span className="font-medium">{refusal.handle}</span>: {refusal.message}
               </span>
             </li>
           ))}

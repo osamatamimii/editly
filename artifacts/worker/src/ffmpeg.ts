@@ -21,6 +21,7 @@ import type { EditOperation, EditPlan, GradeLook, TransitionStyle } from "@works
 import {
   captionLayout,
   nominalSizeFor,
+  widthInCaps,
   CAPTION_FACES,
   type CaptionFaceName,
   type CaptionLayout,
@@ -470,6 +471,21 @@ function animateCue(cue: CaptionCue, animation: string): string {
  * than pushed into the furniture.
  */
 export function wrapToLayout(cues: CaptionCue[], layout: CaptionLayout): CaptionCue[] {
+  /*
+    The width a line may draw to, in the same cap-height units the measurement
+    returns. Comparing in caps rather than in pixels keeps this independent of
+    which face the line ends up in — both are sized to the same cap height.
+
+    Guarded, because the failure without the guard is silent in the worst way.
+    A caller handing in a partial layout — `{ maxCharsPerLine, maxLines }`, as
+    one test did — makes this NaN, every `>` against NaN is false, and the
+    wrapper never breaks a line at all. No error, no warning: one very long
+    caption drawn as a single run across the frame. So an unusable width falls
+    back to the character count this function used before.
+  */
+  const measured = layout.usableWidth / layout.capHeight;
+  const allowed = Number.isFinite(measured) && measured > 0 ? measured : null;
+
   return cues.map((cue) => {
     const words = cue.text.split(/\s+/).filter(Boolean);
     const lines: string[] = [];
@@ -477,7 +493,20 @@ export function wrapToLayout(cues: CaptionCue[], layout: CaptionLayout): Caption
 
     for (const word of words) {
       const candidate = line ? `${line} ${word}` : word;
-      if (candidate.length > layout.maxCharsPerLine && line) {
+      // Measured, not counted.
+      //
+      // This was `candidate.length > layout.maxCharsPerLine`, and a character
+      // count is a fine estimate for ordinary prose and a bad one for
+      // anything else: `W` is three and a half times the width of `i`, so A
+      // LINE OF SHOUTING planned at eighteen characters drew past both
+      // margins. Nothing reported it, because libass silently rewrapped the
+      // overflow — and that rescue was itself putting extra lines on every
+      // caption. Both halves are fixed together or neither is.
+      const tooWide =
+        allowed === null
+          ? candidate.length > layout.maxCharsPerLine
+          : widthInCaps(candidate) > allowed;
+      if (tooWide && line) {
         lines.push(line);
         line = word;
       } else {
@@ -511,7 +540,31 @@ export async function writeSubtitleFile(
     "ScriptType: v4.00+",
     `PlayResX: ${frame.width}`,
     `PlayResY: ${frame.height}`,
-    "WrapStyle: 0",
+    /*
+      2 — no wrapping of our own. `\N` is the only break.
+
+      It was 0, "smart wrap", and smart wrap does not merely break lines that
+      are too long: it *rebalances* the whole event to make the lines even.
+      Every break `wrapToLayout` chose was then re-decided by libass, and the
+      isolate characters around each line — the two invisible codepoints that
+      make an Arabic sentence's full stop land at its end — threw the balance
+      off enough to add a line. A three-line caption drew as four; with
+      karaoke, where every word is its own layout run, it drew as five.
+
+      Nothing failed. The captions were legible, correctly timed, correctly
+      coloured, and a third taller than the block `caption-layout.ts` had
+      checked against the platform's safe area — so `collidesWithFurniture`
+      passed on three lines while five were drawn, climbing over the speaker's
+      face. It is the exact bug that module was written to prevent, arriving
+      through the one door it did not watch.
+
+      Turning it off is only safe because the wrapping above measures rather
+      than counts. Under WrapStyle 2 a line that is genuinely too wide runs off
+      the frame instead of wrapping, so the estimate has to be right — which is
+      what the advance table in `caption-layout.ts` is for, and what the
+      quality suite measures in drawn pixels.
+    */
+    "WrapStyle: 2",
     "ScaledBorderAndShadow: yes",
     "",
     "[V4+ Styles]",

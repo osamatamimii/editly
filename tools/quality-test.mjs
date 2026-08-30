@@ -58,8 +58,9 @@ const captionsMod = await import(bundle("artifacts/worker/src/captions.ts", "cap
 const enrichMod = await import(bundle("artifacts/worker/src/enrich.ts", "enrich.mjs"));
 
 const { renderPlan, probeSource, keepSegmentsFrom, remapTime, writeSubtitleFile, wrapToLayout } = ffmpegMod;
-const { captionLayout, safeAreaFor, collidesWithFurniture, nominalSizeFor, CAPTION_FACES } =
-  layoutMod;
+const {
+  captionLayout, safeAreaFor, collidesWithFurniture, nominalSizeFor, CAPTION_FACES, widthInCaps,
+} = layoutMod;
 
 let checks = 0;
 let failures = 0;
@@ -311,10 +312,52 @@ console.log("\nLines break where we chose, and never spill");
   const lines = wrapped.text.split("\n");
 
   check("it uses no more lines than the frame allows", lines.length <= layout.maxLines, `${lines.length}`);
+  const fits = (line) => widthInCaps(line.replace("…", "")) <= layout.usableWidth / layout.capHeight;
   check(
     "no line exceeds the usable width",
-    lines.every((l) => l.replace("…", "").length <= layout.maxCharsPerLine),
-    JSON.stringify(lines),
+    lines.every(fits),
+    // Measured, not counted. A character count is a fine estimate for prose
+    // and a bad one for anything else, which is the next check.
+    JSON.stringify(lines.map((l) => [l, widthInCaps(l).toFixed(1)])),
+  );
+
+  /*
+    The line the character count could not see.
+
+    `W` is 1.74 caps and `i` is 0.48 — three and a half times — so a line of
+    capitals fits half the characters a line of ordinary speech does. Against a
+    single average, this drew off both margins of the frame, and nothing said
+    so: libass rewrapped it, which looked like the caption working and was in
+    fact the renderer overruling the layout on every caption in the product.
+  */
+  const [shout] = wrapToLayout(
+    [{ startMs: 0, endMs: 2000, text: "WHAT NOBODY EVER TELLS YOU ABOUT ANY OF THIS" }],
+    layout,
+  );
+  check(
+    "a line of capitals is broken on its width, not on its character count",
+    shout.text.split("\n").every(fits),
+    JSON.stringify(shout.text.split("\n").map((l) => [l, widthInCaps(l).toFixed(1)])),
+  );
+  check(
+    "and it takes fewer characters per line than ordinary speech, because it is wider",
+    Math.max(...shout.text.split("\n").map((l) => l.replace("…", "").length)) <
+      Math.max(...lines.map((l) => l.replace("…", "").length)),
+    `${JSON.stringify(shout.text.split("\n"))} vs ${JSON.stringify(lines)}`,
+  );
+
+  // And the opposite direction, which is the quiet one. Arabic joins, so its
+  // letters are narrower than Latin — charging Latin widths for them would
+  // break every Arabic caption early and truncate the tail with an ellipsis.
+  const [arabic] = wrapToLayout(
+    [{ startMs: 0, endMs: 2000, text: "لا أحد يخبرك بهذا لكنه يغير كل شيء عن الطريقة" }],
+    layout,
+  );
+  check(
+    "an Arabic line is not broken early for being Latin-wide",
+    arabic.text.split("\n").every(fits) &&
+      Math.max(...arabic.text.split("\n").map((l) => l.length)) > layout.maxCharsPerLine,
+    JSON.stringify(arabic.text.split("\n").map((l) => [l.length, widthInCaps(l).toFixed(1)])),
   );
   check("no word is split across lines", lines.every((l) => !/\w-$/.test(l)), JSON.stringify(lines));
   check("an overlong cue says it was cut rather than spilling silently", wrapped.text.endsWith("…"), wrapped.text);
@@ -513,6 +556,149 @@ console.log("\nThe subtitle file itself is well formed");
   check("the play resolution matches the real frame", ass.includes(`PlayResX: ${frame.width}`), "");
   check("karaoke timing is per word, not per cue", (ass.match(/\\kf\d+/g) ?? []).length === 2, "");
   check("no unescaped braces leak into the text", !/[^\\]\{[^\\]/.test(ass.split("[Events]")[1] ?? ""), "");
+}
+
+/*
+  The captions, as pixels.
+
+  Everything above this reads the file the renderer wrote. A subtitle file can
+  be perfectly correct and still draw something else, because libass has
+  opinions — and it had one: `WrapStyle: 0` re-decided every line break the
+  layout had chosen, so a three-line caption drew as four and a karaoke caption
+  drew as five. Nothing failed. The captions were legible, correctly timed and
+  correctly coloured, in a block a third taller than the one checked against
+  the platform's safe area — so the collision test passed on three lines while
+  five climbed over the speaker's face.
+
+  No amount of reading the file finds that. This section renders the file and
+  counts the ink: how many rows of it there are, and where its edges land.
+*/
+console.log("\nAnd what libass actually draws");
+{
+  const frame = { width: 1080, height: 1920 };
+  const layout = captionLayout(frame, "tiktok");
+
+  const drawn = (text, style, animation, words) => {
+    const file = at(`draw-${animation}-${Math.random().toString(36).slice(2, 7)}.ass`);
+    const cue = { startMs: 0, endMs: 3000, text, ...(words ? { words } : {}) };
+    return writeSubtitleFile(file, wrapToLayout([cue], layout), style, animation, frame, layout).then(
+      () => {
+        const png = file.replace(/\.ass$/, ".png");
+        ff([
+          // Three seconds, and the frame taken at 1.2 — after `\fad` has
+          // finished bringing the caption in and after the `pop` overshoot has
+          // settled. A one-second source with `-ss 1.2` seeks past the end and
+          // writes an empty file, which measures as a caption that drew
+          // nothing: the same false pass this whole section exists to remove.
+          "-f", "lavfi", "-i", `color=c=black:s=${frame.width}x${frame.height}:d=3`,
+          "-vf", `subtitles=${file}`, "-ss", "1.2", "-frames:v", "1", png,
+        ]);
+        /*
+          The whole frame, in grey, measured pixel by pixel.
+
+          The first version of this squeezed the image to one column with area
+          averaging and thresholded the result, which is what the worker's own
+          Dockerfile does to prove its font is installed. It is the wrong tool
+          here: averaging a row across 1080 pixels turns a line of short
+          letters into a number below the floor, so one caption line measured
+          as two segments and the check failed on a frame that was correct. A
+          measurement that is noisy in the direction of "found a bug" is worse
+          than no measurement, because it teaches whoever reads it to ignore it.
+
+          Two megabytes of grey and a loop is exact, and this suite renders
+          real video anyway.
+        */
+        const grey = spawnSync("ffmpeg", [
+          "-v", "error", "-i", png, "-vf", "format=gray", "-frames:v", "1", "-f", "rawvideo", "-",
+        ], { maxBuffer: 1 << 26 }).stdout;
+
+        const width = frame.width;
+        const height = frame.height;
+        let lines = 0;
+        let previous = false;
+        let top = -1;
+        let bottom = -1;
+        let left = width;
+        let right = -1;
+        for (let y = 0; y < height; y += 1) {
+          let inked = false;
+          const row = y * width;
+          for (let x = 0; x < width; x += 1) {
+            // 40 of 255. Above the shadow and the anti-aliased fringe, well
+            // below the stroke of a letter.
+            if (grey[row + x] > 40) {
+              inked = true;
+              if (x < left) left = x;
+              if (x > right) right = x;
+            }
+          }
+          if (inked && !previous) lines += 1;
+          if (inked) {
+            if (top < 0) top = y;
+            bottom = y;
+          }
+          previous = inked;
+        }
+        if (right < 0) left = -1;
+
+        return { lines, top, bottom, left, right };
+      },
+    );
+  };
+
+  const speech = "nobody tells you this but it changes everything";
+  const perWord = speech.split(" ").map((text, i) => ({
+    text, startMs: i * 340, endMs: (i + 1) * 340,
+  }));
+
+  const planned = wrapToLayout([{ startMs: 0, endMs: 3000, text: speech }], layout).length;
+  const plannedLines = wrapToLayout(
+    [{ startMs: 0, endMs: 3000, text: speech }],
+    layout,
+  )[0].text.split("\n").length;
+
+  for (const [name, animation, words] of [
+    ["a plain caption", "none", null],
+    ["a caption that pops", "pop", null],
+    ["a caption timed to the voice", "karaoke", perWord],
+  ]) {
+    const ink = await drawn(speech, "bold-white", animation, words);
+    check(
+      `${name}: draws the number of lines the layout planned`,
+      ink.lines === plannedLines,
+      // The renderer adding a line is not a rendering detail: it is the layout
+      // being overruled, on the one screen it was written to protect.
+      `${ink.lines} drawn against ${plannedLines} planned`,
+    );
+    check(
+      `${name}: and stays inside the margins it was given`,
+      ink.left >= layout.marginL - 2 && ink.right <= frame.width - layout.marginR + 2,
+      `${ink.left}..${ink.right} against ${layout.marginL}..${frame.width - layout.marginR}`,
+    );
+    check(
+      `${name}: and clear of the platform's furniture`,
+      ink.bottom > 0 && frame.height - ink.bottom >= frame.height * safeAreaFor("tiktok").bottom - 2,
+      `${frame.height - ink.bottom}px of clearance, ${Math.round(frame.height * safeAreaFor("tiktok").bottom)} reserved`,
+    );
+  }
+  void planned;
+
+  // The case the character count could not see, measured where it matters.
+  const shout = await drawn("WHAT NOBODY EVER TELLS YOU ABOUT THIS", "bold-white", "none", null);
+  check(
+    "a line of capitals is drawn inside the margins too",
+    shout.left >= layout.marginL - 2 && shout.right <= frame.width - layout.marginR + 2,
+    `${shout.left}..${shout.right} against ${layout.marginL}..${frame.width - layout.marginR}`,
+  );
+
+  const arabic = await drawn("لا أحد يخبرك بهذا لكنه يغير كل شيء", "bold-white", "none", null);
+  check(
+    "and so is an Arabic one, in the face that has Arabic in it",
+    arabic.left >= layout.marginL - 2 &&
+      arabic.right <= frame.width - layout.marginR + 2 &&
+      arabic.lines > 0,
+    `${arabic.left}..${arabic.right}, ${arabic.lines} lines`,
+  );
 }
 
 await rm(workDir, { recursive: true, force: true });

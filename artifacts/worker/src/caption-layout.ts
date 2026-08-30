@@ -180,6 +180,123 @@ export type CaptionFaceName = keyof typeof CAPTION_FACES;
 const CAP_FRACTION_OF_SHORT_SIDE = 0.065 * 0.65;
 
 /**
+ * How wide each character is, in cap heights.
+ *
+ * Measured from the two caption faces' own metrics and merged by taking the
+ * **wider** of the two per character, so the estimate always falls outward.
+ * They agree closely — `M` is 1.363 caps in Montserrat Black and 1.365 in
+ * DejaVu Sans — which is why one table can serve both, and rounded up to the
+ * nearest 0.02 so it stays reviewable.
+ *
+ * ## Why a table and not an average
+ *
+ * There was an average, 0.85, and the average is right: the sample sentence
+ * below measures 0.851 across it. The trouble is that `W` is 1.74 and `i` is
+ * 0.48, a factor of three and a half, so a line of shouting fits half the
+ * characters a line of ordinary speech does. Against one average, A LINE LIKE
+ * THIS was planned at eighteen characters and drew off both edges of the
+ * frame.
+ *
+ * That did not show, because libass was quietly rescuing it — and the rescue
+ * was itself the bug this table exists to let us turn off. See `WrapStyle` in
+ * `writeSubtitleFile`.
+ */
+const ADVANCE_IN_CAPS: Array<[number, string]> = [
+  [0.42, "'"],
+  [0.48, " ijl"],
+  [0.52, "I|"],
+  [0.54, ",."],
+  [0.56, ":;"],
+  [0.58, "-"],
+  [0.62, "f"],
+  [0.64, "!()/[\\]"],
+  [0.66, "t"],
+  [0.68, "r"],
+  [0.72, "\"*_"],
+  [0.82, "Jsz"],
+  [0.86, "`"],
+  [0.88, "?c"],
+  [0.90, "L"],
+  [0.92, "vy"],
+  [0.94, "FTaex"],
+  [0.96, "$1235679"],
+  [0.98, "8Eo{}"],
+  [1.0, "0SZbpqu"],
+  [1.02, "4Ydghkn"],
+  [1.08, "CPR"],
+  [1.1, "KX"],
+  [1.12, "B"],
+  [1.14, "GUV"],
+  [1.16, "#+<=>AHN^~"],
+  [1.18, "D"],
+  [1.2, "&"],
+  [1.22, "OQ"],
+  [1.38, "%M"],
+  [1.4, "w"],
+  [1.5, "@m"],
+  [1.74, "W"],
+];
+
+const ADVANCE = new Map<string, number>();
+for (const [width, chars] of ADVANCE_IN_CAPS) {
+  for (const ch of chars) ADVANCE.set(ch, width);
+}
+
+/**
+ * What a character costs when it is not one of the 95 above.
+ *
+ * Three numbers, because one would be wrong for two of the three. All measured
+ * the same way — rendered through libass and the drawn pixels counted — and
+ * each rounded up from what came back.
+ *
+ * Arabic joins, so its letters are *narrower* than Latin ones: three real
+ * sentences measured 0.66, 0.73 and 0.68 caps per character. Using a Latin
+ * number for it would break every Arabic caption a third early and truncate
+ * the tail with an ellipsis — the quiet direction of this bug, where nothing
+ * fails and words are thrown away.
+ *
+ * CJK is the opposite: one character is a full square, 1.22 caps measured.
+ *
+ * Everything else — Cyrillic, Greek, accented Latin — behaves like Latin, and
+ * takes a number a little above Latin's own average.
+ */
+function fallbackAdvance(codePoint: number): number {
+  // Arabic, Hebrew, Syriac, Thaana, and the Arabic presentation forms.
+  if (
+    (codePoint >= 0x0590 && codePoint <= 0x08ff) ||
+    (codePoint >= 0xfb1d && codePoint <= 0xfdff) ||
+    (codePoint >= 0xfe70 && codePoint <= 0xfeff)
+  ) {
+    return 0.8;
+  }
+  // CJK, kana, Hangul, and the full-width forms.
+  if (
+    (codePoint >= 0x1100 && codePoint <= 0x11ff) ||
+    (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7af) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0xff00 && codePoint <= 0xff60)
+  ) {
+    return 1.3;
+  }
+  return 1.05;
+}
+
+/** How wide this string draws, in cap heights. */
+export function widthInCaps(text: string): number {
+  let total = 0;
+  for (const ch of text) {
+    // Bidi isolates and other formatting characters draw nothing. They are in
+    // the string because the renderer puts them there, and counting them would
+    // break a line early for characters with no ink.
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp === 0x2068 || cp === 0x2069 || (cp >= 0x200b && cp <= 0x200f)) continue;
+    total += ADVANCE.get(ch) ?? fallbackAdvance(cp);
+  }
+  return total;
+}
+
+/**
  * Average advance width as a multiple of **cap height**, not of the nominal
  * size — because that is the number the two faces agree on.
  *

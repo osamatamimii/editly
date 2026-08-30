@@ -854,7 +854,11 @@ console.log("\nThe highlight is chosen from the words, cut for real, and honest 
   const heardSeconds = Number(ffprobe(heard.output, "format=duration")[0]);
   check(
     "a heard highlight lands on the speech and says where",
-    heard.notes.some((n) => /strongest 6s — 1[23]/.test(n)),
+    // The em dash is gone from every note in the product, so the assertions
+    // that were written around one had to move with it. Matching the number is
+    // the part that matters: a note that says which seconds it kept is the
+    // difference between a claim and a receipt.
+    heard.notes.some((n) => /strongest 6s, 1[23]/.test(n)),
     JSON.stringify(heard.notes),
   );
   check("at roughly the asked length, allowing the word-boundary widening", heardSeconds > 5.4 && heardSeconds < 8, String(heardSeconds));
@@ -1016,7 +1020,9 @@ console.log("\nThe stretch they name is kept exactly, with honest clamping");
   check("the named stretch is the one that renders", bothSeconds > 6.4 && bothSeconds < 7.6, String(bothSeconds));
   check(
     "and the conflict is stated, not hidden",
-    both.notes.some((n) => /the stretch you named won/.test(n)),
+    // Case-insensitive: the note is two sentences now rather than one joined
+    // by a dash, so "the stretch you named won" begins one of them.
+    both.notes.some((n) => /the stretch you named won/i.test(n)),
     JSON.stringify(both.notes),
   );
 }
@@ -1483,7 +1489,9 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
   );
   check(
     "an overlap longer than the pieces allow is shrunk, and says so",
-    greedy.notes.some((n) => /dissolved between the cuts over 0\.\d\ds — shorter than asked, so the shortest piece/.test(n)),
+    greedy.notes.some((n) =>
+      /dissolved between the cuts over 0\.\d\ds, shorter than asked, so the shortest piece/.test(n),
+    ),
     JSON.stringify(greedy.notes),
   );
 }
