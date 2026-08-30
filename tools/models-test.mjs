@@ -374,6 +374,78 @@ console.log("\nFilling in what only the video knows");
   }
 
   /**
+   * What the plan actually needs ears for.
+   *
+   * An empty punch list means two different things and they look identical
+   * from here. An *emphasis* punch has none because the renderer is meant to
+   * place them on the words, which is a transcript. A *beat* punch has none
+   * because the renderer is meant to place them on the track's beat grid,
+   * which is decoded from the audio and owes nothing to what was said.
+   *
+   * Transcribing for the second is a provider call paid for, waited on and
+   * discarded — and when that provider is down it answers "we could not hear
+   * the words in this clip, so this render has no captions" on a render that
+   * never wanted any. Nothing fails; the edit is right and the bill and the
+   * notes are wrong.
+   */
+  {
+    let heard = 0;
+    const counting = {
+      ...withTranscriber,
+      transcriber: { name: "stub", transcribe: async () => { heard += 1; return transcript; } },
+    };
+
+    heard = 0;
+    await enrich.enrichPlan(
+      "unused.mp4",
+      { version: 1, operations: [{ type: "zoomPunch", on: "emphasis", at: [], amount: 0.13, holdMs: 900 }] },
+      { providers: counting },
+    );
+    check("a punch on the speaker's emphasis is worth listening for", heard === 1, `transcribed ${heard} times`);
+
+    heard = 0;
+    await enrich.enrichPlan(
+      "unused.mp4",
+      { version: 1, operations: [{ type: "zoomPunch", on: "beat", at: [], amount: 0.16, holdMs: 420 }] },
+      { providers: counting },
+    );
+    check("a punch on the beat is not", heard === 0, `transcribed ${heard} times for an edit that reads the music`);
+
+    // The symptom, rather than the call count: with the provider down, a plan
+    // that never wanted words was being told it had lost its captions.
+    const down = {
+      ...withTranscriber,
+      transcriber: { name: "stub", transcribe: async () => { throw new Error("provider is down"); } },
+    };
+    const beat = await enrich.enrichPlan(
+      "unused.mp4",
+      { version: 1, operations: [{ type: "zoomPunch", on: "beat", at: [], amount: 0.16, holdMs: 420 }] },
+      { providers: down },
+    );
+    check(
+      "and a transcriber that is down says nothing to a render that wanted no words",
+      !beat.notes.some((n) => /could not hear the words/.test(n)),
+      JSON.stringify(beat.notes),
+    );
+
+    // And the moment anything else in the plan wants words, they are fetched —
+    // so this is a narrowing, not a new way to lose captions.
+    heard = 0;
+    await enrich.enrichPlan(
+      "unused.mp4",
+      {
+        version: 1,
+        operations: [
+          { type: "zoomPunch", on: "beat", at: [], amount: 0.16, holdMs: 420 },
+          captionPlan.operations[0],
+        ],
+      },
+      { providers: counting },
+    );
+    check("unless the same plan also wants captions", heard === 1, `transcribed ${heard} times`);
+  }
+
+  /**
    * The language the audio was heard as, said only when it is not the one
    * they wrote in.
    *
