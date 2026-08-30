@@ -403,6 +403,36 @@ console.log("\nA beat punch the model forgot to give a beat");
     JSON.stringify(result.willDo),
   );
 
+  /**
+   * And the reply names the beat, which is the thing they asked for.
+   *
+   * The two-heads rule has a second edge nobody had checked: the matcher must
+   * not be able to express an *edit* the model cannot — that is the guard at
+   * the end of this file — but the model must also not describe an edit *worse*
+   * than the matcher does. It did. `describeAll` returned one sentence for
+   * `zoomPunch` regardless of `on`, so a beat-synced plan produced by the model
+   * was reported as "I'll punch in where you lean on a word": the music
+   * mentioned, the beat never. The matcher has said "on the beat of that track
+   * rather than on your voice" since beat punches existed, so a deployment with
+   * a key described the plan worse than one without — the rule pointing the
+   * wrong way.
+   *
+   * It matters beyond wording: if no steady pulse turns up, the worker drops
+   * the punches and says so in the render notes. Somebody who was never told
+   * the beat was involved has no way to connect those two sentences.
+   */
+  check(
+    "and the reply names the beat, not the voice",
+    /beat/i.test(result.willDo.map(inEnglish).join(" ")) &&
+      !/lean on a word/i.test(result.willDo.map(inEnglish).join(" ")),
+    JSON.stringify(result.willDo.map(inEnglish)),
+  );
+  check(
+    "in Arabic too, because the reply follows the request's language",
+    result.willDo.some((phrase) => /إيقاع/.test(phrase.ar ?? "")),
+    JSON.stringify(result.willDo),
+  );
+
   // With no track in the project there is no bed to lay, so the punch goes
   // back to the speaker's emphasis — an edit that works on any footage, and
   // the one they would have got had they never mentioned the music.

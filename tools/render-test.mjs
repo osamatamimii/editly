@@ -2146,6 +2146,48 @@ console.log("\nPunches land on the beat, or the render says why not");
     JSON.stringify(noMusic.notes),
   );
 
+  /**
+   * The punches last as long as the bed does.
+   *
+   * `beatsOf` reads the track, so its grid spans the *track*. The bed is laid
+   * with `-stream_loop -1` whenever `loop` is set, which is the default — so a
+   * long edit over a short loop kept hearing the pulse and stopped answering
+   * it: punches through the first pass and none after, under a note that said
+   * "put N punches on the beat, one a bar at 120 bpm".
+   *
+   * Thirty-two seconds of video over the same eight-second click track. Under
+   * the bug this reports the same number of punches as the eight-second edit,
+   * because the grid ran out at eight seconds either way.
+   */
+  const longClip = path.join(dir, "thirtytwo.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=32",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", longClip,
+  ]);
+  const punchCount = (notes) => {
+    const line = notes.find((n) => /on the beat, one a bar/.test(n)) ?? "";
+    return Number(line.match(/put (\d+) punches/)?.[1] ?? 0);
+  };
+  const longer = await renderPlan(longClip, beatPlan("clicks"), { workDir: await scratch(), assets: beatAssets });
+  const shortCount = punchCount(onBeat.notes);
+  const longCount = punchCount(longer.notes);
+  check(
+    "a 32s edit over an 8s loop gets punches past the first pass",
+    longCount > shortCount,
+    `8s edit: ${shortCount} punches · 32s edit: ${longCount} — the grid stopped where the track did`,
+  );
+  check(
+    "roughly one per bar throughout, not one per bar for a quarter of it",
+    longCount >= shortCount * 3,
+    `${longCount} vs ${shortCount} — four passes of the loop should be about four times the punches`,
+  );
+  check(
+    "and the longer file really is longer",
+    Number(ffprobe(longer.output, "format=duration")[0]) > 30,
+    JSON.stringify(ffprobe(longer.output, "format=duration")),
+  );
+
   await rm(dir, { recursive: true, force: true });
 }
 

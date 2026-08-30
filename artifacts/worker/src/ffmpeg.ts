@@ -121,6 +121,27 @@ export async function probeDuration(file: string): Promise<number> {
   return (await probeSource(file)).duration;
 }
 
+/**
+ * How long a file is, from the container, whatever streams it has.
+ *
+ * `probeDuration` goes through `probeSource`, which wants a video stream and
+ * throws "Could not read … as a video" on a music file. That is right for a
+ * source clip and wrong for a bed — and it was found the honest way: the first
+ * version of the beat-loop fix called `probeDuration(musicAsset.file)` with a
+ * `.catch(() => 0)` on it, which turned the throw into a zero, which turned the
+ * fix off. The catch hid the bug it was written to work around.
+ */
+export async function containerSeconds(file: string): Promise<number> {
+  const { stdout } = await run(FFPROBE, [
+    "-v", "error",
+    "-show_entries", "format=duration",
+    "-of", "csv=p=0",
+    file,
+  ]);
+  const seconds = Number(stdout.trim());
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+}
+
 export async function hasAudioStream(file: string): Promise<boolean> {
   const { stdout } = await run(FFPROBE, [
     "-v", "error",
@@ -1409,9 +1430,46 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         // The bed may start partway into the track, so a beat at 12.4s in the
         // file is at 12.4 − fromSeconds in the edit. Beats before the bed
         // starts are not beats anybody hears.
-        const onEdit = grid.beats
+        const firstPass = grid.beats
           .map((at) => at - music!.fromSeconds)
           .filter((at) => at >= 0);
+
+        /**
+         * The grid continues for as long as the bed does.
+         *
+         * `beatsOf` reads the track, so its beats span the track's own length —
+         * and the bed is laid with `-stream_loop -1` whenever `loop` is set,
+         * which is the schema's default. A ninety-second edit over a
+         * twenty-five-second loop therefore got punches in the first twenty-five
+         * seconds and none in the remaining sixty-five, while the note said
+         * "put 12 punches on the beat, one a bar at 120 bpm". True of a quarter
+         * of the video, false of the rest, and audibly so: the pulse keeps going
+         * and the picture stops answering it.
+         *
+         * The repeat starts past the intro too — `-ss` sits before `-i`, so
+         * every pass begins at `fromSeconds` — which makes the period on the
+         * edit clock the track's length minus that seek, not the track's length.
+         *
+         * The phase is allowed to shift at each seam. `everyNth` steps by index,
+         * so a pass whose beat count is not a multiple of four moves the bar
+         * line — which is exactly what the audio does there, because a loop that
+         * does not end on a bar has that seam in it. Following the seam is more
+         * honest than hiding it.
+         */
+        const trackSeconds = music!.loop ? await containerSeconds(musicAsset.file) : 0;
+        const loopPeriod = Math.max(0, trackSeconds - music!.fromSeconds);
+        const onEdit: number[] = [];
+        if (loopPeriod > 1 && effectiveDuration > loopPeriod && firstPass.length > 0) {
+          for (let pass = 0; pass * loopPeriod <= effectiveDuration; pass += 1) {
+            for (const at of firstPass) {
+              const shifted = at + pass * loopPeriod;
+              if (shifted > effectiveDuration) break;
+              onEdit.push(shifted);
+            }
+          }
+        } else {
+          onEdit.push(...firstPass);
+        }
         const at = everyNth({ ...grid, beats: onEdit }, 4, { from: 0, to: effectiveDuration }).slice(0, 40);
         if (at.length === 0) {
           notes.push(

@@ -793,7 +793,27 @@ function describeAll(operations: EditOperation[]): Phrase[] {
       case "kenBurns":
         return { en: "add a slow push so the frame is not static", ar: "أضيف حركة بطيئة كي لا تبقى الصورة ثابتة" };
       case "zoomPunch":
-        return { en: "punch in where you lean on a word", ar: "أقرّب الصورة عند الكلمات التي تشدّد عليها" };
+        // Two punches, two sentences.
+        //
+        // `on: "beat"` and the default are different operations wearing one
+        // name: one follows the music, the other follows the voice, and the
+        // worker decides where each lands from entirely different evidence.
+        // This returned the voice sentence for both, so somebody who typed "cut
+        // it to the beat", got a beat-synced plan, and had the bed added for
+        // them was told "I'll punch in where you lean on a word" — the thing
+        // they asked for never named, and if no steady pulse turns up the
+        // punches are dropped and that is said only in the render notes.
+        //
+        // The keyword matcher has said "on the beat of that track rather than
+        // on your voice" since beat punches existed. This is the model path, so
+        // until now the paid head described the plan *worse* than the free one
+        // — the two-heads rule pointing the wrong way.
+        return op.on === "beat"
+          ? {
+              en: "land the punches on the beat of that track rather than on your voice",
+              ar: "أُوقع التقريبات على إيقاع تلك المقطوعة بدل صوتك",
+            }
+          : { en: "punch in where you lean on a word", ar: "أقرّب الصورة عند الكلمات التي تشدّد عليها" };
       case "normalizeLoudness":
         return {
           en: "level the audio to what these platforms expect",
