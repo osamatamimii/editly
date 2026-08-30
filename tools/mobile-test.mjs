@@ -151,7 +151,7 @@ function fixtureFor(pathname) {
   if (/^\/api\/projects\/[^/]+\/messages$/.test(pathname)) {
     return [
       { id: "m1", role: "user", content: "Cut the silences and make it vertical for TikTok.", createdAt: "2026-08-24T09:00:00.000Z" },
-      { id: "m2", role: "assistant", content: "Done — removed 41 seconds of silence, reframed to 9:16, and levelled the audio to −14 LUFS.", createdAt: "2026-08-24T09:02:00.000Z" },
+      { id: "m2", role: "assistant", content: "Done. Removed 41 seconds of silence, reframed to 9:16, and levelled the audio to −14 LUFS.", createdAt: "2026-08-24T09:02:00.000Z" },
     ];
   }
   if (/\/clips$/.test(pathname)) return [];

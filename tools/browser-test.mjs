@@ -1577,12 +1577,35 @@ section("The em dash is out of the product's writing, and stays out");
    * JSX text — never at what the compiler throws away.
    */
   const ts = require("typescript");
-  const roots = ["artifacts/editly/src", "artifacts/api-server/src", "artifacts/worker/src"];
+  /*
+   * Every package, found rather than listed.
+   *
+   * This was three hardcoded paths under `artifacts/`, and it missed one:
+   * `lib/api-client-react` builds the sentence a person reads when any API call
+   * fails, and it was still joining a title to a detail with an em dash. A
+   * check that names its own scope will always be narrower than the codebase
+   * eventually is — so the scope is derived, and a package added tomorrow is
+   * inside it the day it appears.
+   */
+  const roots = [];
+  for (const group of ["artifacts", "lib"]) {
+    const base = path.join(repoRoot, group);
+    if (!existsSync(base)) continue;
+    for (const pkg of readdirSync(base, { withFileTypes: true })) {
+      if (!pkg.isDirectory()) continue;
+      const src = path.join(group, pkg.name, "src");
+      if (existsSync(path.join(repoRoot, src))) roots.push(src);
+    }
+  }
   const files = [];
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
+      if (entry.isDirectory()) {
+        if (entry.name === "dist" || entry.name === "generated") continue;
+        walk(full);
+      }
+      // Generated clients and build output are not this repo's writing.
       else if (/\.tsx?$/.test(entry.name)) files.push(full);
     }
   };

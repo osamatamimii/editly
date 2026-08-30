@@ -163,7 +163,11 @@ function buildErrorMessage(response: Response, data: unknown): string {
     getStringField(data, "error_description") ??
     getStringField(data, "error");
 
-  if (title && detail) return `${prefix}: ${title} — ${detail}`;
+  // A full stop, not a dash. This line builds a sentence a person reads when a
+  // request fails, and it sat outside the scan that took the em dash out of the
+  // product's writing, because that scan only looked at `artifacts/`. The check
+  // covers every package now.
+  if (title && detail) return `${prefix}: ${title}. ${detail}`;
   if (detail) return `${prefix}: ${detail}`;
   if (message) return `${prefix}: ${message}`;
   if (title) return `${prefix}: ${title}`;
