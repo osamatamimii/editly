@@ -7,6 +7,9 @@ import {
   StartExportParams,
   GetExportStatusParams,
   GetExportStatusResponse,
+  EditPlan,
+  type EditOperation,
+  type Platform,
 } from "@workspace/api-zod";
 import { serializeExport } from "../lib/transformers";
 import { planKeyFrom } from "../lib/plan-limits";
@@ -17,6 +20,60 @@ import { isDuplicateActiveJob, ALREADY_RENDERING } from "../lib/one-active-job";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 
 const router: IRouter = Router();
+
+/**
+ * What an export is a render *of*.
+ *
+ * It used to be a render of the original upload with two operations bolted on:
+ * cut the silences, frame it for the platform. Which meant the button sitting
+ * beside the finished edit, under a heading that says "Export Project", handed
+ * back **a different video** — no captions, no punches, no music, no titles,
+ * none of the work the person had just done in the chat. Nothing failed and
+ * nothing said so; the file simply was not the one on screen a moment earlier.
+ *
+ * An export is the same edit, framed for somewhere else. So it carries the
+ * operations of the last render that finished, changing only what has to
+ * change:
+ *
+ * - **`formatForPlatform` is replaced**, because choosing the platform is the
+ *   entire point of the screen.
+ * - **`watermark` is dropped**, because the mark is not the plan's to carry:
+ *   `decideRender` adds it from the subscription on every path, and a plan that
+ *   brought its own would either double it or smuggle one past a paying
+ *   customer.
+ * - **`extractClips` is dropped**, because an export is one file. A clips plan
+ *   asks for several, and the clips already exist as their own artifacts.
+ *
+ * Everything else is carried exactly, and the render starts from the original
+ * upload — which is what the operations were written against. Re-rendering the
+ * *edited* file instead would cut silences out of a video whose silences were
+ * already cut.
+ */
+const NOT_THE_PLAN_S_TO_CARRY = new Set(["watermark", "extractClips"]);
+
+/** What the export falls back to when this project has never been rendered. */
+const FIRST_EXPORT: EditOperation[] = [
+  { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+];
+
+function carryForward(previous: EditOperation[] | null, platform: Platform): EditOperation[] | null {
+  const kept = (previous ?? FIRST_EXPORT).filter((op) => !NOT_THE_PLAN_S_TO_CARRY.has(op.type));
+  const framed: EditOperation = { type: "formatForPlatform", platform };
+  const at = kept.findIndex((op) => op.type === "formatForPlatform");
+  if (at >= 0) {
+    // In place, so the reframe still happens where the edit expected it to.
+    return [...kept.slice(0, at), framed, ...kept.slice(at + 1)];
+  }
+  // No room, rather than a silent drop. Twelve is the plan's ceiling and the
+  // worker refuses a thirteenth outright, so quietly losing an operation here
+  // would be an export that is missing something nobody was told about.
+  if (kept.length >= MAX_OPERATIONS) return null;
+  return [...kept, framed];
+}
+
+/** `EditPlan` allows twelve. The worker parses with it and refuses a thirteenth. */
+const MAX_OPERATIONS = 12;
+
 
 /**
  * An export is a render, framed for one platform.
@@ -115,14 +172,44 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
   // had already drifted once: this one checked the allowance and that one did
   // not, which made the free plan's limit a limit only on this button.
   const planKey = planKeyFrom(sub?.plan);
+  /**
+   * The last render that finished, and what it did.
+   *
+   * `latest` above is the newest job whichever way it went — the right row for
+   * "is something already running". This is a different question: what is the
+   * edit this project *is*, which only a job that finished can answer.
+   */
+  const [lastDone] = await db
+    .select({ plan: jobsTable.plan })
+    .from(jobsTable)
+    .where(
+      and(
+        eq(jobsTable.projectId, project.id),
+        eq(jobsTable.userId, userId),
+        eq(jobsTable.status, "done"),
+      ),
+    )
+    .orderBy(desc(jobsTable.finishedAt))
+    .limit(1);
+
+  const previous = EditPlan.safeParse(lastDone?.plan);
+  const carried = carryForward(
+    previous.success ? previous.data.operations : null,
+    parsed.data.platform,
+  );
+  if (!carried) {
+    res.status(409).json({
+      error:
+        "This edit already uses every operation a plan can hold, so there is no room to add the platform framing. Ask for one fewer change and export again.",
+    });
+    return;
+  }
+
   const decision = decideRender({
     plan: planKey,
     usage: await usageFor(userId, planKey),
     sourceDurationSeconds: project.duration,
-    operations: [
-      { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
-      { type: "formatForPlatform", platform: parsed.data.platform },
-    ],
+    operations: carried,
   });
 
   if (!decision.allowed) {
