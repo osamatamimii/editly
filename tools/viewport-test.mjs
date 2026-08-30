@@ -85,6 +85,25 @@ const PROJECTS = [
   project("33333333-3333-4333-8333-333333333333", "Launch teaser", "ready"),
 ];
 
+/**
+ * A clip shot the way a phone shoots.
+ *
+ * Every fixture above is 1920x1080, and a landscape clip on a phone is bound by
+ * the width of the column — it can never be squeezed by the height the layout
+ * has spent on other things. So the editor rules ran, and passed, against the
+ * one shape that could not fail, while a 9:16 recording was rendering 129px
+ * wide on a 390px screen. The suite was not wrong; it was answering about a
+ * video nobody who uses this on a phone is editing.
+ *
+ * Kept out of PROJECTS so the dashboard fixtures still say three.
+ */
+const VERTICAL_PROJECT = project(
+  "44444444-4444-4444-8444-444444444444",
+  "Shot on a phone",
+  "done",
+  { width: 1080, height: 1920, editedWidth: 1080, editedHeight: 1920, duration: 21.4 },
+);
+
 const FIXTURES = {
   "/api/stats/dashboard": {
     totalProjects: 3, processingCount: 1, stalledCount: 0, doneCount: 1,
@@ -134,7 +153,7 @@ const FIXTURES = {
 function fixtureFor(pathname) {
   if (FIXTURES[pathname]) return FIXTURES[pathname];
   const id = pathname.match(/^\/api\/projects\/([^/]+)$/)?.[1];
-  if (id) return PROJECTS.find((p) => p.id === id) ?? PROJECTS[0];
+  if (id) return [...PROJECTS, VERTICAL_PROJECT].find((p) => p.id === id) ?? PROJECTS[0];
   if (pathname === "/api/admin/accounts") {
     return {
       total: 218,
@@ -395,7 +414,7 @@ const PAGES = [
     url: `/project/${PROJECTS[0].id}`,
     name: "the project editor",
     signedIn: true,
-    then: async (page, check) => {
+    then: async (page, check, viewport) => {
       /*
        * The scrubber has to be wide enough to scrub.
        *
@@ -439,6 +458,56 @@ const PAGES = [
         "and the video takes a real share of the width it has",
         Boolean(frame && frame.w >= frame.colW * 0.55),
         JSON.stringify(frame),
+      );
+
+    },
+  },
+  {
+    // The same editor, given the shape a phone actually records.
+    url: `/project/${VERTICAL_PROJECT.id}`,
+    name: "the project editor, holding a clip shot on a phone",
+    signedIn: true,
+    then: async (page, check, viewport) => {
+      if (!viewport.phoneRules) return;
+      /*
+       * A real share of the *screen*, not of the column.
+       *
+       * The ratio measured above is the right question on a laptop and not
+       * enough here, where the column is the screen and the frame was still
+       * 129px of it. A 9:16 clip is height-bound: what decides its width is how
+       * much height the layout has already spent on a conversation panel and a
+       * control bar under the picture, and neither of those is visible to a
+       * ratio taken inside the column.
+       *
+       * Two thirds, because that is roughly where a vertical clip stops looking
+       * like a thumbnail of a video and starts looking like the video. It is a
+       * floor, not a target.
+       */
+      const frame = await page.evaluate(() => {
+        const el = document.querySelector('[class*="force-dark"][class*="rounded-2xl"]');
+        if (!el) return null;
+        const f = el.getBoundingClientRect();
+        return { w: Math.round(f.width), h: Math.round(f.height) };
+      });
+      const view = page.viewportSize();
+      check(
+        "the picture is most of the screen, not a thumbnail of one",
+        Boolean(frame && view && frame.w >= view.width * 0.66),
+        JSON.stringify({ ...frame, screen: view?.width }),
+      );
+      // The height it needs has to come from somewhere, and where it comes from
+      // is the controls moving onto the picture. Named separately because the
+      // width above could also be reached by a layout that simply overflows.
+      check(
+        "because the play and scrub controls are on the picture rather than under it",
+        (await page.getByTestId("transport-on-picture").count()) > 0,
+      );
+      // And the thing they are on top of is still scrubbable.
+      const track = await page.getByTestId("input-scrubber").boundingBox();
+      check(
+        "and the scrubber under them is still a scrubber",
+        Boolean(track && view && track.width >= view.width * 0.35),
+        JSON.stringify({ track: track && Math.round(track.width), screen: view?.width }),
       );
     },
   },
@@ -816,7 +885,7 @@ for (const viewport of VIEWPORTS) {
 
     // Anything this page in particular has to say for itself. Written against
     // the phone flow, so they run there.
-    if (spec.then && viewport.hooks) await spec.then(page, check);
+    if (spec.then && viewport.hooks) await spec.then(page, check, viewport);
     await ctx.close();
   }
 }

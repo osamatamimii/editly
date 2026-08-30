@@ -262,6 +262,20 @@ export default function ProjectEditor() {
   const SIDE_COLUMN_GAP = 16;
   const sideBySide = Boolean(aspect && aspect < 1 && stage.w >= 820);
 
+  /**
+   * A phone, decided by measuring the stage rather than by a breakpoint,
+   * because it is the width the picture actually gets that causes this.
+   *
+   * On a phone the play/scrub/timecode row goes **over** the bottom of the
+   * picture instead of under it. The comment further down says a timeline
+   * belongs against the frame it scrubs, and it is right — but "under" and
+   * "over" are both against it, and only one of them costs the picture 68px of
+   * height it has none of. Every video app on a phone puts the controls on the
+   * picture, and it is not a style choice: on a 390px screen the difference is
+   * a 9:16 clip that fills the width and one that does not.
+   */
+  const controlsOnPicture = stage.w > 0 && stage.w < 560;
+
   /** Measured, because guessing it would either crop the picture or leave a gap. */
   const transportRef = useRef<HTMLDivElement>(null);
   const [transportHeight, setTransportHeight] = useState(0);
@@ -325,6 +339,9 @@ export default function ProjectEditor() {
   const picture = (() => {
     const ratio = aspect ?? 16 / 9;
     const availableW = stage.w - (sideBySide ? SIDE_COLUMN_WIDTH + SIDE_COLUMN_GAP : 0);
+    // Only what is actually *under* the picture is taken out of its height.
+    // On a phone that is the note-a-moment row; the controls are on the frame
+    // and cost it nothing.
     const availableH = stage.h - (transportHeight ? transportHeight + TRANSPORT_GAP : 0);
     if (availableW <= 0 || availableH <= 0) return null;
     const width = Math.min(availableW, availableH * ratio);
@@ -347,6 +364,12 @@ export default function ProjectEditor() {
    * had while they were still stacked. Measured live: 446px tall instead of 578.
    * It converges after one extra pass, because the second measurement does not
    * change which layout is in use.
+   *
+   * `controlsOnPicture` is there for exactly the same reason and is the same
+   * kind of trap: it is *derived from* the measurement it then changes. The
+   * box under the picture loses the play row when it flips, so the height read
+   * a moment ago is the height of a box that no longer exists. One extra pass
+   * settles it, because the new width does not cross the threshold back.
    */
   useLayoutEffect(() => {
     const el = stageRef.current;
@@ -372,7 +395,7 @@ export default function ProjectEditor() {
       window.removeEventListener("resize", measure);
       observer?.disconnect();
     };
-  }, [hasVideo, sideBySide]);
+  }, [hasVideo, sideBySide, controlsOnPicture]);
 
   /**
    * Projects made before posters existed have none, and the dashboard shows
@@ -845,30 +868,47 @@ export default function ProjectEditor() {
   }
 
   /**
-   * Play, scrub, timecode — always directly under the picture, as wide as the
-   * picture, whatever shape the clip is. A timeline that sits anywhere else is
-   * a timeline you have to go looking for.
+   * Play, scrubber, timecode. One set of controls, laid out two ways.
+   *
+   * A timeline belongs against the frame it scrubs — under it where there is
+   * room, on it where there is not. The two differ in more than position:
+   *
+   * `onPicture` is not a skin. Over video a control has no idea what colour is
+   * behind it, so the greys that read on the app's own surface read as nothing
+   * on a bright frame; white on a known scrim always reads.
+   *
+   * And the arrangement changes, because the row does not fit. On one line
+   * inside a 290px picture, the play button and the timecode leave the
+   * scrubber 114px — a third of what it has under a landscape clip, and below
+   * the width this suite calls scrubbable. So the scrubber takes its own line
+   * and the play button and timecode sit under it, which is what every video
+   * app on a phone does and for this reason.
    */
-  const transport = (
-    <div ref={transportRef} className="w-full rounded-xl glass-panel border border-hairline px-4 py-3">
-      <div className="flex items-center gap-3">
+  const transportControls = (onPicture: boolean) => {
+    const playButton = (
         <button
           onClick={togglePlay}
-          className="w-11 h-11 md:w-9 md:h-9 flex-shrink-0 rounded-full bg-surface-2 hover:bg-surface-2 flex items-center justify-center transition-colors"
+          className={`w-11 h-11 md:w-9 md:h-9 flex-shrink-0 rounded-full flex items-center justify-center transition-colors ${
+            onPicture
+              ? "bg-black/55 text-white backdrop-blur-md border border-white/20"
+              : "bg-surface-2 hover:bg-surface-2"
+          }`}
           aria-label={isPlaying ? "Pause" : "Play"}
           data-testid="button-scrub-play"
         >
           {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
         </button>
+    );
 
-        {/*
+    const scrubber = (
+        /*
           The scrubber and the marks on it, in one box.
           A note pinned to 0:26 that shows only as a row of text underneath is
           a list of timecodes, not a timeline: you cannot see where in the video
           your notes are, or that two of them are next to each other. The pins
           are the point of stopping on a second.
-        */}
-        <div className="relative flex-1 min-w-0">
+        */
+        <div className={`relative min-w-0 ${onPicture ? "w-full" : "flex-1"}`}>
         <input
           type="range"
           min={0}
@@ -885,11 +925,13 @@ export default function ProjectEditor() {
           // *hit* area 44px while `bg-clip-content` keeps the *paint* inside
           // the content box, so the scrubber still looks like a hairline and
           // is no longer a game of skill. The thumb grows on touch too.
-          className="w-full h-11 py-[1.15rem] md:h-1.5 md:py-0 bg-clip-content appearance-none rounded-full bg-surface-2 accent-primary cursor-pointer
+          className={`w-full h-11 py-[1.15rem] md:h-1.5 md:py-0 bg-clip-content appearance-none rounded-full accent-primary cursor-pointer ${
+            onPicture ? "bg-white/30" : "bg-surface-2"
+          }
                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 md:[&::-webkit-slider-thumb]:w-3.5
                      [&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
                      [&::-webkit-slider-thumb]:bg-secondary
-                     [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(155,107,255,0.8)]"
+                     [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(155,107,255,0.8)]`}
           data-testid="input-scrubber"
         />
 
@@ -923,18 +965,71 @@ export default function ProjectEditor() {
           })}
         </div>
         </div>
+    );
 
-        <span className="text-xs tabular-nums text-muted-foreground flex-shrink-0" data-testid="text-timecode">
+    const timecode = (
+        <span
+          className={`text-xs tabular-nums flex-shrink-0 ${
+            onPicture ? "text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]" : "text-muted-foreground"
+          }`}
+          data-testid="text-timecode"
+        >
           {formatTimecode(currentTime)} / {formatTimecode(playerDuration || project.duration || 0)}
         </span>
-      </div>
+    );
 
-      <MomentMarks
-        currentTime={currentTime}
-        marks={marks}
-        onChange={setMarks}
-        disabled={isNoahThinking || sendMessage.isPending || isProcessingEdit}
-      />
+    if (onPicture) {
+      return (
+        <div className="flex flex-col gap-0.5">
+          {scrubber}
+          <div className="flex items-center gap-3">
+            {playButton}
+            <span className="ml-auto">{timecode}</span>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex items-center gap-3">
+        {playButton}
+        {scrubber}
+        {timecode}
+      </div>
+    );
+  };
+
+  const momentMarks = (
+    <MomentMarks
+      currentTime={currentTime}
+      marks={marks}
+      onChange={setMarks}
+      disabled={isNoahThinking || sendMessage.isPending || isProcessingEdit}
+      spaced={!controlsOnPicture}
+    />
+  );
+
+  /**
+   * What sits under the picture. On a phone that is the note-a-moment row
+   * alone, because the controls are on the picture; everywhere else it is
+   * both, in the panel it has always been in.
+   *
+   * `transportRef` stays on whichever of the two it is, because the stage
+   * subtracts the measured height of *this* box from the room the picture
+   * gets — and measuring the wrong box is how a picture ends up sized for
+   * controls that are not there.
+   */
+  const transport = (
+    <div
+      ref={transportRef}
+      className={
+        controlsOnPicture
+          ? "w-full"
+          : "w-full rounded-xl glass-panel border border-hairline px-4 py-3"
+      }
+    >
+      {!controlsOnPicture && transportControls(false)}
+      {momentMarks}
     </div>
   );
 
@@ -1232,7 +1327,7 @@ export default function ProjectEditor() {
             <div
               ref={stageRef}
               className={`flex-1 lg:min-h-[34rem] flex-shrink-0 lg:flex-shrink-0 flex items-stretch justify-center gap-4 ${
-                chatOpen ? "min-h-[23rem]" : "min-h-[62dvh]"
+                chatOpen ? "min-h-[23rem]" : "min-h-[68dvh]"
               }`}
             >
               {/* Content-width, not flex-1: the frame and its controls read as
@@ -1366,6 +1461,27 @@ export default function ProjectEditor() {
                         AI Edited
                       </div>
                     )}
+
+                    {/* The controls, on the picture, on a phone. Above the
+                        play/pause hover layer so a tap on the scrubber scrubs
+                        rather than toggling playback, and inside a scrim
+                        because a white control over an unknown frame is only
+                        readable if something dark is put under it first. */}
+                    {controlsOnPicture && (
+                      <div className="absolute inset-x-0 bottom-0 z-30 px-2 pb-2 pt-10 bg-gradient-to-t from-black/70 to-transparent pointer-events-none">
+                        {/* A bar rather than only a gradient. A gradient over
+                            unknown footage gives an unknown contrast — over the
+                            bright half of a frame the timecode was white on
+                            pale grey — and "mostly readable" is not a floor.
+                            The bar is one known colour under every control. */}
+                        <div
+                          className="pointer-events-auto rounded-2xl bg-black/55 backdrop-blur-md border border-white/10 px-3 py-2"
+                          data-testid="transport-on-picture"
+                        >
+                          {transportControls(true)}
+                        </div>
+                      </div>
+                    )}
                 </div>
 
                 {/*
@@ -1385,7 +1501,9 @@ export default function ProjectEditor() {
                 <div
                   style={{
                     width:
-                      picture && picture.width >= USABLE_TRANSPORT_WIDTH ? `${picture.width}px` : "100%",
+                      !controlsOnPicture && picture && picture.width >= USABLE_TRANSPORT_WIDTH
+                        ? `${picture.width}px`
+                        : "100%",
                   }}
                 >
                   {transport}

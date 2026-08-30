@@ -57,11 +57,19 @@ export function MomentMarks({
   marks,
   onChange,
   disabled = false,
+  /**
+   * The gap above the row. It normally sits under the play/scrub controls and
+   * needs separating from them; on a phone the controls are on the picture and
+   * this is the only thing in its box, so the margin is a blank strip charged
+   * to the video's height.
+   */
+  spaced = true,
 }: {
   currentTime: number;
   marks: Mark[];
   onChange: (marks: Mark[]) => void;
   disabled?: boolean;
+  spaced?: boolean;
 }) {
   const [drafting, setDrafting] = useState(false);
   const [draft, setDraft] = useState("");
@@ -79,7 +87,7 @@ export function MomentMarks({
   };
 
   return (
-    <div className="mt-3" data-testid="moment-marks">
+    <div className={spaced ? "mt-3" : ""} data-testid="moment-marks">
       <div className="flex items-center gap-2 flex-wrap">
         <Button
           type="button"
