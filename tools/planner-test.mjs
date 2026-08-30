@@ -1005,6 +1005,44 @@ console.log("\nTitles: their words or none");
   const title = quoted.operations.find((o) => o.type === "motionTitle");
   check("a quoted phrase becomes the title", title?.text === "Half the price", JSON.stringify(title));
 
+  check("held as a card unless they asked for something else", title?.style === "card", JSON.stringify(title));
+
+  /**
+   * And kinetic when that is what was asked for.
+   *
+   * The style exists and the model can choose it. This is the matcher learning
+   * the same word — the direction the two-heads rule allows, since the cheap
+   * head may know less than the paid one and never more. It matters because the
+   * matcher is what answers when the model times out, and "the words came in as
+   * a slab today" is not a difference anybody reports as a bug.
+   */
+  for (const [ask, note] of [
+    ['add a kinetic title saying "Half the price"', "kinetic"],
+    ['title "Half the price" word by word', "word by word"],
+    ['put "Half the price" on it, one word at a time', "one at a time"],
+  ]) {
+    const kinetic = await planner.plan(ask, { assets: LIBRARY });
+    const op = kinetic.operations.find((o) => o.type === "motionTitle");
+    check(`"${note}" lands the words one at a time`, op?.style === "word", JSON.stringify(op));
+    check(
+      "and the reply says so, because the two look nothing alike on the frame",
+      kinetic.willDo.map(inEnglish).some((w) => /one at a time/.test(w)),
+      JSON.stringify(kinetic.willDo),
+    );
+  }
+
+  // Arabic, and with no word boundary in front of it — `\b` before an Arabic
+  // letter never matches, which is the trap this file has fallen into three
+  // times now.
+  const arabic = await planner.plan('اكتب "نصف السعر" كلمة كلمة', { assets: LIBRARY });
+  const arabicTitle = arabic.operations.find((o) => o.type === "motionTitle");
+  check("«كلمة كلمة» asks for the same thing", arabicTitle?.style === "word", JSON.stringify(arabicTitle));
+  check(
+    "and is answered in Arabic",
+    arabic.willDo.some((w) => /واحدةً واحدة/.test(w.ar ?? "")),
+    JSON.stringify(arabic.willDo),
+  );
+
   const unquoted = await planner.plan("put a title on it", { assets: LIBRARY });
   check(
     "and without quotes nothing is written for them",
