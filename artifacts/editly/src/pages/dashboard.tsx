@@ -586,7 +586,11 @@ export default function Dashboard() {
             </Badge>
             {subscription.minutesUsedThisMonth / subscription.minutesIncluded >= 0.8 && (
               <Link href="/#pricing">
-                <Button size="sm" className="bg-primary hover:bg-primary/90 text-white rounded-full text-xs h-8 px-4">
+                {/* No `bg-primary hover:bg-primary/90`: that is the default
+                    variant's own fill, plus a hover that fights `.aura-btn`'s.
+                    Two rules changing the same background on hover is one of
+                    them silently winning. */}
+                <Button size="sm" className="rounded-full text-xs h-8 px-4">
                   Upgrade
                 </Button>
               </Link>
@@ -811,7 +815,9 @@ export default function Dashboard() {
             <Button 
               onClick={handleCreate} 
               disabled={!newTitle.trim() || createProject.isPending}
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
+              /* The default variant already is this fill, and its hover is
+                 the aura ring rather than a lighter colour. */
+              className=""
               data-testid="button-submit-project"
             >
               {createProject.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}

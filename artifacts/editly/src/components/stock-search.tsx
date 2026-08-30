@@ -401,7 +401,12 @@ export function StockSearch({
                 onClick={() => void add(previewing)}
                 disabled={adding !== null}
                 data-testid="button-stock-add"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-all hover:bg-primary/90 disabled:opacity-50"
+                /* The same object as every other primary button in the app.
+                   It was a raw `bg-primary` rectangle with a lighten-on-hover,
+                   which is a different control wearing the same colour — and
+                   the seam shows most on the one sheet that sits on top of
+                   everything else. */
+                className="aura-btn no-default-hover-elevate inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 min-h-11 md:min-h-9 text-xs font-medium text-primary-foreground disabled:opacity-50"
               >
                 {adding === previewing.id ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />

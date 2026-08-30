@@ -452,6 +452,31 @@ async function measure(page) {
       .slice(0, 10)
       .map(({ e, r }) => `${e.tagName.toLowerCase()}"${(e.getAttribute("data-testid") || e.getAttribute("aria-label") || "").slice(0, 24)}" ${Math.round(r.width)}x${Math.round(r.height)}`);
 
+    /*
+      Buttons whose ring is being shaved off by the edge of the screen.
+
+      `.aura-btn` — the look this product's buttons have — draws its depth with
+      a box-shadow *spread*, and a spread is painted outside the element's box.
+      Layout knows nothing about it. So a button flush against a container's
+      padding passes every check above: it is inside its parent, nothing
+      overflows, the page does not scroll sideways, and the one control that is
+      supposed to look raised is drawn with a flat side. It was doing exactly
+      that to "Generate Edit" on every phone.
+
+      Five pixels because that is the spread in the class. Measured against the
+      viewport rather than the parent, because that is the edge that clips.
+    */
+    const RING = 5;
+    const shaved = [...document.querySelectorAll(".aura-btn, .aura-chip")]
+      .filter(visible)
+      .map((e) => ({ e, r: e.getBoundingClientRect() }))
+      .filter(({ r }) => r.left < RING || r.right > vw - RING)
+      .slice(0, 6)
+      .map(
+        ({ e, r }) =>
+          `${e.getAttribute("data-testid") || e.textContent?.trim().slice(0, 20) || e.tagName} left=${Math.round(r.left)} right=${Math.round(r.right)} of ${vw}`,
+      );
+
     return {
       scrollWidth: doc.scrollWidth,
       clientWidth: doc.clientWidth,
@@ -459,6 +484,7 @@ async function measure(page) {
       taps,
       tiny,
       collapsed,
+      shaved,
       title: document.title,
       // When the page does scroll sideways, say what pushed it.
       //
@@ -1082,6 +1108,12 @@ for (const viewport of VIEWPORTS) {
       "no control has collapsed to nothing",
       m.collapsed.length === 0,
       m.collapsed.join(" | "),
+    );
+
+    check(
+      "no button has its ring shaved off by the edge of the screen",
+      m.shaved.length === 0,
+      m.shaved.join(" | "),
     );
 
     if (viewport.phoneRules) {

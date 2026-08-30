@@ -1252,7 +1252,17 @@ export default function ProjectEditor() {
           icons but drop their words — the actions must stay reachable at
           390px, and a title that pushes them off the edge is a title read
           once at the cost of every edit after it. */}
-      <header className="h-16 flex-shrink-0 border-b border-hairline bg-background/50 backdrop-blur-md flex items-center justify-between gap-2 px-3 sm:px-6 z-10">
+      {/*
+        px-4 on a phone, not px-3.
+
+        `.aura-btn` draws its depth with a 5px box-shadow *spread*, and a
+        spread is painted outside the element's box. Layout does not know about
+        it, so every check passes — the button is inside its container, nothing
+        overflows, nothing scrolls sideways — and the ring is shaved flat down
+        the right edge of the screen. The one control on this header that is
+        supposed to look raised looked cut out instead.
+      */}
+      <header className="h-16 flex-shrink-0 border-b border-hairline bg-background/50 backdrop-blur-md flex items-center justify-between gap-2 px-4 sm:px-6 z-10">
         <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
           <BackButton fallback="/dashboard" />
           <div className="h-6 w-px bg-surface-2 hidden sm:block" />
@@ -1273,7 +1283,11 @@ export default function ProjectEditor() {
             <span className="hidden sm:inline">Export</span>
           </Button>
           <Button
-            className="glow-btn btn-gradient-cta text-white border-0"
+            /* The default variant, which is `.aura-btn`. It was `glow-btn
+               btn-gradient-cta` — the landing page's gradient CTA — so the most
+               important button inside the app was the one control that did not
+               match the app, and the two classes both wrote `box-shadow` with
+               one silently winning. */
             disabled={!hasVideo || isProcessingEdit || project.status === 'uploading'}
             onClick={handleGenerateEdit}
             data-testid="button-generate-edit"
