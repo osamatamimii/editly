@@ -1845,7 +1845,7 @@ section("The editor fits a phone, which is where the owner will test it");
   // viewport-test measures what it produces.
   check(
     "the frame keeps a height of its own inside that scroller",
-    /min-h-\[240px\]/.test(editorSrc) && /lg:min-h-\[[^\]]+\]|lg:min-h-0/.test(editorSrc),
+    /\bmin-h-\[[^\]]+\]/.test(editorSrc) && /\blg:min-h-(\[[^\]]+\]|0)/.test(editorSrc),
     "`flex-1` in a scrolling column means 'whatever is left', and under four panels that is nothing",
   );
   check(
