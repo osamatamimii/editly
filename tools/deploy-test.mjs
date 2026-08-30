@@ -453,11 +453,43 @@ console.log("\nThe platform watches itself");
     /on:[\s\S]*?schedule:[\s\S]*?cron:/.test(watch),
     "a monitor nobody triggers is a monitor nobody has",
   );
+  /**
+   * Read as minutes rather than as a spelling.
+   *
+   * The first version of this check matched a `slash-15` spelling literally,
+   * which asserted
+   * the *syntax somebody happened to write* rather than the property that
+   * matters — and it went red the moment the schedule was offset off the
+   * quarter hours for a real reason. A check that breaks when correct code is
+   * rewritten is a check on the author, not on the product. So the minute field
+   * is expanded and the widest gap between two runs is what gets asserted.
+   */
+  const minuteField = /cron:\s*"([^"]+?) \* \* \* \*"/.exec(watch)?.[1] ?? "";
+  const minutes = minuteField.startsWith("*/")
+    ? Array.from({ length: Math.ceil(60 / Number(minuteField.slice(2))) }, (_, i) => i * Number(minuteField.slice(2)))
+    : minuteField.split(",").map(Number).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+  const widestGap = minutes.length
+    ? Math.max(...minutes.map((m, i) => (i === 0 ? m + 60 - minutes[minutes.length - 1] : m - minutes[i - 1])))
+    : Infinity;
   check(
     "often enough that nothing is dead for an afternoon",
-    /cron:\s*"\*\/(\d+) \* \* \* \*"/.test(watch) &&
-      Number(/cron:\s*"\*\/(\d+) \* \* \* \*"/.exec(watch)[1]) <= 30,
-    /cron:.*/.exec(watch)?.[0],
+    minutes.length > 0 && widestGap <= 30,
+    `minutes ${JSON.stringify(minutes)} — widest gap ${widestGap}`,
+  );
+  /**
+   * And off the quarter hours.
+   *
+   * GitHub runs scheduled workflows on a shared pool and drops or delays them
+   * when it is busy, and the busiest minutes on that pool by a wide margin are
+   * :00, :15, :30 and :45 — where every quarter-hour cron in the world lands.
+   * A monitor
+   * whose own schedule is quietly skipped is the failure it exists to catch,
+   * one level up.
+   */
+  check(
+    "and off the minutes every other repository asks for",
+    minutes.every((m) => m % 15 !== 0),
+    `minutes ${JSON.stringify(minutes)}`,
   );
   check("and by hand when somebody wants to ask now", /workflow_dispatch:/.test(watch));
 
