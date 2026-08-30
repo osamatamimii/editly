@@ -15,6 +15,7 @@
 import type { EditOperation, EditPlan, Platform } from "@workspace/api-zod";
 import { buildCaptionCues, emphasisPoints } from "./captions";
 import { captionLayout } from "./caption-layout";
+import { defaultHeightFor, frameFor, shapeFor } from "./ffmpeg";
 import type { Providers } from "./providers";
 import { measureStyle, styleToSettings } from "./style-measure";
 import { applyReferenceStyle } from "./reference-style";
@@ -198,7 +199,8 @@ export async function enrichPlan(
       if (!transcript) continue; // The reason is already in `notes`.
       // Group the words for the space the target platform actually leaves, so
       // the grouping and the final wrap agree instead of fighting each other.
-      const layout = captionLayout(REFERENCE_FRAME, platformOf(plan));
+      const platform = platformOf(plan);
+      const layout = captionLayout(referenceFrameFor(platform), platform);
       const cues = buildCaptionCues(transcript, {
         dropFillers: operation.dropFillers,
         maxCharsPerLine: layout.maxCharsPerLine,
@@ -284,11 +286,28 @@ export async function enrichPlan(
 }
 
 /**
- * All three targets are 9:16, so one reference frame is enough to decide how
- * many characters fit on a line. The renderer re-wraps against the real output
- * size before burning, which is what catches an unusual export.
+ * The frame this plan will actually be rendered into.
+ *
+ * This was a constant, `{1080, 1920}`, under a comment saying "all three
+ * targets are 9:16" — true when the targets were TikTok, Reels and Shorts, and
+ * false from the moment YouTube and square were added to `Platform`. Nothing
+ * announced the change: the words were grouped for a 9:16 box and burned into a
+ * 16:9 one, and the renderer's re-wrap — described here as the safety net that
+ * "catches an unusual export" — caught it by silently cutting each cue down to
+ * its first line and appending an ellipsis.
+ *
+ * A safety net that discards two thirds of the words without saying so is not a
+ * safety net. It still runs, because the real output can differ from the
+ * default height; it just is not asked to do the grouping's job any more.
+ *
+ * Derived from the same functions the renderer uses to pick its frame, so the
+ * two cannot answer differently.
  */
-const REFERENCE_FRAME = { width: 1080, height: 1920 };
+function referenceFrameFor(platform: Platform | null): { width: number; height: number } {
+  const shape = shapeFor(platform);
+  const { w, h } = frameFor(defaultHeightFor(shape), shape);
+  return { width: w, height: h };
+}
 
 function platformOf(plan: EditPlan): Platform | null {
   const reframe = plan.operations.find((op) => op.type === "formatForPlatform");

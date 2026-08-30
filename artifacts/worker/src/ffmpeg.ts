@@ -1659,9 +1659,32 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
     const subtitlePath = path.join(ctx.workDir, "captions.ass");
     const layout = captionLayout({ width: frameWidth, height: frameHeight }, reframe?.platform ?? null);
+    const wrapped = wrapToLayout(cues, layout);
+    /**
+     * Words that did not survive the wrap, said out loud.
+     *
+     * `wrapToLayout` cuts a cue to `maxLines` and appends an ellipsis, which is
+     * the right thing to draw — a caption that spills climbs over the speaker's
+     * face. It is not the right thing to do *quietly*. Two thirds of every
+     * caption on every widescreen export was being discarded this way, and the
+     * note underneath said "burned 42 captions".
+     *
+     * The grouping upstream now uses the real frame, so this should be rare;
+     * a real output can still differ from the default height, and when it does
+     * the person is told which words are missing rather than left to notice.
+     */
+    const trimmed = wrapped.filter((cue, i) => cue.text.endsWith("…") && !cues[i].text.endsWith("…")).length;
+    if (trimmed > 0) {
+      notes.push(
+        t(
+          `${trimmed} caption${trimmed === 1 ? " was" : "s were"} too long for this frame, so ${trimmed === 1 ? "it ends" : "they end"} on an ellipsis rather than covering the picture`,
+          `${trimmed} كابشن أطول من أن يتّسع لها هذا الإطار، فتنتهي بعلامة حذف بدل أن تغطّي الصورة`,
+        ),
+      );
+    }
     await writeSubtitleFile(
       subtitlePath,
-      wrapToLayout(cues, layout),
+      wrapped,
       captions.style,
       captions.animation,
       { width: frameWidth, height: frameHeight },

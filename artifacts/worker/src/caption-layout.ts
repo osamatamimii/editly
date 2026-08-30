@@ -82,13 +82,26 @@ export interface CaptionLayout {
 /**
  * Caption size is a fraction of frame *width*, not a constant.
  *
- * 6.5% of the width is 70 px on a 1080-wide frame, which is the size short-form
- * captions have converged on — big enough to read at arm's length on a phone,
- * small enough that three or four words still fit on a line. Fixing the number
- * instead of the fraction means the same caption is unreadable on a 720p export
- * and absurd on a 4K one.
+ * 6.5% of the frame's **short side** is 70 px on a 1080×1920 frame, which is the
+ * size short-form captions have converged on — big enough to read at arm's
+ * length on a phone, small enough that three or four words still fit on a line.
+ * Fixing the number instead of the fraction means the same caption is
+ * unreadable on a 720p export and absurd on a 4K one.
+ *
+ * The short side, not the width, and that is the whole of a bug this file used
+ * to have. Read against the width it is right for a vertical frame, where the
+ * width *is* the short side — and on a 1920×1080 export the same fraction gives
+ * a 125 px face, 11.6% of the frame's height. The caption band is a quarter of
+ * the height, so exactly one line of that fits, and `wrapToLayout` truncated
+ * every cue to its first line with an ellipsis. The words were already grouped
+ * three lines deep by then, so roughly two thirds of every caption on every
+ * widescreen export was thrown away, and the note said `burned 42 captions`.
+ *
+ * Against the short side the caption is the same physical size relative to the
+ * frame in all three shapes, which is what "6.5%" was always meant to mean.
+ * Vertical and square are unchanged — their short side is their width.
  */
-const FONT_FRACTION_OF_WIDTH = 0.065;
+const FONT_FRACTION_OF_SHORT_SIDE = 0.065;
 
 /**
  * Characters per em for a bold sans face. DejaVu Sans Bold averages close to
@@ -105,7 +118,7 @@ export function captionLayout(
   platform: Platform | null | undefined,
 ): CaptionLayout {
   const safe = safeAreaFor(platform);
-  const fontSize = Math.round(frame.width * FONT_FRACTION_OF_WIDTH);
+  const fontSize = Math.round(Math.min(frame.width, frame.height) * FONT_FRACTION_OF_SHORT_SIDE);
 
   // Both margins take the rail's width so the block stays centred in the frame
   // rather than centred in the space left over, which would read as crooked.
