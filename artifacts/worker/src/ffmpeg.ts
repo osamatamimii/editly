@@ -382,8 +382,10 @@ function animateCue(cue: CaptionCue, animation: string): string {
         // The tokens come from this cue's own text, so they line up with its
         // words. When they do not — a provider whose text and word list
         // disagree — the line is drawn with what is left rather than dropped,
-        // and the timing degrades before the words do.
-        if (!word) return { text: token, cs: 0 };
+        // and the timing degrades before the words do. One centisecond rather
+        // than none: `\kf0` is a degenerate tag, and the whole file already
+        // holds every wipe above zero for that reason.
+        if (!word) return { text: token, cs: 1 };
         // `wrapToLayout` marks a truncated cue by appending the ellipsis to the
         // last token it kept. That mark belongs to the caption, not to the
         // word, so it is carried over rather than lost with the tail.
