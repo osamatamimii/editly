@@ -21,6 +21,8 @@ import { checkSchema, BEHIND_MESSAGE } from "../lib/schema-health";
 import { storageAdminConfigured, verifyStorageAdmin } from "../lib/storage";
 import { stockConfigured } from "../lib/stock";
 import { adminCount } from "../lib/admin";
+import { newestWorkerSeenAt } from "../lib/worker-presence";
+import { workerOnline } from "../lib/queue-health";
 
 const router: IRouter = Router();
 
@@ -62,6 +64,39 @@ async function capabilities(): Promise<{
   };
 }
 
+/**
+ * Is a machine that can render listening?
+ *
+ * Everything else here describes the API. This describes the product: with no
+ * worker beating, every render queues and none of them starts, while the API
+ * answers 200 to everything because nothing is wrong with the API. That is the
+ * shape of the 12 August outage, which ran for two days because the only thing
+ * that would have noticed it was somebody choosing to look.
+ *
+ * `newestWorkerSeenAt` caches for ten seconds, so a public endpoint cannot be
+ * turned into load on the database, and the cache is far shorter than the two
+ * minutes that separate online from offline — it cannot change the verdict.
+ *
+ * A null reaches here only as "the table has no rows": this line runs after
+ * `checkSchema` has already answered, and a database that could not be read
+ * has already been answered 503 above with no worker block at all. So a null
+ * is a deployment whose worker has never beaten — a real state, and one worth
+ * saying out loud — rather than a read we could not make.
+ */
+async function worker(): Promise<{ online: boolean; lastSeenAgoSeconds: number | null } | undefined> {
+  const lastSeenAt = await newestWorkerSeenAt();
+  if (lastSeenAt === null) {
+    // Never beaten. `lastSeenAgoSeconds: null` is what says so — offline with
+    // an age is a machine that stopped, offline with no age is one that was
+    // never there, and they are different problems.
+    return { online: false, lastSeenAgoSeconds: null };
+  }
+  return {
+    online: workerOnline(lastSeenAt),
+    lastSeenAgoSeconds: Math.max(0, Math.round((Date.now() - lastSeenAt.getTime()) / 1000)),
+  };
+}
+
 router.get("/healthz", async (_req, res): Promise<void> => {
   const schema = await checkSchema();
 
@@ -94,6 +129,11 @@ router.get("/healthz", async (_req, res): Promise<void> => {
       status: "ok",
       database: { reachable: true, missingColumns: [] },
       capabilities: await capabilities(),
+      // Deliberately not folded into `status`. A dead worker is not a broken
+      // API, and answering 503 here would tell every uptime check and deploy
+      // gate something untrue. It means something because something reads it:
+      // `.github/workflows/watch.yml`, every fifteen minutes.
+      worker: await worker(),
     }),
   );
 });
