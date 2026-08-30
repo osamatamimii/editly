@@ -60,7 +60,7 @@ if (built.status !== 0) {
   process.exit(1);
 }
 
-const { planFromText, replyFor } = await import(pathToFileURL(outfile).href);
+const { planFromText, replyFor, parseMoments } = await import(pathToFileURL(outfile).href);
 
 let checks = 0;
 let failures = 0;
@@ -513,6 +513,76 @@ for (const pair of PAIRS) {
       notes.every((n) => /[\u0600-\u06ff]/.test(n.ar)),
       JSON.stringify(notes.map((n) => n.ar)));
   }
+}
+
+/**
+ * Pointing at a moment, in both languages.
+ *
+ * `zoomPunch.at` is a list of seconds and the renderer has honoured it since it
+ * was written. Both heads sent an empty list every single time, which means
+ * "you choose" — so "punch in at 0:12" produced punches wherever the speaker
+ * happened to lean on a word, and nothing anywhere said the moment had been
+ * ignored. A capability that is built, tested and unreachable.
+ */
+console.log("\nA moment somebody points at");
+{
+  const punchAt = (text) => {
+    const op = (planFromText(text).operations ?? []).find((o) => o.type === "zoomPunch");
+    return op ? op.at : null;
+  };
+
+  const pairs = [
+    ["punch in at 0:12", "قرّب الصورة عند 0:12", [12]],
+    ["zoom at 1:05 and at 2:30", "زوم عند 1:05 وعند 2:30", [65, 150]],
+    ["punch in at second 45", "زوم عند الثانية 45", [45]],
+  ];
+  for (const [en, ar, want] of pairs) {
+    check(`«${en}» lands on ${want.join(", ")}`, JSON.stringify(punchAt(en)) === JSON.stringify(want), JSON.stringify(punchAt(en)));
+    check(`«${ar}» lands on the same seconds`, JSON.stringify(punchAt(ar)) === JSON.stringify(want), JSON.stringify(punchAt(ar)));
+  }
+
+  // The imperative, which is the word somebody actually types. The list had the
+  // noun and the loanword and not this, so the commonest phrasing matched
+  // nothing at all.
+  check("«قرّب الصورة» is a zoom at all", punchAt("قرّب الصورة") !== null, JSON.stringify(punchAt("قرّب الصورة")));
+
+  // ...and the four ways this must NOT fire, which is most of the work. A
+  // number in a sentence is a number; only a marker word makes it a moment.
+  check("a length is not a moment", punchAt("zoom and make it 12 seconds long")?.length === 0);
+  check("a named range is not a moment", punchAt("keep from 1:20 to 2:10 and punch in")?.length === 0);
+  check("«أبقِ من 1:20 إلى 2:10» is not a moment either", punchAt("زوم وأبقِ من 1:20 إلى 2:10")?.length === 0);
+  check("and asking for the beat still means the beat, not a moment", punchAt("punch in on the beat")?.length === 0);
+  check("parseMoments alone agrees", JSON.stringify(parseMoments("at 0:12 and at second 45")) === "[12,45]", JSON.stringify(parseMoments("at 0:12 and at second 45")));
+
+  // The reply has to name them, or the person cannot tell it heard the moment
+  // rather than deciding for itself — which is the entire difference.
+  /*
+   * The sentence the editor composes from timeline marks, parsed by the head
+   * that has to read it.
+   *
+   * `moment-marks.tsx` writes "At 0:26 punch in." and this file parses it, and
+   * they are in packages that deploy separately — so the format is written
+   * twice and this is what holds the two copies to each other. Change the
+   * template there without changing the parser here and the marks silently
+   * become prose with no moments in it, which is the failure this feature is
+   * most likely to have.
+   */
+  const composed = "At 0:26 punch in. At 1:40 punch in.";
+  check(
+    "the sentence the timeline marks compose is one the matcher can read",
+    JSON.stringify(parseMoments(composed)) === "[26,100]",
+    JSON.stringify(parseMoments(composed)),
+  );
+  check(
+    "and it produces a punch on exactly those seconds",
+    JSON.stringify(punchAt(composed)) === "[26,100]",
+    JSON.stringify(punchAt(composed)),
+  );
+
+  const said = replyFor(planFromText("punch in at 1:05"), { hasVideo: true });
+  check("and the reply says which moment it heard", /1:05/.test(said), said);
+  const saidAr = replyFor(planFromText("قرّب الصورة عند 1:05"), { hasVideo: true });
+  check("in Arabic too", /1:05/.test(saidAr) && /[\u0600-\u06ff]/.test(saidAr), saidAr);
 }
 
 await rm(buildDir, { recursive: true, force: true });

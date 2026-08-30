@@ -362,6 +362,49 @@ const RANGE_SECONDS = new RegExp(
 const RANGE_FIRST = /(?:\bfirst|\bopening|أول|اول)\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|ثانية|ثواني)/i;
 const RANGE_FIRST_MINUTES = /(?:\bfirst|\bopening|أول|اول)\s*(\d{1,3})?\s*(?:minutes?|دقيقة|دقائق)/i;
 
+/**
+ * Every single moment the sentence names, in seconds.
+ *
+ * A range says "keep this part"; a moment says "here, do this" — and until now
+ * nothing in this product could say the second one. The renderer has taken
+ * explicit punch times since it was written (`zoomPunch.at` is a list of
+ * seconds), and both heads always sent `at: []`, which means "you choose". So
+ * the capability existed, was tested, and was unreachable: there was no way for
+ * a person to point at 0:12.
+ *
+ * Deliberately narrow about what counts. "at 0:12" and «عند 0:12» are somebody
+ * pointing; a bare "12" in a sentence is a number, and reading it as a timecode
+ * would turn "make it 12 seconds long" into a punch at the twelfth second. The
+ * marker word is required.
+ *
+ * Ranges are left alone: `parseRange` runs on the same text and a moment inside
+ * "from 1:20 to 2:10" is that range's own edge, not a third instruction.
+ */
+export function parseMoments(asked: string): number[] {
+  const text = withAsciiDigits(asked);
+  const found = new Set<number>();
+  // `at 1:05` / `عند 1:05`, and the bare-seconds form with its unit spelled,
+  // which is what distinguishes it from any other number in the sentence.
+  const AT = String.raw`(?:\bat|\bon|عند|في)`;
+  const SECOND_NOUN = String.raw`(?:the\s+)?(?:second|الثانية|ثانية)`;
+  const MOMENT = new RegExp(
+    // "at 1:05", «عند 1:05» — a clock, which is unambiguous.
+    String.raw`${AT}\s*(?:${SECOND_NOUN}\s*)?(\d{1,3}):([0-5]\d)` +
+      // ...or a count of seconds with its unit said, in either order, which is
+      // what tells it apart from every other number in the sentence:
+      // "at second 45", "at 45 seconds", «عند الثانية 45».
+      String.raw`|${AT}\s*${SECOND_NOUN}\s*(\d{1,4})\b` +
+      String.raw`|${AT}\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|ثانية|ثواني)`,
+    "gi",
+  );
+  for (const m of text.matchAll(MOMENT)) {
+    const seconds =
+      m[1] !== undefined ? Number(m[1]) * 60 + Number(m[2]) : Number(m[3] ?? m[4]);
+    if (Number.isFinite(seconds) && seconds >= 0 && seconds <= 6 * 3600) found.add(seconds);
+  }
+  return [...found].sort((a, b) => a - b);
+}
+
 /** The stretch the sentence names, or null when it names none. */
 export function parseRange(asked: string): { startSeconds: number; endSeconds: number } | null {
   const text = withAsciiDigits(asked);
@@ -437,7 +480,17 @@ export function parseClips(typed: string): { count: number; targetSeconds: numbe
   return { count, targetSeconds };
 }
 
-const PUNCH_WORDS = /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b|زوم|تقريب|حماس|طاقة|حيوية/i;
+/*
+ * `قرّب` is here and bare `قرب` is not, and the difference is the shadda.
+ *
+ * The list had the noun (تقريب) and the loanword (زوم) but not the imperative,
+ * which is the word somebody actually types: «قرّب الصورة» is how you ask for
+ * this in Arabic and it matched nothing. Bare `قرب` stays out because it is
+ * also the preposition in «بالقرب من», and a matcher that punches in whenever
+ * somebody says "near" is worse than one that misses a spelling.
+ */
+const PUNCH_WORDS =
+  /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b|زوم|تقريب|قرّب|قرِّب|حماس|طاقة|حيوية/i;
 const PUSH_WORDS =
   /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b|زوم بطيء|تقريب بطيء|حركة بطيئة|حركة سينمائية|كين بيرنز/i;
 /**
@@ -636,8 +689,19 @@ export function planFromText(
     operations.push({ type: "kenBurns", to: 1.08 });
     willDo.push(say("add a slow push so the frame is not static", "أضيف حركة بطيئة كي لا تبقى الصورة ثابتة"));
   } else if (PUNCH_WORDS.test(text)) {
-    operations.push({ type: "zoomPunch", at: [], amount: 0.13, holdMs: 1000, on: "emphasis" });
-    willDo.push(say("punch in where you lean on a word", "أقرّب الصورة عند الكلمات التي تشدّد عليها"));
+    // Where they pointed, if they pointed anywhere. An empty list still means
+    // "you choose", and the worker still puts them on the emphasis — so a
+    // sentence with no moment in it behaves exactly as it always has.
+    const moments = parseMoments(text);
+    operations.push({ type: "zoomPunch", at: moments, amount: 0.13, holdMs: 1000, on: "emphasis" });
+    willDo.push(
+      moments.length > 0
+        ? say(
+            `punch in at ${moments.map(clockOf).join(", ")}`,
+            `أقرّب الصورة عند ${moments.map(clockOf).join("، ")}`,
+          )
+        : say("punch in where you lean on a word", "أقرّب الصورة عند الكلمات التي تشدّد عليها"),
+    );
   }
 
   if (LOUDNESS_WORDS.test(text)) {

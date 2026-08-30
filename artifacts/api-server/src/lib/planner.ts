@@ -134,6 +134,7 @@ function buildSchema(assets: PlannerAsset[]) {
             "look",
             "placement",
             "punchOn",
+            "punchAt",
             "transitionStyle",
             "gainDb",
             "duck",
@@ -182,6 +183,19 @@ function buildSchema(assets: PlannerAsset[]) {
              * make the product worse for the people paying for the better one.
              */
             punchOn: { type: ["string", "null"], enum: ["emphasis", "beat", null] },
+            /**
+             * The exact moments to punch on, in seconds, when the person named
+             * them.
+             *
+             * The renderer has taken a list of seconds here since it was
+             * written, and both heads sent an empty one every single time — so
+             * "punch in at 0:12" produced punches wherever the speaker happened
+             * to lean on a word, and nothing said that the moment had been
+             * ignored. The keyword matcher can name moments now; without this
+             * the model would be the head that *cannot*, which is the two-heads
+             * rule pointing the other way.
+             */
+            punchAt: { type: ["array", "null"], items: { type: "number" } },
             /**
              * For transition: which join.
              *
@@ -288,6 +302,9 @@ function instructionFor(assets: PlannerAsset[]): string {
     "for kinetic or animated text, or for a short punchy line rather than a sentence.",
     "Emojis they typed are their own words: if they ask for emojis and put some in the message, a motionTitle",
     "carrying those emojis is the right answer. If they ask for emojis and typed none, do not choose any.",
+    "zoomPunch takes punchAt, a list of seconds, when the person points at moments: 'punch in at 0:12', or a",
+    "set of marks they made on the timeline. Use their numbers exactly and convert clock times to seconds.",
+    "Leave punchAt null when they did not name any, which means the renderer chooses.",
     "zoomPunch has punchOn: emphasis puts the punches where the speaker leans on a word, beat puts them on the",
     "music instead. Choose beat only when they asked for the cuts to follow the beat, and only when this project",
     "has a track to follow. Otherwise emphasis.",
@@ -556,9 +573,31 @@ function toOperation(
         // about this operation — it depends on whether a bed is under the edit,
         // which is a different operation entirely. It is decided once, in
         // `pairBeatWithMusic`, after everything the model chose is known.
+        // Moments the person named, kept only when they are real numbers on a
+        // real clock. An empty list still means "you choose".
+        const named = Array.isArray(raw["punchAt"])
+          ? (raw["punchAt"] as unknown[])
+              .map((n) => (typeof n === "number" ? n : Number.NaN))
+              .filter((n) => Number.isFinite(n) && n >= 0 && n <= 6 * 3600)
+              .sort((a, b) => a - b)
+          : [];
         return {
           type,
-          at: [],
+          /*
+           * Kept even when the ask was "on the beat", because the renderer has
+           * already decided this question and decided it the other way.
+           *
+           * `ffmpeg.ts` reaches for the beat grid only `if (on === "beat" &&
+           * at.length === 0)` — an explicit moment is more specific than "the
+           * beat", so it wins there. Clearing the list here would have been
+           * this file quietly overruling the file that actually runs, and the
+           * two would have disagreed about the same question with no error
+           * anywhere. Worse in the common case: a beat punch with no music
+           * under it is demoted to emphasis later, and the moment somebody
+           * named would have been thrown away on the way to a placement they
+           * never asked for.
+           */
+          at: named.slice(0, 24),
           amount: numberOr(raw["punchAmount"], 0.13),
           holdMs: 1000,
           on: raw["punchOn"] === "beat" ? "beat" : "emphasis",

@@ -69,6 +69,73 @@ const answering = (operations, extra = {}) => async () =>
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
 
+console.log("\nThe moments a person points at reach the plan");
+{
+  /*
+   * `zoomPunch.at` is a list of seconds the renderer has honoured since it was
+   * written, and every plan either head produced sent it empty — which means
+   * "you choose". So the product could not say "here". The matcher can now;
+   * this is the other head, which must not be the one that cannot.
+   */
+  const planner = createPlanner({
+    apiKey: "k",
+    fetchImpl: answering([{ type: "zoomPunch", punchAt: [12, 65.5], punchOn: "emphasis", punchAmount: 0.2 }]),
+  });
+  const named = await planner.plan("punch in at 0:12 and 1:05", {});
+  const punch = named.operations.find((o) => o.type === "zoomPunch");
+  check("the model can name moments", JSON.stringify(punch?.at) === "[12,65.5]", JSON.stringify(punch));
+  check("and its amount survives with them", punch?.amount === 0.2, JSON.stringify(punch));
+
+  /*
+   * Asked for the beat *and* a moment, the moment survives — because the
+   * renderer already decided this and decided it that way.
+   *
+   * `ffmpeg.ts` reaches for the beat grid only when `at` is empty, so an
+   * explicit second is more specific than "the beat" there. The first version
+   * of this planner cleared the list instead, which would have been one file
+   * quietly overruling the file that runs. The check is written against the
+   * renderer's rule, not against the planner's, so the two cannot drift apart
+   * without this going red.
+   */
+  const beat = createPlanner({
+    apiKey: "k",
+    fetchImpl: answering([{ type: "zoomPunch", punchAt: [12], punchOn: "beat" }]),
+  });
+  const onBeat = (await beat.plan("punch on the beat at 0:12", {})).operations.find((o) => o.type === "zoomPunch");
+  check("a named moment survives a beat ask", JSON.stringify(onBeat?.at) === "[12]", JSON.stringify(onBeat));
+  // And with no track in this project the beat itself is demoted to emphasis,
+  // which is existing behaviour — the point is that the moment is not demoted
+  // with it.
+  check("and is not thrown away when the beat cannot be honoured", onBeat?.at?.length === 1, JSON.stringify(onBeat));
+
+  // Whatever comes back has to be numbers on a real clock. A model that
+  // answers with a string, a negative, or a week is answering wrongly, and the
+  // renderer must never be handed it.
+  const junk = createPlanner({
+    apiKey: "k",
+    fetchImpl: answering([
+      { type: "zoomPunch", punchAt: ["twelve", -4, 1e9, 30, null, 12], punchOn: "emphasis" },
+    ]),
+  });
+  const cleaned = (await junk.plan("punch in", {})).operations.find((o) => o.type === "zoomPunch");
+  check(
+    "nonsense moments are dropped rather than passed on",
+    JSON.stringify(cleaned?.at) === "[12,30]",
+    JSON.stringify(cleaned),
+  );
+
+  const none = createPlanner({
+    apiKey: "k",
+    fetchImpl: answering([{ type: "zoomPunch", punchAt: null, punchOn: "emphasis" }]),
+  });
+  const chose = (await none.plan("punch in", {})).operations.find((o) => o.type === "zoomPunch");
+  check(
+    "naming none still means 'you choose', exactly as before",
+    JSON.stringify(chose?.at) === "[]",
+    JSON.stringify(chose),
+  );
+}
+
 console.log("\nWith no key at all");
 {
   const planner = createPlanner({ apiKey: "" });

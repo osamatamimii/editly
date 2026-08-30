@@ -52,6 +52,7 @@ import { ProjectLibrary } from "@/components/project-library";
 import { ProjectClips, getListClipsQueryKey } from "@/components/project-clips";
 import { takePendingUpload } from "@/lib/pending-upload";
 import { VoiceInput } from "@/components/voice/voice-input";
+import { MomentMarks, marksToSentence, type Mark } from "@/components/moment-marks";
 
 /** m:ss — anything longer than an hour is not what this product is for. */
 function formatTimecode(seconds: number): string {
@@ -104,6 +105,14 @@ export default function ProjectEditor() {
    */
   const [decodedAspect, setDecodedAspect] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  /*
+   * Moments somebody stopped on and gave a direction for.
+   *
+   * Held here rather than on the server: they are a way of composing the
+   * sentence, not a second kind of instruction, and they are folded into the
+   * chat input when the edit is generated. See `moment-marks.tsx`.
+   */
+  const [marks, setMarks] = useState<Mark[]>([]);
   const [playerDuration, setPlayerDuration] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   /** The area the picture gets to live in, measured rather than assumed. */
@@ -505,10 +514,25 @@ export default function ProjectEditor() {
   };
 
   const handleSendChat = async () => {
-    if (!chatInput.trim() || !id) return;
-    
-    const content = chatInput;
+    /*
+     * The marks are folded in here, at the moment of sending, and this is the
+     * only place they exist as words.
+     *
+     * They go in front of whatever was typed, because they are the specific
+     * instructions and the sentence is the general one — "At 0:12 punch in. At
+     * 0:45 punch in. And cut the dead air" reads in the order the person meant
+     * it. Both heads of the planner parse `at m:ss`, so this needs no transport
+     * of its own and inherits every rule the typed path already has.
+     *
+     * Sending with marks and no sentence is legitimate: pointing at three
+     * moments *is* the instruction.
+     */
+    const spoken = marksToSentence(marks);
+    const content = [spoken, chatInput.trim()].filter(Boolean).join(" ");
+    if (!content || !id) return;
+
     setChatInput("");
+    setMarks([]);
 
     setIsNoahThinking(true);
     try {
@@ -777,6 +801,13 @@ export default function ProjectEditor() {
           {formatTimecode(currentTime)} / {formatTimecode(playerDuration || project.duration || 0)}
         </span>
       </div>
+
+      <MomentMarks
+        currentTime={currentTime}
+        marks={marks}
+        onChange={setMarks}
+        disabled={isNoahThinking || sendMessage.isPending || isProcessingEdit}
+      />
     </div>
   );
 
@@ -1374,7 +1405,7 @@ export default function ProjectEditor() {
               <Button 
                 type="submit"
                 size="icon"
-                disabled={!chatInput.trim() || !hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
+                disabled={(!chatInput.trim() && marks.length === 0) || !hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 className="absolute right-1 top-1 h-10 w-10 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary/90 hover:shadow-[0_0_15px_rgba(155,107,255,0.6)] transition-all"
                 data-testid="button-send-message"
               >

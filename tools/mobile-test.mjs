@@ -519,6 +519,58 @@ const PAGES = [
       check("the sheet closes when it is done", !(await sheet.isVisible()), "");
     },
   },
+  {
+    /*
+     * The other way to ask for an edit: stop on a second and say what happens
+     * there.
+     *
+     * The assertion that matters is the last one. A mark is not a new kind of
+     * instruction — it is folded into the same sentence typing produces, in the
+     * form both heads of the planner already parse. If it ever became its own
+     * request, every refusal, every language rule and every limit would have to
+     * exist twice.
+     */
+    url: `/project/${PROJECTS[0].id}`,
+    name: "directing one moment rather than the whole video",
+    signedIn: true,
+    then: async (page, check) => {
+      const add = page.getByTestId("button-add-mark");
+      check("a moment can be noted from the player", (await add.count()) === 1, String(await add.count()));
+
+      // Park the playhead somewhere that is not zero, so "it used the time"
+      // and "it used a default" cannot look the same.
+      await page.getByTestId("input-scrubber").evaluate((el) => {
+        const input = el;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+        setter?.call(input, "26");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await page.waitForTimeout(150);
+
+      await add.click();
+      const at = await page.getByTestId("text-mark-time").innerText();
+      check("the note is pinned to where the playhead is", at.trim() === "0:26", at);
+
+      await page.getByTestId("input-mark").fill("punch in");
+      await page.getByTestId("button-save-mark").click();
+      await page.waitForTimeout(150);
+
+      const listed = await page.getByTestId("list-marks").innerText();
+      check("and it is listed with its timecode", /0:26/.test(listed) && /punch in/.test(listed), listed);
+
+      // With a mark and nothing typed, the send button has to be live: pointing
+      // at a moment is the whole instruction.
+      const send = page.getByTestId("button-send-message");
+      check("sending is possible with a mark and no sentence", !(await send.isDisabled()), "");
+
+      // Removing it puts everything back, including the button.
+      await page.getByTestId("button-remove-mark").click();
+      await page.waitForTimeout(150);
+      check("removing the note empties the list", (await page.getByTestId("list-marks").count()) === 0, "");
+      check("and the send button goes back to needing words", await send.isDisabled(), "");
+    },
+  },
   { url: "/nowhere-at-all", name: "a page that is not there", signedIn: false },
 ];
 
