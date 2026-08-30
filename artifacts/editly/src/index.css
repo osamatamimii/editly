@@ -121,7 +121,6 @@
 
   --font-sans: var(--app-font-sans);
   --font-display: var(--app-font-display);
-  --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
 
   --radius-sm: calc(var(--radius) - 4px);
@@ -294,14 +293,16 @@
    * beside a carefully set English line — in a product where half of what is
    * rendered is Arabic.
    *
-   * Instrument Serif is italic-only and used once or twice, for a phrase that
-   * should read as a voice rather than as a label. It is deliberately not in
-   * any heading rule: an italic serif has no Arabic, so anything that leans on
-   * it structurally would collapse the moment this interface is translated.
+   * There was a third face here — Instrument Serif Italic, because the pairing
+   * of a heavy sans with an italic serif is what makes a certain kind of page
+   * look expensive. It was loaded on every visit and used by nothing, and it is
+   * not coming back: Arabic has no italic, so a typographic idea built on a
+   * slanted serif has no second half in the other language this ships in. The
+   * contrast is carried by weight, size and colour instead, which every font
+   * here already has and which survives translation.
    */
   --app-font-sans: 'Inter', 'IBM Plex Sans Arabic', system-ui, -apple-system, sans-serif;
   --app-font-display: 'Cabinet Grotesk', 'Inter', 'IBM Plex Sans Arabic', system-ui, sans-serif;
-  --app-font-serif: 'Instrument Serif', Georgia, serif;
   --app-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius: 0.75rem;
 

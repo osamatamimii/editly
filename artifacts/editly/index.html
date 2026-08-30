@@ -42,7 +42,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
+    <!--
+      Two families, not three. Instrument Serif Italic was here because the
+      competitor's page pairs a heavy sans with an italic serif and it looks
+      expensive — and then nothing in this app ever used it, so every visitor
+      paid a round trip and a font face to render nothing.
+
+      It is not coming back either, and the reason is structural rather than
+      taste: Arabic has no italic. A page whose typographic idea is a slanted
+      serif has no second half in the other language it ships in, and the
+      contrast has to be carried by weight, size and colour — which every font
+      here already has. That is what the hero does.
+    -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@500,700,800,900&display=swap" rel="stylesheet">
     <!--
       Runs before the first paint, on purpose.
