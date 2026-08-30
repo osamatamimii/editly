@@ -844,6 +844,17 @@ export interface RenderResult {
    * of a null the meter would read as free.
    */
   estimatedSeconds: number;
+  /**
+   * Whether this render was built to come out with sound.
+   *
+   * The renderer already decides this — `source.hasAudio || musicUsable` — and
+   * maps an audio stream on the strength of it. The reviewer used to decide it
+   * again from `sourceHadAudio` alone, which is a different question: a silent
+   * clip with a bed under it comes out with sound the source never had, so the
+   * reviewer skipped the level it was asked to check and never noticed the mix
+   * missing its target. One decision, made once, carried forward.
+   */
+  hasAudioOut: boolean;
 }
 
 type Op<T extends EditOperation["type"]> = Extract<EditOperation, { type: T }>;
@@ -2172,7 +2183,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
   if (notes.length === 0) notes.push(t("re-encoded with no changes requested", "أُعيد الترميز بلا أي تغيير مطلوب"));
   ctx.onProgress?.(1, "finishing");
-  return { output, notes, sourceSeconds: source.duration, estimatedSeconds: effectiveDuration };
+  return { output, notes, sourceSeconds: source.duration, estimatedSeconds: effectiveDuration, hasAudioOut };
 }
 
 /**

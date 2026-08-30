@@ -1666,6 +1666,99 @@ console.log("\nThe worker looks at what it made before handing it over");
     JSON.stringify(drifted),
   );
 
+  // A silent clip with a bed under it.
+  //
+  // The whole review used to be gated on the *source* having had audio, which
+  // is a different question from whether the output was built to have any. A
+  // music-only edit — silent footage, a track laid under it, a level asked for
+  // — comes out with sound the source never had, so every check below was
+  // skipped and the mix could ship at any loudness at all with nothing said.
+  // The renderer already knows the answer (`source.hasAudio || musicUsable`)
+  // and now hands it over rather than being second-guessed here.
+  const bed = path.join(dir, "music-only.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=6",
+    "-f", "lavfi", "-i", "sine=frequency=330:duration=6",
+    "-filter_complex", "[1:a]volume=0.05[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", bed,
+  ]);
+  const silentSource = path.join(dir, "silent-source.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=6",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", silentSource,
+  ]);
+  const bedPlan = [
+    { type: "normalizeLoudness", targetLufs: -14 },
+    { type: "addMusic", assetId: "bed", gainDb: -18, duck: true },
+  ];
+
+  // What it used to do, spelled out: with only the source to go on, the review
+  // has nothing to say about a mix that is 17 LU off target.
+  const blind = await reviewOutput(bed, {
+    operations: bedPlan,
+    sourcePath: silentSource,
+    sourceHadAudio: false,
+    expectedSeconds: 6,
+    workDir: dir,
+  });
+  check(
+    "a silent source alone tells the review nothing about the mix it has to check",
+    blind.repaired === false && blind.measuredLufs === null,
+    JSON.stringify(blind),
+  );
+
+  const bedBefore = measureLoudness(bed);
+  check("the bed really is off target to start with", bedBefore < -20, `${bedBefore} LUFS`);
+  const laid = await reviewOutput(bed, {
+    operations: bedPlan,
+    sourcePath: silentSource,
+    sourceHadAudio: false,
+    expectedAudio: true,
+    workDir: dir,
+    expectedSeconds: 6,
+  });
+  check(
+    "but told the render laid music, it measures and repairs the music-only mix",
+    laid.repaired === true,
+    JSON.stringify(laid),
+  );
+  check(
+    "and the corrected bed lands on the target the plan asked for",
+    Math.abs(measureLoudness(bed) + 14) <= 1.2,
+    `${measureLoudness(bed)} LUFS`,
+  );
+
+  // And the other half of the same field: a render built to have sound that
+  // comes out without any is a dropped link, whether the sound was the
+  // speaker's or a bed laid under them.
+  const bedLost = path.join(dir, "bed-lost.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=6",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", bedLost,
+  ]);
+  const lost = await reviewOutput(bedLost, {
+    operations: bedPlan,
+    sourcePath: silentSource,
+    sourceHadAudio: false,
+    expectedAudio: true,
+    expectedSeconds: 6,
+    workDir: dir,
+  });
+  check(
+    "a bed that never reached the file is raised rather than passing as a silent clip",
+    lost.warnings.some((w) => /music was laid/.test(w)),
+    JSON.stringify(lost.warnings),
+  );
+  check(
+    "and it is not blamed on the footage, which had no sound to lose",
+    lost.notes.some((n) => /fault on our side/.test(n)),
+    JSON.stringify(lost.notes),
+  );
+
   await rm(dir, { recursive: true, force: true });
 }
 

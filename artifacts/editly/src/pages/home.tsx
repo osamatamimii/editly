@@ -8,24 +8,84 @@ import { useAuth } from "@/lib/auth";
 import { Logo } from "@/components/logo";
 import { PLANS, SHARED_FEATURES, FREE_TIER } from "@/lib/pricing";
 
+/**
+ * How long `.reveal`'s filter transition is given before the filter is dropped.
+ *
+ * Deliberately longer than the 0.7s the stylesheet spends on it: finishing the
+ * blur early would be visible, and finishing it late costs one element a few
+ * extra frames on the filter path, once.
+ */
+const REVEAL_SETTLE_MS = 1000;
+
+/** Tailwind's `sm`. Below it the app renders its phone layout, and so does the
+ *  recording of the app. */
+const PHONE_QUERY = "(max-width: 639px)";
+
+/**
+ * Whether this is a phone-width screen, as a value the render can branch on.
+ *
+ * Server-safe default is `false`: a first paint that guesses desktop and
+ * corrects itself costs one swap of a `src` that had not started loading,
+ * whereas guessing phone would put the small recording on every desktop for a
+ * frame.
+ */
+function usePhoneWidth(): boolean {
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia(PHONE_QUERY);
+    const sync = () => setPhone(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return phone;
+}
+
 function useScrollReveal() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    /*
+     * `visible` starts the reveal; `settled` ends it, and the second one is
+     * what makes the page scrollable.
+     *
+     * A CSS transition cannot land on `filter: none` — only on `blur(0)` — so
+     * every element that had finished revealing kept a live filter and its own
+     * composited layer for the rest of the session. Eighteen of them, several
+     * over 200,000px, measured 141 janky frames out of 150 while scrolling.
+     * The timer removes the filter once it has done its work.
+     *
+     * `transitionend` would be the tidier signal and is not reliable here: it
+     * does not fire for an element whose transition never runs because it was
+     * already off-screen when the class landed, and it fires once per property,
+     * so it needs filtering anyway. A timer that is a little long cannot leave
+     * an element stuck blurred.
+     */
+    const timers = new Set<ReturnType<typeof setTimeout>>();
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("visible");
-          }
+          if (!entry.isIntersecting) return;
+          const target = entry.target;
+          target.classList.add("visible");
+          observer.unobserve(target);
+          const timer = setTimeout(() => {
+            target.classList.add("settled");
+            timers.delete(timer);
+          }, REVEAL_SETTLE_MS);
+          timers.add(timer);
         });
       },
       { threshold: 0.15 }
     );
     const children = el.querySelectorAll(".reveal");
     children.forEach((child) => observer.observe(child));
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      timers.forEach(clearTimeout);
+    };
   }, []);
   return ref;
 }
@@ -159,6 +219,8 @@ export default function Home() {
     }
   };
 
+
+  const phone = usePhoneWidth();
 
   /* The landing page paints the document, not just its own subtree — see the
      note on the wrapper below. Scoped to the mount so /app keeps its theme. */
@@ -434,7 +496,7 @@ export default function Home() {
           className="mt-16 sm:mt-20 w-full max-w-5xl animate-fade-up"
           style={{ animationDelay: "560ms" }}
         >
-          <div className="rounded-2xl glass-panel overflow-hidden border border-hairline p-1.5 sm:p-2"
+          <div className="rounded-2xl glass-panel glass-flat overflow-hidden border border-hairline p-1.5 sm:p-2"
             style={{
               boxShadow: "0 40px 80px rgba(108,59,255,0.28), 0 80px 160px rgba(108,59,255,0.10), 0 0 0 1px rgba(155,107,255,0.12)",
             }}
@@ -442,17 +504,24 @@ export default function Home() {
             {/* force-dark: this is a picture of a video editor, and a video
                 editor is dark whatever the surrounding page is doing. */}
             <div className="force-dark rounded-xl overflow-hidden relative bg-[#0a090b]">
-              {/* Two recordings, one per shape.
+              {/* One recording, chosen for the shape of the screen.
                   A 1280-wide desktop capture scaled into a 390px phone is a
                   picture of text nobody can read, and the largest thing on the
                   page becoming a grey smudge on the device most people arrive
                   on is worse than no video at all. The app has a phone layout,
-                  so the phone gets a recording of that one. `<source media>` is
-                  not reliable across browsers for this, so it is two elements
-                  and a breakpoint — only one of which ever has a src attached,
-                  because `hidden` does not stop a video downloading. */}
+                  so the phone gets a recording of that one.
+
+                  This was two <video> elements and a `hidden sm:block` pair,
+                  with a comment claiming only one of them ever had a src.
+                  Measured, both did: `hidden` is a class, and a class does not
+                  stop a browser opening a media element's sources. Every visit
+                  fetched both recordings and set up two decoders to show one.
+                  `<source media>` is not reliable across browsers for this, so
+                  the choice is made once, here, and only the chosen file is
+                  ever named in the DOM. */}
               <video
-                className="hidden sm:block w-full h-auto"
+                key={phone ? "phone" : "desktop"}
+                className="w-full h-auto"
                 // Muted and inline are what make autoplay legal on a phone;
                 // without both, iOS shows a play button over a still frame.
                 autoPlay
@@ -460,24 +529,11 @@ export default function Home() {
                 loop
                 playsInline
                 preload="metadata"
-                poster="/demo-editor.jpg"
+                poster={phone ? "/demo-editor-phone.jpg" : "/demo-editor.jpg"}
                 aria-label="A recording of Editly turning a raw take into a vertical clip"
               >
-                <source src="/demo-editor.webm" type="video/webm" />
-                <source src="/demo-editor.mp4" type="video/mp4" />
-              </video>
-              <video
-                className="sm:hidden w-full h-auto"
-                autoPlay
-                muted
-                loop
-                playsInline
-                preload="metadata"
-                poster="/demo-editor-phone.jpg"
-                aria-label="A recording of Editly turning a raw take into a vertical clip"
-              >
-                <source src="/demo-editor-phone.webm" type="video/webm" />
-                <source src="/demo-editor-phone.mp4" type="video/mp4" />
+                <source src={phone ? "/demo-editor-phone.webm" : "/demo-editor.webm"} type="video/webm" />
+                <source src={phone ? "/demo-editor-phone.mp4" : "/demo-editor.mp4"} type="video/mp4" />
               </video>
             </div>
           </div>
@@ -603,7 +659,7 @@ export default function Home() {
             ].map((step) => (
               <div
                 key={step.num}
-                className="reveal glass-panel rounded-2xl relative overflow-hidden group cursor-default transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_40px_rgba(108,59,255,0.2)] hover:-translate-y-1 flex flex-col"
+                className="reveal glass-panel glass-flat rounded-2xl relative overflow-hidden group cursor-default transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_40px_rgba(108,59,255,0.2)] hover:-translate-y-1 flex flex-col"
                 style={{ transitionDelay: step.delay }}
               >
                 <div className="relative bg-band border-b border-hairline-faint h-52 sm:h-56 overflow-hidden flex items-center justify-center p-5">
@@ -705,8 +761,19 @@ export default function Home() {
               two shots dissolving across each other. No screenshots, and no
               stock — they are the shapes themselves. */}
           <div className="relative reveal">
-            <div className="absolute inset-0 bg-secondary/15 blur-[100px] rounded-full pointer-events-none" />
-            <div className="glass-panel p-4 sm:p-6 rounded-2xl relative z-10 transition-all duration-500 hover:shadow-[0_0_60px_rgba(108,59,255,0.2)]">
+            {/* A wash, painted rather than blurred.
+                This was a solid circle with `blur(100px)` on it: a 334,000px
+                surface the compositor re-rasterised through the filter pipeline
+                on every frame it was on screen. A radial gradient produces the
+                same soft falloff in one paint, for nothing. */}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background:
+                  "radial-gradient(ellipse at 50% 50%, hsl(var(--secondary) / 0.20) 0%, hsl(var(--secondary) / 0.10) 38%, transparent 72%)",
+              }}
+            />
+            <div className="glass-panel glass-flat p-4 sm:p-6 rounded-2xl relative z-10 transition-all duration-500 hover:shadow-[0_0_60px_rgba(108,59,255,0.2)]">
               <div className="grid grid-cols-2 gap-3 sm:gap-4">
                 {[
                   {
@@ -1088,9 +1155,15 @@ The tedious part is the part a machine should do.<br />Upload one take and see h
             aria-hidden="true"
             className="relative h-0"
           >
+            {/* The gradient was already soft; the `blur(70px)` on top of it was
+                paying the filter pipeline to soften an edge that does not
+                exist. The stops carry the falloff instead. */}
             <div
-              className="absolute left-1/4 -top-24 w-1/2 h-40 pointer-events-none blur-[70px] opacity-70"
-              style={{ background: "radial-gradient(ellipse at center, var(--wordmark-bloom) 0%, transparent 70%)" }}
+              className="absolute left-1/4 -top-24 w-1/2 h-40 pointer-events-none opacity-70"
+              style={{
+                background:
+                  "radial-gradient(ellipse at center, var(--wordmark-bloom) 0%, var(--wordmark-bloom) 18%, transparent 78%)",
+              }}
             />
           </div>
 

@@ -155,4 +155,9 @@ jobs:
       # the shipped bundle, because a class Tailwind purged is a class that is
       # not there however good it looks in the source.
       - run: node tools/mobile-test.mjs
+      # Same built `dist/`, different question: not whether the page is right
+      # but what it costs to open and to scroll. Weighs the entry chunk against
+      # a budget and fails on a filter, a blur radius or a hidden <video> that
+      # the compositor pays for and nobody sees.
+      - run: node tools/speed-test.mjs
       - run: node tools/worker-test.mjs

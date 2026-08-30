@@ -41,6 +41,19 @@ export interface ReviewContext {
   sourcePath: string;
   /** Whether the source carried an audio track, probed before the render. */
   sourceHadAudio: boolean;
+  /**
+   * Whether the render was built to produce sound — the renderer's own
+   * `source.hasAudio || musicUsable`, carried over rather than guessed at.
+   *
+   * These are two different questions and this file used to ask only the first.
+   * A silent clip with a bed laid under it comes out with sound the source
+   * never had: the render maps an audio stream, the plan asks for a level, and
+   * the review skipped the measurement because the *source* was silent. A
+   * music-only edit could ship at any loudness at all and nothing would say so.
+   * Absent means fall back to the source, which is what every caller that
+   * predates the field means.
+   */
+  expectedAudio?: boolean;
   /** Seconds the cut map said the edit should run, or null when unknown. */
   expectedSeconds: number | null;
   workDir: string;
@@ -99,6 +112,8 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
   let measuredLufs: number | null = null;
 
   const probe = await probeStreams(file);
+  /** What the render intended to produce, not what arrived with the footage. */
+  const expectedAudio = ctx.expectedAudio ?? ctx.sourceHadAudio;
 
   // ── Length ────────────────────────────────────────────────────────────────
   // A mismatch here is a bug in the cut arithmetic or the concat, and it is
@@ -117,8 +132,12 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
   // The renderer maps an audio stream whenever the source has one, so a source
   // with sound and an output without it means the graph dropped a link on the
   // floor. Deterministic, so not retried — but said out loud.
-  if (ctx.sourceHadAudio && !probe.hasAudio) {
-    warnings.push("source had an audio track and the output does not");
+  if (expectedAudio && !probe.hasAudio) {
+    warnings.push(
+      ctx.sourceHadAudio
+        ? "source had an audio track and the output does not"
+        : "music was laid under a silent source and the output has no audio stream",
+    );
     notes.push(
       t(
         "the sound did not survive this edit — that is a fault on our side, not in your footage",
@@ -129,7 +148,7 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
 
   // ── The level actually reached ────────────────────────────────────────────
   const loudness = ctx.operations.find((op) => op.type === "normalizeLoudness");
-  if (loudness && loudness.type === "normalizeLoudness" && ctx.sourceHadAudio && probe.hasAudio) {
+  if (loudness && loudness.type === "normalizeLoudness" && expectedAudio && probe.hasAudio) {
     const target = loudness.targetLufs;
     const measured = await measureLoudness(file, target);
     if (!measured) {
