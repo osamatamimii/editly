@@ -1,19 +1,30 @@
 /**
- * The app at phone width.
+ * The app at the widths people actually use it.
  *
- * Every other suite in this repo reads the pages either as source text or at a
- * desktop viewport, and both are blind to the thing most people actually hold:
- * a 390px screen. "The mobile experience is bad" is not a bug report anyone can
- * act on, so this turns it into numbers — horizontal overflow, tap targets
- * under the 44px floor Apple and Google both publish, and text under 12px —
- * and it does it on the *built* bundle, because a class that Tailwind's purge
- * dropped is a class that does not exist.
+ * Every other suite in this repo reads the pages as source text, and source
+ * text cannot see a layout. This one renders the *built* bundle — because a
+ * class Tailwind's purge dropped is a class that does not exist — and measures
+ * what came out.
  *
- * The signed-in pages are the point. They were never rendered at this width by
+ * It was phone-only, and called mobile-test, and that turned out to be half a
+ * blind spot rather than none. Two layout bugs in a row were found by hand at
+ * widths nothing here rendered: a send button that had never once been inside
+ * the chat bar, and a player column sized to a 9:16 frame so that the scrubber
+ * measured a single pixel. Both were invisible to every check, because a 1px
+ * input is not an error, it is a layout. So it runs at a phone and at a laptop
+ * now.
+ *
+ * The rules are not the same at both. 44px tap targets and a 12px text floor
+ * are about fingers and phone screens, and this product deliberately uses
+ * smaller controls on a desktop (`md:h-9` everywhere), so those are checked at
+ * phone width only. What holds at every width is that the page renders, that it
+ * does not scroll sideways, that nothing escapes its container, and that no
+ * control has collapsed to nothing.
+ *
+ * The signed-in pages are the point. They were never rendered at any width by
  * anything, because they need a session, so the harness plants one: a token in
- * localStorage under the key supabase-js reads, and every network call the page
- * makes answered from a fixture. Nothing real is contacted — the fixtures are
- * the contract the generated client already declares.
+ * localStorage under the key supabase-js reads, and every network call answered
+ * from a fixture. Nothing real is contacted.
  */
 import http from "node:http";
 import { readFile, mkdir } from "node:fs/promises";
@@ -183,9 +194,28 @@ const browser = await chromium.launch({
 await mkdir(SHOTS, { recursive: true });
 
 const PHONE = { width: 390, height: 844 };
+const LAPTOP = { width: 1440, height: 900 };
 
-async function open(url, { signedIn = false, override = null, initScript = null } = {}) {
-  const ctx = await browser.newContext({ viewport: PHONE, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+/**
+ * Where the app gets looked at, and which rules apply there.
+ *
+ * `phoneRules` is the ergonomics set — a 44px target and a 12px text floor —
+ * which is about a fingertip on a small screen. Applying it to a desktop would
+ * fail this product's own deliberate `md:` sizes, and dropping it from the
+ * phone would give back the checks that have caught the most.
+ */
+const VIEWPORTS = [
+  { name: "a phone", size: PHONE, mobile: true, phoneRules: true, hooks: true },
+  { name: "a laptop", size: LAPTOP, mobile: false, phoneRules: false, hooks: false },
+];
+
+async function open(url, { signedIn = false, override = null, initScript = null, viewport = VIEWPORTS[0] } = {}) {
+  const ctx = await browser.newContext({
+    viewport: viewport.size,
+    deviceScaleFactor: 2,
+    isMobile: viewport.mobile,
+    hasTouch: viewport.mobile,
+  });
 
   // Everything the page would talk to, answered here. Supabase first, because
   // an unanswered token refresh is a spinner that never resolves.
@@ -296,12 +326,36 @@ async function measure(page) {
       .map((e) => ({ px: parseFloat(getComputedStyle(e).fontSize), t: (e.textContent || "").trim().slice(0, 30) }))
       .filter((n) => n.px && n.px < 12);
 
+    /*
+     * A control that has collapsed, at any width.
+     *
+     * Weaker than the 44px floor on purpose, so it can hold on a desktop too:
+     * this asks only whether something interactive still has a body. The
+     * scrubber that measured one pixel wide passed every check in this file for
+     * as long as it existed, because nothing looked at desktop and a 1px input
+     * is a layout rather than an error.
+     */
+    const collapsed = [...document.querySelectorAll('button, a[href], input:not([type=hidden]), select, textarea, [role="button"]')]
+      .filter((e) => visible(e))
+      .map((e) => ({ e, r: e.getBoundingClientRect() }))
+      // A slider's track is thin across on purpose — `md:h-1.5` is a hairline
+      // and that is the design. Along its own axis it still has to have a
+      // body, which is the axis that collapsed.
+      .filter(({ e, r }) => {
+        if (r.width === 0 && r.height === 0) return false;
+        const isSlider = e.tagName === "INPUT" && e.getAttribute("type") === "range";
+        return isSlider ? r.width < 16 || r.height < 2 : r.width < 16 || r.height < 16;
+      })
+      .slice(0, 10)
+      .map(({ e, r }) => `${e.tagName.toLowerCase()}"${(e.getAttribute("data-testid") || e.getAttribute("aria-label") || "").slice(0, 24)}" ${Math.round(r.width)}x${Math.round(r.height)}`);
+
     return {
       scrollWidth: doc.scrollWidth,
       clientWidth: doc.clientWidth,
       overflowing,
       taps,
       tiny,
+      collapsed,
       title: document.title,
       // When the page does scroll sideways, say what pushed it.
       //
@@ -684,36 +738,60 @@ const PAGES = [
   { url: "/nowhere-at-all", name: "a page that is not there", signedIn: false },
 ];
 
-for (const spec of PAGES) {
-  section(`${spec.name} at ${PHONE.width}×${PHONE.height}`);
-  const { ctx, page, consoleErrors } = await open(spec.url, { signedIn: spec.signedIn, override: spec.override, initScript: spec.initScript });
-  const m = await measure(page);
-  await page.screenshot({ path: path.join(SHOTS, `${spec.name.replace(/[^a-z]+/gi, "-")}.png`) });
+for (const viewport of VIEWPORTS) {
+  for (const spec of PAGES) {
+    section(`${spec.name} on ${viewport.name}, ${viewport.size.width}×${viewport.size.height}`);
+    const { ctx, page, consoleErrors } = await open(spec.url, {
+      signedIn: spec.signedIn,
+      override: spec.override,
+      initScript: spec.initScript,
+      viewport,
+    });
+    const m = await measure(page);
+    const shot = `${spec.name.replace(/[^a-z]+/gi, "-")}${viewport.phoneRules ? "" : "-wide"}.png`;
+    await page.screenshot({ path: path.join(SHOTS, shot) });
 
-  check("it renders without throwing", consoleErrors.length === 0, consoleErrors[0] ?? "");
-  check(
-    "the page does not scroll sideways",
-    m.scrollWidth <= m.clientWidth + 1,
-    `${m.scrollWidth} > ${m.clientWidth}: ${(m.widest ?? []).join(" | ") || m.overflowing.join(" | ")}`,
-  );
-  check(
-    "nothing wider than the screen escapes its container",
-    m.overflowing.length === 0,
-    m.overflowing.join(" | "),
-  );
-  check(
-    "every tap target is a thumb's width",
-    m.taps.length === 0,
-    m.taps.join(" | "),
-  );
-  check(
-    "no body text is smaller than 12px",
-    m.tiny.length === 0,
-    m.tiny.map((t) => `${t.px}px "${t.t}"`).join(" | "),
-  );
-  // Anything this page in particular has to say for itself.
-  if (spec.then) await spec.then(page, check);
-  await ctx.close();
+    check("it renders without throwing", consoleErrors.length === 0, consoleErrors[0] ?? "");
+    check(
+      "the page does not scroll sideways",
+      m.scrollWidth <= m.clientWidth + 1,
+      `${m.scrollWidth} > ${m.clientWidth}: ${(m.widest ?? []).join(" | ") || m.overflowing.join(" | ")}`,
+    );
+    check(
+      "nothing wider than the screen escapes its container",
+      m.overflowing.length === 0,
+      m.overflowing.join(" | "),
+    );
+
+    /*
+     * A control that has collapsed to nothing, at any width.
+     *
+     * This is the rule that would have caught the scrubber: it measured one
+     * pixel wide because the column it lived in was sized to a 9:16 frame, and
+     * a 1px input is not an error to anything that reads source. The 44px floor
+     * below catches it too, but only on a phone — this one holds everywhere,
+     * and asks a much weaker question so it can.
+     */
+    check(
+      "no control has collapsed to nothing",
+      m.collapsed.length === 0,
+      m.collapsed.join(" | "),
+    );
+
+    if (viewport.phoneRules) {
+      check("every tap target is a thumb's width", m.taps.length === 0, m.taps.join(" | "));
+      check(
+        "no body text is smaller than 12px",
+        m.tiny.length === 0,
+        m.tiny.map((t) => `${t.px}px "${t.t}"`).join(" | "),
+      );
+    }
+
+    // Anything this page in particular has to say for itself. Written against
+    // the phone flow, so they run there.
+    if (spec.then && viewport.hooks) await spec.then(page, check);
+    await ctx.close();
+  }
 }
 
 await browser.close();

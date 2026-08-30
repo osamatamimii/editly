@@ -17,13 +17,15 @@
 import { useEffect, useRef } from "react";
 import { VoiceOrb } from "./orb";
 import { useVoiceInput, voiceErrorMessage } from "./use-voice-input";
+import { SPEECH_TAGS, type SpeechLanguage } from "./speech-language";
 
 export function VoiceInput({
   onTranscript,
   onError,
   existing = "",
   disabled = false,
-  arabic = false,
+  language,
+  onLanguageChange,
 }: {
   /** Every update while speaking, so the input fills as the words arrive. */
   onTranscript: (text: string, final: boolean) => void;
@@ -32,9 +34,14 @@ export function VoiceInput({
   /** Whatever is already in the box, so speaking adds rather than replaces. */
   existing?: string;
   disabled?: boolean;
-  arabic?: boolean;
+  /** Which language to listen for. See `speech-language.ts` for how it is chosen. */
+  language: SpeechLanguage;
+  /** So the person can correct the guess, which is the one thing that fixes
+   *  the case where every guess is wrong: they are switching languages. */
+  onLanguageChange: (language: SpeechLanguage) => void;
 }) {
-  const voice = useVoiceInput({ lang: arabic ? "ar-SA" : "en-US" });
+  const arabic = language === "ar";
+  const voice = useVoiceInput({ lang: SPEECH_TAGS[language] });
 
   // The text before this turn started, so a second dictation adds to the
   // sentence instead of replacing it.
@@ -98,6 +105,47 @@ export function VoiceInput({
       <span className="sr-only" data-testid="voice-transcript">
         {voice.transcript}
       </span>
+    </button>
+  );
+}
+
+/**
+ * The language the microphone is listening for, as a control.
+ *
+ * Every way of choosing this is an inference, and the one moment they are all
+ * wrong is the moment somebody switches language — which is exactly when they
+ * will be told the speech recognition is broken. Two characters next to the
+ * button costs almost nothing and makes that unfixable case fixable.
+ */
+export function SpeechLanguageToggle({
+  language,
+  onChange,
+  disabled = false,
+}: {
+  language: SpeechLanguage;
+  onChange: (language: SpeechLanguage) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        onChange(language === "ar" ? "en" : "ar");
+      }}
+      disabled={disabled}
+      aria-label={
+        language === "ar"
+          ? "يستمع بالعربية. اضغط للإنجليزية."
+          : "Listening in English. Press to switch to Arabic."
+      }
+      title={language === "ar" ? "يستمع بالعربية" : "Listening in English"}
+      className="absolute right-[5.5rem] top-1 h-10 px-2 rounded-full text-[11px] font-semibold
+                 text-muted-foreground hover:text-foreground transition-colors
+                 disabled:opacity-40 disabled:pointer-events-none"
+      data-testid="button-voice-language"
+    >
+      {language === "ar" ? "ع" : "EN"}
     </button>
   );
 }

@@ -50,7 +50,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ProjectLibrary } from "@/components/project-library";
 import { ProjectClips, getListClipsQueryKey } from "@/components/project-clips";
 import { takePendingUpload } from "@/lib/pending-upload";
-import { VoiceInput } from "@/components/voice/voice-input";
+import { VoiceInput, SpeechLanguageToggle } from "@/components/voice/voice-input";
+import { guessSpeechLanguage, type SpeechLanguage } from "@/components/voice/speech-language";
 import { MomentMarks, marksToSentence, type Mark } from "@/components/moment-marks";
 
 /** m:ss — anything longer than an hour is not what this product is for. */
@@ -130,6 +131,7 @@ export default function ProjectEditor() {
    * belongs next to the input, where the person is already looking.
    */
   const [voiceError, setVoiceError] = useState<string | null>(null);
+
   const [playerDuration, setPlayerDuration] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   /** The area the picture gets to live in, measured rather than assumed. */
@@ -152,6 +154,29 @@ export default function ProjectEditor() {
   // there — which is worse than any error message.
   const projectState = loadState(projectQuery);
   const messagesState = loadState(messagesQuery, (list) => list.length === 0);
+
+  /*
+   * Which language the microphone listens for.
+   *
+   * Guessed once from what this person has already written in this project,
+   * then left alone — re-guessing on every keystroke would change the language
+   * out from under somebody mid-sentence. They can change it with the toggle,
+   * and that choice sticks for the session.
+   */
+  const [speechLanguage, setSpeechLanguage] = useState<SpeechLanguage>("en");
+  const languageGuessed = useRef(false);
+  useEffect(() => {
+    if (languageGuessed.current) return;
+    const mine = (messages ?? []).filter((m) => m.role === "user").map((m) => m.content ?? "");
+    // Wait for the conversation before guessing, unless there is none to wait
+    // for: guessing from an empty list and then never revising is how this got
+    // the answer wrong in the first place.
+    if (!messagesQuery.isSuccess) return;
+    languageGuessed.current = true;
+    setSpeechLanguage(guessSpeechLanguage({ said: mine, typed: chatInput }));
+    // Guessed once, deliberately.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messagesQuery.isSuccess]);
 
   const updateProject = useUpdateProject();
   const sendMessage = useSendMessage();
@@ -1134,7 +1159,7 @@ export default function ProjectEditor() {
                `flex-1` in a scroller means "whatever is left", and what is left
                under four panels is nothing. Above `lg` it goes back to taking
                the space it is given. */
-            <div ref={stageRef} className="flex-1 min-h-[240px] lg:min-h-0 flex-shrink-0 lg:flex-shrink flex items-stretch justify-center gap-4">
+            <div ref={stageRef} className="flex-1 min-h-[240px] lg:min-h-[34rem] flex-shrink-0 lg:flex-shrink-0 flex items-stretch justify-center gap-4">
               {/* Content-width, not flex-1: the frame and its controls read as
                   one object centred in the space, rather than the frame drifting
                   to one edge with a gap between them. */}
@@ -1485,7 +1510,7 @@ export default function ProjectEditor() {
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
                 placeholder="Describe your edit..."
-                className="input-chat-glow pr-24 bg-surface-1 border-hairline rounded-full h-12"
+                className="input-chat-glow pr-32 bg-surface-1 border-hairline rounded-full h-12"
                 disabled={!hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 data-testid="input-chat"
               />
@@ -1493,8 +1518,14 @@ export default function ProjectEditor() {
                   its own — so everything the typed path already does applies to
                   it unchanged, and you can fix a misheard word before sending.
                   See `voice-input.tsx`. */}
+              <SpeechLanguageToggle
+                language={speechLanguage}
+                onChange={setSpeechLanguage}
+                disabled={isNoahThinking || sendMessage.isPending || isProcessingEdit}
+              />
               <VoiceInput
-                arabic={/[\u0600-\u06FF]/.test(chatInput)}
+                language={speechLanguage}
+                onLanguageChange={setSpeechLanguage}
                 disabled={isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 existing={chatInput}
                 onTranscript={(text) => setChatInput(text)}

@@ -636,6 +636,80 @@ console.log("\nA moment somebody points at");
   check("in Arabic too", /1:05/.test(saidAr) && /[\u0600-\u06ff]/.test(saidAr), saidAr);
 }
 
+/**
+ * Which language the microphone is asked to listen for.
+ *
+ * This was read from the chat input — and the chat input is empty when you
+ * press the microphone, because that is the whole reason you are pressing it.
+ * So the answer was always "not Arabic", and the recogniser was asked for
+ * `en-US` while somebody spoke Arabic at it. The engine was working perfectly
+ * and being asked the wrong question, which is a hard failure to diagnose from
+ * the outside: it looks exactly like bad speech recognition.
+ */
+console.log("\nThe microphone is asked to listen for the right language");
+{
+  // Bundled the same way the matcher above is: this one lives in the frontend
+  // package, and the rule it holds is a rule about language, which is what this
+  // suite is for.
+  const speechOut = path.join(buildDir, "speech-language.mjs");
+  const speechBuilt = spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+    [
+      path.join(repoRoot, "artifacts/editly/src/components/voice/speech-language.ts"),
+      "--bundle", "--platform=node", "--format=esm", "--target=node22",
+      `--outfile=${speechOut}`, "--log-level=error",
+    ],
+    { stdio: "inherit" },
+  );
+  if (speechBuilt.status !== 0) {
+    console.error("could not bundle the speech language rule");
+    process.exit(1);
+  }
+  const { guessSpeechLanguage } = await import(pathToFileURL(speechOut).href);
+
+  check(
+    "an empty box and an Arabic conversation is Arabic",
+    guessSpeechLanguage({ said: ["اقص السكتات وخليه عمودي"], typed: "", browser: ["en-US"] }) === "ar",
+  );
+  check(
+    "an empty box and an English conversation is English",
+    guessSpeechLanguage({ said: ["cut the dead air"], typed: "", browser: ["ar-JO"] }) === "en",
+  );
+  // The newest line wins: a conversation that switched language switched for a
+  // reason, and it is usually the reason somebody is about to speak.
+  check(
+    "a conversation that switched language follows the switch",
+    guessSpeechLanguage({ said: ["cut the dead air", "خليه عمودي"], typed: "" }) === "ar",
+  );
+  check(
+    "and the other way too",
+    guessSpeechLanguage({ said: ["خليه عمودي", "cut the dead air"], typed: "" }) === "en",
+  );
+  // With nothing said yet, the browser is a far better guess than a coin toss.
+  check(
+    "with no conversation, an Arabic browser is Arabic",
+    guessSpeechLanguage({ said: [], typed: "", browser: ["ar-JO", "en-US"] }) === "ar",
+  );
+  check(
+    "and an English browser is English",
+    guessSpeechLanguage({ said: [], typed: "", browser: ["en-GB"] }) === "en",
+  );
+  // The old rule, kept as a fallback rather than as the answer.
+  check(
+    "something half-typed still counts when nothing else is known",
+    guessSpeechLanguage({ said: [], typed: "اقص", browser: ["en-US"] }) === "ar",
+  );
+  check(
+    "and an empty everything is English rather than a crash",
+    guessSpeechLanguage({}) === "en",
+  );
+  // The exact shape of the bug: empty box, Arabic person, English browser.
+  check(
+    "the case that was broken: empty box, Arabic conversation, English browser",
+    guessSpeechLanguage({ said: ["قرّب الصورة عند 0:12"], typed: "", browser: ["en-US"] }) === "ar",
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
