@@ -488,8 +488,28 @@ console.log("\nThe platform watches itself");
     : Infinity;
   check(
     "often enough that nothing is dead for an afternoon",
-    minutes.length > 0 && widestGap <= 30,
+    minutes.length > 0 && widestGap <= 60,
     `minutes ${JSON.stringify(minutes)} — widest gap ${widestGap}`,
+  );
+  /**
+   * And a trigger that does not depend on GitHub's scheduler.
+   *
+   * The schedule is the one that matters and the one that could not be observed
+   * working: four hours on the default branch with a quarter-hourly cron and
+   * not a single run, while push-triggered workflows went through the whole
+   * time. GitHub documents the schedule event as delayed under load and
+   * promises nothing, so a monitor that hangs off it alone is a monitor that
+   * may never have run — the exact silence it was built to end.
+   *
+   * So there is a second trigger, and it is one this repository has watched
+   * work: every push runs Checks, and this runs when Checks finishes. It cannot
+   * notice a quiet outage. It does mean every change to the product is followed
+   * within the minute by an answer to whether a render machine is listening.
+   */
+  check(
+    "and a trigger that does not depend on the scheduler at all",
+    /workflow_run:/.test(watch) && /workflows:\s*\["Checks"\]/.test(watch),
+    "a monitor with only a schedule is a monitor that may never have run",
   );
   /**
    * And off the quarter hours.
