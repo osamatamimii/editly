@@ -235,6 +235,12 @@ export const TEMPLATES: Template[] = [
           // worker reads the beat from the file this names.
           {
             type: "addMusic",
+            // Never empty in practice: the route refuses this template before
+            // building it when the project has no audio, which is what `needs`
+            // is for. And if it ever were, the renderer says so out loud —
+            // "the track this plan names is not in this project" — rather than
+            // dropping the bed quietly. A fallback whose failure is visible is
+            // a fallback; one whose failure is silent is a bug waiting.
             assetId: context.musicAssetId ?? "",
             gainDb: -14,
             duck: true,
