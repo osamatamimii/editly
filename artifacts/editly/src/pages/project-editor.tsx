@@ -24,7 +24,7 @@ import { Card } from "@/components/ui/card";
 import { 
   UploadCloud, Play, Pause, ChevronLeft, Send,
   Wand2, Download, CheckCircle2, Loader2,
-  Video, Sparkles, VideoOff } from "lucide-react";
+  Video, Sparkles, VideoOff, ChevronUp, ChevronDown } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -265,6 +265,52 @@ export default function ProjectEditor() {
   /** Measured, because guessing it would either crop the picture or leave a gap. */
   const transportRef = useRef<HTMLDivElement>(null);
   const [transportHeight, setTransportHeight] = useState(0);
+
+  /**
+   * Whether the conversation is open. Only ever false below `lg`.
+   *
+   * The measurement that forced this: on a 390x852 phone the header takes 64,
+   * the conversation took a fixed 45% — 383 — and the transport under the
+   * picture takes about 130. What is left for the picture is roughly 230px of
+   * height, and a 9:16 clip fitted into 230px of height is **129px wide** on a
+   * 390px screen. Two thirds of the screen was being spent on everything except
+   * the video the person is editing.
+   *
+   * A phone cannot show a tall video and a tall conversation at once; a desktop
+   * can, and still does. So on a phone the conversation is a sheet: the input
+   * stays — you can always talk to it, which is the whole product — and the
+   * history folds away behind a tap. Folded, the picture gets about 540px of
+   * height and lands near 300px wide. That is the same clip, more than twice
+   * the size, on the screen it was made for.
+   *
+   * It opens itself when Noah says something, because a reply nobody can see
+   * is the same as no reply.
+   */
+  const [chatOpen, setChatOpen] = useState(true);
+  const [unreadFromNoah, setUnreadFromNoah] = useState(false);
+  const seenMessageCount = useRef(0);
+  useEffect(() => {
+    const count = messages?.length ?? 0;
+    const newest = messages?.[count - 1];
+    const isNew = count > seenMessageCount.current && newest?.role === "assistant";
+    seenMessageCount.current = count;
+    if (!isNew) return;
+    // Everything Noah says opens the sheet, except the one thing he says when
+    // the edit is finished. That message arrives at the same moment the video
+    // does, and opening on it would take the person from a full-width picture
+    // of their finished edit to a 129px one under a wall of notes — undoing,
+    // at the exact moment it matters most, the thing this sheet exists for.
+    // The notes are a tap away and the header says they are there.
+    if (project?.status === "done") setUnreadFromNoah(true);
+    else setChatOpen(true);
+  }, [messages, project?.status]);
+  // The first video is the moment the screen stops being about the conversation
+  // and starts being about the picture.
+  const sawVideo = useRef(false);
+  useEffect(() => {
+    if (hasVideo && !sawVideo.current) setChatOpen(false);
+    sawVideo.current = hasVideo;
+  }, [hasVideo]);
   const TRANSPORT_GAP = 12;
 
   /**
@@ -1092,7 +1138,22 @@ export default function ProjectEditor() {
             three panels cut off below it and no way to scroll to them.
             Scrolling is the honest answer at this width; the desktop layout,
             which has the room to hold everything at once, is unchanged. */}
-        <div className="flex-1 min-h-0 flex flex-col relative p-4 lg:p-6 overflow-y-auto lg:overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col relative p-4 lg:p-6 pb-8 lg:pb-6 overflow-y-auto lg:overflow-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/*
+            A scroller that ends flush against the chat panel cuts whatever
+            happens to be at the fold in half — on a phone that was the looks
+            row, sliced through the middle of its chips, which reads as a
+            broken layout rather than as "there is more below". The fade is
+            the affordance: content dissolving into the edge is how a screen
+            says it continues. Above `lg` nothing scrolls, so there is nothing
+            to hint at and the gradient is not drawn at all.
+
+            `sticky` rather than `absolute`, because an absolutely positioned
+            child of a scroller scrolls away with the content it is meant to be
+            hinting about. `-mb-8` pulls the following content back up under
+            it so the fade costs no layout height, and `pb-8` above gives that
+            content somewhere to go.
+          */}
           
           {!hasVideo && (
             <div className="flex-1 relative rounded-2xl overflow-hidden glass-panel border border-hairline bg-band flex flex-col">
@@ -1159,7 +1220,21 @@ export default function ProjectEditor() {
                `flex-1` in a scroller means "whatever is left", and what is left
                under four panels is nothing. Above `lg` it goes back to taking
                the space it is given. */
-            <div ref={stageRef} className="flex-1 min-h-[23rem] lg:min-h-[34rem] flex-shrink-0 lg:flex-shrink-0 flex items-stretch justify-center gap-4">
+            /* The stage's minimum height is what decides how big the video is,
+               because inside a scrolling column `flex-1` resolves to content
+               height and the minimum is all there is. A flat 23rem was that
+               minimum on every phone, and 23rem minus the transport leaves a
+               9:16 clip 129px wide on a 390px screen.
+               It is a share of the viewport now, and which share depends on
+               whether the conversation is open — that is the actual trade on a
+               phone, and stating it here is better than picking a number that
+               is wrong in one of the two states. */
+            <div
+              ref={stageRef}
+              className={`flex-1 lg:min-h-[34rem] flex-shrink-0 lg:flex-shrink-0 flex items-stretch justify-center gap-4 ${
+                chatOpen ? "min-h-[23rem]" : "min-h-[62dvh]"
+              }`}
+            >
               {/* Content-width, not flex-1: the frame and its controls read as
                   one object centred in the space, rather than the frame drifting
                   to one edge with a gap between them. */}
@@ -1274,9 +1349,20 @@ export default function ProjectEditor() {
                       </div>
                     </div>
 
+                    {/*
+                      A badge over a video has no idea what is behind it. This
+                      one was green text on a 20%-green wash, which is fine on
+                      the dark footage it was designed against and unreadable on
+                      anything bright — and "unreadable" here meant a green
+                      smear across the top of the person's finished edit. The
+                      scrim is opaque enough to be a floor under any frame, the
+                      text is white because white on near-black always reads,
+                      and the green is kept where colour is decoration rather
+                      than information: the tick.
+                    */}
                     {project.status === 'done' && (
-                      <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30 text-xs font-medium flex items-center backdrop-blur-md">
-                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                      <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-black/70 text-white border border-white/15 text-xs font-medium flex items-center backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.4)]">
+                        <CheckCircle2 className="w-3 h-3 mr-1.5 text-green-400" />
                         AI Edited
                       </div>
                     )}
@@ -1324,6 +1410,11 @@ export default function ProjectEditor() {
           {/* Under a landscape clip the width is the plentiful dimension, so the
               looks sit below as a row. A vertical clip puts them in the column. */}
           {hasVideo && !sideBySide && <div>{looks}{clipsPanel}{library}{reference}</div>}
+
+          <div
+            aria-hidden
+            className="lg:hidden sticky bottom-0 -mb-8 h-8 flex-shrink-0 pointer-events-none bg-gradient-to-t from-background to-transparent"
+          />
         </div>
 
         {/* AI Chat Sidebar.
@@ -1334,9 +1425,25 @@ export default function ProjectEditor() {
             crushing the player to a sliver under an unscrollable wall of
             messages. A fixed share of the column gives both panes a shape:
             the player keeps the top, the chat scrolls inside the bottom. */}
-        <div className="w-full lg:w-[400px] basis-[45%] flex-shrink-0 lg:basis-auto min-h-0 border-t lg:border-t-0 lg:border-l border-hairline bg-background/80 backdrop-blur-xl flex flex-col z-20 shadow-[-20px_0_40px_rgba(0,0,0,0.5)]">
-          {/* Noah header */}
-          <div className="p-4 border-b border-hairline flex items-center gap-3">
+        <div
+          className={`w-full lg:w-[400px] flex-shrink-0 lg:basis-auto min-h-0 border-t lg:border-t-0 lg:border-l border-hairline bg-background/80 backdrop-blur-xl flex flex-col z-20 shadow-[-20px_0_40px_rgba(0,0,0,0.5)] ${
+            chatOpen ? "basis-[52%]" : "basis-auto"
+          }`}
+          data-testid="chat-panel"
+          data-open={chatOpen ? "true" : "false"}
+        >
+          {/* Noah header, and below `lg` the handle for the sheet. A header is
+              the right target for this: it is the full width of the panel, it
+              is already the thing that names what is behind it, and it means
+              the sheet has no separate furniture of its own. */}
+          <button
+            type="button"
+            onClick={() => { setChatOpen((open) => !open); setUnreadFromNoah(false); }}
+            aria-expanded={chatOpen}
+            aria-controls="noah-conversation"
+            className="p-4 border-b border-hairline flex items-center gap-3 text-left w-full lg:pointer-events-none no-default-hover-elevate"
+            data-testid="button-toggle-chat"
+          >
             <div className="relative flex-shrink-0">
               <img
                 src="/noah-avatar.jpg"
@@ -1345,13 +1452,35 @@ export default function ProjectEditor() {
               />
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-green-400 border-2 border-background shadow-[0_0_6px_rgba(74,222,128,0.8)]" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 className="font-semibold text-sm leading-tight">Noah</h2>
-              <p className="text-xs text-muted-foreground">Your AI editor</p>
+              <p className="text-xs text-muted-foreground truncate">
+                {chatOpen
+                  ? "Your AI editor"
+                  : unreadFromNoah
+                    ? "Tap to read what I did"
+                    : "Tap to read the conversation"}
+              </p>
             </div>
-          </div>
-          
-          <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0 p-4">
+            <span className="ml-auto lg:hidden flex items-center gap-2 flex-shrink-0">
+              {unreadFromNoah && !chatOpen && (
+                <span
+                  className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(108,59,255,0.8)]"
+                  data-testid="chat-unread"
+                  aria-label="Noah has something new to say"
+                />
+              )}
+              <span className="text-muted-foreground" aria-hidden>
+                {chatOpen ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+              </span>
+            </span>
+          </button>
+
+          <ScrollArea
+            ref={scrollAreaRef}
+            id="noah-conversation"
+            className={`flex-1 min-h-0 p-4 ${chatOpen ? "" : "hidden lg:block"}`}
+          >
             <div className="space-y-5 flex flex-col">
               {/* Welcome message — only shown when no messages exist yet */}
               {messagesState === "empty" && (

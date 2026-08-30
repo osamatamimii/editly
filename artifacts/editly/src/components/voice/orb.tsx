@@ -51,6 +51,13 @@ uniform vec2 uSize;
 // the microphone's loudness. That is what the editor's own "activation" is for,
 // and it is why this reacts rather than plays: silence is genuinely the idle
 // preset, not a slowed-down version of the loud one.
+// The idle values are lifted well above what the editor exported, and that is
+// not a deviation from the preset — it is the preset meeting a light page. At
+// rest, in a 36px button on a white chat bar, the original idle rendered as a
+// black dot: not purple, not a sphere, barely a control. Silence still looks
+// like silence — the membrane is flat and slow — but it looks like a *purple*
+// silence, which is the point of putting it there.
+//
 // Purple, asked for by name. The palette the editor exported was magenta into
 // coral — two hues away from each other — so turning it violet is not one
 // substitution: A is the ground the whole sphere sits on, B and C are the two
@@ -59,15 +66,15 @@ uniform vec2 uSize;
 // and only the spread between them was kept: B deep violet, C the lighter
 // lilac that reads as the lit side, D the blue-violet underneath.
 const vec3 COLOR_A      = vec3(0.0392, 0.0157, 0.0745);
-const vec3 IDLE_COLOR_A = vec3(0.0314, 0.0196, 0.0510);
+const vec3 IDLE_COLOR_A = vec3(0.1216, 0.0745, 0.2000);
 const vec3 COLOR_B      = vec3(0.5451, 0.2392, 0.9608);
-const vec3 IDLE_COLOR_B = vec3(0.3020, 0.1843, 0.4784);
+const vec3 IDLE_COLOR_B = vec3(0.4392, 0.2824, 0.7020);
 const vec3 COLOR_C      = vec3(0.7137, 0.4510, 1.0000);
-const vec3 IDLE_COLOR_C = vec3(0.4000, 0.2941, 0.5216);
+const vec3 IDLE_COLOR_C = vec3(0.5804, 0.4392, 0.7843);
 const vec3 COLOR_D      = vec3(0.4275, 0.2314, 1.0000);
-const vec3 IDLE_COLOR_D = vec3(0.2745, 0.2118, 0.4980);
+const vec3 IDLE_COLOR_D = vec3(0.3843, 0.2745, 0.7059);
 const vec3 HIGHLIGHT      = vec3(0.9412, 0.9020, 1.0000);
-const vec3 IDLE_HIGHLIGHT = vec3(0.6235, 0.5686, 0.7098);
+const vec3 IDLE_HIGHLIGHT = vec3(0.7804, 0.7176, 0.8824);
 const vec3 SHELL_INNER = vec3(1.0, 1.0, 1.0);
 const vec3 SHELL_MID   = vec3(0.7804, 0.6118, 1.0000);
 const vec3 SHELL_EDGE  = vec3(0.5451, 0.3608, 0.9647);

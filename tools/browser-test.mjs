@@ -1825,15 +1825,37 @@ section("The editor fits a phone, which is where the owner will test it");
   const { readFileSync: readEditor } = await import("node:fs");
   const editorSrc = readEditor(path.join(repoRoot, "artifacts/editly/src/pages/project-editor.tsx"), "utf8");
 
+  // The claim, not the literal — twice over, and for the reason written a few
+  // lines down about the frame's minimum height. Both of these pinned an exact
+  // run of Tailwind classes in source order, and both went red the day the
+  // phone layout was improved rather than broken: the chat became a sheet whose
+  // share depends on whether it is open, so its `basis` is now written by a
+  // conditional and the classes are no longer adjacent. What has to stay true
+  // is that the pane has *a* definite share below `lg` and gives it back above.
+  const chatPane = editorSrc.slice(
+    Math.max(0, editorSrc.indexOf('data-testid="chat-panel"') - 700),
+    editorSrc.indexOf('data-testid="chat-panel"') + 200,
+  );
   check(
-    "the chat takes a fixed share of the column on a phone, its natural width on a desktop",
-    /basis-\[45%\] flex-shrink-0 lg:basis-auto min-h-0/.test(editorSrc),
+    "the chat takes a definite share of the column on a phone, its natural width on a desktop",
+    /basis-\[\d+%\]/.test(chatPane) && /lg:basis-auto/.test(chatPane) && /min-h-0/.test(chatPane),
     "the chat pane needs a definite mobile height or it eats the player",
   );
   check(
     "the player pane may shrink below its content, or stacking overflows the screen",
-    /flex-1 min-h-0 flex flex-col relative p-4 lg:p-6 overflow-y-auto lg:overflow-hidden/.test(editorSrc),
+    /flex-1 min-h-0 flex flex-col relative/.test(editorSrc)
+      && /overflow-y-auto lg:overflow-hidden/.test(editorSrc),
     "flex-1 + min-h-0 is what lets it share the column instead of overflowing it",
+  );
+  // And the sheet itself: an input you can always reach, a history you can
+  // fold away. If the fold were to take the input with it, the phone would
+  // have a video and no way to ask for anything.
+  check(
+    "the conversation folds away on a phone without taking the input with it",
+    /data-testid="button-toggle-chat"/.test(editorSrc)
+      && /hidden lg:block/.test(editorSrc)
+      && editorSrc.indexOf('data-testid="input-chat"') > editorSrc.indexOf("hidden lg:block"),
+    "folding the sheet must hide the history, not the way to talk to it",
   );
   // This check used to demand `overflow-hidden` at every width, and got it —
   // and the phone editor was a video a few pixels tall with the looks, the

@@ -659,10 +659,23 @@ check(
   /done|AI Edited/i.test(after),
   after.replace(/\s+/g, " ").slice(0, 200),
 );
+
+// On a phone the conversation is folded away when the edit lands, so the
+// picture gets the screen. The notes are behind the header — which is a claim
+// worth checking rather than assuming, because a sheet that does not open is
+// the same as notes that were never written.
+check(
+  "and it says there is something new to read",
+  (await page.getByTestId("chat-unread").count()) > 0,
+);
+await page.getByTestId("button-toggle-chat").click().catch(() => {});
+await page.waitForTimeout(600);
+await page.screenshot({ path: path.join(SHOTS, "5-notes.png") }).catch(() => {});
+const opened = await page.locator("body").innerText();
 check(
   "and the notes say what was actually done to it",
-  /silence|9:16|vertical|LUFS/i.test(after),
-  after.replace(/\s+/g, " ").slice(0, 240),
+  /silence|9:16|vertical|LUFS/i.test(opened),
+  opened.replace(/\s+/g, " ").slice(0, 240),
 );
 // The web fonts are fetched from Google and Fontshare, and this container has
 // no route to either. That is this machine's network, not the product — but it
