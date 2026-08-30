@@ -1486,6 +1486,47 @@ section("The landing page's feature list keeps up with what is actually built");
   );
 }
 
+section("Every door that creates a project is counted through the same one");
+{
+  /*
+   * A budget per endpoint is not a budget.
+   *
+   * `POST /projects` has been rate-limited under `createProject` since the
+   * limiter existed. `POST /projects/:id/clips/:clipId/open` creates a project
+   * row *and* copies a video file, and had no limiter at all — so the loop the
+   * `createProject` window exists to stop just went through the other door,
+   * and cost storage on the way. Both share one name and one window now, which
+   * is the only arrangement that means anything: separate budgets are added
+   * together by anyone alternating between them.
+   *
+   * Checked by finding every route that inserts into `projectsTable` rather
+   * than by naming the two we know about, so a third door fails this the day
+   * it is written.
+   */
+  const routeDir = path.join(repoRoot, "artifacts/api-server/src/routes");
+  const creators = [];
+  for (const file of readdirSync(routeDir).filter((f) => f.endsWith(".ts"))) {
+    const src = readFileSync(path.join(routeDir, file), "utf8");
+    if (!/\.insert\(projectsTable\)/.test(src)) continue;
+    // Every `router.post(...)` handler in the file, with its body up to the
+    // next route registration.
+    const parts = src.split(/router\.(?:post|put|patch)\(/).slice(1);
+    for (const part of parts) {
+      if (!/\.insert\(projectsTable\)/.test(part)) continue;
+      const pathLiteral = /^\s*"([^"]+)"/.exec(part)?.[1] ?? "(unknown)";
+      const head = part.slice(0, 400);
+      creators.push({ file, route: pathLiteral, limited: /rateLimit\(LIMITS\.createProject\)/.test(head) });
+    }
+  }
+  check("there are project-creating routes to check", creators.length >= 2, JSON.stringify(creators));
+  const unlimited = creators.filter((c) => !c.limited);
+  check(
+    "and every one of them is counted against the same createProject window",
+    unlimited.length === 0,
+    unlimited.map((c) => `${c.file} ${c.route}`).join(", "),
+  );
+}
+
 section("The em dash is out of the product's writing, and stays out");
 {
   /*

@@ -2238,6 +2238,43 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
       bobExport.json?.error,
     );
 
+    // The third door, which was open.
+    //
+    // Opening a clip creates a project row and copies a video file, and it was
+    // the one path in the product that could do both with no limiter and no
+    // policy check at all. A suspended account could keep minting projects and
+    // stored copies through it, one per call, for as long as it had ever run a
+    // clips render. Same refusal, from the same `decideRender`, for the same
+    // reason the Export door got it.
+    psqlGlobal(`
+      INSERT INTO clips (id, project_id, user_id, job_id, idx, start_seconds, end_seconds, output_path, output_seconds, note, thumbnail_path)
+      VALUES ('clip-iso-susp', '${bobProject.json?.id}', '${BOB}', 'job-iso-1', 1, 1, 6,
+              '${BOB}/${bobProject.json?.id}/clip-susp-1.mp4', 5, null, null)`);
+    const bobOpen = await call(
+      BOB,
+      `/api/projects/${bobProject.json?.id}/clips/clip-iso-susp/open`,
+      "POST",
+    );
+    check(
+      "and cannot open a clip into a new project either",
+      bobOpen.status === 403,
+      `got ${bobOpen.status}: ${JSON.stringify(bobOpen.json)}`,
+    );
+    check(
+      "with that same sentence again, because it is that same refusal",
+      /nothing has been deleted/i.test(bobOpen.json?.error ?? ""),
+      bobOpen.json?.error,
+    );
+    // And nothing was created on the way to being refused.
+    check(
+      "and no project was written before the refusal",
+      psqlGlobalRead(
+        `select count(*) from projects where user_id = '${BOB}' and title like '%clip%'`,
+      ).trim() === "0",
+      psqlGlobalRead(`select id, title from projects where user_id = '${BOB}'`),
+    );
+    psqlGlobal(`DELETE FROM clips WHERE id = 'clip-iso-susp'`);
+
     const restored = await call(ALICE, `/api/admin/accounts/${BOB}/suspend`, "POST", {
       suspended: false,
       reason: "sorted, restoring the account",

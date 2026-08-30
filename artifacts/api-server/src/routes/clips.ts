@@ -15,7 +15,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { and, desc, asc, eq } from "drizzle-orm";
-import { db, clipsTable, projectsTable } from "@workspace/db";
+import { db, clipsTable, projectsTable, subscriptionsTable } from "@workspace/db";
 import {
   DeleteClipParams,
   GetProjectResponse,
@@ -26,6 +26,10 @@ import {
 import { currentUserId } from "../middlewares/auth";
 import { copyObject, deleteObjects, storageAdminConfigured } from "../lib/storage";
 import { serializeProject } from "../lib/transformers";
+import { rateLimit, LIMITS } from "../lib/rate-limit";
+import { planKeyFrom } from "../lib/plan-limits";
+import { usageFor, exhaustedMessage } from "../lib/usage";
+import { decideRender } from "../lib/render-policy";
 
 const router: IRouter = Router();
 
@@ -143,7 +147,7 @@ router.delete("/projects/:id/clips/:clipId", async (req, res): Promise<void> => 
  * are invisible and unreclaimable, while a row whose copy failed is something
  * we can — and do — take back before answering.
  */
-router.post("/projects/:id/clips/:clipId/open", async (req, res): Promise<void> => {
+router.post("/projects/:id/clips/:clipId/open", rateLimit(LIMITS.createProject), async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const params = PromoteClipParams.safeParse(req.params);
   if (!params.success) {
@@ -156,6 +160,61 @@ router.post("/projects/:id/clips/:clipId/open", async (req, res): Promise<void> 
   // worse answer than "not on this deployment".
   if (!storageAdminConfigured) {
     res.status(503).json({ error: "This deployment cannot copy stored video, so a clip cannot be opened on its own." });
+    return;
+  }
+
+  /*
+   * The same two questions `POST /projects` asks, asked here for the same
+   * reasons, because this is the same act under another name.
+   *
+   * This endpoint had neither. It creates a project row and copies a video
+   * file, and it was the only path in the product that could do both without
+   * being counted or refused: a suspended account could keep making projects
+   * through it, and a loop over a render's clips could mint one project and one
+   * stored copy per call, indefinitely, on a free plan. `POST /projects` is
+   * rate-limited and refuses an exhausted allowance; this was reachable by
+   * anyone who had ever run a clips render.
+   *
+   * It shares `LIMITS.createProject` rather than getting a window of its own,
+   * deliberately: a budget per endpoint is not a budget, because the loop just
+   * alternates between them. One name, one window, both doors.
+   *
+   * Order matters. Both checks happen before the row is written and before a
+   * byte is copied, so a refusal leaves nothing behind to take back.
+   */
+  const [sub] = await db
+    .select()
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, userId))
+    .limit(1);
+  const planKey = planKeyFrom(sub?.plan);
+
+  if (sub?.suspendedAt) {
+    const stopped = decideRender({
+      plan: planKey,
+      usage: { minutesUsed: 0, minutesIncluded: 0, minutesGranted: 0, minutesRemaining: 0, exhausted: false },
+      operations: [],
+      suspendedAt: sub.suspendedAt,
+    });
+    if (!stopped.allowed) {
+      res.status(stopped.status).json(stopped.body);
+      return;
+    }
+  }
+
+  // Same reasoning as project creation: the meter is minutes of finished
+  // video, so an exhausted allowance is refused at the door rather than
+  // charged for. Unlike creating an empty project, this one also costs
+  // storage, which is the second reason it cannot be the one hole in the fence.
+  const usage = await usageFor(userId, planKey);
+  if (usage.exhausted) {
+    res.status(429).json({
+      error: exhaustedMessage(planKey, usage),
+      limitReached: true,
+      plan: planKey,
+      minutesUsed: usage.minutesUsed,
+      minutesIncluded: usage.minutesIncluded,
+    });
     return;
   }
 
