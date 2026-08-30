@@ -428,6 +428,72 @@ section("The waiting-list page can actually reach the API");
   );
 }
 
+/**
+ * The thing that looks when nobody is looking.
+ *
+ * On 12 August the render worker stopped and the outage ran for two days. The
+ * API was fine throughout — nothing was wrong with the API — so every check
+ * anybody had read green while no render on the platform could start. The
+ * watch workflow exists so that never depends on somebody choosing to look.
+ *
+ * A monitor is the easiest thing in a repository to break silently: rename the
+ * field it reads and it passes forever, cheerfully, on a dead platform. So this
+ * asserts the *join* — that the name the workflow greps for is the name the API
+ * actually emits — rather than that the file exists.
+ */
+console.log("\nThe platform watches itself");
+{
+  const watch = read(".github/workflows/watch.yml");
+  const health = read("artifacts/api-server/src/routes/health.ts");
+  const contract = read("lib/api-zod/src/index.ts");
+
+  check("there is a watch workflow", watch.length > 0);
+  check(
+    "it runs on a schedule rather than when somebody remembers",
+    /on:[\s\S]*?schedule:[\s\S]*?cron:/.test(watch),
+    "a monitor nobody triggers is a monitor nobody has",
+  );
+  check(
+    "often enough that nothing is dead for an afternoon",
+    /cron:\s*"\*\/(\d+) \* \* \* \*"/.test(watch) &&
+      Number(/cron:\s*"\*\/(\d+) \* \* \* \*"/.exec(watch)[1]) <= 30,
+    /cron:.*/.exec(watch)?.[0],
+  );
+  check("and by hand when somebody wants to ask now", /workflow_dispatch:/.test(watch));
+
+  check(
+    "it asks the deployment the product actually runs on",
+    watch.includes("https://app.editlyai.io/api/healthz"),
+    "a monitor pointed at the wrong host is a monitor of the wrong thing",
+  );
+
+  // The join, and the whole point of this section: the field the workflow reads
+  // has to be the field the server sends. Rename one without the other and the
+  // alert goes quiet rather than loud, which is the failure mode that matters.
+  check(
+    "it reads whether a render machine is listening",
+    /\.worker\.online/.test(watch),
+    "checking only that the API answers is checking the half that was never broken",
+  );
+  check(
+    "and the server sends that field under that name",
+    /worker:\s*await worker\(\)/.test(health) && /online:\s*z\.boolean\(\)/.test(contract),
+    "the workflow greps for a name the API does not emit, so it would pass on a dead platform",
+  );
+  check(
+    "it fails the run when the answer is no",
+    /exit 1/.test(watch) && /::error::/.test(watch),
+    "a monitor that notices and exits zero has noticed nothing",
+  );
+  // One failed request is a network, not an outage, and an alert that cries
+  // wolf gets muted — which is the same as not having one.
+  check(
+    "and asks twice before it says so",
+    /for attempt in 1 2/.test(watch),
+    "a single-shot check turns every hiccup into an alarm",
+  );
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);

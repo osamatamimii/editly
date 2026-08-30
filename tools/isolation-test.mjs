@@ -352,6 +352,60 @@ console.log("\nToken enforcement");
     typeof healthBody?.capabilities?.admins === "boolean",
     JSON.stringify(healthBody?.capabilities?.admins),
   );
+
+  /**
+   * And whether a machine that can render is listening.
+   *
+   * Everything else on this endpoint describes the API. This describes the
+   * product: with no worker beating, every render queues and none starts, and
+   * the API keeps answering 200 because nothing is wrong with the API. That is
+   * the shape of the 12 August outage, which ran two days because the only
+   * thing that would have noticed was somebody choosing to look.
+   *
+   * Asserted in both directions from a seeded heartbeat, because a field that
+   * is always true is not a monitor — it is a decoration that will read "fine"
+   * on the day it matters.
+   */
+  psqlGlobal(`delete from worker_heartbeats where worker_id like 'health-test-%'`);
+  psqlGlobal(
+    `insert into worker_heartbeats (worker_id, last_seen_at) values ('health-test-live', now())`,
+  );
+  // `newestWorkerSeenAt` caches for ten seconds so that a progress poll cannot
+  // become a second database round trip. That cache is shorter than the two
+  // minutes that decide online from offline, so it can never change a verdict —
+  // but it is longer than the gap between two lines of a test, so the wait is
+  // here rather than the cache being weakened for the suite's convenience.
+  const PAST_THE_CACHE = 11_000;
+  await new Promise((done) => setTimeout(done, PAST_THE_CACHE));
+  const live = await (await fetch(`${BASE}/api/healthz`)).json();
+  check("it says a render machine is listening", live?.worker?.online === true, JSON.stringify(live?.worker));
+  check(
+    "and how long ago it last said so",
+    typeof live?.worker?.lastSeenAgoSeconds === "number" && live.worker.lastSeenAgoSeconds < 120,
+    JSON.stringify(live?.worker),
+  );
+
+  // Ten minutes of silence. The worker is declared gone after two, so this is
+  // the outage, reproduced.
+  psqlGlobal(`update worker_heartbeats set last_seen_at = now() - interval '10 minutes'`);
+  await new Promise((done) => setTimeout(done, PAST_THE_CACHE));
+  const silent = await (await fetch(`${BASE}/api/healthz`)).json();
+  check(
+    "and says so when nothing has beaten for ten minutes",
+    silent?.worker?.online === false,
+    JSON.stringify(silent?.worker),
+  );
+  check(
+    "with the age, because a machine that stopped and one that was never there are different problems",
+    typeof silent?.worker?.lastSeenAgoSeconds === "number" && silent.worker.lastSeenAgoSeconds > 300,
+    JSON.stringify(silent?.worker),
+  );
+  check(
+    "while the API itself is still reported as fine, because it is",
+    silent?.status === "ok",
+    JSON.stringify(silent?.status),
+  );
+  psqlGlobal(`delete from worker_heartbeats where worker_id like 'health-test-%'`);
 }
 
 console.log("\nOwnership isolation");
