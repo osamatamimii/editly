@@ -173,12 +173,18 @@ function findChromium() {
   return undefined;
 }
 const exe = findChromium();
-const browser = await chromium.launch({ ...(exe ? { executablePath: exe } : {}), args: ["--no-sandbox"] });
+// SwiftShader gives this headless browser a working WebGL2, which the voice
+// orb needs. Without it every run would exercise the CSS fallback and the
+// shader would never be drawn by anything before a customer's machine.
+const browser = await chromium.launch({
+  ...(exe ? { executablePath: exe } : {}),
+  args: ["--no-sandbox", "--use-gl=swiftshader", "--enable-unsafe-swiftshader"],
+});
 await mkdir(SHOTS, { recursive: true });
 
 const PHONE = { width: 390, height: 844 };
 
-async function open(url, { signedIn = false, override = null } = {}) {
+async function open(url, { signedIn = false, override = null, initScript = null } = {}) {
   const ctx = await browser.newContext({ viewport: PHONE, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 
   // Everything the page would talk to, answered here. Supabase first, because
@@ -203,6 +209,9 @@ async function open(url, { signedIn = false, override = null } = {}) {
     }
     return route.fulfill({ json: fx });
   });
+
+  // Anything a page needs to exist in the browser before it loads.
+  if (initScript) await ctx.addInitScript(initScript);
 
   if (signedIn) {
     await ctx.addInitScript(
@@ -384,12 +393,138 @@ const PAGES = [
       );
     },
   },
+  {
+    /*
+     * Speaking to the editor.
+     *
+     * `SpeechRecognition` does not exist in a headless browser, and the mic
+     * button is deliberately not rendered where it cannot work — so without the
+     * stub below, this whole feature would be invisible to every check in this
+     * repository and would first be exercised on somebody's phone.
+     *
+     * The stub is the browser's shape, not the product's: a constructor with
+     * the three handlers the hook attaches. It answers with one phrase, so the
+     * assertion can be that the phrase reached the chat input rather than that
+     * something happened.
+     */
+    url: `/project/${PROJECTS[0].id}`,
+    name: "describing an edit out loud",
+    signedIn: true,
+    initScript: () => {
+      class FakeRecognition {
+        constructor() {
+          this.lang = "";
+          this.continuous = false;
+          this.interimResults = false;
+          this.maxAlternatives = 1;
+          this.onresult = null;
+          this.onerror = null;
+          this.onend = null;
+        }
+        start() {
+          setTimeout(() => {
+            this.onresult?.({
+              resultIndex: 0,
+              results: Object.assign([Object.assign([{ transcript: "cut the dead air" }], { isFinal: true })], {
+                length: 1,
+              }),
+            });
+          }, 60);
+        }
+        stop() {
+          this.onend?.();
+        }
+        abort() {
+          this.onend?.();
+        }
+      }
+      Object.defineProperty(window, "SpeechRecognition", { value: FakeRecognition, writable: true });
+      // No microphone in here either, and the hook must survive that: the level
+      // meter is a separate request from the words, and losing it costs the
+      // animation, not the transcript.
+      Object.defineProperty(navigator, "mediaDevices", {
+        value: { getUserMedia: () => Promise.reject(new Error("no microphone in a test browser")) },
+        writable: true,
+      });
+    },
+    then: async (page, check) => {
+      const mic = page.getByTestId("button-voice");
+      check("the microphone is offered", (await mic.count()) === 1, String(await mic.count()));
+      await mic.first().click();
+
+      const sheet = page.getByTestId("voice-sheet");
+      await sheet.waitFor({ state: "visible", timeout: 4000 }).catch(() => {});
+      check("pressing it opens the listening sheet", await sheet.isVisible(), "");
+
+      // The orb draws through WebGL where there is WebGL, and a CSS sphere
+      // underneath where there is not. Both are asserted, because the fallback
+      // is the one that ships to the older half of the phones.
+      const orb = await page.evaluate(() => {
+        const host = document.querySelector('[data-testid="voice-orb"]');
+        const canvas = host?.querySelector("canvas");
+        return {
+          present: Boolean(host),
+          canvasPainted: canvas ? canvas.width > 0 && canvas.height > 0 : false,
+          fallback: (() => {
+            const el = host?.querySelector('[data-testid="voice-orb-fallback"]');
+            return { present: Boolean(el), hidden: el ? el.hidden : null };
+          })(),
+          gl: (() => {
+            try {
+              return Boolean(document.createElement("canvas").getContext("webgl2"));
+            } catch {
+              return false;
+            }
+          })(),
+        };
+      });
+      // The one screen in this product whose whole job is to look right, so it
+      // is written out for a person to look at rather than only measured.
+      await page.screenshot({ path: path.join(SHOTS, "the-voice-orb.png") });
+      check("the orb is on screen", orb.present, JSON.stringify(orb));
+      check("with a canvas sized to something", orb.canvasPainted, JSON.stringify(orb));
+      check("and a sphere underneath for browsers with no WebGL2", orb.fallback.present, JSON.stringify(orb));
+      // Both halves of the same rule: the fallback exists, and it gets out of
+      // the way once the shader is painting. Drawn unconditionally it put a
+      // second ring around the orb on every browser that had WebGL2.
+      check(
+        orb.gl
+          ? "and it retires once the shader is painting"
+          : "and it is what is showing, because this browser has no WebGL2",
+        orb.gl ? orb.fallback.hidden === true : orb.fallback.hidden === false,
+        JSON.stringify(orb),
+      );
+
+      await page.waitForTimeout(400);
+      const heard = await page.getByTestId("voice-transcript").innerText();
+      check("what was said is shown while it is being said", /cut the dead air/i.test(heard), heard);
+
+      await page.getByTestId("button-voice-done").click();
+      await page.waitForTimeout(200);
+
+      /*
+       * The one that matters.
+       *
+       * Speech has to land in the same box typing lands in. A voice path that
+       * sends on its own would be a second route into the renderer, and every
+       * refusal, every language rule and every rate limit would have to be
+       * built again on it and would drift.
+       */
+      const typed = await page.getByTestId("input-chat").inputValue();
+      check(
+        "and it lands in the chat input, not in a send of its own",
+        /cut the dead air/i.test(typed),
+        typed,
+      );
+      check("the sheet closes when it is done", !(await sheet.isVisible()), "");
+    },
+  },
   { url: "/nowhere-at-all", name: "a page that is not there", signedIn: false },
 ];
 
 for (const spec of PAGES) {
   section(`${spec.name} at ${PHONE.width}×${PHONE.height}`);
-  const { ctx, page, consoleErrors } = await open(spec.url, { signedIn: spec.signedIn, override: spec.override });
+  const { ctx, page, consoleErrors } = await open(spec.url, { signedIn: spec.signedIn, override: spec.override, initScript: spec.initScript });
   const m = await measure(page);
   await page.screenshot({ path: path.join(SHOTS, `${spec.name.replace(/[^a-z]+/gi, "-")}.png`) });
 

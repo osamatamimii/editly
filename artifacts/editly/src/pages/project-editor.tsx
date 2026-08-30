@@ -51,6 +51,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ProjectLibrary } from "@/components/project-library";
 import { ProjectClips, getListClipsQueryKey } from "@/components/project-clips";
 import { takePendingUpload } from "@/lib/pending-upload";
+import { VoiceInput } from "@/components/voice/voice-input";
 
 /** m:ss — anything longer than an hour is not what this product is for. */
 function formatTimecode(seconds: number): string {
@@ -1356,9 +1357,19 @@ export default function ProjectEditor() {
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
                 placeholder="Describe your edit..."
-                className="input-chat-glow pr-12 bg-surface-1 border-hairline rounded-full h-12"
+                className="input-chat-glow pr-24 bg-surface-1 border-hairline rounded-full h-12"
                 disabled={!hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 data-testid="input-chat"
+              />
+              {/* Speech fills this same input rather than sending on its own,
+                  so everything the typed path already does applies to it
+                  unchanged. See `voice-input.tsx`. */}
+              <VoiceInput
+                arabic={/[\u0600-\u06FF]/.test(chatInput)}
+                disabled={!hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
+                onText={(text) =>
+                  setChatInput((current) => (current ? `${current.trim()} ${text}` : text))
+                }
               />
               <Button 
                 type="submit"
