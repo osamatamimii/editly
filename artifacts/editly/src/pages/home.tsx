@@ -567,7 +567,7 @@ export default function Home() {
           <span className="font-bold text-lg sm:text-xl tracking-tight">Editly</span>
         </div>
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
-          {["Features", "How it works", "Pricing"].map((item) => (
+          {["Features", "Podcasts", "How it works", "Pricing"].map((item) => (
             <a
               key={item}
               href={`#${item.toLowerCase().replace(/ /g, "-")}`}
@@ -1085,6 +1085,87 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── One recording, a week of posts ──
+          The product has cut clips out of a long take since the renderer
+          learned to, and nothing anywhere said so. "Video editing" is what
+          twenty products call themselves; "your Tuesday recording is five
+          posts by Wednesday" is a job somebody has. Every number and every
+          name on this section is a thing that runs today — the templates are
+          `three-clips` and `podcast-clip` in lib/templates.ts, and the titles
+          come from the transcript the same way the captions do. */}
+      <section id="podcasts" className="w-full bg-band py-24 relative overflow-hidden">
+        <div className="w-full max-w-7xl mx-auto px-6">
+          <div className="max-w-2xl reveal">
+            <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">
+              Podcasts and clipping
+            </p>
+            <h2 className="text-4xl font-bold mb-4 leading-tight text-balance">
+              One recording on Tuesday. A week of posts by Wednesday.
+            </h2>
+            <p className="text-muted-foreground text-lg leading-relaxed">
+              A two-hour conversation holds three or four moments worth posting, and finding them
+              is the work. Upload the take, say what you want, and each moment comes back as its
+              own vertical clip, captioned, levelled and titled by what was actually said in it.
+            </p>
+          </div>
+
+          {/* The mechanism, in the order it happens. Three steps because there
+              are three; a five-step diagram of a three-step process is a
+              diagram somebody padded. */}
+          <div className="grid md:grid-cols-3 gap-6 mt-12">
+            {[
+              {
+                step: "The whole take goes in",
+                detail:
+                  "Two hours, two people, one file. Up to four hours on Pro. Nothing has to be trimmed first, because trimming it first is the job.",
+              },
+              {
+                step: "The moments are found",
+                detail:
+                  "Read from what is said, not from the waveform. Fewer clips rather than padding to a number: a long take rarely holds more than three worth posting, and it comes back with three.",
+              },
+              {
+                step: "Each one is a finished post",
+                detail:
+                  "Cut vertical, captioned in the speaker's own words, levelled to what the platforms want, and named after the line it turns on. Open any of them and keep editing.",
+              },
+            ].map((item, i) => (
+              <div
+                key={item.step}
+                className="reveal rounded-2xl glass-panel border border-hairline p-6"
+                style={{ transitionDelay: `${i * 90}ms` }}
+              >
+                {/* Numbered because this genuinely is a sequence — the clips
+                    cannot be found before the file arrives. Ordinals on a set
+                    of unordered things are decoration. */}
+                <div className="text-xs font-mono text-secondary mb-3">
+                  {String(i + 1).padStart(2, "0")}
+                </div>
+                <h3 className="text-lg font-semibold mb-2">{item.step}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="reveal mt-10 flex flex-col sm:flex-row sm:items-center gap-4">
+            {/* The same CTA the rest of this page uses. A `Button` here would
+                be a different object on the one page whose whole job is to look
+                like one product. */}
+            <Link
+              href="/login?mode=signup"
+              data-testid="link-podcast-cta"
+              className="glow-btn btn-gradient-cta inline-flex items-center justify-center text-white h-12 px-7 rounded-full font-semibold whitespace-nowrap"
+            >
+              Cut your first recording
+            </Link>
+            <p className="text-sm text-muted-foreground">
+              Two of the one-click looks do exactly this: <strong>Three clips</strong> and{" "}
+              <strong>Podcast clip</strong>. Both are on the free plan.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* ── Pricing ── */}
       <section id="pricing" className="w-full max-w-7xl mx-auto px-6 py-24">
         <div className="text-center mb-10 reveal">
@@ -1395,6 +1476,7 @@ The tedious part is the part a machine should do.<br />Upload one take and see h
               <ul className="flex flex-col">
                 <li><a href="/#how-it-works" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">How it works</a></li>
                 <li><a href="/#features" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Features</a></li>
+                <li><a href="/#podcasts" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Podcasts and clipping</a></li>
                 <li><a href="/#pricing" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Pricing</a></li>
               </ul>
             </div>
