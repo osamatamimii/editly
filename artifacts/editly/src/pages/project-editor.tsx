@@ -24,7 +24,7 @@ import { Card } from "@/components/ui/card";
 import { 
   UploadCloud, Play, Pause, ChevronLeft, Send,
   Wand2, Download, CheckCircle2, Loader2,
-  Video, Sparkles, VideoOff, ChevronUp, ChevronDown } from "lucide-react";
+  Video, Sparkles, VideoOff, ChevronUp, ChevronDown, Scissors, FolderOpen } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -300,6 +300,9 @@ export default function ProjectEditor() {
    * It opens itself when Noah says something, because a reply nobody can see
    * is the same as no reply.
    */
+  /** Which of the four side panels is open, if any. See `panelRail`. */
+  const [openPanel, setOpenPanel] = useState<"looks" | "clips" | "files" | "reference" | null>(null);
+
   const [chatOpen, setChatOpen] = useState(true);
   const [unreadFromNoah, setUnreadFromNoah] = useState(false);
   const seenMessageCount = useRef(0);
@@ -1180,6 +1183,68 @@ export default function ProjectEditor() {
     </div>
   );
 
+  /**
+   * The four panels, as four icons.
+   *
+   * Looks, clips, files and the reference clip each used to be a card, always
+   * open, stacked one under the next. On a laptop that is a column of prose
+   * beside the video — seven look cards with a sentence each, and you scroll
+   * past all of it to reach the files. On a phone it is four screens below the
+   * fold.
+   *
+   * None of them is something you read. Each is something you *go to*, once,
+   * when you have decided to do that thing. So they are a row of icons, and
+   * pressing one opens it — which is also the honest shape of the choice: they
+   * are alternatives, not a list, and only one of them can be what you are
+   * doing.
+   *
+   * Nothing is open to begin with, because what you are doing when you arrive
+   * is watching the video.
+   */
+  const PANELS = [
+    { key: "looks" as const, icon: Wand2, label: "Looks", available: Boolean(templates && templates.length > 0) },
+    { key: "clips" as const, icon: Scissors, label: "Clips", available: true },
+    { key: "files" as const, icon: FolderOpen, label: "Files", available: Boolean(project && user?.id) },
+    { key: "reference" as const, icon: Sparkles, label: "Match", available: Boolean(project) },
+  ].filter((p) => p.available);
+
+  const panelRail = PANELS.length > 0 && (
+    <div className={sideBySide ? "flex flex-col gap-2" : "mt-3"} data-testid="panel-rail">
+      <div
+        className={`flex gap-2 ${sideBySide ? "flex-wrap" : "overflow-x-auto pb-1"}`}
+        role="tablist"
+        aria-label="Editing panels"
+      >
+        {PANELS.map(({ key, icon: Icon, label }) => {
+          const open = openPanel === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={open}
+              onClick={() => setOpenPanel(open ? null : key)}
+              className={`aura-chip no-default-hover-elevate flex-shrink-0 flex items-center gap-2 rounded-full px-3.5 min-h-11 md:min-h-9 text-xs font-medium ${
+                open ? "text-foreground" : "text-muted-foreground"
+              }`}
+              style={open ? { boxShadow: "0 0 0 1px var(--aura-ring-strong), 0 4px 14px var(--aura-drop)" } : undefined}
+              data-testid={`button-panel-${key}`}
+            >
+              <Icon className={`w-4 h-4 flex-shrink-0 ${open ? "text-secondary" : ""}`} />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {openPanel === "looks" && looks}
+      {openPanel === "clips" && clipsPanel}
+      {openPanel === "files" && library}
+      {openPanel === "reference" && reference}
+    </div>
+  );
+
+
   return (
     <div className="w-full h-screen flex flex-col bg-background overflow-hidden">
       {/* Topbar */}
@@ -1327,7 +1392,7 @@ export default function ProjectEditor() {
             <div
               ref={stageRef}
               className={`flex-1 lg:min-h-[34rem] flex-shrink-0 lg:flex-shrink-0 flex items-stretch justify-center gap-4 ${
-                chatOpen ? "min-h-[23rem]" : "min-h-[68dvh]"
+                chatOpen ? "min-h-[23rem]" : "min-h-[62dvh]"
               }`}
             >
               {/* Content-width, not flex-1: the frame and its controls read as
@@ -1516,10 +1581,7 @@ export default function ProjectEditor() {
                   style={{ width: SIDE_COLUMN_WIDTH }}
                   data-testid="side-controls"
                 >
-                  {looks}
-                  {clipsPanel}
-                  {library}
-                  {reference}
+                  {panelRail}
                 </aside>
               )}
             </div>
@@ -1527,7 +1589,7 @@ export default function ProjectEditor() {
 
           {/* Under a landscape clip the width is the plentiful dimension, so the
               looks sit below as a row. A vertical clip puts them in the column. */}
-          {hasVideo && !sideBySide && <div>{looks}{clipsPanel}{library}{reference}</div>}
+          {hasVideo && !sideBySide && <div>{panelRail}</div>}
 
           <div
             aria-hidden

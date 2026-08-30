@@ -26,6 +26,7 @@ import {
   UploadCloud, Gauge
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
+import { ProjectArt } from "@/components/project-art";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -247,12 +248,26 @@ export default function Dashboard() {
    * the state is not the user's fault and there is nothing for them to do about
    * it, but a lie about it is still a lie.
    */
+  /*
+   * A status badge that sits on a picture.
+   *
+   * These were colour-on-10%-colour — "Done" in green on a green wash — which
+   * is legible on the black rectangle they were designed against and nearly
+   * invisible the moment there is artwork underneath. On the new project art,
+   * "Ready" in violet on a violet card disappeared entirely.
+   *
+   * Same rule as the AI Edited badge over a video: a scrim first, so the badge
+   * has a floor it controls, then white text, and the status colour kept for
+   * the icon — where it is a signal rather than the thing carrying the words.
+   */
+  const ON_ART = "bg-black/70 text-white border-white/15 backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.45)]";
+
   const getStatusBadge = (status: string, renderStalled = false) => {
     if (renderStalled) {
       return (
         <Badge
           variant="outline"
-          className="bg-amber-500/10 text-amber-400 border-amber-500/20"
+          className={ON_ART}
           title="The render is queued, but no machine has picked it up."
           data-testid="badge-render-stalled"
         >
@@ -262,15 +277,15 @@ export default function Dashboard() {
     }
     switch (status) {
       case 'uploading':
-        return <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/20"><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Uploading</Badge>;
+        return <Badge variant="outline" className={ON_ART}><Loader2 className="w-3 h-3 mr-1 animate-spin text-blue-300" /> Uploading</Badge>;
       case 'ready':
-        return <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20"><PlayCircle className="w-3 h-3 mr-1" /> Ready</Badge>;
+        return <Badge variant="outline" className={ON_ART}><PlayCircle className="w-3 h-3 mr-1 text-violet-300" /> Ready</Badge>;
       case 'processing':
-        return <Badge variant="outline" className="bg-secondary/10 text-secondary border-secondary/20"><Sparkles className="w-3 h-3 mr-1 animate-pulse" /> Processing</Badge>;
+        return <Badge variant="outline" className={ON_ART}><Sparkles className="w-3 h-3 mr-1 animate-pulse text-violet-200" /> Processing</Badge>;
       case 'done':
-        return <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/20"><CheckCircle2 className="w-3 h-3 mr-1" /> Done</Badge>;
+        return <Badge variant="outline" className={ON_ART}><CheckCircle2 className="w-3 h-3 mr-1 text-green-400" /> Done</Badge>;
       case 'failed':
-        return <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/20"><AlertCircle className="w-3 h-3 mr-1" /> Failed</Badge>;
+        return <Badge variant="outline" className={ON_ART}><AlertCircle className="w-3 h-3 mr-1 text-red-400" /> Failed</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -282,7 +297,12 @@ export default function Dashboard() {
         <div className="flex items-start gap-2">
           <BackButton fallback="/" className="-ml-3 mt-1" />
           <div>
-          <h1 className="text-3xl font-bold tracking-tight glow-text mb-2">Projects</h1>
+          {/* No `glow-text`. A 60px purple halo behind a heading is a landing-page
+              effect: it works once, over a hero, on a page somebody is being
+              sold to. On the screen you open every day it is a smudge behind
+              the word, and it was one of the things making this page feel
+              cheap. The landing page keeps it. */}
+          <h1 className="text-3xl font-bold tracking-tight mb-2">Projects</h1>
           {/* Not a slogan bolted on: on this screen it is the instruction —
               you are about to open a project and type what you want. */}
           <p className="text-muted-foreground" data-testid="text-signature-dashboard">
@@ -583,14 +603,23 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects?.map(project => (
               <Link key={project.id} href={`/project/${project.id}`}>
-                <Card className="glass-panel border-hairline-faint overflow-hidden hover:border-primary/50 transition-colors group cursor-pointer h-full flex flex-col">
-                  <div className="force-dark w-full aspect-[16/9] bg-background text-foreground relative overflow-hidden flex-shrink-0">
-                    {/* The icon is the floor, not the fallback: it sits under
-                        whatever loads, so a poster that fails to fetch or a clip
-                        the browser will not decode leaves a recognisable empty
-                        card rather than a black rectangle. */}
+                {/* The thumbnail is inset inside the card rather than bleeding
+                    to its edge: a picture with a margin around it reads as
+                    something the card is holding, which is the difference
+                    between a library and a list. */}
+                <Card className="glass-panel border-hairline-faint overflow-hidden hover:border-primary/50 transition-all group cursor-pointer h-full flex flex-col p-2 hover:-translate-y-0.5">
+                  <div className="force-dark w-full aspect-[16/9] bg-background text-foreground relative overflow-hidden flex-shrink-0 rounded-xl">
+                    {/* What is under everything else.
+                        This was a black rectangle with a grey camera in the
+                        middle, three across — the least appealing screen in the
+                        product and the one people open most. The art belongs to
+                        the project (its hue comes from its id) so the grid is
+                        something you can find your way around by colour, and a
+                        poster that fails to load lands on a picture rather than
+                        on a hole. See components/project-art.tsx. */}
+                    <ProjectArt seed={project.id} />
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <Video className="w-10 h-10 text-white/20" />
+                      <Video className="w-10 h-10 text-white/25" />
                     </div>
                     {project.thumbnailPath || project.thumbnailUrl ? (
                       <ProjectThumbnail project={project} />
@@ -601,7 +630,7 @@ export default function Dashboard() {
                       {getStatusBadge(project.status, project.renderStalled)}
                     </div>
                   </div>
-                  <CardContent className="p-5 flex-1">
+                  <CardContent className="px-3 pt-3 pb-1 flex-1">
                     <CardTitle dir="auto" className="text-lg mb-1 group-hover:text-primary transition-colors line-clamp-1" data-testid={`text-project-title-${project.id}`}>
                       {project.title}
                     </CardTitle>
@@ -610,7 +639,7 @@ export default function Dashboard() {
                       {format(new Date(project.updatedAt), 'MMM d, yyyy')}
                     </div>
                   </CardContent>
-                  <CardFooter className="p-4 pt-0 flex justify-end">
+                  <CardFooter className="px-3 pb-2 pt-0 flex justify-end">
                     <Button 
                       variant="ghost" 
                       size="icon"

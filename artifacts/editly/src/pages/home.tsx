@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { fetchCheckoutConfig, openCheckout } from "@/lib/checkout";
 import { useAuth } from "@/lib/auth";
 import { Logo } from "@/components/logo";
+import { RollingNumber } from "@/components/rolling-number";
 import { PLANS, SHARED_FEATURES, FREE_TIER } from "@/lib/pricing";
 
 /**
@@ -1120,11 +1121,15 @@ export default function Home() {
               }`}
             >
               Yearly
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all duration-300 ${
-                isYearly
-                  ? "bg-surface-3 text-foreground border-hairline-strong"
-                  : "bg-primary/15 text-primary border-primary/30"
-              }`}>
+              {/* The one thing on this page that is not the brand colour.
+                  A saving has to jump off a section whose every other accent is
+                  violet, and a second violet does not jump. `--deal` is 80
+                  degrees round the wheel: far enough to read as a different
+                  kind of thing, close enough to belong to the same product. */}
+              <span
+                className="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all duration-300 text-deal"
+                style={{ backgroundColor: "var(--deal-soft)", borderColor: "var(--deal-edge)" }}
+              >
                 Save 20%
               </span>
             </button>
@@ -1192,10 +1197,21 @@ export default function Home() {
                     <h3 className="text-xl font-bold mb-1">{plan.name}</h3>
                     <div className="mt-3 transition-all duration-300">
                       <div className="flex items-baseline gap-1">
-                        <span className="text-4xl font-bold transition-all duration-300">
-                          ${isYearly ? plan.yearlyPrice : plan.price}
-                        </span>
-                        <span className="text-muted-foreground text-sm transition-all duration-300">
+                        {/* The number rolls rather than being replaced.
+                            There was a `transition` on this span, which does
+                            nothing: transitions interpolate properties and the
+                            text of a node is not one. The yearly toggle is the
+                            only interaction in this section and it had no
+                            feedback at all — $12 simply became $115 between two
+                            frames. Rolling also says which *way* the number
+                            went, which on a pricing page is the point. */}
+                        <span className="text-4xl font-bold">$</span>
+                        <RollingNumber
+                          value={String(isYearly ? plan.yearlyPrice : plan.price)}
+                          className="text-4xl font-bold"
+                          testId={`price-${plan.key}`}
+                        />
+                        <span className="text-muted-foreground text-sm">
                           /{isYearly ? "year" : "month"}
                         </span>
                       </div>

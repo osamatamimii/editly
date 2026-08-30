@@ -287,7 +287,7 @@ export default function ExportPage() {
         {/* Export Controls */}
         <div className="order-1 lg:order-2 lg:col-span-7 flex flex-col gap-8">
           <div>
-            <h1 className="text-4xl font-bold tracking-tight mb-2 glow-text">Export Project</h1>
+            <h1 className="text-4xl font-bold tracking-tight mb-2">Export Project</h1>
             <p dir="auto" className="text-xl text-muted-foreground">{project.title}</p>
           </div>
 

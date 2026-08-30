@@ -129,7 +129,7 @@ export default function AccountPage() {
         <div className="flex items-start gap-2">
           <BackButton fallback="/dashboard" className="-ml-3 mt-1" />
           <div>
-            <h1 className="text-3xl font-bold tracking-tight glow-text mb-2">Account</h1>
+            <h1 className="text-3xl font-bold tracking-tight mb-2">Account</h1>
             <p className="text-muted-foreground" data-testid="text-account-email">
               {user?.email ?? "Signed in"}
             </p>

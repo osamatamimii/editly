@@ -62,6 +62,12 @@
    */
   --color-success: hsl(var(--success));
   --color-warning: hsl(var(--warning));
+  /*
+   * The one accent that is not the brand: savings, discounts, the plan being
+   * pushed. Its own token rather than a Tailwind pink, because "the colour that
+   * means a good deal" is a decision the product makes once.
+   */
+  --color-deal: hsl(var(--deal));
 
   --color-chart-1: hsl(var(--chart-1));
   --color-chart-2: hsl(var(--chart-2));
@@ -164,6 +170,39 @@
    * A filled button's edge is its fill. These are the shade *under* the fill,
    * not a light around it.
    */
+  /*
+   * The aura. A ring of the brand, at low alpha, *always* there.
+   *
+   * `.glow-btn` already had this shape and drew it at zero spread until hover,
+   * so at rest a primary button was a flat disc of colour and the considered
+   * look only existed for people using a mouse — which on a phone is nobody.
+   * A resting ring is the whole difference between a filled shape and a
+   * control that looks lit.
+   *
+   * A crisp `0 0 0 Npx` ring, not a blur: a blur is a glow and reads as haze,
+   * a spread is an edge and reads as an object. Sitting one on top of the
+   * other is what gives the disc a second, softer silhouette.
+   */
+  --aura-ring: rgba(108, 59, 255, 0.22);
+  --aura-ring-strong: rgba(108, 59, 255, 0.38);
+  --aura-face-top: rgba(255, 255, 255, 0.16);
+  --aura-drop: rgba(8, 4, 24, 0.55);
+  /* The neutral one — their white `+`. A surface, a ring of nothing much, and
+     a shadow doing all the work of the border it does not have. */
+  --aura-neutral-ring: rgba(255, 255, 255, 0.07);
+  --aura-neutral-face: rgba(255, 255, 255, 0.10);
+
+  /*
+   * The deal accent: the one colour that is not the brand.
+   *
+   * A saving, a discount, a "most popular" — these have to jump off a page
+   * whose every other accent is violet, and a second violet does not jump. It
+   * is 80 degrees around the wheel from the mark, which is far enough to read
+   * as a different thing and close enough to belong to the same product.
+   */
+  --deal: 338 90% 62%;
+  --deal-soft: rgba(247, 60, 140, 0.16);
+  --deal-edge: rgba(247, 60, 140, 0.38);
   --primary-border: rgba(20, 6, 60, 0.45);
   --secondary-border: rgba(20, 6, 60, 0.40);
   --destructive-border: rgba(60, 6, 12, 0.45);
@@ -419,6 +458,21 @@ html[data-page-theme="light"] body {
   --badge-outline: rgba(84, 30, 190, 0.09);
 
   /* The same edges, on a white page. See the note in the dark block. */
+  /* The same aura on a white page: the ring has to be a touch stronger to be
+     seen at all, and the face gradient flips to a dark-to-nothing so a filled
+     button still reads as lit from above rather than washed out. */
+  --aura-ring: rgba(108, 59, 255, 0.16);
+  --aura-ring-strong: rgba(108, 59, 255, 0.30);
+  --aura-face-top: rgba(255, 255, 255, 0.22);
+  --aura-drop: rgba(60, 30, 140, 0.18);
+  --aura-neutral-ring: rgba(40, 12, 110, 0.06);
+  --aura-neutral-face: rgba(255, 255, 255, 0.9);
+
+  /* Deeper, because 62% lightness on white is a highlighter rather than a
+     colour that carries text. */
+  --deal: 338 82% 48%;
+  --deal-soft: rgba(214, 22, 104, 0.10);
+  --deal-edge: rgba(214, 22, 104, 0.28);
   --primary-border: rgba(40, 12, 110, 0.35);
   --secondary-border: rgba(40, 12, 110, 0.30);
   --destructive-border: rgba(90, 10, 20, 0.35);
@@ -1332,4 +1386,148 @@ html[data-page-theme="light"] body {
   font-weight: 800;
   font-size: 1em;
   line-height: 1.3;
+}
+
+/* ── The aura button ────────────────────────────────────────────────────────
+ *
+ * A round, filled action button that reads as an object rather than a shape:
+ * a face lit from above, a crisp ring of the brand around it at low alpha, and
+ * a shadow underneath. The ring is present at rest — that is the point of it.
+ * `.glow-btn` draws the same ring only on hover, which is a considered look
+ * that exists for a mouse and for nobody on a phone.
+ *
+ * No border. The edge is the ring and the gradient; a stroke on top of both is
+ * what makes a button look like a div with a background colour.
+ */
+.aura-btn {
+  position: relative;
+  border: 0;
+  background-image: linear-gradient(to bottom, var(--aura-face-top), transparent 62%);
+  box-shadow:
+    0 0 0 5px var(--aura-ring),
+    0 3px 10px var(--aura-drop);
+  transition:
+    box-shadow 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform  260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.aura-btn:hover:not(:disabled) {
+  box-shadow:
+    0 0 0 8px var(--aura-ring),
+    0 5px 16px var(--aura-drop);
+  transform: translateY(-1px);
+}
+.aura-btn:active:not(:disabled) {
+  box-shadow:
+    0 0 0 3px var(--aura-ring-strong),
+    0 1px 4px var(--aura-drop);
+  transform: translateY(0) scale(0.96);
+}
+.aura-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px var(--background),
+    0 0 0 6px hsl(var(--primary)),
+    0 3px 10px var(--aura-drop);
+}
+.aura-btn:disabled {
+  box-shadow: none;
+  opacity: 0.45;
+}
+
+/* The same object in the page's own colours rather than the brand's — their
+   white `+`. Depth from a shadow, never from a stroke. */
+.aura-btn-neutral {
+  background-color: var(--aura-neutral-face);
+  background-image: linear-gradient(to bottom, var(--aura-face-top), transparent 62%);
+  box-shadow:
+    0 0 0 5px var(--aura-neutral-ring),
+    0 3px 10px var(--aura-drop);
+}
+.aura-btn-neutral:hover:not(:disabled) {
+  box-shadow:
+    0 0 0 8px var(--aura-neutral-ring),
+    0 5px 16px var(--aura-drop);
+}
+
+/* A pill with no visible border: surface, a whisper of a ring, and a shadow
+   below it. White-on-white separated by light, which is the trick that makes
+   the reference bar look expensive. */
+.aura-chip {
+  border: 0;
+  background-color: var(--aura-neutral-face);
+  box-shadow:
+    0 0 0 1px var(--aura-neutral-ring),
+    0 1px 2px var(--aura-drop),
+    0 4px 12px color-mix(in srgb, var(--aura-drop) 55%, transparent);
+  transition:
+    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform  220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.aura-chip:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px var(--aura-ring),
+    0 2px 4px var(--aura-drop),
+    0 8px 20px color-mix(in srgb, var(--aura-drop) 65%, transparent);
+}
+.aura-chip:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-btn,
+  .aura-chip {
+    transition: none;
+  }
+  .aura-btn:hover:not(:disabled),
+  .aura-chip:hover:not(:disabled),
+  .aura-btn:active:not(:disabled),
+  .aura-chip:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* ── The odometer ───────────────────────────────────────────────────────────
+ *
+ * See components/rolling-number.tsx. Each digit is a column of ten glyphs in a
+ * one-line window; the value is a translate, so it is one composited transform
+ * per digit and nothing runs per frame.
+ */
+.rolling-number {
+  display: inline-flex;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+.rolling-digit {
+  display: inline-block;
+  overflow: hidden;
+  height: 1em;
+  line-height: 1;
+  /* Baseline, not centre: the column sits in a line of type beside a currency
+     sign that is not rolling, and a window aligned any other way makes the
+     price look like it is falling off the line. */
+  vertical-align: baseline;
+}
+.rolling-strip {
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+}
+/* Only once it has something to roll *from*. A page that rolls every price up
+   from zero on load is a slot machine. */
+.rolling-live .rolling-strip {
+  transition: transform 620ms cubic-bezier(0.28, 1.12, 0.36, 1);
+}
+.rolling-cell {
+  height: 1em;
+  line-height: 1;
+  display: block;
+}
+.rolling-still {
+  display: inline-block;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rolling-live .rolling-strip {
+    transition: none;
+  }
 }
