@@ -169,6 +169,29 @@ export default function AdminPage() {
     ? Math.round((Date.now() - new Date(worker.lastSeenAt).getTime()) / 1000)
     : null;
 
+  /*
+   * When the word and the number disagree, say so instead of showing both.
+   *
+   * This card prints two things that come from the same row: a verdict the
+   * server reached, and an age this page computes from the timestamp beside it.
+   * In production they cannot disagree. Which is exactly why nothing here
+   * checked — and why the card read "online · last beat 6d 3h ago" in a
+   * screenshot for days without anyone, including me, treating it as a fault.
+   *
+   * A console whose whole job is to tell you when something is wrong must not
+   * be the one screen that renders a contradiction calmly. A stale response, a
+   * cached one, a clock that disagrees, or a bug in the threshold all arrive
+   * looking like this, and every one of them is worth knowing about.
+   *
+   * The threshold is written out rather than imported: it belongs to
+   * `queue-health.ts` in the API, which deploys separately, and a package
+   * between the two for one number would be a build dependency for a constant.
+   * browser-test holds the two copies to the same value.
+   */
+  const WORKER_OFFLINE_AFTER_SECONDS = 120;
+  const claimsOnlineButIsStale =
+    worker.online && seenAgo !== null && seenAgo > WORKER_OFFLINE_AFTER_SECONDS;
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-6xl mx-auto px-6 py-10 space-y-10">
@@ -236,9 +259,15 @@ export default function AdminPage() {
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card
             label="Worker"
-            value={worker.online ? "online" : "offline"}
-            hint={seenAgo === null ? "never seen" : `last beat ${elapsed(seenAgo)} ago`}
-            alarming={!worker.online}
+            value={claimsOnlineButIsStale ? "unclear" : worker.online ? "online" : "offline"}
+            hint={
+              claimsOnlineButIsStale
+                ? `the server says online, but the last beat was ${elapsed(seenAgo as number)} ago. Both cannot be true.`
+                : seenAgo === null
+                  ? "never seen"
+                  : `last beat ${elapsed(seenAgo)} ago`
+            }
+            alarming={!worker.online || claimsOnlineButIsStale}
           />
           <Card label="Done (24h)" value={data.queue.doneLastDay} />
           <Card label="Minutes this month" value={data.minutesRenderedThisMonth} />

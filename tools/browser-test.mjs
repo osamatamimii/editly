@@ -1486,6 +1486,38 @@ section("The landing page's feature list keeps up with what is actually built");
   );
 }
 
+section("The console's idea of 'too long ago' is the server's");
+{
+  /*
+   * The admin console decides whether to believe an `online` it was handed, by
+   * comparing the age of the heartbeat against a threshold. The server decides
+   * whether to send that `online` at all, by comparing the same age against the
+   * same threshold. Two copies of one number, in two packages that deploy
+   * separately — the client cannot import the constant without making the API a
+   * build dependency of the web app for a single integer.
+   *
+   * So they are written out twice on purpose, and held together here. Drift is
+   * silent and the symptom is absurd: raise one and the console starts calling
+   * every worker "unclear"; raise the other and it goes back to reassuring
+   * people about a machine that stopped.
+   */
+  const health = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/queue-health.ts"), "utf8");
+  const admin = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/admin.tsx"), "utf8");
+
+  const serverMs = /WORKER_OFFLINE_AFTER_MS\s*=\s*([^;]+);/.exec(health)?.[1];
+  const clientSeconds = /WORKER_OFFLINE_AFTER_SECONDS\s*=\s*(\d+)/.exec(admin)?.[1];
+  check("the server states a threshold", Boolean(serverMs), String(serverMs));
+  check("and the console states one too", Boolean(clientSeconds), String(clientSeconds));
+
+  // eslint-disable-next-line no-new-func -- a literal arithmetic expression from our own source
+  const serverValue = serverMs ? Number(new Function(`return (${serverMs})`)()) : NaN;
+  check(
+    "and they are the same length of time",
+    serverValue / 1000 === Number(clientSeconds),
+    `server ${serverValue / 1000}s vs console ${clientSeconds}s`,
+  );
+}
+
 section("Every door that creates a project is counted through the same one");
 {
   /*

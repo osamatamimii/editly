@@ -78,7 +78,15 @@ const FIXTURES = {
   "/api/stats/dashboard": {
     totalProjects: 3, processingCount: 1, stalledCount: 0, doneCount: 1,
     recentProjects: PROJECTS,
-    worker: { online: true, lastSeenAt: "2026-08-24T09:31:00.000Z", transcription: "whisper-1", vision: null },
+    // Relative to now, not a date written down once.
+    //
+    // This was a fixed timestamp, so every day it aged further from the
+    // `online: true` beside it. The screenshot this suite writes read
+    // "online · last beat 6d 3h ago" — a state the server cannot produce, since
+    // it calls a worker gone after two minutes. A fixture that drifts into an
+    // impossible state is worse than no fixture: it renders a screen nobody can
+    // trust, and it makes the one contradiction worth catching look normal.
+    worker: { online: true, lastSeenAt: new Date(Date.now() - 20_000).toISOString(), transcription: "whisper-1", vision: null },
   },
   "/api/projects": PROJECTS,
   "/api/subscription": {
@@ -170,7 +178,7 @@ await mkdir(SHOTS, { recursive: true });
 
 const PHONE = { width: 390, height: 844 };
 
-async function open(url, { signedIn = false } = {}) {
+async function open(url, { signedIn = false, override = null } = {}) {
   const ctx = await browser.newContext({ viewport: PHONE, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 
   // Everything the page would talk to, answered here. Supabase first, because
@@ -187,7 +195,9 @@ async function open(url, { signedIn = false } = {}) {
   });
   await ctx.route(`${origin}/api/**`, async (route) => {
     const u = new URL(route.request().url());
-    const fx = fixtureFor(u.pathname);
+    // A page can bend one fixture for its own run, so a state the product must
+    // handle can be rendered without every other page seeing it too.
+    const fx = override?.[u.pathname] ?? fixtureFor(u.pathname);
     if (fx && typeof fx.status === "number" && Object.keys(fx).length === 1) {
       return route.fulfill({ status: fx.status, json: { message: "no" } });
     }
@@ -321,13 +331,65 @@ const PAGES = [
   { url: `/project/${PROJECTS[0].id}`, name: "the project editor", signedIn: true },
   { url: `/export/${PROJECTS[0].id}`, name: "the export screen", signedIn: true },
   { url: "/account", name: "the account page", signedIn: true },
-  { url: "/admin", name: "the admin console", signedIn: true },
+  { url: "/admin", name: "the admin console", signedIn: true, then: async (page, check) => {
+      // The word and the number on the worker card come from one row and must
+      // agree. Checked on the rendered card rather than on the fixture, because
+      // the defect this catches is the card presenting a contradiction calmly.
+      const card = await page.evaluate(() => {
+        const label = [...document.querySelectorAll("*")].find((e) => e.textContent?.trim() === "Worker");
+        const box = label?.closest("div")?.parentElement;
+        return box?.innerText ?? "";
+      });
+      check("the worker card says what it means", /online|offline|unclear/i.test(card), card);
+      const stale = /last beat (\d+)\s*(m|h|d)/.exec(card);
+      const saysOnline = /\bonline\b/i.test(card) && !/unclear/i.test(card);
+      const minutes = stale ? Number(stale[1]) * ({ m: 1, h: 60, d: 1440 }[stale[2]] ?? 1) : 0;
+      check(
+        "and does not call a worker online whose last beat is older than the server's own threshold",
+        !(saysOnline && minutes > 2),
+        card,
+      );
+    } },
+  {
+    // The same screen, told something impossible.
+    //
+    // The server calls a worker gone after two minutes, so `online: true` beside
+    // a six-day-old beat is a state it cannot produce — which is exactly why the
+    // console never checked, and why it rendered that pair calmly for days. A
+    // stale cache, a clock that disagrees, or a bug in the threshold all arrive
+    // looking like this. The console exists to notice.
+    url: "/admin",
+    name: "the admin console told two things that cannot both be true",
+    signedIn: true,
+    override: {
+      "/api/admin/overview": {
+        ...FIXTURES["/api/admin/overview"],
+        worker: { online: true, lastSeenAt: "2026-08-24T09:31:00.000Z", transcription: null, vision: null },
+      },
+    },
+    then: async (page, check) => {
+      const card = await page.evaluate(() => {
+        const label = [...document.querySelectorAll("*")].find((e) => e.textContent?.trim() === "Worker");
+        return label?.closest("div")?.parentElement?.innerText ?? "";
+      });
+      check(
+        "it refuses to call that worker online",
+        !/^\s*Worker\s*\n\s*online\b/im.test(card),
+        card,
+      );
+      check(
+        "and says which two facts disagree, rather than showing both without comment",
+        /both cannot be true/i.test(card),
+        card,
+      );
+    },
+  },
   { url: "/nowhere-at-all", name: "a page that is not there", signedIn: false },
 ];
 
 for (const spec of PAGES) {
   section(`${spec.name} at ${PHONE.width}×${PHONE.height}`);
-  const { ctx, page, consoleErrors } = await open(spec.url, { signedIn: spec.signedIn });
+  const { ctx, page, consoleErrors } = await open(spec.url, { signedIn: spec.signedIn, override: spec.override });
   const m = await measure(page);
   await page.screenshot({ path: path.join(SHOTS, `${spec.name.replace(/[^a-z]+/gi, "-")}.png`) });
 
@@ -352,6 +414,8 @@ for (const spec of PAGES) {
     m.tiny.length === 0,
     m.tiny.map((t) => `${t.px}px "${t.t}"`).join(" | "),
   );
+  // Anything this page in particular has to say for itself.
+  if (spec.then) await spec.then(page, check);
   await ctx.close();
 }
 
