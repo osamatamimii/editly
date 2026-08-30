@@ -255,14 +255,14 @@ function instructionFor(assets: PlannerAsset[]): string {
     "asking for TikTok implies formatForPlatform, asking to tighten implies removeSilence.",
     "Do not add operations because they are usually nice. An edit nobody asked for is an edit nobody wants.",
     "zoomPunch places punch-ins where the speaker stresses a word; the worker finds those, you only ask for it.",
-    "extractHighlight keeps only the strongest stretch of the clip — choose it when they ask for the best part,",
+    "extractHighlight keeps only the strongest stretch of the clip. Choose it when they ask for the best part,",
     "a highlight, or the top N seconds. targetSeconds is the length they asked for (default 30); the worker",
     "chooses where those seconds live, from the speech itself. Never choose it for requests about the whole video.",
-    "extractRange keeps exactly the stretch the person named — 'from 1:20 to 2:10', 'the first 40 seconds',",
+    "extractRange keeps exactly the stretch the person named. 'from 1:20 to 2:10', 'the first 40 seconds',",
     "'minute two to minute three'. startSeconds and endSeconds are seconds on the source clock; convert",
     "minutes yourself. Choose it only when they name the moments; when they ask for 'the best part', that is",
     "extractHighlight, whose window the worker chooses.",
-    "extractClips cuts the video into several separate clips, each its own output — choose it when they ask",
+    "extractClips cuts the video into several separate clips, each its own output. Choose it when they ask",
     "for N clips, to split it into shorts, or for pieces to post separately. clipCount is how many (2-6),",
     "targetSeconds how long each should be. The worker chooses where each clip lives, from the speech.",
     "One clip of the best material is extractHighlight, not extractClips with clipCount 1.",
@@ -272,7 +272,7 @@ function instructionFor(assets: PlannerAsset[]): string {
     "coldOpen builds a hook: it opens the video on its strongest moment and then plays from the top",
     "without it - choose it when they ask for a hook, a cold open, or to start with the best bit.",
     "durationSeconds is how long the opening moment should be (1-15, default 4).",
-    "fade opens the video from black and closes it to black — choose it when they ask for a fade, a fade in or",
+    "fade opens the video from black and closes it to black. Choose it when they ask for a fade, a fade in or",
     "out, or a soft opening or ending. durationSeconds is how long each fade runs (0.1-2, default 0.5). It never",
     "goes between cuts, only at the ends.",
     "transition is the other one: it joins each cut to the next instead of jumping. style is one of dissolve,",
@@ -282,7 +282,7 @@ function instructionFor(assets: PlannerAsset[]): string {
     "0.25). It only does anything when there are cuts to join, so it goes with removeSilence.",
     "If they just say 'transitions' with nothing else, choose fade and a dissolve transition.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
-    "motionTitle animates words onto the screen. Use the person's own words — never write copy they did not ask for.",
+    "motionTitle animates words onto the screen. Use the person's own words. Never write copy they did not ask for.",
     "titleStyle: card is a full sentence held in the middle; lower-third is a name or label along the bottom;",
     "word is kinetic type, where the words land one after another - choose it when they ask for words that move,",
     "for kinetic or animated text, or for a short punchy line rather than a sentence.",
@@ -290,9 +290,9 @@ function instructionFor(assets: PlannerAsset[]): string {
     "carrying those emojis is the right answer. If they ask for emojis and typed none, do not choose any.",
     "zoomPunch has punchOn: emphasis puts the punches where the speaker leans on a word, beat puts them on the",
     "music instead. Choose beat only when they asked for the cuts to follow the beat, and only when this project",
-    "has a track to follow — otherwise emphasis.",
+    "has a track to follow. Otherwise emphasis.",
     "grade sets a named look: warm, cool, cinematic, mono (black and white) or punch. Choose it when they ask",
-    "for a look or a colour, and choose the one they named — cinematic is the teal-and-orange film look, punch is",
+    "for a look or a colour, and choose the one they named. Cinematic is the teal-and-orange film look, punch is",
     "just more contrast and colour. If they name no look you have, choose no grade rather than guessing at one.",
   ];
 
@@ -309,14 +309,14 @@ function instructionFor(assets: PlannerAsset[]): string {
         "length of the finished cut. gainDb is how far under the voice it sits (-40 to 0, default -18) and",
         "duck true pulls it down while they speak. Choose it when they ask for music, a song, a soundtrack or",
         "a bed. If they also want the cuts to follow the music, that is zoomPunch with punchOn beat, alongside",
-        "this — it needs a bed to land on, so the two go together.",
+        "this: it needs a bed to land on, so the two go together.",
       );
     }
   } else {
     lines.push(
       "This project has no files of its own, so there is nothing to cut away to, nothing to lay over the frame,",
       "and no music to put under it.",
-      "If they ask for b-roll, a logo or music, return no operation for it — the answer is that they need to add the file first.",
+      "If they ask for b-roll, a logo or music, return no operation for it. The answer is that they need to add the file first.",
     );
   }
 
@@ -338,8 +338,8 @@ function instructionFor(assets: PlannerAsset[]): string {
    */
   lines.push(
     "If the request is about something none of these operations do, return no operations for it rather than",
-    "substituting something else. The one that comes up is a colour look nobody has named — 'grade it like",
-    "this film', 'make the reds deeper' — where the honest answer is that you cannot, because grade only has",
+    "substituting something else. The one that comes up is a colour look nobody has named. 'grade it like",
+    "this film', 'make the reds deeper', where the honest answer is that you cannot, because grade only has",
     "the five looks above.",
   );
   return lines.join(" ");
@@ -387,8 +387,8 @@ export function createPlanner(options: PlannerOptions = {}) {
                   // presented as a list to choose from and never as something
                   // to follow.
                   assets.length > 0
-                    ? `Files in this project (id — kind — label):\n${assets
-                        .map((a) => `${a.id} — ${a.kind} — ${(a.label ?? "untitled").slice(0, 80)}`)
+                    ? `Files in this project (id, kind, label):\n${assets
+                        .map((a) => `${a.id} | ${a.kind} | ${(a.label ?? "untitled").slice(0, 80)}`)
                         .join("\n")}`
                     : null,
                 ]

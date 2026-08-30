@@ -317,7 +317,7 @@ export async function uploadReferenceVideo(options: {
   const { file, userId, projectId, accessToken } = options;
   if (file.size > MAX_REFERENCE_BYTES) {
     throw new UploadError(
-      `That reference is ${formatBytes(file.size)}. We only read the first couple of minutes of one, so keep it under ${formatBytes(MAX_REFERENCE_BYTES)} — a short clip in the style you want is plenty.`,
+      `That reference is ${formatBytes(file.size)}. We only read the first couple of minutes of one, so keep it under ${formatBytes(MAX_REFERENCE_BYTES)}. A short clip in the style you want is plenty.`,
     );
   }
 

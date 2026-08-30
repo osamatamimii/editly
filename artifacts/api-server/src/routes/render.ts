@@ -27,7 +27,7 @@ function annotateStaleQueue(
   if (!isUnattended(job as unknown as { status: string; createdAt: Date | string }, workerLastSeenAt)) return job;
   return {
     ...job,
-    stage: "Still waiting for a render machine — nothing has picked this up yet.",
+    stage: "Still waiting for a render machine, nothing has picked this up yet.",
   };
 }
 
@@ -169,7 +169,7 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
         // Folding a follow-up into a failure would render on top of a problem
         // nobody has looked at yet. Saying so beats silently dropping it.
         content =
-          "That render failed, so I left your follow-up unstarted — send it again once you've had a look.";
+          "That render failed, so I left your follow-up unstarted. Send it again once you've had a look.";
       } else {
         const outcome = await startRenderForProject(
           userId,
@@ -178,7 +178,7 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
           req.log,
         );
         content = outcome.ok
-          ? "That render landed — starting the follow-up you asked for. It's rendering now."
+          ? "That render landed. Starting the follow-up you asked for. It's rendering now."
           : `That render landed, but I couldn't start your follow-up: ${String(outcome.body["error"] ?? "it could not be started.")}`;
       }
       // Into the conversation, like every other answer: the promise was made

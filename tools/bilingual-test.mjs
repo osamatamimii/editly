@@ -263,7 +263,10 @@ for (const pair of PAIRS) {
   if (pair.refuses) {
     check(
       `${pair.what}: refused in English, and the reason is named`,
-      refusalsOf(pair.en).includes(pair.refuses),
+      // Case-insensitive: these fragments sit mid-sentence in some refusals and
+      // open one in others, and which it is has changed with the prose. The
+      // check is that the fix is named, not how it is capitalised.
+      refusalsOf(pair.en).toLowerCase().includes(pair.refuses.toLowerCase()),
       refusalsOf(pair.en) || "no refusal at all",
     );
     check(
@@ -447,8 +450,12 @@ check("a title in quotes keeps the digits they typed",
  */
 console.log("\nthe reply answers in the language it was asked in");
 
-const ENGLISH_FRAMES = [/\bOn it —/, /\bRight — I'll /, /\bI can't /, /\bI'd .* — but I can't/, /I'm not sure what to change/, /Upload a video first/];
-const ARABIC_FRAMES = [/تمام — س/, /لا أستطيع أن /, /كنت س/, /لست متأكّدًا/, /ارفع فيديو أوّلًا/];
+// The opening words of each reply the matcher can produce, in each language.
+// They carried em dashes until the punctuation was taken out of the product's
+// writing; what they are testing is which language answered, so the frames
+// follow the prose rather than pinning a dash.
+const ENGLISH_FRAMES = [/\bOn it\. I'll /, /\bRight\. I'll /, /\bI can't /, /\bI'd .* But I can't/, /I'm not sure what to change/, /Upload a video first/];
+const ARABIC_FRAMES = [/تمام، س/, /لا أستطيع أن /, /كنت س/, /لست متأكّدًا/, /ارفع فيديو أوّلًا/];
 const hasAny = (patterns, text) => patterns.some((p) => p.test(text));
 
 const REPLY_CASES = [

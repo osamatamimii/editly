@@ -406,7 +406,7 @@ export default function Home() {
               claims nothing we have not built: no version number, nothing that
               reads as "we shipped a model". The result is one line further down,
               where it has room to be specific. */}
-          <span className="text-sm font-medium text-foreground/80">Meet Noah — tell him what you want</span>
+          <span className="text-sm font-medium text-foreground/80">Meet Noah. Tell him what you want</span>
           <span className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]"
             style={{ animation: "glow-pulse 2s ease-in-out infinite" }} />
         </div>
@@ -444,7 +444,7 @@ export default function Home() {
           style={{ animationDelay: "320ms" }}
         >
           Upload the raw take. Describe the edit. Get three hours of your evening
-          back — on every video.
+          back, on every video.
         </p>
 
         {/* CTA Buttons */}
@@ -701,7 +701,7 @@ export default function Home() {
                 {
                   title: "A raw take becomes a post",
                   detail:
-                    "Every silence and pause cut, framed for TikTok, Reels and Shorts — or YouTube, or square — and the levels fixed. From one sentence.",
+                    "Every silence and pause cut, framed for TikTok, Reels and Shorts (or YouTube, or square), and the levels fixed. From one sentence.",
                 },
                 {
                   title: "The moments worth keeping, found for you",
@@ -711,12 +711,12 @@ export default function Home() {
                 {
                   title: "Captions in your own words",
                   detail:
-                    "Burned in from what you said, not from a template — in English or Arabic, laid out in the direction that language reads.",
+                    "Burned in from what you said, not from a template. In English or Arabic, laid out in the direction that language reads.",
                 },
                 {
                   title: "It looks edited, not processed",
                   detail:
-                    "Dissolves between the cuts, your own music ducking out of the way while you talk, and a grade — warm, cinematic, or matched to a clip whose colour you liked.",
+                    "Dissolves between the cuts, your own music ducking out of the way while you talk, and a grade: warm, cinematic, or matched to a clip whose colour you liked.",
                 },
                 {
                   title: "It finishes without you",

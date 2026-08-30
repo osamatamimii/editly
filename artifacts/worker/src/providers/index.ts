@@ -75,8 +75,8 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
       transcription: transcriber
         ? null
         : {
-            en: "no speech recognition is configured, so captions and word-accurate cuts are unavailable — silence detection is doing the cutting",
-            ar: "لا يوجد تعرّف على الكلام مُهيّأ، فالكابشن والقصّ الدقيق على الكلمات غير متاحين — كشف الصمت هو الذي يقصّ",
+            en: "no speech recognition is configured, so captions and word-accurate cuts are unavailable. Silence detection is doing the cutting",
+            ar: "لا يوجد تعرّف على الكلام مُهيّأ، فالكابشن والقصّ الدقيق على الكلمات غير متاحين. كشف الصمت هو الذي يقصّ",
           },
       vision: sceneReader
         ? null

@@ -124,8 +124,8 @@ export async function enrichPlan(
       if (!language && heard && heard !== (options.language ?? "en")) {
         notes.push(
           t(
-            `heard the speech as ${heard} — name the language if that is wrong and the captions will follow it`,
-            `سمعت الكلام على أنه ${heard} — سمِّ اللغة إن كان ذلك خطأً وستتبعها الترجمة`,
+            `heard the speech as ${heard}. Name the language if that is wrong and the captions will follow it`,
+            `سمعت الكلام على أنه ${heard}، سمِّ اللغة إن كان ذلك خطأً وستتبعها الترجمة`,
           ),
         );
       }
@@ -162,8 +162,8 @@ export async function enrichPlan(
       if (protect.length > 0) {
         notes.push(
           t(
-            `${protect.length} ${protect.length === 1 ? "stretch is" : "stretches are"} quiet because something is happening on screen, not because nothing is — ${protect.length === 1 ? "it was" : "they were"} left in`,
-            `${protect.length} فترة هادئة لأن شيئًا يحدث على الشاشة، لا لأن لا شيء يحدث — فأُبقيت`,
+            `${protect.length} ${protect.length === 1 ? "stretch is" : "stretches are"} quiet because something is happening on screen, not because nothing is, so ${protect.length === 1 ? "it was" : "they were"} left in`,
+            `${protect.length} فترة هادئة لأن شيئًا يحدث على الشاشة، لا لأن لا شيء يحدث، فأُبقيت`,
           ),
         );
       }
@@ -352,7 +352,7 @@ function visionExcuse(error: unknown): string {
   const shaped = message.match(/^([a-z][a-z0-9_-]*)(?:\s+[a-z0-9 _-]*?)?\s+(\d{3})\b/i);
   if (shaped) {
     const [, provider, status] = shaped;
-    const gloss = status === "429" ? " — it was overloaded, and later usually works" : "";
+    const gloss = status === "429" ? ": it was overloaded, and later usually works" : "";
     return ` this time (${provider} answered ${status}${gloss})`;
   }
   return ` this time (${message.slice(0, 120)})`;

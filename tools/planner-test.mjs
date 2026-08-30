@@ -1081,7 +1081,7 @@ console.log("\nTitles: their words or none");
   );
   check(
     "but they are told how to get one",
-    /put them in quotes/.test(unquoted.cannotYet.map(inEnglish).join(" ")),
+    /put them in quotes/i.test(unquoted.cannotYet.map(inEnglish).join(" ")),
     JSON.stringify(unquoted.cannotYet),
   );
 
@@ -1124,7 +1124,7 @@ console.log("\nMusic comes from the person's own library or not at all");
   check("with nothing to play, no bed is invented", !without.operations.some((o) => o.type === "addMusic"), JSON.stringify(without.operations));
   check(
     "and the reply asks for the track rather than refusing music",
-    without.cannotYet.map(inEnglish).some((c) => /upload the track you have the rights to/.test(c)),
+    without.cannotYet.map(inEnglish).some((c) => /upload the track you have the rights to/i.test(c)),
     JSON.stringify(without.cannotYet),
   );
 
@@ -1380,7 +1380,7 @@ console.log("\nEmojis are theirs or they do not happen");
   );
   check(
     "and the refusal names the fix rather than the limitation",
-    asked.cannotYet.map(inEnglish).some((c) => /type the ones you want/.test(c)),
+    asked.cannotYet.map(inEnglish).some((c) => /type the ones you want/i.test(c)),
     JSON.stringify(asked.cannotYet),
   );
 

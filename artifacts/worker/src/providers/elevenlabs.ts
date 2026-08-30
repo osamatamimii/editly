@@ -106,10 +106,10 @@ export function parseElevenLabs(payload: unknown, source: string): Transcript {
   if (!Array.isArray(root.words)) {
     if (typeof root.text === "string") {
       throw new Error(
-        "elevenlabs returned text without word timings — the request is missing timestamps_granularity",
+        "elevenlabs returned text without word timings. The request is missing timestamps_granularity",
       );
     }
-    throw new Error("elevenlabs returned no words — the request shape is wrong, not the audio");
+    throw new Error("elevenlabs returned no words. The request shape is wrong, not the audio");
   }
 
   const words: TranscriptWord[] = [];

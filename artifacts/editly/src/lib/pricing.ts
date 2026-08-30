@@ -65,9 +65,9 @@ export const PLANS = [
  * clarification and becomes the best line on the page.
  */
 export const SHARED_FEATURES = [
-  "Upload as much footage as you like — you only pay for what you publish",
+  "Upload as much footage as you like. You only pay for what you publish",
   "No watermark",
-  "Unlimited edits — asking again is free",
+  "Unlimited edits. Asking again is free",
   "Match the style of a video you like",
 ];
 
@@ -91,7 +91,7 @@ export const FREE_TIER = {
   minutes: 5,
   /** Kept in step with PLAN_LIMITS.free.maxUploadMinutes. */
   uploadMinutes: 10,
-  headline: "Try it free — no card",
+  headline: "Try it free, no card",
   lines: [
     "5 minutes of finished video a month",
     "Upload clips up to 10 minutes",

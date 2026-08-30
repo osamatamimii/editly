@@ -157,7 +157,7 @@ section("An upload limit named on the page is the one the worker enforces");
  * means it has been built and the line should be reclassified.
  */
 const CLAIMS = {
-  "Upload as much footage as you like — you only pay for what you publish": {
+  "Upload as much footage as you like. You only pay for what you publish": {
     kind: "enforced",
     // Nothing meters uploaded minutes anywhere: the ceiling is per-file, and
     // the month's allowance counts `output_seconds` on finished jobs.
@@ -167,7 +167,7 @@ const CLAIMS = {
     kind: "enforced",
     holds: (limits) => limits.watermark === false,
   },
-  "Unlimited edits — asking again is free": {
+  "Unlimited edits. Asking again is free": {
     kind: "enforced",
     // Re-asking costs a render, and a render costs minutes — so this is only
     // true because the meter counts finished output rather than attempts.

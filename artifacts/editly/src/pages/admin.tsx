@@ -21,6 +21,20 @@ import NotFound from "@/pages/not-found";
 import { loadState, isNotFound, COULD_NOT_LOAD } from "@/lib/load-state";
 
 /**
+ * What an empty cell says.
+ *
+ * These were em dashes. A dash standing in for "no value" is a real
+ * typographic convention and it is not what these tables needed: the same
+ * character reads as prose punctuation everywhere else in the product, and it
+ * has been taken out of the product's writing. A middle dot is a mark, not a
+ * word and not a dash: it holds the column, it is obviously not data, and it
+ * cannot be misread as a sentence that lost its other half. One constant so
+ * the twelve cells that use it stay the same as each other.
+ */
+const EMPTY = "\u00b7";
+
+
+/**
  * The operations console.
  *
  * Two things about this page are decisions rather than details.
@@ -185,7 +199,7 @@ export default function AdminPage() {
         */}
         <section className="rounded-xl border border-border bg-card p-4 space-y-2">
           <label className="text-sm font-medium" htmlFor="admin-reason">
-            Reason — required before anything below can be done
+            Reason (required before anything below can be done)
           </label>
           <input
             id="admin-reason"
@@ -260,11 +274,11 @@ export default function AdminPage() {
             head={["Type", "Email", "Plan", "Received", "Applied", "Outcome"]}
             rows={data.billing.map((event) => [
               event.type,
-              event.email ?? "—",
-              event.plan ?? "—",
+              event.email ?? EMPTY,
+              event.plan ?? EMPTY,
               new Date(event.receivedAt).toLocaleString(),
               event.applied ? "yes" : "no",
-              event.outcome ?? "—",
+              event.outcome ?? EMPTY,
             ])}
             empty="Nothing from Freemius yet."
           />
@@ -358,7 +372,7 @@ export default function AdminPage() {
               empty="Nobody has asked yet."
               rows={(waitlist.data?.entries ?? []).map((entry) => [
                 entry.email,
-                entry.source ?? "—",
+                entry.source ?? EMPTY,
                 new Date(entry.createdAt).toLocaleString(),
               ])}
             />
@@ -397,12 +411,12 @@ export default function AdminPage() {
               rows={(jobs.data?.jobs ?? []).map((job) => [
                 job.unattended ? `${job.status} · unattended` : job.status,
                 job.projectId.slice(0, 8),
-                job.billedSeconds === null ? "—" : `${Math.round(job.billedSeconds)}s`,
+                job.billedSeconds === null ? EMPTY : `${Math.round(job.billedSeconds)}s`,
                 new Date(job.createdAt).toLocaleString(),
-                job.finishedAt ? new Date(job.finishedAt).toLocaleString() : "—",
+                job.finishedAt ? new Date(job.finishedAt).toLocaleString() : EMPTY,
                 // Verbatim, and not truncated to something tidy: the whole
                 // value of this column is that it says what actually happened.
-                job.error ?? "—",
+                job.error ?? EMPTY,
                 /*
                   The column that answers the support question the other six
                   cannot. "It worked and it did not do what I asked" leaves no
@@ -423,13 +437,13 @@ export default function AdminPage() {
                     {job.notes.join(" · ")}
                   </span>
                 ) : (
-                  "—"
+                  EMPTY
                 ),
                 // A finished render has no requeue button at all: doing it
                 // would bill the customer twice, and the server refuses it, so
                 // offering it here would only be a button that says no.
                 job.status === "done" ? (
-                  <span key="none" className="text-muted-foreground">—</span>
+                  <span key="none" className="text-muted-foreground">{EMPTY}</span>
                 ) : (
                   <RowButton
                     key="requeue"
@@ -459,9 +473,9 @@ export default function AdminPage() {
               rows={(actions.data?.actions ?? []).map((entry) => [
                 new Date(entry.createdAt).toLocaleString(),
                 entry.action,
-                entry.subjectUserId ?? entry.subjectJobId ?? "—",
+                entry.subjectUserId ?? entry.subjectJobId ?? EMPTY,
                 entry.reason,
-                entry.detail ? JSON.stringify(entry.detail) : "—",
+                entry.detail ? JSON.stringify(entry.detail) : EMPTY,
               ])}
               empty={actionsState === "loading" ? "Loading…" : "Nothing has been done here yet."}
             />

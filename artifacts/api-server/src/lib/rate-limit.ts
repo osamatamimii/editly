@@ -148,7 +148,7 @@ export function rateLimit(options: LimitOptions): RequestHandler {
     try {
       verdict = await consume(`${userId}:${options.name}`, options.limit, options.windowMs);
     } catch (error) {
-      logger.error({ err: error, name: options.name }, "rate limiter unavailable — allowing the request");
+      logger.error({ err: error, name: options.name }, "rate limiter unavailable. Allowing the request");
       next();
       return;
     }
@@ -197,7 +197,7 @@ export function rateLimitByIp(options: LimitOptions): RequestHandler {
     try {
       verdict = await consume(`ip:${address}:${options.name}`, options.limit, options.windowMs);
     } catch (error) {
-      logger.error({ err: error, name: options.name }, "rate limiter unavailable — allowing the request");
+      logger.error({ err: error, name: options.name }, "rate limiter unavailable. Allowing the request");
       next();
       return;
     }
@@ -252,7 +252,7 @@ export const LIMITS = {
     // A back-and-forth about one video in ten minutes.
     perPerson: 8,
     message:
-      "You're sending messages faster than we can think. Give it a minute — nothing you've asked for has been lost.",
+      "You're sending messages faster than we can think. Give it a minute, nothing you've asked for has been lost.",
   },
   /** Queuing work. The per-project guard does not stop a loop over new projects. */
   render: {
@@ -263,7 +263,7 @@ export const LIMITS = {
     // times before they go and watch the result.
     perPerson: 6,
     message:
-      "That's a lot of renders at once. Give it a few minutes — the ones already queued are still running.",
+      "That's a lot of renders at once. Give it a few minutes. The ones already queued are still running.",
   },
   /** Creating projects, which is the loop that walks past the per-project guard. */
   createProject: {

@@ -178,7 +178,7 @@ console.log("\nA file that is too long");
   });
   check(
     "an eleven-hour file suggests splitting rather than a plan that does not exist",
-    noBetterPlan.allowed === false && String(noBetterPlan.body?.error).includes("split"),
+    noBetterPlan.allowed === false && /\bsplit\b/i.test(String(noBetterPlan.body?.error)),
     String(noBetterPlan.body?.error),
   );
 

@@ -135,7 +135,7 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     } else {
       const busy = outcome.status === 409 && outcome.body["error"] === ALREADY_RENDERING;
       const because = busy
-        ? "there's a render already going for this project — I'll fold this in once it finishes."
+        ? "there's a render already going for this project. I'll fold this in once it finishes."
         : String(outcome.body["error"] ?? "the render could not be started.");
       render = { started: false, because };
 

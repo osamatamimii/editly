@@ -95,9 +95,9 @@ const RESPONSE_SCHEMA = {
 
 const INSTRUCTION = [
   "You are reading a video so an editor can decide what to keep.",
-  "Split it into scenes at real visual changes — a cut, a new shot, the speaker moving, something new appearing on screen.",
+  "Split it into scenes at real visual changes: a cut, a new shot, the speaker moving, something new appearing on screen.",
   "For each scene: describe what is happening in one short line, score how much it earns a place in a short cut from 0 to 1,",
-  "and set protect to true when cutting through it would destroy something — a demonstration, a screen share, a reveal, a countdown,",
+  "and set protect to true when cutting through it would destroy something: a demonstration, a screen share, a reveal, a countdown,",
   "anything where the middle is meaningless without the whole.",
   "Score for what a viewer would stop scrolling for, not for what is well lit.",
   "Timestamps are seconds from the start of the video you were given.",

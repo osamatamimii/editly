@@ -81,4 +81,4 @@ export const isNotFound = (error: unknown): boolean => statusOf(error) === 404;
  * is not gone, and that the thing to do is wait a moment rather than start
  * again from scratch.
  */
-export const COULD_NOT_LOAD = "We couldn't load this. Your work is safe — this is on our side.";
+export const COULD_NOT_LOAD = "We couldn't load this. Your work is safe. This is on our side.";

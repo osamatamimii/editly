@@ -566,7 +566,7 @@ async function processJob(job: Job): Promise<void> {
         content:
           notes.length > 0
             ? `${say("Here's what I did.", "هذا ما فعلته.")}\n${notes.map((note) => `• ${note}`).join("\n")}`
-            : say("Done — your edit is ready to watch.", "تمّ — تعديلك جاهز للمشاهدة."),
+            : say("Done. Your edit is ready to watch.", "تمّ. تعديلك جاهز للمشاهدة."),
       });
     } catch (error) {
       log.warn({ err: error }, "could not write the summary into the conversation");
@@ -622,7 +622,7 @@ async function processJob(job: Job): Promise<void> {
           // in English at its source. Only the sentence around it is ours to
           // say, so only that is translated: inventing an Arabic reason we did
           // not write would be a different claim about what went wrong.
-          content: say(`I couldn't finish that edit — ${message}`, `لم أستطع إنهاء ذلك التعديل — ${message}`),
+          content: say(`I couldn't finish that edit: ${message}`, `لم أستطع إنهاء ذلك التعديل: ${message}`),
         });
       } catch (insertError) {
         log.warn({ err: insertError }, "could not write the failure into the conversation");
@@ -686,14 +686,14 @@ async function renderClipSet(args: {
   const notes: string[] = [...enriched.notes];
   if (rest.length !== enriched.plan.operations.length - 1) {
     notes.push(
-      t("the plan asked for clips and another cut at once — the clips won", "طلبت الخطّة قصاصات وقصًّا آخر معًا — والقصاصات فازت"),
+      t("the plan asked for clips and another cut at once. The clips won", "طلبت الخطّة قصاصات وقصًّا آخر معًا، والقصاصات فازت"),
     );
   }
   if (chosen.windows.length < clipsOp.count) {
     notes.push(
       t(
-        `the video is ${sourceSeconds.toFixed(0)}s long, which holds ${chosen.windows.length} clip${chosen.windows.length === 1 ? "" : "s"} of ${Math.round(clipsOp.targetSeconds)}s — not the ${clipsOp.count} asked for`,
-        `الفيديو طوله ${sourceSeconds.toFixed(0)} ثانية، وهو يسع ${chosen.windows.length} قصاصة من ${Math.round(clipsOp.targetSeconds)} ثانية — لا ${clipsOp.count} المطلوبة`,
+        `the video is ${sourceSeconds.toFixed(0)}s long, which holds ${chosen.windows.length} clip${chosen.windows.length === 1 ? "" : "s"} of ${Math.round(clipsOp.targetSeconds)}s, not the ${clipsOp.count} asked for`,
+        `الفيديو طوله ${sourceSeconds.toFixed(0)} ثانية، وهو يسع ${chosen.windows.length} قصاصة من ${Math.round(clipsOp.targetSeconds)} ثانية، لا ${clipsOp.count} المطلوبة`,
       ),
     );
   }
@@ -713,8 +713,8 @@ async function renderClipSet(args: {
   // scored to choose them — and a charge nobody saw coming is a dispute.
   notes.push(
     t(
-      `counted as ${Math.round(sourceSeconds)}s against your minutes — clips are metered by the source they read, not by the pieces`,
-      `حُسبت ${Math.round(sourceSeconds)} ثانية من دقائقك — القصاصات تُحاسب بالمصدر الذي قرأته، لا بالقطع`,
+      `counted as ${Math.round(sourceSeconds)}s against your minutes. Clips are metered by the source they read, not by the pieces`,
+      `حُسبت ${Math.round(sourceSeconds)} ثانية من دقائقك. القصاصات تُحاسب بالمصدر الذي قرأته، لا بالقطع`,
     ),
   );
 

@@ -73,8 +73,8 @@ export function applyReferenceStyle(
       out.push({ ...operation, to: settings.kenBurnsTo });
       notes.push(
         t(
-          `it cuts about ${round(context.reference.cutsPerMinute)} times a minute, which is ${context.reference.cutsPerMinute > 12 ? "restless" : "calm"} — the push is set to match`,
-          `يقصّ نحو ${round(context.reference.cutsPerMinute)} مرّة في الدقيقة، وهذا ${context.reference.cutsPerMinute > 12 ? "إيقاع لا يهدأ" : "إيقاع هادئ"} — فضُبطت الحركة لتطابقه`,
+          `it cuts about ${round(context.reference.cutsPerMinute)} times a minute, which is ${context.reference.cutsPerMinute > 12 ? "restless" : "calm"}. The push is set to match`,
+          `يقصّ نحو ${round(context.reference.cutsPerMinute)} مرّة في الدقيقة، وهذا ${context.reference.cutsPerMinute > 12 ? "إيقاع لا يهدأ" : "إيقاع هادئ"}. فضُبطت الحركة لتطابقه`,
         ),
       );
       continue;

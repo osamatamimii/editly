@@ -103,7 +103,7 @@ export function planFromEvent(event: {
   const type = event.type;
 
   if (type === "payment.refund" || type === "license.cancelled" || type === "license.expired" || type === "subscription.cancelled") {
-    return { plan: "free", reason: `${type} — access drops to free, nothing is deleted` };
+    return { plan: "free", reason: `${type}. Access drops to free, nothing is deleted` };
   }
 
   if (type === "license.created" || type === "license.updated" || type === "license.extended") {

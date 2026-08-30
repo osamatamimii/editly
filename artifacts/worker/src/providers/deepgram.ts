@@ -178,7 +178,7 @@ export function parseDeepgram(payload: unknown, source: string): Transcript {
   const channel = root.results?.channels?.[0];
   const alternative = channel?.alternatives?.[0];
   if (!alternative) {
-    throw new Error("deepgram returned no alternatives — the request shape is wrong, not the audio");
+    throw new Error("deepgram returned no alternatives. The request shape is wrong, not the audio");
   }
 
   const words: TranscriptWord[] = (alternative.words ?? []).map((w) => {

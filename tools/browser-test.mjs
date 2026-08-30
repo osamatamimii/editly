@@ -1486,6 +1486,65 @@ section("The landing page's feature list keeps up with what is actually built");
   );
 }
 
+section("The em dash is out of the product's writing, and stays out");
+{
+  /*
+   * Asked for directly: "ازل — من المنصة".
+   *
+   * The reason it needs a check rather than one pass over the files is that it
+   * is a habit, not a bug. The character is a comfortable thing to reach for
+   * mid-sentence, it will keep arriving in every new string anyone writes, and
+   * one em dash in a product whose other 150 sentences have none reads worse
+   * than a page that always had them.
+   *
+   * Only real text is read. Comments keep their dashes: the writing in this
+   * repo's comments is for whoever is reading the code, not for a customer,
+   * and rewriting them would be busywork against the wrong audience. So the
+   * scan parses each file and looks at string literals, template pieces and
+   * JSX text — never at what the compiler throws away.
+   */
+  const ts = require("typescript");
+  const roots = ["artifacts/editly/src", "artifacts/api-server/src", "artifacts/worker/src"];
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(entry.name)) files.push(full);
+    }
+  };
+  for (const r of roots) walk(path.join(repoRoot, r));
+  check("there is product source to read", files.length > 20, String(files.length));
+
+  const found = [];
+  const TEXT = new Set([
+    ts.SyntaxKind.StringLiteral,
+    ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+    ts.SyntaxKind.TemplateHead,
+    ts.SyntaxKind.TemplateMiddle,
+    ts.SyntaxKind.TemplateTail,
+    ts.SyntaxKind.JsxText,
+  ]);
+  for (const file of files) {
+    const src = readFileSync(file, "utf8");
+    if (!src.includes("\u2014")) continue;
+    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    const visit = (node) => {
+      if (TEXT.has(node.kind) && src.slice(node.getStart(), node.getEnd()).includes("\u2014")) {
+        const { line } = sf.getLineAndCharacterOfPosition(node.getStart());
+        found.push(`${path.relative(repoRoot, file)}:${line + 1}`);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
+  check(
+    "no sentence a customer can read contains an em dash",
+    found.length === 0,
+    found.slice(0, 12).join(", ") + (found.length > 12 ? ` and ${found.length - 12} more` : ""),
+  );
+}
+
 section("A render that finished is a project that changed");
 {
   // The page rewarded the person who stayed and watched with the worse

@@ -250,7 +250,7 @@ export default function ExportPage() {
                 <AlertCircle className="w-8 h-8 mb-2" />
                 <p>We could not load the preview</p>
                 <p className="text-xs mt-1 opacity-70">
-                  Your video is stored safely — this is a problem on our side, and exporting still works.
+                  Your video is stored safely. This is a problem on our side, and exporting still works.
                 </p>
               </div>
             ) : (
@@ -299,7 +299,7 @@ export default function ExportPage() {
                   Checking for a render in progress
                 </CardTitle>
                 <CardDescription>
-                  One moment — offering to start an export while one is already running is how you
+                  One moment. Offering to start an export while one is already running is how you
                   end up being told it failed.
                 </CardDescription>
               </CardHeader>

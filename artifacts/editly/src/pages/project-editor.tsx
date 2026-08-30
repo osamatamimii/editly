@@ -614,7 +614,7 @@ export default function ProjectEditor() {
     try {
       await startRender.mutateAsync({ id, templateId });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
-      toast({ title: "Render queued", description: "You can leave this page — we'll keep working." });
+      toast({ title: "Render queued", description: "You can leave this page. We'll keep working." });
     } catch (error: unknown) {
       const status = (error as { status?: number })?.status;
       const said = (error as { data?: { error?: string } })?.data?.error;
@@ -669,7 +669,7 @@ export default function ProjectEditor() {
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
       toast({
         title: "Render queued",
-        description: "You can leave this page — we'll keep working."
+        description: "You can leave this page. We'll keep working."
       });
     } catch (error: unknown) {
       const status = (error as { status?: number })?.status;
@@ -812,7 +812,7 @@ export default function ProjectEditor() {
       {project.referenceVideoPath ? (
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs text-muted-foreground leading-snug">
-            Your next render is edited to match the clip you attached — its pace, how much
+            Your next render is edited to match the clip you attached: its pace, how much
             silence it keeps, its level and its colour.
           </span>
           <button
@@ -828,7 +828,7 @@ export default function ProjectEditor() {
           <p className="text-xs leading-snug text-muted-foreground mb-2">
             Upload a short clip in the style you want and we read it: how often it cuts, how
             much silence it leaves, how loud and how graded it ends up. Under{" "}
-            {formatBytes(MAX_REFERENCE_BYTES)} — we only look at the first two minutes.
+            {formatBytes(MAX_REFERENCE_BYTES)}, and we only look at the first two minutes.
           </p>
           <label
             className={`inline-flex items-center justify-center gap-2 rounded-xl border border-hairline bg-surface-1 px-4 py-2.5 text-xs font-medium cursor-pointer transition-all hover:border-primary/40 hover:bg-white/[0.06] ${
@@ -892,8 +892,8 @@ export default function ProjectEditor() {
           key={template.id}
           onClick={() => handleApplyTemplate(template.id)}
           disabled={isProcessingEdit || startRender.isPending}
-          title={`${template.description} — ${template.bestFor}${
-            template.needs === "music" ? " — needs a music file in this project" : ""
+          title={`${template.description}. ${template.bestFor}${
+            template.needs === "music" ? ". Needs a music file in this project" : ""
           }`}
           className={`flex-shrink-0 border border-hairline bg-surface-1 font-medium transition-all hover:border-primary/40 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed ${
             sideBySide ? "rounded-xl px-4 py-3 text-left" : "rounded-full px-3 min-h-11 md:min-h-0 md:py-1.5 text-xs"
@@ -1121,7 +1121,7 @@ export default function ProjectEditor() {
                       <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/80 px-6 text-center">
                         <p className="font-semibold">This file will not play in the browser</p>
                         <p className="text-sm text-muted-foreground max-w-md">
-                          Your video is stored safely and can still be edited — some codecs just cannot be
+                          Your video is stored safely and can still be edited. Some codecs just cannot be
                           previewed here. The rendered result will play normally.
                         </p>
                       </div>
@@ -1210,7 +1210,7 @@ export default function ProjectEditor() {
                 <div className="flex flex-col gap-1 min-w-0">
                   <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
                   <div className="bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed">
-                    Hey, I'm Noah 👋<br />Your AI video editor.<br /><br />Upload your video and tell me the vibe — I'll turn it into a viral clip.
+                    Hey, I'm Noah 👋<br />Your AI video editor.<br /><br />Upload your video and tell me the vibe, and I'll turn it into a viral clip.
                   </div>
                 </div>
               </div>

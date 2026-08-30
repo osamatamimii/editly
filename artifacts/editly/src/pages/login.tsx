@@ -79,7 +79,7 @@ export default function Login() {
     } catch (err) {
       setError(
         err instanceof ProviderNotEnabledError
-          ? `${PROVIDER_LABEL[provider]} sign-in isn't switched on yet — use your email for now.`
+          ? `${PROVIDER_LABEL[provider]} sign-in isn't switched on yet. Use your email for now.`
           : err instanceof Error
             ? err.message
             : "Could not start sign-in. Please try again.",

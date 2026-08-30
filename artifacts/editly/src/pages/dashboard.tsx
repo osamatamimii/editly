@@ -446,7 +446,7 @@ export default function Dashboard() {
             <div className="mt-1 text-xs text-muted-foreground">
               {FREE_TIER.minutes} minutes of finished video a month, uploads up to{" "}
               {FREE_TIER.uploadMinutes} minutes, and every editing feature. No card, no
-              expiry — it simply keeps working.
+              expiry. It simply keeps working.
             </div>
           </div>
           <Link href="/#pricing">
@@ -613,7 +613,7 @@ export default function Dashboard() {
           <DialogHeader>
             <DialogTitle>Create New Project</DialogTitle>
             <DialogDescription>
-              Start from your video — or just give the project a name.
+              Start from your video, or just give the project a name.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">

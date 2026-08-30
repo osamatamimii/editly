@@ -572,7 +572,7 @@ router.post("/admin/accounts/:userId/plan", async (req, res): Promise<void> => {
   res.json({
     plan: requested,
     note:
-      "Set by hand. Freemius still believes whatever it believed — until it is corrected there, its next webhook can overwrite this.",
+      "Set by hand. Freemius still believes whatever it believed. Until it is corrected there, its next webhook can overwrite this.",
   });
 });
 

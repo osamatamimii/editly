@@ -190,8 +190,8 @@ const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
     // answer is still that we cannot.
     patterns: /\bcolou?r ?(grade|grading)\b|\bgrade it like\b|\bLUT\b/i,
     label: say(
-      "grade the colour to a look I do not have yet — name warm, cool, cinematic, black and white or punchy, or upload a video whose colour you want matched",
-      "أدرّج اللون إلى لوك لا أملكه بعد — سمّ warm أو cool أو cinematic أو الأبيض والأسود أو punch، أو ارفع فيديو تريد مطابقة لونه",
+      "grade the colour to a look I do not have yet. Name warm, cool, cinematic, black and white or punchy, or upload a video whose colour you want matched",
+      "أدرّج اللون إلى لوك لا أملكه بعد، سمّ warm أو cool أو cinematic أو الأبيض والأسود أو punch، أو ارفع فيديو تريد مطابقة لونه",
     ),
   },
 ];
@@ -609,8 +609,8 @@ export function planFromText(
   if (wantsTranslation) {
     cannotYet.push(
       say(
-        "put it into another language yet — captions come out in whatever language is spoken",
-        "أنقله إلى لغة أخرى بعد — الترجمة تخرج باللغة المنطوقة نفسها",
+        "put it into another language yet. Captions come out in whatever language is spoken",
+        "أنقله إلى لغة أخرى بعد، الترجمة تخرج باللغة المنطوقة نفسها",
       ),
     );
   }
@@ -734,8 +734,8 @@ export function planFromText(
     if (tracks.length === 0) {
       cannotYet.push(
         say(
-          "add music yet, because this project has no audio file — upload the track you have the rights to and I will lay it under the whole edit",
-          "أضيف موسيقى بعد، لأن المشروع لا يحوي ملفًّا صوتيًّا — ارفع المقطوعة التي تملك حقوقها وأضعها تحت التعديل كلّه",
+          "add music yet, because this project has no audio file. Upload the track you have the rights to and I will lay it under the whole edit",
+          "أضيف موسيقى بعد، لأن المشروع لا يحوي ملفًّا صوتيًّا، ارفع المقطوعة التي تملك حقوقها وأضعها تحت التعديل كلّه",
         ),
       );
     } else {
@@ -771,8 +771,8 @@ export function planFromText(
     if (tracks.length === 0) {
       cannotYet.push(
         say(
-          "cut to the beat yet, because this project has no music to cut to — upload the track and the punches will land on it",
-          "أقصّ على الإيقاع بعد، لأن المشروع لا يحوي موسيقى أقصّ عليها — ارفع المقطوعة وستقع التقريبات عليها",
+          "cut to the beat yet, because this project has no music to cut to. Upload the track and the punches will land on it",
+          "أقصّ على الإيقاع بعد، لأن المشروع لا يحوي موسيقى أقصّ عليها، ارفع المقطوعة وستقع التقريبات عليها",
         ),
       );
     } else {
@@ -864,8 +864,8 @@ export function planFromText(
   } else if (/\btitle|\btext on screen\b/i.test(text) && !CAPTION_WORDS.test(text)) {
     cannotYet.push(
       say(
-        "animate a title yet, because I do not know the words — put them in quotes and I will",
-        "أحرّك عنوانًا بعد، لأنني لا أعرف كلماته — ضعها بين علامتَي اقتباس وسأفعل",
+        "animate a title yet, because I do not know the words. Put them in quotes and I will",
+        "أحرّك عنوانًا بعد، لأنني لا أعرف كلماته، ضعها بين علامتَي اقتباس وسأفعل",
       ),
     );
   }
@@ -894,8 +894,8 @@ export function planFromText(
     } else {
       cannotYet.push(
         say(
-          "pick emojis for you — type the ones you want in your message and I will put them on",
-          "أختار لك الإيموجي — اكتب التي تريدها في رسالتك وسأضعها",
+          "pick emojis for you. Type the ones you want in your message and I will put them on",
+          "أختار لك الإيموجي، اكتب التي تريدها في رسالتك وسأضعها",
         ),
       );
     }
@@ -954,8 +954,8 @@ export function replyFor(
     if (context.render?.started) {
       parts.push(
         lang === "ar"
-          ? `تمام — س${doing}. التصيير يعمل الآن؛ سيظهر هنا لحظة انتهائه.`
-          : `On it — I'll ${doing}. It's rendering now; you'll see it here the moment it's done.`,
+          ? `تمام، س${doing}. التصيير يعمل الآن؛ سيظهر هنا لحظة انتهائه.`
+          : `On it. I'll ${doing}. It's rendering now; you'll see it here the moment it's done.`,
       );
     } else if (context.render && !context.render.started) {
       // The reason comes from the server in English. It is left as it is
@@ -964,14 +964,14 @@ export function replyFor(
       // putting words in the product's mouth about why it refused.
       parts.push(
         lang === "ar"
-          ? `كنت س${doing} — لكن لا أستطيع البدء الآن: ${context.render.because}`
-          : `I'd ${doing} — but I can't start it right now: ${context.render.because}`,
+          ? `كنت س${doing}، لكن لا أستطيع البدء الآن: ${context.render.because}`
+          : `I'd ${doing}. But I can't start it right now: ${context.render.because}`,
       );
     } else {
       parts.push(
         lang === "ar"
-          ? `تمام — س${doing}. اضغط Generate Edit وأبدأ.`
-          : `Right — I'll ${doing}. Hit Generate Edit and I'll start.`,
+          ? `تمام، س${doing}. اضغط Generate Edit وأبدأ.`
+          : `Right. I'll ${doing}. Hit Generate Edit and I'll start.`,
       );
     }
   }
@@ -1008,21 +1008,21 @@ export function replyFor(
  */
 const EMPTY_PROJECT: Record<Language, string> = {
   en:
-    "Upload a video first and I'll get to work — I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts - or 16:9 for YouTube, or square for a feed - add motion, lay your own music under it, grade it warm or cool or cinematic or black and white, fade it in and out, and level the audio.",
+    "Upload a video first and I'll get to work. I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts (or 16:9 for YouTube, or square for a feed), add motion, lay your own music under it, grade it warm or cool or cinematic or black and white, fade it in and out, and level the audio.",
   ar:
-    "ارفع فيديو أوّلًا وأبدأ العمل — أستطيع أن أستخرج أقوى 30 ثانية، وأبقي مدًى تسمّيه بالضبط (من 1:20 إلى 2:10)، وأقسّمه إلى مقاطع منفصلة، وأقصّ الصمت، وأكتب الترجمة من كلامك نفسه، وأعيد التأطير لتيك توك أو ريلز أو شورتس — أو 16:9 ليوتيوب، أو مربّعًا للفيد — وأضيف حركة، وأضع موسيقاك تحته، وأدرّجه warm أو cool أو cinematic أو أبيض وأسود، وأفتحه من السواد وأُغلقه إليه، وأضبط مستوى الصوت.",
+    "ارفع فيديو أوّلًا وأبدأ العمل، أستطيع أن أستخرج أقوى 30 ثانية، وأبقي مدًى تسمّيه بالضبط (من 1:20 إلى 2:10)، وأقسّمه إلى مقاطع منفصلة، وأقصّ الصمت، وأكتب الترجمة من كلامك نفسه، وأعيد التأطير لتيك توك أو ريلز أو شورتس، أو 16:9 ليوتيوب، أو مربّعًا للفيد، وأضيف حركة، وأضع موسيقاك تحته، وأدرّجه warm أو cool أو cinematic أو أبيض وأسود، وأفتحه من السواد وأُغلقه إليه، وأضبط مستوى الصوت.",
 };
 
 const NOTHING_UNDERSTOOD: Record<Language, string> = {
   en:
     "I'm not sure what to change from that. Right now I can pull out the best 30 seconds of a clip, " +
     "keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it, reframe it to 9:16 or 16:9 or square, " +
-    "add punch-in zooms or a slow push, lay a track you've uploaded under the whole thing, fade it in and out, and level the audio — try something like " +
+    "add punch-in zooms or a slow push, lay a track you've uploaded under the whole thing, fade it in and out, and level the audio. Try something like " +
     '"give me the strongest 30 seconds, captioned, vertical for TikTok".',
   ar:
     "لست متأكّدًا ما الذي أغيّره من ذلك. أستطيع الآن أن أستخرج أفضل 30 ثانية من المقطع، " +
     "وأبقي مدًى تسمّيه بالضبط (من 1:20 إلى 2:10)، وأقسّمه إلى مقاطع منفصلة، وأقصّ الصمت، وأكتب الترجمة، وأعيد التأطير إلى 9:16 أو 16:9 أو مربّع، " +
-    "وأقرّب الصورة عند التشديد أو أضيف حركة بطيئة، وأضع مقطوعة رفعتَها تحت التعديل كلّه، وأفتحه من السواد وأُغلقه إليه، وأضبط مستوى الصوت — جرّب مثلًا " +
+    "وأقرّب الصورة عند التشديد أو أضيف حركة بطيئة، وأضع مقطوعة رفعتَها تحت التعديل كلّه، وأفتحه من السواد وأُغلقه إليه، وأضبط مستوى الصوت، جرّب مثلًا " +
     "«أعطني أقوى 30 ثانية، مع ترجمة، عمودية للتيك توك».",
 };
 

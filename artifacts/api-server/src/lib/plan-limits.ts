@@ -131,5 +131,5 @@ export function minutesFrom(seconds: number): number {
  * the moment someone decides whether the meter was fair.
  */
 export function exhaustedMessage(plan: PlanKey, minutesIncluded: number): string {
-  return `You've used all ${minutesIncluded} minutes of finished video on the ${plan} plan this month. Uploading is unlimited — it's the exported minutes that count. Upgrade for more, or your allowance resets on the 1st.`;
+  return `You've used all ${minutesIncluded} minutes of finished video on the ${plan} plan this month. Uploading is unlimited. It's the exported minutes that count. Upgrade for more, or your allowance resets on the 1st.`;
 }

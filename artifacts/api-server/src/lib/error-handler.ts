@@ -23,7 +23,7 @@ import type { ErrorRequestHandler, Request, Response, NextFunction } from "expre
 
 /** Said to the person. Deliberately the same for every cause. */
 export const UNEXPECTED =
-  "Something went wrong on our side. Nothing you did caused this, and nothing has been lost — please try again in a moment.";
+  "Something went wrong on our side. Nothing you did caused this, and nothing has been lost. Please try again in a moment.";
 
 export const ORIGIN_REFUSED = "This origin is not allowed to call the API.";
 

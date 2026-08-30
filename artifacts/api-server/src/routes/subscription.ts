@@ -112,7 +112,7 @@ router.patch("/subscription", async (req, res): Promise<void> => {
   // the user is entitled to, so wanting one is proof enough.
   if (PLAN_RANK[plan] > PLAN_RANK[currentPlan]) {
     res.status(402).json({
-      error: "Upgrades go through checkout — this is where a plan is chosen, not where it is granted.",
+      error: "Upgrades go through checkout. This is where a plan is chosen, not where it is granted.",
       currentPlan,
       requestedPlan: plan,
       checkout: "/billing/checkout",

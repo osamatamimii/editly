@@ -60,10 +60,10 @@ export type DeletionResult =
     };
 
 export const STORAGE_FAILED_MESSAGE =
-  "We couldn't remove your videos from storage just now, so nothing has been deleted — we won't tell you your account is gone while your files are still here. Please try again shortly.";
+  "We couldn't remove your videos from storage just now, so nothing has been deleted. We won't tell you your account is gone while your files are still here. Please try again shortly.";
 
 export const NOT_CONFIGURED_MESSAGE =
-  "We can't delete accounts right now — the storage credentials this needs aren't configured, and we won't tell you your videos are gone while they're still here. Please try again shortly.";
+  "We can't delete accounts right now. The storage credentials this needs aren't configured, and we won't tell you your videos are gone while they're still here. Please try again shortly.";
 
 /**
  * The login survived but the data did not. Worth saying out loud: the person
@@ -71,7 +71,7 @@ export const NOT_CONFIGURED_MESSAGE =
  * address we will clear by hand.
  */
 export const LOGIN_SURVIVED_NOTE =
-  "Your videos and projects are gone. The login itself could not be removed automatically and will be cleared manually — you will not be charged, and nothing of yours remains in the product.";
+  "Your videos and projects are gone. The login itself could not be removed automatically and will be cleared manually. You will not be charged, and nothing of yours remains in the product.";
 
 export async function deleteAccount(steps: DeletionSteps): Promise<DeletionResult> {
   if (!steps.storageConfigured) {

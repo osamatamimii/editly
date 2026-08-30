@@ -122,7 +122,7 @@ billingWebhookRouter.post(
       // it, and `claimPaidEvents` hands it over the moment an account with that
       // address appears. Until today this branch persisted nothing at all: the
       // customer was charged, got the free plan, and support had no record.
-      req.log?.warn({ type, eventId }, "billing event for an email with no account yet — held for claiming");
+      req.log?.warn({ type, eventId }, "billing event for an email with no account yet. Held for claiming");
       await closeEvent(eventId, null, "no-account-yet");
       res.status(200).json({ ok: true, pending: true });
       return;

@@ -126,7 +126,7 @@ export function decideRender(input: PolicyInput): PolicyResult {
       status: 403,
       body: {
         error:
-          "This account is suspended, so new renders cannot start. Nothing has been deleted — your projects and videos are all still here.",
+          "This account is suspended, so new renders cannot start. Nothing has been deleted. Your projects and videos are all still here.",
       },
     };
   }
@@ -297,7 +297,7 @@ function uploadTooLongMessage(plan: PlanKey, minutes: number): string {
   const better = smallestPlanFor(minutes);
 
   if (!better) {
-    return `That file is ${rounded} minutes. The longest single upload we take is ${PLAN_LIMITS.studio.maxUploadMinutes} minutes — split it and we'll edit each part.`;
+    return `That file is ${rounded} minutes. The longest single upload we take is ${PLAN_LIMITS.studio.maxUploadMinutes} minutes. Split it and we'll edit each part.`;
   }
   return `That file is ${rounded} minutes, and the ${plan} plan takes up to ${limits.maxUploadMinutes}. The ${better} plan takes ${PLAN_LIMITS[better].maxUploadMinutes} minutes in one file.`;
 }

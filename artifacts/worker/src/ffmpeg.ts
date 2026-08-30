@@ -629,8 +629,8 @@ const GRADE_LOOKS: Record<
   },
   cinematic: {
     filter: "curves=b='0/0.12 0.5/0.48 1/0.88':r='0/0 0.55/0.60 1/1',eq=contrast=1.06",
-    inWords: "graded it cinematic — blue in the shadows, warmth in the highlights",
-    inWordsAr: "درّجتها سينمائية — زرقة في الظلال ودفء في الإضاءات",
+    inWords: "graded it cinematic: blue in the shadows, warmth in the highlights",
+    inWordsAr: "درّجتها سينمائية: زرقة في الظلال ودفء في الإضاءات",
   },
   mono: {
     filter: "eq=saturation=0:contrast=1.08",
@@ -973,7 +973,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       }
 
       if (candidate.length === 0) {
-        throw new FfmpegError("The whole clip reads as silence at this threshold — nothing would be left.");
+        throw new FfmpegError("The whole clip reads as silence at this threshold: nothing would be left.");
       }
       const keptDuration = candidate.reduce((sum, s) => sum + (s.end - s.start), 0);
       if (keptDuration >= source.duration - 0.01) {
@@ -1004,8 +1004,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     if (start >= source.duration - 0.05) {
       notes.push(
         t(
-          `the stretch you asked for starts at ${range.startSeconds.toFixed(0)}s, but the clip is only ${source.duration.toFixed(1)}s long — so nothing was cut away`,
-          `المدى الذي طلبته يبدأ عند الثانية ${range.startSeconds.toFixed(0)}، والمقطع طوله ${source.duration.toFixed(1)} ثانية فقط — فلم يُقصّ شيء`,
+          `the stretch you asked for starts at ${range.startSeconds.toFixed(0)}s, but the clip is only ${source.duration.toFixed(1)}s long, so nothing was cut away`,
+          `المدى الذي طلبته يبدأ عند الثانية ${range.startSeconds.toFixed(0)}، والمقطع طوله ${source.duration.toFixed(1)} ثانية فقط، فلم يُقصّ شيء`,
         ),
       );
     } else if (end - start < 0.2) {
@@ -1025,8 +1025,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         clamped
           ? t(
-              `kept ${start.toFixed(1)}s to the end — the clip runs out at ${source.duration.toFixed(1)}s, before the ${range.endSeconds.toFixed(0)}s you named`,
-              `أبقيت من الثانية ${start.toFixed(1)} إلى النهاية — المقطع ينتهي عند ${source.duration.toFixed(1)} ثانية، قبل الثانية ${range.endSeconds.toFixed(0)} التي سمّيتها`,
+              `kept ${start.toFixed(1)}s to the end. The clip runs out at ${source.duration.toFixed(1)}s, before the ${range.endSeconds.toFixed(0)}s you named`,
+              `أبقيت من الثانية ${start.toFixed(1)} إلى النهاية: المقطع ينتهي عند ${source.duration.toFixed(1)} ثانية، قبل الثانية ${range.endSeconds.toFixed(0)} التي سمّيتها`,
             )
           : t(
               `kept ${start.toFixed(1)}s to ${end.toFixed(1)}s, the stretch you asked for`,
@@ -1052,8 +1052,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   if (highlight && range) {
     notes.push(
       t(
-        "the plan asked for both a highlight and a named stretch — the stretch you named won",
-        "طلبت الخطّة هايلايت ومدًى مسمّى معًا — والمدى الذي سمّيته هو الذي فاز",
+        "the plan asked for both a highlight and a named stretch. The stretch you named won",
+        "طلبت الخطّة هايلايت ومدًى مسمّى معًا، والمدى الذي سمّيته هو الذي فاز",
       ),
     );
   }
@@ -1062,8 +1062,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     if (choice.how === "whole") {
       notes.push(
         t(
-          `the clip is ${source.duration.toFixed(1)}s — no longer than the ${Math.round(highlight.targetSeconds)}s you asked to keep, so nothing was cut away`,
-          `المقطع طوله ${source.duration.toFixed(1)} ثانية — ليس أطول من ${Math.round(highlight.targetSeconds)} ثانية طلبت إبقاءها، فلم يُقصّ شيء`,
+          `the clip is ${source.duration.toFixed(1)}s, no longer than the ${Math.round(highlight.targetSeconds)}s you asked to keep, so nothing was cut away`,
+          `المقطع طوله ${source.duration.toFixed(1)} ثانية، ليس أطول من ${Math.round(highlight.targetSeconds)} ثانية طلبت إبقاءها، فلم يُقصّ شيء`,
         ),
       );
     } else {
@@ -1084,8 +1084,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         choice.how === "speech"
           ? t(
-              `kept the strongest ${Math.round(window.end - window.start)}s — ${window.start.toFixed(1)}s to ${window.end.toFixed(1)}s, where the speech runs densest`,
-              `أبقيت أقوى ${Math.round(window.end - window.start)} ثانية — من ${window.start.toFixed(1)} إلى ${window.end.toFixed(1)}، حيث الكلام أكثف`,
+              `kept the strongest ${Math.round(window.end - window.start)}s, ${window.start.toFixed(1)}s to ${window.end.toFixed(1)}s, where the speech runs densest`,
+              `أبقيت أقوى ${Math.round(window.end - window.start)} ثانية، من ${window.start.toFixed(1)} إلى ${window.end.toFixed(1)}، حيث الكلام أكثف`,
             )
           : t(
               `we could not hear the words in this clip, so the highlight is its middle ${Math.round(window.end - window.start)}s`,
@@ -1157,8 +1157,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           choice.how === "speech"
             ? t(
-                `opened on the strongest ${hookSeconds.toFixed(1)}s — from ${window.start.toFixed(1)}s — then the rest plays from the top without it`,
-                `فتحت على أقوى ${hookSeconds.toFixed(1)} ثانية — من الثانية ${window.start.toFixed(1)} — ثم يُعرض الباقي من البداية بدونها`,
+                `opened on the strongest ${hookSeconds.toFixed(1)}s, from ${window.start.toFixed(1)}s, then the rest plays from the top without it`,
+                `فتحت على أقوى ${hookSeconds.toFixed(1)} ثانية، من الثانية ${window.start.toFixed(1)}، ثم يُعرض الباقي من البداية بدونها`,
               )
             : t(
                 `we could not hear the words, so it opens on ${hookSeconds.toFixed(1)}s from the middle and the rest plays from the top`,
@@ -1244,8 +1244,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         // nothing. See MAX_SEPARATE_DECODES for the measurements.
         notes.push(
           t(
-            `this edit opens on a hook and is cut into ${kept!.length} pieces — too many to overlap the joins of an edit that plays out of order, so the cuts stay hard and the hook stands`,
-            `هذا التعديل يفتح على خطّاف ومقسوم إلى ${kept!.length} قطعة — أكثر من أن أراكب وصلات تعديل يُعرض بغير ترتيبه، فتبقى القصّات حادّة ويبقى الخطّاف`,
+            `this edit opens on a hook and is cut into ${kept!.length} pieces, too many to overlap the joins of an edit that plays out of order, so the cuts stay hard and the hook stands`,
+            `هذا التعديل يفتح على خطّاف ومقسوم إلى ${kept!.length} قطعة، أكثر من أن أراكب وصلات تعديل يُعرض بغير ترتيبه، فتبقى القصّات حادّة ويبقى الخطّاف`,
           ),
         );
       } else {
@@ -1255,8 +1255,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           overlap < asked - 0.001
             ? t(
-                `${named} over ${overlap.toFixed(2)}s — shorter than asked, so the shortest piece is still on screen by itself`,
-                `${STYLE_IN_WORDS_AR[transition.style]} خلال ${overlap.toFixed(2)} ثانية — أقصر ممّا طُلب، كي تبقى أقصر قطعة على الشاشة وحدها`,
+                `${named} over ${overlap.toFixed(2)}s, shorter than asked, so the shortest piece is still on screen by itself`,
+                `${STYLE_IN_WORDS_AR[transition.style]} خلال ${overlap.toFixed(2)} ثانية، أقصر ممّا طُلب، كي تبقى أقصر قطعة على الشاشة وحدها`,
               )
             : t(`${named} over ${overlap.toFixed(2)}s`, `${STYLE_IN_WORDS_AR[transition.style]} خلال ${overlap.toFixed(2)} ثانية`),
         );
@@ -1522,8 +1522,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     if (target.h !== asked.h) {
       notes.push(
         t(
-          `exported at ${target.h}p rather than ${asked.h}p — this footage has no more detail than that, and the larger file would only be a bigger copy of the same picture`,
-          `صُدّر بـ${target.h}p بدل ${asked.h}p — هذه اللقطة لا تحمل تفاصيل أكثر من ذلك، والملفّ الأكبر سيكون نسخة أكبر من الصورة نفسها فقط`,
+          `exported at ${target.h}p rather than ${asked.h}p. This footage has no more detail than that, and the larger file would only be a bigger copy of the same picture`,
+          `صُدّر بـ${target.h}p بدل ${asked.h}p، هذه اللقطة لا تحمل تفاصيل أكثر من ذلك، والملفّ الأكبر سيكون نسخة أكبر من الصورة نفسها فقط`,
         ),
       );
     }
@@ -1620,8 +1620,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
                   `أطّرت على الموضوع بدل المنتصف (عند ${Math.round(choice.center * 100)}٪ من العرض)`,
                 )
               : t(
-                  "kept the centre — nothing in the frame argued for moving off it",
-                  "أبقيت المنتصف — لا شيء في الكادر دعا إلى مغادرته",
+                  "kept the centre. Nothing in the frame argued for moving off it",
+                  "أبقيت المنتصف. لا شيء في الكادر دعا إلى مغادرته",
                 ),
           );
         } catch {
@@ -2075,8 +2075,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         !source.hasAudio
           ? t(
-              `laid music under the whole edit at ${music.gainDb.toFixed(0)}dB — this clip had no sound of its own, so the music is all of it`,
-              `وضعت الموسيقى تحت التعديل كلّه عند ${music.gainDb.toFixed(0)}dB — هذا المقطع لا صوت له أصلًا، فالموسيقى هي صوته كلّه`,
+              `laid music under the whole edit at ${music.gainDb.toFixed(0)}dB. This clip had no sound of its own, so the music is all of it`,
+              `وضعت الموسيقى تحت التعديل كلّه عند ${music.gainDb.toFixed(0)}dB. هذا المقطع لا صوت له أصلًا، فالموسيقى هي صوته كلّه`,
             )
           : wantsDuck
             ? t(
@@ -2091,8 +2091,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       if (fadeSeconds < askedFade - 0.001 && askedFade > 0) {
         notes.push(
           t(
-            `the music fades run ${fadeSeconds.toFixed(1)}s rather than the ${askedFade.toFixed(1)}s asked — shorter, so they stay a third of this short edit at most`,
-            `تلاشي الموسيقى ${fadeSeconds.toFixed(1)} ثانية بدل ${askedFade.toFixed(1)} المطلوبة — أقصر، كي يبقى ثلث هذا التعديل القصير على الأكثر`,
+            `the music fades run ${fadeSeconds.toFixed(1)}s rather than the ${askedFade.toFixed(1)}s asked, so they stay a third of this short edit at most`,
+            `تلاشي الموسيقى ${fadeSeconds.toFixed(1)} ثانية بدل ${askedFade.toFixed(1)} المطلوبة، كي يبقى ثلث هذا التعديل القصير على الأكثر`,
           ),
         );
       }
@@ -2146,8 +2146,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     notes.push(
       d < asked - 0.001
         ? t(
-            `faded in and out over ${d.toFixed(1)}s — shorter than asked, so the fades stay a third of this short clip at most`,
-            `تلاشٍ في الطرفين خلال ${d.toFixed(1)} ثانية — أقصر ممّا طُلب، كي يبقى ثلث هذا المقطع القصير على الأكثر`,
+            `faded in and out over ${d.toFixed(1)}s, shorter than asked, so the fades stay a third of this short clip at most`,
+            `تلاشٍ في الطرفين خلال ${d.toFixed(1)} ثانية، أقصر ممّا طُلب، كي يبقى ثلث هذا المقطع القصير على الأكثر`,
           )
         : t(
             `faded in from black and out to black over ${d.toFixed(1)}s`,

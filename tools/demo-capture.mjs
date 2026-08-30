@@ -308,33 +308,15 @@ ff(["-i", composed, "-an", "-c:v", "libx264", "-crf", "23", "-preset", "slow", "
 ff(["-i", composed, "-an", "-c:v", "libvpx-vp9", "-crf", "36", "-b:v", "0", "-row-mt", "1", path.join(outDir, `demo-editor${SHAPE.suffix}.webm`)]);
 ff(["-sseof", "-2", "-i", composed, "-frames:v", "1", "-q:v", "3", path.join(outDir, `demo-editor${SHAPE.suffix}.jpg`)]);
 
-// ── the three steps, cut from the same recording ─────────────────────────────
+// ── the three step clips, and why they are not cut any more ─────────────────
 //
-// "How it works" was three cards of prose with an icon on each. The steps are
-// things you can watch, so they are shown: the raw file as it arrives, the
-// sentence being typed and answered, and the finished vertical cut. Cut from
-// this recording rather than shot separately, so they cannot drift from it.
-if (!PHONE) {
-  const step = (name, input, from, dur, extra = []) => {
-    ff(["-ss", from.toFixed(2), "-t", dur.toFixed(2), "-i", input, "-an", ...extra,
-        "-c:v", "libx264", "-crf", "24", "-preset", "slow", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-        path.join(outDir, `${name}.mp4`)]);
-    ff(["-ss", from.toFixed(2), "-t", dur.toFixed(2), "-i", input, "-an", ...extra,
-        "-c:v", "libvpx-vp9", "-crf", "40", "-b:v", "0", "-row-mt", "1", "-deadline", "good", "-cpu-used", "5",
-        path.join(outDir, `${name}.webm`)]);
-    ff(["-ss", (from + Math.min(1, dur / 2)).toFixed(2), "-i", input, "-frames:v", "1", "-q:v", "4", ...extra,
-        path.join(outDir, `${name}.jpg`)]);
-  };
-
-  // 01 — the file as it arrives, in the player, with its full length on the
-  // timecode. The clip on its own says nothing; the clip sitting in the editor
-  // at 0:12 is the raw take.
-  step("step-upload", composed, 0.3, 5.0, ["-vf", "crop=iw*0.30:ih*0.36:iw*0.19:ih*0.09,scale=760:-2"]);
-  // 02 — the sentence, and the plan that comes back.
-  step("step-describe", composed, 0, Math.min(sendAt - trimTo + 3.4, 12), ["-vf", "crop=iw*0.3125:ih*0.46:iw*0.6875:ih*0.155,scale=720:-2"]);
-  // 03 — what came out.
-  step("step-post", path.join(CLIPS, "edited.mp4"), 0.1, RESULT_SECONDS - 0.3, ["-vf", "scale=-2:720"]);
-}
+// This used to cut three crops out of the recording above, one per card in
+// "How it works". They were shown at 240px, and at that size a picture of a
+// screen is a picture of unreadable text: one of them was a black rectangle
+// with three words in it too small to make out. The page draws those three
+// steps now, at the size it shows them, so nothing here has to be kept in
+// sync with the app's chrome and no visitor downloads 332kB of video to be
+// told "there is a screen".
 
 const sizes = ["demo-editor.mp4", "demo-editor.webm", "demo-editor.jpg"].map((f) => f.replace(/\.(?=[a-z0-9]+$)/, `${SHAPE.suffix}.`)).map((f) => `${f} ${(statSync(path.join(outDir, f)).size / 1024).toFixed(0)}KB`);
 console.log(`\nRecorded the real editor at ${SHAPE.width}\u00d7${SHAPE.height}: ${sizes.join(" · ")}`);

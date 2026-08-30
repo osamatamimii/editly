@@ -140,8 +140,8 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
     );
     notes.push(
       t(
-        "the sound did not survive this edit — that is a fault on our side, not in your footage",
-        "لم ينجُ الصوت من هذا التعديل — وهذا عطل عندنا، لا في لقطتك",
+        "the sound did not survive this edit. That is a fault on our side, not in your footage",
+        "لم ينجُ الصوت من هذا التعديل. وهذا عطل عندنا، لا في لقطتك",
       ),
     );
   }
@@ -158,7 +158,7 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
       if (measured.inputI <= SILENT_MIX_LUFS) {
         // Levelling silence is not a miss to be corrected; it is a clip with
         // nothing in it, and gain would only raise the noise floor.
-        warnings.push(`output mix measures ${measured.inputI.toFixed(1)} LUFS — effectively silent`);
+        warnings.push(`output mix measures ${measured.inputI.toFixed(1)} LUFS, effectively silent`);
       } else if (Math.abs(measured.inputI - target) > LOUDNESS_TOLERANCE_LU) {
         const corrected = await correctLoudness(file, target, measured, ctx.workDir);
         if (corrected != null) {
@@ -166,8 +166,8 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
           measuredLufs = corrected;
           notes.push(
             t(
-              `the levelling missed on the first pass — the mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected`,
-              `أخطأت التسوية في التمريرة الأولى — خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقيس وصُحّح`,
+              `the levelling missed on the first pass. The mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected`,
+              `أخطأت التسوية في التمريرة الأولى: خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقيس وصُحّح`,
             ),
           );
         } else {
@@ -195,12 +195,12 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
       const sourceLuma = await meanLuma(ctx.sourcePath);
       if (sourceLuma != null && sourceLuma > SOURCE_LUMA_FLOOR) {
         warnings.push(
-          `output luma ${outLuma.toFixed(1)} against source luma ${sourceLuma.toFixed(1)} — the picture is black`,
+          `output luma ${outLuma.toFixed(1)} against source luma ${sourceLuma.toFixed(1)}. The picture is black`,
         );
         notes.push(
           t(
-            "the picture came out black — that is a bug on our side, not in your footage",
-            "خرجت الصورة سوداء — وهذا عطل عندنا، لا في لقطتك",
+            "the picture came out black. That is a bug on our side, not in your footage",
+            "خرجت الصورة سوداء. وهذا عطل عندنا، لا في لقطتك",
           ),
         );
       }

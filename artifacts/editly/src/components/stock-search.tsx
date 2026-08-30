@@ -350,7 +350,7 @@ export function StockSearch({
                 className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1.5 text-[10px] text-white"
                 data-testid="stock-preview-unplayable"
               >
-                This clip will not play in this browser — some codecs just cannot be
+                This clip will not play in this browser. Some codecs just cannot be
                 previewed here. It will still cut into your video normally.
               </span>
             )}
@@ -424,7 +424,7 @@ export function StockSearch({
                 onClick={() => setPreviewing(item)}
                 disabled={adding !== null}
                 data-testid={`stock-item-${item.id}`}
-                title={`${item.label} — ${item.credit}`}
+                title={`${item.label} (${item.credit})`}
                 className={`group relative block w-full aspect-video overflow-hidden rounded-lg border bg-surface-2 disabled:opacity-60 ${
                   previewing?.id === item.id ? "border-primary ring-1 ring-primary" : "border-hairline"
                 }`}
@@ -453,7 +453,7 @@ export function StockSearch({
 
       {searched && !searching && !unavailable && !error && items.length === 0 && (
         <div className="mt-3 text-xs text-muted-foreground">
-          Nothing came back for that. Try a plainer word — stock libraries index objects and places
+          Nothing came back for that. Try a plainer word. Stock libraries index objects and places
           better than they index moods.
         </div>
       )}
