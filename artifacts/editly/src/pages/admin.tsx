@@ -193,7 +193,7 @@ export default function AdminPage() {
             onChange={(e) => setReason(e.target.value)}
             placeholder="Why are you doing this? It goes in the log with your name."
             data-testid="admin-reason"
-            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+            className="w-full px-3 min-h-11 md:min-h-0 md:py-2 rounded-lg bg-background border border-border text-base md:text-sm"
           />
           {actionError ? (
             <p className="text-sm text-destructive" data-testid="admin-action-error">
@@ -223,7 +223,7 @@ export default function AdminPage() {
           <Card
             label="Worker"
             value={worker.online ? "online" : "offline"}
-            hint={seenAgo === null ? "never seen" : `last beat ${seenAgo}s ago`}
+            hint={seenAgo === null ? "never seen" : `last beat ${elapsed(seenAgo)} ago`}
             alarming={!worker.online}
           />
           <Card label="Done (24h)" value={data.queue.doneLastDay} />
@@ -272,21 +272,21 @@ export default function AdminPage() {
 
         {/* ── People ───────────────────────────────────────────────────── */}
         <section>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
             <h2 className="text-xl font-semibold">
               Accounts{" "}
               <span className="text-muted-foreground text-base font-normal">
                 ({accounts.data?.total ?? 0})
               </span>
             </h2>
-            <div className="relative">
+            <div className="relative w-full sm:w-auto">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by email"
                 data-testid="admin-account-search"
-                className="pl-9 pr-3 py-2 rounded-lg bg-card border border-border text-sm w-64"
+                className="pl-9 pr-3 min-h-11 md:min-h-0 md:py-2 rounded-lg bg-card border border-border text-base md:text-sm w-full sm:w-64"
               />
             </div>
           </div>
@@ -367,15 +367,18 @@ export default function AdminPage() {
 
         {/* ── Renders ──────────────────────────────────────────────────── */}
         <section>
-          <div className="flex items-center justify-between mb-3">
+          {/* Five filters and a heading do not fit a phone in one line, and a
+              row that does not wrap does not shrink either — it just leaves the
+              screen, and takes the page's scroll width with it. */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
             <h2 className="text-xl font-semibold">Recent renders</h2>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {["", "failed", "queued", "processing", "done"].map((status) => (
                 <button
                   key={status || "all"}
                   onClick={() => setJobFilter(status)}
                   data-testid={`admin-job-filter-${status || "all"}`}
-                  className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+                  className={`px-3 min-h-11 sm:min-h-0 sm:py-1.5 inline-flex items-center rounded-lg text-sm border transition-colors ${
                     jobFilter === status
                       ? "border-primary/60 bg-primary/15 text-foreground"
                       : "border-border text-muted-foreground hover:text-foreground"
@@ -486,7 +489,11 @@ function RowButton({
       disabled={disabled}
       data-testid={testId}
       title={disabled ? "Type a reason first" : undefined}
-      className="px-2.5 py-1 rounded-md border border-border text-xs hover:border-primary/60 hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      // These are the buttons that grant minutes, suspend an account and
+      // requeue a job — the console's only irreversible acts — and they were
+      // 26px tall. A thumb hitting "Suspend" when it meant "+30 min" is the
+      // worst miss in the product.
+      className="px-2.5 min-h-11 md:min-h-0 md:py-1 inline-flex items-center justify-center rounded-md border border-border text-xs hover:border-primary/60 hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
     >
       {children}
     </button>
@@ -530,7 +537,13 @@ function Table({
     return <div className="text-sm text-muted-foreground py-6">{empty}</div>;
   }
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
+    // `min-w-0` and `max-w-full`, or `overflow-x-auto` does nothing.
+    // A flex or grid child's `min-width` defaults to `auto` — the width of its
+    // own content — so this box grew to the table's 1039px and took the page
+    // with it. The console scrolled sideways on a phone, which is exactly the
+    // device somebody opens it on: the moment a render is failing and they are
+    // not at a desk.
+    <div className="w-full min-w-0 max-w-full overflow-x-auto rounded-xl border border-border">
       <table className="w-full text-sm">
         <thead className="bg-muted/40">
           <tr>
@@ -566,4 +579,27 @@ function Problem({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
+}
+
+/**
+ * A duration a person can read.
+ *
+ * The worker's heartbeat was printed as raw seconds, which is fine for the
+ * eight seconds it usually is and useless for anything else: a worker last seen
+ * on Tuesday read "last beat 511024s ago", and the number this console exists
+ * to make obvious — how long has it been gone — became arithmetic. Seconds stay
+ * seconds up to a minute, because under a minute is the only range where the
+ * exact number is what matters.
+ */
+function elapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.round((seconds % 3600) / 60);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  const d = Math.floor(seconds / 86400);
+  const h = Math.round((seconds % 86400) / 3600);
+  return h > 0 ? `${d}d ${h}h` : `${d}d`;
 }

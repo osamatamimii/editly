@@ -290,7 +290,12 @@ export default function Dashboard() {
           </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        {/* Wraps, because for one person it does not fit.
+            Three controls fit a phone; an admin gets a fourth — "Operations" —
+            and the row measured 526px against a 390px screen, so the whole
+            dashboard scrolled sideways. It went unseen because the only account
+            that sees that button is the one nobody tests with. */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
           <ThemeToggle />
           {/*
             Shown only when the server has already answered the admin overview.
@@ -302,7 +307,7 @@ export default function Dashboard() {
           {isAdmin ? (
             <Button
               variant="outline"
-              className="border-hairline rounded-full h-12 px-5"
+              className="border-hairline rounded-full h-12 px-4 sm:px-5"
               onClick={() => setLocation("/admin")}
               data-testid="button-admin"
             >
@@ -312,7 +317,7 @@ export default function Dashboard() {
           ) : null}
           <Button
             variant="outline"
-            className="border-hairline rounded-full h-12 px-5"
+            className="border-hairline rounded-full h-12 px-4 sm:px-5"
             onClick={() => setLocation("/account")}
             data-testid="button-account"
           >
@@ -321,7 +326,7 @@ export default function Dashboard() {
           </Button>
           <Button
             onClick={() => setIsCreateOpen(true)}
-            className="glow-btn rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-6 h-12"
+            className="glow-btn rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-5 sm:px-6 h-12 flex-1 sm:flex-none"
             data-testid="button-new-project"
           >
             <Plus className="w-5 h-5 mr-2" />

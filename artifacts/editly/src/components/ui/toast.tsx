@@ -14,7 +14,21 @@ const ToastViewport = React.forwardRef<
   <ToastPrimitives.Viewport
     ref={ref}
     className={cn(
-      "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
+      // Anchored to both edges, not sized at 100%.
+      //
+      // `position: fixed; width: 100%` does not mean "the width of the screen"
+      // once the document scrolls horizontally — it stretches to the scrollable
+      // canvas, so this box was measured at 551px on a 390px phone. That is not
+      // itself the cause of the scroll, but it is what makes the scroll
+      // *permanent*: the viewport grows to the overflow, and the overflow now
+      // includes the viewport. `inset-x-0` pins it to the screen instead, so it
+      // is the width of the screen whatever the page does, and the whole
+      // feedback loop is gone.
+      //
+      // From `sm` up it goes back to a right-hand column, and the overflow is
+      // hidden rather than scrollable because nobody scrolls a toast — the
+      // message inside it wraps.
+      "fixed top-0 inset-x-0 z-[100] flex max-h-screen w-auto min-w-0 overflow-hidden flex-col-reverse p-4 sm:bottom-0 sm:left-auto sm:right-0 sm:top-auto sm:w-full sm:flex-col md:max-w-[420px]",
       className
     )}
     {...props}
@@ -23,7 +37,7 @@ const ToastViewport = React.forwardRef<
 ToastViewport.displayName = ToastPrimitives.Viewport.displayName
 
 const toastVariants = cva(
-  "group pointer-events-auto relative flex w-full items-center justify-between space-x-4 overflow-hidden rounded-md border p-6 pr-8 shadow-lg transition-all data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full data-[state=open]:sm:slide-in-from-bottom-full",
+  "group pointer-events-auto relative flex w-full min-w-0 max-w-full items-center justify-between space-x-4 overflow-hidden rounded-md border p-6 pr-8 shadow-lg transition-all data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full data-[state=open]:sm:slide-in-from-bottom-full",
   {
     variants: {
       variant: {
@@ -92,7 +106,7 @@ const ToastTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <ToastPrimitives.Title
     ref={ref}
-    className={cn("text-sm font-semibold", className)}
+    className={cn("text-sm font-semibold min-w-0 break-words", className)}
     {...props}
   />
 ))
@@ -104,7 +118,7 @@ const ToastDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <ToastPrimitives.Description
     ref={ref}
-    className={cn("text-sm opacity-90", className)}
+    className={cn("text-sm opacity-90 min-w-0 break-words", className)}
     {...props}
   />
 ))

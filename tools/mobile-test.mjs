@@ -85,7 +85,26 @@ const FIXTURES = {
     plan: "creator", minutesIncluded: 60, minutesGranted: 0, minutesUsedThisMonth: 12.5,
     minutesRemaining: 47.5, maxUploadMinutes: 30, watermark: false, referenceStyle: true, pricePerMonth: 12,
   },
-  "/api/admin/overview": { status: 403 },
+  // The admin console. It is the one screen in this product nobody has ever
+  // looked at on a phone, and it is also the one somebody looks at *from* a
+  // phone — at the moment a render is failing and they are not at a desk.
+  "/api/admin/overview": {
+    queue: { processing: 1, waiting: 2, unattended: 0, failedLastDay: 1, doneLastDay: 34 },
+    worker: { online: true, lastSeenAt: "2026-08-24T09:31:00.000Z", transcription: "whisper-1", vision: null },
+    accounts: { total: 218, newLastWeek: 19 },
+    revenue: {
+      byPlan: [
+        { plan: "free", count: 180 }, { plan: "creator", count: 24 },
+        { plan: "pro", count: 12 }, { plan: "studio", count: 2 },
+      ],
+      monthlyRecurringUsd: 794,
+    },
+    billing: [
+      { eventId: "evt_1", type: "subscription.created", email: "someone@example.com", plan: "creator", receivedAt: "2026-08-24T08:00:00.000Z", applied: true, outcome: null },
+      { eventId: "evt_2", type: "subscription.cancelled", email: "another.person.with.a.long.address@example.com", plan: "pro", receivedAt: "2026-08-23T21:12:00.000Z", applied: false, outcome: "no account for that email" },
+    ],
+    minutesRenderedThisMonth: 412.6,
+  },
   "/api/healthz": { status: "ok" },
   "/api/templates": [
     { id: "talking-head", name: "Talking head", description: "Silence out, framed vertical, levels fixed.", bestFor: "One person to camera", needs: null },
@@ -97,6 +116,30 @@ function fixtureFor(pathname) {
   if (FIXTURES[pathname]) return FIXTURES[pathname];
   const id = pathname.match(/^\/api\/projects\/([^/]+)$/)?.[1];
   if (id) return PROJECTS.find((p) => p.id === id) ?? PROJECTS[0];
+  if (pathname === "/api/admin/accounts") {
+    return {
+      total: 218,
+      accounts: [
+        { userId: "u1", email: "someone@example.com", createdAt: "2026-08-01T10:00:00.000Z", lastSignInAt: "2026-08-24T07:00:00.000Z", plan: "creator", projectCount: 12, minutesUsedThisMonth: 22.5, minutesIncluded: 60 },
+        { userId: "u2", email: "another.person.with.a.long.address@example.com", createdAt: "2026-07-14T10:00:00.000Z", lastSignInAt: null, plan: "free", projectCount: 1, minutesUsedThisMonth: 4, minutesIncluded: 5 },
+      ],
+    };
+  }
+  if (pathname === "/api/admin/jobs") {
+    return {
+      total: 2,
+      jobs: [
+        { id: "j1", userId: "u1", projectId: "p1", status: "running", progress: 62, stage: "Reframing to 9:16", error: null, attempts: 1, billedSeconds: null, createdAt: "2026-08-24T09:20:00.000Z", lockedAt: "2026-08-24T09:21:00.000Z", finishedAt: null, unattended: false, notes: null },
+        { id: "j2", userId: "u2", projectId: "p2", status: "failed", progress: 0, stage: null, error: "This file is 4h 12m long and the plan allows 30m.", attempts: 1, billedSeconds: null, createdAt: "2026-08-24T08:02:00.000Z", lockedAt: null, finishedAt: "2026-08-24T08:03:00.000Z", unattended: false, notes: null },
+      ],
+    };
+  }
+  if (pathname === "/api/admin/actions") {
+    return { total: 1, actions: [{ id: "a1", actorUserId: "admin", action: "grant_minutes", subjectUserId: "u2", subjectJobId: null, reason: "render failed on our side", detail: { minutes: 10 }, createdAt: "2026-08-24T08:30:00.000Z" }] };
+  }
+  if (pathname === "/api/admin/waitlist") {
+    return { total: 3, entries: [{ email: "first@example.com", source: "landing", createdAt: "2026-08-20T10:00:00.000Z" }] };
+  }
   if (/^\/api\/projects\/[^/]+\/messages$/.test(pathname)) {
     return [
       { id: "m1", role: "user", content: "Cut the silences and make it vertical for TikTok.", createdAt: "2026-08-24T09:00:00.000Z" },
@@ -241,6 +284,32 @@ async function measure(page) {
       taps,
       tiny,
       title: document.title,
+      // When the page does scroll sideways, say what pushed it.
+      //
+      // The offending element is almost never the widest one on the page — that
+      // is usually a table inside a scroller, doing exactly what it should. It
+      // is whatever reaches past the right edge with no clipping ancestor
+      // between it and the document, and finding that by hand costs an hour.
+      widest: (() => {
+        if (doc.scrollWidth <= doc.clientWidth + 1) return [];
+        const clipped = (el) => {
+          for (let a = el.parentElement; a; a = a.parentElement) {
+            const o = getComputedStyle(a).overflowX;
+            if (o === "auto" || o === "hidden" || o === "scroll") return true;
+          }
+          return false;
+        };
+        return [...document.querySelectorAll("*")]
+          .map((e) => ({ e, r: e.getBoundingClientRect() }))
+          .filter(({ e, r }) => visible(e) && r.right > vw + 1 && !clipped(e))
+          // A `position: fixed` box stretches to the scrollable canvas rather
+          // than to the screen, so once anything overflows, every fixed element
+          // reports as overflowing too. They are followers, never the cause.
+          .filter(({ e }) => getComputedStyle(e).position !== "fixed")
+          .sort((a, b) => b.r.right - a.r.right)
+          .slice(0, 5)
+          .map(({ e, r }) => `${e.tagName.toLowerCase()}.${String(e.className).slice(0, 44)} right=${Math.round(r.right)} w=${Math.round(r.width)}`);
+      })(),
     };
   });
 }
@@ -252,6 +321,7 @@ const PAGES = [
   { url: `/project/${PROJECTS[0].id}`, name: "the project editor", signedIn: true },
   { url: `/export/${PROJECTS[0].id}`, name: "the export screen", signedIn: true },
   { url: "/account", name: "the account page", signedIn: true },
+  { url: "/admin", name: "the admin console", signedIn: true },
   { url: "/nowhere-at-all", name: "a page that is not there", signedIn: false },
 ];
 
@@ -265,7 +335,7 @@ for (const spec of PAGES) {
   check(
     "the page does not scroll sideways",
     m.scrollWidth <= m.clientWidth + 1,
-    `${m.scrollWidth} > ${m.clientWidth}: ${m.overflowing.join(" | ")}`,
+    `${m.scrollWidth} > ${m.clientWidth}: ${(m.widest ?? []).join(" | ") || m.overflowing.join(" | ")}`,
   );
   check(
     "nothing wider than the screen escapes its container",
