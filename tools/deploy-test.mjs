@@ -344,6 +344,21 @@ section("Every suite in tools/ is one CI actually runs");
 section("CI has what the suites need");
 {
   check("a Postgres of the major production runs", /image: postgres:16/.test(checksWorkflow));
+  /**
+   * And it builds the thing Vercel builds.
+   *
+   * `typecheck` proves the types agree; it does not prove the bundle can be
+   * assembled. A vite plugin, an import that resolves for tsc and not for
+   * esbuild, an asset path that exists only in dev — each passes every other
+   * check in the file and fails at deploy. And a failed Vercel deploy is quiet
+   * in the worst way: production keeps serving the previous commit, so `main`
+   * is green, the dashboard says shipped, and the change is not live.
+   */
+  check(
+    "and builds the deployable, not only the types",
+    /pnpm run vercel:build/.test(checksWorkflow),
+    "typecheck passing is not the bundle assembling, and the difference is only ever found at deploy",
+  );
   check(
     "built by the migrations, not by drizzle-kit push",
     /pnpm run migrate/.test(checksWorkflow) && !/drizzle-kit push/.test(checksWorkflow),
