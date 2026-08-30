@@ -37,17 +37,6 @@ const WAVE_BARS = Array.from({ length: 48 }, (_, i) => ({
   delay: (i * 0.04) % 1,
 }));
 
-/* Deterministic particle seeds — golden-angle distribution, no Math.random at render */
-const PARTICLES = Array.from({ length: 30 }, (_, i) => ({
-  left:    (i * 137.508) % 100,
-  bottom:  (i * 17 + 5) % 50,
-  size:    2 + (i % 4),
-  opacity: 0.35 + (i % 5) * 0.1,
-  dur:     7 + (i % 8) * 1.2,
-  delay:   -((i * 3.1) % 14),
-  drift:   ((i * 23) % 60) - 30,
-}));
-
 /**
  * The ladder, at module scope so nothing on this page can compare against a
  * plan before the plan has been read. See `planKnown` below.
@@ -87,8 +76,6 @@ export default function Home() {
 
   /* ── Parallax refs ─────────────────────────────────────── */
   const heroRef    = useRef<HTMLElement>(null);
-  const orb1Ref    = useRef<HTMLDivElement>(null);
-  const orb2Ref    = useRef<HTMLDivElement>(null);
   const mockupRef  = useRef<HTMLDivElement>(null);
   const pxTarget   = useRef({ x: 0, y: 0 });
   const pxCurrent  = useRef({ x: 0, y: 0 });
@@ -111,8 +98,6 @@ export default function Home() {
       pxCurrent.current.x += (pxTarget.current.x - pxCurrent.current.x) * t;
       pxCurrent.current.y += (pxTarget.current.y - pxCurrent.current.y) * t;
       const { x, y } = pxCurrent.current;
-      if (orb1Ref.current)   orb1Ref.current.style.translate   = `${x * 2}px ${y * 2}px`;
-      if (orb2Ref.current)   orb2Ref.current.style.translate   = `${-x * 1.5}px ${-y * 1.5}px`;
       if (mockupRef.current) mockupRef.current.style.translate  = `${x * 0.5}px ${y * 0.5}px`;
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -179,41 +164,46 @@ export default function Home() {
     <div className="w-full flex flex-col items-center" ref={sectionsRef}>
 
       {/* ── Fixed global background canvas ── */}
+      {/*
+        One light source, not five.
+        This was four overlapping purple radial washes plus two blurred orbs
+        plus thirty drifting dots — six soft violet blobs with nothing between
+        them, which is the exact look every generated landing page has had since
+        2024, and it reads as one: cheap. A room lit from five directions has no
+        shape.
+
+        What replaces them is a single key light from above, and then
+        *structure*: a faint grid the light falls across, and film grain over
+        everything. Grain is what separates an expensive dark interface from a
+        flat one — it breaks the banding a large gradient always has on an 8-bit
+        display, and the eye reads the texture as depth rather than noise.
+      */}
       <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
-        {/* Strong top purple glow */}
+        {/* The key light. */}
         <div style={{
           position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 100% 55% at 50% -5%, var(--wash-top) 0%, var(--wash-top-mid) 40%, transparent 70%)",
+          background: "radial-gradient(ellipse 90% 50% at 50% -10%, var(--wash-top) 0%, var(--wash-top-mid) 45%, transparent 72%)",
         }} />
-        {/* Mid indigo bloom */}
+        {/* One low bounce, off-centre, so the page is not symmetrical. */}
         <div style={{
           position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 80% 45% at 50% 50%, var(--wash-mid) 0%, transparent 65%)",
+          background: "radial-gradient(ellipse 70% 45% at 22% 92%, var(--wash-left) 0%, transparent 60%)",
         }} />
-        {/* Bottom-left accent */}
+        {/* The grid the light falls across. Masked to fade out with distance,
+            so it is architecture near the top and gone by the fold. */}
         <div style={{
           position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 60% 40% at 15% 85%, var(--wash-left) 0%, transparent 65%)",
+          backgroundImage:
+            "linear-gradient(to right, var(--grid-line) 1px, transparent 1px), linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px)",
+          backgroundSize: "72px 72px",
+          maskImage: "radial-gradient(ellipse 95% 75% at 50% 8%, black 0%, rgba(0,0,0,0.55) 45%, transparent 80%)",
+          WebkitMaskImage: "radial-gradient(ellipse 95% 75% at 50% 8%, black 0%, rgba(0,0,0,0.55) 45%, transparent 80%)",
         }} />
-        {/* Bottom-right accent */}
-        <div style={{
-          position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 60% 40% at 85% 80%, var(--wash-right) 0%, transparent 65%)",
-        }} />
+        {/* The slow diagonal light sweep that used to be here is gone with the
+            orbs. A second moving light with no source is the same tell — and it
+            was 806px wide, so it was also the widest thing on a phone. */}
 
-        {/* Slow diagonal light sweep */}
-        <div
-          className="animate-light-sweep"
-          style={{
-            position: "absolute",
-            top: "-10%", left: "-10%",
-            width: "40%", height: "140%",
-            background: "linear-gradient(105deg, transparent 0%, rgba(155,107,255,0.07) 40%, rgba(192,132,252,0.12) 50%, rgba(155,107,255,0.07) 60%, transparent 100%)",
-            filter: "blur(1px)",
-          }}
-        />
-
-        {/* Noise / grain texture */}
+        {/* Grain, over everything. */}
         <div style={{
           position: "absolute", inset: 0,
           backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E\")",
@@ -298,45 +288,13 @@ export default function Home() {
         ref={heroRef}
         className="relative w-full max-w-7xl mx-auto px-6 pt-20 pb-32 flex flex-col items-center text-center overflow-hidden"
       >
-        {/* Animated orbs */}
-        <div
-          ref={orb1Ref}
-          className="absolute top-1/2 left-1/2 w-[1000px] h-[1000px] rounded-full pointer-events-none animate-orb-drift"
-          style={{
-            background: "radial-gradient(circle, rgba(108,59,255,0.45) 0%, rgba(155,107,255,0.2) 40%, transparent 70%)",
-            filter: "blur(50px)",
-          }}
-        />
-        <div
-          ref={orb2Ref}
-          className="absolute top-1/3 right-1/4 w-[500px] h-[500px] rounded-full pointer-events-none"
-          style={{
-            background: "radial-gradient(circle, rgba(155,107,255,0.3) 0%, rgba(192,132,252,0.1) 50%, transparent 70%)",
-            filter: "blur(60px)",
-            animation: "orb-drift 25s ease-in-out infinite reverse",
-          }}
-        />
-
-        {/* Floating particles — only in hero viewport */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          {PARTICLES.map((p, i) => (
-            <div
-              key={i}
-              className="absolute rounded-full animate-particle-drift"
-              style={{
-                left: `${p.left}%`,
-                bottom: `${p.bottom}%`,
-                width:  `${p.size}px`,
-                height: `${p.size}px`,
-                background: i % 3 === 0 ? "rgba(155,107,255,1)" : i % 3 === 1 ? "rgba(108,59,255,1)" : "rgba(192,132,252,1)",
-                "--p-opacity": p.opacity,
-                "--p-dur":     `${p.dur}s`,
-                "--p-delay":   `${p.delay}s`,
-                "--p-drift":   `${p.drift}px`,
-              } as React.CSSProperties}
-            />
-          ))}
-        </div>
+        {/* The orbs and the thirty floating dots that used to be here are gone.
+            Two 1000px blurred purple circles drifting behind the headline, with
+            particles rising through them, is decoration that says nothing about
+            the product and is the single most recognisable tell of a generated
+            page. The lighting is on the fixed canvas above now, and the motion
+            that is left belongs to things that mean something: the text
+            arriving, the mock working, the timeline running. */}
 
         {/* Badge */}
         <div
@@ -379,9 +337,8 @@ export default function Home() {
           className="text-lg md:text-xl text-muted-foreground mb-12 max-w-2xl animate-fade-up"
           style={{ animationDelay: "320ms" }}
         >
-          Upload the raw take and say what you want. Every silence cut, framed to
-          9:16, ready to post — about three hours of your evening back, on every
-          video.
+          Upload the raw take. Describe the edit. Get three hours of your evening
+          back — on every video.
         </p>
 
         {/* CTA Buttons */}
@@ -389,17 +346,33 @@ export default function Home() {
           className="flex flex-col sm:flex-row items-center gap-4 animate-fade-up"
           style={{ animationDelay: "440ms" }}
         >
+          {/* Two different people read this button.
+              Somebody signed out is being asked to start an account, and the
+              thing that decides it is the price — so the button says the price.
+              Somebody already signed in has an account and is looking at a
+              landing page by accident; "start free" is meaningless to them and
+              the only useful next step is the one thing the product does. */}
           <Link
-            href="/dashboard"
+            href={user ? "/dashboard" : "/login?mode=signup"}
+            data-testid="link-hero-cta"
             className="glow-btn btn-gradient-cta flex items-center justify-center gap-2 text-white h-14 px-8 rounded-full font-semibold text-lg"
           >
             <Play className="w-5 h-5 fill-current" />
-            Upload a raw take
+            {user ? "Upload a raw take" : "Start editing free"}
           </Link>
-          <button className="group flex items-center justify-center gap-2 h-14 px-8 rounded-full font-semibold text-lg bg-surface-1 hover:bg-surface-1 border border-hairline transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_24px_rgba(108,59,255,0.2)] backdrop-blur-sm">
-            Watch Demo
+          {/* This said "Watch Demo" and had no handler at all — the second
+              largest thing on the page did nothing when pressed, and there is
+              no demo film to play even if it had. What the page does have is
+              the three steps further down, so the button goes there. A button
+              that scrolls is worth more than a button that lies. */}
+          <a
+            href="#how-it-works"
+            data-testid="link-hero-secondary"
+            className="group flex items-center justify-center gap-2 h-14 px-8 rounded-full font-semibold text-lg bg-surface-1 hover:bg-surface-1 border border-hairline transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_24px_rgba(108,59,255,0.2)] backdrop-blur-sm"
+          >
+            See how it works
             <ArrowRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
-          </button>
+          </a>
         </div>
 
         {/* Hero Mockup */}
@@ -562,7 +535,10 @@ export default function Home() {
 
               {/* Platform badges */}
               <div
-                className="absolute top-6 left-6 hidden sm:flex flex-col gap-2"
+                /* Below the REC line, which starts at top-4 and is the same
+                   corner. They overlapped, and a badge sitting on a timecode is
+                   the first thing anyone looks at in this picture. */
+                className="absolute top-12 left-6 hidden sm:flex flex-col gap-2"
                 style={{ animation: "fade-in 0.5s 1s ease both" }}
               >
                 {["TikTok", "Reels", "Shorts"].map((p, i) => (
@@ -626,31 +602,55 @@ export default function Home() {
               <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">Features</p>
               <h2 className="text-4xl font-bold mb-6 leading-tight">What it does today</h2>
             </div>
-            <ul className="space-y-5">
+            {/* Five outcomes, not eleven mechanics.
+                This was a checklist of everything the renderer can do, one
+                switch per line — and a list that long is read as a list, which
+                means it is skimmed and none of it lands. Nothing has been
+                dropped from the product: each line here is the result, with the
+                mechanics that produce it underneath, where they belong. Still
+                kept honest by hand: everything named works today. */}
+            <ul className="space-y-6">
               {[
-                // Kept honest by hand: everything on this list works today,
-                // and anything not built yet says so on its own line.
-                "The strongest 30 seconds pulled out of a long take",
-                "A long take cut into separate clips, each titled by its speaker's own words",
-                "Any clip opened as its own project, to keep editing",
-                "Every silence and pause cut automatically",
-                "Captions burned in from what you actually say",
-                "Reframed to 9:16 for TikTok, Reels and Shorts — or 16:9 for YouTube, or square for a feed",
-                "Fades at the ends — and between the cuts a dissolve, a wipe, a slide or a flash",
-                "Your own music laid under it, ducking out of the way while you talk",
-                "Graded warm, cool, cinematic, black and white — or matched to a clip whose colour you like",
-                "Renders while you close the tab",
-                "Your footage stays private to your account",
+                {
+                  title: "A raw take becomes a post",
+                  detail:
+                    "Every silence and pause cut, framed for TikTok, Reels and Shorts — or YouTube, or square — and the levels fixed. From one sentence.",
+                },
+                {
+                  title: "The moments worth keeping, found for you",
+                  detail:
+                    "The strongest thirty seconds of a long take, or the whole thing cut into separate clips, each titled by what the speaker actually said. Open any of them and keep editing.",
+                },
+                {
+                  title: "Captions in your own words",
+                  detail:
+                    "Burned in from what you said, not from a template — in English or Arabic, laid out in the direction that language reads.",
+                },
+                {
+                  title: "It looks edited, not processed",
+                  detail:
+                    "Dissolves between the cuts, your own music ducking out of the way while you talk, and a grade — warm, cinematic, or matched to a clip whose colour you liked.",
+                },
+                {
+                  title: "It finishes without you",
+                  detail:
+                    "Close the tab and the render carries on. Your footage stays private to your account.",
+                },
               ].map((feat, i) => (
                 <li
-                  key={i}
-                  className="reveal flex items-center gap-4 group"
+                  key={feat.title}
+                  className="reveal flex items-start gap-4 group"
                   style={{ transitionDelay: `${i * 80}ms` }}
                 >
-                  <div className="w-9 h-9 flex-shrink-0 rounded-full bg-primary/15 flex items-center justify-center border border-primary/30 shadow-[0_0_8px_rgba(108,59,255,0.2)] group-hover:shadow-[0_0_16px_rgba(108,59,255,0.5)] group-hover:border-primary/60 transition-all duration-300">
+                  <div className="w-9 h-9 mt-0.5 flex-shrink-0 rounded-full bg-primary/15 flex items-center justify-center border border-primary/30 shadow-[0_0_8px_rgba(108,59,255,0.2)] group-hover:shadow-[0_0_16px_rgba(108,59,255,0.5)] group-hover:border-primary/60 transition-all duration-300">
                     <CheckCircle2 className="w-4 h-4 text-secondary" />
                   </div>
-                  <span className="text-lg font-medium group-hover:text-foreground transition-colors">{feat}</span>
+                  <div>
+                    <span className="block text-lg font-semibold group-hover:text-foreground transition-colors">
+                      {feat.title}
+                    </span>
+                    <span className="block text-muted-foreground mt-1 leading-relaxed">{feat.detail}</span>
+                  </div>
                 </li>
               ))}
             </ul>

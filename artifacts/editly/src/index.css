@@ -161,11 +161,18 @@
   --brand-mark: 265 85% 58%;
 
   /* The washes behind the landing page. Purple on near-black. */
-  --wash-top: rgba(108, 59, 255, 0.45);
-  --wash-top-mid: rgba(108, 59, 255, 0.15);
+  --wash-top: rgba(108, 59, 255, 0.28);
+  --wash-top-mid: rgba(108, 59, 255, 0.10);
   --wash-mid: rgba(79, 70, 229, 0.18);
-  --wash-left: rgba(108, 59, 255, 0.18);
+  --wash-left: rgba(108, 59, 255, 0.10);
   --wash-right: rgba(155, 107, 255, 0.12);
+  /* The grid the key light falls across, and the grain over everything.
+     Brighter than the light theme's, because a hairline on near-black has to
+     clear the display's own noise floor to be seen at all — and heavier grain,
+     because banding across a large dark gradient is visible on every 8-bit
+     panel and this is what hides it. */
+  --grid-line: rgba(196, 178, 255, 0.075);
+  --grain-opacity: 0.05;
 
   /*
    * Glass.
@@ -427,10 +434,16 @@
    * tints rather than light sources, and anything stronger turns the copy
    * sitting on top of them unreadable. */
   --wash-top: rgba(108, 59, 255, 0.20);
-  --wash-top-mid: rgba(108, 59, 255, 0.09);
+  --wash-top-mid: rgba(108, 59, 255, 0.075);
   --wash-mid: rgba(99, 70, 235, 0.11);
-  --wash-left: rgba(108, 59, 255, 0.11);
+  --wash-left: rgba(94, 52, 224, 0.085);
   --wash-right: rgba(155, 107, 255, 0.10);
+  /* Brighter than the light theme's, because a hairline on near-black has to
+     clear the display's own noise floor to be seen at all. */
+  /* On white the grid is dark ink, and the grain is nearly off — a light page
+     has no banding to hide and grain on it just reads as a dirty screen. */
+  --grid-line: rgba(23, 15, 46, 0.045);
+  --grain-opacity: 0.02;
 
   /*
    * The same four jobs, inverted.
@@ -519,11 +532,11 @@
  */
 .grain-layer {
   mix-blend-mode: overlay;
-  opacity: 0.055;
+  opacity: var(--grain-opacity);
 }
 .light .grain-layer {
   mix-blend-mode: multiply;
-  opacity: 0.018;
+  opacity: var(--grain-opacity);
 }
 
 /* ── Glass & Glow Utilities ─────────────────────────────── */
@@ -1015,3 +1028,4 @@
     box-shadow: 0 0 0 1px rgba(155,107,255,0.35), 0 0 24px rgba(108,59,255,0.28);
   }
 }
+

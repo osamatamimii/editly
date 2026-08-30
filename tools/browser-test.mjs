@@ -1449,9 +1449,14 @@ section("The landing page's feature list keeps up with what is actually built");
     /cut into separate clips/i.test(home),
     "the clips feature shipped but the landing page does not mention it",
   );
+  // The claim, not the sentence. Pinning the exact prose makes this a check on
+  // the copywriter rather than on the product: it went red the moment the line
+  // was rewritten to say the same thing better, which teaches people to edit
+  // the test to match the page — the opposite of what it is for.
   check(
     "and the line sells the titles, which is what makes them worth having",
-    /titled by its speaker's own words/i.test(home),
+    /titled by (its speaker's own words|what the speaker actually said)/i.test(home),
+    "the clips line must say the titles come from the speaker, not from a template",
   );
   check(
     "the Transitions cell is lit now that a fade ships",
