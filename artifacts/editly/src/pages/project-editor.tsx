@@ -1848,7 +1848,9 @@ export default function ProjectEditor() {
                 type="submit"
                 size="icon"
                 disabled={(!chatInput.trim() && marks.length === 0) || !hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
-                className="absolute right-1 top-1 h-10 w-10 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary/90 hover:shadow-[0_0_15px_rgba(155,107,255,0.6)] transition-all"
+                /* `.aura-btn` rather than a flat disc with a hover glow: the
+                   ring is there at rest, which is the only state a phone has. */
+                className="aura-btn no-default-hover-elevate absolute right-1 top-1 h-10 w-10 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary"
                 data-testid="button-send-message"
               >
                 <Send className="w-4 h-4" />

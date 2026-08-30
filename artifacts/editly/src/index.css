@@ -838,7 +838,20 @@ html[data-page-theme="light"] body {
 .glow-btn {
   @apply transition-all duration-300;
   box-shadow:
-    0 0 0 0 var(--halo),
+    /*
+     * The ring, at rest.
+     *
+     * This was `0 0 0 0` — a ring with no spread, i.e. no ring — and it only
+     * grew on hover. So the considered look existed for somebody with a mouse
+     * and for nobody on a phone, where every primary button in the product was
+     * a flat disc of colour. A resting ring is the whole difference between a
+     * filled shape and a control that looks lit, and it is what the buttons
+     * Osama liked are doing.
+     *
+     * A spread, not a blur: a blur is a glow and reads as haze; a spread has an
+     * edge and reads as a second, softer silhouette of the object.
+     */
+    0 0 0 4px var(--halo),
     inset 0 1px 0 var(--btn-lip),
     inset 0 -2px 6px var(--btn-underside),
     0 6px 18px var(--cta-shadow-soft);
@@ -1400,7 +1413,19 @@ html[data-page-theme="light"] body {
  * what makes a button look like a div with a background colour.
  */
 .aura-btn {
-  position: relative;
+  /*
+   * No `position` here, and that is a deliberate absence.
+   *
+   * It was `position: relative` — left over from a first version that drew the
+   * ring with a `::before` disc — and a plain declaration on a class beats
+   * Tailwind's `.absolute`, so the send button, which positions itself inside
+   * the chat bar, computed `relative` and fell out of it. Exactly the bug
+   * `.hover-elevate` caused three weeks ago, from exactly the same cause: a
+   * component class quietly deciding a layout property it does not need.
+   *
+   * viewport-test caught it in the first run after the class was applied,
+   * which is the entire reason that check exists.
+   */
   border: 0;
   background-image: linear-gradient(to bottom, var(--aura-face-top), transparent 62%);
   box-shadow:
