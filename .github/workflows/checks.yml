@@ -147,6 +147,7 @@ jobs:
       - run: node tools/schema-test.mjs
       - run: node tools/queue-test.mjs
       - run: node tools/isolation-test.mjs
+      - run: node tools/publisher-test.mjs
       - run: node tools/quality-test.mjs
       - run: node tools/framing-test.mjs
       - run: node tools/render-test.mjs

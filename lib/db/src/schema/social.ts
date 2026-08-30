@@ -1,4 +1,13 @@
-import { pgTable, text, timestamp, uuid, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  integer,
+  timestamp,
+  uuid,
+  index,
+  uniqueIndex,
+  jsonb,
+} from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -122,7 +131,15 @@ export const scheduledPostsTable = pgTable(
     /** When it should go out. Stored in UTC; the browser shows local time. */
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
 
-    /** scheduled → publishing → published | failed | cancelled */
+    /**
+     * scheduled → publishing → published | failed | cancelled | missed
+     *
+     * `missed` is its own ending rather than a kind of failure. Nothing went
+     * wrong: the post was simply too late to be worth sending, because the
+     * publisher was down when it came due. Filing that under "failed" would
+     * put it beside expired tokens and rejected captions, which are things to
+     * fix; this is a thing to re-schedule.
+     */
     status: text("status").notNull().default("scheduled"),
 
     /** What the platform gave back, so the person can open the post. */
@@ -136,7 +153,16 @@ export const scheduledPostsTable = pgTable(
      * request id. What goes here is the sentence somebody reads.
      */
     error: text("error"),
-    attempts: text("attempts").notNull().default("0"),
+    /**
+     * How many times the publisher has picked this row up.
+     *
+     * An integer, and that is not pedantry — it was `text NOT NULL DEFAULT '0'`,
+     * which reads perfectly and sorts `'10' < '3'`. A retry ceiling written
+     * against it would have let a post that failed ten times keep trying and
+     * stopped one that failed three, and every row involved would have looked
+     * completely normal.
+     */
+    attempts: integer("attempts").notNull().default(0),
 
     publishedAt: timestamp("published_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

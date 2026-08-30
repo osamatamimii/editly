@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS scheduled_posts (
   -- post scheduled at 9pm goes out at 9pm in a timezone nobody chose.
   scheduled_for    timestamptz NOT NULL,
 
-  -- scheduled → publishing → published | failed | cancelled
+  -- scheduled → publishing → published | failed | cancelled | missed
   status           text NOT NULL DEFAULT 'scheduled',
 
   external_post_id text,
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS scheduled_posts (
   -- Why it did not go out, in words a person can act on. Same rule as
   -- jobs.error: a platform's raw refusal is a slug and a request id.
   error            text,
-  attempts         text NOT NULL DEFAULT '0',
+  attempts         integer NOT NULL DEFAULT 0,
 
   published_at     timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now(),

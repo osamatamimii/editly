@@ -34,8 +34,13 @@ import {
 } from "@workspace/db";
 import { currentUserId } from "../middlewares/auth";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
-import { platformCatalogue, isPlatform, PLATFORM_LABEL } from "../lib/social-platforms";
-import { refusalsFor, scheduleRefusal } from "../lib/post-limits";
+import {
+  platformCatalogue,
+  isSocialPlatform,
+  SOCIAL_LABEL,
+  refusalsFor,
+  scheduleRefusal,
+} from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -62,7 +67,7 @@ router.get("/social/platforms", async (_req, res): Promise<void> => {
   // No auth-specific data: this is what the *deployment* can do, and it is the
   // same answer for everybody. It is behind the auth middleware anyway because
   // everything under /api is, and there is no reason to widen that.
-  res.json({ platforms: platformCatalogue() });
+  res.json({ platforms: platformCatalogue(process.env) });
 });
 
 router.get("/social/accounts", async (req, res): Promise<void> => {
@@ -106,7 +111,7 @@ router.delete("/social/accounts/:id", async (req, res): Promise<void> => {
     .update(scheduledPostsTable)
     .set({
       status: "cancelled",
-      error: `${PLATFORM_LABEL[isPlatform(account.platform) ? account.platform : "x"]} was disconnected before this went out.`,
+      error: `${SOCIAL_LABEL[isSocialPlatform(account.platform) ? account.platform : "x"]} was disconnected before this went out.`,
       updatedAt: new Date(),
     })
     .where(
@@ -258,13 +263,13 @@ router.post("/social/posts", rateLimit(LIMITS.createProject), async (req, res): 
 
   const refusals: Array<{ accountId: string; handle: string; platform: string; message: string }> = [];
   for (const account of accounts) {
-    if (!isPlatform(account.platform)) continue;
+    if (!isSocialPlatform(account.platform)) continue;
     if (account.status !== "ok") {
       refusals.push({
         accountId: account.id,
         handle: account.handle,
         platform: account.platform,
-        message: `${PLATFORM_LABEL[account.platform]} needs reconnecting before anything can go out to ${account.handle}.`,
+        message: `${SOCIAL_LABEL[account.platform]} needs reconnecting before anything can go out to ${account.handle}.`,
       });
       continue;
     }

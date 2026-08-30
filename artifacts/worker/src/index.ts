@@ -26,6 +26,7 @@ import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAl
 import { enrichPlan } from "./enrich";
 import { resolveProviders } from "./providers";
 import { sayIn, type Language } from "./say";
+import { publishDuePosts, surfaceStrandedPosts } from "./publisher";
 
 const WORKER_ID = `${hostname()}-${randomUUID().slice(0, 8)}`;
 const POLL_INTERVAL_MS = Number(process.env["POLL_INTERVAL_MS"] ?? 5000);
@@ -922,6 +923,29 @@ function clock(seconds: number): string {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
+/**
+ * The scheduled-post sweep, wrapped so it can never take the worker down.
+ *
+ * Its own try/catch rather than the loop's, and that is deliberate: a failure
+ * in here must not stop renders from being claimed. A person waiting on an
+ * export and a person waiting on a post are two different people, and one of
+ * them being blocked by the other's problem is not a trade this worker gets to
+ * make.
+ */
+async function sendDuePosts(): Promise<void> {
+  try {
+    const stranded = await surfaceStrandedPosts();
+    if (stranded > 0) {
+      logger.warn({ stranded }, "posts were mid-flight when a publisher stopped; marked for review");
+    }
+
+    const done = await publishDuePosts();
+    if (done.claimed > 0) logger.info(done, "published due posts");
+  } catch (error) {
+    logger.error({ err: error }, "the scheduled-post sweep failed; renders continue");
+  }
+}
+
 async function main(): Promise<void> {
   await db.execute(sql`select 1`);
   // Names of models, never keys. If captions are missing in production, this
@@ -945,6 +969,13 @@ async function main(): Promise<void> {
       const requeued = await requeueStaleJobs();
       if (requeued > 0) logger.warn({ requeued }, "returned abandoned jobs to the queue");
       await failExhaustedJobs();
+
+      // Before claiming a render, not after. A render takes minutes and this
+      // process is single-threaded, so a post due at 21:00 behind a job that
+      // started at 20:58 goes out whenever that job finishes — which is the
+      // one thing a scheduler may not do. Sweeping first bounds the lateness
+      // by the poll interval rather than by the longest render in the queue.
+      await sendDuePosts();
 
       const job = await claimJob();
       if (!job) {

@@ -50,10 +50,18 @@ async function load(source, name) {
   return import(pathToFileURL(outfile).href);
 }
 
-const { refusalsFor, captionLength, scheduleRefusal, MIN_LEAD_SECONDS, MAX_LEAD_DAYS } =
-  await load("artifacts/api-server/src/lib/post-limits.ts", "post-limits");
-const { PLATFORMS, PLATFORM_SPEC, configuredPlatforms, platformCatalogue, isPlatform } =
-  await load("artifacts/api-server/src/lib/social-platforms.ts", "social-platforms");
+const {
+  refusalsFor,
+  captionLength,
+  scheduleRefusal,
+  MIN_LEAD_SECONDS,
+  MAX_LEAD_DAYS,
+  SOCIAL_PLATFORMS: PLATFORMS,
+  SOCIAL_SPEC: PLATFORM_SPEC,
+  configuredPlatforms,
+  platformCatalogue,
+  isSocialPlatform: isPlatform,
+} = await load("lib/api-zod/src/social.ts", "social");
 
 let checks = 0;
 let failures = 0;
@@ -90,39 +98,42 @@ check(
 );
 check("a string that is not a platform is not a platform", !isPlatform("youtube") && !isPlatform(""));
 
-// Nothing is configured in a test process, and the catalogue must say so
-// rather than showing five buttons that cannot work.
-for (const p of PLATFORMS) {
-  delete process.env[PLATFORM_SPEC[p].clientIdVar];
-  delete process.env[PLATFORM_SPEC[p].clientSecretVar];
-}
+// An empty environment must say "nothing is connected" rather than showing
+// five buttons that cannot work.
 check(
   "with no credentials set, nothing claims to be connected",
-  Object.values(configuredPlatforms()).every((on) => on === false),
-  JSON.stringify(configuredPlatforms()),
+  Object.values(configuredPlatforms({})).every((on) => on === false),
+  JSON.stringify(configuredPlatforms({})),
 );
 
-process.env[PLATFORM_SPEC.x.clientIdVar] = "id";
+const half = { [PLATFORM_SPEC.x.clientIdVar]: "id" };
 check(
   "an id without a secret is still not connected",
-  configuredPlatforms().x === false,
+  configuredPlatforms(half).x === false,
   "half a credential posts nothing, and a button that half works is worse than one that is off",
 );
-process.env[PLATFORM_SPEC.x.clientSecretVar] = "secret";
-check("both together are", configuredPlatforms().x === true);
+const whole = { ...half, [PLATFORM_SPEC.x.clientSecretVar]: "secret" };
+check("both together are", configuredPlatforms(whole).x === true);
 check(
-  "and it is read at call time, not cached from the first call",
-  (() => {
-    delete process.env[PLATFORM_SPEC.x.clientSecretVar];
-    return configuredPlatforms().x === false;
-  })(),
+  "an empty string is not a credential",
+  configuredPlatforms({ ...whole, [PLATFORM_SPEC.x.clientSecretVar]: "   " }).x === false,
+  "an unset Fly secret reads as empty, not as absent",
+);
+check(
+  "and the environment is read per call, not captured at import",
+  configuredPlatforms(whole).x === true && configuredPlatforms({}).x === false,
   "APP_ORIGIN was frozen into a bundle by exactly this kind of read",
 );
 
 check(
   "the catalogue carries no secrets",
-  !JSON.stringify(platformCatalogue()).match(/secret|token|client_?id/i),
-  JSON.stringify(platformCatalogue()).slice(0, 120),
+  !JSON.stringify(platformCatalogue(whole)).match(/secret|token|client_?id/i),
+  JSON.stringify(platformCatalogue(whole)).slice(0, 120),
+);
+check(
+  "and it does not leak the value of a variable it was handed",
+  !JSON.stringify(platformCatalogue({ ...whole, X_CLIENT_SECRET: "hunter2" })).includes("hunter2"),
+  "the catalogue is built from an env object now, so this is worth saying out loud",
 );
 
 // ── What each platform refuses ───────────────────────────────────────────────
