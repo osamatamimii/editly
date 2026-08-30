@@ -356,11 +356,28 @@ async function processJob(job: Job): Promise<void> {
     // been opened. And downloading only what is referenced means a project with
     // forty files does not pay to fetch forty of them for a render that uses
     // one.
+    //
+    // **Every operation that names one.** This list read `insertBRoll` and
+    // `overlayImage` and not `addMusic`, which meant the bed was never
+    // downloaded — so the renderer looked the id up in an empty map, found
+    // nothing, and wrote "the track this plan names is not in this project"
+    // onto a render whose track was sitting in the project the whole time.
+    // Music has therefore never once played under a finished edit in
+    // production, and nothing said so: the render succeeded, the note was
+    // truthful about what it saw, and the only thing wrong was three operation
+    // names where there should have been four.
+    //
+    // Not caught for the same reason it was easy to write: every render suite
+    // calls `renderPlan` with an assets map built by hand, so the one place
+    // that decides *which files a job fetches* had no test through it at all.
+    // `worker-test` seeds an asset and a bucket object now.
+    const NAMES_AN_ASSET = new Set(["insertBRoll", "overlayImage", "addMusic"]);
     const wantedAssetIds = [
       ...new Set(
         enriched.plan.operations
-          .filter((op) => op.type === "insertBRoll" || op.type === "overlayImage")
-          .map((op) => (op as { assetId: string }).assetId),
+          .filter((op) => NAMES_AN_ASSET.has(op.type))
+          .map((op) => (op as { assetId: string }).assetId)
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
       ),
     ];
     const assets = new Map<string, { file: string; kind: "video" | "image" | "audio" }>();
