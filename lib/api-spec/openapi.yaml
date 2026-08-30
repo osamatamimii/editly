@@ -1167,6 +1167,28 @@ components:
                 them.
               type: boolean
           required: [storageAdmin, storageCheck, planner, stockLibrary, billing, admins]
+        worker:
+          description: >
+            Whether a machine that can actually render is listening. Everything
+            else here describes the API; this describes the product — with no
+            worker beating, every render queues and none starts while the API
+            keeps answering 200, which is the shape of the 12 August outage that
+            ran for two days. Reported rather than turned into a 503 on purpose:
+            a dead worker is not a broken API, and the two send you to different
+            places. `.github/workflows/watch.yml` reads it every fifteen minutes
+            and fails the run when it is false, which is the alert.
+          type: object
+          properties:
+            online:
+              type: boolean
+            lastSeenAgoSeconds:
+              description: >
+                Whole seconds since the last beat, or null when there has never
+                been one — offline with an age is a machine that stopped,
+                offline with no age is one that was never there.
+              type: integer
+              nullable: true
+          required: [online, lastSeenAgoSeconds]
         message:
           type: string
       required:
