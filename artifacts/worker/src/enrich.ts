@@ -59,7 +59,23 @@ export async function enrichPlan(
   // An empty `at` is the plan saying "you choose" — the renderer would
   // otherwise spread punches evenly, which is the automatic look we are trying
   // not to have.
-  const wantsChosenPunches = plan.operations.some((op) => op.type === "zoomPunch" && op.at.length === 0);
+  //
+  // A *beat* punch is the exception, and it looks identical from here: its `at`
+  // is empty for the same reason, and for an entirely different one. The
+  // renderer fills those from the track's beat grid, which is decoded from the
+  // audio and owes nothing to what was said — so a beat-synced edit that asked
+  // for nothing else would pay a transcription provider, wait on it, and throw
+  // the words away. Worse, when the provider is down it would answer "we could
+  // not hear the words in this clip, so this render has no captions" on a
+  // render that never wanted any.
+  //
+  // The same predicate lives in the API's `start-render.ts`, which decides the
+  // other meaning of an empty list. Written out in both rather than shared,
+  // because the two deploy separately and a package between them for one
+  // condition would be a build dependency for a line.
+  const wantsChosenPunches = plan.operations.some(
+    (op) => op.type === "zoomPunch" && op.on !== "beat" && op.at.length === 0,
+  );
   // A highlight is chosen from the words: without them the renderer falls
   // back to the middle of the clip, which is a guess, not a judgement.
   const wantsHighlight = plan.operations.some((op) => op.type === "extractHighlight");
