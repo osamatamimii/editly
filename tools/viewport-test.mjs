@@ -512,6 +512,10 @@ const PAGES = [
     },
   },
   { url: `/export/${PROJECTS[0].id}`, name: "the export screen", signedIn: true },
+  // The library of everything cut out of every recording. On the list because
+  // a screen that is only ever opened by somebody who already has clips is a
+  // screen nobody looks at until a customer does.
+  { url: "/clips", name: "the clips library", signedIn: true },
   { url: "/account", name: "the account page", signedIn: true },
   { url: "/admin", name: "the admin console", signedIn: true, then: async (page, check) => {
       // The word and the number on the worker card come from one row and must

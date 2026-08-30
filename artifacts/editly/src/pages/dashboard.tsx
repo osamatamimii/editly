@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label";
 import {
   Video, Plus, Clock, PlayCircle, CheckCircle2,
   Trash2, AlertCircle, Loader2, Sparkles, Activity, TrendingUp, UserRound,
-  UploadCloud, Gauge
+  UploadCloud, Gauge, Scissors
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { ProjectArt } from "@/components/project-art";
@@ -355,6 +355,18 @@ export default function Dashboard() {
               Operations
             </Button>
           ) : null}
+          {/* Clips are the output of the thing half this product's users come
+              for, and until now they only existed inside the project that made
+              them — eleven recordings, eleven panels, no library. */}
+          <Button
+            variant="outline"
+            className="border-hairline rounded-full h-12 px-4 sm:px-5"
+            onClick={() => setLocation("/clips")}
+            data-testid="button-clips"
+          >
+            <Scissors className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Clips</span>
+          </Button>
           <Button
             variant="outline"
             className="border-hairline rounded-full h-12 px-4 sm:px-5"

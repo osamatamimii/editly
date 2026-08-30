@@ -50,6 +50,45 @@ function serialize(row: typeof clipsTable.$inferSelect): unknown {
   };
 }
 
+/**
+ * Every clip this person owns, newest first.
+ *
+ * The per-project route below is what an editor asks — "what came out of
+ * *this* take". This is what a clipper asks, which is a different question:
+ * "what have I got to post". Somebody recording a weekly show has clips in
+ * eleven projects and no way to see them as one library, so the output of the
+ * thing they use this product for is scattered across the screens they used to
+ * make it.
+ *
+ * The project's title travels with each row. A list of clips titled by what
+ * was said in them, with no way to tell which recording each came out of, is a
+ * pile rather than a library.
+ */
+router.get("/clips", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+
+  const rows = await db
+    .select({
+      clip: clipsTable,
+      projectTitle: projectsTable.title,
+    })
+    .from(clipsTable)
+    .innerJoin(projectsTable, eq(clipsTable.projectId, projectsTable.id))
+    // Both, and not because one implies the other. The join is on the project
+    // id alone, so without this a clip could be read through somebody else's
+    // project row if a project id were ever reused.
+    .where(and(eq(clipsTable.userId, userId), eq(projectsTable.userId, userId)))
+    .orderBy(desc(clipsTable.createdAt), asc(clipsTable.idx))
+    .limit(200);
+
+  res.json({
+    clips: rows.map((row) => ({
+      ...(serialize(row.clip) as Record<string, unknown>),
+      projectTitle: row.projectTitle,
+    })),
+  });
+});
+
 router.get("/projects/:id/clips", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const params = ListClipsParams.safeParse(req.params);

@@ -785,6 +785,267 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /clips:
+    get:
+      operationId: listAllClips
+      tags: [clips]
+      summary: Every clip this account owns, across every recording
+      description: >
+        The per-project route answers "what came out of this take", which is
+        what an editor asks. This answers "what have I got to post", which is
+        what somebody recording a weekly show asks - and their clips live in
+        eleven projects, so the output of the thing they use this product for
+        was scattered across the screens they used to make it. Each row carries
+        the title of the recording it came from: a wall of clips titled by what
+        was said in them, with no way to tell which take each belongs to, is a
+        pile rather than a library.
+      responses:
+        "200":
+          description: Every clip, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clips:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: "#/components/schemas/Clip"
+                        - type: object
+                          properties:
+                            projectTitle:
+                              type: string
+                          required: [projectTitle]
+                required: [clips]
+
+  /social/platforms:
+    get:
+      operationId: listSocialPlatforms
+      tags: [social]
+      summary: Which platforms this deployment can post to
+      description: >
+        The same answer for everybody: what the *deployment* holds credentials
+        for, not what this person has connected. Posting on somebody's behalf
+        needs an app the platform has reviewed, which takes days and is not
+        code - so the product says which platforms are switched on rather than
+        showing a Connect button that cannot work. No secret ever appears here;
+        the answer is a boolean per platform and the limits that platform
+        enforces.
+      responses:
+        "200":
+          description: The five platforms, and whether each is usable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  platforms:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SocialPlatform"
+                required: [platforms]
+
+  /social/accounts:
+    get:
+      operationId: listSocialAccounts
+      tags: [social]
+      summary: The accounts this person has connected
+      description: >
+        Never the token. Every read of the accounts table names its columns,
+        because `select()` with no argument on that table is the bug that hands
+        a credential to a browser - and it is the kind that gets added in a
+        hurry by somebody adding an endpoint. What comes back is the handle,
+        the platform, and whether the connection still works.
+      responses:
+        "200":
+          description: The connected accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SocialAccount"
+                required: [accounts]
+
+  /social/accounts/{id}:
+    delete:
+      operationId: disconnectSocialAccount
+      tags: [social]
+      summary: Disconnect an account
+      description: >
+        Scheduled posts to that account are cancelled rather than deleted, and
+        the count comes back so it can be said out loud. Silently dropping a
+        week of scheduling means the first somebody knows is a post that never
+        appeared.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Disconnected, and how many scheduled posts went with it
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  disconnected:
+                    type: boolean
+                  cancelledPosts:
+                    type: number
+                required: [disconnected, cancelledPosts]
+        "404":
+          description: Not connected, or not this account's
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /social/posts:
+    get:
+      operationId: listScheduledPosts
+      tags: [social]
+      summary: What is scheduled, and what happened to what has gone
+      parameters:
+        - name: projectId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scheduled posts, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScheduledPost"
+                required: [posts]
+    post:
+      operationId: schedulePosts
+      tags: [social]
+      summary: Schedule one edit to one or more accounts
+      description: >
+        One request, several rows - and either all of them are written or none
+        is. Every destination is checked against its platform's rules first,
+        and the whole request is refused with the reasons, per platform, if any
+        of them cannot go. A partial success is the worst answer available:
+        told "scheduled", three went out, and the fourth is missing with
+        nothing anywhere saying so.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                projectId: { type: string }
+                exportId: { type: string }
+                accountIds:
+                  type: array
+                  items: { type: string }
+                caption: { type: string }
+                hashtags:
+                  type: array
+                  items: { type: string }
+                captions:
+                  description: >
+                    Per-platform overrides. The same clip wants different words
+                    on a platform with a 280-character limit than on one that
+                    reads hashtags.
+                  type: object
+                  additionalProperties: { type: string }
+                scheduledFor:
+                  type: string
+                  format: date-time
+              required: [projectId, accountIds, scheduledFor]
+      responses:
+        "201":
+          description: Scheduled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scheduled:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        platform: { type: string }
+                      required: [id, platform]
+                required: [scheduled]
+        "400":
+          description: >
+            Nothing was written. `refusals` names each destination that cannot
+            take this as written, and why, so all of them can be fixed at once
+            rather than one round trip at a time.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  refusals:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        accountId: { type: string }
+                        handle: { type: string }
+                        platform: { type: string }
+                        message: { type: string }
+                      required: [accountId, handle, platform, message]
+                required: [error]
+        "404":
+          description: No such project or account, or not this account's
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /social/posts/{id}:
+    delete:
+      operationId: cancelScheduledPost
+      tags: [social]
+      summary: Call a post back before it goes
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled: { type: boolean }
+                required: [cancelled]
+        "409":
+          description: >
+            Already gone, or going now. A post the worker is holding cannot be
+            cancelled here without the two of us disagreeing about whether it
+            went out.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /projects/{id}/clips:
     get:
       operationId: listClips
@@ -2075,6 +2336,84 @@ components:
             failures: { $ref: '#/components/schemas/AdminTrend' }
           required: [signups, renders, minutes, failures]
       required: [queue, worker, accounts, revenue, billing, minutesRenderedThisMonth]
+
+    SocialPlatform:
+      description: One of the five places an edit can go, and whether it is usable.
+      type: object
+      properties:
+        platform:
+          type: string
+          enum: [instagram, facebook, tiktok, x, snapchat]
+        label: { type: string }
+        connected:
+          description: Whether this deployment holds credentials for it.
+          type: boolean
+        captionLimit:
+          description: Characters, caption plus hashtags. Every platform counts both.
+          type: number
+        maxDurationSeconds: { type: number }
+        shape:
+          type: string
+          enum: [vertical, any]
+        needsReview:
+          description: >
+            Whether the platform reviews an app before it will let one post on
+            somebody's behalf. Reported so a card can say why a platform is
+            dark rather than saying "coming soon".
+          type: boolean
+      required: [platform, label, connected, captionLimit, maxDurationSeconds, shape, needsReview]
+
+    SocialAccount:
+      description: >
+        A connected account, without its token. The token lives in one table
+        and leaves this process never.
+      type: object
+      properties:
+        id: { type: string }
+        platform: { type: string }
+        handle: { type: string }
+        displayName: { type: string, nullable: true }
+        avatarUrl: { type: string, nullable: true }
+        status:
+          description: >
+            ok | expired | revoked - what the platform said the last time this
+            token was used. A revoked token is indistinguishable from a working
+            one until something is posted with it, and the moment a scheduled
+            post was due is the wrong moment to find out.
+          type: string
+        statusDetail: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+      required: [id, platform, handle, displayName, avatarUrl, status, statusDetail, createdAt]
+
+    ScheduledPost:
+      description: >
+        One edit, going to one account, at one time. Four destinations is four
+        of these, because they fail independently.
+      type: object
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        exportId: { type: string, nullable: true }
+        accountId: { type: string }
+        platform: { type: string }
+        caption: { type: string }
+        hashtags:
+          type: array
+          items: { type: string }
+        scheduledFor: { type: string, format: date-time }
+        status:
+          description: scheduled | publishing | published | failed | cancelled
+          type: string
+        externalUrl: { type: string, nullable: true }
+        error:
+          description: >
+            Why it did not go out, in words a person can act on. Same rule as
+            a failed render: a platform's raw refusal is a slug and a request
+            id.
+          type: string
+          nullable: true
+        publishedAt: { type: string, format: date-time, nullable: true }
+      required: [id, projectId, exportId, accountId, platform, caption, hashtags, scheduledFor, status, externalUrl, error, publishedAt]
 
     AdminTrend:
       description: A fortnight of one number, and the two weeks it splits into.
