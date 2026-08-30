@@ -226,15 +226,35 @@ router.post("/projects/:id/clips/:clipId/open", async (req, res): Promise<void> 
   const clipStem = clip.outputPath.replace(/\.mp4$/i, "");
   void copyObject(`${clipStem}.preview.webm`, `${userId}/${id}/source.preview.webm`);
 
-  // The clip's own still becomes the new project's poster, so its card on the
-  // dashboard shows the piece rather than a grey box until a browser happens
-  // to open it and make one.
+  /**
+   * The clip's own still becomes the new project's poster, so its card on the
+   * dashboard shows the piece rather than a grey box until a browser happens to
+   * open it and make one.
+   *
+   * **Awaited, unlike the mirror above.** Nothing in any row names the `.webm`
+   * — the player derives that name by convention and falls back when it is not
+   * there — so starting it and moving on costs nothing. This path is different:
+   * it is written into `projects.thumbnail_path`, and the row was being written
+   * before the copy had happened and whether or not it succeeded. A row that
+   * names a file which is not there is a card with a broken image on it and
+   * nothing anywhere that would notice.
+   *
+   * A poster is a nicety, so a failed copy leaves the column null and the
+   * project opens anyway. What it must never do is claim one.
+   */
   const poster = clip.thumbnailPath ? `${userId}/${id}/thumb.jpg` : null;
-  if (clip.thumbnailPath) void copyObject(clip.thumbnailPath, poster as string);
+  const posterLanded = clip.thumbnailPath
+    ? (await copyObject(clip.thumbnailPath, poster as string)).copied
+    : false;
 
   const [ready] = await db
     .update(projectsTable)
-    .set({ videoPath: destination, thumbnailPath: poster, status: "ready", updatedAt: new Date() })
+    .set({
+      videoPath: destination,
+      thumbnailPath: posterLanded ? poster : null,
+      status: "ready",
+      updatedAt: new Date(),
+    })
     .where(eq(projectsTable.id, id))
     .returning();
 

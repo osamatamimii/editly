@@ -49,6 +49,16 @@ let storageFailsWith = null;
 // Copy fails on its own switch: a deployment whose delete works and whose
 // copy does not is exactly the case the promote route has to survive.
 let storageCopyFailsWith = null;
+/**
+ * Fail only the copies whose destination contains this.
+ *
+ * `storageCopyFailsWith` fails every copy, which means the *first* one fails
+ * and the whole request is refused — a real case, and not the one below. A
+ * poster is a nicety: its copy failing must leave the project open and the
+ * column empty, and telling that apart from the master failing needs a stub
+ * that can fail one and not the other.
+ */
+let storageCopyFailsFor = null;
 // The bucket the stub pretends to be, now stateful: list answers a page of
 // what is actually under the prefix and delete removes the named keys. The
 // sweep in storage.ts drains pages until the prefix answers empty, so a stub
@@ -106,6 +116,9 @@ const jwksServer = http.createServer((req, res) => {
       })();
       storageCalls.push({ op: "copy", from: parsed.sourceKey ?? null, to: parsed.destinationKey ?? null });
       if (storageCopyFailsWith) return res.writeHead(storageCopyFailsWith).end("{}");
+      if (storageCopyFailsFor && String(parsed.destinationKey ?? "").includes(storageCopyFailsFor)) {
+        return res.writeHead(500).end("{}");
+      }
       if (parsed.destinationKey) storageObjects.add(parsed.destinationKey);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ Key: parsed.destinationKey }));
@@ -532,15 +545,34 @@ console.log("\nClips are the owner's, and their paths reach only the owner");
       copies.some((c) => c.from === `${ALICE}/${aliceProjectId}/clip-job-iso-1-1.mp4` && c.to === `${ALICE}/${born}/source.mp4`),
       JSON.stringify(copies),
     );
-    await new Promise((r) => setTimeout(r, 300));
+    /**
+     * The poster is in the answer, not on its way to being.
+     *
+     * This check used to sleep 300ms first, and the sleep was the tell: the row
+     * named `thumbnail_path` before the copy had happened and whether or not it
+     * succeeded. A row that names a file which is not there is a card with a
+     * broken image on it and nothing anywhere that would notice — so the copy is
+     * awaited now, and the assertion needs no wait at all.
+     */
     check(
       "the clip's still becomes the new project's poster",
       opened.json?.thumbnailPath === `${ALICE}/${born}/thumb.jpg`,
       JSON.stringify(opened.json?.thumbnailPath),
     );
+    // The mirror stays fire-and-forget, and correctly so: no row names it, the
+    // player derives the name by convention and falls back when it is missing.
+    // So this one is waited *for* rather than slept through.
+    const mirrored = await (async () => {
+      const until = Date.now() + 3000;
+      for (;;) {
+        const seen = storageCalls.slice(copyMark).some((c) => c.op === "copy" && String(c.to).endsWith("/source.preview.webm"));
+        if (seen || Date.now() > until) return seen;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    })();
     check(
       "with the preview mirror behind it, for browsers that cannot decode H.264",
-      storageCalls.slice(copyMark).some((c) => c.op === "copy" && String(c.to).endsWith("/source.preview.webm")),
+      mirrored,
       JSON.stringify(storageCalls.slice(copyMark).filter((c) => c.op === "copy")),
     );
 
@@ -551,6 +583,31 @@ console.log("\nClips are the owner's, and their paths reach only the owner");
 
     const bobsView = await call(BOB, `/api/projects/${born}`);
     check("and the new project is Alice's alone", bobsView.status === 404, `got ${bobsView.status}`);
+
+    /**
+     * And a poster that could not be copied is not claimed.
+     *
+     * The master failing refuses the whole request, above. A poster is a
+     * nicety — a card with a grey box is a smaller loss than refusing to open
+     * the clip at all — so the project still opens. What it must never do is
+     * name a file that is not there, which is a broken image and no way to
+     * notice.
+     */
+    storageCopyFailsFor = "/thumb.jpg";
+    const noPoster = await call(ALICE, `/api/projects/${aliceProjectId}/clips/clip-iso-1/open`, "POST");
+    storageCopyFailsFor = null;
+    check("a clip whose still cannot be copied still opens", noPoster.status === 201, `got ${noPoster.status}`);
+    check(
+      "and says it has no poster rather than naming one that is not there",
+      noPoster.json?.thumbnailPath === null,
+      JSON.stringify(noPoster.json?.thumbnailPath),
+    );
+    check(
+      "while its video is its own copy all the same",
+      noPoster.json?.videoPath === `${ALICE}/${noPoster.json?.id}/source.mp4`,
+      JSON.stringify(noPoster.json?.videoPath),
+    );
+    await call(ALICE, `/api/projects/${noPoster.json?.id}`, "DELETE");
 
     // A deployment whose copy fails must not leave a project pointing at a
     // file that was never written.
