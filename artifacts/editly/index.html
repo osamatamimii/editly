@@ -43,18 +43,23 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
     <!--
-      Two families, not three. Instrument Serif Italic was here because the
-      competitor's page pairs a heavy sans with an italic serif and it looks
-      expensive — and then nothing in this app ever used it, so every visitor
-      paid a round trip and a font face to render nothing.
+      Three families, and the third one earns its request.
 
-      It is not coming back either, and the reason is structural rather than
-      taste: Arabic has no italic. A page whose typographic idea is a slanted
-      serif has no second half in the other language it ships in, and the
-      contrast has to be carried by weight, size and colour — which every font
-      here already has. That is what the hero does.
+      Instrument Serif Italic is the second half of the pairing a heavy sans
+      makes with a slanted serif — the thing that makes an editorial headline
+      read as set rather than typed. It was removed once, correctly, because it
+      was being *loaded and never used*: a round trip and a font face for
+      nothing.
+
+      It is back because it is used, and used in exactly one place: the second
+      line of the landing headline. That scoping is the whole design. Arabic has
+      no italic, so a page whose typographic idea rests on one has no second
+      half in the other language this product ships in — `.headline-serif` in
+      index.css carries an RTL rule that drops back to the sans and re-states
+      the contrast as weight and colour, which every font here already has and
+      which survives translation.
     -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
     <link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@500,700,800,900&display=swap" rel="stylesheet">
     <!--
       Runs before the first paint, on purpose.

@@ -316,10 +316,16 @@ export default function Home() {
           className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 max-w-4xl leading-[1.1] animate-fade-up"
           style={{ animationDelay: "200ms" }}
         >
+          {/* Two voices, not one word in a different colour.
+              The heavy grotesque states it and an italic serif answers — the
+              pairing that makes an editorial headline read as set rather than
+              typed. `.headline-serif` carries the size and tracking corrections
+              an italic serif needs beside a bold sans, and the RTL rule that
+              says the same thing with weight when there is no italic to use. */}
           <span className="glow-text">Stop editing.</span>
           <br />
           <span
-            className="animate-gradient-shift"
+            className="headline-serif animate-gradient-shift"
             style={{
               background: "linear-gradient(135deg, #6C3BFF 0%, #9B6BFF 40%, #c084fc 70%, #6C3BFF 100%)",
               WebkitBackgroundClip: "text",

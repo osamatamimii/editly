@@ -121,6 +121,7 @@
 
   --font-sans: var(--app-font-sans);
   --font-display: var(--app-font-display);
+  --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
 
   --radius-sm: calc(var(--radius) - 4px);
@@ -204,6 +205,13 @@
   --glass-sheen: rgba(255, 255, 255, 0.10);
 
   /* Glow, which is the whole visual identity and must survive the flip. */
+  /* The ring outside the button's edge, and the two insets that make its face
+     a pillow rather than a fill. On near-black the halo can be the brand at a
+     real alpha; the lip is white light catching the top edge. */
+  --halo: rgba(108, 59, 255, 0.26);
+  --halo-strong: rgba(155, 107, 255, 0.75);
+  --btn-lip: rgba(255, 255, 255, 0.30);
+  --btn-underside: rgba(6, 3, 20, 0.45);
   --glow-soft: rgba(155, 107, 255, 0.85);
   --glow-wide: rgba(108, 59, 255, 0.4);
   --text-glow-near: rgba(155, 107, 255, 0.8);
@@ -293,16 +301,20 @@
    * beside a carefully set English line — in a product where half of what is
    * rendered is Arabic.
    *
-   * There was a third face here — Instrument Serif Italic, because the pairing
-   * of a heavy sans with an italic serif is what makes a certain kind of page
-   * look expensive. It was loaded on every visit and used by nothing, and it is
-   * not coming back: Arabic has no italic, so a typographic idea built on a
-   * slanted serif has no second half in the other language this ships in. The
-   * contrast is carried by weight, size and colour instead, which every font
-   * here already has and which survives translation.
+   * Instrument Serif Italic is the third, and it is used in exactly one place:
+   * the second line of the landing headline. A heavy sans against a slanted
+   * serif is what makes an editorial headline read as *set* rather than typed,
+   * and one line is the whole of its job.
+   *
+   * It was removed once, correctly — it was being loaded on every visit and
+   * used by nothing. The scoping is what makes it right to have back, because
+   * Arabic has no italic: `.headline-serif` below drops to the sans under
+   * `[dir="rtl"]` and re-states the contrast as weight and colour, so the idea
+   * survives translation instead of collapsing at it.
    */
   --app-font-sans: 'Inter', 'IBM Plex Sans Arabic', system-ui, -apple-system, sans-serif;
   --app-font-display: 'Cabinet Grotesk', 'Inter', 'IBM Plex Sans Arabic', system-ui, sans-serif;
+  --app-font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
   --app-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius: 0.75rem;
 
@@ -463,6 +475,13 @@
   --glass-drop: rgba(60, 30, 140, 0.10);
   --glass-sheen: rgba(255, 255, 255, 0.6);
 
+  /* On white the halo has to be lighter and the underside far weaker, or the
+     button reads as dirty rather than as lit. The lip stays white — it is the
+     one thing that works identically in both, because it is the highlight. */
+  --halo: rgba(108, 59, 255, 0.16);
+  --halo-strong: rgba(108, 59, 255, 0.45);
+  --btn-lip: rgba(255, 255, 255, 0.55);
+  --btn-underside: rgba(60, 30, 140, 0.16);
   --glow-soft: rgba(108, 59, 255, 0.40);
   --glow-wide: rgba(108, 59, 255, 0.18);
   --text-glow-near: rgba(108, 59, 255, 0.24);
@@ -641,12 +660,58 @@
   .glass-panel::before { display: none; }
 }
 
+/*
+ * A button with a halo, and a surface that is lit rather than filled.
+ *
+ * Three things separate the control Osama pointed at from a coloured rectangle,
+ * and none of them is the colour:
+ *
+ *   1. **A ring of its own colour, outside the edge.** Not a glow — a glow is
+ *      soft everywhere and reads as a smudge on a light page. This is a spread
+ *      ring at a low alpha, so the button sits inside a halo the same hue,
+ *      which is what makes it look like it is resting on the page instead of
+ *      pasted onto it. It grows on hover; that is the whole hover state.
+ *   2. **A highlight along the top inside edge and a shadow along the bottom.**
+ *      One inset pair, and the flat fill becomes a pillow. Light comes from
+ *      above, as it does in every physical thing anyone has ever pressed.
+ *   3. **It goes *down* when pressed, not up.** The ring collapses, the
+ *      highlight goes, and the surface takes a shadow from above — the press
+ *      reads in the shading rather than only in a scale.
+ */
 .glow-btn {
-  @apply transition-all duration-300 active:scale-[0.97];
+  @apply transition-all duration-300;
+  box-shadow:
+    0 0 0 0 var(--halo),
+    inset 0 1px 0 var(--btn-lip),
+    inset 0 -2px 6px var(--btn-underside),
+    0 6px 18px var(--cta-shadow-soft);
 }
 .glow-btn:hover {
-  box-shadow: 0 0 50px var(--glow-soft), 0 0 100px var(--glow-wide);
-  transform: scale(1.05);
+  box-shadow:
+    0 0 0 7px var(--halo),
+    0 0 50px var(--glow-soft),
+    0 0 100px var(--glow-wide),
+    inset 0 1px 0 var(--btn-lip),
+    inset 0 -2px 6px var(--btn-underside),
+    0 10px 28px var(--cta-shadow-soft);
+  transform: translateY(-1px) scale(1.03);
+}
+.glow-btn:active {
+  transform: translateY(1px) scale(0.985);
+  box-shadow:
+    0 0 0 3px var(--halo),
+    inset 0 2px 8px var(--btn-underside),
+    inset 0 -1px 0 var(--btn-lip),
+    0 2px 6px var(--cta-shadow-soft);
+}
+/* The ring is a focus indicator too — a keyboard user gets the same shape a
+   mouse user gets, rather than a browser outline over the top of it. */
+.glow-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px var(--background),
+    0 0 0 7px var(--halo-strong),
+    inset 0 1px 0 var(--btn-lip);
 }
 
 /*
@@ -668,7 +733,11 @@
   /* The gradient itself never changes — only what it throws off. In light the
    * first shadow becomes a tint and the second becomes a real cast shadow, so
    * the button sits *on* the page rather than hovering above a void. */
-  box-shadow: 0 0 30px var(--cta-shadow), 0 4px 24px var(--cta-shadow-soft);
+  box-shadow:
+    0 0 30px var(--cta-shadow),
+    0 4px 24px var(--cta-shadow-soft),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -3px 10px rgba(10, 4, 40, 0.3);
 }
 .btn-gradient-cta::after {
   content: '';
@@ -690,13 +759,19 @@
 .btn-gradient-cta:hover {
   background-position: 100% 100%;
   box-shadow:
+    0 0 0 7px var(--halo),
     0 0 60px var(--glow-soft),
     0 0 120px var(--glow-wide),
-    inset 0 0 30px rgba(255, 255, 255, 0.08);
-  transform: scale(1.05);
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -3px 10px rgba(10, 4, 40, 0.35);
+  transform: translateY(-1px) scale(1.03);
 }
 .btn-gradient-cta:active {
-  transform: scale(0.97);
+  transform: translateY(1px) scale(0.985);
+  box-shadow:
+    0 0 0 3px var(--halo),
+    inset 0 3px 10px rgba(10, 4, 40, 0.45),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.25);
 }
 
 /* ── Input glow ─────────────────────────────────────────── */
@@ -738,14 +813,30 @@
 }
 
 /* ── Keyframe Definitions ───────────────────────────────── */
+/*
+ * Things arrive out of focus and settle into it.
+ *
+ * A blur that resolves is what separates motion that feels made from motion
+ * that feels applied: the eye reads defocus as depth and distance, so an
+ * element that sharpens as it lands reads as coming *toward* you rather than
+ * sliding in from nowhere. It is also the cheapest way to hide the thing that
+ * makes web animation look cheap — the hard edge of text mid-transform, which
+ * a browser renders crisply at every intermediate position and which the eye
+ * catches as a stutter.
+ *
+ * Small numbers on purpose. 10px of blur on a headline is a title card; 6px is
+ * a lens finding focus. And it is only ever on the way *in* — blurring on exit
+ * reads as a fault.
+ */
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(28px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(28px) scale(0.985); filter: blur(10px); }
+  60%  { filter: blur(2px); }
+  to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }
 
 @keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from { opacity: 0; filter: blur(6px); }
+  to   { opacity: 1; filter: blur(0); }
 }
 
 @keyframes float {
@@ -847,11 +938,13 @@
 
 /* ── Animation Utility Classes ──────────────────────────── */
 .animate-fade-up {
-  animation: fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* Longer than it was: a blur needs time to be read as focus finding itself
+     rather than as a frame that dropped. */
+  animation: fade-up 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-fade-in {
-  animation: fade-in 0.6s ease both;
+  animation: fade-in 0.7s ease both;
 }
 
 .animate-float {
@@ -926,16 +1019,41 @@
   animation: segment-glow 2.5s ease-in-out infinite;
 }
 
-/* Section reveal helper — elements start hidden */
+/* Section reveal helper — elements start hidden, and out of focus */
 .reveal {
   opacity: 0;
-  transform: translateY(24px);
-  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
-              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateY(24px) scale(0.99);
+  filter: blur(8px);
+  transition: opacity 0.85s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.85s cubic-bezier(0.16, 1, 0.3, 1),
+              filter 0.7s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .reveal.visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
+/*
+ * All of it off when the person has asked for less motion.
+ *
+ * `prefers-reduced-motion` is not a preference about taste — for somebody with
+ * a vestibular disorder, a page that moves and defocuses is a page that makes
+ * them ill. Everything still arrives; it arrives by appearing.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    transform: none;
+    filter: none;
+    transition: opacity 0.3s ease;
+  }
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-float,
+  .animate-orb-drift {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 @layer utilities {
@@ -1030,3 +1148,34 @@
   }
 }
 
+/*
+ * The headline's second line.
+ *
+ * A heavy grotesque says the first half and an italic serif answers it. The
+ * serif is set a shade larger because an italic serif at the same point size
+ * reads smaller than a bold sans — matching the numbers would look like a
+ * mistake — and the tracking goes back to normal, because negative tracking on
+ * a serif italic closes the counters and turns it to mud.
+ *
+ * And then RTL, which is the reason this is a class and not two words in a
+ * span. Arabic has no italic: `font-style: italic` on Arabic gets synthesised
+ * by the browser as a mechanical slant, which is not a typographic style, it is
+ * a defect. So under `[dir="rtl"]` the line goes back to the display sans and
+ * says the same thing with weight and colour, which both languages have.
+ */
+.headline-serif {
+  font-family: var(--app-font-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 1.08em;
+  letter-spacing: 0;
+  line-height: 1.05;
+}
+
+:where([dir="rtl"], [lang="ar"]) .headline-serif {
+  font-family: var(--app-font-display);
+  font-style: normal;
+  font-weight: 800;
+  font-size: 1em;
+  line-height: 1.3;
+}
