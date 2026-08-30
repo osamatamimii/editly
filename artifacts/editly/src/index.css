@@ -149,6 +149,29 @@
   --button-outline: rgba(255,255,255, .10);
   --badge-outline: rgba(255,255,255, .05);
 
+  /*
+   * The edge of a filled button — and, until now, a bug rather than a colour.
+   *
+   * `button.tsx` puts `border border-primary-border` on the primary variant,
+   * and `@theme` maps that class to `var(--primary-border)`. Nothing ever
+   * defined `--primary-border`. An undefined custom property makes the
+   * declaration invalid, `border-color` falls back to its initial value —
+   * `currentColor` — and on the primary button `currentColor` is
+   * `--primary-foreground`, which is white. So every solid button in the app
+   * has been wearing a white ring, in both themes, since the variant was
+   * written. It never failed, it never warned, and it looked deliberate.
+   *
+   * A filled button's edge is its fill. These are the shade *under* the fill,
+   * not a light around it.
+   */
+  --primary-border: rgba(20, 6, 60, 0.45);
+  --secondary-border: rgba(20, 6, 60, 0.40);
+  --destructive-border: rgba(60, 6, 12, 0.45);
+  --accent-border: rgba(255, 255, 255, 0.08);
+  --muted-border: rgba(255, 255, 255, 0.06);
+  --sidebar-primary-border: rgba(20, 6, 60, 0.45);
+  --sidebar-accent-border: rgba(255, 255, 255, 0.08);
+
   --surface-1: rgba(255, 255, 255, 0.05);
   --surface-2: rgba(255, 255, 255, 0.10);
   --surface-3: rgba(255, 255, 255, 0.20);
@@ -199,8 +222,16 @@
    * single-colour border is the tell that gives away every CSS "glass" panel:
    * a real edge catches light along its top and loses it at the bottom.
    * `--glass-inset` is the specular line just inside that top edge.
-   * `--glass-bloom` and `--glass-drop` are the colour it throws and the weight
+   * `--glass-bloom` and `--glass-drop` are the light it throws and the weight
    * it hangs by.
+   *
+   * The bloom used to be the brand purple at 0.2, on every panel, at 60px. One
+   * panel with a violet halo looks like glass lit by something violet. Sixteen
+   * of them on one screen — three stat cards, two banners, a row of project
+   * cards — is not lighting, it is a purple haze behind everything, and it was
+   * the single thing that made the dashboard look cheap. Glass throws light,
+   * and the light in this room is not purple. It is neutral now, and quiet.
+   * The brand still glows where it means something: the buttons.
    *
    * The saturation boost lives in the class, not here, because it is the same
    * number in both themes: what is behind the pane keeps its colour instead of
@@ -216,7 +247,7 @@
   --glass-ring-lit: rgba(255, 255, 255, 0.28);
   --glass-ring-dim: rgba(255, 255, 255, 0.05);
   --glass-inset: rgba(255, 255, 255, 0.12);
-  --glass-bloom: rgba(108, 59, 255, 0.2);
+  --glass-bloom: rgba(255, 255, 255, 0.035);
   --glass-drop: rgba(0, 0, 0, 0.5);
   --glass-sheen: rgba(255, 255, 255, 0.10);
 
@@ -226,7 +257,11 @@
      real alpha; the lip is white light catching the top edge. */
   --halo: rgba(108, 59, 255, 0.26);
   --halo-strong: rgba(155, 107, 255, 0.75);
-  --btn-lip: rgba(255, 255, 255, 0.30);
+  /* The specular line along a button's top edge. At 0.30 it was a white stroke
+     rather than a highlight — with the (undefined) white border around the rest
+     of the pill, the button read as outlined in white. The border is a colour
+     now and this is back to being light catching an edge. */
+  --btn-lip: rgba(255, 255, 255, 0.14);
   --btn-underside: rgba(6, 3, 20, 0.45);
   --glow-soft: rgba(155, 107, 255, 0.85);
   --glow-wide: rgba(108, 59, 255, 0.4);
@@ -383,6 +418,15 @@ html[data-page-theme="light"] body {
   --button-outline: rgba(84, 30, 190, 0.16);
   --badge-outline: rgba(84, 30, 190, 0.09);
 
+  /* The same edges, on a white page. See the note in the dark block. */
+  --primary-border: rgba(40, 12, 110, 0.35);
+  --secondary-border: rgba(40, 12, 110, 0.30);
+  --destructive-border: rgba(90, 10, 20, 0.35);
+  --accent-border: rgba(40, 12, 110, 0.10);
+  --muted-border: rgba(40, 12, 110, 0.08);
+  --sidebar-primary-border: rgba(40, 12, 110, 0.35);
+  --sidebar-accent-border: rgba(40, 12, 110, 0.10);
+
   --elevate-1: rgba(84, 30, 190, 0.045);
   --elevate-2: rgba(84, 30, 190, 0.095);
 
@@ -514,7 +558,7 @@ html[data-page-theme="light"] body {
   --glass-ring-lit: rgba(255, 255, 255, 0.9);
   --glass-ring-dim: rgba(84, 30, 190, 0.18);
   --glass-inset: rgba(255, 255, 255, 0.95);
-  --glass-bloom: rgba(108, 59, 255, 0.11);
+  --glass-bloom: rgba(80, 70, 110, 0.07);
   --glass-drop: rgba(60, 30, 140, 0.10);
   --glass-sheen: rgba(255, 255, 255, 0.6);
 
@@ -523,7 +567,7 @@ html[data-page-theme="light"] body {
      one thing that works identically in both, because it is the highlight. */
   --halo: rgba(108, 59, 255, 0.16);
   --halo-strong: rgba(108, 59, 255, 0.45);
-  --btn-lip: rgba(255, 255, 255, 0.55);
+  --btn-lip: rgba(255, 255, 255, 0.28);
   --btn-underside: rgba(60, 30, 140, 0.16);
   --glow-soft: rgba(108, 59, 255, 0.40);
   --glow-wide: rgba(108, 59, 255, 0.18);

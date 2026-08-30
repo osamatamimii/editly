@@ -112,6 +112,47 @@ console.log("\nEvery dark token has a light counterpart");
   );
 }
 
+console.log("\nEvery token a utility class points at exists");
+{
+  /*
+   * The bug: `@theme inline` maps `--color-primary-border` to
+   * `var(--primary-border)`, `button.tsx` writes `border-primary-border` on
+   * every solid button — and nothing anywhere defined `--primary-border`.
+   *
+   * An undefined custom property does not warn. It makes the declaration
+   * invalid, `border-color` falls back to its initial value, and that value is
+   * `currentColor`. On the primary button `currentColor` is the label, which is
+   * white. So every filled button in this product wore a white ring, in both
+   * themes, from the day the variant was written, and it looked like a design
+   * decision. Five tokens were in that state.
+   *
+   * This reads the `@theme` block and asks the only question that matters
+   * about it: does the thing on the right-hand side exist.
+   */
+  const themeBlock = blockFor("@theme inline");
+  check("the @theme block is where it is expected to be", Boolean(themeBlock));
+
+  const pointsAt = [];
+  for (const [, mapped, target] of (themeBlock ?? "").matchAll(
+    /(--color-[a-z0-9-]+)\s*:\s*(?:hsl\()?\s*var\((--[a-z0-9-]+)\)/gi,
+  )) {
+    pointsAt.push([mapped, target]);
+  }
+  check("and it maps a good number of tokens", pointsAt.length > 20, String(pointsAt.length));
+
+  const defined = new Set([...dark.keys(), ...light.keys()]);
+  const dangling = pointsAt.filter(([, target]) => !defined.has(target));
+  check(
+    `all ${pointsAt.length} tokens the theme exposes are actually defined`,
+    dangling.length === 0,
+    dangling.length
+      ? `undefined, so anything using them falls back to currentColor: ${dangling
+          .map(([mapped, target]) => `${mapped} -> ${target}`)
+          .join(", ")}`
+      : "",
+  );
+}
+
 console.log("\nThe two themes actually differ");
 {
   // A light theme that accidentally copies the dark values is worse than none:
