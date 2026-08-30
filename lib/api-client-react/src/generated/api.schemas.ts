@@ -30,6 +30,15 @@ export interface HealthStatus {
     /** Whether anyone is on the operations console's allowlist. Never the ids. */
     admins: boolean;
   };
+  /**
+   * Whether a machine that can actually render is listening. Everything else
+   * here describes the API; this describes the product.
+   */
+  worker?: {
+    online: boolean;
+    /** Seconds since the last beat, or null when there has never been one. */
+    lastSeenAgoSeconds: number | null;
+  };
   message?: string;
 }
 
