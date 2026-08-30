@@ -640,8 +640,14 @@ console.log("\nA provider's own words do not become the customer's explanation")
   check("nor a request id that identifies our account to whoever reads it", !/abc-123/.test(note), note);
   check("nor any of their JSON at all", !/[{}]/.test(note), note);
 
-  // A message that is not shaped like a provider status is left alone, because
-  // truncating everything to nothing would be its own kind of unhelpful.
+  // A message that is not shaped like a provider status used to be pasted in
+  // verbatim, on the reasoning that truncating everything to nothing would be
+  // its own kind of unhelpful. That reasoning was right and the implementation
+  // was not: "no response within 300s" is worth saying, and
+  // `[in#0 @ 0x55bd6a269f00] Error opening input: No such file or directory`
+  // is a log line that a paying customer was being shown, memory address
+  // included. A deadline is now recognised and *said*, in both languages,
+  // rather than passed through; everything else unshaped stays out.
   const plain = {
     transcriber: { name: "stub", transcribe: async () => { throw new Error("no response within 300s"); } },
     sceneReader: null,
@@ -649,9 +655,20 @@ console.log("\nA provider's own words do not become the customer's explanation")
   };
   const timedOut = await enrich.enrichPlan("unused.mp4", plan, { providers: plain });
   check(
-    "a plain message survives, because it says something",
-    /no response within 300s/.test(timedOut.notes.join(" ")),
+    "a timeout is still said, because it says something",
+    /did not answer in time/.test(timedOut.notes.join(" ")),
     JSON.stringify(timedOut.notes),
+  );
+  check(
+    "in the product's own words rather than the library's",
+    !/within 300s|ETIMEDOUT|AbortError/.test(timedOut.notes.join(" ")),
+    JSON.stringify(timedOut.notes),
+  );
+  const timedOutAr = await enrich.enrichPlan("unused.mp4", plan, { providers: plain, language: "ar" });
+  check(
+    "and in Arabic when the render was asked for in Arabic",
+    /لم يُجب في الوقت المتاح/.test(timedOutAr.notes.join(" ")),
+    JSON.stringify(timedOutAr.notes),
   );
 }
 

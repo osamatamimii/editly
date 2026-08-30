@@ -58,6 +58,7 @@ const { resolveProviders, missingCapabilityNotes } = await import(
   bundle("artifacts/worker/src/providers/index.ts", "providers.mjs")
 );
 const { buildCaptionCues } = await import(bundle("artifacts/worker/src/captions.ts", "captions.mjs"));
+const { enrichPlan } = await import(bundle("artifacts/worker/src/enrich.ts", "enrich.mjs"));
 const { isFiller } = await import(bundle("artifacts/worker/src/providers/fillers.ts", "fillers.mjs"));
 
 let checks = 0;
@@ -769,7 +770,7 @@ section("Which models are configured decides which pipeline runs");
     JSON.stringify(dgOnly.status.crossCheck ?? ""),
   );
   check(
-    "and that reaches the render notes",
+    "and the function that turns statuses into notes says it",
     missingCapabilityNotes(dgOnly.status, { transcript: true, vision: false }).some((n) => /single reading/.test(n)),
   );
   check(
@@ -780,6 +781,110 @@ section("Which models are configured decides which pipeline runs");
   const elOnly = resolveProviders({ ELEVENLABS_API_KEY: "b" });
   check("the accurate reader alone is better than nothing", elOnly.transcriber?.name === "elevenlabs/scribe_v1");
   check("and it too is declared as a single reading", /single reading/.test(elOnly.status.crossCheck?.en ?? ""));
+
+  // The check that was missing, and the reason the note never reached anyone.
+  //
+  // Everything above tests `missingCapabilityNotes` in isolation, and it was
+  // right the whole time. Nothing called it. The renderer had its own copy of
+  // two of the three conditions written out beside the provider calls, so the
+  // day a third status was added, the product silently kept saying two things
+  // out of three: a customer on one speech key was never told their captions
+  // rested on a single reading. A unit test on a function nothing calls is the
+  // most convincing kind of green there is.
+  //
+  // So this one goes through `enrichPlan`, which is what the worker actually
+  // runs, with no media to read and a transcriber that is never reached.
+  {
+    const spoken = async () => {
+      const enriched = await enrichPlan("/nonexistent.mp4", {
+        version: 1,
+        operations: [{ type: "autoCaptions", style: "bold-white", animation: "none", language: null }],
+      }, { providers: resolveProviders({ DEEPGRAM_API_KEY: "a" }), language: "en" });
+      return enriched.notes;
+    };
+    const notes = await spoken();
+    check(
+      "and a real render on one speech key tells the person so",
+      notes.some((n) => /single reading/.test(n)),
+      JSON.stringify(notes),
+    );
+
+    const quiet = await enrichPlan("/nonexistent.mp4", {
+      version: 1,
+      operations: [{ type: "normalizeLoudness", targetLufs: -14 }],
+    }, { providers: resolveProviders({ DEEPGRAM_API_KEY: "a" }), language: "en" });
+    check(
+      "and a render that never wanted words is not told about them",
+      !quiet.notes.some((n) => /single reading/.test(n)),
+      JSON.stringify(quiet.notes),
+    );
+
+    const bothKeys = await enrichPlan("/nonexistent.mp4", {
+      version: 1,
+      operations: [{ type: "autoCaptions", style: "bold-white", animation: "none", language: null }],
+    }, { providers: resolveProviders({ DEEPGRAM_API_KEY: "a", ELEVENLABS_API_KEY: "b" }), language: "en" });
+    check(
+      "and two models that agree have nothing to apologise for",
+      !bothKeys.notes.some((n) => /single reading/.test(n)),
+      JSON.stringify(bothKeys.notes),
+    );
+
+    /*
+     * What a failed provider is allowed to say to a customer.
+     *
+     * The excuse pasted into these notes was one English string, dropped into
+     * both halves of a bilingual sentence — so an Arabic render said «لم نستطع
+     * سماع الكلام في هذا المقطع this time (…)». `say.ts` makes both halves
+     * required arguments so that a note cannot be written English-only, and a
+     * template hole filled from one language walks straight around that.
+     *
+     * And its fallback pasted 120 characters of the raw error in. The file it
+     * lives in says, three lines above the call, that a raw provider line
+     * leaked into the product once and that anything on `notes` is copy rather
+     * than telemetry. It was still leaking: a missing file produced
+     * `[in#0 @ 0x55bd6a269f00] Error opening input: No such file or directory`
+     * in a sentence a paying customer reads. The path here does not exist, so
+     * this is that exact failure.
+     */
+    const leaked = await enrichPlan("/nonexistent.mp4", {
+      version: 1,
+      operations: [{ type: "autoCaptions", style: "bold-white", animation: "none", language: null }],
+    }, { providers: resolveProviders({ DEEPGRAM_API_KEY: "a" }), language: "en" });
+    const failure = leaked.notes.find((n) => /could not hear/.test(n)) ?? "";
+    check("a provider that failed is admitted to the person", failure !== "", JSON.stringify(leaked.notes));
+    check(
+      "and no ffmpeg internals reach them",
+      !/\[in#\d|0x[0-9a-f]{6,}|Error opening input|No such file or directory/i.test(failure),
+      failure,
+    );
+    check(
+      "nor a stack frame, a path or a bracketed log prefix",
+      !/\/[a-z]+\.mp4|\bat \w+ \(|\[[a-z]+#/i.test(failure),
+      failure,
+    );
+
+    const leakedAr = await enrichPlan("/nonexistent.mp4", {
+      version: 1,
+      operations: [{ type: "autoCaptions", style: "bold-white", animation: "none", language: null }],
+    }, { providers: resolveProviders({ DEEPGRAM_API_KEY: "a" }), language: "ar" });
+    const failureAr = leakedAr.notes.find((n) => /لم نستطع سماع/.test(n)) ?? "";
+    check("the same admission in Arabic", failureAr !== "", JSON.stringify(leakedAr.notes));
+    check(
+      "and it is Arabic all the way through, not an Arabic sentence with an English hole in it",
+      failureAr !== "" && !/\b(this time|answered|overloaded|Error|input|directory)\b/i.test(failureAr),
+      failureAr,
+    );
+
+    const arabic = await enrichPlan("/nonexistent.mp4", {
+      version: 1,
+      operations: [{ type: "autoCaptions", style: "bold-white", animation: "none", language: null }],
+    }, { providers: resolveProviders({ DEEPGRAM_API_KEY: "a" }), language: "ar" });
+    check(
+      "and an Arabic render is told in Arabic",
+      arabic.notes.some((n) => /قراءة واحدة/.test(n)),
+      JSON.stringify(arabic.notes),
+    );
+  }
 
   const none = resolveProviders({});
   check("no keys, no transcriber", none.transcriber === null);

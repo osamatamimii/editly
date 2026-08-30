@@ -16,11 +16,11 @@ import type { EditOperation, EditPlan, Platform } from "@workspace/api-zod";
 import { buildCaptionCues, emphasisPoints } from "./captions";
 import { captionLayout } from "./caption-layout";
 import { defaultHeightFor, frameFor, shapeFor } from "./ffmpeg";
-import type { Providers } from "./providers";
+import { missingCapabilityNotes, type Providers } from "./providers";
 import { measureStyle, styleToSettings } from "./style-measure";
 import { applyReferenceStyle } from "./reference-style";
 import type { Transcript } from "./providers/types";
-import { pick, sayIn, type Language } from "./say";
+import { sayIn, type Language } from "./say";
 
 export interface EnrichResult {
   plan: EditPlan;
@@ -84,6 +84,27 @@ export async function enrichPlan(
   // so a clips plan wants ears for the same reason a highlight plan does.
   const wantsClips = plan.operations.some((op) => op.type === "extractClips");
   const needsTranscript = wantsCaptions || wantsChosenPunches || wantsHighlight || wantsClips;
+  // Read up here rather than beside the vision call below, because what the
+  // render can say about its own capabilities is decided once, in one place.
+  const cutsSilence = plan.operations.some((op) => op.type === "removeSilence");
+
+  /*
+   * What this deployment could not bring to this plan, said once.
+   *
+   * These two conditions used to be written out here as `else if` branches on
+   * whether a provider existed, which is the same test `missingCapabilityNotes`
+   * already makes, and the copy left one of its three notes behind: the
+   * cross-check. With one speech model configured instead of two, captions rest
+   * on a single reading rather than two that agree, and the function has said
+   * so since it was written. Nothing called it. It was exported, covered by
+   * two suites, and unreachable from the product, so the sentence had never
+   * once reached a person.
+   *
+   * That is why it is a call now and not two branches. The duplicate was not
+   * wrong when it was written; it was wrong the moment a third note was added
+   * next door and nobody thought to add it here too.
+   */
+  notes.push(...missingCapabilityNotes(providers.status, { transcript: needsTranscript, vision: cutsSilence }, t));
 
   let transcript: Transcript | null = null;
 
@@ -131,15 +152,14 @@ export async function enrichPlan(
       }
     } catch (error) {
       // A provider being down is not a reason to fail someone's render.
+      const excuse = visionExcuse(error);
       notes.push(
         t(
-          `we could not hear the words in this clip${visionExcuse(error)}, so this render has no captions`,
-          `لم نستطع سماع الكلام في هذا المقطع${visionExcuse(error)}، فهذا التصيير بلا كابشن`,
+          `we could not hear the words in this clip${excuse.en}, so this render has no captions`,
+          `لم نستطع سماع الكلام في هذا المقطع${excuse.ar}، فهذا التصيير بلا كابشن`,
         ),
       );
     }
-  } else if (needsTranscript && providers.status.transcription) {
-    notes.push(pick(t, providers.status.transcription));
   }
 
   // What only someone who watched the video could know: where a demo is
@@ -148,7 +168,6 @@ export async function enrichPlan(
   // as a broken video. Read only when the plan actually cuts silence, because
   // that is the only decision it changes.
   let protect: Array<{ startMs: number; endMs: number }> = [];
-  const cutsSilence = plan.operations.some((op) => op.type === "removeSilence");
   if (cutsSilence && providers.sceneReader) {
     options.onProgress?.("Watching for anything that shouldn't be cut");
     try {
@@ -176,15 +195,14 @@ export async function enrichPlan(
       // once, verbatim, and taught us that anything pushed onto `notes` is
       // copy, not telemetry. The raw error still goes to the log, where it is
       // for the people it is for.
+      const excuse = visionExcuse(error);
       notes.push(
         t(
-          `we could not watch this clip for things worth keeping${visionExcuse(error)}, so the cut is from the audio alone`,
-          `لم نستطع مشاهدة هذا المقطع بحثًا عمّا يستحقّ الإبقاء${visionExcuse(error)}، فالقصّ من الصوت وحده`,
+          `we could not watch this clip for things worth keeping${excuse.en}, so the cut is from the audio alone`,
+          `لم نستطع مشاهدة هذا المقطع بحثًا عمّا يستحقّ الإبقاء${excuse.ar}، فالقصّ من الصوت وحده`,
         ),
       );
     }
-  } else if (cutsSilence && providers.status.vision) {
-    notes.push(pick(t, providers.status.vision));
   }
 
   const operations: EditOperation[] = [];
@@ -270,10 +288,11 @@ export async function enrichPlan(
     } catch (error) {
       // A reference we could not read is a worse edit, not a failed one. The
       // plan the user asked for still renders.
+      const excuse = visionExcuse(error);
       notes.push(
         t(
-          `we could not read the video you asked us to match${visionExcuse(error)}, so this is edited to the plan alone`,
-          `لم نستطع قراءة الفيديو الذي طلبت مطابقته${visionExcuse(error)}، فهذا مُعدَّل على الخطّة وحدها`,
+          `we could not read the video you asked us to match${excuse.en}, so this is edited to the plan alone`,
+          `لم نستطع قراءة الفيديو الذي طلبت مطابقته${excuse.ar}، فهذا مُعدَّل على الخطّة وحدها`,
         ),
       );
     }
@@ -347,21 +366,56 @@ function platformOf(plan: EditPlan): Platform | null {
  * later). A message not shaped like a provider status passes through capped,
  * because truncating it to nothing would say even less.
  */
-function visionExcuse(error: unknown): string {
+/**
+ * Why a provider could not answer, in words, in both languages.
+ *
+ * Two things were wrong with the single string this used to return.
+ *
+ * It was English, and it was pasted into the Arabic half of every note that
+ * used it. `say.ts` makes both halves required arguments precisely so that a
+ * note cannot be written English-only, and a template hole filled from one
+ * language walks around that guarantee at the seam: an Arabic customer read
+ * «لم نستطع سماع الكلام في هذا المقطع this time (…)». Returning a pair puts
+ * the two halves back under the same rule as every other sentence here.
+ *
+ * And its fallback pasted 120 characters of the raw error into a note. The
+ * comment at the call site says, in as many words, that anything pushed onto
+ * `notes` is copy rather than telemetry, and that a raw provider line leaked
+ * into the product once already. It was still leaking, from three lines lower
+ * down: a customer whose transcription failed for an unshaped reason was shown
+ * `[in#0 @ 0x55bd6a269f00] Error opening input: No such file or directory`,
+ * memory address and all. A provider and a status code are facts a person can
+ * act on ("it was overloaded, try again"); anything else we could not shape
+ * into a sentence is a log line, and the log already has it.
+ */
+function visionExcuse(error: unknown): { en: string; ar: string } {
   const message = (error instanceof Error ? error.message : String(error)).split("\n")[0];
   const shaped = message.match(/^([a-z][a-z0-9_-]*)(?:\s+[a-z0-9 _-]*?)?\s+(\d{3})\b/i);
   if (shaped) {
     const [, provider, status] = shaped;
-    const gloss = status === "429" ? ": it was overloaded, and later usually works" : "";
-    return ` this time (${provider} answered ${status}${gloss})`;
+    if (status === "429") {
+      return {
+        en: ` this time (${provider} answered ${status}: it was overloaded, and later usually works)`,
+        ar: ` هذه المرّة (أجاب ${provider} بالرمز ${status}: كان محمّلًا فوق طاقته، وغالبًا ينجح لاحقًا)`,
+      };
+    }
+    return {
+      en: ` this time (${provider} answered ${status})`,
+      ar: ` هذه المرّة (أجاب ${provider} بالرمز ${status})`,
+    };
   }
-  return ` this time (${message.slice(0, 120)})`;
-}
+  // A deadline is the one unshaped failure that means something to a person:
+  // it says the provider was reached and did not answer, which is different
+  // from being refused, and it is the case where "try again" is the right
+  // advice. It is recognised and said in words rather than passed through,
+  // because passing it through would put an English clause inside an Arabic
+  // sentence for the sake of four words.
+  if (/\b(?:no response within|timed? ?out|timeout|ETIMEDOUT|AbortError)\b/i.test(message)) {
+    return {
+      en: " this time (it did not answer in time, and later usually works)",
+      ar: " هذه المرّة (لم يُجب في الوقت المتاح، وغالبًا ينجح لاحقًا)",
+    };
+  }
 
-function short(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const firstLine = message.split("\n")[0];
-  const shaped = firstLine.match(/^([a-z][a-z0-9 _-]*?\s+\d{3})\b/i);
-  if (shaped) return shaped[1];
-  return firstLine.slice(0, 120);
+  return { en: " this time", ar: " هذه المرّة" };
 }
