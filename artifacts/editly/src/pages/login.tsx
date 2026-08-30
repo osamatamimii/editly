@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import {
   enabledProviders,
   signInWithProvider,
+  takeOAuthError,
   ProviderNotEnabledError,
   PROVIDER_LABEL,
   type OAuthProvider,
@@ -42,6 +43,19 @@ export default function Login() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [busyProvider, setBusyProvider] = useState<OAuthProvider | null>(null);
   const [providers, setProviders] = useState<Set<OAuthProvider> | null>(null);
+
+  /**
+   * Whatever the provider said on the way back.
+   *
+   * A failed OAuth redirect lands on `/dashboard`, finds no session, and is
+   * redirected here — and the redirect drops the URL that carried the reason.
+   * `main.tsx` takes it off the URL before React renders; this is where it is
+   * finally read, on the screen the person is actually looking at.
+   */
+  useEffect(() => {
+    const said = takeOAuthError();
+    if (said) setError(said);
+  }, []);
 
   // Ask the project which providers are on rather than assuming, so a button
   // is never shown that cannot work.
