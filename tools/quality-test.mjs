@@ -58,7 +58,8 @@ const captionsMod = await import(bundle("artifacts/worker/src/captions.ts", "cap
 const enrichMod = await import(bundle("artifacts/worker/src/enrich.ts", "enrich.mjs"));
 
 const { renderPlan, probeSource, keepSegmentsFrom, remapTime, writeSubtitleFile, wrapToLayout } = ffmpegMod;
-const { captionLayout, safeAreaFor, collidesWithFurniture } = layoutMod;
+const { captionLayout, safeAreaFor, collidesWithFurniture, nominalSizeFor, CAPTION_FACES } =
+  layoutMod;
 
 let checks = 0;
 let failures = 0;
@@ -220,6 +221,83 @@ console.log("\nCaptions land where the platform will not cover them");
     "and the line length stays about the same however big the frame",
     Math.abs(small.maxCharsPerLine - large.maxCharsPerLine) <= 1,
     `${small.maxCharsPerLine} vs ${large.maxCharsPerLine}`,
+  );
+}
+
+console.log("\nThe caption is drawn in the face it was sized for");
+{
+  const frame = { width: 1080, height: 1920 };
+  const layout = captionLayout(frame, "tiktok");
+
+  // The whole point of sizing by cap height: both faces draw a capital the
+  // same height, so an Arabic line and an English line beside it match. Under
+  // one nominal size they did not, and nothing anywhere said so.
+  for (const face of Object.keys(CAPTION_FACES)) {
+    const drawn = nominalSizeFor(face, layout) * CAPTION_FACES[face].capRatio;
+    check(
+      `${face}: a capital lands within a pixel of the height the layout asked for`,
+      Math.abs(drawn - layout.capHeight) < 1,
+      `${drawn.toFixed(2)} vs ${layout.capHeight.toFixed(2)}`,
+    );
+  }
+  check(
+    "the two faces are named differently, or one of them is not doing its job",
+    CAPTION_FACES.latin.family !== CAPTION_FACES.arabic.family,
+    "",
+  );
+
+  // The regression the font swap could have caused and nobody would have seen:
+  // a heavier display face at the same nominal size draws smaller, so every
+  // caption in the product shrinks by a sixth and no test fails.
+  check(
+    "the caption is the same size it was before the face changed",
+    Math.abs(layout.capHeight - 70 * 0.65) < 1.5,
+    `cap ${layout.capHeight.toFixed(1)}px against the 70px DejaVu row's ${(70 * 0.65).toFixed(1)}px`,
+  );
+
+  // And the other half of it: the line breaks must not move either.
+  check(
+    "and line breaks land where they did, because the face is narrower in proportion",
+    Math.abs(layout.maxCharsPerLine - 19) <= 1,
+    `${layout.maxCharsPerLine} characters per line`,
+  );
+}
+
+console.log("\nAn Arabic caption is drawn in a face that has Arabic in it");
+{
+  const frame = { width: 1080, height: 1920 };
+  const file = at("rtl.ass");
+  await writeSubtitleFile(
+    file,
+    [
+      { startMs: 0, endMs: 1000, text: "hello there" },
+      { startMs: 1000, endMs: 2000, text: "الفيديو جاهز" },
+    ],
+    "bold-white",
+    "pop",
+    frame,
+  );
+  const ass = await readFile(file, "utf8");
+  const events = (ass.split("[Events]")[1] ?? "").split("\n").filter((l) => l.startsWith("Dialogue:"));
+
+  check("both styles are declared", /Style: Cap,/.test(ass) && /Style: CapRtl,/.test(ass), "");
+  check("the English line takes the Latin face", /,Cap,,/.test(events[0]), events[0]);
+  check(
+    "and the Arabic line takes the one with Arabic glyphs",
+    /,CapRtl,,/.test(events[1]),
+    // libass would have fallen back per glyph and drawn it — a fifth too
+    // large, beside a Latin caption sized for a different face. Legible, and
+    // wrong, and silent.
+    events[1],
+  );
+  check(
+    "the two rows carry different sizes, because the faces have different proportions",
+    (() => {
+      const rows = ass.split("\n").filter((l) => l.startsWith("Style: Cap"));
+      const sizes = rows.map((r) => r.split(",")[2]);
+      return sizes[0] !== sizes[1];
+    })(),
+    ass.split("\n").filter((l) => l.startsWith("Style: Cap")).join(" | "),
   );
 }
 
@@ -427,7 +505,11 @@ console.log("\nThe subtitle file itself is well formed");
   const ass = await readFile(file, "utf8");
 
   check("the style row carries the computed margin, not a constant", ass.includes(`,${layout.marginV},`), "");
-  check("and the computed size", ass.includes(`DejaVu Sans,${layout.fontSize},`), "");
+  check(
+    "captions are drawn in the caption face, not in whatever the base image had",
+    ass.includes(`Style: Cap,Montserrat Black,${layout.fontSize},`),
+    ass.split("[Events]")[0].split("\n").filter((l) => l.startsWith("Style:")).join(" | "),
+  );
   check("the play resolution matches the real frame", ass.includes(`PlayResX: ${frame.width}`), "");
   check("karaoke timing is per word, not per cue", (ass.match(/\\kf\d+/g) ?? []).length === 2, "");
   check("no unescaped braces leak into the text", !/[^\\]\{[^\\]/.test(ass.split("[Events]")[1] ?? ""), "");

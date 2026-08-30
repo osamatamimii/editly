@@ -18,7 +18,13 @@ import { criticise } from "./critic";
 import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle } from "./motion";
 import { beatsOf, everyNth } from "./beats";
 import type { EditOperation, EditPlan, GradeLook, TransitionStyle } from "@workspace/api-zod";
-import { captionLayout, type CaptionLayout } from "./caption-layout";
+import {
+  captionLayout,
+  nominalSizeFor,
+  CAPTION_FACES,
+  type CaptionFaceName,
+  type CaptionLayout,
+} from "./caption-layout";
 import {
   chooseCropCenter,
   coverScale,
@@ -291,6 +297,19 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
 };
 
 /**
+ * The two style names a cue can be drawn in.
+ *
+ * One file, two faces, chosen per line by what the line is written in. A
+ * caption in Arabic under the Latin style renders — libass falls back per
+ * glyph and shapes it correctly — it just renders a fifth too large, because
+ * the fallback face draws its own cap height against a nominal size picked for
+ * a different one. Nothing reports that. It is only visible beside a Latin
+ * caption, and only to somebody looking for it.
+ */
+const LATIN_STYLE = "Cap";
+const RTL_STYLE = "CapRtl";
+
+/**
  * The style row, built from the layout rather than frozen in a string.
  *
  * The old rows hardcoded size 72 and 180 px of bottom margin, which was correct
@@ -298,10 +317,15 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
  * TikTok's bottom furniture, so the last line of every caption was drawn under
  * the username. Size and margins now come from caption-layout.ts.
  */
-function captionStyleRow(style: string, layout: CaptionLayout): string {
+function captionStyleRow(
+  name: string,
+  face: CaptionFaceName,
+  style: string,
+  layout: CaptionLayout,
+): string {
   const c = CAPTION_COLOURS[style] ?? CAPTION_COLOURS["bold-white"];
   return [
-    "Style: Cap", "DejaVu Sans", String(layout.fontSize),
+    `Style: ${name}`, CAPTION_FACES[face].family, String(nominalSizeFor(face, layout)),
     c.primary, c.secondary, c.outline, c.back,
     "-1", "0", "0", "0",      // bold, italic, underline, strikeout
     "100", "100", "0", "0",   // scale x/y, spacing, angle
@@ -492,7 +516,8 @@ export async function writeSubtitleFile(
     "",
     "[V4+ Styles]",
     "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-    captionStyleRow(style, layout),
+    captionStyleRow(LATIN_STYLE, "latin", style, layout),
+    captionStyleRow(RTL_STYLE, "arabic", style, layout),
     "",
     "[Events]",
     "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -500,7 +525,12 @@ export async function writeSubtitleFile(
 
   const events = cues
     .filter((c) => c.endMs > c.startMs)
-    .map((c) => `Dialogue: 0,${toAssTime(c.startMs)},${toAssTime(c.endMs)},Cap,,0,0,0,,${animateCue(c, animation)}`);
+    .map(
+      (c) =>
+        `Dialogue: 0,${toAssTime(c.startMs)},${toAssTime(c.endMs)},${
+          readsRightToLeft(c.text) ? RTL_STYLE : LATIN_STYLE
+        },,0,0,0,,${animateCue(c, animation)}`,
+    );
 
   await writeFile(file, [...header, ...events].join("\n"), "utf8");
 }

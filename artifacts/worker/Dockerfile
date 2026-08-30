@@ -31,6 +31,10 @@ WORKDIR /app
 # font that drawtext and the ASS caption style both name; without it the
 # watermark and captions render as nothing at all, silently.
 #
+# fonts-montserrat is the face the captions are actually drawn in. DejaVu is
+# still installed and still used — for Arabic, which Montserrat has no glyphs
+# for, and as the control in the proof below.
+#
 # fonts-noto-color-emoji is what makes a sticker a picture. Without it an emoji
 # a person typed comes back as an empty box — the same silent shape as a missing
 # Arabic font, and for the same reason: nothing fails, the render succeeds, and
@@ -48,7 +52,7 @@ WORKDIR /app
 # working deployment down without a single line of code changing.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ffmpeg fonts-dejavu-core fonts-noto-color-emoji ca-certificates python3 python3-numpy python3-pip \
+      ffmpeg fonts-dejavu-core fonts-montserrat fonts-noto-color-emoji ca-certificates python3 python3-numpy python3-pip \
       chromium \
  && pip3 install --no-cache-dir --break-system-packages "opencv-python-headless==4.13.0.*" \
  && rm -rf /var/lib/apt/lists/*
@@ -120,6 +124,59 @@ RUN set -eu; \
       if (j >= a)    { print "Arabic letters are not being joined (word " j " vs unjoined " a ") — shaping is missing, or the glyphs are tofu"; exit 1 } \
       print "arabic captions ready: joined " j " against " a " unjoined" }'; \
     rm -f /tmp/probe.ass /tmp/probe.png
+
+# Proven at build time rather than discovered by nobody at all.
+#
+# This is the quietest failure in the image. A font libass cannot find is not
+# an error — fontconfig substitutes the default, libass draws it, the caption
+# is legible, the words are right, the timing is right, and the whole reason
+# for the change is gone. Measured: a style naming a font that does not exist
+# renders byte-identically to one naming DejaVu Sans. So "did it draw" proves
+# nothing here, and neither does `fc-list`, which answers a question about the
+# filesystem rather than about the frame.
+#
+# What proves it is difference. The same word is drawn twice, in Montserrat
+# Black and in DejaVu Sans, and the two must not measure the same. If
+# Montserrat is missing, they are the same number, because the second render is
+# what the first one silently became.
+#
+# Then the number itself. caption-layout.ts sizes every caption by *cap height*
+# and converts to a nominal size through a per-face ratio — 0.54 for Montserrat
+# Black — so that ratio is not a comment, it is arithmetic the layout depends
+# on. If a later package revision ships a differently-proportioned cut, nothing
+# breaks: every caption in the product just quietly renders the wrong size. So
+# a capital is drawn at nominal 100 and its height is measured, and it has to
+# come back near 54.
+#
+# The measurement squeezes the frame to a single column with area averaging —
+# each output pixel is the mean of its whole row — so a row with ink in it is
+# above the floor and an empty row is at zero. The threshold shaves a pixel or
+# two off each anti-aliased edge, which is why the band is 50 to 57 rather than
+# exactly 54.
+RUN set -eu; \
+    capof() { \
+      { echo '[Script Info]'; echo 'ScriptType: v4.00+'; echo 'PlayResX: 400'; echo 'PlayResY: 400'; \
+        echo 'WrapStyle: 2'; \
+        echo '[V4+ Styles]'; \
+        echo 'Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,Bold,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding'; \
+        echo "Style: P,$1,100,&H00FFFFFF,&H00000000,&H00000000,-1,1,0,0,5,10,10,10,1"; \
+        echo '[Events]'; \
+        echo 'Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text'; \
+        echo 'Dialogue: 0,0:00:00.00,0:00:01.00,P,,0,0,0,,HANDLING'; } > /tmp/cap.ass; \
+      ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=400x400:d=1 \
+        -vf "subtitles=/tmp/cap.ass,scale=1:400:flags=area,format=gray" \
+        -frames:v 1 -f rawvideo -y /tmp/cap.raw; \
+      od -An -v -tu1 /tmp/cap.raw | tr -s ' ' '\n' | grep -v '^$' \
+        | awk '{ if ($1 > 8) { if (!f) f = NR; l = NR } } END { print (f ? l - f + 1 : 0) }'; \
+    }; \
+    m=$(capof 'Montserrat Black'); \
+    d=$(capof 'DejaVu Sans'); \
+    awk -v m="$m" -v d="$d" 'BEGIN { \
+      if (m == 0) { print "the caption face drew nothing at all"; exit 1 } \
+      if (m == d) { print "Montserrat Black measures exactly as DejaVu Sans (" m "): it is not installed, and every caption is silently drawn in the fallback"; exit 1 } \
+      if (m < 50 || m > 57) { print "Montserrat Black draws a capital at " m "/100, not the ~54 caption-layout.ts sizes against: every caption would render the wrong size"; exit 1 } \
+      print "caption face ready: Montserrat Black at " m "/100 against DejaVu at " d }'; \
+    rm -f /tmp/cap.ass /tmp/cap.raw
 
 # Proven at build time rather than discovered on the first render that wanted a
 # title. A browser that will not start is a build problem; finding out about it

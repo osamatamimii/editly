@@ -71,16 +71,22 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          # ffmpeg for every render check; the DejaVu font because drawtext and
-          # the caption style both name it and render *nothing* without it,
-          # silently; the colour emoji font because a sticker without it is an
-          # empty box and the suite would be measuring the runner's fonts
-          # rather than the image's; python3-opencv for the subject tracker, whose section
+          # ffmpeg for every render check; Montserrat because that is the face
+          # captions are drawn in, and DejaVu because drawtext names it and
+          # Arabic captions are set in it — a missing font here renders
+          # *nothing*, or renders the wrong face, and does it silently; the
+          # colour emoji font because a sticker without it is an empty box and
+          # the suite would be measuring the runner's fonts rather than the
+          # image's; python3-opencv for the subject tracker, whose section
           # skips itself when OpenCV is missing — and a section that skips is a
           # section that is not testing anything.
           sudo apt-get install -y --no-install-recommends \
-            ffmpeg fonts-dejavu-core fonts-noto-color-emoji python3 python3-opencv postgresql-client
+            ffmpeg fonts-dejavu-core fonts-montserrat fonts-noto-color-emoji python3 python3-opencv postgresql-client
           ffmpeg -version | head -1
+          # The runner must agree with the image about what the caption face
+          # measures, or every pixel check below is measuring a fallback.
+          fc-match "Montserrat Black" | grep -qi montserrat \
+            || { echo "the caption face is not installed on this runner"; exit 1; }
           python3 -c "import cv2; print('opencv', cv2.__version__)"
 
       - run: pnpm install --frozen-lockfile

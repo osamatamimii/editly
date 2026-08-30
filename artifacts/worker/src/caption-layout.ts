@@ -63,8 +63,19 @@ export function safeAreaFor(platform: Platform | null | undefined): SafeArea {
 }
 
 export interface CaptionLayout {
-  /** Point size for the ASS style, in the frame's own coordinate space. */
+  /**
+   * Nominal ASS size for the Latin face, in the frame's own coordinate space.
+   *
+   * Kept because a style row needs one and the harness reads it, but it is a
+   * *derived* number now: `capHeight` is what the layout decides, and each face
+   * converts it to its own nominal size through `nominalSizeFor`.
+   */
   fontSize: number;
+  /**
+   * The height of a capital letter, in pixels. This is the thing the layout
+   * actually controls, and the thing a person sees.
+   */
+  capHeight: number;
   marginL: number;
   marginR: number;
   /** Distance from the bottom edge, for bottom-centred alignment. */
@@ -78,6 +89,60 @@ export interface CaptionLayout {
   /** Lines a cue may use before it would climb into the picture. */
   maxLines: number;
 }
+
+/**
+ * The faces a caption is drawn in, and what they actually measure.
+ *
+ * The captions in this product were drawn in DejaVu Sans for its whole life,
+ * which is not a choice — it is the font a Debian image happens to have. It is
+ * a perfectly good text face and it reads, on a phone, over a moving picture,
+ * as *unstyled*. Nobody files a bug about it. It is the exact shape of failure
+ * this codebase keeps finding: the render succeeds, the words are right, the
+ * timing is right, and the result looks like a default.
+ *
+ * Montserrat Black is the face short-form captions converged on — geometric,
+ * heavy, wide-apertured, legible at a glance and at a thumb's distance. That
+ * part is taste. The numbers below are not.
+ *
+ * ## Why a ratio, and why it is measured
+ *
+ * `Fontsize` in ASS is the **line height**, not the em size, and the fraction
+ * of it a capital letter actually occupies is a property of the face. DejaVu
+ * Sans draws a capital at 0.65 of it; Montserrat Black draws one at 0.54. So
+ * swapping the family name and keeping the number would have shrunk every
+ * caption by 17% — silently, because the file still renders, the words still
+ * fit, and the only symptom is that the captions look a bit small.
+ *
+ * Both numbers were measured the only way that means anything: rendered
+ * through libass at a known size and the drawn pixels counted. A font's own
+ * OS/2 table would have been a claim about how it was built; ink on a frame is
+ * a fact about what it does. The Dockerfile makes the same argument twice.
+ */
+export interface CaptionFace {
+  /** The family name libass hands to fontconfig. */
+  family: string;
+  /** Cap height as a fraction of the ASS nominal size, measured off a frame. */
+  capRatio: number;
+}
+
+export const CAPTION_FACES = {
+  /** Everything written in a Latin script. */
+  latin: { family: "Montserrat Black", capRatio: 0.54 },
+  /**
+   * Arabic, and anything else DejaVu covers that Montserrat does not.
+   *
+   * libass would fall back per glyph on its own — an Arabic line under the
+   * Latin style shapes and joins correctly, which is exactly why this needed
+   * saying out loud. What it does *not* do is resize: the fallback face draws
+   * its own cap height against a nominal size chosen for a different face, so
+   * an Arabic caption came out a fifth larger than the Latin one beside it and
+   * nothing anywhere reported a problem. Naming the face is how both scripts
+   * get the same cap height.
+   */
+  arabic: { family: "DejaVu Sans", capRatio: 0.65 },
+} as const;
+
+export type CaptionFaceName = keyof typeof CAPTION_FACES;
 
 /**
  * Caption size is a fraction of frame *width*, not a constant.
@@ -100,25 +165,82 @@ export interface CaptionLayout {
  * Against the short side the caption is the same physical size relative to the
  * frame in all three shapes, which is what "6.5%" was always meant to mean.
  * Vertical and square are unchanged — their short side is their width.
+ *
+ * ## And it is a fraction of the *capital letter*, not of the nominal size
+ *
+ * Written as `0.065 * 0.65` rather than as `0.04225`, because those are two
+ * different facts and one of them is about to change again. 6.5% is the
+ * decision: how big a caption should look. 0.65 is DejaVu Sans's cap ratio —
+ * the face the 6.5% was tuned against, so multiplying the two says "whatever
+ * this looked like before, keep looking like that" in a form that survives the
+ * next font. Collapsing them into one decimal would have thrown away which
+ * half was taste and which half was a measurement of a font nobody draws
+ * captions in any more.
  */
-const FONT_FRACTION_OF_SHORT_SIDE = 0.065;
+const CAP_FRACTION_OF_SHORT_SIDE = 0.065 * 0.65;
 
 /**
- * Characters per em for a bold sans face. DejaVu Sans Bold averages close to
- * this across mixed-case English; it is an estimate, and the line-break logic
- * treats it as one, which is why cues also have a hard character ceiling.
+ * Average advance width as a multiple of **cap height**, not of the nominal
+ * size — because that is the number the two faces agree on.
+ *
+ * Measured off rendered frames: DejaVu Sans runs 0.79 of its cap for
+ * mixed-case English and 0.92 for upper-case; Montserrat Black runs 0.78 and
+ * 0.92. That near-identity is what makes the font swap safe. Sizing by cap
+ * height makes Montserrat's nominal size 20% larger, and its glyphs are
+ * correspondingly narrower, so the two cancel and every line breaks in the
+ * same place it did before. Had the ratio been expressed against nominal size
+ * instead, the swap would have moved every line break in the product.
+ *
+ * It is still an estimate — libass rewraps what does not fit — which is why
+ * cues also have a hard character ceiling.
  */
-const AVERAGE_GLYPH_WIDTH = 0.55;
+const ADVANCE_PER_CAP = 0.85;
 
 /** Captions taller than this fraction of the frame stop being captions. */
 const MAX_CAPTION_BAND = 0.25;
+
+/**
+ * Ink above and below the baseline on one line, as a fraction of nominal size.
+ * Measured: DejaVu 0.85, Montserrat Black 0.75. The larger is used, so the
+ * estimate falls outward — the direction every error in this file falls.
+ */
+const CAP_PLUS_DESCENDER = 0.85;
+
+/** The outline width `ffmpeg.ts` puts in every caption style row. */
+const OUTLINE_PX = 5;
+
+/**
+ * The height a caption block of this many lines actually occupies.
+ *
+ * `Fontsize` in ASS *is* the line step — measured, at three lines, in both
+ * faces: the baselines land exactly one nominal size apart. So a block is
+ * (lines − 1) steps, plus one line's worth of ink, plus the outline on both
+ * edges.
+ *
+ * What was here before was `lines * fontSize * 1.25`, and the 1.25 was doing
+ * two jobs badly: it stood in for the step *and* for the ink, and it
+ * over-counted a three-line block by about 28%. Nothing failed — a caption
+ * that would have fitted was simply refused a third line and truncated with an
+ * ellipsis, on the shapes where the band is tightest. The words were thrown
+ * away by an estimate, which is the same bug this file was written to fix,
+ * one layer up.
+ */
+export function captionBlockHeight(layout: CaptionLayout, lines: number): number {
+  return (lines - 1) * layout.fontSize + CAP_PLUS_DESCENDER * layout.fontSize + OUTLINE_PX * 2;
+}
+
+/** The nominal ASS size that draws this layout's cap height in a given face. */
+export function nominalSizeFor(face: CaptionFaceName, layout: CaptionLayout): number {
+  return Math.round(layout.capHeight / CAPTION_FACES[face].capRatio);
+}
 
 export function captionLayout(
   frame: { width: number; height: number },
   platform: Platform | null | undefined,
 ): CaptionLayout {
   const safe = safeAreaFor(platform);
-  const fontSize = Math.round(Math.min(frame.width, frame.height) * FONT_FRACTION_OF_SHORT_SIDE);
+  const capHeight = Math.min(frame.width, frame.height) * CAP_FRACTION_OF_SHORT_SIDE;
+  const fontSize = Math.round(capHeight / CAPTION_FACES.latin.capRatio);
 
   // Both margins take the rail's width so the block stays centred in the frame
   // rather than centred in the space left over, which would read as crooked.
@@ -129,16 +251,19 @@ export function captionLayout(
 
   // Sit the caption just above the platform's furniture, plus a small breath so
   // it does not appear to rest on it.
-  const marginV = Math.ceil(frame.height * safe.bottom + fontSize * 0.35);
+  const marginV = Math.ceil(frame.height * safe.bottom + capHeight * 0.54);
 
-  const maxCharsPerLine = Math.max(8, Math.floor(usableWidth / (fontSize * AVERAGE_GLYPH_WIDTH)));
+  const maxCharsPerLine = Math.max(8, Math.floor(usableWidth / (capHeight * ADVANCE_PER_CAP)));
 
-  // Line height with the outline is roughly 1.25 em.
-  const lineHeight = fontSize * 1.25;
-  const maxLines = Math.max(1, Math.min(3, Math.floor((frame.height * MAX_CAPTION_BAND) / lineHeight)));
+  const band = frame.height * MAX_CAPTION_BAND;
+  const fits = (lines: number) =>
+    captionBlockHeight({ fontSize } as CaptionLayout, lines) <= band;
+  let maxLines = 1;
+  while (maxLines < 3 && fits(maxLines + 1)) maxLines += 1;
 
   return {
     fontSize,
+    capHeight,
     marginL: sideMargin,
     marginR: sideMargin,
     marginV,
@@ -161,7 +286,7 @@ export function collidesWithFurniture(
   lines: number,
 ): boolean {
   const safe = safeAreaFor(platform);
-  const boxHeight = lines * layout.fontSize * 1.25;
+  const boxHeight = captionBlockHeight(layout, lines);
   const boxBottom = layout.marginV;
   const boxTop = boxBottom + boxHeight;
 
