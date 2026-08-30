@@ -51,22 +51,29 @@ uniform vec2 uSize;
 // the microphone's loudness. That is what the editor's own "activation" is for,
 // and it is why this reacts rather than plays: silence is genuinely the idle
 // preset, not a slowed-down version of the loud one.
-const vec3 COLOR_A      = vec3(0.0353, 0.0118, 0.0549);
-const vec3 IDLE_COLOR_A = vec3(0.0314, 0.0196, 0.0431);
-const vec3 COLOR_B      = vec3(0.8078, 0.1725, 0.7961);
-const vec3 IDLE_COLOR_B = vec3(0.4157, 0.1843, 0.4118);
-const vec3 COLOR_C      = vec3(1.0000, 0.3608, 0.4431);
-const vec3 IDLE_COLOR_C = vec3(0.5490, 0.2745, 0.3216);
-const vec3 COLOR_D      = vec3(0.4824, 0.3255, 1.0000);
-const vec3 IDLE_COLOR_D = vec3(0.3333, 0.2745, 0.4980);
-const vec3 HIGHLIGHT      = vec3(1.0000, 0.8510, 0.9412);
-const vec3 IDLE_HIGHLIGHT = vec3(0.7098, 0.5412, 0.6471);
+// Purple, asked for by name. The palette the editor exported was magenta into
+// coral — two hues away from each other — so turning it violet is not one
+// substitution: A is the ground the whole sphere sits on, B and C are the two
+// veils that cross, D is the depth behind them, and if they do not stay a
+// *set* the orb goes flat. So the hues were rotated together into 265°–290°
+// and only the spread between them was kept: B deep violet, C the lighter
+// lilac that reads as the lit side, D the blue-violet underneath.
+const vec3 COLOR_A      = vec3(0.0392, 0.0157, 0.0745);
+const vec3 IDLE_COLOR_A = vec3(0.0314, 0.0196, 0.0510);
+const vec3 COLOR_B      = vec3(0.5451, 0.2392, 0.9608);
+const vec3 IDLE_COLOR_B = vec3(0.3020, 0.1843, 0.4784);
+const vec3 COLOR_C      = vec3(0.7137, 0.4510, 1.0000);
+const vec3 IDLE_COLOR_C = vec3(0.4000, 0.2941, 0.5216);
+const vec3 COLOR_D      = vec3(0.4275, 0.2314, 1.0000);
+const vec3 IDLE_COLOR_D = vec3(0.2745, 0.2118, 0.4980);
+const vec3 HIGHLIGHT      = vec3(0.9412, 0.9020, 1.0000);
+const vec3 IDLE_HIGHLIGHT = vec3(0.6235, 0.5686, 0.7098);
 const vec3 SHELL_INNER = vec3(1.0, 1.0, 1.0);
-const vec3 SHELL_MID   = vec3(0.8941, 0.5451, 1.0000);
-const vec3 SHELL_EDGE  = vec3(1.0000, 0.4706, 0.5647);
-const vec3 SHEEN_COLOR = vec3(1.0000, 0.9451, 0.9804);
-const vec3 SPEC_COLOR  = vec3(0.9059, 0.8510, 1.0000);
-const vec3 CANVAS      = vec3(0.0078, 0.0039, 0.0196);
+const vec3 SHELL_MID   = vec3(0.7804, 0.6118, 1.0000);
+const vec3 SHELL_EDGE  = vec3(0.5451, 0.3608, 0.9647);
+const vec3 SHEEN_COLOR = vec3(0.9686, 0.9490, 1.0000);
+const vec3 SPEC_COLOR  = vec3(0.8941, 0.8510, 1.0000);
+const vec3 CANVAS      = vec3(0.0196, 0.0118, 0.0549);
 
 const float RADIUS         = 0.7;
 const float CONTOUR_DEFORM = 0.1;
@@ -394,9 +401,11 @@ export function VoiceOrb({
         className="absolute inset-[6%] rounded-full transition-transform duration-150"
         style={{
           transform: `scale(${1 + (listening ? level : 0) * 0.08})`,
+          // The same purple as the shader above, so the browser that falls back
+          // does not fall back to a different orb.
           background:
-            "radial-gradient(circle at 42% 38%, #E48BFF 0%, #CE2CCB 22%, #7B53FF 52%, #09030E 86%)",
-          boxShadow: "inset 0 0 24px rgba(255,120,144,0.35), 0 0 22px rgba(206,44,203,0.35)",
+            "radial-gradient(circle at 42% 38%, #C89BFF 0%, #8B3DF5 24%, #5B31FF 54%, #0A0413 86%)",
+          boxShadow: "inset 0 0 24px rgba(176,132,255,0.35), 0 0 22px rgba(139,61,245,0.38)",
         }}
       />
       <canvas ref={canvasRef} className="relative w-full h-full block" />
