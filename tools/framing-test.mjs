@@ -207,10 +207,19 @@ section("The offset never runs past the edge of the image");
 section("A track too sparse to be a track is not used");
 {
   check("the threshold is a real fraction", MIN_SUBJECT_COVERAGE > 0 && MIN_SUBJECT_COVERAGE < 1);
-  check("nothing found at all is explained", /no face to follow/.test(trackNote({ samples: [], coverage: 0 }) ?? ""));
-  const sparse = trackNote({ samples: [], coverage: 0.12 });
+  // Both halves, because `say.ts` requires both of every note — a note that
+  // returns a bare string is how English leaks into an Arabic render.
+  const en = (a) => a;
+  const ar = (_a, b) => b;
+  check("nothing found at all is explained", /no face to follow/.test(trackNote({ samples: [], coverage: 0 }, en) ?? ""));
+  check(
+    "and explained in Arabic when the render is Arabic",
+    /لا وجه لتتبّعه/.test(trackNote({ samples: [], coverage: 0 }, ar) ?? ""),
+    trackNote({ samples: [], coverage: 0 }, ar) ?? "null",
+  );
+  const sparse = trackNote({ samples: [], coverage: 0.12 }, en);
   check("a sparse track is explained with its own number", /12%/.test(sparse ?? ""), sparse ?? "");
-  check("a good track needs no explanation", trackNote({ samples: [], coverage: 0.9 }) === null);
+  check("a good track needs no explanation", trackNote({ samples: [], coverage: 0.9 }, en) === null);
   check("and no track at all is not an explanation either", trackNote(null) === null);
 }
 

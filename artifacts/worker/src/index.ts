@@ -734,6 +734,11 @@ async function renderClipSet(args: {
     };
     const { output, notes: renderNotes, estimatedSeconds } = await renderPlan(inputFile, subPlan, {
       workDir: subDir,
+      // `renderClipSet` takes the job's language and uses it for its own notes
+      // three lines down, and then dropped it here and at the review below —
+      // so an Arabic clips job came back with its own summary in Arabic and
+      // every render and review note inside it in English.
+      language: args.language,
       words,
       assets,
       onProgress: (fraction, stage) => {
@@ -750,6 +755,7 @@ async function renderClipSet(args: {
     try {
       const review = await reviewOutput(output, {
         operations: subPlan.operations,
+        language: args.language,
         sourcePath: inputFile,
         sourceHadAudio,
         expectedSeconds: estimatedSeconds,

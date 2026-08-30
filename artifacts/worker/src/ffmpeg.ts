@@ -1354,6 +1354,14 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   {
     const reviewed = criticise({
       operations: plan.operations,
+      // `CriticInput.language` has existed since the critic did, and nothing
+      // passed it. Every critic note — punches dropped into a cut, punches that
+      // would land on "um", captions removed with the speech they covered, the
+      // zoom cap — came back English and was concatenated into an Arabic
+      // render's notes. `say.ts` requires both halves of every sentence so a
+      // note *cannot* be written English-only; an optional parameter at the
+      // call site undid that.
+      language: ctx.language,
       kept,
       effectiveDuration,
       overlap,
@@ -1478,7 +1486,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       // throwing, so a missing python, a screen recording, or a clip nobody
       // appears in all land in the same place.
       const track = await trackSubject(input, source.width, source.height);
-      const note = trackNote(track);
+      const note = trackNote(track, t);
       if (note) notes.push(note);
 
       if (track && track.coverage >= MIN_SUBJECT_COVERAGE) {

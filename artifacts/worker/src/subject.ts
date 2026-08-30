@@ -24,6 +24,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MIN_SUBJECT_COVERAGE, type SubjectSample } from "./framing";
+import type { Say } from "./say";
 
 /** Frames a second read. Where a person is does not change faster than this. */
 const SAMPLE_FPS = 4;
@@ -101,14 +102,30 @@ export async function trackSubject(
   }
 }
 
-/** The sentence a render note carries when a track was found but not trusted. */
-export function trackNote(track: SubjectTrack | null): string | null {
+/**
+ * The sentence a render note carries when a track was found but not trusted.
+ *
+ * Both halves, like every other note in this worker. It used to return English
+ * only, and was pushed unconditionally into the notes of every render — so an
+ * Arabic job came back with its own summary in Arabic and this line in English
+ * in the middle of it. `say.ts` makes both halves *required* precisely so a
+ * note cannot be written in one language; a function that returns a bare string
+ * walks around that.
+ */
+export function trackNote(track: SubjectTrack | null, t: Say): string | null {
   if (track === null) return null;
   if (track.coverage >= MIN_SUBJECT_COVERAGE) return null;
   if (track.coverage === 0) {
-    return "no face to follow in this clip, so the frame was placed by where the picture is busiest";
+    return t(
+      "no face to follow in this clip, so the frame was placed by where the picture is busiest",
+      "لا وجه لتتبّعه في هذا المقطع، فوُضع الكادر حيث الصورة أكثر ازدحامًا",
+    );
   }
-  return `a face was only visible in ${Math.round(track.coverage * 100)}% of this clip, which is not enough to follow, so the frame was placed by where the picture is busiest`;
+  const percent = Math.round(track.coverage * 100);
+  return t(
+    `a face was only visible in ${percent}% of this clip, which is not enough to follow, so the frame was placed by where the picture is busiest`,
+    `ظهر الوجه في ${percent}٪ فقط من هذا المقطع، وهذا لا يكفي للتتبّع، فوُضع الكادر حيث الصورة أكثر ازدحامًا`,
+  );
 }
 
 function run(
