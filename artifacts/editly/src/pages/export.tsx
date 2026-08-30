@@ -208,9 +208,20 @@ export default function ExportPage() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
-        {/* Preview Container */}
-        <div className="lg:col-span-5 flex justify-center">
-          <div className="force-dark w-full max-w-[360px] aspect-[9/16] bg-background text-foreground rounded-3xl overflow-hidden border-4 border-hairline relative shadow-[0_0_50px_var(--glass-bloom)]">
+        {/* Preview Container.
+            Second on a phone, first from `lg` up. A preview is what you check
+            *after* you know what screen you are on and what it is offering — and
+            putting it first meant the heading, the platform picker and the
+            export button were all below the fold. `order` rather than moving
+            the markup, so the reading order for a screen reader stays: what
+            this is, then what it looks like. */}
+        <div className="order-2 lg:order-1 lg:col-span-5 flex justify-center">
+          {/* Smaller on a phone.
+              At 390px this was 358×636, and with the back button above it the
+              page's own heading — the thing that says what screen you are on —
+              started below the fold. A preview is worth a third of the screen,
+              not all of it. */}
+          <div className="force-dark w-full max-w-[240px] sm:max-w-[360px] aspect-[9/16] bg-background text-foreground rounded-3xl overflow-hidden border-4 border-hairline relative shadow-[0_0_50px_var(--glass-bloom)]">
             {shown.url ? (
               <video
                 key={shown.preview ?? shown.url}
@@ -249,21 +260,32 @@ export default function ExportPage() {
               </div>
             )}
             
-            {/* Fake Platform UI Overlay based on selection */}
-            <div className="absolute right-4 bottom-24 flex flex-col gap-4 pointer-events-none opacity-80">
-              <div className="w-10 h-10 rounded-full bg-surface-3 backdrop-blur border border-hairline-strong" />
-              <div className="w-10 h-10 rounded-full bg-surface-3 backdrop-blur border border-hairline-strong" />
-              <div className="w-10 h-10 rounded-full bg-surface-3 backdrop-blur border border-hairline-strong" />
-            </div>
-            <div className="absolute bottom-4 left-4 right-16 pointer-events-none opacity-80">
-              <div className="w-32 h-4 bg-surface-3 rounded mb-2" />
-              <div className="w-48 h-3 bg-surface-3 rounded" />
+            {/* Where the platform will put its own chrome.
+                This is a guide, not decoration: TikTok, Reels and Shorts all
+                draw a column of buttons up the right edge and a caption along
+                the bottom, and anything the edit places there is covered on the
+                only screen that matters. It has to *read* as a guide, though —
+                three filled grey circles at 80% opacity, sitting over the
+                video's own controls, read as an interface that failed to load.
+                Dashed and unfilled, with the reason written under it, it reads
+                as what it is.
+
+                `aria-hidden`: it is a drawing of somebody else's app. */}
+            <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
+              <div className="absolute right-3 bottom-28 flex flex-col gap-3">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="w-9 h-9 rounded-full border border-dashed border-white/25" />
+                ))}
+              </div>
+              <div className="absolute bottom-16 left-3 right-14">
+                <div className="h-10 rounded-lg border border-dashed border-white/25" />
+              </div>
             </div>
           </div>
         </div>
 
         {/* Export Controls */}
-        <div className="lg:col-span-7 flex flex-col gap-8">
+        <div className="order-1 lg:order-2 lg:col-span-7 flex flex-col gap-8">
           <div>
             <h1 className="text-4xl font-bold tracking-tight mb-2 glow-text">Export Project</h1>
             <p dir="auto" className="text-xl text-muted-foreground">{project.title}</p>
