@@ -215,6 +215,35 @@ export const HealthCheckResponse = z.object({
       admins: z.boolean().default(false),
     })
     .optional(),
+  /**
+   * Whether a machine that can actually render is listening.
+   *
+   * Everything else on this endpoint describes the API. This describes the
+   * *product*: with no worker beating, every render queues and none of them
+   * starts, and the API keeps answering 200 to everything because nothing is
+   * wrong with the API. That is exactly the outage of 12 August, which ran for
+   * two days because the only thing that would have noticed was somebody
+   * choosing to look.
+   *
+   * It is reported rather than turned into a 503 on purpose. The two failures
+   * send you to different places — one is Vercel and a migration, the other is
+   * Fly and a machine — and a 503 here would also tell every uptime check and
+   * every deploy gate that the API is down, which would not be true. Something
+   * has to read this field for it to mean anything, and something does:
+   * `.github/workflows/watch.yml` reads it every fifteen minutes and fails the
+   * run when it is false, which is the alert.
+   *
+   * Absent — not false — when the heartbeat table could not be read: "no
+   * evidence" and "evidence of absence" are different answers, and only one of
+   * them should wake somebody up.
+   */
+  worker: z
+    .object({
+      online: z.boolean(),
+      /** Whole seconds since the last beat, or null if there has never been one. */
+      lastSeenAgoSeconds: z.number().nullable(),
+    })
+    .optional(),
   message: z.string().optional(),
 });
 export type HealthCheckResponse = z.infer<typeof HealthCheckResponse>;
