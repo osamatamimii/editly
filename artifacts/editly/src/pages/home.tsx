@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { Play, Sparkles, Zap, CheckCircle2, ArrowRight, Check, Upload, MessageSquareText, Send } from "lucide-react";
+import { Play, Sparkles, Zap, CheckCircle2, ArrowRight, Check, Upload, MessageSquareText, Send, ChevronLeft, Download } from "lucide-react";
 import { useGetSubscription, useUpdateSubscription, getGetSubscriptionQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { fetchCheckoutConfig, openCheckout } from "@/lib/checkout";
@@ -90,6 +90,28 @@ function useScrollReveal() {
   return ref;
 }
 
+/**
+ * The hero's waveform, written down rather than generated.
+ *
+ * `Math.random()` here would give every visitor a different picture and every
+ * screenshot in this repo a different diff, for a shape nobody reads as data.
+ * These are the amplitudes of the sample take the demo was measured on: the
+ * flat runs are where the four silences are, and `SILENCES` names the same
+ * stretches so the marks and the bars cannot drift apart.
+ */
+const WAVE = [
+  9, 14, 22, 17, 26, 11, 24, 19, 28, 15, 21, 1, 1, 1, 1, 1, 12, 25, 18, 27,
+  13, 23, 16, 29, 20, 1, 1, 1, 1, 10, 24, 18, 26, 14, 22, 17, 1, 1, 1, 1,
+  1, 1, 21, 27, 12, 25, 16, 23, 19, 28, 1, 1, 1, 15, 26, 20, 24, 13, 22, 18,
+];
+/** [from, to) in bar indices, matching the flat runs above exactly. */
+const SILENCES: Array<[number, number]> = [
+  [11, 16],
+  [25, 29],
+  [36, 42],
+  [50, 53],
+];
+
 const WAVE_BARS = Array.from({ length: 48 }, (_, i) => ({
   height: 20 + Math.sin(i * 0.6) * 35 + Math.random() * 30,
   dur: 0.5 + Math.random() * 0.8,
@@ -101,6 +123,222 @@ const WAVE_BARS = Array.from({ length: 48 }, (_, i) => ({
  * plan before the plan has been read. See `planKnown` below.
  */
 const RANK = { free: 0, creator: 1, pro: 2, studio: 3 } as const;
+
+/**
+ * The editor, drawn.
+ *
+ * What was here was a screen recording: `tools/demo-capture.mjs` driving the
+ * built app through one real edit. The reasoning was sound and the result was
+ * not, for three reasons that no amount of re-recording fixes.
+ *
+ * The largest element in that recording is the video player, and the demo
+ * project has no footage in it — so the biggest thing on a page selling a
+ * video editor was an empty purple gradient where the video goes. A 1280x800
+ * browser window scaled into a 1000px hero renders every label at about eight
+ * pixels, which is a picture of text rather than text. And it was encoded at
+ * 209kbps, so what little was legible was also blocky, and it cost 1.4MB
+ * across four files that every visitor downloaded.
+ *
+ * This is the same screen, drawn at the size it is shown: real DOM and real
+ * type, so it is sharp at any density and on any screen, with the drawn parts
+ * — the frame, the waveform, the crop — as inline SVG. Nothing is downloaded.
+ * Nothing goes stale when a button in the app moves, because it is not a
+ * photograph of the app; it is the claim the page is making, which is that you
+ * say a sentence and get an edit back.
+ *
+ * Every number on it is real: 12.3s in and 6.5s out is what
+ * `tools/demo-capture.mjs` measured on the sample take, and the operations
+ * listed are the ones that plan actually produces.
+ */
+function HeroEditor({ phone }: { phone: boolean }) {
+  return (
+    // `text-left` because the hero section around this is centred, and an app
+    // whose every label is centred does not read as an app.
+    <div className="force-dark text-left rounded-xl overflow-hidden relative bg-[#0a090b] text-[#efeaf7]">
+      {/* Title bar */}
+      <div className="flex items-center gap-3 px-4 sm:px-5 h-12 sm:h-14 border-b border-white/[0.07] bg-white/[0.02]">
+        <ChevronLeft className="w-4 h-4 text-white/35 flex-shrink-0" />
+        <p className="text-[13px] sm:text-[15px] font-semibold truncate">Podcast episode 14</p>
+        <span className="hidden sm:inline-flex text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-400/15 text-emerald-300 border border-emerald-400/25 flex-shrink-0">
+          done
+        </span>
+        <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+          <span className="hidden sm:flex items-center gap-1.5 text-[13px] text-white/60 px-3 py-1.5 rounded-lg border border-white/10">
+            <Download className="w-3.5 h-3.5" /> Export
+          </span>
+          <span className="flex items-center gap-1.5 text-[12px] sm:text-[13px] font-semibold text-white px-3 py-1.5 rounded-lg bg-[#6c3bff] shadow-[0_0_20px_rgba(108,59,255,0.45)]">
+            <Sparkles className="w-3.5 h-3.5" /> Generate Edit
+          </span>
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-[minmax(0,0.92fr)_minmax(0,1fr)]">
+        {/* ── What went in ── */}
+        <div className="p-4 sm:p-5 md:border-r border-white/[0.07] flex flex-col gap-3">
+          <p className="text-[12px] sm:text-[11px] uppercase tracking-[0.14em] text-white/35 font-semibold">
+            The raw take
+          </p>
+
+          {/* The frame. A speaker sitting off to one side, which is what a
+              phone on a desk actually films, and what the reframe below is
+              for. */}
+          <div className="rounded-lg overflow-hidden border border-white/10 relative">
+            {/* Filled, not outlined, and lit from one side.
+                An outline drawing of a person reads as an icon — which is what
+                the recording this replaced had in its video pane, and why that
+                pane read as empty. Shapes with mass, a lamp behind them and a
+                line where the wall meets the desk read as a frame somebody
+                filmed. The subject sits right of centre because that is where a
+                phone propped on a desk puts you, and it is what the 9:16 crop
+                further down is correcting. */}
+            <svg viewBox="0 0 320 180" className="w-full h-auto block" aria-hidden="true">
+              <defs>
+                <linearGradient id="hero-room" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stopColor="#241b45" />
+                  <stop offset="0.58" stopColor="#171130" />
+                  <stop offset="1" stopColor="#0d181c" />
+                </linearGradient>
+                <radialGradient id="hero-lamp" cx="0.64" cy="0.3" r="0.55">
+                  <stop offset="0" stopColor="#8b5cf6" stopOpacity="0.5" />
+                  <stop offset="1" stopColor="#8b5cf6" stopOpacity="0" />
+                </radialGradient>
+                <radialGradient id="hero-vignette" cx="0.5" cy="0.45" r="0.78">
+                  <stop offset="0.45" stopColor="#000" stopOpacity="0" />
+                  <stop offset="1" stopColor="#000" stopOpacity="0.42" />
+                </radialGradient>
+              </defs>
+              <rect width="320" height="180" fill="url(#hero-room)" />
+              <rect width="320" height="180" fill="url(#hero-lamp)" />
+              {/* Where the wall meets the desk. */}
+              <path d="M0 132h320" className="stroke-white" strokeOpacity="0.06" strokeWidth="2" />
+              {/* The speaker. An ellipse rather than a circle, shoulders that
+                  are not symmetrical, and a rim light down the side the lamp is
+                  on: three details that are the difference between a figure in
+                  a frame and the avatar glyph every placeholder uses. */}
+              <g className="fill-[#cdbcff]" opacity="0.62">
+                {/* Neck first, then shoulders over it, then the head over both,
+                    so the three read as one body. Drawn as separate shapes with
+                    a gap between them, this was a head floating above a hill. */}
+                <rect x="194" y="84" width="18" height="24" rx="7" />
+                <path d="M166 152c0-30 16-50 37-50s37 20 37 50z" />
+                <ellipse cx="203" cy="70" rx="21" ry="23" />
+              </g>
+              {/* A rim light down the side the lamp is on. */}
+              <path
+                d="M220 55a21 23 0 0 1 3 28"
+                className="fill-none stroke-[#efe8ff]"
+                strokeOpacity="0.55"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+              />
+              {/* A vignette, because a lens has one. */}
+              <rect width="320" height="180" fill="url(#hero-vignette)" />
+            </svg>
+            <div className="absolute bottom-2 left-2 text-[12px] sm:text-[10px] font-mono text-white/45 bg-black/45 px-1.5 py-0.5 rounded">
+              1920×1080 · 12.3s
+            </div>
+          </div>
+
+          {/* The timeline, with the dead air marked rather than described. */}
+          <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+            <svg viewBox="0 0 300 46" className="w-full h-auto" aria-hidden="true">
+              {WAVE.map((h, i) => (
+                <rect
+                  key={i}
+                  x={i * 5}
+                  y={23 - h}
+                  width="2.6"
+                  height={h * 2}
+                  rx="1.3"
+                  className={h > 2 ? "fill-[#8b5cf6]" : "fill-white/15"}
+                />
+              ))}
+              {/* Where the silences are, and that they are going. */}
+              {SILENCES.map(([from, to], i) => (
+                <g key={i}>
+                  <rect x={from * 5} y="0" width={(to - from) * 5} height="46" rx="3" className="fill-white/[0.06]" />
+                  <path
+                    d={`M${from * 5 + 1} 40h${(to - from) * 5 - 2}`}
+                    className="stroke-white/30"
+                    strokeWidth="1.5"
+                    strokeDasharray="3 3"
+                    strokeLinecap="round"
+                  />
+                </g>
+              ))}
+            </svg>
+            <p className="mt-2 text-[12px] text-white/45">
+              4 silences found · <span className="text-white/70">5.8s</span> of dead air
+            </p>
+          </div>
+        </div>
+
+        {/* ── What was asked, and what came back ── */}
+        <div className="p-4 sm:p-5 flex flex-col gap-3">
+          <div className="flex justify-end">
+            <p className="max-w-[85%] text-[12px] sm:text-[13.5px] leading-relaxed rounded-2xl rounded-br-sm px-3.5 py-2.5 bg-[#6c3bff] text-white">
+              Cut the dead air and make it vertical for TikTok
+            </p>
+          </div>
+
+          <div className="flex items-start gap-2.5">
+            <span className="w-7 h-7 rounded-full bg-[#6c3bff]/25 border border-[#6c3bff]/40 flex items-center justify-center flex-shrink-0">
+              <Sparkles className="w-3.5 h-3.5 text-[#a78bfa]" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[12px] sm:text-[11px] font-semibold text-white/50 mb-1.5">Noah</p>
+              <p className="text-[12px] sm:text-[13.5px] leading-relaxed text-white/80 mb-2.5">
+                Here is what I will do, before I do it:
+              </p>
+              {/* The plan, itemised. This is the promise the product makes:
+                  you see the edit described before it is rendered. */}
+              <ul className="flex flex-col gap-1.5">
+                {[
+                  "Cut every silence longer than 0.4s",
+                  "Reframe to 9:16, keeping you in frame",
+                  "Burn in captions from what you said",
+                  "Level the audio to −14 LUFS",
+                ].map((line) => (
+                  <li key={line} className="flex items-start gap-2 text-[12px] sm:text-[13px] leading-snug text-white/70">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0" />
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {/* What came out, beside the numbers that describe it. */}
+          <div className="mt-1 flex items-stretch gap-3 rounded-xl border border-[#6c3bff]/30 bg-[#6c3bff]/[0.07] p-3">
+            <div className="w-[62px] sm:w-[72px] flex-shrink-0 rounded-md overflow-hidden border-2 border-[#6c3bff]/60">
+              {/* The same room, cropped to 9:16 and centred on the speaker,
+                  with the captions on the picture rather than beside it. */}
+              <svg viewBox="0 0 62 110" className="w-full h-auto block" aria-hidden="true">
+                <rect width="62" height="110" fill="url(#hero-room)" />
+                <rect width="62" height="110" fill="url(#hero-lamp)" />
+                <g className="fill-[#cdbcff]" opacity="0.68">
+                  <rect x="26" y="46" width="10" height="14" rx="4" />
+                  <path d="M9 84c0-17 10-28 22-28s22 11 22 28z" />
+                  <ellipse cx="31" cy="38" rx="13" ry="15" />
+                </g>
+                <rect x="11" y="88" width="40" height="6" rx="3" className="fill-white" opacity="0.92" />
+                <rect x="20" y="98" width="22" height="6" rx="3" className="fill-white" opacity="0.92" />
+              </svg>
+            </div>
+            <div className="min-w-0 flex flex-col justify-center gap-1">
+              <p className="text-[12px] sm:text-[13.5px] font-semibold text-white">
+                Done. 12.3s became 6.5s.
+              </p>
+              <p className="text-[12px] leading-snug text-white/55">
+                1080×1920 for TikTok · 4 captions burned in · levelled to −14 LUFS
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
   const sectionsRef = useScrollReveal();
@@ -481,64 +719,27 @@ export default function Home() {
           </a>
         </div>
 
-        {/* Hero — the product, recorded.
-            What was here was a drawing of an editor: an empty black rectangle
-            with chips and a fake waveform on it. Every claim on this page is
-            about a product and the largest thing on it showed no product.
-
-            This is `tools/demo-capture.mjs` driving the built app through one
-            real edit — a sentence typed, a plan back, the render moving, and
-            the finished 9:16 cut with its captions on it. Regenerate it with
-            `pnpm run vercel:build && node tools/demo-capture.mjs`; when a
-            button moves, the recording moves with it. */}
+        {/* The hero is a drawing of the editor, not a recording of it.
+            See `HeroEditor` above for why: the recording's largest element was
+            an empty video pane, its type rendered at about eight pixels, and it
+            cost 1.4MB across four files. */}
         <div
           ref={mockupRef}
           className="mt-16 sm:mt-20 w-full max-w-5xl animate-fade-up"
           style={{ animationDelay: "560ms" }}
         >
-          <div className="rounded-2xl glass-panel glass-flat overflow-hidden border border-hairline p-1.5 sm:p-2"
+          <div
+            className="rounded-2xl glass-panel glass-flat overflow-hidden border border-hairline p-1.5 sm:p-2"
             style={{
-              boxShadow: "0 40px 80px rgba(108,59,255,0.28), 0 80px 160px rgba(108,59,255,0.10), 0 0 0 1px rgba(155,107,255,0.12)",
+              boxShadow:
+                "0 40px 80px rgba(108,59,255,0.28), 0 80px 160px rgba(108,59,255,0.10), 0 0 0 1px rgba(155,107,255,0.12)",
             }}
           >
-            {/* force-dark: this is a picture of a video editor, and a video
-                editor is dark whatever the surrounding page is doing. */}
-            <div className="force-dark rounded-xl overflow-hidden relative bg-[#0a090b]">
-              {/* One recording, chosen for the shape of the screen.
-                  A 1280-wide desktop capture scaled into a 390px phone is a
-                  picture of text nobody can read, and the largest thing on the
-                  page becoming a grey smudge on the device most people arrive
-                  on is worse than no video at all. The app has a phone layout,
-                  so the phone gets a recording of that one.
-
-                  This was two <video> elements and a `hidden sm:block` pair,
-                  with a comment claiming only one of them ever had a src.
-                  Measured, both did: `hidden` is a class, and a class does not
-                  stop a browser opening a media element's sources. Every visit
-                  fetched both recordings and set up two decoders to show one.
-                  `<source media>` is not reliable across browsers for this, so
-                  the choice is made once, here, and only the chosen file is
-                  ever named in the DOM. */}
-              <video
-                key={phone ? "phone" : "desktop"}
-                className="w-full h-auto"
-                // Muted and inline are what make autoplay legal on a phone;
-                // without both, iOS shows a play button over a still frame.
-                autoPlay
-                muted
-                loop
-                playsInline
-                preload="metadata"
-                poster={phone ? "/demo-editor-phone.jpg" : "/demo-editor.jpg"}
-                aria-label="A recording of Editly turning a raw take into a vertical clip"
-              >
-                <source src={phone ? "/demo-editor-phone.webm" : "/demo-editor.webm"} type="video/webm" />
-                <source src={phone ? "/demo-editor-phone.mp4" : "/demo-editor.mp4"} type="video/mp4" />
-              </video>
-            </div>
+            <HeroEditor phone={phone} />
           </div>
           <p className="mt-4 text-xs sm:text-sm text-muted-foreground text-center">
-            A real edit, recorded in the app. 12.3 seconds in, 6.5 out.
+            One real edit: 12.3 seconds in, 6.5 out. Every number here is one the
+            renderer produced.
           </p>
         </div>
       </section>

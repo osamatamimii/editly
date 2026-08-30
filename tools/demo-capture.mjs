@@ -1,18 +1,22 @@
 /**
- * A recording of the real editor, for the landing page.
+ * Drives the built app through one real edit and records it.
  *
- * The hero used to be a hand-drawn picture of an editor: an empty black
- * rectangle with some chips and a fake waveform on it. Every claim that page
- * makes is about a product, and the largest thing on it showed no product.
+ * **Nothing on the landing page uses its output any more, and that is the
+ * point of this note rather than a reason to delete the file.**
  *
- * So this drives the actual built app — the same bundle Vercel serves — through
- * the actual flow, and records it. Nothing here is a mock-up of the interface;
- * it *is* the interface, reading a session and answering from fixtures so the
- * recording is the same every time. When a button moves, this recording moves
- * with it, which is the property a drawing can never have.
+ * The hero was this recording for several rounds. It failed for three reasons
+ * no re-record fixes: the largest element in it is the video player, and the
+ * demo project has no footage in it, so the biggest thing on a page selling a
+ * video editor was an empty gradient where the video goes; a 1280x800 window
+ * scaled into a 1000px hero renders every label at about eight pixels; and it
+ * cost 1.4MB across four files on every visit. The hero is drawn now, in DOM
+ * and SVG, at the size it is shown.
  *
- * Usage: pnpm run vercel:build && node tools/demo-capture.mjs
- * Output: artifacts/editly/public/demo-editor.mp4 (+ .webm, + poster .jpg)
+ * This still runs, and is still the honest way to *watch* the product work end
+ * to end when something needs checking by eye: it types a real sentence into
+ * the real app, waits for a real plan, and renders a real edit. Keep it for
+ * that. If a recording ever goes back on a page, give it real footage first,
+ * record at the size it will be shown, and encode it above 209kbps.
  */
 import http from "node:http";
 import { readFile, mkdir, rm, readdir } from "node:fs/promises";

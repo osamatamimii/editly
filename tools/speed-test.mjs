@@ -115,6 +115,11 @@ const exe = chromePath();
 const browser = await chromium.launch({ ...(exe ? { executablePath: exe } : {}), args: ["--no-sandbox"] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
+/** Every response the page pulled, so media can be weighed rather than counted. */
+const requested = [];
+page.on("response", (r) => {
+  requested.push([new URL(r.url()).pathname, Number(r.headers()["content-length"] ?? 0)]);
+});
 await page.goto(`${origin}/`, { waitUntil: "load" });
 
 // Long enough for every reveal to have been triggered and settled.
@@ -190,22 +195,51 @@ section("Nothing on the page is filtered once it has finished animating");
   );
 }
 
-section("Only the media that is shown is fetched");
+section("The hero is drawn, so there is nothing to download and nothing to hide");
 {
-  const videos = await page.evaluate(() =>
-    [...document.querySelectorAll("video")].map((v) => ({
-      src: (v.currentSrc || "").split("/").pop() || "",
-      shown: v.clientWidth > 0 && v.clientHeight > 0,
+  /*
+   * The hero was a screen recording for several rounds, and it failed three
+   * ways at once: the largest element in it is the video player, and the demo
+   * project has no footage, so a page selling a video editor showed an empty
+   * gradient where the video goes; a 1280x800 window scaled into a 1000px hero
+   * renders every label at about eight pixels; and it cost 1.4MB across four
+   * files on every visit, of which two were fetched and never shown, because
+   * `hidden` is a class and a class does not close a media element's sources.
+   *
+   * It is DOM and SVG now. These checks hold that: no media element at all on
+   * the landing page, and nothing heavy behind it. The second is the one that
+   * catches a quiet regression, because a video that is added back and hidden
+   * looks like nothing at all in a screenshot.
+   */
+  const media = await page.evaluate(() =>
+    [...document.querySelectorAll("video, audio")].map((el) => ({
+      tag: el.tagName.toLowerCase(),
+      src: (el.currentSrc || el.getAttribute("src") || "").split("/").pop() || "(no src)",
+      shown: el.clientWidth > 0 && el.clientHeight > 0,
     })),
   );
-  check("the hero plays something", videos.some((v) => v.shown), JSON.stringify(videos));
-  // Two <video> elements behind a `hidden sm:block` pair both load: the class
-  // hides the box, it does not close the sources.
   check(
-    "no video is in the page that no layout ever shows",
-    videos.every((v) => v.shown),
-    videos.filter((v) => !v.shown).map((v) => v.src || "(no src)").join(", "),
+    "the landing page loads no video or audio at all",
+    media.length === 0,
+    media.map((m) => `${m.tag} ${m.src}${m.shown ? "" : " (never shown)"}`).join(", "),
   );
+
+  // A budget rather than a count, so a legitimate small asset is not a failure
+  // and 1.4MB of video is.
+  const MEDIA_BUDGET_KB = 250;
+  const heavy = requested.filter(([url]) => /\.(mp4|webm|mov|m4v|mp3|wav|gif)$/i.test(url));
+  const heavyKb = heavy.reduce((sum, [, bytes]) => sum + bytes, 0) / 1024;
+  check(
+    `and pulls under ${MEDIA_BUDGET_KB}kB of media over the wire`,
+    heavyKb < MEDIA_BUDGET_KB,
+    `${heavyKb.toFixed(0)}kB: ${heavy.map(([u]) => u).join(", ")}`,
+  );
+
+  // The claim the drawing makes has to be on it, or the hero is decoration.
+  const text = await page.evaluate(() => document.body.innerText);
+  for (const promise of ["silence", "9:16", "captions", "LUFS"]) {
+    check(`the hero still says what the edit does: ${promise}`, text.includes(promise), "");
+  }
 }
 
 await browser.close();
