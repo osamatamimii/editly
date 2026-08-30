@@ -1159,7 +1159,7 @@ export default function ProjectEditor() {
                `flex-1` in a scroller means "whatever is left", and what is left
                under four panels is nothing. Above `lg` it goes back to taking
                the space it is given. */
-            <div ref={stageRef} className="flex-1 min-h-[240px] lg:min-h-[34rem] flex-shrink-0 lg:flex-shrink-0 flex items-stretch justify-center gap-4">
+            <div ref={stageRef} className="flex-1 min-h-[23rem] lg:min-h-[34rem] flex-shrink-0 lg:flex-shrink-0 flex items-stretch justify-center gap-4">
               {/* Content-width, not flex-1: the frame and its controls read as
                   one object centred in the space, rather than the frame drifting
                   to one edge with a gap between them. */}
@@ -1510,7 +1510,11 @@ export default function ProjectEditor() {
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
                 placeholder="Describe your edit..."
-                className="input-chat-glow pr-32 bg-surface-1 border-hairline rounded-full h-12"
+                /* `md:h-12` because the Input component sets `md:h-9` for form fields and
+                   twMerge keeps both — different breakpoints, no conflict to resolve — so
+                   the chat bar quietly became 36px tall on a desktop while the buttons
+                   inside it stayed 40px and bulged out of it. */
+                className="input-chat-glow pr-32 bg-surface-1 border-hairline rounded-full h-12 md:h-12"
                 disabled={!hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 data-testid="input-chat"
               />

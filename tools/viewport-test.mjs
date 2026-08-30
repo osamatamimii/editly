@@ -206,7 +206,7 @@ const LAPTOP = { width: 1440, height: 900 };
  */
 const VIEWPORTS = [
   { name: "a phone", size: PHONE, mobile: true, phoneRules: true, hooks: true },
-  { name: "a laptop", size: LAPTOP, mobile: false, phoneRules: false, hooks: false },
+  { name: "a laptop", size: LAPTOP, mobile: false, phoneRules: false, hooks: true },
 ];
 
 async function open(url, { signedIn = false, override = null, initScript = null, viewport = VIEWPORTS[0] } = {}) {
@@ -412,6 +412,33 @@ const PAGES = [
         "the scrubber is a usable fraction of the screen, not a hairline",
         Boolean(track && view && track.width >= view.width * 0.35),
         JSON.stringify({ track: track && Math.round(track.width), screen: view?.width }),
+      );
+
+      /*
+       * And the video is a reasonable size in the room it has.
+       *
+       * The frame shares its height with the panels below it, so on a laptop it
+       * came out 540x304 inside a 992-wide column — a small video in a video
+       * editor, with a quarter of the column empty on either side of it. A
+       * fraction rather than a number of pixels, so it holds at any window
+       * size, and a loose one, because how big is a design decision and this
+       * only has to notice when the frame has been squeezed out of the way.
+       */
+      const frame = await page.evaluate(() => {
+        const el = document.querySelector('[class*="force-dark"][class*="rounded-2xl"]');
+        // The stage, found by what it *is* rather than by a Tailwind value that
+        // is a design decision and changes: it is the flex row the frame sits
+        // in, directly inside the scrolling column.
+        const column = el?.parentElement?.parentElement?.parentElement ?? null;
+        if (!el || !column) return null;
+        const f = el.getBoundingClientRect();
+        const c = column.getBoundingClientRect();
+        return { w: Math.round(f.width), h: Math.round(f.height), colW: Math.round(c.width) };
+      });
+      check(
+        "and the video takes a real share of the width it has",
+        Boolean(frame && frame.w >= frame.colW * 0.55),
+        JSON.stringify(frame),
       );
     },
   },

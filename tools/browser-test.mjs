@@ -1835,9 +1835,17 @@ section("The editor fits a phone, which is where the owner will test it");
     /overflow-y-auto lg:overflow-hidden/.test(editorSrc),
     "a hidden overflow at phone width is a panel nobody can reach",
   );
+  // The claim, not the literal. This pinned `min-h-[240px] lg:min-h-0` and went
+  // red the day the desktop minimum was raised on purpose — the frame was
+  // sharing its height with four panels and came out 540x304 in a 992-wide
+  // column, which is a small video in a video editor. What has to be true is
+  // that the frame has a floor of its own at both widths rather than being left
+  // to `flex-1`, which in a scrolling column means "whatever is left" and under
+  // four panels is nothing. How tall that floor is belongs to the design, and
+  // viewport-test measures what it produces.
   check(
     "the frame keeps a height of its own inside that scroller",
-    /min-h-\[240px\] lg:min-h-0/.test(editorSrc),
+    /min-h-\[240px\]/.test(editorSrc) && /lg:min-h-\[[^\]]+\]|lg:min-h-0/.test(editorSrc),
     "`flex-1` in a scrolling column means 'whatever is left', and under four panels that is nothing",
   );
   check(
