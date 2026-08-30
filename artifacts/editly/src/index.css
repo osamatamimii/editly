@@ -172,6 +172,19 @@
      because banding across a large dark gradient is visible on every 8-bit
      panel and this is what hides it. */
   --grid-line: rgba(196, 178, 255, 0.075);
+  /* The footer wordmark. It fades *into* the page from the top down rather
+     than sitting on it — on near-black the bottom of the letterforms goes to
+     almost nothing, which is what stops a mark this size shouting. */
+  --wordmark-top: rgba(255, 255, 255, 0.92);
+  --wordmark-mid: rgba(155, 107, 255, 0.55);
+  --wordmark-bottom: rgba(255, 255, 255, 0.04);
+  --wordmark-bloom: rgba(108, 59, 255, 0.35);
+  /* The little drawings in the feature grid. Three values, so a cell reads as
+     one object: the shot, its edge, and the thing the product did to it. */
+  --art-base: rgba(255, 255, 255, 0.05);
+  --art-line: rgba(255, 255, 255, 0.22);
+  --art-accent: rgba(155, 107, 255, 0.95);
+  --art-accent-soft: rgba(108, 59, 255, 0.22);
   --grain-opacity: 0.05;
 
   /*
@@ -348,6 +361,21 @@
  * because dark ink at 5% is far more visible on white than white at 5% is on
  * black. Matching the numbers would have made every card look dirty.
  */
+/* A page that is light regardless of the app's theme has to say so on the
+ * document, not only on its own wrapper. `color-scheme` and a background set on
+ * a nested div never reach the viewport: the gutter revealed by an overscroll,
+ * and the canvas behind a short page, are painted from <html>, which the theme
+ * script leaves dark. Measured before this existed, body was rgb(10,9,11)
+ * behind a fully light landing page. The attribute is set for as long as that
+ * page is mounted and removed on the way out, so the app keeps its own theme.
+ * The value is the same hsl as `.light`'s --background, written out because a
+ * var declared inside .light is not in scope on the root that precedes it. */
+html[data-page-theme="light"],
+html[data-page-theme="light"] body {
+  color-scheme: light;
+  background-color: hsl(265 60% 98.5%);
+}
+
 .light {
   --button-outline: rgba(84, 30, 190, 0.16);
   --badge-outline: rgba(84, 30, 190, 0.09);
@@ -456,6 +484,17 @@
   /* On white the grid is dark ink, and the grain is nearly off — a light page
      has no banding to hide and grain on it just reads as a dirty screen. */
   --grid-line: rgba(23, 15, 46, 0.045);
+  /* On white the same idea runs the other way: dark ink at the top fading to
+     nearly the page at the bottom, and a much weaker bloom, or the mark reads
+     as a stain rather than as light. */
+  --wordmark-top: rgba(17, 10, 38, 0.92);
+  --wordmark-mid: rgba(108, 59, 255, 0.55);
+  --wordmark-bottom: rgba(17, 10, 38, 0.05);
+  --wordmark-bloom: rgba(108, 59, 255, 0.16);
+  --art-base: rgba(23, 15, 46, 0.05);
+  --art-line: rgba(23, 15, 46, 0.22);
+  --art-accent: rgba(108, 59, 255, 0.95);
+  --art-accent-soft: rgba(108, 59, 255, 0.16);
   --grain-opacity: 0.02;
 
   /*

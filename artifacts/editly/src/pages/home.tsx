@@ -5,7 +5,6 @@ import { useGetSubscription, useUpdateSubscription, getGetSubscriptionQueryKey }
 import { useQueryClient } from "@tanstack/react-query";
 import { fetchCheckoutConfig, openCheckout } from "@/lib/checkout";
 import { useAuth } from "@/lib/auth";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Logo } from "@/components/logo";
 import { PLANS, SHARED_FEATURES, FREE_TIER } from "@/lib/pricing";
 
@@ -160,8 +159,48 @@ export default function Home() {
     }
   };
 
+
+  /* The landing page paints the document, not just its own subtree — see the
+     note on the wrapper below. Scoped to the mount so /app keeps its theme. */
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.pageTheme = "light";
+    return () => {
+      delete root.dataset.pageTheme;
+    };
+  }, []);
+
   return (
-    <div className="w-full flex flex-col items-center" ref={sectionsRef}>
+    /*
+     * The landing page is light, whatever the app is set to.
+     *
+     * Two themes are right for a tool somebody sits in for an hour — a dark
+     * editor at midnight is not a preference, it is the room. A landing page is
+     * not that: it is read once, usually in daylight, usually from a link, and
+     * maintaining two of it means every gradient, every glow and every one of
+     * the wordmark's three stops has to be judged twice and stays half-judged.
+     * One page, committed to, beats two that are each nearly right.
+     *
+     * `light` sets the whole token set on this subtree, so everything inside
+     * inherits it no matter what class the theme script put on `<html>`, and
+     * `color-scheme` makes the browser's own furniture inside it — scrollbars,
+     * form controls — agree.
+     *
+     * Neither of those reaches the viewport, though. The page's own background
+     * and the gutter you see when you overscroll are painted from `<html>`,
+     * which the theme script left dark: measured, `body` was still rgb(10,9,11)
+     * behind a fully light page, so a rubber-band scroll on a trackpad or a
+     * phone flashed black at the top of it. The effect below marks the root for
+     * as long as this page is mounted, and clears it on the way out so the app's
+     * own theme is untouched. `.force-dark` regions inside are still dark: the
+     * hero recording is a picture of a dark editor, and a picture of a dark
+     * editor is dark on any page.
+     */
+    <div
+      className="light w-full flex flex-col items-center bg-background text-foreground"
+      style={{ colorScheme: "light" }}
+      ref={sectionsRef}
+    >
 
       {/* ── Fixed global background canvas ── */}
       {/*
@@ -249,10 +288,9 @@ export default function Home() {
           single destination that is actually theirs.
         */}
         <div className="flex items-center gap-1.5 sm:gap-3">
-          {/* A preference, not a destination. It keeps its place from `sm` up
-              and gives the row back to the two doors on a phone — where it is
-              still one tap away in the footer. */}
-          <span className="hidden sm:inline-flex"><ThemeToggle /></span>
+          {/* The theme control is gone from this page, with the theme. It
+              lives in the app, on the screens where somebody sits long enough
+              for it to matter. */}
           {user ? (
             <Link
               href="/dashboard"
@@ -461,42 +499,116 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Each step shows itself.
-              Three cards of prose with an icon on each described a thing you can
-              watch, so now you watch it: the file as it arrives with the dead
-              air still in it, the sentence being answered, and the vertical cut
-              that came out. All three are cut from the same recording the hero
-              plays, by `tools/demo-capture.mjs`, so they cannot drift from it or
-              from each other. */}
+          {/* Each step is drawn, not screenshotted.
+              These were three crops of the demo recording: a dark rectangle
+              each, two of them cropped so hard the text inside was a few pixels
+              tall and unreadable, on a page that is otherwise light. A picture
+              of a screen at that size carries nothing — you cannot read it, so
+              all it says is "there is a screen". Each card now draws the step
+              itself at the size it is shown, in the same ink as the feature
+              grid: the take arriving with its dead air still in it, the
+              sentence and the plan it produced, and the vertical cut that came
+              out. No stock, no screenshots, and nothing that can go stale when
+              the app's chrome changes. */}
           <div className="grid md:grid-cols-3 gap-8">
             {[
-              { num: "01", clip: "step-upload", shape: "aspect-video", icon: Upload, title: "Upload the raw take", desc: "The unedited one, with all the ums and restarts still in it. That is the point.", delay: "0ms" },
-              { num: "02", clip: "step-describe", shape: "aspect-[10/9]", icon: MessageSquareText, title: "Say what you want", desc: "\"Cut the dead air and make it vertical for TikTok.\" Editly tells you exactly what it will do before it does it.", delay: "120ms" },
-              { num: "03", clip: "step-post", shape: "aspect-[9/16]", icon: Send, title: "Post it", desc: "Framed for TikTok, Reels or Shorts, and waiting for you when you come back.", delay: "240ms" },
+              {
+                num: "01",
+                icon: Upload,
+                title: "Upload the raw take",
+                desc: "The unedited one, with all the ums and restarts still in it. That is the point.",
+                delay: "0ms",
+                art: (
+                  <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
+                    <rect x="20" y="18" width="280" height="144" rx="12" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" strokeDasharray="8 7" />
+                    <rect x="44" y="42" width="232" height="96" rx="10" className="fill-[var(--art-base)]" />
+                    <rect x="44" y="42" width="232" height="96" rx="10" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
+                    <text x="62" y="68" className="fill-[var(--art-accent)]" fontSize="13" fontWeight="600" fontFamily="ui-monospace, monospace">raw-take.mov</text>
+                    <text x="258" y="68" textAnchor="end" className="fill-[var(--art-line)]" fontSize="12" fontFamily="ui-monospace, monospace">12:04</text>
+                    {/* The take, with the dead air still in it — flat where
+                        nobody is talking, which is what step three removes. */}
+                    <g>
+                      {[14, 22, 9, 26, 17, 24, 2, 2, 2, 2, 19, 27, 11, 23, 8, 2, 2, 2, 25, 13, 21, 16, 2, 2, 18, 26, 10, 20].map((h, n) => (
+                        <rect
+                          key={n}
+                          x={62 + n * 7}
+                          y={106 - h}
+                          width="3.5"
+                          height={h * 2}
+                          rx="1.75"
+                          className={h > 3 ? "fill-[var(--art-accent)]" : "fill-[var(--art-line)]"}
+                        />
+                      ))}
+                    </g>
+                  </svg>
+                ),
+              },
+              {
+                num: "02",
+                icon: MessageSquareText,
+                title: "Say what you want",
+                desc: "\"Cut the dead air and make it vertical for TikTok.\" Editly tells you exactly what it will do before it does it.",
+                delay: "120ms",
+                art: (
+                  <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
+                    {/* What you typed, */}
+                    <rect x="78" y="18" width="226" height="48" rx="12" className="fill-[var(--art-accent-soft)]" />
+                    <rect x="78" y="18" width="226" height="48" rx="12" className="fill-none stroke-[var(--art-accent)]" strokeWidth="1.5" />
+                    <text x="94" y="39" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">Cut the dead air and make it</text>
+                    <text x="94" y="56" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">vertical for TikTok.</text>
+                    {/* and what it says back, before it starts. */}
+                    <circle cx="34" cy="98" r="12" className="fill-[var(--art-accent-soft)]" />
+                    <path d="M28 98l4.5 4.5L40 94" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    {[
+                      { y: 84, w: 162, t: "Remove 41s of silence" },
+                      { y: 114, w: 124, t: "Reframe to 9:16" },
+                      { y: 144, w: 158, t: "Burn in your captions" },
+                    ].map((row) => (
+                      <g key={row.y}>
+                        <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-[var(--art-base)]" />
+                        <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
+                        <text x="72" y={row.y + 19} className="fill-[var(--art-accent)]" fontSize="11.5">{row.t}</text>
+                      </g>
+                    ))}
+                  </svg>
+                ),
+              },
+              {
+                num: "03",
+                icon: Send,
+                title: "Post it",
+                desc: "Framed for TikTok, Reels or Shorts, and waiting for you when you come back.",
+                delay: "240ms",
+                art: (
+                  <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
+                    {/* The widescreen you shot, with the speaker sitting off
+                        to one side of it the way a phone on a desk films you, */}
+                    <rect x="22" y="34" width="184" height="104" rx="8" className="fill-[var(--art-base)]" />
+                    <rect x="22" y="34" width="184" height="104" rx="8" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" strokeDasharray="6 5" />
+                    <circle cx="138" cy="74" r="17" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
+                    <path d="M120 116a18 18 0 0 1 36 0" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
+                    <text x="22" y="158" className="fill-[var(--art-line)]" fontSize="11" fontFamily="ui-monospace, monospace">16:9 source</text>
+                    {/* and the vertical it kept, centred on them, with the
+                        words burned onto it. */}
+                    <rect x="104" y="16" width="94" height="148" rx="10" className="fill-[var(--art-accent-soft)]" />
+                    <rect x="104" y="16" width="94" height="148" rx="10" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
+                    <circle cx="151" cy="66" r="19" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
+                    <path d="M131 112a20 20 0 0 1 40 0" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
+                    <path d="M126 132h50M138 146h26" className="stroke-[var(--art-accent)]" strokeWidth="7" strokeLinecap="round" />
+                    <text x="216" y="90" className="fill-[var(--art-accent)]" fontSize="12" fontWeight="700" fontFamily="ui-monospace, monospace">9:16</text>
+                    <path d="M216 100h30" className="stroke-[var(--art-accent)]" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                ),
+              },
             ].map((step) => (
               <div
                 key={step.num}
                 className="reveal glass-panel rounded-2xl relative overflow-hidden group cursor-default transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_40px_rgba(108,59,255,0.2)] hover:-translate-y-1 flex flex-col"
                 style={{ transitionDelay: step.delay }}
               >
-                {/* force-dark: a picture of the app is dark whatever the page is
-                    doing around it. Fixed heights across the three, so the row
-                    does not step up and down with the shape of each clip. */}
-                <div className="force-dark relative bg-[#0a090b] h-52 sm:h-56 overflow-hidden flex items-center justify-center">
-                  <video
-                    className={`${step.shape} h-full w-auto object-cover`}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    preload="none"
-                    poster={`/${step.clip}.jpg`}
-                    aria-label={step.title}
-                  >
-                    <source src={`/${step.clip}.webm`} type="video/webm" />
-                    <source src={`/${step.clip}.mp4`} type="video/mp4" />
-                  </video>
-                  <span className="absolute top-3 left-3 text-xs font-mono font-semibold text-white/70 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-md border border-white/10">
+                <div className="relative bg-band border-b border-hairline-faint h-52 sm:h-56 overflow-hidden flex items-center justify-center p-5">
+                  {step.art}
+                  <span className="absolute top-3 left-3 text-xs font-mono font-semibold text-muted-foreground bg-surface-1 px-2 py-1 rounded-md border border-hairline-faint">
                     {step.num}
                   </span>
                 </div>
@@ -584,34 +696,118 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Four things, drawn rather than labelled.
+              This was four squares with the words "B-Roll", "Captions" and
+              "Transitions" in them — a legend for a picture that was not there,
+              and on a page selling a *video* tool the emptiest thing on it.
+              Each cell now shows the mechanic it names, in twenty lines of SVG:
+              a cutaway laid over the main shot, a caption filling word by word,
+              two shots dissolving across each other. No screenshots, and no
+              stock — they are the shapes themselves. */}
           <div className="relative reveal">
             <div className="absolute inset-0 bg-secondary/15 blur-[100px] rounded-full pointer-events-none" />
-            <div className="glass-panel p-6 rounded-2xl relative z-10 transition-all duration-500 hover:shadow-[0_0_60px_rgba(108,59,255,0.2)]">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="glass-panel p-4 sm:p-6 rounded-2xl relative z-10 transition-all duration-500 hover:shadow-[0_0_60px_rgba(108,59,255,0.2)]">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
                 {[
-                  // Dimmed means "not built yet". All four ship today —
-                  // transitions arrived last, as fade in/out — so nothing on
-                  // this grid pretends to be future work any more.
-                  { label: "B-Roll", dimmed: false },
-                  { label: null, icon: true },
-                  { label: "Captions", dimmed: false },
-                  { label: "Transitions", dimmed: false },
+                  {
+                    label: "B-roll",
+                    hint: "cut in over the take",
+                    art: (
+                      <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
+                        <rect x="10" y="24" width="76" height="52" rx="6" className="fill-[var(--art-base)]" />
+                        <rect x="10" y="24" width="76" height="52" rx="6" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
+                        {/* The cutaway, lifted off the shot beneath it. */}
+                        <rect x="46" y="44" width="64" height="46" rx="6" className="fill-[var(--art-accent-soft)]" />
+                        <rect x="46" y="44" width="64" height="46" rx="6" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2" />
+                        <path d="M62 60l18 9-18 9z" className="fill-[var(--art-accent)]" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    label: "Dead air",
+                    hint: "cut, not trimmed by hand",
+                    accent: true,
+                    art: (
+                      <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
+                        {/* The waveform, with the flat stretches lifted out of
+                            it — the one thing every take needs doing to it. */}
+                        <g className="fill-[var(--art-accent)]">
+                          {[6, 14, 22, 9, 26, 18].map((h, n) => (
+                            <rect key={`a${n}`} x={16 + n * 8} y={60 - h} width="4" height={h * 2} rx="2" />
+                          ))}
+                        </g>
+                        <g className="fill-[var(--art-line)]">
+                          {[0, 1, 2].map((n) => (
+                            <rect key={`g${n}`} x={64 + n * 8} y="58" width="4" height="4" rx="2" />
+                          ))}
+                        </g>
+                        <g className="fill-[var(--art-accent)]">
+                          {[20, 11, 24].map((h, n) => (
+                            <rect key={`b${n}`} x={90 + n * 8} y={60 - h} width="4" height={h * 2} rx="2" />
+                          ))}
+                        </g>
+                        {/* and where they went. */}
+                        <path
+                          d="M64 84h24"
+                          className="stroke-[var(--art-accent)]"
+                          strokeWidth="2"
+                          strokeDasharray="4 4"
+                          strokeLinecap="round"
+                        />
+                        <path d="M76 96l-5-6h10z" className="fill-[var(--art-accent)]" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    label: "Captions",
+                    hint: "from what you said",
+                    art: (
+                      <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
+                        <rect x="14" y="18" width="92" height="84" rx="8" className="fill-[var(--art-base)]" />
+                        <rect x="14" y="18" width="92" height="84" rx="8" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
+                        {/* Filled, then half-filled, then waiting — the wipe. */}
+                        <rect x="26" y="62" width="34" height="10" rx="5" className="fill-[var(--art-accent)]" />
+                        <rect x="64" y="62" width="30" height="10" rx="5" className="fill-[var(--art-line)]" />
+                        <rect x="64" y="62" width="13" height="10" rx="5" className="fill-[var(--art-accent)]" />
+                        <rect x="26" y="78" width="46" height="10" rx="5" className="fill-[var(--art-line)]" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    label: "Transitions",
+                    hint: "dissolved, not dropped",
+                    art: (
+                      <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
+                        <defs>
+                          <linearGradient id="dissolve-a" x1="0" x2="1">
+                            <stop offset="0.35" stopColor="var(--art-accent)" stopOpacity="0.85" />
+                            <stop offset="1" stopColor="var(--art-accent)" stopOpacity="0" />
+                          </linearGradient>
+                          <linearGradient id="dissolve-b" x1="0" x2="1">
+                            <stop offset="0" stopColor="var(--art-line)" stopOpacity="0" />
+                            <stop offset="0.65" stopColor="var(--art-line)" stopOpacity="1" />
+                          </linearGradient>
+                        </defs>
+                        <rect x="8" y="34" width="70" height="52" rx="6" fill="url(#dissolve-a)" />
+                        <rect x="42" y="34" width="70" height="52" rx="6" fill="url(#dissolve-b)" />
+                        <rect x="8" y="34" width="104" height="52" rx="6" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
+                      </svg>
+                    ),
+                  },
                 ].map((cell, i) => (
                   <div
                     key={i}
-                    className={`aspect-square rounded-xl flex items-center justify-center border transition-all duration-300 cursor-default
-                      ${cell.icon
-                        ? "bg-primary/20 border-primary/40 shadow-[0_0_20px_rgba(108,59,255,0.25)] hover:shadow-[0_0_35px_rgba(108,59,255,0.5)] hover:scale-[1.04]"
+                    className={`aspect-square rounded-xl overflow-hidden border transition-all duration-300 cursor-default flex flex-col
+                      ${cell.accent
+                        ? "bg-primary/15 border-primary/40 shadow-[0_0_20px_rgba(108,59,255,0.18)] hover:shadow-[0_0_35px_rgba(108,59,255,0.4)]"
                         : "bg-band border-hairline-faint hover:border-hairline hover:bg-surface-1"
                       }`}
                   >
-                    {cell.icon ? (
-                      <Sparkles className="w-8 h-8 text-primary animate-sparkle" />
-                    ) : (
-                      <span className={`text-sm font-medium ${cell.dimmed ? "text-foreground/35" : "text-foreground/80"}`}>
-                        {cell.label}
-                      </span>
-                    )}
+                    <div className="flex-1 min-h-0 p-2 sm:p-3">{cell.art}</div>
+                    <div className="px-3 pb-3">
+                      <p className="text-sm font-semibold leading-tight">{cell.label}</p>
+                      <p className="text-xs text-muted-foreground leading-snug mt-0.5">{cell.hint}</p>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -846,28 +1042,101 @@ The tedious part is the part a machine should do.<br />Upload one take and see h
           program lives in the Freemius customer portal, and a program nobody
           can find pays nobody. The terms are stated in the link text because
           "become an affiliate" alone gives no reason to click it. */}
-      <footer className="w-full border-t border-hairline-faint py-8 px-6">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-5 sm:gap-4 text-xs text-muted-foreground">
-          <div className="flex items-center gap-3">
-            <span className="opacity-60">© {new Date().getFullYear()} Editly</span>
-            {/* Where the theme control goes on a phone, since the header gives
-                its place to the two doors. Present on every width so there is
-                one answer to "where is it", not two. */}
-            <span className="sm:hidden"><ThemeToggle /></span>
+      {/* ── Footer ──
+          The wordmark is the footer, not a line above one.
+          A footer that is a row of small grey links is the last thing anybody
+          sees and it says the page ended because it ran out. Setting the name
+          at the size of a sign, with the light of the page still on it, closes
+          the page deliberately — and it costs nothing but type, which is the
+          only reason it can be done well without a photograph.
+          The links keep their thumb-sized rows underneath. */}
+      <footer className="w-full border-t border-hairline-faint overflow-hidden">
+        <div className="max-w-6xl mx-auto px-6 pt-16 pb-10">
+          {/* `clamp` rather than breakpoints: the mark should be as wide as the
+              column allows at every width, not four fixed sizes with awkward
+              gaps between them. `1px` of tracking taken back at the top end,
+              because a face this large sets loose. */}
+          <div
+            aria-hidden="true"
+            className="select-none font-extrabold leading-[0.95] tracking-[-0.045em] pointer-events-none -mb-[0.12em]"
+            style={{
+              // Sized to *fill the column*, which is the whole idea — a mark
+              // that stops two thirds of the way across reads as a heading that
+              // grew rather than as a sign. Six characters of a heavy grotesque
+              // at this tracking come to roughly 3.3 ems wide, so the width of
+              // the content column divided by 3.3 is the size, and `min` caps
+              // it at the container so it never overflows on a wide screen.
+              // `leading-[0.95]` rather than tighter: the descender on the `y`
+              // is part of the letterform, and clipping it is a mistake nobody
+              // reads as a choice.
+              fontSize: "min(24vw, 21.5rem)",
+              // Solid for most of its height, then away — the fade is the last
+              // fifth, not the whole letterform, or the mark reads as washed
+              // out rather than as lit from above.
+              backgroundImage:
+                "linear-gradient(180deg, var(--wordmark-top) 0%, var(--wordmark-top) 42%, var(--wordmark-mid) 78%, var(--wordmark-bottom) 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
+          >
+            Editly
           </div>
-          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center">
-            <a href="/#pricing" className="min-h-[44px] inline-flex items-center hover:text-foreground transition-colors">
-              Pricing
-            </a>
-            <a
-              href="https://users.freemius.com/"
-              target="_blank"
-              rel="noreferrer"
-              className="min-h-[44px] inline-flex items-center hover:text-foreground transition-colors"
-              data-testid="link-become-affiliate"
-            >
-              Become an affiliate — earn 25% of every payment for a year
-            </a>
+          {/* The glow the mark sits in, not on it — a text-shadow on a clipped
+              gradient paints over the letterforms. */}
+          <div
+            aria-hidden="true"
+            className="relative h-0"
+          >
+            <div
+              className="absolute left-1/4 -top-24 w-1/2 h-40 pointer-events-none blur-[70px] opacity-70"
+              style={{ background: "radial-gradient(ellipse at center, var(--wordmark-bloom) 0%, transparent 70%)" }}
+            />
+          </div>
+
+          <div className="mt-10 grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-8 text-sm">
+            <div>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">Product</p>
+              <ul className="flex flex-col">
+                <li><a href="/#how-it-works" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">How it works</a></li>
+                <li><a href="/#features" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Features</a></li>
+                <li><a href="/#pricing" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Pricing</a></li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">Account</p>
+              <ul className="flex flex-col">
+                <li><Link href="/login" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Log in</Link></li>
+                <li><Link href="/login?mode=signup" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Create an account</Link></li>
+                <li><Link href="/dashboard" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Your projects</Link></li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">Earn</p>
+              <ul className="flex flex-col">
+                <li>
+                  <a
+                    href="https://users.freemius.com/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
+                    data-testid="link-become-affiliate"
+                  >
+                    Become an affiliate
+                  </a>
+                </li>
+                {/* The number is the offer. Under the link rather than inside
+                    it, so the link stays a link and the terms stay readable. */}
+                <li className="text-xs text-muted-foreground/70 leading-relaxed max-w-[16rem] pt-1">
+                  25% of every payment, for a year.
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="mt-10 pt-6 border-t border-hairline-faint flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground/70">
+            <span>© {new Date().getFullYear()} Editly</span>
+            <span>Stop editing. Start describing.</span>
           </div>
         </div>
       </footer>

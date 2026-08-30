@@ -1458,10 +1458,31 @@ section("The landing page's feature list keeps up with what is actually built");
     /titled by (its speaker's own words|what the speaker actually said)/i.test(home),
     "the clips line must say the titles come from the speaker, not from a template",
   );
+  // This used to read `{ label: "Transitions", dimmed: false }` — the literal
+  // shape of a row in the old array. That pinned the check to a data structure
+  // rather than to the claim, so redrawing the grid broke it while the page was
+  // saying exactly the right thing. The claim is what matters: transitions ship,
+  // so the cell for them must be present and must not be sold as future work.
   check(
-    "the Transitions cell is lit now that a fade ships",
-    /\{ label: "Transitions", dimmed: false \}/.test(home),
-    "the fade shipped but the grid still calls transitions future work",
+    "the transitions cell is on the grid, because the fade ships",
+    /label: "Transitions"/.test(home),
+    "the fade shipped but the grid does not show a transitions cell at all",
+  );
+  check(
+    "and nothing on the grid is marked as not built yet",
+    !/(dimmed: true|coming soon|not yet|soon\b)/i.test(
+      home.slice(home.indexOf('label: "B-roll"'), home.indexOf('label: "Transitions"') + 400),
+    ),
+    "a cell in the feature grid is presented as future work",
+  );
+  // Every cell is drawn, not written. A grid of words on a page selling a video
+  // tool was the emptiest thing on it; each cell carries its own artwork now,
+  // and a cell that loses it falls back to being a label again silently.
+  const gridCells = home.slice(home.indexOf('label: "B-roll"'), home.indexOf("].map((cell"));
+  check(
+    "every cell in the grid draws the thing it names",
+    (gridCells.match(/art: \(/g) ?? []).length === (gridCells.match(/label: "/g) ?? []).length,
+    "a feature-grid cell has a label but no artwork",
   );
 }
 
