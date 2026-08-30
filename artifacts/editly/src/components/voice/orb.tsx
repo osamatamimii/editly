@@ -18,18 +18,6 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-/** The palette, exactly as it was chosen in the editor that produced it. */
-const PALETTE = {
-  a: [0x09 / 255, 0x03 / 255, 0x0e / 255],
-  b: [0xce / 255, 0x2c / 255, 0xcb / 255],
-  c: [0xff / 255, 0x5c / 255, 0x71 / 255],
-  d: [0x7b / 255, 0x53 / 255, 0xff / 255],
-  highlight: [0xff / 255, 0xd9 / 255, 0xf0 / 255],
-  /** The glass wall: inner, mid, edge — `shellInner`/`shellMid`/`shellEdge`. */
-  shellIn: [1, 1, 1],
-  shellMid: [0xe4 / 255, 0x8b / 255, 0xff / 255],
-  shellEdge: [0xff / 255, 0x78 / 255, 0x90 / 255],
-};
 
 const VERT = `#version 300 es
 in vec2 p;
@@ -55,137 +43,216 @@ out vec4 outColor;
 
 uniform float uTime;
 uniform float uLevel;
-uniform vec2 uAspect;
-uniform vec3 uA, uB, uC, uD, uHi;
-uniform vec3 uShellIn, uShellMid, uShellEdge;
+uniform vec2 uSize;
 
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float noise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x),
-             mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+// ── The parameters, exactly as the editor exported them ─────────────────────
+//
+// Each has an idle value and an active one, and the orb sits between them on
+// the microphone's loudness. That is what the editor's own "activation" is for,
+// and it is why this reacts rather than plays: silence is genuinely the idle
+// preset, not a slowed-down version of the loud one.
+const vec3 COLOR_A      = vec3(0.0353, 0.0118, 0.0549);
+const vec3 IDLE_COLOR_A = vec3(0.0314, 0.0196, 0.0431);
+const vec3 COLOR_B      = vec3(0.8078, 0.1725, 0.7961);
+const vec3 IDLE_COLOR_B = vec3(0.4157, 0.1843, 0.4118);
+const vec3 COLOR_C      = vec3(1.0000, 0.3608, 0.4431);
+const vec3 IDLE_COLOR_C = vec3(0.5490, 0.2745, 0.3216);
+const vec3 COLOR_D      = vec3(0.4824, 0.3255, 1.0000);
+const vec3 IDLE_COLOR_D = vec3(0.3333, 0.2745, 0.4980);
+const vec3 HIGHLIGHT      = vec3(1.0000, 0.8510, 0.9412);
+const vec3 IDLE_HIGHLIGHT = vec3(0.7098, 0.5412, 0.6471);
+const vec3 SHELL_INNER = vec3(1.0, 1.0, 1.0);
+const vec3 SHELL_MID   = vec3(0.8941, 0.5451, 1.0000);
+const vec3 SHELL_EDGE  = vec3(1.0000, 0.4706, 0.5647);
+const vec3 SHEEN_COLOR = vec3(1.0000, 0.9451, 0.9804);
+const vec3 SPEC_COLOR  = vec3(0.9059, 0.8510, 1.0000);
+const vec3 CANVAS      = vec3(0.0078, 0.0039, 0.0196);
+
+const float RADIUS         = 0.7;
+const float CONTOUR_DEFORM = 0.1;
+const float IDLE_CONTOUR   = 0.03;
+const float SPEED          = 0.95;
+const float IDLE_SPEED     = 0.266;
+const float ZOOM           = 0.36;
+const float IDLE_ZOOM      = 0.3312;
+const float WARP           = 2.6;
+const float IDLE_WARP      = 1.196;
+const float RIDGE          = 0.46;
+const float IDLE_RIDGE     = 0.1932;
+const float EXPOSURE       = 1.35;
+const float IDLE_EXPOSURE  = 0.837;
+const float SHADE          = 0.08;
+const float SHEEN          = 0.22;
+const float GLOSS          = 0.36;
+const float GLASS_OPACITY  = 0.48;
+const float SHELL_MID_A    = 0.18;
+const float SHELL_EDGE_A   = 0.2;
+const float EDGE_SOFTNESS  = 0.005;
+
+float k;                 // how far from idle toward active, 0..1
+float uZoom, uWarp, uRidge, uContour, uExposure;
+vec3 cA, cB, cC, cD, cHi;
+
+float edgeD() { return EDGE_SOFTNESS - 0.005; }
+
+vec3 over(vec3 dst, vec3 src, float a) {
+  float m = clamp(a, 0.0, 1.0);
+  return src * m + dst * (1.0 - m);
 }
-float fbm(vec2 p) {
-  float v = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.02; a *= 0.5; }
-  return v;
+
+// The contour, which is the wobble of the silhouette. Style 19's own numbers.
+vec2 contourWave(float angle, float t) {
+  float wave = sin(angle * 2.0 + t * 0.27) * 0.72
+             + sin(angle * 4.0 - t * 0.16 + 2.1) * 0.28;
+  float slope = cos(angle * 2.0 + t * 0.27) * 1.44
+              + cos(angle * 4.0 - t * 0.16 + 2.1) * 1.12;
+  return vec2(wave, slope);
+}
+float contourStrength() { return 0.11; }   // style >= 18.5
+
+float contourScale(vec2 p, float t) {
+  if (uContour <= 0.0) return 1.0;
+  return 1.0 + clamp(uContour, 0.0, 1.0) * contourStrength() * contourWave(atan(p.y, p.x), t).x;
+}
+
+vec2 contourNormal(vec2 p, float rad, float t) {
+  float d = length(p);
+  if (d <= 0.0001) return vec2(0.0);
+  vec2 radial = p / d;
+  vec2 c = contourWave(atan(p.y, p.x), t);
+  float slope = clamp(uContour, 0.0, 1.0) * contourStrength() * c.y;
+  vec2 tangent = vec2(-radial.y, radial.x);
+  return normalize(radial - tangent * (rad * slope / d));
+}
+
+float refractionProfile(float t) {
+  float depth = clamp(t, 0.0, 1.0);
+  float circular = sqrt(max(1.0 - (1.0 - depth) * (1.0 - depth), 0.0));
+  return 1.0 - circular;
+}
+
+float highlightLobe(vec2 n, vec2 dir, float cut, float power) {
+  float angular = clamp((dot(n, dir) - cut) / max(1.0 - cut, 0.001), 0.0, 1.0);
+  return pow(angular, power);
+}
+
+vec3 finishFluid(vec3 colorIn, vec2 p) {
+  vec3 color = colorIn;
+  color = mix(color, cHi, SHADE * 0.22 * smoothstep(0.15, 1.15, dot(p, vec2(-0.32, 0.78))));
+  color = color * (1.0 - SHADE * 0.34 * smoothstep(-0.1, 1.2, dot(p, vec2(0.45, -0.62))));
+  color = color * (1.0 - SHADE * 0.22 * smoothstep(0.72, 1.08, length(p)));
+  return clamp(color, vec3(0.0), vec3(1.0));
+}
+
+// ── The membrane ────────────────────────────────────────────────────────────
+//
+// This is what "voiceWave" is, and it is not what the parameter names suggest:
+// one broad band that stays phase-coherent across the sphere, with two
+// translucent veils above and below it for volume. Not ribbons — ribbonCount
+// and its friends belong to a different style entirely and this one never
+// reads them.
+vec3 voiceWaveFluid(vec2 p, float t) {
+  float scale = 0.76 + uZoom * 0.34;
+  vec2 q = p / scale;
+  float rimEnvelope = pow(max(1.0 - q.x * q.x, 0.0), 0.72);
+  float drift = t * 0.82;
+  float amplitude = 0.2 + uWarp * 0.018;
+  float mainY = rimEnvelope * (amplitude * sin(q.x * 1.48 + drift)
+              + 0.055 * sin(q.x * 3.2 - drift * 0.43 + 1.1));
+  float distance = q.y - mainY;
+  float width = 0.11 + (1.0 - uRidge) * 0.075;
+  float membrane = exp(-distance * distance / max(width * width, 0.001)) * rimEnvelope;
+  float upperVeil = exp(-(distance - 0.105) * (distance - 0.105)
+                    / max(width * width * 2.4, 0.001)) * rimEnvelope;
+  float lowerVeil = exp(-(distance + 0.115) * (distance + 0.115)
+                    / max(width * width * 2.8, 0.001)) * rimEnvelope;
+  float crest = exp(-distance * distance / 0.0026) * rimEnvelope;
+  float depth = sqrt(max(1.0 - clamp(dot(p, p), 0.0, 1.0), 0.0));
+  vec3 color = mix(cA * 0.7, cD * 0.34, smoothstep(-0.82, 0.82, q.y));
+  color = mix(color, cB, upperVeil * 0.7);
+  color = mix(color, cC, lowerVeil * 0.62);
+  color = color + mix(cB, cC, 0.46) * membrane * 0.34;
+  color = color + cHi * crest * 0.14;
+  color = color * (0.58 + 0.42 * depth);
+  return finishFluid(color, p);
 }
 
 void main() {
-  vec2 st = uv * uAspect;
-  float t = uTime;
-  float loud = clamp(uLevel, 0.0, 1.0);
+  k = clamp(uLevel, 0.0, 1.0);
+  uZoom     = mix(IDLE_ZOOM, ZOOM, k);
+  uWarp     = mix(IDLE_WARP, WARP, k);
+  uRidge    = mix(IDLE_RIDGE, RIDGE, k);
+  uContour  = mix(IDLE_CONTOUR, CONTOUR_DEFORM, k);
+  uExposure = mix(IDLE_EXPOSURE, EXPOSURE, k);
+  cA  = mix(IDLE_COLOR_A, COLOR_A, k);
+  cB  = mix(IDLE_COLOR_B, COLOR_B, k);
+  cC  = mix(IDLE_COLOR_C, COLOR_C, k);
+  cD  = mix(IDLE_COLOR_D, COLOR_D, k);
+  cHi = mix(IDLE_HIGHLIGHT, HIGHLIGHT, k);
 
-  float angle = atan(st.y, st.x);
-  float ripple =
-      sin(angle * 3.0 + t * 1.3) * 0.010
-    + sin(angle * 5.0 - t * 0.9) * 0.007
-    + fbm(vec2(angle * 1.6, t * 0.35)) * 0.026;
-  float radius = 0.60 + loud * 0.075 + ripple * (0.30 + loud * 1.5);
+  // The orb was authored in a square, bottom-left origin.
+  vec2 fc = vec2(uv.x, uv.y) * 0.5 + 0.5;
+  vec2 st = (2.0 * (fc * uSize) - uSize) / max(min(uSize.x, uSize.y), 1.0);
 
-  float d = length(st);
-  float inside = smoothstep(radius + 0.010, radius - 0.010, d);
-  float ndc = clamp(d / max(radius, 0.0001), 0.0, 1.0);
-  float z = sqrt(max(0.0, 1.0 - ndc * ndc));
-  vec3 normal = normalize(vec3(st / max(radius, 0.0001), z));
-  vec3 lightDir = normalize(vec3(-0.45, 0.62, 0.75));
+  float t = uTime * mix(IDLE_SPEED, SPEED, k);
+  float rad = max(RADIUS, 0.05);
+  float cRad = rad * contourScale(st, t);
 
-  // ── Ribbons ───────────────────────────────────────────────────────────────
-  //
-  // The thing the reference has that a gradient ball does not: bands of light
-  // wound through the inside of the glass, twisting as they go and swelling
-  // when the voice does. Five of them, which is the count that was chosen.
-  //
-  // Drawn against the *surface* coordinate rather than the screen one, so they
-  // wrap around the sphere instead of sliding across a flat disc: dividing by z
-  // compresses them toward the silhouette exactly as a real band would be.
-  float surface = (st.y / max(radius, 0.0001)) / max(z, 0.35);
-  float twist = (st.x / max(radius, 0.0001)) * 1.25;
-  float wave = sin(t * 0.85 + twist * 2.2) * (0.18 + loud * 0.55)
-             + fbm(vec2(st.x * 2.0 + t * 0.2, t * 0.3)) * 0.5;
-
-  vec3 ribbons = vec3(0.0);
-  for (int i = 0; i < 5; i++) {
-    float fi = float(i);
-    float offset = (fi - 2.0) * 0.34;
-    // Each band sits at its own height and drifts at its own speed, so they
-    // never lock into a pattern the eye can read as a loop.
-    float band = surface - offset - wave * (0.4 + fi * 0.13) - sin(t * (0.31 + fi * 0.07)) * 0.10;
-    float width = 0.42 * (0.28 + loud * 0.16);
-    float strength = exp(-band * band / (width * width));
-    // The colour walks the shell: white at the core of the stack, through the
-    // mid, to the coral edge.
-    vec3 tint = mix(uShellIn, mix(uShellMid, uShellEdge, fi / 4.0), 0.35 + fi * 0.16);
-    ribbons += tint * strength * (0.16 + loud * 0.22);
+  if (length(st) > cRad * (1.01 + edgeD())) {
+    outColor = vec4(0.0);
+    return;
   }
 
-  // ── The body the ribbons sit in ───────────────────────────────────────────
-  vec2 flowP = st * 1.9 + vec2(t * 0.13, -t * 0.10);
-  float flow = fbm(flowP + loud * 0.35);
-  vec3 body = mix(uD, uB, smoothstep(0.20, 0.85, flow));
-  body = mix(body, uC, smoothstep(0.50, 1.0, fbm(flowP * 1.7)) * (0.45 + loud * 0.3));
-  body = mix(body, uA, smoothstep(0.15, 1.0, ndc) * 0.5 * (0.75 - 0.35 * normal.y));
-  body += uHi * pow(max(0.0, z), 3.5) * (0.12 + loud * 0.18);
+  vec2 p = st / cRad;
+  float pd = length(p);
 
-  // ── The shell ─────────────────────────────────────────────────────────────
-  //
-  // Three stops rather than one fresnel: the reference's glass reads as a thin
-  // wall with its own thickness, brightest just inside the silhouette and
-  // coloured differently at the very edge.
-  float wall = smoothstep(0.62, 1.0, ndc);
-  float lip = smoothstep(0.90, 1.0, ndc);
-  vec3 shell = mix(uShellMid, uShellEdge, lip);
-  shell = mix(shell, uShellIn, pow(1.0 - ndc, 6.0) * 0.5);
+  float clearFa = 1.0 - smoothstep(0.985, 1.0, pd);
+  vec2 normal = contourNormal(st, rad, t);
+  float edgeDepth = max(1.0 - pd, 0.0);
+  float refractionWidth = 0.015 + 0.95 * clamp(SHELL_MID_A, 0.0, 1.0);
+  float refractionT = edgeDepth / max(refractionWidth, 0.001);
+  float profile = pow(refractionProfile(refractionT), 0.68);
+  float refractionAmount = 1.6 * clamp(GLASS_OPACITY, 0.0, 1.0) * profile;
+  vec2 refractedP = p - normal * refractionAmount;
 
-  // Chromatic separation across the wall, which is what stops it reading as a
-  // painted stroke.
-  float chroma = 0.42;
-  vec3 split = vec3(
-    smoothstep(0.62 - 0.03 * chroma, 1.0, ndc),
-    wall,
-    smoothstep(0.62 + 0.03 * chroma, 1.0, ndc)
-  );
+  vec3 fcol = vec3(0.0);
+  if (clearFa > 0.0) {
+    // Three evaluations, which is what makes the edge disperse into colour
+    // rather than being a tinted stroke.
+    float channelSplit = 0.14 * clamp(GLOSS, 0.0, 2.0) * clamp(GLASS_OPACITY, 0.0, 1.0) * profile;
+    vec3 r = voiceWaveFluid(refractedP - normal * channelSplit, t);
+    vec3 g = voiceWaveFluid(refractedP, t);
+    vec3 b = voiceWaveFluid(refractedP + normal * channelSplit, t);
+    fcol = vec3(r.r, g.g, b.b);
+  }
 
-  float spec = pow(max(0.0, dot(reflect(-lightDir, normal), vec3(0.0, 0.0, 1.0))), 30.0);
+  float lum = dot(fcol, vec3(0.213, 0.715, 0.072));
+  vec3 clearSat = clamp(vec3(lum) + (fcol - vec3(lum)) * 1.22, vec3(0.0), vec3(1.0));
+  vec3 col = over(CANVAS, clearSat, 0.99 * clearFa);
 
-  // ── Anisotropic sheen ─────────────────────────────────────────────────────
-  //
-  // The brushed streak that makes the reference read as *metal* under glass
-  // rather than as painted colour: a highlight stretched along one axis instead
-  // of a round dot. 65 degrees, which is the angle that was chosen.
-  float ca = cos(1.134), sa = sin(1.134);
-  vec2 aniso = vec2(st.x * ca - st.y * sa, (st.x * sa + st.y * ca) * 0.23);
-  float sheen = pow(max(0.0, 1.0 - length(aniso) * 1.9), 5.0) * 0.22;
+  float surfaceWidth = 0.026 + 0.055 * clamp(SHELL_EDGE_A, 0.0, 1.0);
+  float surfaceBand = (1.0 - smoothstep(0.0, surfaceWidth, edgeDepth)) * clearFa;
+  float opticalRim = pow(surfaceBand, 1.8);
+  col = over(col, SHELL_INNER, opticalRim * GLASS_OPACITY * 0.45);
 
-  // ── Particles ─────────────────────────────────────────────────────────────
-  //
-  // Suspended dust with a bloom on it. Cheap: one hashed grid, drifting, with
-  // only the brightest cells surviving the threshold, so it reads as scattered
-  // rather than as a texture.
-  vec2 pg = st * 9.0 + vec2(t * 0.05, -t * 0.08);
-  float cell = hash(floor(pg));
-  float spark = smoothstep(0.92, 1.0, cell) * (1.0 - length(fract(pg) - 0.5) * 1.6);
-  float particles = max(0.0, spark) * 0.72 * (0.35 + loud * 0.65) * z;
+  vec2 coolDirection = normalize(vec2(0.84, 0.54));
+  vec2 warmDirection = normalize(vec2(-0.62, -0.78));
+  float dispersion = opticalRim * clamp(GLOSS, 0.0, 2.0) * (0.8 + 0.8 * SHELL_EDGE_A);
+  col = over(col, SHELL_MID, dispersion * highlightLobe(normal, coolDirection, -0.32, 1.8));
+  col = over(col, SHELL_EDGE, dispersion * highlightLobe(normal, warmDirection, -0.28, 2.0));
 
-  vec3 color = body * (0.72 + 0.28 * max(0.0, dot(normal, lightDir)));
-  color += ribbons;
-  // glassOpacity 0.48 with a mid alpha of 0.18: the wall is thin and mostly
-  // see-through, so the ribbons behind it stay visible instead of the shell
-  // becoming an opaque ring around them.
-  color += shell * split * (0.18 + loud * 0.22);
-  color += uHi * spec * (0.5 + loud * 0.5);
-  color += uShellIn * sheen * (0.6 + loud * 0.5);
-  color += mix(uHi, uShellIn, 0.5) * particles;
-  color *= inside;
-  // exposure 1.35, which is most of why the reference looks lit and this looked
-  // like a dark ball with a bright edge.
-  color *= 1.35;
+  float edgeShadow = opticalRim * (0.015 + 0.15 * SHELL_EDGE_A)
+                   * (0.15 + 0.85 * max(dot(normal, vec2(0.45, -0.89)), 0.0));
+  col = col * (1.0 - edgeShadow);
 
-  float halo = exp(-max(0.0, d - radius) * 13.0) * (0.14 + loud * 0.5);
-  color += mix(uB, uD, 0.5) * halo * (1.0 - inside);
+  vec2 keyDirection = normalize(vec2(-0.68, 0.73));
+  vec2 fillDirection = normalize(vec2(0.74, -0.67));
+  col = over(col, SHEEN_COLOR, opticalRim * highlightLobe(normal, keyDirection, 0.2, 2.8) * clamp(SHEEN, 0.0, 2.0) * 1.4);
+  col = over(col, SPEC_COLOR, opticalRim * highlightLobe(normal, fillDirection, 0.4, 3.6) * clamp(SHEEN, 0.0, 2.0) * 1.0);
 
-  outColor = vec4(color, max(inside, halo * 0.85));
+  float ballA = 1.0 - smoothstep(0.99 - edgeD(), 1.01 + edgeD(), pd);
+  col = clamp(col * max(uExposure, 0.0), vec3(0.0), vec3(1.0)) * ballA;
+  outColor = vec4(col, ballA);
 }`;
 
 function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
@@ -261,15 +328,7 @@ export function VoiceOrb({
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 
     const u = (name: string) => gl.getUniformLocation(program, name);
-    const uTime = u("uTime"), uLevel = u("uLevel"), uAspect = u("uAspect");
-    gl.uniform3fv(u("uA"), PALETTE.a);
-    gl.uniform3fv(u("uB"), PALETTE.b);
-    gl.uniform3fv(u("uC"), PALETTE.c);
-    gl.uniform3fv(u("uD"), PALETTE.d);
-    gl.uniform3fv(u("uHi"), PALETTE.highlight);
-    gl.uniform3fv(u("uShellIn"), PALETTE.shellIn);
-    gl.uniform3fv(u("uShellMid"), PALETTE.shellMid);
-    gl.uniform3fv(u("uShellEdge"), PALETTE.shellEdge);
+    const uTime = u("uTime"), uLevel = u("uLevel"), uSize = u("uSize");
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -298,8 +357,7 @@ export function VoiceOrb({
 
       gl.uniform1f(uTime, (now - started) / 1000);
       gl.uniform1f(uLevel, shown);
-      const aspect = w >= h ? [w / h, 1] : [1, h / w];
-      gl.uniform2f(uAspect, aspect[0], aspect[1]);
+      gl.uniform2f(uSize, w, h);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -324,20 +382,21 @@ export function VoiceOrb({
   return (
     <div className={`relative isolate ${className}`} data-testid="voice-orb">
       {/*
-        Underneath the canvas, and always drawn: on a browser with no WebGL2
-        this is the orb, and on every other one it is covered before the first
-        frame. Same palette, same silhouette, no ripple.
+        Underneath the canvas, and always drawn until the shader paints.
+        On a browser with no WebGL2 this is the orb; everywhere else it is
+        covered before the first frame. The same three shell colours the glass
+        uses, so the two do not look like different objects.
       */}
       <div
         aria-hidden="true"
         data-testid="voice-orb-fallback"
         hidden={painting}
-        className="absolute inset-[12%] rounded-full transition-transform duration-150"
+        className="absolute inset-[6%] rounded-full transition-transform duration-150"
         style={{
-          transform: `scale(${1 + (listening ? level : 0) * 0.12})`,
+          transform: `scale(${1 + (listening ? level : 0) * 0.08})`,
           background:
-            "radial-gradient(circle at 34% 30%, #FFD9F0 0%, #CE2CCB 26%, #7B53FF 58%, #09030E 88%)",
-          boxShadow: "0 0 40px rgba(206,44,203,0.45), inset 0 0 30px rgba(255,92,113,0.35)",
+            "radial-gradient(circle at 42% 38%, #E48BFF 0%, #CE2CCB 22%, #7B53FF 52%, #09030E 86%)",
+          boxShadow: "inset 0 0 24px rgba(255,120,144,0.35), 0 0 22px rgba(206,44,203,0.35)",
         }}
       />
       <canvas ref={canvasRef} className="relative w-full h-full block" />

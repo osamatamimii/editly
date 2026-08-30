@@ -1646,8 +1646,20 @@ section("The em dash is out of the product's writing, and stays out");
     const src = readFileSync(file, "utf8");
     if (!src.includes("\u2014")) continue;
     const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    /*
+     * A shader is code that happens to live in a string.
+     *
+     * This guard's rule is "a string literal is text a customer reads", which
+     * is true of every string in this product except the two GLSL sources in
+     * the voice orb: their comments explain uniforms to whoever maintains the
+     * shader, and nobody has ever read one in the app. Recognised by their own
+     * first line rather than by filename, so the exemption cannot quietly widen
+     * to cover a real sentence.
+     */
+    const isShader = (text) => /^\s*[`"']?#version\s/.test(text);
     const visit = (node) => {
-      if (TEXT.has(node.kind) && src.slice(node.getStart(), node.getEnd()).includes("\u2014")) {
+      const text = src.slice(node.getStart(), node.getEnd());
+      if (TEXT.has(node.kind) && !isShader(text) && text.includes("\u2014")) {
         const { line } = sf.getLineAndCharacterOfPosition(node.getStart());
         found.push(`${path.relative(repoRoot, file)}:${line + 1}`);
       }
