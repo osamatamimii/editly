@@ -11,3 +11,4 @@ export * from "./followups";
 export * from "./clips";
 export * from "./waitlist";
 export * from "./admin-actions";
+export * from "./social";

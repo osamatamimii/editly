@@ -128,6 +128,7 @@ jobs:
       - run: node tools/theme-test.mjs
       - run: node tools/policy-test.mjs
       - run: node tools/refusal-test.mjs
+      - run: node tools/posting-test.mjs
       - run: node tools/planner-test.mjs
       - run: node tools/account-test.mjs
       - run: node tools/critic-test.mjs

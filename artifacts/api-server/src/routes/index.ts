@@ -13,6 +13,7 @@ import clipsRouter from "./clips";
 import stockRouter from "./stock";
 import adminRouter from "./admin";
 import waitlistRouter from "./waitlist";
+import socialRouter from "./social";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -36,6 +37,7 @@ router.use(waitlistRouter);
 router.use(requireAuth);
 
 router.use(projectsRouter);
+router.use(socialRouter);
 router.use(messagesRouter);
 router.use(exportsRouter);
 router.use(statsRouter);
