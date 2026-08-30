@@ -561,6 +561,27 @@ export interface AdminOverview {
     outcome: string | null;
   }[];
   minutesRenderedThisMonth: number;
+  /**
+   * Fourteen days of the numbers the cards show one of. Optional so a console
+   * talking to an API that predates it draws the cards without the lines
+   * rather than failing to render — which is the failure mode a required field
+   * would produce on exactly the screen somebody opens when something is
+   * already wrong.
+   */
+  trends?: {
+    signups: AdminTrend;
+    renders: AdminTrend;
+    minutes: AdminTrend;
+    failures: AdminTrend;
+  };
+}
+
+/** A fortnight of one number, and the two weeks it splits into. */
+export interface AdminTrend {
+  /** Exactly fourteen entries, oldest first, including the empty days. */
+  daily: number[];
+  thisWeek: number;
+  lastWeek: number;
 }
 
 export interface AdminAccount {

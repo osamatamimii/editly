@@ -2059,7 +2059,37 @@ components:
               outcome: { type: string, nullable: true }
             required: [eventId, type, email, plan, receivedAt, applied, outcome]
         minutesRenderedThisMonth: { type: number }
+        trends:
+          description: >
+            Fourteen days of the numbers the cards show one of. Every card on
+            this screen is a count taken right now, and a count taken right now
+            does not say which way it is going - which is the question somebody
+            opens the console with. Optional so a console talking to an older
+            API draws the cards without the lines rather than failing to render
+            at all.
+          type: object
+          properties:
+            signups: { $ref: '#/components/schemas/AdminTrend' }
+            renders: { $ref: '#/components/schemas/AdminTrend' }
+            minutes: { $ref: '#/components/schemas/AdminTrend' }
+            failures: { $ref: '#/components/schemas/AdminTrend' }
+          required: [signups, renders, minutes, failures]
       required: [queue, worker, accounts, revenue, billing, minutesRenderedThisMonth]
+
+    AdminTrend:
+      description: A fortnight of one number, and the two weeks it splits into.
+      type: object
+      properties:
+        daily:
+          description: >
+            Exactly fourteen entries, oldest first, including the days with
+            nothing in them. A series that drops its empty days draws a busy
+            week and a dead one as the same shape.
+          type: array
+          items: { type: number }
+        thisWeek: { type: number }
+        lastWeek: { type: number }
+      required: [daily, thisWeek, lastWeek]
 
     AdminAccount:
       type: object

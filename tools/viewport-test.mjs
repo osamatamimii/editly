@@ -523,6 +523,23 @@ const PAGES = [
         return box?.innerText ?? "";
       });
       check("the worker card says what it means", /online|offline|unclear/i.test(card), card);
+
+      /*
+       * And the console answers its first question before you read anything.
+       *
+       * This screen holds eight sections and used to ask you to read all eight
+       * to find out whether any of them was bad news — which is the wrong order
+       * for a screen somebody opens *because* something might be wrong. Either
+       * banner is fine; a screen with neither is one that has gone back to
+       * making you look.
+       */
+      const attention = await page.getByTestId("admin-attention").count();
+      const clear = await page.getByTestId("admin-attention-clear").count();
+      check(
+        "and the page says up front whether anything needs somebody",
+        attention + clear === 1,
+        `attention=${attention} clear=${clear}`,
+      );
       const stale = /last beat (\d+)\s*(m|h|d)/.exec(card);
       const saysOnline = /\bonline\b/i.test(card) && !/unclear/i.test(card);
       const minutes = stale ? Number(stale[1]) * ({ m: 1, h: 60, d: 1440 }[stale[2]] ?? 1) : 0;

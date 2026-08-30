@@ -18,6 +18,8 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, ArrowLeft, Search } from "lucide-react";
 import NotFound from "@/pages/not-found";
+import { Sparkline, weekOnWeek } from "@/components/sparkline";
+import type { AdminTrend } from "@workspace/api-client-react";
 import { loadState, isNotFound, COULD_NOT_LOAD } from "@/lib/load-state";
 
 /**
@@ -212,6 +214,26 @@ export default function AdminPage() {
         </div>
 
         {/*
+          What, if anything, needs somebody.
+
+          The console answers eight questions and asks you to read all eight to
+          find out whether any of them is bad news. That is the wrong order for
+          a screen you open *because* something might be wrong: the first line
+          should be the answer, and the sections below it the evidence.
+
+          Everything here is computed from the data already on the page — no new
+          request, nothing that can disagree with the cards underneath it. And
+          it says nothing when there is nothing to say, because a banner that is
+          always present is a banner nobody reads.
+        */}
+        <Attention
+          worker={{ online: worker.online, unclear: claimsOnlineButIsStale }}
+          unattended={data.queue.unattended}
+          failedLastDay={data.queue.failedLastDay}
+          unappliedBilling={data.billing.filter((event) => !event.applied).length}
+        />
+
+        {/*
           The reason, before the act.
 
           It sits above the buttons rather than inside a dialog because that is
@@ -253,6 +275,8 @@ export default function AdminPage() {
             label="Failed (24h)"
             value={data.queue.failedLastDay}
             alarming={data.queue.failedLastDay > 0}
+            trend={data.trends?.failures}
+            upIsGood={false}
           />
         </section>
 
@@ -269,12 +293,17 @@ export default function AdminPage() {
             }
             alarming={!worker.online || claimsOnlineButIsStale}
           />
-          <Card label="Done (24h)" value={data.queue.doneLastDay} />
-          <Card label="Minutes this month" value={data.minutesRenderedThisMonth} />
+          <Card label="Done (24h)" value={data.queue.doneLastDay} trend={data.trends?.renders} />
+          <Card
+            label="Minutes this month"
+            value={data.minutesRenderedThisMonth}
+            trend={data.trends?.minutes}
+          />
           <Card
             label="Accounts"
             value={data.accounts.total}
             hint={`${data.accounts.newLastWeek} new this week`}
+            trend={data.trends?.signups}
           />
         </section>
 
@@ -543,17 +572,103 @@ function RowButton({
   );
 }
 
+/**
+ * The first line on the screen, and usually the only one worth reading.
+ *
+ * Four things can be wrong at once and they are not equally urgent, so they
+ * come out in the order somebody would act on them: no machine at all beats a
+ * queue nobody is serving, which beats renders that failed, which beats a
+ * payment that did not apply. The wording says what to do, not what is true —
+ * "no machine is listening" is a fact; "nothing will render until a machine
+ * comes back" is the thing you needed to know.
+ */
+function Attention({
+  worker,
+  unattended,
+  failedLastDay,
+  unappliedBilling,
+}: {
+  worker: { online: boolean; unclear: boolean };
+  unattended: number;
+  failedLastDay: number;
+  unappliedBilling: number;
+}) {
+  const problems: string[] = [];
+  if (worker.unclear) {
+    problems.push("The worker reports online with a stale heartbeat. Both cannot be true.");
+  } else if (!worker.online) {
+    problems.push("No machine is listening. Nothing will render until one comes back.");
+  }
+  if (unattended > 0) {
+    problems.push(
+      `${unattended} ${unattended === 1 ? "render is" : "renders are"} queued with nothing to pick ${unattended === 1 ? "it" : "them"} up.`,
+    );
+  }
+  if (failedLastDay > 0) {
+    problems.push(
+      `${failedLastDay} ${failedLastDay === 1 ? "render" : "renders"} failed in the last day. The reason is on each row below.`,
+    );
+  }
+  if (unappliedBilling > 0) {
+    problems.push(
+      `${unappliedBilling} billing ${unappliedBilling === 1 ? "event" : "events"} arrived and did not apply. Somebody has paid for something they do not have.`,
+    );
+  }
+
+  if (problems.length === 0) {
+    return (
+      <section
+        className="rounded-xl border border-success/40 bg-success/10 px-4 py-3 text-sm"
+        data-testid="admin-attention-clear"
+      >
+        <span className="font-medium text-success">Nothing needs you.</span>{" "}
+        <span className="text-muted-foreground">
+          A machine is listening, the queue is moving, and every payment that arrived has been
+          applied.
+        </span>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      className="rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-3"
+      data-testid="admin-attention"
+    >
+      <div className="text-sm font-semibold text-destructive mb-1">
+        {problems.length === 1 ? "One thing needs you" : `${problems.length} things need you`}
+      </div>
+      <ul className="space-y-1">
+        {problems.map((problem) => (
+          <li key={problem} className="text-sm text-foreground leading-snug">
+            {problem}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Card({
   label,
   value,
   hint,
   alarming = false,
+  trend,
+  /** Which way is good. Failures going up is not the same news as signups. */
+  upIsGood = true,
 }: {
   label: string;
   value: string | number;
   hint?: string;
   alarming?: boolean;
+  trend?: AdminTrend;
+  upIsGood?: boolean;
 }) {
+  const change = trend ? weekOnWeek(trend.thisWeek, trend.lastWeek) : null;
+  const good = change && change.direction !== "flat" && (change.direction === "up") === upIsGood;
+  const bad = change && change.direction !== "flat" && !good;
+
   return (
     <div
       className={`rounded-xl border p-4 ${
@@ -561,7 +676,37 @@ function Card({
       }`}
     >
       <div className="text-sm text-muted-foreground">{label}</div>
-      <div className="text-2xl font-bold mt-1">{value}</div>
+      <div className="flex items-end justify-between gap-3 mt-1">
+        <div className="text-2xl font-bold tabular-nums">{value}</div>
+        {trend ? (
+          /*
+             The line takes the card's colour, not its own, when the card is
+             already alarming. A green sparkline inside a red card is two
+             signals disagreeing on one object — and the one that is wrong is
+             the small one, because the card went red for a reason the
+             fortnight does not know about.
+          */
+          <Sparkline
+            values={trend.daily}
+            className={
+              alarming
+                ? "text-destructive"
+                : good
+                  ? "text-success"
+                  : bad
+                    ? "text-warning"
+                    : "text-muted-foreground"
+            }
+          />
+        ) : null}
+      </div>
+      {change ? (
+        <div
+          className={`text-xs mt-1 ${good ? "text-success" : bad ? "text-warning" : "text-muted-foreground"}`}
+        >
+          {change.text}
+        </div>
+      ) : null}
       {hint ? <div className="text-xs text-muted-foreground mt-1">{hint}</div> : null}
     </div>
   );

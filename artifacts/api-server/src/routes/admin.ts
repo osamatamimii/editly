@@ -24,6 +24,7 @@ import { currentUserId } from "../middlewares/auth";
 import { isUnattended, workerOnline } from "../lib/queue-health";
 import { DEFAULT_PLAN, PLAN_LIMITS, minutesFrom, type PlanKey } from "../lib/plan-limits";
 import { startOfMonthUtc } from "../lib/usage";
+import { trends } from "../lib/admin-trend";
 
 /**
  * The two statuses a job can be in while it is still going to happen.
@@ -229,6 +230,10 @@ router.get("/admin/overview", async (_req, res): Promise<void> => {
         outcome: event.outcome ?? null,
       })),
       minutesRenderedThisMonth: minutesFrom(Number(minutesRow?.seconds ?? 0)),
+      // Fourteen days of the same numbers the cards above show one of. A count
+      // taken right now is true and does not say which way it is going, which
+      // is the question somebody opens this screen with.
+      trends: await trends(),
     }),
   );
 });

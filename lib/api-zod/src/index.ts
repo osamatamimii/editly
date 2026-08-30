@@ -1118,6 +1118,20 @@ export type ListTemplatesResponse = z.infer<typeof ListTemplatesResponse>;
 // ---------------------------------------------------------------------------
 
 /** How the platform is doing right now — the row of cards at the top. */
+/**
+ * A fortnight of one number, and the two weeks it splits into.
+ *
+ * `daily` is always exactly fourteen entries, oldest first, including the days
+ * with nothing in them — a series that drops its empty days draws a busy week
+ * and a dead one as the same shape.
+ */
+export const AdminTrend = z.object({
+  daily: z.array(z.number()),
+  thisWeek: z.number(),
+  lastWeek: z.number(),
+});
+export type AdminTrend = z.infer<typeof AdminTrend>;
+
 export const AdminOverview = z.object({
   queue: z.object({
     /** Being worked on by a live machine. */
@@ -1157,6 +1171,22 @@ export const AdminOverview = z.object({
   ),
   /** Seconds rendered this month across everyone — what the platform is actually doing. */
   minutesRenderedThisMonth: z.number(),
+  /**
+   * Fourteen days of the numbers the cards show one of.
+   *
+   * Optional so a deployment whose API predates it still parses — the console
+   * draws the cards without the lines rather than failing to render at all,
+   * which is the failure mode a required field would have produced on exactly
+   * the screen somebody opens when something is already wrong.
+   */
+  trends: z
+    .object({
+      signups: AdminTrend,
+      renders: AdminTrend,
+      minutes: AdminTrend,
+      failures: AdminTrend,
+    })
+    .optional(),
 });
 export type AdminOverview = z.infer<typeof AdminOverview>;
 
