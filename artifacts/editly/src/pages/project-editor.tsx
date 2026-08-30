@@ -24,8 +24,7 @@ import { Card } from "@/components/ui/card";
 import { 
   UploadCloud, Play, Pause, ChevronLeft, Send,
   Wand2, Download, CheckCircle2, Loader2,
-  Video, Sparkles
-} from "lucide-react";
+  Video, Sparkles, VideoOff } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -61,6 +60,15 @@ function formatTimecode(seconds: number): string {
   const rest = Math.floor(seconds % 60);
   return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
+
+/**
+ * Below this, aligning the transport to the picture costs more than it buys.
+ *
+ * A play button, a scrubber and a timecode need about this much room before the
+ * scrubber stops being a hairline you cannot hit. It is the width of the
+ * controls, not a screen size: a portrait video does this on a desktop too.
+ */
+const USABLE_TRANSPORT_WIDTH = 280;
 
 export default function ProjectEditor() {
   const params = useParams();
@@ -771,7 +779,7 @@ export default function ProjectEditor() {
    * a timeline you have to go looking for.
    */
   const transport = (
-    <div ref={transportRef} className="rounded-xl glass-panel border border-hairline px-4 py-3">
+    <div ref={transportRef} className="w-full rounded-xl glass-panel border border-hairline px-4 py-3">
       <div className="flex items-center gap-3">
         <button
           onClick={togglePlay}
@@ -782,6 +790,14 @@ export default function ProjectEditor() {
           {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
         </button>
 
+        {/*
+          The scrubber and the marks on it, in one box.
+          A note pinned to 0:26 that shows only as a row of text underneath is
+          a list of timecodes, not a timeline: you cannot see where in the video
+          your notes are, or that two of them are next to each other. The pins
+          are the point of stopping on a second.
+        */}
+        <div className="relative flex-1 min-w-0">
         <input
           type="range"
           min={0}
@@ -798,13 +814,44 @@ export default function ProjectEditor() {
           // *hit* area 44px while `bg-clip-content` keeps the *paint* inside
           // the content box, so the scrubber still looks like a hairline and
           // is no longer a game of skill. The thumb grows on touch too.
-          className="flex-1 min-w-0 h-11 py-[1.15rem] md:h-1.5 md:py-0 bg-clip-content appearance-none rounded-full bg-surface-2 accent-primary cursor-pointer
+          className="w-full h-11 py-[1.15rem] md:h-1.5 md:py-0 bg-clip-content appearance-none rounded-full bg-surface-2 accent-primary cursor-pointer
                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 md:[&::-webkit-slider-thumb]:w-3.5
                      [&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
                      [&::-webkit-slider-thumb]:bg-secondary
                      [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(155,107,255,0.8)]"
           data-testid="input-scrubber"
         />
+
+        {/* Pins. `pointer-events-none` on the strip so dragging the scrubber
+            still works through them, and back on for each pin so it can be
+            pressed. */}
+        <div className="absolute inset-x-0 top-0 h-full pointer-events-none" aria-hidden={marks.length === 0}>
+          {marks.map((m) => {
+            const total = playerDuration || project.duration || 0;
+            if (!(total > 0)) return null;
+            const left = Math.min(100, Math.max(0, (m.at / total) * 100));
+            return (
+              <button
+                key={`${m.at}-${m.say}`}
+                type="button"
+                onClick={() => {
+                  setCurrentTime(m.at);
+                  if (videoRef.current) videoRef.current.currentTime = m.at;
+                }}
+                title={`${formatTimecode(m.at)}: ${m.say}`}
+                aria-label={`Go to the note at ${formatTimecode(m.at)}: ${m.say}`}
+                style={{ left: `${left}%` }}
+                className="pointer-events-auto absolute top-1/2 -translate-x-1/2 -translate-y-1/2
+                           h-11 w-6 md:h-6 md:w-4 flex items-center justify-center group"
+                data-testid="mark-pin"
+              >
+                <span className="block w-[3px] h-4 md:h-3.5 rounded-full bg-secondary shadow-[0_0_6px_rgba(155,107,255,0.9)]
+                                 group-hover:h-5 transition-all" />
+              </button>
+            );
+          })}
+        </div>
+        </div>
 
         <span className="text-xs tabular-nums text-muted-foreground flex-shrink-0" data-testid="text-timecode">
           {formatTimecode(currentTime)} / {formatTimecode(playerDuration || project.duration || 0)}
@@ -1091,7 +1138,17 @@ export default function ProjectEditor() {
               {/* Content-width, not flex-1: the frame and its controls read as
                   one object centred in the space, rather than the frame drifting
                   to one edge with a gap between them. */}
-              <div className="min-w-0 flex flex-col items-center justify-center gap-3">
+              {/*
+                Full width, with only the *picture* keeping the video's shape.
+                This column had no width of its own, so it shrank to fit the
+                thing inside it — and the thing inside it is a 9:16 frame, which
+                on a 390px phone is 169px wide. Everything under the video went
+                with it: the scrubber, the timecode and the mark button were all
+                crammed into 169px of a 390px screen, which is most of why this
+                screen felt tight. Only the frame needs to be portrait; the
+                controls belong to the screen.
+              */}
+              <div className="w-full min-w-0 flex flex-col items-center justify-center gap-3">
                 <div
                   className="force-dark relative rounded-2xl overflow-hidden glass-panel border border-hairline text-foreground"
                   style={{
@@ -1159,11 +1216,25 @@ export default function ProjectEditor() {
                     {/* A black rectangle is indistinguishable from a broken app.
                         Say what happened, and note that the render is unaffected. */}
                     {playbackFailed && (
-                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/80 px-6 text-center">
-                        <p className="font-semibold">This file will not play in the browser</p>
-                        <p className="text-sm text-muted-foreground max-w-md">
-                          Your video is stored safely and can still be edited. Some codecs just cannot be
-                          previewed here. The rendered result will play normally.
+                      /*
+                        Sized to fit the frame it is covering, which is not
+                        always a wide one.
+                        This was three lines of prose at body size centred in a
+                        9:16 box. On a phone that box is 169px wide and 300 tall,
+                        so the message overflowed it top and bottom and was
+                        clipped mid-sentence — an explanation of a failure that
+                        was itself unreadable. The type steps down with the
+                        frame and the box scrolls rather than spilling, and the
+                        sentence is shorter, because the long version was mostly
+                        reassurance and the first line already carries the fact.
+                      */
+                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 overflow-y-auto bg-black/85 px-4 py-6 text-center">
+                        <VideoOff className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                        <p className="text-sm sm:text-base font-semibold leading-snug">
+                          This file will not preview here
+                        </p>
+                        <p className="text-xs sm:text-sm text-muted-foreground leading-snug max-w-md">
+                          It is stored safely, and it still edits and exports normally.
                         </p>
                       </div>
                     )}
@@ -1186,9 +1257,26 @@ export default function ProjectEditor() {
                     )}
                 </div>
 
-                {/* Exactly the picture's width, so the scrubbable length and the
-                    thing being scrubbed line up edge to edge. */}
-                <div style={{ width: picture ? `${picture.width}px` : "100%" }}>
+                {/*
+                  The picture's width, so the scrubbable length and the thing
+                  being scrubbed line up edge to edge — but not when that makes
+                  the controls unusable.
+                  A 9:16 picture on a 390px phone is 169px wide, and the whole
+                  transport was inheriting that: a play button, a scrubber and a
+                  timecode sharing 135px of a 390px screen, with the scrubber
+                  itself down to a single pixel. The alignment is worth having
+                  and it is not worth that, so it holds while the picture is
+                  wide enough to hold it and the controls take the column when
+                  it is not. Measured against the width of the control row
+                  rather than a breakpoint, because it is the picture's shape
+                  that causes this, not the size of the screen.
+                */}
+                <div
+                  style={{
+                    width:
+                      picture && picture.width >= USABLE_TRANSPORT_WIDTH ? `${picture.width}px` : "100%",
+                  }}
+                >
                   {transport}
                 </div>
               </div>

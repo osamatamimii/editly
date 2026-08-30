@@ -337,7 +337,30 @@ const PAGES = [
   { url: "/", name: "the landing page", signedIn: false, expect: /Stop editing/ },
   { url: "/login", name: "signing in", signedIn: false, expect: /Welcome back|Sign in/ },
   { url: "/dashboard", name: "the dashboard", signedIn: true, expect: /Projects|project/i },
-  { url: `/project/${PROJECTS[0].id}`, name: "the project editor", signedIn: true },
+  {
+    url: `/project/${PROJECTS[0].id}`,
+    name: "the project editor",
+    signedIn: true,
+    then: async (page, check) => {
+      /*
+       * The scrubber has to be wide enough to scrub.
+       *
+       * The transport was sized to the picture so the two would line up edge to
+       * edge, which is a good idea for a wide frame and was ruinous for a tall
+       * one: a 9:16 video on a 390px phone is 169px wide, so a play button, a
+       * scrubber and a timecode shared 135px of the screen and the scrubber
+       * itself measured a single pixel. Every check here passed the whole time,
+       * because a 1px-wide input is not an error — it is a layout.
+       */
+      const track = await page.getByTestId("input-scrubber").boundingBox();
+      const view = page.viewportSize();
+      check(
+        "the scrubber is a usable fraction of the screen, not a hairline",
+        Boolean(track && view && track.width >= view.width * 0.35),
+        JSON.stringify({ track: track && Math.round(track.width), screen: view?.width }),
+      );
+    },
+  },
   { url: `/export/${PROJECTS[0].id}`, name: "the export screen", signedIn: true },
   { url: "/account", name: "the account page", signedIn: true },
   { url: "/admin", name: "the admin console", signedIn: true, then: async (page, check) => {
@@ -616,6 +639,35 @@ const PAGES = [
 
       const listed = await page.getByTestId("list-marks").innerText();
       check("and it is listed with its timecode", /0:26/.test(listed) && /punch in/.test(listed), listed);
+
+      /*
+       * And it is *on the timeline*, at the right place.
+       *
+       * A note pinned to 0:26 that shows only as a row of text underneath is a
+       * list of timecodes, not a timeline — you cannot see where in the video
+       * your notes are, which is the whole point of stopping on a second. The
+       * position is checked as a fraction of the track rather than in pixels,
+       * so it holds at any width.
+       */
+      const pin = await page.evaluate(() => {
+        const p = document.querySelector('[data-testid="mark-pin"]');
+        const track = document.querySelector('[data-testid="input-scrubber"]');
+        if (!p || !track) return null;
+        const pb = p.getBoundingClientRect();
+        const tb = track.getBoundingClientRect();
+        return {
+          fraction: (pb.left + pb.width / 2 - tb.left) / tb.width,
+          onTrack: pb.top < tb.bottom && pb.bottom > tb.top,
+        };
+      });
+      check("the note shows as a pin on the scrubber", pin !== null, JSON.stringify(pin));
+      // 26s of the fixture's 62s duration.
+      check(
+        "at the fraction of the timeline it happens at",
+        pin !== null && Math.abs(pin.fraction - 26 / 62) < 0.04,
+        JSON.stringify(pin),
+      );
+      check("and sitting on the track rather than beside it", pin?.onTrack === true, JSON.stringify(pin));
 
       // With a mark and nothing typed, the send button has to be live: pointing
       // at a moment is the whole instruction.
