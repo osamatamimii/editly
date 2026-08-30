@@ -1079,6 +1079,82 @@ console.log("\nExports are real renders");
     JSON.stringify(job.json?.plan),
   );
 
+  /**
+   * And it exports the edit, not the upload.
+   *
+   * This route rendered the original file with two operations bolted on — cut
+   * the silences, frame it for the platform — so the button sitting beside the
+   * finished edit, under a heading that says "Export Project", handed back **a
+   * different video**: no captions, no punches, no music, no titles, none of
+   * the work the person had just done. Nothing failed and nothing said so.
+   *
+   * The three exceptions are the interesting part, and each one is a decision
+   * rather than an omission.
+   */
+  const carryProject = await call(ALICE, "/api/projects", "POST", { title: "Export carries the edit" });
+  const carryId = carryProject.json?.id;
+  await call(ALICE, `/api/projects/${carryId}`, "PATCH", {
+    videoPath: `${ALICE}/${carryId}/source.mp4`,
+    duration: 40,
+  });
+  // A finished render with a plan worth keeping — captions, a punch, a look,
+  // and a platform the export is about to change.
+  psqlGlobal(
+    `insert into jobs (id, project_id, user_id, status, plan, input_path, created_at, updated_at, finished_at) ` +
+      `values ('export-carry-job', '${carryId}', '${ALICE}', 'done', ` +
+      `'{"version":1,"operations":[` +
+      `{"type":"removeSilence","thresholdDb":-32,"minSilenceMs":400,"paddingMs":70},` +
+      `{"type":"autoCaptions","style":"bold-white","animation":"pop","dropFillers":true},` +
+      `{"type":"zoomPunch","on":"emphasis","at":[4,9],"amount":0.14,"holdMs":900},` +
+      `{"type":"grade","saturation":1,"look":"cinematic"},` +
+      `{"type":"formatForPlatform","platform":"tiktok"},` +
+      `{"type":"watermark","text":"Edited with Editly","position":"bottom-right"}` +
+      `]}'::jsonb, '${ALICE}/${carryId}/source.mp4', now(), now(), now())`,
+  );
+
+  const carried = await call(ALICE, `/api/projects/${carryId}/export`, "POST", { platform: "youtube" });
+  check("an export of an edited project is accepted", carried.status === 202, `got ${carried.status} ${carried.text.slice(0, 160)}`);
+  const carriedJob = await call(ALICE, `/api/projects/${carryId}/render/status`);
+  const ops = carriedJob.json?.plan?.operations ?? [];
+  const types = ops.map((o) => o.type);
+  check(
+    "and it carries the edit rather than re-cutting the upload",
+    ["autoCaptions", "zoomPunch", "grade"].every((t) => types.includes(t)),
+    JSON.stringify(types),
+  );
+  check(
+    "with the punches on the moments the edit chose",
+    JSON.stringify(ops.find((o) => o.type === "zoomPunch")?.at) === JSON.stringify([4, 9]),
+    JSON.stringify(ops.find((o) => o.type === "zoomPunch")),
+  );
+  check(
+    "the platform is the one asked for now, not the one the edit was made in",
+    ops.filter((o) => o.type === "formatForPlatform").length === 1 &&
+      ops.find((o) => o.type === "formatForPlatform")?.platform === "youtube",
+    JSON.stringify(ops.filter((o) => o.type === "formatForPlatform")),
+  );
+  // The mark is not the plan's to carry: the policy adds it from the
+  // subscription on every path, so a plan that brought its own would either
+  // double it or smuggle one past a paying customer.
+  check(
+    "the mark comes from the subscription, once, not from the plan it copied",
+    ops.filter((o) => o.type === "watermark").length === 1,
+    JSON.stringify(types),
+  );
+  // The operations are written against the source clock, so the export starts
+  // from the upload. Re-rendering the edited file would cut the silences out of
+  // a video whose silences are already gone.
+  const exportInput = psqlGlobalRead(
+    `select input_path from jobs where project_id = '${carryId}' and id <> 'export-carry-job' limit 1`,
+  ).trim();
+  check(
+    "and it renders the original upload, because that is what the plan describes",
+    exportInput === `${ALICE}/${carryId}/source.mp4`,
+    `${exportInput} — re-rendering the edited file would cut the silences out of a video whose silences are already gone`,
+  );
+  psqlGlobal(`delete from jobs where project_id = '${carryId}'`);
+  await call(ALICE, `/api/projects/${carryId}`, "DELETE");
+
   const status = await call(ALICE, `/api/projects/${exportProjectId}/export/status`);
   check("its status stays processing while the worker has not run", status.json?.status === "processing", JSON.stringify(status.json?.status));
   check(
