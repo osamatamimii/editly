@@ -243,6 +243,50 @@ const waitForLog = async (pattern, timeoutMs = 20_000) => {
   return null;
 };
 
+/**
+ * The list of operations that name a file, read from the contract rather than
+ * from memory.
+ *
+ * This list had three entries and the contract had four. `addMusic` was
+ * missing, so the bed was never downloaded and every music render came back
+ * silent under a note that was truthful about what it could see. The section
+ * further down proves the fetch works; this one proves the *list is complete*,
+ * which is the part that will rot again the next time an operation learns to
+ * name a file.
+ *
+ * Derived, not asserted against a copy: an operation that carries an `assetId`
+ * in the schema is by definition an operation whose file has to be fetched, and
+ * that is the only definition either side should be reading.
+ */
+section("Every operation that names a file is on the list of files to fetch");
+{
+  const contract = readFileSync(path.join(repoRoot, "lib/api-zod/src/index.ts"), "utf8");
+  const namesAFile = [];
+  for (const match of contract.matchAll(/type: z\.literal\("(\w+)"\)/g)) {
+    const end = contract.indexOf("});", match.index);
+    const body = contract.slice(match.index, end === -1 ? contract.length : end);
+    if (/\bassetId:/.test(body)) namesAFile.push(match[1]);
+  }
+  check("the contract has operations that name a file", namesAFile.length >= 3, JSON.stringify(namesAFile));
+
+  const worker = readFileSync(path.join(repoRoot, "artifacts/worker/src/index.ts"), "utf8");
+  const listed = /NAMES_AN_ASSET = new Set\(\[([^\]]*)\]\)/.exec(worker)?.[1] ?? "";
+  const fetched = [...listed.matchAll(/"(\w+)"/g)].map((m) => m[1]);
+
+  const missing = namesAFile.filter((type) => !fetched.includes(type));
+  check(
+    "and the worker fetches for every one of them",
+    missing.length === 0,
+    `${JSON.stringify(missing)} name a file in the schema and are not on the worker's list — their file is never downloaded, and the renderer says it is not in the project`,
+  );
+  const spurious = fetched.filter((type) => !namesAFile.includes(type));
+  check(
+    "and for nothing that does not name one",
+    spurious.length === 0,
+    `${JSON.stringify(spurious)} are on the worker's list and carry no assetId`,
+  );
+}
+
 section("It starts, and says what it can do");
 {
   const ready = await waitForLog(/worker ready/);
