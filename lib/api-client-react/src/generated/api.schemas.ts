@@ -238,6 +238,9 @@ export interface ExportJob {
    * @nullable
    */
   outputPath?: string | null;
+  /** How long the finished edit is, measured by the worker from the file it produced. Null until a render has finished, and null when the length could only be estimated.
+   * @nullable */
+  outputSeconds?: number | null;
   steps: ExportStep[];
   /** What the render did, and what it could not do. */
   notes?: string[];

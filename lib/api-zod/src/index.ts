@@ -107,6 +107,17 @@ export const ExportJob = z.object({
    * ready. A path that arrives with the status it belongs to cannot be stale.
    */
   outputPath: z.string().nullable().optional(),
+  /**
+   * How long the finished edit is, measured by the worker from the file it
+   * produced. Null until a render has finished.
+   *
+   * Not the source length. The scheduling screen judges a post against each
+   * platform's duration limit, and the only number it had was the upload's —
+   * so a three-minute take cut to ninety seconds was refused for X on a limit
+   * it does not break. Nothing errors when a limit is too strict; the person
+   * just quietly cannot post something that would have been fine.
+   */
+  outputSeconds: z.number().nullable().optional(),
   steps: z.array(ExportStep),
   /**
    * What the render did that the person should know about: captions skipped for

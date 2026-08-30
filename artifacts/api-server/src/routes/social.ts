@@ -31,6 +31,7 @@ import {
   scheduledPostsTable,
   projectsTable,
   exportsTable,
+  jobsTable,
 } from "@workspace/db";
 import { currentUserId } from "../middlewares/auth";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
@@ -219,7 +220,6 @@ router.post("/social/posts", rateLimit(LIMITS.createProject), async (req, res): 
       editedHeight: projectsTable.editedHeight,
       width: projectsTable.width,
       height: projectsTable.height,
-      duration: projectsTable.duration,
     })
     .from(projectsTable)
     .where(and(eq(projectsTable.id, projectId), eq(projectsTable.userId, userId)))
@@ -251,15 +251,38 @@ router.post("/social/posts", rateLimit(LIMITS.createProject), async (req, res): 
   // thing the product just did.
   const [finished] = body.exportId
     ? await db
-        .select({ id: exportsTable.id })
+        .select({
+          id: exportsTable.id,
+          // Joined rather than looked up after, because the length of the
+          // *rendered* file is the number the platforms judge and it lives on
+          // the job. The route used to use `projects.duration` — the upload's
+          // length, written by the browser — so a three-minute take cut to
+          // ninety seconds was refused for X on a limit it does not break.
+          // That failure has no symptom: nothing errors, the person simply
+          // cannot post something that would have been fine.
+          outputSeconds: jobsTable.outputSeconds,
+          outputSecondsSource: jobsTable.outputSecondsSource,
+        })
         .from(exportsTable)
+        .leftJoin(jobsTable, eq(jobsTable.id, exportsTable.jobId))
         .where(and(eq(exportsTable.id, String(body.exportId)), eq(exportsTable.userId, userId)))
         .limit(1)
     : [];
 
   const width = project.editedWidth ?? project.width ?? null;
   const height = project.editedHeight ?? project.height ?? null;
-  const durationSeconds = project.duration ?? null;
+  /**
+   * The finished edit's length when it was really measured, and null when it
+   * was not.
+   *
+   * Null, deliberately, rather than falling back to the source. `refusalsFor`
+   * treats an unknown duration as no reason to refuse — because refusing on a
+   * field we do not have blocks correct posts for a reason nobody can see —
+   * and the source length is not a worse measurement of the edit, it is a
+   * measurement of a different file.
+   */
+  const durationSeconds =
+    finished?.outputSecondsSource === "probe" ? (finished.outputSeconds ?? null) : null;
 
   const refusals: Array<{ accountId: string; handle: string; platform: string; message: string }> = [];
   for (const account of accounts) {

@@ -19,6 +19,9 @@ import { loadState, isNotFound } from "@/lib/load-state";
 import { LoadFailed } from "@/components/load-failed";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { ScheduleComposer } from "@/components/schedule-composer";
+import { apiJson } from "@/lib/api-fetch";
+import type { PlatformInfo, ConnectedAccount } from "@/components/social-connections";
 
 export default function ExportPage() {
   const params = useParams();
@@ -29,6 +32,38 @@ export default function ExportPage() {
   
   const [platform, setPlatform] = useState<"tiktok" | "reels" | "shorts" | "youtube" | "square">("tiktok");
   const [isExporting, setIsExporting] = useState(false);
+
+  /*
+    Where this edit could go, asked for once on arrival.
+
+    Not lazily when the render finishes: the answer is needed the moment the
+    "Ready to Share" card appears, and asking then means the composer pops in a
+    second late underneath a button somebody is already reaching for. Both
+    requests are cheap and neither blocks anything on screen.
+
+    A failure here is deliberately silent. Not being able to list connected
+    accounts is a reason to hide the scheduler; it is not a reason to put an
+    error over a video that rendered perfectly.
+  */
+  const [destinations, setDestinations] = useState<{
+    platforms: PlatformInfo[];
+    accounts: ConnectedAccount[];
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [cat, mine] = await Promise.all([
+        apiJson<{ platforms?: PlatformInfo[] }>("/api/social/platforms"),
+        apiJson<{ accounts?: ConnectedAccount[] }>("/api/social/accounts"),
+      ]);
+      if (cancelled || !cat.ok || !mine.ok) return;
+      setDestinations({ platforms: cat.body.platforms ?? [], accounts: mine.body.accounts ?? [] });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const projectQuery = useGetProject(id, {
     query: { enabled: !!id, queryKey: getGetProjectQueryKey(id) }
@@ -357,9 +392,15 @@ export default function ExportPage() {
                 </CardContent>
               </Card>
 
-              <Button 
-                size="lg" 
-                className="w-full h-16 text-lg font-bold rounded-xl glow-btn bg-primary text-primary-foreground hover:bg-primary/90"
+              <Button
+                size="lg"
+                /* No `glow-btn`, and no `bg-primary` either: the Button
+                   component's default variant is `.aura-btn` in the primary
+                   tint now, and two classes both writing `box-shadow` is one of
+                   them silently winning. This screen was the last place in the
+                   app still wearing the old ring, which is why the finished
+                   render sat under a button that matched nothing around it. */
+                className="w-full h-16 text-lg font-bold rounded-xl"
                 onClick={handleStartExport}
                 disabled={!hasVideo}
                 data-testid="button-start-export"
@@ -417,7 +458,16 @@ export default function ExportPage() {
               <CardContent className="pt-6">
                 <Button
                   size="lg"
-                  className="w-full h-16 text-lg font-bold rounded-xl bg-foreground text-background hover:bg-foreground/85 transition-all shadow-[0_0_20px_var(--invert-glow)]"
+                  /* The default variant, which is `.aura-btn` in the primary
+                     tint — the same object as every other button in the app.
+
+                     It replaces `bg-foreground` with a raw `shadow-[...]`
+                     glow, which is not a quieter version of that look but a
+                     different one: a blur has no edge and reads as haze around
+                     a flat disc, where a spread ring reads as a second, softer
+                     silhouette. Inverting the strongest action on the screen
+                     also made it the one control that matched nothing else. */
+                  className="w-full h-16 text-lg font-bold rounded-xl"
                   // The edit, or nothing. There is deliberately no fallback to
                   // the original upload here: handing someone their own file
                   // back under a button marked "Download Video" is worse than
@@ -456,6 +506,31 @@ export default function ExportPage() {
                     </ul>
                   </div>
                 )}
+
+                {destinations ? (
+                  <div className="mt-6">
+                    <ScheduleComposer
+                      projectId={id}
+                      exportId={exportStatus?.id ?? null}
+                      platforms={destinations.platforms}
+                      accounts={destinations.accounts}
+                      // The *edit's* shape and length, not the source's. A 16:9
+                      // take reframed to 9:16 is vertical, and judging it on
+                      // the upload would refuse the very thing this screen just
+                      // did. Same for the length: a three-minute take cut to
+                      // ninety seconds fits X, and the source length says it
+                      // does not.
+                      //
+                      // `undefined` rather than the source length when the
+                      // render could not be measured, because "unknown" and
+                      // "too long" must not be the same answer — the limits
+                      // treat a null duration as no reason to refuse.
+                      durationSeconds={exportStatus?.outputSeconds ?? null}
+                      width={project.editedWidth ?? project.width ?? null}
+                      height={project.editedHeight ?? project.height ?? null}
+                    />
+                  </div>
+                ) : null}
 
                 <div className="mt-6 flex gap-4 justify-center">
                   <Button variant="outline" className="border-hairline" onClick={() => {

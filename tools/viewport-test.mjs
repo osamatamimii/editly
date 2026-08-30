@@ -144,14 +144,65 @@ const FIXTURES = {
     minutesRenderedThisMonth: 412.6,
   },
   "/api/healthz": { status: "ok" },
+  /*
+    Two accounts on one platform, on purpose.
+
+    Agencies run a client's Instagram and their own, and a composer that
+    assumes one account per platform is a composer they cannot use. It is also
+    the case that breaks a naive layout: two long handles on one row.
+  */
+  "/api/social/platforms": { platforms: [
+    { platform: "instagram", label: "Instagram", connected: true, captionLimit: 2200, maxDurationSeconds: 5400, shape: "any", needsReview: true },
+    { platform: "x", label: "X", connected: true, captionLimit: 280, maxDurationSeconds: 140, shape: "any", needsReview: false },
+    { platform: "tiktok", label: "TikTok", connected: false, captionLimit: 2200, maxDurationSeconds: 600, shape: "vertical", needsReview: true },
+    { platform: "facebook", label: "Facebook", connected: false, captionLimit: 63206, maxDurationSeconds: 14400, shape: "any", needsReview: true },
+    { platform: "snapchat", label: "Snapchat", connected: false, captionLimit: 250, maxDurationSeconds: 180, shape: "vertical", needsReview: true },
+  ] },
+  "/api/social/accounts": {
+    accounts: [
+      { id: "acc_1", platform: "instagram", handle: "@studio.northlight", displayName: "Northlight", avatarUrl: null, status: "ok", statusDetail: null },
+      { id: "acc_2", platform: "instagram", handle: "@a.client.with.a.long.handle", displayName: null, avatarUrl: null, status: "ok", statusDetail: null },
+      { id: "acc_3", platform: "x", handle: "@northlight", displayName: null, avatarUrl: null, status: "ok", statusDetail: null },
+    ],
+  },
+  "/api/social/posts": { posts: [] },
   "/api/templates": [
     { id: "talking-head", name: "Talking head", description: "Silence out, framed vertical, levels fixed.", bestFor: "One person to camera", needs: null },
     { id: "on-the-beat", name: "On the beat", description: "Punches in on the beat of the track you picked.", bestFor: "Montages with music", needs: "music" },
   ],
 };
 
+/**
+ * A render that has finished.
+ *
+ * Without it the export screen answers 404 for the status and shows the
+ * platform picker, which is a real state and not the one that carries the
+ * scheduling composer — so the composer had no width at which anything
+ * rendered it. `outputSeconds` is 21.4 and the source is 96: X stops at 140,
+ * and using the wrong one of those two numbers is exactly the bug the route
+ * was fixed for.
+ */
+const FINISHED_EXPORT = {
+  id: "exp_1",
+  projectId: PROJECTS[0].id,
+  status: "done",
+  platform: "tiktok",
+  downloadUrl: null,
+  outputPath: "renders/exp_1.mp4",
+  outputSeconds: 21.4,
+  steps: [
+    { label: "Reading the take", status: "done" },
+    { label: "Cutting", status: "done" },
+    { label: "Rendering", status: "done" },
+  ],
+  notes: ["Framed on the subject.", "Captions burned in."],
+  createdAt: "2026-08-24T09:00:00.000Z",
+  updatedAt: "2026-08-24T09:04:00.000Z",
+};
+
 function fixtureFor(pathname) {
   if (FIXTURES[pathname]) return FIXTURES[pathname];
+  if (/^\/api\/projects\/[^/]+\/export\/status$/.test(pathname)) return FINISHED_EXPORT;
   const id = pathname.match(/^\/api\/projects\/([^/]+)$/)?.[1];
   if (id) return [...PROJECTS, VERTICAL_PROJECT].find((p) => p.id === id) ?? PROJECTS[0];
   if (pathname === "/api/admin/accounts") {
@@ -511,7 +562,65 @@ const PAGES = [
       );
     },
   },
-  { url: `/export/${PROJECTS[0].id}`, name: "the export screen", signedIn: true },
+  {
+    url: `/export/${PROJECTS[0].id}`,
+    name: "the export screen",
+    signedIn: true,
+    then: async (page, check, viewport) => {
+      const composer = page.getByTestId("schedule-composer");
+      check("the scheduling composer is on the screen", await composer.isVisible(), "");
+
+      // A destination is a tap target before it is a chip. Phone only — this
+      // product uses smaller controls on a desktop on purpose.
+      if (viewport.phoneRules) {
+        const box = await page.getByTestId("destination-acc_1").boundingBox();
+        check(
+          "picking where it goes is a real tap target",
+          Boolean(box && box.height >= 44),
+          JSON.stringify(box && Math.round(box.height)),
+        );
+      }
+
+      /*
+        The count is against the tightest limit among the places chosen, and it
+        has to *move* when the destinations do.
+
+        Instagram alone is 2,200 characters; adding X drops the ceiling to 280.
+        A count that stayed on the first platform picked would read as fine
+        while the caption was already too long for one of them — and the person
+        would find out at 9pm.
+      */
+      await page.getByTestId("destination-acc_1").click();
+      const wide = await page.getByTestId("caption-count").innerText();
+      await page.getByTestId("destination-acc_3").click();
+      const tight = await page.getByTestId("caption-count").innerText();
+      check(
+        "the character count follows the strictest destination chosen",
+        wide.includes("2200") && tight.includes("280"),
+        `${wide} then ${tight}`,
+      );
+
+      // And the refusal has to appear while typing, not after pressing.
+      await page.getByTestId("input-caption").fill("a".repeat(300));
+      await page.waitForTimeout(120);
+      check(
+        "a caption too long for one destination says so before anything is sent",
+        await page.getByTestId("schedule-refusals").isVisible(),
+        "",
+      );
+      const button = await page.getByTestId("button-schedule").innerText();
+      check(
+        "and the button says what is wrong rather than being silently dead",
+        /to fix first/.test(button),
+        button,
+      );
+      check(
+        "the platform that needs shorter words gets its own box",
+        await page.getByTestId("override-x").isVisible(),
+        "",
+      );
+    },
+  },
   // The library of everything cut out of every recording. On the list because
   // a screen that is only ever opened by somebody who already has clips is a
   // screen nobody looks at until a customer does.
@@ -866,7 +975,11 @@ for (const viewport of VIEWPORTS) {
     });
     const m = await measure(page);
     const shot = `${spec.name.replace(/[^a-z]+/gi, "-")}${viewport.phoneRules ? "" : "-wide"}.png`;
-    await page.screenshot({ path: path.join(SHOTS, shot) });
+    // Full page, not the viewport. Half of what this suite exists to look at
+    // is below the fold on a phone — the screenshot is how a person reviews
+    // what the numbers cannot describe, and a screenshot that stops at 844px
+    // shows the header of every screen and the content of none.
+    await page.screenshot({ path: path.join(SHOTS, shot), fullPage: true });
 
     check("it renders without throwing", consoleErrors.length === 0, consoleErrors[0] ?? "");
     check(

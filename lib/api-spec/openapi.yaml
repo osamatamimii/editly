@@ -1665,6 +1665,17 @@ components:
         # people their original upload under a card saying the edit was ready.
         outputPath:
           type: ["string", "null"]
+        # How long the finished edit is, measured by the worker from the file
+        # it produced — not the source length.
+        #
+        # The scheduling screen judges a post against the platforms' duration
+        # limits, and the only number it had was the *upload's*. An edit is
+        # almost always shorter than the take it came from, so a three-minute
+        # recording cut to ninety seconds was refused for X on a limit it does
+        # not break. That failure is invisible: nothing errors, the person
+        # simply cannot post something that would have been fine.
+        outputSeconds:
+          type: ["number", "null"]
         steps:
           type: array
           items:

@@ -355,6 +355,17 @@ router.get("/projects/:id/export/status", async (req, res): Promise<void> => {
         // edit was ready.
         downloadUrl: null,
         outputPath: job?.outputPath ?? null,
+        // The finished edit's length, measured by the worker from the file it
+        // wrote.
+        //
+        // Only when it was really measured. `outputSecondsSource` is `probe`
+        // for an ffprobe reading, `estimate` for the plan's arithmetic, and
+        // `fallback` for the source length — and that column exists precisely
+        // because a measurement and a guess were once indistinguishable once
+        // written. The scheduling screen refuses posts against this number, and
+        // refusing on a guess is refusing for a reason nobody can see, so a
+        // guess is reported as "not known" instead.
+        outputSeconds: job?.outputSecondsSource === "probe" ? (job.outputSeconds ?? null) : null,
         notes: Array.isArray(job?.notes) ? job.notes : [],
       }),
     ),
