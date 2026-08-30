@@ -565,6 +565,21 @@ export interface AdminOverview {
   }[];
   minutesRenderedThisMonth: number;
   /**
+   * The other queue: posts waiting to go out. `overdue` is the counterpart of
+   * `queue.unattended` — anything above zero means the sweep is not running,
+   * and unlike a render nobody claims, nobody complains about a post that was
+   * never published.
+   */
+  posting?: {
+    dueSoon: number;
+    overdue: number;
+    stranded: number;
+    publishedLastDay: number;
+    failedLastDay: number;
+    missedLastDay: number;
+    accountsNeedingReconnect: number;
+  };
+  /**
    * Fourteen days of the numbers the cards show one of. Optional so a console
    * talking to an API that predates it draws the cards without the lines
    * rather than failing to render — which is the failure mode a required field

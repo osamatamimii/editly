@@ -2331,6 +2331,25 @@ components:
               outcome: { type: string, nullable: true }
             required: [eventId, type, email, plan, receivedAt, applied, outcome]
         minutesRenderedThisMonth: { type: number }
+        posting:
+          description: >
+            The other queue: posts waiting to go out. It shares nothing with
+            the render queue except a worker, and it fails in a way the render
+            queue does not - a render nobody claims makes somebody wait and
+            then complain, while a post nobody claims is simply not published,
+            at a time the person chose and is not watching. `overdue` is the
+            counterpart of queue.unattended and anything above zero means the
+            sweep is not running. Optional, for the same reason `trends` is.
+          type: object
+          properties:
+            dueSoon: { type: integer }
+            overdue: { type: integer }
+            stranded: { type: integer }
+            publishedLastDay: { type: integer }
+            failedLastDay: { type: integer }
+            missedLastDay: { type: integer }
+            accountsNeedingReconnect: { type: integer }
+          required: [dueSoon, overdue, stranded, publishedLastDay, failedLastDay, missedLastDay, accountsNeedingReconnect]
         trends:
           description: >
             Fourteen days of the numbers the cards show one of. Every card on

@@ -142,6 +142,19 @@ const FIXTURES = {
       { eventId: "evt_2", type: "subscription.cancelled", email: "another.person.with.a.long.address@example.com", plan: "pro", receivedAt: "2026-08-23T21:12:00.000Z", applied: false, outcome: "no account for that email" },
     ],
     minutesRenderedThisMonth: 412.6,
+    // The quiet fault: posts past their time that nothing has claimed. The
+    // console must say this in the verdict at the top, not only as a number on
+    // a card — it is the one failure on this screen that nobody complains
+    // about, because the person it affects is not watching.
+    posting: {
+      dueSoon: 4,
+      overdue: 2,
+      stranded: 0,
+      publishedLastDay: 11,
+      failedLastDay: 1,
+      missedLastDay: 1,
+      accountsNeedingReconnect: 1,
+    },
   },
   "/api/healthz": { status: "ok" },
   /*
@@ -675,6 +688,21 @@ const PAGES = [
     },
   },
   { url: "/admin", name: "the admin console", signedIn: true, then: async (page, check) => {
+      const verdict = await page.getByTestId("admin-attention").innerText();
+      check(
+        "the verdict names posts that are overdue, not just renders",
+        /scheduled post/i.test(verdict) && /2/.test(verdict),
+        verdict,
+      );
+      check(
+        "and an account whose token the platform stopped accepting",
+        /no longer accepts/.test(verdict),
+        // Every post scheduled to it fails one at a time as each comes due.
+        // Seeing it once beforehand is the difference.
+        verdict,
+      );
+      check("the posting row is on the screen", await page.getByTestId("admin-posting").isVisible(), "");
+
       // The word and the number on the worker card come from one row and must
       // agree. Checked on the rendered card rather than on the fixture, because
       // the defect this catches is the card presenting a contradiction calmly.

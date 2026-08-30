@@ -1183,6 +1183,40 @@ export const AdminOverview = z.object({
   /** Seconds rendered this month across everyone — what the platform is actually doing. */
   minutesRenderedThisMonth: z.number(),
   /**
+   * The other queue: posts waiting to go out.
+   *
+   * It shares nothing with the render queue except a worker, and it fails in a
+   * way the render queue does not. A render nobody claims makes somebody wait
+   * and then complain. A *post* nobody claims is simply not published, at a
+   * time the person chose and is not watching — they find out days later, from
+   * a feed with a hole in it, and there is no error anywhere to find.
+   *
+   * `overdue` is therefore the number that matters here, and it is the exact
+   * counterpart of `queue.unattended`: rows past their time and still marked
+   * `scheduled`, which can only mean the sweep is not running.
+   *
+   * Optional, so a console talking to an API that predates it draws the rest of
+   * the page rather than failing to render — which is the failure mode a
+   * required field produces on precisely the screen somebody opens when
+   * something is already wrong.
+   */
+  posting: z
+    .object({
+      /** Due to go out in the next hour. Context for the numbers beside it. */
+      dueSoon: z.number().int(),
+      /** Past their time and still unclaimed. Anything above zero is a fault. */
+      overdue: z.number().int(),
+      /** Claimed by a publisher that never came back. Each one needs a person. */
+      stranded: z.number().int(),
+      publishedLastDay: z.number().int(),
+      failedLastDay: z.number().int(),
+      /** Not sent because they were too late. Not a failure; still worth seeing. */
+      missedLastDay: z.number().int(),
+      /** Accounts whose token the platform has stopped accepting. */
+      accountsNeedingReconnect: z.number().int(),
+    })
+    .optional(),
+  /**
    * Fourteen days of the numbers the cards show one of.
    *
    * Optional so a deployment whose API predates it still parses — the console

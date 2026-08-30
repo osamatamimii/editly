@@ -7,6 +7,8 @@ import {
   billingEventsTable,
   jobsTable,
   projectsTable,
+  scheduledPostsTable,
+  socialAccountsTable,
   subscriptionsTable,
   waitlistTable,
   workerHeartbeatsTable,
@@ -200,6 +202,8 @@ router.get("/admin/overview", async (_req, res): Promise<void> => {
     .from(jobsTable)
     .where(and(eq(jobsTable.status, "done"), gte(jobsTable.finishedAt, startOfMonthUtc())));
 
+  const posting = await postingHealth(new Date(now), dayAgo);
+
   res.json(
     GetAdminOverviewResponse.parse({
       queue: {
@@ -230,6 +234,7 @@ router.get("/admin/overview", async (_req, res): Promise<void> => {
         outcome: event.outcome ?? null,
       })),
       minutesRenderedThisMonth: minutesFrom(Number(minutesRow?.seconds ?? 0)),
+      posting,
       // Fourteen days of the same numbers the cards above show one of. A count
       // taken right now is true and does not say which way it is going, which
       // is the question somebody opens this screen with.
@@ -496,6 +501,66 @@ router.post("/admin/jobs/:id/requeue", async (req, res): Promise<void> => {
 
   res.status(204).end();
 });
+
+/**
+ * The other queue.
+ *
+ * One statement rather than six, because six round trips to build one card is
+ * six chances for the numbers on it to be from different moments — and a card
+ * that says "0 overdue" beside "3 stranded" taken a second apart is a card
+ * that can contradict itself.
+ *
+ * `overdue` is the one that means something is wrong, and it is deliberately
+ * the same shape as `queue.unattended`: a row past its time that nothing has
+ * claimed. The publisher marks a row `publishing` the instant it takes it, so
+ * anything still `scheduled` a minute after it was due is a sweep that is not
+ * running — and unlike a render nobody claims, nobody complains about it. The
+ * person finds out from a feed with a hole in it, days later, with no error
+ * anywhere to find.
+ *
+ * The grace is two minutes, matching the worker's poll plus its own minimum
+ * lead. Anything tighter would report a fault every time a post came due
+ * between two sweeps, and an alarm that cries wolf every hour is an alarm
+ * somebody turns off.
+ */
+async function postingHealth(now: Date, dayAgo: Date) {
+  const [row] = await db
+    .select({
+      dueSoon: sql<number>`count(*) filter (
+        where status = 'scheduled' and scheduled_for > ${now} and scheduled_for <= ${new Date(now.getTime() + 3600_000)}
+      )`,
+      overdue: sql<number>`count(*) filter (
+        where status = 'scheduled' and scheduled_for < ${new Date(now.getTime() - 120_000)}
+      )`,
+      // Matching `surfaceStrandedPosts`, which is what will eventually clear
+      // them. Seeing one here before the sweep does is the point.
+      stranded: sql<number>`count(*) filter (
+        where status = 'publishing' and updated_at < ${new Date(now.getTime() - 15 * 60_000)}
+      )`,
+      publishedLastDay: sql<number>`count(*) filter (where status = 'published' and updated_at >= ${dayAgo})`,
+      failedLastDay: sql<number>`count(*) filter (where status = 'failed' and updated_at >= ${dayAgo})`,
+      missedLastDay: sql<number>`count(*) filter (where status = 'missed' and updated_at >= ${dayAgo})`,
+    })
+    .from(scheduledPostsTable);
+
+  const [accounts] = await db
+    .select({ n: count() })
+    .from(socialAccountsTable)
+    // A token the platform has stopped accepting fails every post scheduled to
+    // it, one at a time, at the moment each was due. It is worth seeing before
+    // that rather than in the failures afterwards.
+    .where(sql`${socialAccountsTable.status} <> 'ok'`);
+
+  return {
+    dueSoon: Number(row?.dueSoon ?? 0),
+    overdue: Number(row?.overdue ?? 0),
+    stranded: Number(row?.stranded ?? 0),
+    publishedLastDay: Number(row?.publishedLastDay ?? 0),
+    failedLastDay: Number(row?.failedLastDay ?? 0),
+    missedLastDay: Number(row?.missedLastDay ?? 0),
+    accountsNeedingReconnect: Number(accounts?.n ?? 0),
+  };
+}
 
 /**
  * Hand somebody minutes.

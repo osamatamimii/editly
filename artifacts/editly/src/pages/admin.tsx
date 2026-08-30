@@ -231,6 +231,7 @@ export default function AdminPage() {
           unattended={data.queue.unattended}
           failedLastDay={data.queue.failedLastDay}
           unappliedBilling={data.billing.filter((event) => !event.applied).length}
+          posting={data.posting}
         />
 
         {/*
@@ -306,6 +307,48 @@ export default function AdminPage() {
             trend={data.trends?.signups}
           />
         </section>
+
+        {/*
+          ── Posting ─────────────────────────────────────────────────────
+
+          Its own row rather than four more cards in the health grid, because
+          it is a different queue with a different failure. The health row is
+          about whether renders are moving; this is about whether the things
+          people promised their audience actually went out.
+
+          Rendered only when the API answers with it, so a console pointed at a
+          deployment that predates this draws the rest of the page rather than
+          a row of zeroes that look like a healthy quiet.
+        */}
+        {data.posting ? (
+          <section data-testid="admin-posting">
+            <h2 className="text-xl font-semibold mb-3">Posting</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card
+                label="Overdue"
+                value={data.posting.overdue}
+                hint="past their time, unclaimed"
+                alarming={data.posting.overdue > 0}
+              />
+              <Card
+                label="Mid-send"
+                value={data.posting.stranded}
+                hint="a publisher stopped holding these"
+                alarming={data.posting.stranded > 0}
+              />
+              <Card label="Due within the hour" value={data.posting.dueSoon} />
+              <Card
+                label="Posted (24h)"
+                value={data.posting.publishedLastDay}
+                hint={
+                  data.posting.missedLastDay > 0
+                    ? `${data.posting.missedLastDay} too late to send`
+                    : undefined
+                }
+              />
+            </div>
+          </section>
+        ) : null}
 
         {/* ── Money ────────────────────────────────────────────────────── */}
         <section>
@@ -587,11 +630,17 @@ function Attention({
   unattended,
   failedLastDay,
   unappliedBilling,
+  posting,
 }: {
   worker: { online: boolean; unclear: boolean };
   unattended: number;
   failedLastDay: number;
   unappliedBilling: number;
+  posting?: {
+    overdue: number;
+    stranded: number;
+    accountsNeedingReconnect: number;
+  };
 }) {
   const problems: string[] = [];
   if (worker.unclear) {
@@ -609,6 +658,36 @@ function Attention({
       `${failedLastDay} ${failedLastDay === 1 ? "render" : "renders"} failed in the last day. The reason is on each row below.`,
     );
   }
+  /*
+    The quietest fault on this screen.
+
+    A render nobody claims produces somebody waiting and then complaining. A
+    *post* nobody claims produces nothing at all: it was due at 9pm, the person
+    who scheduled it was not watching, and they find out days later from a feed
+    with a hole in it. Nothing errors, nothing retries, and no support ticket
+    describes it. So it is stated in the verdict rather than left as a number
+    on a card somebody has to know to read.
+
+    Above the billing line, because a post that did not go out is a promise the
+    product broke without telling anybody, and an unapplied payment is at least
+    something the payer will mention.
+  */
+  if (posting && posting.overdue > 0) {
+    problems.push(
+      `${posting.overdue} scheduled ${posting.overdue === 1 ? "post is" : "posts are"} past their time and unclaimed. The publisher is not sweeping, and nobody will be told.`,
+    );
+  }
+  if (posting && posting.stranded > 0) {
+    problems.push(
+      `${posting.stranded} ${posting.stranded === 1 ? "post was" : "posts were"} mid-send when a publisher stopped. It is not known whether ${posting.stranded === 1 ? "it" : "they"} went out.`,
+    );
+  }
+  if (posting && posting.accountsNeedingReconnect > 0) {
+    problems.push(
+      `${posting.accountsNeedingReconnect} connected ${posting.accountsNeedingReconnect === 1 ? "account has" : "accounts have"} a token the platform no longer accepts. Every post scheduled to ${posting.accountsNeedingReconnect === 1 ? "it" : "them"} will fail as it comes due.`,
+    );
+  }
+
   if (unappliedBilling > 0) {
     problems.push(
       `${unappliedBilling} billing ${unappliedBilling === 1 ? "event" : "events"} arrived and did not apply. Somebody has paid for something they do not have.`,
