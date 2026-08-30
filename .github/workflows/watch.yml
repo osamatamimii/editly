@@ -27,10 +27,17 @@ name: Watch
 
 on:
   schedule:
-    # Every fifteen minutes. The worker is declared offline after two minutes of
-    # silence, so this is slow enough that a restart never trips it and fast
-    # enough that nothing is dead for an afternoon.
-    - cron: "*/15 * * * *"
+    # Every fifteen minutes, and deliberately not on the quarter hours.
+    #
+    # The worker is declared offline after two minutes of silence, so a quarter
+    # of an hour is slow enough that a restart never trips this and fast enough
+    # that nothing is dead for an afternoon. The offset is the part worth
+    # explaining: GitHub runs scheduled workflows on a shared pool and drops or
+    # delays them when that pool is busy, and the busiest minutes on it by a
+    # wide margin are :00, :15, :30 and :45 — because that is where every
+    # `*/15` in the world lands. A monitor whose own schedule is quietly
+    # skipped is the same failure it exists to catch, one level up.
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 concurrency:
