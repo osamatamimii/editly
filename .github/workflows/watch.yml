@@ -26,18 +26,34 @@
 name: Watch
 
 on:
+  # ── Two triggers, because one of them is a promise and the other is a fact ──
+  #
+  # The schedule is the one that matters: it is what notices an outage on a
+  # quiet Sunday. It is also the one this repository has **not been able to
+  # observe working** — the workflow sat on the default branch for four hours
+  # with a quarter-hourly cron and did not fire once, while push-triggered runs
+  # went through the whole time. GitHub's own documentation says the schedule
+  # event is delayed under load and offers no guarantee, and Actions are fully
+  # enabled here, so there is nothing left to configure and nothing to fix.
+  #
+  # Hourly rather than quarter-hourly, then: the longer the interval, the more
+  # reliably GitHub honours it, and an outage found within an hour instead of
+  # within two days is the whole of the improvement. At :23, because :00 is
+  # where every hourly cron in the world lands.
   schedule:
-    # Every fifteen minutes, and deliberately not on the quarter hours.
-    #
-    # The worker is declared offline after two minutes of silence, so a quarter
-    # of an hour is slow enough that a restart never trips this and fast enough
-    # that nothing is dead for an afternoon. The offset is the part worth
-    # explaining: GitHub runs scheduled workflows on a shared pool and drops or
-    # delays them when that pool is busy, and the busiest minutes on it by a
-    # wide margin are :00, :15, :30 and :45 — because that is where every
-    # `*/15` in the world lands. A monitor whose own schedule is quietly
-    # skipped is the same failure it exists to catch, one level up.
-    - cron: "7,22,37,52 * * * *"
+    - cron: "23 * * * *"
+
+  # And a trigger that has been watched working. Every push runs Checks; this
+  # runs when Checks finishes, whatever it concluded. It cannot notice a quiet
+  # outage — nothing that hangs off pushes can — but it means every change to
+  # this product is followed, within the minute, by an answer to "is a render
+  # machine still listening". By the time Checks has finished, a worker deploy
+  # triggered by the same push has long since settled, so this does not alarm on
+  # its own deploys.
+  workflow_run:
+    workflows: ["Checks"]
+    types: [completed]
+
   workflow_dispatch:
 
 concurrency:
