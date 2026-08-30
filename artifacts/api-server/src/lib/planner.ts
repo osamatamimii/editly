@@ -25,7 +25,7 @@
  * and it means a missing key degrades the product instead of breaking it.
  */
 import { EditOperation, TransitionStyle, type Platform } from "@workspace/api-zod";
-import { languageOf, planFromText, replyFor, type ParsedIntent, type Phrase } from "./plan-from-text";
+import { languageOf, momentsNotHonoured, planFromText, replyFor, type ParsedIntent, type Phrase } from "./plan-from-text";
 
 const ENDPOINT = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL = "gpt-5-mini";
@@ -446,7 +446,18 @@ export function createPlanner(options: PlannerOptions = {}) {
         return {
           operations,
           willDo: describeAll(operations),
-          cannotYet: [],
+          /*
+           * The model never refuses, because it only ever picks from operations
+           * that exist — so it cannot promise something the worker cannot do,
+           * and that is the whole design.
+           *
+           * A moment is the exception, and the only one. The model can return a
+           * perfectly valid plan that happens to consume none of the seconds
+           * somebody pointed at, and then nothing anywhere says the moment was
+           * dropped. Shared with the matcher rather than written again, so the
+           * two heads cannot come to say different things about it.
+           */
+          cannotYet: momentsNotHonoured(text, operations),
           language: languageOf(text),
           source: "model",
         };

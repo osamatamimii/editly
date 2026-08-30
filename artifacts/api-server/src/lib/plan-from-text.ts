@@ -93,7 +93,21 @@ const LOOK_WORDS: Array<{ look: GradeLook; patterns: RegExp }> = [
   { look: "cinematic", patterns: /\bcinematic|\bfilm ?look|\bmovie ?look|\bteal ?(and|&) ?orange|سينمائ/i },
   { look: "warm", patterns: /\bwarm(er)?\b|\bgolden\b|\bsunny\b|دافئ|دافي|حار/i },
   { look: "cool", patterns: /\bcool(er)?\b|\bcold(er)?\b|\bblue ?tone|بارد/i },
-  { look: "punch", patterns: /\bpunch(y|ier)?\b|\bmake it pop\b|\bmore contrast\b|\bvivid\b|\bvibrant\b|أوضح|أقوى ألوان|ألوان أقوى/i },
+  /*
+   * `punch` the colour look, and not `punch in` the zoom.
+   *
+   * `\bpunch\b` matched both, so "punch in at 0:12" asked for a zoom and
+   * silently also regraded the whole video. Nobody reported it because the
+   * reply lists what it will do and both lines were true — it was doing two
+   * things and had been asked for one. The negative lookahead is the fix:
+   * "punchy" and "punchier" are unambiguous, and bare "punch" only counts when
+   * it is not the verb followed by in/into/it/here.
+   */
+  {
+    look: "punch",
+    patterns:
+      /\bpunch(y|ier)\b|\bpunch\b(?!\s*(in|into|it|here|at|on|up)\b)|\bmake it pop\b|\bmore contrast\b|\bvivid\b|\bvibrant\b|أوضح|أقوى ألوان|ألوان أقوى/i,
+  },
 ];
 
 /**
@@ -380,6 +394,110 @@ const RANGE_FIRST_MINUTES = /(?:\bfirst|\bopening|أول|اول)\s*(\d{1,3})?\s*
  * Ranges are left alone: `parseRange` runs on the same text and a moment inside
  * "from 1:20 to 2:10" is that range's own edge, not a third instruction.
  */
+
+/**
+ * The other things a sentence can ask for, so a moment can be seen to belong to
+ * one of them rather than to the zoom.
+ *
+ * Not every operation word in this file, only the ones somebody plausibly
+ * writes beside a timecode. A moment next to "make it vertical" competes for
+ * nothing, because that applies to the whole video either way.
+ */
+const RIVAL_WORDS = new RegExp(
+  [
+    SILENCE_WORDS.source,
+    CAPTION_WORDS.source,
+    BROLL_WORDS.source,
+    OVERLAY_WORDS.source,
+    KINETIC_WORDS.source,
+    HIGHLIGHT_WORDS.source,
+    String.raw`\bcut\b|\btrim\b|\bremove\b|\bdelete\b|اقصص|اقص|احذف|شيل`,
+  ].join("|"),
+  "i",
+);
+
+/**
+ * The moments that belong to `wanted` rather than to something else in the
+ * same message.
+ *
+ * Nearest instruction word wins, measured in characters, either side. Two
+ * shapes have to work and they put the words in opposite orders:
+ *
+ *   "zoom at 1:05 and at 2:30"       - verb first, two moments, one instruction
+ *   "At 0:12 cut. At 0:40 zoom in."  - moment first, two instructions
+ *
+ * The first version scanned the whole message and put every second on the
+ * single zoomPunch, so a mark asking to cut at 0:12 invented a punch there. The
+ * second split on sentence ends *and* on "and", which fixed that and broke the
+ * other one: "and at 2:30" is a clause with no verb in it, so its moment was
+ * dropped and the person silently got one punch instead of two.
+ *
+ * Distance to the nearest instruction word is what both shapes have in common,
+ * and it needs no guess about where a clause ends.
+ */
+export function momentsFor(asked: string, wanted: RegExp): number[] {
+  const text = withAsciiDigits(asked);
+  const anchors: Array<{ at: number; mine: boolean }> = [];
+  for (const [pattern, mine] of [
+    [wanted, true],
+    [RIVAL_WORDS, false],
+  ] as const) {
+    const scan = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+    for (const m of text.matchAll(scan)) anchors.push({ at: m.index ?? 0, mine });
+  }
+  if (!anchors.some((a) => a.mine)) return [];
+
+  const found = new Set<number>();
+  for (const second of parseMoments(text)) {
+    const where = positionOfMoment(text, second);
+    if (where < 0) continue;
+    let nearest = anchors[0];
+    for (const anchor of anchors) {
+      if (Math.abs(anchor.at - where) < Math.abs(nearest.at - where)) nearest = anchor;
+    }
+    if (nearest.mine) found.add(second);
+  }
+  return [...found].sort((a, b) => a - b);
+}
+
+/** Where in the text a given second was written, or -1. */
+function positionOfMoment(text: string, second: number): number {
+  const clock = `${Math.floor(second / 60)}:${String(second % 60).padStart(2, "0")}`;
+  const asClock = text.indexOf(clock);
+  if (asClock >= 0) return asClock;
+  const bare = new RegExp(String.raw`\b${second}\b`).exec(text);
+  return bare?.index ?? -1;
+}
+
+/**
+ * The moments a sentence named that nothing in the plan picked up.
+ *
+ * Exported because both heads owe this sentence. Someone stopping on a second
+ * and typing "cut this bit" got silence: no operation, and nothing in the reply
+ * about the moment either — which is worse than a refusal, because a refusal at
+ * least says the product heard you and cannot help yet, and silence looks
+ * exactly like success.
+ *
+ * The only thing that consumes a moment today is the zoom punch; everything
+ * else applies to the whole video. When that changes for an operation, it
+ * records what it used and this list shortens on its own, with no second place
+ * to remember to edit.
+ */
+export function momentsNotHonoured(asked: string, operations: EditOperation[]): Phrase[] {
+  const named = parseMoments(asked);
+  if (named.length === 0) return [];
+  const used = new Set(operations.flatMap((op) => (op.type === "zoomPunch" ? op.at : [])));
+  const ignored = named.filter((second) => !used.has(second));
+  if (ignored.length === 0) return [];
+  const when = ignored.map(clockOf);
+  return [
+    say(
+      `do something only at ${when.join(", ")} yet. Everything except a zoom punch applies to the whole video, so tell me what to do there and I will say if I can`,
+      `أفعل شيئًا عند ${when.join("، ")} وحدها بعد، فكلّ شيء عدا التقريب يسري على الفيديو كلّه، قل لي ماذا أفعل هناك وسأخبرك إن كنت أستطيع`,
+    ),
+  ];
+}
+
 export function parseMoments(asked: string): number[] {
   const text = withAsciiDigits(asked);
   const found = new Set<number>();
@@ -692,7 +810,7 @@ export function planFromText(
     // Where they pointed, if they pointed anywhere. An empty list still means
     // "you choose", and the worker still puts them on the emphasis — so a
     // sentence with no moment in it behaves exactly as it always has.
-    const moments = parseMoments(text);
+    const moments = momentsFor(text, PUNCH_WORDS);
     operations.push({ type: "zoomPunch", at: moments, amount: 0.13, holdMs: 1000, on: "emphasis" });
     willDo.push(
       moments.length > 0
@@ -969,6 +1087,24 @@ export function planFromText(
   for (const { patterns, label } of NOT_YET) {
     if (patterns.test(text)) cannotYet.push(label);
   }
+
+  /*
+   * A moment nobody picked up.
+   *
+   * Someone stopping on a second and typing "cut this bit" got silence: no
+   * operation, and nothing in the reply about the moment either. That is worse
+   * than a refusal — a refusal at least tells you the product heard you and
+   * cannot help yet, and this told you nothing at all while looking like it had
+   * worked.
+   *
+   * The only thing that consumes a moment today is the zoom punch. Everything
+   * else in this product applies to the whole video, so a moment named next to
+   * a caption, a cut or a look was heard and could not be honoured, and the
+   * person is owed that sentence. When the answer becomes "yes" for one of
+   * them, that operation records what it used and this list shortens on its
+   * own.
+   */
+  cannotYet.push(...momentsNotHonoured(asked, operations));
 
   return { operations, willDo, cannotYet, language: languageOf(asked) };
 }

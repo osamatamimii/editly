@@ -1486,6 +1486,27 @@ section("The landing page's feature list keeps up with what is actually built");
   );
 }
 
+section("The shaders are still inside their template literals");
+{
+  /*
+   * A backtick in a GLSL comment ends the JavaScript string the shader lives
+   * in, and the failure is a parse error two hundred lines away that names a
+   * word from the comment. It has happened twice in this file now, both times
+   * while writing a note about a uniform, because backticks around an
+   * identifier is how every other comment in this repository is written.
+   *
+   * Cheaper to make impossible than to keep recognising.
+   */
+  const orb = readFileSync(path.join(repoRoot, "artifacts/editly/src/components/voice/orb.tsx"), "utf8");
+  const shaders = [...orb.matchAll(/const (VERT|FRAG) = `([\s\S]*?)`;/g)];
+  check("the shader sources are found at all", shaders.length === 2, String(shaders.length));
+  for (const [, name, body] of shaders) {
+    check(`${name} carries no backtick that would close its own string`, !body.includes("\u0060"), name);
+    // ...and it must still be GLSL, not an empty string that parses fine.
+    check(`${name} is a real shader`, /void main\s*\(/.test(body), name);
+  }
+}
+
 section("The console's idea of 'too long ago' is the server's");
 {
   /*

@@ -113,6 +113,15 @@ export default function ProjectEditor() {
    * chat input when the edit is generated. See `moment-marks.tsx`.
    */
   const [marks, setMarks] = useState<Mark[]>([]);
+  /*
+   * Why speaking did not work, if it did not.
+   *
+   * The first version kept this inside the listening sheet, which closed the
+   * moment anything went wrong — so the commonest failure of all, a browser
+   * quietly refusing the microphone, showed its reason for about a frame. It
+   * belongs next to the input, where the person is already looking.
+   */
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const [playerDuration, setPlayerDuration] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   /** The area the picture gets to live in, measured rather than assumed. */
@@ -1392,15 +1401,16 @@ export default function ProjectEditor() {
                 disabled={!hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 data-testid="input-chat"
               />
-              {/* Speech fills this same input rather than sending on its own,
-                  so everything the typed path already does applies to it
-                  unchanged. See `voice-input.tsx`. */}
+              {/* Speech fills this same input, live, rather than sending on
+                  its own — so everything the typed path already does applies to
+                  it unchanged, and you can fix a misheard word before sending.
+                  See `voice-input.tsx`. */}
               <VoiceInput
                 arabic={/[\u0600-\u06FF]/.test(chatInput)}
-                disabled={!hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
-                onText={(text) =>
-                  setChatInput((current) => (current ? `${current.trim()} ${text}` : text))
-                }
+                disabled={isNoahThinking || sendMessage.isPending || isProcessingEdit}
+                existing={chatInput}
+                onTranscript={(text) => setChatInput(text)}
+                onError={setVoiceError}
               />
               <Button 
                 type="submit"
@@ -1412,6 +1422,16 @@ export default function ProjectEditor() {
                 <Send className="w-4 h-4" />
               </Button>
             </form>
+            {voiceError && (
+              <p
+                dir="auto"
+                className="mt-2 text-xs text-destructive"
+                role="status"
+                data-testid="text-voice-error"
+              >
+                {voiceError}
+              </p>
+            )}
           </div>
         </div>
       </div>

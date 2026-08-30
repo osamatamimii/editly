@@ -1172,10 +1172,28 @@ html[data-page-theme="light"] body {
   .border.toggle-elevate::before {
     inset: -1px;
   }
-  .hover-elevate:not(.no-default-hover-elevate),
-  .active-elevate:not(.no-default-active-elevate),
-  .hover-elevate-2:not(.no-default-hover-elevate),
-  .active-elevate-2:not(.no-default-active-elevate) {
+  /*
+   * `position: relative` here is only ever for the `::after` overlay below, and
+   * it was taking it from elements that had already positioned themselves.
+   *
+   * `.hover-elevate:not(...)` is two classes of specificity and Tailwind's
+   * `.absolute` is one, so on every button in this app the utility lost. There
+   * is one such button — the send button in the chat bar, `absolute right-1
+   * top-1` — and it has been rendering in normal flow, below and to the left of
+   * the input it is supposed to sit inside, on every phone. The class was in
+   * the markup, in the bundle, and computed `relative`.
+   *
+   * An element that is already absolute, fixed or sticky is a containing block
+   * for its own `::after`, so the overlay needs nothing from this rule. Those
+   * three are excluded rather than the specificity being fought, because
+   * lowering it only moves the argument: both selectors would then tie and
+   * source order would decide, which is not something a component author can
+   * see from the markup.
+   */
+  .hover-elevate:not(.no-default-hover-elevate):not(.absolute):not(.fixed):not(.sticky),
+  .active-elevate:not(.no-default-active-elevate):not(.absolute):not(.fixed):not(.sticky),
+  .hover-elevate-2:not(.no-default-hover-elevate):not(.absolute):not(.fixed):not(.sticky),
+  .active-elevate-2:not(.no-default-active-elevate):not(.absolute):not(.fixed):not(.sticky) {
     position: relative;
     z-index: 0;
   }

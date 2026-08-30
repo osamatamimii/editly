@@ -579,6 +579,57 @@ console.log("\nA moment somebody points at");
     JSON.stringify(punchAt(composed)),
   );
 
+  /*
+   * A moment belongs to the instruction it was written beside.
+   *
+   * The first version scanned the whole message and put every second it found
+   * on the single zoomPunch — so "At 0:12 cut. At 0:40 zoom in." punched at
+   * both, inventing a punch at the exact moment somebody had asked to remove.
+   * Marks from the timeline are one sentence each, which is precisely the shape
+   * that made this wrong.
+   */
+  const mixed = "At 0:12 cut. At 0:40 zoom in.";
+  check(
+    "a moment beside a cut does not become a punch",
+    JSON.stringify(punchAt(mixed)) === "[40]",
+    JSON.stringify(punchAt(mixed)),
+  );
+
+  // "punch in" is a zoom. `\bpunch\b` was also a colour look, so asking for
+  // this one thing quietly regraded the whole video — and the reply listed both
+  // lines truthfully, which is why nobody caught it.
+  const punchOps = (text) => (planFromText(text).operations ?? []).map((o) => o.type).sort();
+  check("asking to punch in does not also regrade the video", !punchOps("punch in at 0:12").includes("grade"), JSON.stringify(punchOps("punch in at 0:12")));
+  check("and 'punchy' still means the look, because that is what it means", punchOps("make the colours punchy").includes("grade"), JSON.stringify(punchOps("make the colours punchy")));
+
+  /*
+   * A moment nobody picked up is said out loud.
+   *
+   * Silence here was the worst of the three possible answers: no operation, and
+   * nothing in the reply either, so it looked exactly like it had worked.
+   */
+  const unheard = planFromText("At 0:26 cut this bit.");
+  check(
+    "a moment nothing could use is admitted rather than dropped",
+    unheard.cannotYet.some((c) => /0:26/.test(c.en)),
+    JSON.stringify(unheard.cannotYet),
+  );
+  check(
+    "in Arabic too",
+    planFromText("عند 0:26 اقصص هذا الجزء.").cannotYet.some((c) => /0:26/.test(c.ar) && /[\u0600-\u06ff]/.test(c.ar)),
+    JSON.stringify(planFromText("عند 0:26 اقصص هذا الجزء.").cannotYet),
+  );
+  check(
+    "and a moment that *was* used is not apologised for",
+    planFromText("punch in at 0:26").cannotYet.every((c) => !/0:26/.test(c.en)),
+    JSON.stringify(planFromText("punch in at 0:26").cannotYet),
+  );
+  check(
+    "a sentence with no moment in it says nothing about moments",
+    planFromText("cut the dead air").cannotYet.every((c) => !/only at/.test(c.en)),
+    JSON.stringify(planFromText("cut the dead air").cannotYet),
+  );
+
   const said = replyFor(planFromText("punch in at 1:05"), { hasVideo: true });
   check("and the reply says which moment it heard", /1:05/.test(said), said);
   const saidAr = replyFor(planFromText("قرّب الصورة عند 1:05"), { hasVideo: true });

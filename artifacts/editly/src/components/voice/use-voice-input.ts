@@ -97,7 +97,7 @@ export interface VoiceInput {
   /** What has been heard so far, including the part not yet settled. */
   transcript: string;
   error: VoiceError | null;
-  start: () => void;
+  start: () => void | Promise<void>;
   stop: () => void;
 }
 
@@ -147,13 +147,57 @@ export function useVoiceInput({
     if (text) onFinalRef.current?.(text);
   }, [teardown]);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     const Ctor = recognitionCtor();
     if (!Ctor || recognition.current) return;
 
     setError(null);
     setTranscript("");
     finalText.current = "";
+
+    /*
+     * The microphone is asked for first, and this is the fix for "it does not
+     * work".
+     *
+     * `SpeechRecognition` prompts for permission itself, and when that prompt
+     * is refused — or was refused once before and the browser now remembers it
+     * — some browsers report nothing at all: no `onerror`, no `onend`, no
+     * words. The button looked pressed and the product sat there. Chrome and
+     * Edge both route recognition through a network service as well, which
+     * fails the same silent way when it is switched off in settings.
+     *
+     * `getUserMedia` cannot fail quietly: it either resolves, or rejects with a
+     * name that says which of the three things went wrong. Asking here turns
+     * the commonest failure in this whole feature from silence into a sentence,
+     * and the stream it returns is the one the loudness meter needs anyway, so
+     * it costs nothing.
+     */
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      const name = (err as { name?: string } | null)?.name ?? "";
+      /*
+       * Only the refusals that genuinely stop recognition stop it.
+       *
+       * A denied permission or a machine with no microphone blocks the
+       * recogniser too — it listens to the same device — so going on would put
+       * the button in a listening state that can never produce a word, which is
+       * exactly the silence this whole change exists to remove. Anything else
+       * costs the loudness meter and nothing more: the orb sits still and the
+       * words still arrive, which is a worse animation and a working feature.
+       */
+      const blocking =
+        name === "NotAllowedError" || name === "SecurityError"
+          ? "not-allowed"
+          : name === "NotFoundError" || name === "OverconstrainedError"
+            ? "audio-capture"
+            : null;
+      if (blocking) {
+        setError(blocking);
+        return;
+      }
+    }
 
     const rec = new Ctor();
     rec.lang = lang;
@@ -194,20 +238,20 @@ export function useVoiceInput({
       return;
     }
 
-    // The loudness, from the microphone directly. Asked for separately from the
-    // recogniser on purpose: this is what the orb moves on, and it has to be
-    // live rather than arriving with the words.
-    void navigator.mediaDevices
-      ?.getUserMedia({ audio: true })
-      .then((stream) => {
-        if (!recognition.current) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
+    // The loudness, from the stream already granted above. Measured separately
+    // from the recogniser on purpose: this is what the orb moves on, and it has
+    // to be live rather than arriving with the words.
+    if (stream) {
+      if (!recognition.current) {
+        stream.getTracks().forEach((t) => t.stop());
+      } else {
         const Ctx =
           window.AudioContext ??
           (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (!Ctx) return;
+        if (!Ctx) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         const ctx = new Ctx();
         const source = ctx.createMediaStreamSource(stream);
         const analyser = ctx.createAnalyser();
@@ -231,11 +275,8 @@ export function useVoiceInput({
           if (audio.current) audio.current.raf = requestAnimationFrame(tick);
         };
         audio.current = { ctx, stream, raf: requestAnimationFrame(tick) };
-      })
-      .catch(() => {
-        // The recogniser has its own permission prompt and its own error path;
-        // failing to get a second stream costs the animation, not the words.
-      });
+      }
+    }
   }, [lang, teardown]);
 
   return { supported, listening, level, transcript, error, start, stop };

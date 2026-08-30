@@ -450,15 +450,29 @@ const PAGES = [
     then: async (page, check) => {
       const mic = page.getByTestId("button-voice");
       check("the microphone is offered", (await mic.count()) === 1, String(await mic.count()));
+
+      // The orb is the button, not a thing a sheet opens. Pressing it must not
+      // take the editor over: the video, the timeline and the moment somebody
+      // parked on are what they are talking *about*.
+      const orbInButton = await page.evaluate(() =>
+        Boolean(document.querySelector('[data-testid="button-voice"] [data-testid="voice-orb"]')),
+      );
+      check("and the orb is the button itself", orbInButton, "");
+
       await mic.first().click();
+      await page.waitForTimeout(400);
 
-      const sheet = page.getByTestId("voice-sheet");
-      await sheet.waitFor({ state: "visible", timeout: 4000 }).catch(() => {});
-      check("pressing it opens the listening sheet", await sheet.isVisible(), "");
+      check(
+        "pressing it opens no overlay over the editor",
+        (await page.getByTestId("voice-sheet").count()) === 0,
+        "an overlay was rendered",
+      );
+      check(
+        "the video is still on screen while listening",
+        await page.getByTestId("input-scrubber").isVisible(),
+        "",
+      );
 
-      // The orb draws through WebGL where there is WebGL, and a CSS sphere
-      // underneath where there is not. Both are asserted, because the fallback
-      // is the one that ships to the older half of the phones.
       const orb = await page.evaluate(() => {
         const host = document.querySelector('[data-testid="voice-orb"]');
         const canvas = host?.querySelector("canvas");
@@ -478,45 +492,89 @@ const PAGES = [
           })(),
         };
       });
-      // The one screen in this product whose whole job is to look right, so it
-      // is written out for a person to look at rather than only measured.
+      // The chat bar on its own, which is where this control actually lives.
+      const bar = await page.getByTestId("input-chat").locator("xpath=ancestor::form").first();
+      await bar.screenshot({ path: path.join(SHOTS, "the-voice-bar.png") }).catch(() => {});
       await page.screenshot({ path: path.join(SHOTS, "the-voice-orb.png") });
+      /*
+       * The send button has to be *inside* the chat bar.
+       *
+       * `.hover-elevate:not(...)` is two classes of specificity and Tailwind's
+       * `.absolute` is one, so this button — the only one in the app that
+       * positions itself — computed `relative` and rendered in normal flow,
+       * below and to the left of the input it belongs in, on every phone. The
+       * class was in the markup and in the bundle the whole time, which is why
+       * reading the JSX could never have found it. Geometry can.
+       */
+      const layout = await page.evaluate(() => {
+        const send = document.querySelector('[data-testid="button-send-message"]');
+        const input = document.querySelector('[data-testid="input-chat"]');
+        if (!send || !input) return null;
+        const s = send.getBoundingClientRect();
+        const i = input.getBoundingClientRect();
+        return {
+          position: getComputedStyle(send).position,
+          inside: s.left >= i.left - 2 && s.right <= i.right + 2 && s.top >= i.top - 2 && s.bottom <= i.bottom + 2,
+          send: { x: Math.round(s.x), y: Math.round(s.y) },
+          input: { x: Math.round(i.x), y: Math.round(i.y), w: Math.round(i.width), h: Math.round(i.height) },
+        };
+      });
+      check(
+        "a button that says it is absolute is absolute",
+        layout?.position === "absolute",
+        JSON.stringify(layout),
+      );
+      check(
+        "and the send button sits inside the chat bar rather than under it",
+        layout?.inside === true,
+        JSON.stringify(layout),
+      );
+      const box = await page.getByTestId("button-voice").boundingBox();
+      check(
+        "the orb button has a real box in the chat bar",
+        Boolean(box && box.width >= 32 && box.height >= 32),
+        JSON.stringify(box),
+      );
       check("the orb is on screen", orb.present, JSON.stringify(orb));
       check("with a canvas sized to something", orb.canvasPainted, JSON.stringify(orb));
       check("and a sphere underneath for browsers with no WebGL2", orb.fallback.present, JSON.stringify(orb));
-      // Both halves of the same rule: the fallback exists, and it gets out of
-      // the way once the shader is painting. Drawn unconditionally it put a
-      // second ring around the orb on every browser that had WebGL2.
       check(
-        orb.gl
-          ? "and it retires once the shader is painting"
-          : "and it is what is showing, because this browser has no WebGL2",
+        orb.gl ? "and it retires once the shader is painting" : "and it is what is showing, because this browser has no WebGL2",
         orb.gl ? orb.fallback.hidden === true : orb.fallback.hidden === false,
         JSON.stringify(orb),
       );
 
-      await page.waitForTimeout(400);
-      const heard = await page.getByTestId("voice-transcript").innerText();
-      check("what was said is shown while it is being said", /cut the dead air/i.test(heard), heard);
-
-      await page.getByTestId("button-voice-done").click();
-      await page.waitForTimeout(200);
-
       /*
-       * The one that matters.
+       * The one that matters, and it is stricter than it was.
        *
-       * Speech has to land in the same box typing lands in. A voice path that
-       * sends on its own would be a second route into the renderer, and every
-       * refusal, every language rule and every rate limit would have to be
-       * built again on it and would drift.
+       * The words must arrive in the chat input *while* being said, not be
+       * handed over when something closes. Waiting for a hand-off is what made
+       * the first version feel like a separate machine you dictate to rather
+       * than a box you can talk into.
        */
       const typed = await page.getByTestId("input-chat").inputValue();
       check(
-        "and it lands in the chat input, not in a send of its own",
+        "what was said is in the chat input while it is still listening",
         /cut the dead air/i.test(typed),
         typed,
       );
-      check("the sheet closes when it is done", !(await sheet.isVisible()), "");
+
+      /*
+       * There is no microphone in this browser, and the words still arrive.
+       *
+       * The stub above rejects `getUserMedia`, which is what the loudness meter
+       * needs and the recogniser does not. Only a denied permission or a
+       * missing device blocks recognition, because those block the recogniser
+       * too; anything else costs the animation and not the feature. Written
+       * down because the first version of the permission fix returned early on
+       * *every* failure and turned this into a dead button.
+       */
+      check(
+        "and losing the level meter costs the animation, not the words",
+        (await page.getByTestId("button-voice").getAttribute("aria-pressed")) === "true",
+        "the button stopped listening when the meter failed",
+      );
+
     },
   },
   {

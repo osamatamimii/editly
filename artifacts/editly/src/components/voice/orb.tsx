@@ -25,6 +25,10 @@ const PALETTE = {
   c: [0xff / 255, 0x5c / 255, 0x71 / 255],
   d: [0x7b / 255, 0x53 / 255, 0xff / 255],
   highlight: [0xff / 255, 0xd9 / 255, 0xf0 / 255],
+  /** The glass wall: inner, mid, edge — `shellInner`/`shellMid`/`shellEdge`. */
+  shellIn: [1, 1, 1],
+  shellMid: [0xe4 / 255, 0x8b / 255, 0xff / 255],
+  shellEdge: [0xff / 255, 0x78 / 255, 0x90 / 255],
 };
 
 const VERT = `#version 300 es
@@ -53,8 +57,8 @@ uniform float uTime;
 uniform float uLevel;
 uniform vec2 uAspect;
 uniform vec3 uA, uB, uC, uD, uHi;
+uniform vec3 uShellIn, uShellMid, uShellEdge;
 
-// Cheap value noise. Good enough for a surface that is always moving.
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
   vec2 i = floor(p), f = fract(p);
@@ -71,68 +75,114 @@ float fbm(vec2 p) {
 void main() {
   vec2 st = uv * uAspect;
   float t = uTime;
-
-  // The silhouette breathes with the voice, and ripples along its edge.
   float loud = clamp(uLevel, 0.0, 1.0);
+
   float angle = atan(st.y, st.x);
   float ripple =
-      sin(angle * 3.0 + t * 1.3) * 0.012
-    + sin(angle * 5.0 - t * 0.9) * 0.008
-    + fbm(vec2(angle * 1.6, t * 0.35)) * 0.03;
-  float radius = 0.62 + loud * 0.09 + ripple * (0.35 + loud * 1.7);
+      sin(angle * 3.0 + t * 1.3) * 0.010
+    + sin(angle * 5.0 - t * 0.9) * 0.007
+    + fbm(vec2(angle * 1.6, t * 0.35)) * 0.026;
+  float radius = 0.60 + loud * 0.075 + ripple * (0.30 + loud * 1.5);
 
   float d = length(st);
-  // A soft edge rather than a hard one: a sphere with an aliased silhouette
-  // reads as a circle, not as an object.
-  float inside = smoothstep(radius + 0.012, radius - 0.012, d);
+  float inside = smoothstep(radius + 0.010, radius - 0.010, d);
   float ndc = clamp(d / max(radius, 0.0001), 0.0, 1.0);
-
-  // Fake the surface normal's z, which is all the shading needs.
   float z = sqrt(max(0.0, 1.0 - ndc * ndc));
   vec3 normal = normalize(vec3(st / max(radius, 0.0001), z));
   vec3 lightDir = normalize(vec3(-0.45, 0.62, 0.75));
 
-  // The interior.
+  // ── Ribbons ───────────────────────────────────────────────────────────────
   //
-  // First attempt mixed *from* the near-black colorA, and the result was a
-  // dark ball inside a bright ring: glass lit from behind is mostly its own
-  // colour, not mostly shadow. The mix runs between the three lit colours and
-  // uses the dark one only to deepen the lower half, which is where a sphere's
-  // shadow actually is.
+  // The thing the reference has that a gradient ball does not: bands of light
+  // wound through the inside of the glass, twisting as they go and swelling
+  // when the voice does. Five of them, which is the count that was chosen.
+  //
+  // Drawn against the *surface* coordinate rather than the screen one, so they
+  // wrap around the sphere instead of sliding across a flat disc: dividing by z
+  // compresses them toward the silhouette exactly as a real band would be.
+  float surface = (st.y / max(radius, 0.0001)) / max(z, 0.35);
+  float twist = (st.x / max(radius, 0.0001)) * 1.25;
+  float wave = sin(t * 0.85 + twist * 2.2) * (0.18 + loud * 0.55)
+             + fbm(vec2(st.x * 2.0 + t * 0.2, t * 0.3)) * 0.5;
+
+  vec3 ribbons = vec3(0.0);
+  for (int i = 0; i < 5; i++) {
+    float fi = float(i);
+    float offset = (fi - 2.0) * 0.34;
+    // Each band sits at its own height and drifts at its own speed, so they
+    // never lock into a pattern the eye can read as a loop.
+    float band = surface - offset - wave * (0.4 + fi * 0.13) - sin(t * (0.31 + fi * 0.07)) * 0.10;
+    float width = 0.42 * (0.28 + loud * 0.16);
+    float strength = exp(-band * band / (width * width));
+    // The colour walks the shell: white at the core of the stack, through the
+    // mid, to the coral edge.
+    vec3 tint = mix(uShellIn, mix(uShellMid, uShellEdge, fi / 4.0), 0.35 + fi * 0.16);
+    ribbons += tint * strength * (0.16 + loud * 0.22);
+  }
+
+  // ── The body the ribbons sit in ───────────────────────────────────────────
   vec2 flowP = st * 1.9 + vec2(t * 0.13, -t * 0.10);
   float flow = fbm(flowP + loud * 0.35);
-  float swirl = fbm(flowP * 1.7 + vec2(-t * 0.08, t * 0.06));
   vec3 body = mix(uD, uB, smoothstep(0.20, 0.85, flow));
-  body = mix(body, uC, smoothstep(0.45, 1.0, swirl) * (0.55 + loud * 0.35));
-  // Depth, from the dark end, weighted to the bottom of the sphere.
-  body = mix(body, uA, smoothstep(0.15, 1.0, ndc) * 0.55 * (0.75 - 0.35 * normal.y));
-  // The core, where the light gets through.
-  body += uHi * pow(max(0.0, z), 3.5) * (0.16 + loud * 0.22);
+  body = mix(body, uC, smoothstep(0.50, 1.0, fbm(flowP * 1.7)) * (0.45 + loud * 0.3));
+  body = mix(body, uA, smoothstep(0.15, 1.0, ndc) * 0.5 * (0.75 - 0.35 * normal.y));
+  body += uHi * pow(max(0.0, z), 3.5) * (0.12 + loud * 0.18);
 
-  // Fresnel: nearly nothing face-on, bright at the silhouette.
-  float fres = pow(1.0 - z, 3.0);
-  // ...separated per channel, which is what makes an edge look like glass
-  // rather than like a stroke.
+  // ── The shell ─────────────────────────────────────────────────────────────
+  //
+  // Three stops rather than one fresnel: the reference's glass reads as a thin
+  // wall with its own thickness, brightest just inside the silhouette and
+  // coloured differently at the very edge.
+  float wall = smoothstep(0.62, 1.0, ndc);
+  float lip = smoothstep(0.90, 1.0, ndc);
+  vec3 shell = mix(uShellMid, uShellEdge, lip);
+  shell = mix(shell, uShellIn, pow(1.0 - ndc, 6.0) * 0.5);
+
+  // Chromatic separation across the wall, which is what stops it reading as a
+  // painted stroke.
   float chroma = 0.42;
-  vec3 rim = vec3(
-    pow(1.0 - sqrt(max(0.0, 1.0 - pow(ndc * (1.0 - 0.012 * chroma), 2.0))), 3.0),
-    fres,
-    pow(1.0 - sqrt(max(0.0, 1.0 - pow(ndc * (1.0 + 0.012 * chroma), 2.0))), 3.0)
+  vec3 split = vec3(
+    smoothstep(0.62 - 0.03 * chroma, 1.0, ndc),
+    wall,
+    smoothstep(0.62 + 0.03 * chroma, 1.0, ndc)
   );
-  vec3 rimColor = mix(uB, uC, 0.5 + 0.5 * sin(angle * 2.0 + t * 0.6));
 
-  // One specular, kept small, so the sphere has a direction to it.
-  float spec = pow(max(0.0, dot(reflect(-lightDir, normal), vec3(0.0, 0.0, 1.0))), 26.0);
+  float spec = pow(max(0.0, dot(reflect(-lightDir, normal), vec3(0.0, 0.0, 1.0))), 30.0);
 
-  vec3 color = body * (0.80 + 0.30 * max(0.0, dot(normal, lightDir)));
-  color += rim * rimColor * (0.85 + loud * 0.7);
-  color += uHi * spec * (0.55 + loud * 0.6);
+  // ── Anisotropic sheen ─────────────────────────────────────────────────────
+  //
+  // The brushed streak that makes the reference read as *metal* under glass
+  // rather than as painted colour: a highlight stretched along one axis instead
+  // of a round dot. 65 degrees, which is the angle that was chosen.
+  float ca = cos(1.134), sa = sin(1.134);
+  vec2 aniso = vec2(st.x * ca - st.y * sa, (st.x * sa + st.y * ca) * 0.23);
+  float sheen = pow(max(0.0, 1.0 - length(aniso) * 1.9), 5.0) * 0.22;
+
+  // ── Particles ─────────────────────────────────────────────────────────────
+  //
+  // Suspended dust with a bloom on it. Cheap: one hashed grid, drifting, with
+  // only the brightest cells surviving the threshold, so it reads as scattered
+  // rather than as a texture.
+  vec2 pg = st * 9.0 + vec2(t * 0.05, -t * 0.08);
+  float cell = hash(floor(pg));
+  float spark = smoothstep(0.92, 1.0, cell) * (1.0 - length(fract(pg) - 0.5) * 1.6);
+  float particles = max(0.0, spark) * 0.72 * (0.35 + loud * 0.65) * z;
+
+  vec3 color = body * (0.72 + 0.28 * max(0.0, dot(normal, lightDir)));
+  color += ribbons;
+  // glassOpacity 0.48 with a mid alpha of 0.18: the wall is thin and mostly
+  // see-through, so the ribbons behind it stay visible instead of the shell
+  // becoming an opaque ring around them.
+  color += shell * split * (0.18 + loud * 0.22);
+  color += uHi * spec * (0.5 + loud * 0.5);
+  color += uShellIn * sheen * (0.6 + loud * 0.5);
+  color += mix(uHi, uShellIn, 0.5) * particles;
   color *= inside;
+  // exposure 1.35, which is most of why the reference looks lit and this looked
+  // like a dark ball with a bright edge.
+  color *= 1.35;
 
-  // The glow outside the glass, which is where the loudness is most readable.
-  // Tighter and dimmer than it was: a halo wider than the sphere reads as the
-  // subject, and the sphere becomes the hole in the middle of it.
-  float halo = exp(-max(0.0, d - radius) * 13.0) * (0.16 + loud * 0.55);
+  float halo = exp(-max(0.0, d - radius) * 13.0) * (0.14 + loud * 0.5);
   color += mix(uB, uD, 0.5) * halo * (1.0 - inside);
 
   outColor = vec4(color, max(inside, halo * 0.85));
@@ -217,6 +267,9 @@ export function VoiceOrb({
     gl.uniform3fv(u("uC"), PALETTE.c);
     gl.uniform3fv(u("uD"), PALETTE.d);
     gl.uniform3fv(u("uHi"), PALETTE.highlight);
+    gl.uniform3fv(u("uShellIn"), PALETTE.shellIn);
+    gl.uniform3fv(u("uShellMid"), PALETTE.shellMid);
+    gl.uniform3fv(u("uShellEdge"), PALETTE.shellEdge);
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);

@@ -1,139 +1,103 @@
 /**
- * The microphone button, and the sheet that opens when you press it.
+ * Talking to the editor, in the chat bar, with nothing taken over.
  *
- * The whole design rests on one decision: **speech fills the same box typing
- * fills.** It does not send, it does not talk to the planner, it does not get
- * its own endpoint. What you say becomes text in the chat input, and from there
- * every behaviour the product already has applies unchanged — the planner, the
- * refusals, the language detection, the rate limit, the "I can't do that yet"
- * list. A second path into the renderer would be a second set of all of those,
- * drifting from the first.
+ * The first version opened a full-screen sheet: the editor dimmed, the orb sat
+ * alone in the middle of it, and the words appeared under it and were handed
+ * over at the end. That was not asked for and it was wrong in the way that
+ * matters — talking to something should not mean leaving the thing you were
+ * looking at. You lose the video, the timeline and the moment you had parked on,
+ * which are the things you are talking *about*.
  *
- * It also means you can fix what it misheard before sending, which matters more
- * than it sounds: a recogniser that is right nine times out of ten and
- * unstoppable is worse than one that is right nine times out of ten and hands
- * you the pen.
+ * So: **the orb is the button.** It sits in the chat bar at rest, small and
+ * still. Press it and it stays exactly where it is and comes alive, and what
+ * you say lands in the input as you say it — the same box the keyboard fills,
+ * live, so you watch it arrive and can fix it without waiting for anything to
+ * close.
  */
-import { useEffect } from "react";
-import { createPortal } from "react-dom";
-import { Mic, X, Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useRef } from "react";
 import { VoiceOrb } from "./orb";
 import { useVoiceInput, voiceErrorMessage } from "./use-voice-input";
 
 export function VoiceInput({
-  onText,
+  onTranscript,
+  onError,
+  existing = "",
   disabled = false,
   arabic = false,
 }: {
-  /** Given what was heard, so the caller can put it where typing goes. */
-  onText: (text: string) => void;
+  /** Every update while speaking, so the input fills as the words arrive. */
+  onTranscript: (text: string, final: boolean) => void;
+  /** So the caller can put the reason where the person is already looking. */
+  onError?: (message: string | null) => void;
+  /** Whatever is already in the box, so speaking adds rather than replaces. */
+  existing?: string;
   disabled?: boolean;
-  /** Which language to listen for, and to apologise in. */
   arabic?: boolean;
 }) {
-  const voice = useVoiceInput({
-    lang: arabic ? "ar-SA" : "en-US",
-    onFinal: onText,
-  });
+  const voice = useVoiceInput({ lang: arabic ? "ar-SA" : "en-US" });
 
-  // Escape closes it. A full-screen listening state with no way out but the
-  // mouse is a trap on a laptop.
+  // The text before this turn started, so a second dictation adds to the
+  // sentence instead of replacing it.
+  const before = useRef("");
+  const onTranscriptRef = useRef(onTranscript);
+  onTranscriptRef.current = onTranscript;
+
   useEffect(() => {
     if (!voice.listening) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") voice.stop();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [voice]);
+    onTranscriptRef.current(
+      before.current ? `${before.current} ${voice.transcript}` : voice.transcript,
+      false,
+    );
+  }, [voice.transcript, voice.listening]);
 
-  // Nothing at all rather than a button that cannot work. Firefox has no
-  // SpeechRecognition, and a dead microphone icon is a worse answer than a
-  // chat box that simply expects typing.
+  useEffect(() => {
+    onError?.(voice.error ? voiceErrorMessage(voice.error, arabic) : null);
+    // onError is a render-stable callback in practice; the reason is the value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice.error, arabic]);
+
+  // Nothing at all rather than a button that cannot work: Firefox has no
+  // SpeechRecognition, and a dead microphone is a worse answer than a chat box
+  // that simply expects typing.
   if (!voice.supported) return null;
 
   return (
-    <>
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        onClick={voice.listening ? voice.stop : voice.start}
-        disabled={disabled}
-        aria-label={voice.listening ? "Stop listening" : "Describe your edit out loud"}
-        aria-pressed={voice.listening}
-        className="absolute right-12 top-1 h-10 w-10 rounded-full text-muted-foreground hover:text-foreground"
-        data-testid="button-voice"
+    <button
+      type="button"
+      onClick={(e) => {
+        // Inside a <form>: without this the first press submits the message.
+        e.preventDefault();
+        if (voice.listening) {
+          voice.stop();
+          return;
+        }
+        // Whatever they had already typed stays: dictation adds a sentence, it
+        // does not take the box over.
+        before.current = existing.trim();
+        void voice.start();
+      }}
+      disabled={disabled}
+      aria-label={arabic ? (voice.listening ? "أوقف الاستماع" : "تكلّم بدل الكتابة") : voice.listening ? "Stop listening" : "Speak instead of typing"}
+      aria-pressed={voice.listening}
+      title={arabic ? "تكلّم بدل الكتابة" : "Speak instead of typing"}
+      className={`absolute right-12 top-1 h-10 w-10 rounded-full flex items-center justify-center
+        transition-transform duration-200 disabled:opacity-40 disabled:pointer-events-none
+        ${voice.listening ? "" : "hover:scale-105"}`}
+      data-testid="button-voice"
+    >
+      {/* The same orb at both sizes, growing out of the button while it is
+          listening rather than a sheet opening over the editor. It overflows
+          the button on purpose — `absolute` here means the growth costs no
+          layout, so the chat bar does not jump when you start speaking. */}
+      <span
+        className={`absolute pointer-events-none transition-all duration-300 ease-out
+          ${voice.listening ? "w-20 h-20" : "w-9 h-9"}`}
       >
-        <Mic className={`w-4 h-4 ${voice.listening ? "text-secondary" : ""}`} />
-      </Button>
-
-      {/*
-        Through a portal to <body>, and this is not tidiness.
-        `position: fixed` is positioned against the viewport only while no
-        ancestor establishes a containing block — and `transform`, `filter` and
-        `backdrop-filter` all do. This sheet lives inside the chat panel, which
-        is glass, so `inset-0` resolved against that panel instead: measured, the
-        overlay began two thirds of the way down the screen and left the editor
-        visible above it. It looked like a z-index problem and was not one.
-      */}
-      {voice.listening &&
-        createPortal(
-        <div
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 px-6 bg-black/75 backdrop-blur-md"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Listening"
-          data-testid="voice-sheet"
-        >
-          <VoiceOrb level={voice.level} listening={voice.listening} className="w-56 h-56 sm:w-72 sm:h-72" />
-
-          {/* What it has heard so far, as it hears it. A listening state with no
-              transcript is a black box: you find out whether it understood you
-              only after it has stopped. */}
-          <p
-            dir="auto"
-            className="max-w-md text-center text-lg text-white/90 min-h-[3.5rem]"
-            data-testid="voice-transcript"
-          >
-            {voice.transcript ||
-              (arabic ? "تكلّم، وأنا أسمع…" : "Go ahead, I'm listening…")}
-          </p>
-
-          {voice.error && (
-            <p className="max-w-md text-center text-sm text-red-300" data-testid="voice-error">
-              {voiceErrorMessage(voice.error, arabic)}
-            </p>
-          )}
-
-          <div className="flex items-center gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={voice.stop}
-              className="rounded-full px-6"
-              data-testid="button-voice-cancel"
-            >
-              <X className="w-4 h-4 mr-2" />
-              {arabic ? "إلغاء" : "Cancel"}
-            </Button>
-            <Button
-              type="button"
-              onClick={voice.stop}
-              className="rounded-full px-6 bg-secondary text-secondary-foreground"
-              data-testid="button-voice-done"
-            >
-              <Check className="w-4 h-4 mr-2" />
-              {arabic ? "تمّ" : "Done"}
-            </Button>
-          </div>
-          <p className="text-xs text-white/45">
-            {arabic ? "يمكنك تعديل النصّ قبل الإرسال." : "You can edit the text before sending."}
-          </p>
-        </div>,
-          document.body,
-        )}
-    </>
+        <VoiceOrb level={voice.level} listening={voice.listening} className="w-full h-full" />
+      </span>
+      <span className="sr-only" data-testid="voice-transcript">
+        {voice.transcript}
+      </span>
+    </button>
   );
 }
