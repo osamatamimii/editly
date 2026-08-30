@@ -1251,6 +1251,127 @@ section("A read that failed does not hide a sign-in button");
   await browserPage.unroute("**/auth/v1/settings");
 }
 
+/**
+ * The half of the redirect that comes back carrying a refusal.
+ *
+ * `signInWithProvider` reports what goes wrong *before* the browser leaves.
+ * Everything that goes wrong after it leaves comes back the only way OAuth can
+ * answer: as `error` and `error_description` on the URL it returns to. That URL
+ * is `/dashboard`, where there is no session, so the router redirects to
+ * `/login` — and the redirect drops the query and the hash with it.
+ *
+ * So the person clicked "Continue with Google", disappeared for two seconds,
+ * and arrived back at an empty sign-in form with **nothing anywhere saying
+ * why**. A wrong redirect URL, a provider switched on with bad credentials,
+ * Supabase's own "Database error saving new user" — all of them looked exactly
+ * like a button that does nothing. And this is the failure most likely to
+ * happen on the very first day the provider is switched on.
+ *
+ * Run in a real browser against a real History API, because the whole thing is
+ * one interaction between a URL, `history.replaceState`, and a router that
+ * throws the URL away.
+ */
+section("A sign-in that failed on the way back says what happened");
+{
+  const at = (url) =>
+    run((u) => {
+      window.history.replaceState(null, "", u);
+      const captured = window.OA.captureOAuthError();
+      return { captured, url: window.location.href, taken: window.OA.takeOAuthError(), again: window.OA.takeOAuthError() };
+    }, url);
+
+  const q = await at("/?error=server_error&error_description=Database+error+saving+new+user");
+  check(
+    "a provider's own words survive the redirect that drops the URL",
+    q.captured === "Database error saving new user",
+    JSON.stringify(q),
+  );
+  check("and are taken off the URL, so a reload does not repeat them", !/error/.test(q.url), q.url);
+  check("read once by the screen that shows them", q.taken === "Database error saving new user", JSON.stringify(q.taken));
+  check("and not a second time", q.again === null, JSON.stringify(q.again));
+
+  // Supabase's implicit flow answers in the fragment, not the query. A reader
+  // that only knows one of the two is a reader that works in half the cases.
+  const h = await at("/#error=server_error&error_description=Unable+to+exchange+external+code");
+  check(
+    "an error in the fragment is read as well as one in the query",
+    h.captured === "Unable to exchange external code",
+    JSON.stringify(h),
+  );
+
+  const cancelled = await at("/?error=access_denied&error_description=The+user+denied+the+request");
+  check(
+    "cancelling reads as cancelling, not as a failure",
+    cancelled.captured === "Sign-in was cancelled.",
+    JSON.stringify(cancelled.captured),
+  );
+
+  const bare = await at("/?error=invalid_request");
+  check(
+    "and a code with no sentence still says something",
+    bare.captured === "Sign-in failed (invalid_request).",
+    JSON.stringify(bare.captured),
+  );
+
+  /**
+   * The control, and the inverse bug.
+   *
+   * A *successful* callback comes back with `access_token` in the fragment, and
+   * the Supabase client reads that fragment itself to establish the session.
+   * A reader that stripped it would turn every successful Google sign-in into a
+   * silent failure — the same bug this section exists to end, inverted and
+   * worse. So the untouched case is asserted, byte for byte.
+   */
+  const success = await at("/#access_token=abc123&token_type=bearer&expires_in=3600");
+  check("a successful callback is not read as an error", success.captured === null, JSON.stringify(success.captured));
+  check(
+    "and its fragment is left exactly as it arrived, because the session is in it",
+    success.url.endsWith("#access_token=abc123&token_type=bearer&expires_in=3600"),
+    success.url,
+  );
+
+  // And a URL that is not a callback at all. This product links to `/#pricing`
+  // from a toast, and a reader that rebuilt every fragment it saw would rewrite
+  // that to `#pricing=` — a key-value parser given something that was never a
+  // key-value pair. The rule the early return encodes is narrower than "clean
+  // the URL": *touch nothing unless there is an error on it.*
+  const anchor = await at("/#pricing");
+  check("a plain anchor is not a callback and is left alone", anchor.url.endsWith("/#pricing"), anchor.url);
+
+  const alongside = await at("/?next=%2Fdashboard&error=server_error&error_description=Nope");
+  check(
+    "stripping the error leaves everything else on the URL alone",
+    /next=%2Fdashboard/.test(alongside.url) && !/error/.test(alongside.url),
+    alongside.url,
+  );
+
+  await run(() => window.history.replaceState(null, "", "/"));
+
+  /**
+   * And it is read early enough to survive.
+   *
+   * The whole design is an ordering: the reason arrives on `/dashboard`, the
+   * router redirects to `/login`, and the redirect drops the URL. Read at
+   * start-up it survives; read from the login screen's own mount it is already
+   * gone — and the two are indistinguishable in every test that does not check
+   * *where* the call sits.
+   */
+  const { readFileSync: readSource } = await import("node:fs");
+  const main = readSource(path.join(repoRoot, "artifacts/editly/src/main.tsx"), "utf8");
+  const login = readSource(path.join(repoRoot, "artifacts/editly/src/pages/login.tsx"), "utf8");
+  check(
+    "the reason is taken off the URL before anything renders",
+    main.indexOf("captureOAuthError()") > 0 &&
+      main.indexOf("captureOAuthError()") < main.indexOf("createRoot(document"),
+    "reading it after the router has run reads a URL the router already discarded",
+  );
+  check(
+    "and the sign-in screen shows it",
+    /takeOAuthError\(\)/.test(login) && /setError\(said\)/.test(login),
+    "captured and never displayed is the same silence with extra steps",
+  );
+}
+
 section("A 404 is an answer, and the screens that need to act on one can");
 {
   const verdicts = await run(() => ({
