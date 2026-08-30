@@ -221,6 +221,7 @@ for (const ch of PROMPT) {
   await wait(26 + (ch === " " ? 34 : 0));
 }
 await wait(480);
+const sendAt = (Date.now() - videoStartedAt) / 1000;
 await page.getByTestId("button-send-message").click();
 await wait(2000);
 
@@ -306,6 +307,34 @@ if (frameBox) {
 ff(["-i", composed, "-an", "-c:v", "libx264", "-crf", "23", "-preset", "slow", "-pix_fmt", "yuv420p", "-movflags", "+faststart", path.join(outDir, `demo-editor${SHAPE.suffix}.mp4`)]);
 ff(["-i", composed, "-an", "-c:v", "libvpx-vp9", "-crf", "36", "-b:v", "0", "-row-mt", "1", path.join(outDir, `demo-editor${SHAPE.suffix}.webm`)]);
 ff(["-sseof", "-2", "-i", composed, "-frames:v", "1", "-q:v", "3", path.join(outDir, `demo-editor${SHAPE.suffix}.jpg`)]);
+
+// ── the three steps, cut from the same recording ─────────────────────────────
+//
+// "How it works" was three cards of prose with an icon on each. The steps are
+// things you can watch, so they are shown: the raw file as it arrives, the
+// sentence being typed and answered, and the finished vertical cut. Cut from
+// this recording rather than shot separately, so they cannot drift from it.
+if (!PHONE) {
+  const step = (name, input, from, dur, extra = []) => {
+    ff(["-ss", from.toFixed(2), "-t", dur.toFixed(2), "-i", input, "-an", ...extra,
+        "-c:v", "libx264", "-crf", "24", "-preset", "slow", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        path.join(outDir, `${name}.mp4`)]);
+    ff(["-ss", from.toFixed(2), "-t", dur.toFixed(2), "-i", input, "-an", ...extra,
+        "-c:v", "libvpx-vp9", "-crf", "40", "-b:v", "0", "-row-mt", "1", "-deadline", "good", "-cpu-used", "5",
+        path.join(outDir, `${name}.webm`)]);
+    ff(["-ss", (from + Math.min(1, dur / 2)).toFixed(2), "-i", input, "-frames:v", "1", "-q:v", "4", ...extra,
+        path.join(outDir, `${name}.jpg`)]);
+  };
+
+  // 01 — the file as it arrives, in the player, with its full length on the
+  // timecode. The clip on its own says nothing; the clip sitting in the editor
+  // at 0:12 is the raw take.
+  step("step-upload", composed, 0.3, 5.0, ["-vf", "crop=iw*0.30:ih*0.36:iw*0.19:ih*0.09,scale=760:-2"]);
+  // 02 — the sentence, and the plan that comes back.
+  step("step-describe", composed, 0, Math.min(sendAt - trimTo + 3.4, 12), ["-vf", "crop=iw*0.3125:ih*0.46:iw*0.6875:ih*0.155,scale=720:-2"]);
+  // 03 — what came out.
+  step("step-post", path.join(CLIPS, "edited.mp4"), 0.1, RESULT_SECONDS - 0.3, ["-vf", "scale=-2:720"]);
+}
 
 const sizes = ["demo-editor.mp4", "demo-editor.webm", "demo-editor.jpg"].map((f) => f.replace(/\.(?=[a-z0-9]+$)/, `${SHAPE.suffix}.`)).map((f) => `${f} ${(statSync(path.join(outDir, f)).size / 1024).toFixed(0)}KB`);
 console.log(`\nRecorded the real editor at ${SHAPE.width}\u00d7${SHAPE.height}: ${sizes.join(" · ")}`);

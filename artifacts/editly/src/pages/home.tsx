@@ -455,26 +455,52 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Each step shows itself.
+              Three cards of prose with an icon on each described a thing you can
+              watch, so now you watch it: the file as it arrives with the dead
+              air still in it, the sentence being answered, and the vertical cut
+              that came out. All three are cut from the same recording the hero
+              plays, by `tools/demo-capture.mjs`, so they cannot drift from it or
+              from each other. */}
           <div className="grid md:grid-cols-3 gap-8">
             {[
-              { num: "01", icon: Upload, title: "Upload the raw take", desc: "The unedited one, with all the ums and restarts still in it. That is the point.", delay: "0ms" },
-              { num: "02", icon: MessageSquareText, title: "Say what you want", desc: "\"Cut the dead air and make it vertical for TikTok.\" Editly tells you exactly what it will do before it does it.", delay: "120ms" },
-              { num: "03", icon: Send, title: "Post it", desc: "Framed for TikTok, Reels or Shorts, and waiting for you when you come back.", delay: "240ms" },
+              { num: "01", clip: "step-upload", shape: "aspect-video", icon: Upload, title: "Upload the raw take", desc: "The unedited one, with all the ums and restarts still in it. That is the point.", delay: "0ms" },
+              { num: "02", clip: "step-describe", shape: "aspect-[10/9]", icon: MessageSquareText, title: "Say what you want", desc: "\"Cut the dead air and make it vertical for TikTok.\" Editly tells you exactly what it will do before it does it.", delay: "120ms" },
+              { num: "03", clip: "step-post", shape: "aspect-[9/16]", icon: Send, title: "Post it", desc: "Framed for TikTok, Reels or Shorts, and waiting for you when you come back.", delay: "240ms" },
             ].map((step) => (
               <div
                 key={step.num}
-                className="reveal glass-panel p-8 rounded-2xl relative overflow-hidden group cursor-default transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_40px_rgba(108,59,255,0.2)] hover:-translate-y-1"
+                className="reveal glass-panel rounded-2xl relative overflow-hidden group cursor-default transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_40px_rgba(108,59,255,0.2)] hover:-translate-y-1 flex flex-col"
                 style={{ transitionDelay: step.delay }}
               >
-                <div className="absolute -top-10 -right-10 w-32 h-32 bg-primary/20 rounded-full blur-[50px] group-hover:bg-secondary/40 transition-colors duration-700" />
-                <span className="text-6xl font-extrabold text-foreground/[0.06] mb-4 block group-hover:text-foreground/[0.10] transition-colors">
-                  {step.num}
-                </span>
-                <div className="w-10 h-10 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center mb-4 group-hover:shadow-[0_0_15px_rgba(108,59,255,0.5)] transition-shadow">
-                  <step.icon className="w-5 h-5 text-primary" />
+                {/* force-dark: a picture of the app is dark whatever the page is
+                    doing around it. Fixed heights across the three, so the row
+                    does not step up and down with the shape of each clip. */}
+                <div className="force-dark relative bg-[#0a090b] h-52 sm:h-56 overflow-hidden flex items-center justify-center">
+                  <video
+                    className={`${step.shape} h-full w-auto object-cover`}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="none"
+                    poster={`/${step.clip}.jpg`}
+                    aria-label={step.title}
+                  >
+                    <source src={`/${step.clip}.webm`} type="video/webm" />
+                    <source src={`/${step.clip}.mp4`} type="video/mp4" />
+                  </video>
+                  <span className="absolute top-3 left-3 text-xs font-mono font-semibold text-white/70 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-md border border-white/10">
+                    {step.num}
+                  </span>
                 </div>
-                <h3 className="text-xl font-bold mb-3">{step.title}</h3>
-                <p className="text-muted-foreground leading-relaxed">{step.desc}</p>
+                <div className="p-6 sm:p-8 pt-6 flex-1">
+                  <div className="w-10 h-10 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center mb-4 group-hover:shadow-[0_0_15px_rgba(108,59,255,0.5)] transition-shadow">
+                    <step.icon className="w-5 h-5 text-primary" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-3">{step.title}</h3>
+                  <p className="text-muted-foreground leading-relaxed">{step.desc}</p>
+                </div>
               </div>
             ))}
           </div>
