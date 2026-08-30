@@ -375,184 +375,71 @@ export default function Home() {
           </a>
         </div>
 
-        {/* Hero Mockup */}
+        {/* Hero — the product, recorded.
+            What was here was a drawing of an editor: an empty black rectangle
+            with chips and a fake waveform on it. Every claim on this page is
+            about a product and the largest thing on it showed no product.
+
+            This is `tools/demo-capture.mjs` driving the built app through one
+            real edit — a sentence typed, a plan back, the render moving, and
+            the finished 9:16 cut with its captions on it. Regenerate it with
+            `pnpm run vercel:build && node tools/demo-capture.mjs`; when a
+            button moves, the recording moves with it. */}
         <div
           ref={mockupRef}
-          className="mt-20 w-full max-w-5xl animate-fade-up animate-float"
-          style={{ animationDelay: "560ms", animationDuration: "6s" } as React.CSSProperties}
+          className="mt-16 sm:mt-20 w-full max-w-5xl animate-fade-up"
+          style={{ animationDelay: "560ms" }}
         >
-          <div className="rounded-2xl glass-panel overflow-hidden border border-hairline p-2"
+          <div className="rounded-2xl glass-panel overflow-hidden border border-hairline p-1.5 sm:p-2"
             style={{
-              boxShadow: "0 40px 80px rgba(108,59,255,0.3), 0 80px 160px rgba(108,59,255,0.12), 0 0 0 1px rgba(155,107,255,0.12)",
+              boxShadow: "0 40px 80px rgba(108,59,255,0.28), 0 80px 160px rgba(108,59,255,0.10), 0 0 0 1px rgba(155,107,255,0.12)",
             }}
           >
             {/* force-dark: this is a picture of a video editor, and a video
                 editor is dark whatever the surrounding page is doing. */}
-            {/*
-              Taller on a phone, and that is a composition rather than a
-              concession. A 16:9 box across a 390px screen is 192 pixels high —
-              less than the chat panel and the timeline inside it need, so every
-              absolutely-placed piece landed on top of another one. Text over
-              text is the first thing anyone sees on this page on a phone.
-            */}
-            <div className="force-dark w-full aspect-[4/5] sm:aspect-[16/9] rounded-xl overflow-hidden relative text-foreground"
-              style={{ background: "linear-gradient(135deg, #080512 0%, #0a0614 40%, #060310 100%)" }}
-            >
-              {/* Abstract bokeh blobs — suggest out-of-focus video subjects */}
-              <div className="absolute pointer-events-none"
-                style={{ top: "-10%", left: "-5%", width: "45%", height: "70%",
-                  background: "radial-gradient(circle, rgba(20,184,166,0.28) 0%, transparent 70%)",
-                  filter: "blur(60px)" }}
-              />
-              <div className="absolute pointer-events-none"
-                style={{ top: "20%", right: "5%", width: "35%", height: "55%",
-                  background: "radial-gradient(circle, rgba(251,146,60,0.18) 0%, transparent 70%)",
-                  filter: "blur(50px)" }}
-              />
-              <div className="absolute pointer-events-none"
-                style={{ bottom: "5%", left: "30%", width: "40%", height: "50%",
-                  background: "radial-gradient(circle, rgba(108,59,255,0.32) 0%, transparent 70%)",
-                  filter: "blur(70px)" }}
-              />
-              {/* Subtle film grain / scanline texture */}
-              <div className="absolute inset-0 pointer-events-none opacity-[0.035]"
-                style={{ backgroundImage: "repeating-linear-gradient(0deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 1px, transparent 1px, transparent 4px)" }}
-              />
-              {/* Vignette so edges stay dark */}
-              <div className="absolute inset-0 pointer-events-none"
-                style={{ background: "radial-gradient(ellipse at 50% 45%, transparent 35%, rgba(0,0,0,0.75) 100%)" }}
-              />
-
-              {/* REC indicator + timecode — top left.
-                  Decoration: it is a drawing of a camera overlay, not a fact
-                  about anything, so it is hidden from assistive technology and
-                  exempt from the body-text size floor for the same reason. */}
-              <div aria-hidden="true" className="absolute top-4 left-4 flex items-center gap-2 z-10"
-                style={{ animation: "fade-in 0.4s 0.8s both" }}
+            <div className="force-dark rounded-xl overflow-hidden relative bg-[#0a090b]">
+              {/* Two recordings, one per shape.
+                  A 1280-wide desktop capture scaled into a 390px phone is a
+                  picture of text nobody can read, and the largest thing on the
+                  page becoming a grey smudge on the device most people arrive
+                  on is worse than no video at all. The app has a phone layout,
+                  so the phone gets a recording of that one. `<source media>` is
+                  not reliable across browsers for this, so it is two elements
+                  and a breakpoint — only one of which ever has a src attached,
+                  because `hidden` does not stop a video downloading. */}
+              <video
+                className="hidden sm:block w-full h-auto"
+                // Muted and inline are what make autoplay legal on a phone;
+                // without both, iOS shows a play button over a still frame.
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                poster="/demo-editor.jpg"
+                aria-label="A recording of Editly turning a raw take into a vertical clip"
               >
-                <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.9)]"
-                  style={{ animation: "glow-pulse 1.4s ease-in-out infinite" }} />
-                <span className="text-[10px] font-mono text-white/60 tracking-widest">REC&nbsp; 00:14 / 01:02</span>
-              </div>
-
-              {/* Resolution badge — top right, inset to clear the chat panel */}
-              {/* Its offset is measured against the chat panel, which only
-                  floats at that width from `lg` up. Below that the number is
-                  meaningless and the badge lands in the middle of the frame. */}
-              <div aria-hidden="true" className="absolute top-4 z-10 hidden lg:block"
-                style={{ right: "310px", animation: "fade-in 0.4s 0.9s both" }}
+                <source src="/demo-editor.webm" type="video/webm" />
+                <source src="/demo-editor.mp4" type="video/mp4" />
+              </video>
+              <video
+                className="sm:hidden w-full h-auto"
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                poster="/demo-editor-phone.jpg"
+                aria-label="A recording of Editly turning a raw take into a vertical clip"
               >
-                <span className="text-[9px] font-mono text-white/40 bg-surface-1 border border-hairline px-2 py-0.5 rounded">
-                  1080p
-                </span>
-              </div>
-
-              {/* Animated AI-caption strip — floats just above the timeline */}
-              <div aria-hidden="true" className="absolute z-10 left-1/2 -translate-x-1/2 bottom-[88px] sm:bottom-[120px] max-w-[calc(100%-1.5rem)] sm:whitespace-nowrap"
-                style={{ animation: "chat-slide-in 0.6s 2.2s cubic-bezier(0.16,1,0.3,1) both" }}
-              >
-                <div className="bg-black/70 backdrop-blur-sm border border-primary/30 px-3 sm:px-4 py-1.5 rounded-full text-[11px] sm:text-xs text-white/90 font-medium shadow-[0_0_16px_rgba(108,59,255,0.35)] flex items-center gap-2 text-center sm:text-start">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_6px_rgba(108,59,255,0.9)]"
-                    style={{ animation: "glow-pulse 1.8s ease-in-out infinite" }} />
-                  🎵 Beat drop incoming — zoom activated
-                </div>
-              </div>
-
-              {/* Gradient fade at the bottom so timeline merges smoothly */}
-              <div className="absolute inset-x-0 bottom-0 h-36 pointer-events-none"
-                style={{ background: "linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 50%, transparent 100%)" }}
-              />
-
-              {/* Timeline bar */}
-              <div className="absolute bottom-0 left-0 right-0 h-20 sm:h-28 p-3 sm:p-4 flex flex-col justify-end">
-                <div className="w-full h-11 sm:h-14 bg-surface-1 rounded-lg border border-hairline relative overflow-hidden">
-                  {/* Animated progress fill */}
-                  <div className="timeline-progress absolute top-0 left-0 bottom-0 bg-primary/20 border-r-2 border-secondary shadow-[0_0_20px_rgba(155,107,255,0.8)]" />
-                  {/* Active edit segment — the highlighted clip being edited */}
-                  <div
-                    className="absolute top-0 bottom-0 rounded-sm"
-                    style={{
-                      left: "28%", width: "14%",
-                      background: "rgba(108,59,255,0.45)",
-                      boxShadow: "0 0 18px rgba(108,59,255,0.7), inset 0 0 8px rgba(155,107,255,0.3)",
-                      borderLeft: "2px solid rgba(155,107,255,0.9)",
-                      borderRight: "2px solid rgba(155,107,255,0.9)",
-                    }}
-                  />
-                  {/* Playhead */}
-                  <div
-                    className="absolute top-0 bottom-0 w-0.5 bg-secondary shadow-[0_0_8px_rgba(155,107,255,1)]"
-                    style={{ left: "38%", animation: "timeline-progress 3s 1s cubic-bezier(0.16,1,0.3,1) both" }}
-                  />
-                  {/* Animated waveform */}
-                  <div className="absolute inset-0 flex items-center gap-[2px] px-3">
-                    {WAVE_BARS.map((bar, i) => (
-                      <div
-                        key={i}
-                        className={`wave-bar flex-1 rounded-full min-w-[2px] ${
-                          i >= 13 && i <= 19 ? "bg-secondary/70" : "bg-surface-3"
-                        }`}
-                        style={{
-                          height: `${bar.height}%`,
-                          "--dur": `${bar.dur}s`,
-                          "--delay": `${bar.delay}s`,
-                        } as React.CSSProperties}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Chat overlay */}
-              {/* Across the top on a phone, floating from `sm` up. A 288px card
-                  inset 24px from the right of a 342px frame *is* the frame, and
-                  it sat on top of the platform chips. */}
-              <div className="absolute top-11 inset-x-3 sm:inset-x-auto sm:top-6 sm:right-6 sm:w-72 rounded-xl bg-background/80 backdrop-blur-md border border-hairline p-3 sm:p-4 shadow-[0_20px_40px_rgba(0,0,0,0.5)]"
-                style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.07), 0 20px 40px rgba(0,0,0,0.5)" }}
-              >
-                <div className="flex items-center gap-2 mb-3 pb-3 border-b border-hairline">
-                  <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]" />
-                  <span className="text-xs font-semibold text-muted-foreground">Editly AI</span>
-                </div>
-                <div className="flex flex-col gap-3">
-                  <div className="chat-bubble-1 self-end bg-primary/20 text-white px-3 py-2 rounded-xl rounded-br-sm text-xs border border-primary/30">
-                    "Make it punchy, add zoom on the beat drops."
-                  </div>
-                  <div className="chat-bubble-2 self-start bg-surface-1 px-3 py-2 rounded-xl rounded-bl-sm text-xs border border-hairline flex items-center gap-2">
-                    <Sparkles className="w-3 h-3 text-secondary flex-shrink-0" />
-                    <span>Applying dynamic beat sync...</span>
-                  </div>
-                  <div
-                    className="self-start bg-surface-1 px-3 py-2 rounded-xl rounded-bl-sm text-xs border border-hairline flex items-center gap-1.5"
-                    style={{ animation: "chat-slide-in 0.5s 3.5s cubic-bezier(0.16,1,0.3,1) both" }}
-                  >
-                    <span className="typing-dot w-1.5 h-1.5 rounded-full bg-secondary inline-block" />
-                    <span className="typing-dot w-1.5 h-1.5 rounded-full bg-secondary inline-block" />
-                    <span className="typing-dot w-1.5 h-1.5 rounded-full bg-secondary inline-block" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Platform badges */}
-              <div
-                /* Below the REC line, which starts at top-4 and is the same
-                   corner. They overlapped, and a badge sitting on a timecode is
-                   the first thing anyone looks at in this picture. */
-                className="absolute top-12 left-6 hidden sm:flex flex-col gap-2"
-                style={{ animation: "fade-in 0.5s 1s ease both" }}
-              >
-                {["TikTok", "Reels", "Shorts"].map((p, i) => (
-                  <div
-                    key={p}
-                    className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-hairline text-xs font-medium text-white/80"
-                    style={{ animation: `fade-up 0.5s ${1 + i * 0.15}s cubic-bezier(0.16,1,0.3,1) both` }}
-                  >
-                    {p}
-                  </div>
-                ))}
-              </div>
+                <source src="/demo-editor-phone.webm" type="video/webm" />
+                <source src="/demo-editor-phone.mp4" type="video/mp4" />
+              </video>
             </div>
           </div>
+          <p className="mt-4 text-xs sm:text-sm text-muted-foreground text-center">
+            A real edit, recorded in the app. 12.3 seconds in, 6.5 out.
+          </p>
         </div>
       </section>
 
