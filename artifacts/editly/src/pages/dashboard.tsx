@@ -338,16 +338,30 @@ export default function Dashboard() {
       {/* Stats */}
       {/* A card built for a quarter of a desktop row is, stacked on a phone,
           230px of padding around one number — three screens of scrolling before
-          the projects the person came for. The numbers stay; the box shrinks. */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6 mb-8 md:mb-12">
+          the projects the person came for. The numbers stay; the box shrinks.
+
+          Shrinking the box was not enough, because the box was still the full
+          width of the screen and there were three of them: measured on a
+          390x852 phone, "0, 0, 0" was taking 330px — forty per cent of the
+          screen — to say that nothing has happened yet, and the projects the
+          person opened the app for started below the fold. Three numbers side
+          by side is what three numbers are; a row of them costs about 80px.
+
+          The labels shorten with the column, because "Currently Processing" in
+          a 118px column is three lines of type above a single digit. They are
+          the same three facts either way. */}
+      <div className="grid grid-cols-3 gap-2 md:gap-6 mb-8 md:mb-12">
         <Card className="glass-panel border-hairline-faint">
-          <CardHeader className="flex flex-row items-center justify-between p-4 pb-1 md:p-6 md:pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Projects</CardTitle>
-            <Video className="w-4 h-4 text-primary" />
+          <CardHeader className="flex flex-row items-start md:items-center justify-between gap-1 p-3 pb-0.5 md:p-6 md:pb-2">
+            <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground leading-snug">
+              <span className="md:hidden">Projects</span>
+              <span className="hidden md:inline">Total Projects</span>
+            </CardTitle>
+            <Video className="w-4 h-4 text-primary flex-shrink-0" />
           </CardHeader>
-          <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
+          <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
             {statsState === "loading" ? (
-              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-7 w-10 md:h-8 md:w-16" />
             ) : statsState === "failed" ? (
               /* A zero here is a claim about the person's account. When the
                  read failed we do not know the number, and "0" is the one
@@ -355,23 +369,26 @@ export default function Dashboard() {
                  the product. */
               <LoadFailed what="this" compact onRetry={() => statsQuery.refetch()} testId="stats-failed-total" />
             ) : (
-              <div className="text-3xl font-bold">{stats?.totalProjects || 0}</div>
+              <div className="text-2xl md:text-3xl font-bold">{stats?.totalProjects || 0}</div>
             )}
           </CardContent>
         </Card>
         <Card className="glass-panel border-hairline-faint">
-          <CardHeader className="flex flex-row items-center justify-between p-4 pb-1 md:p-6 md:pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Currently Processing</CardTitle>
-            <Activity className="w-4 h-4 text-secondary" />
+          <CardHeader className="flex flex-row items-start md:items-center justify-between gap-1 p-3 pb-0.5 md:p-6 md:pb-2">
+            <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground leading-snug">
+              <span className="md:hidden">Working</span>
+              <span className="hidden md:inline">Currently Processing</span>
+            </CardTitle>
+            <Activity className="w-4 h-4 text-secondary flex-shrink-0" />
           </CardHeader>
-          <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
+          <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
             {statsState === "loading" ? (
-              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-7 w-10 md:h-8 md:w-16" />
             ) : statsState === "failed" ? (
               <LoadFailed what="this" compact onRetry={() => statsQuery.refetch()} testId="stats-failed-processing" />
             ) : (
               <>
-                <div className="text-3xl font-bold" data-testid="text-processing-count">
+                <div className="text-2xl md:text-3xl font-bold" data-testid="text-processing-count">
                   {stats?.processingCount || 0}
                 </div>
                 {/* Counted apart from the number above it. "Processing: 2" over
@@ -393,17 +410,20 @@ export default function Dashboard() {
           </CardContent>
         </Card>
         <Card className="glass-panel border-hairline-faint">
-          <CardHeader className="flex flex-row items-center justify-between p-4 pb-1 md:p-6 md:pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Completed Edits</CardTitle>
-            <CheckCircle2 className="w-4 h-4 text-success" />
+          <CardHeader className="flex flex-row items-start md:items-center justify-between gap-1 p-3 pb-0.5 md:p-6 md:pb-2">
+            <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground leading-snug">
+              <span className="md:hidden">Done</span>
+              <span className="hidden md:inline">Completed Edits</span>
+            </CardTitle>
+            <CheckCircle2 className="w-4 h-4 text-success flex-shrink-0" />
           </CardHeader>
-          <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
+          <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
             {statsState === "loading" ? (
-              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-7 w-10 md:h-8 md:w-16" />
             ) : statsState === "failed" ? (
               <LoadFailed what="this" compact onRetry={() => statsQuery.refetch()} testId="stats-failed-done" />
             ) : (
-              <div className="text-3xl font-bold">{stats?.doneCount || 0}</div>
+              <div className="text-2xl md:text-3xl font-bold">{stats?.doneCount || 0}</div>
             )}
           </CardContent>
         </Card>
