@@ -100,7 +100,33 @@ async function pool2(url, fn) {
 section("The expected columns are read from the schema, not from a list");
 {
   const expected = health.expectedColumns();
-  check("all five tables are covered", expected.size === 5, JSON.stringify([...expected.keys()]));
+  /**
+   * Every table the schema declares, not a chosen few.
+   *
+   * This asked for five, which was the number somebody had written into
+   * `schema-health.ts` by hand — and the module's own argument, one paragraph
+   * above that list, is why a hand-maintained list is wrong: it is the same
+   * forgetting one layer up. Eight tables had been added since and every one of
+   * them was invisible to the check, while being read on live request paths. So
+   * the outage this module exists to catch could recur across most of the
+   * database with `/healthz` answering `{status: "ok"}` throughout — and the
+   * uptime monitor reads `/healthz`.
+   *
+   * The check is now against the schema itself, which is the only number that
+   * cannot go stale.
+   */
+  const declared = (await import("node:fs"))
+    .readFileSync(path.join(repoRoot, "lib/db/src/schema/index.ts"), "utf8")
+    .split("\n")
+    .filter((line) => line.startsWith("export * from"));
+  check(
+    "every table the schema declares is covered, not a chosen few",
+    expected.size >= declared.length,
+    `${expected.size} tables checked, ${declared.length} schema files: ${JSON.stringify([...expected.keys()])}`,
+  );
+  for (const table of ["assets", "clips", "billing_events", "rate_limits", "waitlist", "worker_heartbeats", "admin_actions", "render_followups"]) {
+    check(`including ${table}, which the API reads on a live request path`, expected.has(table));
+  }
   check(
     "and the columns are the ones the queries name",
     expected.get("jobs")?.has("output_seconds") &&
@@ -115,6 +141,11 @@ section("The expected columns are read from the schema, not from a list");
     "utf8",
   );
   check("nothing in it is a literal column name", !/"[a-z]+_[a-z_]+"/.test(source.split("BEHIND_MESSAGE")[0]));
+  check(
+    "and no table is named by hand either",
+    !/\b(projectsTable|messagesTable|exportsTable|jobsTable|subscriptionsTable)\b/.test(source),
+    "a table listed here is a table the next one added will be missing from",
+  );
   check("it reads them out of the Drizzle tables", /getTableConfig/.test(source));
 }
 
@@ -237,7 +268,10 @@ const columnsOf = async (url) => {
   const { rows } = await pool.query(
     `SELECT table_name, column_name FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = ANY($1)`,
-    [["projects", "messages", "exports", "jobs", "subscriptions"]],
+    // The tables the health module says it checks, not five written out here.
+    // A list in the test is the same staleness as a list in the module, and
+    // this one would have quietly stopped comparing eight of them.
+    [[...health.expectedColumns().keys()]],
   );
   await pool.end();
   const found = new Map();
@@ -362,12 +396,37 @@ section("A database in the state production was actually in");
         ),
       ].map((m) => `${m[1].toLowerCase()}.${m[2].toLowerCase()}`);
     });
-  // Only columns on tables that existed by 0005 can go missing this way — a
-  // migration that creates a whole new table takes its columns with it, and the
-  // health check compares tables it can see.
-  const expected = [...new Set(laterAdditions)]
-    .filter((name) => ["projects.", "jobs.", "messages.", "exports.", "subscriptions."].some((t) => name.startsWith(t)))
-    .sort();
+  // A table a later migration *creates* is missing entirely on this database,
+  // and the health check now reports a whole absent table as every one of its
+  // columns — which is the behaviour `compareSchema` is asserted on above, and
+  // the reason it matters: eight tables were added after 0005 and, until the
+  // check started reading the schema instead of a hand-written list of five,
+  // every one of them could be absent with `/healthz` still answering `ok`.
+  //
+  // So the expectation is both halves: columns a later migration added to a
+  // table that already existed, and every column of a table a later migration
+  // created. Both derived, so the ninth migration does not break this.
+  const createdLater = new Set(
+    readdirSync(path.join(repoRoot, "lib/db/migrations"))
+      .filter((f) => f.endsWith(".sql") && !/^000[0-5]_/.test(f))
+      .flatMap((f) => {
+        const sql = fs.readFileSync(path.join(repoRoot, "lib/db/migrations", f), "utf8");
+        // `public.` prefix optional: the migrations use both spellings.
+        return [...sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?public"?\.)?"?(\w+)"?/gi)].map((m) =>
+          m[1].toLowerCase(),
+        );
+      }),
+  );
+  const declaredColumns = health.expectedColumns();
+  const wholeNewTables = [...createdLater].flatMap((table) =>
+    [...(declaredColumns.get(table) ?? [])].map((column) => `${table}.${column}`),
+  );
+  const expected = [
+    ...new Set([
+      ...laterAdditions.filter((name) => !createdLater.has(name.split(".")[0])),
+      ...wholeNewTables,
+    ]),
+  ].sort();
 
   check(
     "and every other column the later migrations were going to add",

@@ -18,18 +18,33 @@
  * It reports missing columns by name. "The database is behind" is a sentence
  * someone can act on in a minute; "500" is an afternoon.
  */
-import { getTableConfig } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
-import {
-  db,
-  projectsTable,
-  messagesTable,
-  exportsTable,
-  jobsTable,
-  subscriptionsTable,
-} from "@workspace/db";
+import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import { is, sql } from "drizzle-orm";
+import { db } from "@workspace/db";
+import * as schema from "@workspace/db";
 
-const TABLES = [projectsTable, messagesTable, exportsTable, jobsTable, subscriptionsTable];
+/**
+ * Every table the schema declares, discovered rather than listed.
+ *
+ * This was five tables written out by hand, and the file's own argument two
+ * paragraphs up is exactly why that was wrong: a hand-maintained list is the
+ * same forgetting one layer up. It had already happened. Eight more tables have
+ * been added since — `assets`, `clips`, `billing_events`, `rate_limits`,
+ * `admin_actions`, `render_followups`, `waitlist`, `worker_heartbeats` — and
+ * every one of them is read on a live request path while being invisible here.
+ *
+ * So the exact failure this module exists to catch could recur in the majority
+ * of the database and `/healthz` would answer `{status: "ok"}` with an empty
+ * `missingColumns` throughout: `/projects/:id/assets` 500ing on every request,
+ * `/waitlist` throwing, and the rate limiter — which **fails open** — quietly
+ * off, taking the paid-model spend guard with it. The uptime monitor would stay
+ * green the whole time, because it reads this.
+ *
+ * A table added to the schema is now checked from the moment it exists.
+ */
+const TABLES: PgTable[] = Object.values(schema as Record<string, unknown>).filter(
+  (value): value is PgTable => is(value, PgTable),
+);
 
 export interface SchemaHealth {
   reachable: boolean;
