@@ -165,7 +165,27 @@ const FIXTURES = {
       { id: "acc_3", platform: "x", handle: "@northlight", displayName: null, avatarUrl: null, status: "ok", statusDetail: null },
     ],
   },
-  "/api/social/posts": { posts: [] },
+  "/api/social/posts": {
+    posts: [
+      { id: "sp_1", projectId: "p1", exportId: "exp_1", accountId: "acc_1", platform: "instagram",
+        caption: "The one thing nobody tells you about recording at home", hashtags: ["#editing"],
+        scheduledFor: new Date(Date.now() + 6 * 3600_000).toISOString(), status: "scheduled",
+        externalUrl: null, error: null, publishedAt: null },
+      { id: "sp_2", projectId: "p1", exportId: "exp_1", accountId: "acc_3", platform: "x",
+        caption: "Short version", hashtags: [],
+        scheduledFor: new Date(Date.now() - 26 * 3600_000).toISOString(), status: "published",
+        externalUrl: "https://x.com/northlight/status/1", error: null,
+        publishedAt: new Date(Date.now() - 26 * 3600_000).toISOString() },
+      // The ending that is not a failure, and the long sentence that goes with
+      // it. If the row cannot hold this, it cannot hold the case it exists for.
+      { id: "sp_3", projectId: "p1", exportId: "exp_1", accountId: "acc_2", platform: "instagram",
+        caption: "Behind the scenes", hashtags: [],
+        scheduledFor: new Date(Date.now() - 50 * 3600_000).toISOString(), status: "missed",
+        externalUrl: null,
+        error: "This was due at 2026-08-28T19:00:00.000Z and is 121 minutes late, so it was not sent. Posting it now would put it in front of people at a time you did not choose. Schedule it again when you want it to go.",
+        publishedAt: null },
+    ],
+  },
   "/api/templates": [
     { id: "talking-head", name: "Talking head", description: "Silence out, framed vertical, levels fixed.", bestFor: "One person to camera", needs: null },
     { id: "on-the-beat", name: "On the beat", description: "Punches in on the beat of the track you picked.", bestFor: "Montages with music", needs: "music" },
@@ -625,7 +645,35 @@ const PAGES = [
   // a screen that is only ever opened by somebody who already has clips is a
   // screen nobody looks at until a customer does.
   { url: "/clips", name: "the clips library", signedIn: true },
-  { url: "/account", name: "the account page", signedIn: true },
+  {
+    url: "/account",
+    name: "the account page",
+    signedIn: true,
+    then: async (page, check) => {
+      check(
+        "what is scheduled is on the screen, not only in the API",
+        await page.getByTestId("scheduled-posts").isVisible(),
+        // Both endpoints existed and nothing called either. A feature that
+        // only exists in an API is a feature nobody has.
+        "",
+      );
+      check(
+        "a post that has not left can be called back",
+        await page.getByTestId("button-cancel-sp_1").isVisible(),
+        "",
+      );
+      check(
+        "one that already went cannot",
+        !(await page.getByTestId("button-cancel-sp_2").isVisible()),
+        "cancelling something that has been posted is a button that lies",
+      );
+      check(
+        "and a post that was too late says so rather than saying it failed",
+        (await page.getByTestId("scheduled-post-sp_3").innerText()).includes("too late"),
+        await page.getByTestId("scheduled-post-sp_3").innerText(),
+      );
+    },
+  },
   { url: "/admin", name: "the admin console", signedIn: true, then: async (page, check) => {
       // The word and the number on the worker card come from one row and must
       // agree. Checked on the rendered card rather than on the fixture, because

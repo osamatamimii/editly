@@ -18,6 +18,7 @@ import {
   type PlatformInfo,
   type ConnectedAccount,
 } from "@/components/social-connections";
+import { ScheduledPosts } from "@/components/scheduled-posts";
 import { apiJson } from "@/lib/api-fetch";
 import { Loader2, LogOut, Mail, KeyRound, Trash2 } from "lucide-react";
 
@@ -282,6 +283,20 @@ export default function AccountPage() {
                 onChanged={loadSocial}
               />
             )}
+          </CardContent>
+        </Card>
+
+        {/* ── What is going out ──────────────────────────────────────────── */}
+        <Card className="glass-panel border-hairline">
+          <CardHeader>
+            <CardTitle>Scheduled posts</CardTitle>
+            <CardDescription>
+              Everything queued to go out, and everything that has. You can call one back until it
+              leaves.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ScheduledPosts />
           </CardContent>
         </Card>
 
