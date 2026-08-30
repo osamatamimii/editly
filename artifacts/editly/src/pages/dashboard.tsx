@@ -99,6 +99,26 @@ function ProjectClipFrame({
   );
 }
 
+/**
+ * Does this project have a picture of its own to show?
+ *
+ * A stored poster, or a clip we can park on a frame of. Anything else gets the
+ * generated art instead — never underneath, which is the bug this answers: the
+ * poster is drawn at 80% opacity so it brightens on hover, and 80% over a
+ * coloured floor is not a dimmed photograph, it is a *tinted* one. Every card
+ * with real footage in it was wearing somebody else's green.
+ */
+function hasPoster(project: {
+  thumbnailPath?: string | null;
+  thumbnailUrl?: string | null;
+  videoPath?: string | null;
+  videoUrl?: string | null;
+}): boolean {
+  return Boolean(
+    project.thumbnailPath || project.thumbnailUrl || project.videoPath || project.videoUrl,
+  );
+}
+
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -346,7 +366,10 @@ export default function Dashboard() {
           </Button>
           <Button
             onClick={() => setIsCreateOpen(true)}
-            className="glow-btn rounded-full bg-primary text-primary-foreground hover:bg-primary/90 px-5 sm:px-6 h-12 flex-1 sm:flex-none"
+            /* No `glow-btn`: the Button component's default variant is
+               `.aura-btn` now, and two classes both writing `box-shadow` is one
+               of them silently winning. */
+            className="rounded-full px-5 sm:px-6 h-12 flex-1 sm:flex-none"
             data-testid="button-new-project"
           >
             <Plus className="w-5 h-5 mr-2" />
@@ -617,14 +640,38 @@ export default function Dashboard() {
                         something you can find your way around by colour, and a
                         poster that fails to load lands on a picture rather than
                         on a hole. See components/project-art.tsx. */}
-                    <ProjectArt seed={project.id} />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Video className="w-10 h-10 text-white/25" />
-                    </div>
-                    {project.thumbnailPath || project.thumbnailUrl ? (
-                      <ProjectThumbnail project={project} />
+                    {/*
+                      The art is what a project has *instead of* a picture, not
+                      underneath one.
+
+                      It was drawn unconditionally, on the reasoning that a
+                      floor under everything is safer than a fallback that might
+                      not fire. That reasoning was right about the black
+                      rectangle it replaced and wrong the moment the floor had
+                      colour in it: a poster is `object-contain`, so a clip
+                      whose shape is not 16:9 leaves bars at the sides — and the
+                      bars filled with someone else's ribbons. Every card with a
+                      real frame in it had a green or violet edge around the
+                      person's own video.
+
+                      So it is drawn only when there is nothing to draw over it.
+                      The camera glyph goes with it, for the same reason: a
+                      watermark on top of a photograph is not a fallback, it is
+                      a mark on the photograph.
+                    */}
+                    {hasPoster(project) ? (
+                      project.thumbnailPath || project.thumbnailUrl ? (
+                        <ProjectThumbnail project={project} />
+                      ) : (
+                        <ProjectClipFrame project={project} />
+                      )
                     ) : (
-                      <ProjectClipFrame project={project} />
+                      <>
+                        <ProjectArt seed={project.id} />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Video className="w-10 h-10 text-white/25" />
+                        </div>
+                      </>
                     )}
                     <div className="absolute top-3 right-3">
                       {getStatusBadge(project.status, project.renderStalled)}

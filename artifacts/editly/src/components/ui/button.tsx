@@ -10,19 +10,33 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        /*
+         * `aura-btn` on the filled variants, so the look Osama picked lands on
+         * every button in the product rather than on the handful somebody
+         * remembers to decorate. Fifty call sites, one class.
+         *
+         * `no-default-hover-elevate` with it, because the two fight: the base
+         * class above adds `hover-elevate`, which brightens a translucent
+         * overlay on hover, and `.aura-btn` says what hover means by growing
+         * its ring. Two answers to one question is how a button ends up doing
+         * neither well.
+         *
+         * The border goes with it. `.aura-btn` is edged by its ring and its
+         * inset; a stroke on top of both is what makes a button look like a div
+         * with a background colour — and on the primary variant that stroke was
+         * `--primary-border`, undefined until today, which is to say white.
+         */
         default:
-           // @replit: no hover, and add primary border
-           "bg-primary text-primary-foreground border border-primary-border",
+           "bg-primary text-primary-foreground aura-btn no-default-hover-elevate",
         destructive:
-          "bg-destructive-fill text-destructive-foreground shadow-sm border-destructive-border",
+          "bg-destructive-fill text-destructive-foreground aura-btn no-default-hover-elevate",
         outline:
           // @replit Shows the background color of whatever card / sidebar / accent background it is inside of.
           // Inherits the current text color. Uses shadow-xs. no shadow on active
           // No hover state
           " border [border-color:var(--button-outline)] shadow-xs active:shadow-none ",
         secondary:
-          // @replit border, no hover, no shadow, secondary border.
-          "border bg-secondary text-secondary-foreground border border-secondary-border ",
+          "bg-secondary text-secondary-foreground aura-btn no-default-hover-elevate",
         // @replit no hover, transparent border
         ghost: "border border-transparent",
         // A text link inside a sentence keeps its type size, but the box a
