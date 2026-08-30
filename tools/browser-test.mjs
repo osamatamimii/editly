@@ -954,6 +954,21 @@ section("The operations console stays an operations console");
     !/useDelete|method:\s*"DELETE"/.test(admin),
     "a delete appeared on the admin page",
   );
+  /**
+   * And the sentences on it read in the direction they were written in.
+   *
+   * The render notes are the one thing on this page written as prose, and they
+   * are written in the language the job was asked in — so an Arabic customer's
+   * notes arrive here in Arabic. Every other place in this product that draws a
+   * sentence carries `dir="auto"`; a console added later is exactly where that
+   * rule quietly stops applying.
+   */
+  check(
+    "the render notes read in the direction of their own language",
+    /notes[\s\S]{0,400}?dir="auto"/.test(admin),
+    "the one column of prose on this page has no direction",
+  );
+
   // The reason is what makes the log worth keeping. A button that can fire
   // without one is a row in the log that says nothing.
   check(
