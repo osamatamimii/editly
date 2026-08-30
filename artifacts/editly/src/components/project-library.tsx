@@ -38,7 +38,18 @@ export function ProjectLibrary({ projectId, userId }: { projectId: string; userI
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}/assets`, { headers: await authHeaders() });
-    if (res.ok) setAssets((await res.json()) as ProjectAsset[]);
+    if (!res.ok) return;
+    // `as ProjectAsset[]` is a promise the compiler cannot keep. Anything that
+    // answers 200 with something that is not an array — an error envelope, a
+    // proxy's own JSON, a later version of this endpoint that wraps the list —
+    // lands in state, and the next line to touch it is `assets.map`, which
+    // throws. That throw is not a missing list: it is a blank screen where the
+    // whole editor was, because a render error unmounts the tree above it.
+    //
+    // The list is the least important thing on this page. Failing to load it
+    // must cost the list, and nothing else.
+    const body: unknown = await res.json().catch(() => null);
+    setAssets(Array.isArray(body) ? (body as ProjectAsset[]) : []);
   }, [projectId]);
 
   useEffect(() => {
@@ -105,7 +116,7 @@ export function ProjectLibrary({ projectId, userId }: { projectId: string; userI
           onClick={() => inputRef.current?.click()}
           disabled={busy}
           data-testid="button-add-assets"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-surface-1 px-3 py-2 text-xs font-medium transition-all hover:border-primary/40 disabled:opacity-50"
+          className="inline-flex flex-shrink-0 whitespace-nowrap items-center gap-1.5 rounded-lg border border-hairline bg-surface-1 px-3 min-h-11 md:min-h-0 md:py-2 text-xs font-medium transition-all hover:border-primary/40 disabled:opacity-50"
         >
           {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
           {busy && progress ? `Adding ${progress.done}/${progress.total}…` : "Add files"}

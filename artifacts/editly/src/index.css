@@ -120,6 +120,7 @@
   --color-brand-mark: hsl(var(--brand-mark));
 
   --font-sans: var(--app-font-sans);
+  --font-display: var(--app-font-display);
   --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
 
@@ -166,11 +167,35 @@
   --wash-left: rgba(108, 59, 255, 0.18);
   --wash-right: rgba(155, 107, 255, 0.12);
 
-  /* Glass: a lit top edge, a purple bloom, and a deep drop. */
+  /*
+   * Glass.
+   *
+   * Not a grey box at 50% opacity — that is a scrim, and it reads as one. Real
+   * glass does four things at once, and each of these tokens is one of them:
+   *
+   * `--glass-bg` is the tint, and it is a *gradient* at the panel rather than a
+   * flat fill, because a pane lit from above is lighter at the top.
+   * `--glass-ring-lit` / `--glass-ring-dim` are the two ends of the edge. A
+   * single-colour border is the tell that gives away every CSS "glass" panel:
+   * a real edge catches light along its top and loses it at the bottom.
+   * `--glass-inset` is the specular line just inside that top edge.
+   * `--glass-bloom` and `--glass-drop` are the colour it throws and the weight
+   * it hangs by.
+   *
+   * The saturation boost lives in the class, not here, because it is the same
+   * number in both themes: what is behind the pane keeps its colour instead of
+   * turning to grey mud, which is the single thing that separates this from a
+   * blur filter.
+   */
+  --glass-bg-top: rgba(255, 255, 255, 0.07);
+  --glass-bg-bottom: rgba(255, 255, 255, 0.02);
   --glass-bg: rgba(10, 10, 15, 0.5);
+  --glass-ring-lit: rgba(255, 255, 255, 0.28);
+  --glass-ring-dim: rgba(255, 255, 255, 0.05);
   --glass-inset: rgba(255, 255, 255, 0.12);
   --glass-bloom: rgba(108, 59, 255, 0.2);
   --glass-drop: rgba(0, 0, 0, 0.5);
+  --glass-sheen: rgba(255, 255, 255, 0.10);
 
   /* Glow, which is the whole visual identity and must survive the flip. */
   --glow-soft: rgba(155, 107, 255, 0.85);
@@ -247,9 +272,30 @@
   --chart-4: 43 74% 66%;
   --chart-5: 27 87% 67%;
 
-  --app-font-sans: 'Inter', sans-serif;
-  --app-font-serif: Georgia, serif;
-  --app-font-mono: Menlo, monospace;
+  /*
+   * Inter for what is read; Cabinet Grotesk for what is seen first.
+   *
+   * Inter at 700 is a perfectly good heading and an anonymous one — every
+   * product in this category now sets its headings in it, so they all look
+   * like the same page. Cabinet Grotesk costs one request and gives the
+   * product a face of its own.
+   *
+   * IBM Plex Sans Arabic sits *after* Inter in the sans stack rather than in
+   * front of it: a browser walks the list per glyph, so Latin never reaches it
+   * and Arabic always does. Without it Arabic falls through to whatever the
+   * system has, which is how Arabic ends up looking like an afterthought
+   * beside a carefully set English line — in a product where half of what is
+   * rendered is Arabic.
+   *
+   * Instrument Serif is italic-only and used once or twice, for a phrase that
+   * should read as a voice rather than as a label. It is deliberately not in
+   * any heading rule: an italic serif has no Arabic, so anything that leans on
+   * it structurally would collapse the moment this interface is translated.
+   */
+  --app-font-sans: 'Inter', 'IBM Plex Sans Arabic', system-ui, -apple-system, sans-serif;
+  --app-font-display: 'Cabinet Grotesk', 'Inter', 'IBM Plex Sans Arabic', system-ui, sans-serif;
+  --app-font-serif: 'Instrument Serif', Georgia, serif;
+  --app-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius: 0.75rem;
 
   --shadow-2xs: 0px 2px 0px 0px hsl(var(--primary) / 0.05);
@@ -386,10 +432,22 @@
   --wash-left: rgba(108, 59, 255, 0.11);
   --wash-right: rgba(155, 107, 255, 0.10);
 
+  /*
+   * The same four jobs, inverted.
+   *
+   * On white, a lit edge cannot be lighter than the page — so the ring darkens
+   * instead, and the tint goes to white rather than away from it. Copying the
+   * dark values here is what makes light-theme glass look like a smudge.
+   */
+  --glass-bg-top: rgba(255, 255, 255, 0.72);
+  --glass-bg-bottom: rgba(255, 255, 255, 0.52);
   --glass-bg: rgba(255, 255, 255, 0.78);
+  --glass-ring-lit: rgba(255, 255, 255, 0.9);
+  --glass-ring-dim: rgba(84, 30, 190, 0.18);
   --glass-inset: rgba(255, 255, 255, 0.95);
   --glass-bloom: rgba(108, 59, 255, 0.11);
   --glass-drop: rgba(60, 30, 140, 0.10);
+  --glass-sheen: rgba(255, 255, 255, 0.6);
 
   --glow-soft: rgba(108, 59, 255, 0.40);
   --glow-wide: rgba(108, 59, 255, 0.18);
@@ -420,6 +478,33 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
+
+  /*
+   * Headings take the display face, everywhere, from one rule.
+   *
+   * A `font-display` class sprinkled across forty components is a rule half the
+   * screens forget. The tracking goes with it: Cabinet Grotesk is drawn tight
+   * and wants negative tracking at size, which Inter does not — so the two
+   * belong in the same place rather than in whichever component remembered.
+   */
+  h1, h2, h3, h4 {
+    font-family: var(--app-font-display);
+    letter-spacing: -0.022em;
+  }
+
+  /*
+   * Arabic is not Latin set backwards.
+   *
+   * The display face has no Arabic, so an Arabic heading is already falling
+   * through to the sans stack — but the negative tracking above would follow it
+   * there and tighten a script whose letters *join*, which is the difference
+   * between a heading and a smudge. And Arabic needs more leading, not less,
+   * because it has ascenders, descenders and dots on both.
+   */
+  :where([dir="rtl"], [lang="ar"]) :is(h1, h2, h3, h4) {
+    letter-spacing: 0;
+    line-height: 1.35;
+  }
 }
 
 /*
@@ -442,14 +527,104 @@
 }
 
 /* ── Glass & Glow Utilities ─────────────────────────────── */
+/*
+ * Glass, as a material rather than as a blur.
+ *
+ * Four things happen here that a `backdrop-blur` and a border do not do, and
+ * together they are the whole difference:
+ *
+ * 1. **Saturation.** `saturate(180%)` on the backdrop. Blur alone averages the
+ *    colour behind the pane towards grey; a real pane keeps it. This is the
+ *    single change that stops a panel looking like a scrim.
+ * 2. **A tint that is lit from above** — a gradient, not a flat fill.
+ * 3. **A ring that is brighter at the top than at the bottom.** A one-colour
+ *    border is the tell that gives away every CSS glass panel ever written.
+ *    Drawn as a masked pseudo-element because `border-image` cannot follow a
+ *    border radius, and the radius is inherited so it fits whatever it is on.
+ * 4. **A specular line just inside that top edge**, which is what the eye reads
+ *    as thickness.
+ *
+ * `isolation: isolate` keeps the ring from painting over a stacking context it
+ * does not own, and the `@supports` fallback matters more than it looks: with
+ * no `backdrop-filter` the tint is nearly transparent and text would sit on
+ * whatever happens to be behind it. That branch drops the transparency and
+ * keeps the panel readable rather than pretty.
+ */
 .glass-panel {
-  @apply backdrop-blur-xl border;
+  @apply border;
+  position: relative;
+  isolation: isolate;
+  background-image: linear-gradient(to bottom, var(--glass-bg-top), var(--glass-bg-bottom));
   background-color: var(--glass-bg);
-  border-color: var(--hairline);
+  border-color: transparent;
+  /*
+   * Unprefixed, and *only* unprefixed. Writing the `-webkit-` alias by hand
+   * after it looks like belt and braces and is the opposite: the build's CSS
+   * minifier knows the two are the same property, keeps the last one, and
+   * throws the standard one away. The result was a `.glass-panel` whose
+   * computed `backdrop-filter` was `none` in a browser that supports the
+   * standard property and not the alias — measured, not supposed. Prefixes are
+   * the build's job; every one written here is one it may decide to honour
+   * instead of the real thing.
+   */
+  backdrop-filter: blur(22px) saturate(180%);
   box-shadow:
     inset 0 1px 0 var(--glass-inset),
     0 0 60px var(--glass-bloom),
     0 24px 80px var(--glass-drop);
+}
+
+.glass-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(to bottom, var(--glass-ring-lit), var(--glass-ring-dim) 42%, var(--glass-ring-dim));
+  /* Ring, not fill: paint the padding box and cut the content box out of it. */
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/*
+ * A pane the light moves across when you touch it.
+ *
+ * Opt-in — on a panel that does not respond to the pointer it would be a lie —
+ * and pure transform, so it costs a compositor layer and nothing else.
+ */
+.glass-sheen { overflow: hidden; }
+.glass-sheen::after {
+  content: "";
+  position: absolute;
+  inset: -40% -10%;
+  background: linear-gradient(105deg, transparent 42%, var(--glass-sheen) 50%, transparent 58%);
+  transform: translateX(-120%);
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+  z-index: 1;
+}
+.glass-sheen:hover::after { transform: translateX(120%); }
+@media (prefers-reduced-motion: reduce) {
+  .glass-sheen::after { transition: none; }
+  .glass-sheen:hover::after { transform: translateX(-120%); }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  /* Readable beats pretty. Without the blur the tint is a window, not a pane. */
+  .glass-panel {
+    background-image: none;
+    background-color: hsl(var(--card));
+    border-color: var(--hairline);
+  }
+  .glass-panel::before { display: none; }
 }
 
 .glow-btn {

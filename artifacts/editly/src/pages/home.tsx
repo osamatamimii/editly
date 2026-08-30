@@ -223,10 +223,18 @@ export default function Home() {
       </div>
 
       {/* ── Header ── */}
-      <header className="w-full max-w-7xl mx-auto px-6 py-6 flex items-center justify-between z-10 relative animate-fade-in">
-        <div className="flex items-center gap-2.5">
-          <Logo className="w-9 h-9 text-brand-mark" />
-          <span className="font-bold text-xl tracking-tight">Editly</span>
+      {/*
+        The header is the tightest row on the page and the first thing a phone
+        shows. At 390px it held a logo, a theme toggle, "Log in" and "Sign up
+        free" — and "Log in" wrapped onto two lines and collided with the mark.
+        Everything below is that row learning to be narrow: a smaller mark, a
+        label that cannot wrap, and a preference control that steps aside for
+        the two things somebody actually came here to press.
+      */}
+      <header className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6 flex items-center justify-between gap-2 z-10 relative animate-fade-in">
+        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+          <Logo className="w-8 h-8 sm:w-9 sm:h-9 text-brand-mark flex-shrink-0" />
+          <span className="font-bold text-lg sm:text-xl tracking-tight">Editly</span>
         </div>
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
           {["Features", "How it works", "Pricing"].map((item) => (
@@ -250,13 +258,16 @@ export default function Home() {
           button. Once signed in both are noise, so they collapse back to the
           single destination that is actually theirs.
         */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          <ThemeToggle />
+        <div className="flex items-center gap-1.5 sm:gap-3">
+          {/* A preference, not a destination. It keeps its place from `sm` up
+              and gives the row back to the two doors on a phone — where it is
+              still one tap away in the footer. */}
+          <span className="hidden sm:inline-flex"><ThemeToggle /></span>
           {user ? (
             <Link
               href="/dashboard"
               data-testid="link-dashboard"
-              className="glow-btn btn-gradient-cta text-white px-6 py-2 rounded-full font-medium animate-shimmer-border border border-transparent"
+              className="glow-btn btn-gradient-cta text-white px-5 sm:px-6 min-h-[44px] inline-flex items-center rounded-full font-medium whitespace-nowrap animate-shimmer-border border border-transparent"
             >
               Dashboard
             </Link>
@@ -265,16 +276,17 @@ export default function Home() {
               <Link
                 href="/login"
                 data-testid="link-log-in"
-                className="px-3 sm:px-4 py-2 rounded-full font-medium text-sm text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
+                className="px-3 sm:px-4 min-h-[44px] inline-flex items-center rounded-full font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
               >
                 Log in
               </Link>
               <Link
                 href="/login?mode=signup"
                 data-testid="link-sign-up"
-                className="glow-btn btn-gradient-cta text-white px-5 sm:px-6 py-2 rounded-full font-medium text-sm sm:text-base whitespace-nowrap animate-shimmer-border border border-transparent"
+                className="glow-btn btn-gradient-cta text-white px-4 sm:px-6 min-h-[44px] inline-flex items-center rounded-full font-medium text-sm sm:text-base whitespace-nowrap animate-shimmer-border border border-transparent"
               >
-                Sign up free
+                <span className="sm:hidden">Sign up</span>
+                <span className="hidden sm:inline">Sign up free</span>
               </Link>
             </>
           )}
@@ -403,7 +415,14 @@ export default function Home() {
           >
             {/* force-dark: this is a picture of a video editor, and a video
                 editor is dark whatever the surrounding page is doing. */}
-            <div className="force-dark w-full aspect-[16/9] rounded-xl overflow-hidden relative text-foreground"
+            {/*
+              Taller on a phone, and that is a composition rather than a
+              concession. A 16:9 box across a 390px screen is 192 pixels high —
+              less than the chat panel and the timeline inside it need, so every
+              absolutely-placed piece landed on top of another one. Text over
+              text is the first thing anyone sees on this page on a phone.
+            */}
+            <div className="force-dark w-full aspect-[4/5] sm:aspect-[16/9] rounded-xl overflow-hidden relative text-foreground"
               style={{ background: "linear-gradient(135deg, #080512 0%, #0a0614 40%, #060310 100%)" }}
             >
               {/* Abstract bokeh blobs — suggest out-of-focus video subjects */}
@@ -431,8 +450,11 @@ export default function Home() {
                 style={{ background: "radial-gradient(ellipse at 50% 45%, transparent 35%, rgba(0,0,0,0.75) 100%)" }}
               />
 
-              {/* REC indicator + timecode — top left */}
-              <div className="absolute top-4 left-4 flex items-center gap-2 z-10"
+              {/* REC indicator + timecode — top left.
+                  Decoration: it is a drawing of a camera overlay, not a fact
+                  about anything, so it is hidden from assistive technology and
+                  exempt from the body-text size floor for the same reason. */}
+              <div aria-hidden="true" className="absolute top-4 left-4 flex items-center gap-2 z-10"
                 style={{ animation: "fade-in 0.4s 0.8s both" }}
               >
                 <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.9)]"
@@ -441,7 +463,10 @@ export default function Home() {
               </div>
 
               {/* Resolution badge — top right, inset to clear the chat panel */}
-              <div className="absolute top-4 z-10"
+              {/* Its offset is measured against the chat panel, which only
+                  floats at that width from `lg` up. Below that the number is
+                  meaningless and the badge lands in the middle of the frame. */}
+              <div aria-hidden="true" className="absolute top-4 z-10 hidden lg:block"
                 style={{ right: "310px", animation: "fade-in 0.4s 0.9s both" }}
               >
                 <span className="text-[9px] font-mono text-white/40 bg-surface-1 border border-hairline px-2 py-0.5 rounded">
@@ -450,10 +475,10 @@ export default function Home() {
               </div>
 
               {/* Animated AI-caption strip — floats just above the timeline */}
-              <div className="absolute z-10 left-1/2 -translate-x-1/2 whitespace-nowrap"
-                style={{ bottom: "120px", animation: "chat-slide-in 0.6s 2.2s cubic-bezier(0.16,1,0.3,1) both" }}
+              <div aria-hidden="true" className="absolute z-10 left-1/2 -translate-x-1/2 bottom-[88px] sm:bottom-[120px] max-w-[calc(100%-1.5rem)] sm:whitespace-nowrap"
+                style={{ animation: "chat-slide-in 0.6s 2.2s cubic-bezier(0.16,1,0.3,1) both" }}
               >
-                <div className="bg-black/70 backdrop-blur-sm border border-primary/30 px-4 py-1.5 rounded-full text-xs text-white/90 font-medium shadow-[0_0_16px_rgba(108,59,255,0.35)] flex items-center gap-2">
+                <div className="bg-black/70 backdrop-blur-sm border border-primary/30 px-3 sm:px-4 py-1.5 rounded-full text-[11px] sm:text-xs text-white/90 font-medium shadow-[0_0_16px_rgba(108,59,255,0.35)] flex items-center gap-2 text-center sm:text-start">
                   <span className="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_6px_rgba(108,59,255,0.9)]"
                     style={{ animation: "glow-pulse 1.8s ease-in-out infinite" }} />
                   🎵 Beat drop incoming — zoom activated
@@ -466,8 +491,8 @@ export default function Home() {
               />
 
               {/* Timeline bar */}
-              <div className="absolute bottom-0 left-0 right-0 h-28 p-4 flex flex-col justify-end">
-                <div className="w-full h-14 bg-surface-1 rounded-lg border border-hairline relative overflow-hidden">
+              <div className="absolute bottom-0 left-0 right-0 h-20 sm:h-28 p-3 sm:p-4 flex flex-col justify-end">
+                <div className="w-full h-11 sm:h-14 bg-surface-1 rounded-lg border border-hairline relative overflow-hidden">
                   {/* Animated progress fill */}
                   <div className="timeline-progress absolute top-0 left-0 bottom-0 bg-primary/20 border-r-2 border-secondary shadow-[0_0_20px_rgba(155,107,255,0.8)]" />
                   {/* Active edit segment — the highlighted clip being edited */}
@@ -506,7 +531,10 @@ export default function Home() {
               </div>
 
               {/* Chat overlay */}
-              <div className="absolute top-6 right-6 w-72 rounded-xl bg-background/80 backdrop-blur-md border border-hairline p-4 shadow-[0_20px_40px_rgba(0,0,0,0.5)]"
+              {/* Across the top on a phone, floating from `sm` up. A 288px card
+                  inset 24px from the right of a 342px frame *is* the frame, and
+                  it sat on top of the platform chips. */}
+              <div className="absolute top-11 inset-x-3 sm:inset-x-auto sm:top-6 sm:right-6 sm:w-72 rounded-xl bg-background/80 backdrop-blur-md border border-hairline p-3 sm:p-4 shadow-[0_20px_40px_rgba(0,0,0,0.5)]"
                 style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.07), 0 20px 40px rgba(0,0,0,0.5)" }}
               >
                 <div className="flex items-center gap-2 mb-3 pb-3 border-b border-hairline">
@@ -534,7 +562,7 @@ export default function Home() {
 
               {/* Platform badges */}
               <div
-                className="absolute top-6 left-6 flex flex-col gap-2"
+                className="absolute top-6 left-6 hidden sm:flex flex-col gap-2"
                 style={{ animation: "fade-in 0.5s 1s ease both" }}
               >
                 {["TikTok", "Reels", "Shorts"].map((p, i) => (
@@ -629,7 +657,7 @@ export default function Home() {
             <div className="mt-10 reveal">
               <Link
                 href="/dashboard"
-                className="group inline-flex items-center gap-2 text-primary hover:text-secondary font-semibold transition-colors"
+                className="group inline-flex items-center gap-2 min-h-[44px] text-primary hover:text-secondary font-semibold transition-colors"
               >
                 Try it yourself
                 <Zap className="w-4 h-4 transition-transform group-hover:scale-125 group-hover:rotate-12" />
@@ -692,7 +720,7 @@ export default function Home() {
           <div className="inline-flex items-center gap-1 p-1 rounded-full bg-surface-1 border border-hairline backdrop-blur-sm">
             <button
               onClick={() => setIsYearly(false)}
-              className={`px-6 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
+              className={`px-6 min-h-[44px] rounded-full text-sm font-medium transition-all duration-300 ${
                 !isYearly
                   ? "bg-primary text-white shadow-[0_0_16px_rgba(108,59,255,0.5)]"
                   : "text-muted-foreground hover:text-foreground"
@@ -702,7 +730,7 @@ export default function Home() {
             </button>
             <button
               onClick={() => setIsYearly(true)}
-              className={`flex items-center gap-2 px-6 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
+              className={`flex items-center justify-center gap-2 px-6 min-h-[44px] rounded-full text-sm font-medium transition-all duration-300 ${
                 isYearly
                   ? "bg-primary text-white shadow-[0_0_16px_rgba(108,59,255,0.5)]"
                   : "text-muted-foreground hover:text-foreground"
@@ -900,17 +928,23 @@ The tedious part is the part a machine should do.<br />Upload one take and see h
           can find pays nobody. The terms are stated in the link text because
           "become an affiliate" alone gives no reason to click it. */}
       <footer className="w-full border-t border-hairline-faint py-8 px-6">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
-          <span className="opacity-60">© {new Date().getFullYear()} Editly</span>
-          <div className="flex items-center gap-6">
-            <a href="/#pricing" className="hover:text-foreground transition-colors">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-5 sm:gap-4 text-xs text-muted-foreground">
+          <div className="flex items-center gap-3">
+            <span className="opacity-60">© {new Date().getFullYear()} Editly</span>
+            {/* Where the theme control goes on a phone, since the header gives
+                its place to the two doors. Present on every width so there is
+                one answer to "where is it", not two. */}
+            <span className="sm:hidden"><ThemeToggle /></span>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center">
+            <a href="/#pricing" className="min-h-[44px] inline-flex items-center hover:text-foreground transition-colors">
               Pricing
             </a>
             <a
               href="https://users.freemius.com/"
               target="_blank"
               rel="noreferrer"
-              className="hover:text-foreground transition-colors"
+              className="min-h-[44px] inline-flex items-center hover:text-foreground transition-colors"
               data-testid="link-become-affiliate"
             >
               Become an affiliate — earn 25% of every payment for a year

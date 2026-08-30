@@ -113,7 +113,7 @@ function ClipRow({
       {/* The speaker's own words, never invented copy — absent when nothing
           was heard, rather than filled with something nobody said. */}
       {clip.title && (
-        <p dir="auto" className="text-[11px] leading-snug italic mb-1.5 truncate">“{clip.title}”</p>
+        <p dir="auto" className="text-xs leading-snug italic mb-1.5 truncate">“{clip.title}”</p>
       )}
       {(previewUrl || url) && (
         <video
@@ -131,7 +131,7 @@ function ClipRow({
         </video>
       )}
       {clip.note && (
-        <p dir="auto" className="text-[11px] leading-snug text-muted-foreground mt-1">{clip.note}</p>
+        <p dir="auto" className="text-xs leading-snug text-muted-foreground mt-1">{clip.note}</p>
       )}
     </div>
   );
@@ -172,8 +172,14 @@ export function ProjectClips({ projectId }: { projectId: string }) {
         headers: await authHeaders(),
       });
       if (!res.ok) return;
-      const project = (await res.json()) as { id: string };
-      navigate(`/projects/${project.id}`);
+      const body: unknown = await res.json().catch(() => null);
+      const id = (body as { id?: unknown } | null)?.id;
+      if (typeof id !== "string" || id.length === 0) return;
+      // `/project/:id`, singular — the path the router actually declares. This
+      // said `/projects/` and so every clip opened as its own project landed on
+      // Not Found: the POST succeeded, the row was created, the person was told
+      // the page does not exist. Nothing failed loudly enough to notice.
+      navigate(`/project/${id}`);
     } catch {
       // Nothing was created on a failure — the row is taken back server-side.
     } finally {

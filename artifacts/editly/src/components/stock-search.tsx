@@ -265,7 +265,7 @@ export function StockSearch({
             }}
             placeholder="city at night, coffee, desk…"
             data-testid="input-stock-query"
-            className="w-full rounded-lg border border-hairline bg-surface-1 pl-8 pr-3 py-2 text-xs outline-none focus:border-primary/40"
+            className="w-full h-11 md:h-auto rounded-lg border border-hairline bg-surface-1 pl-8 pr-3 md:py-2 text-base md:text-xs outline-none focus:border-primary/40"
           />
         </div>
         <div className="flex rounded-lg border border-hairline overflow-hidden">
@@ -275,7 +275,7 @@ export function StockSearch({
               type="button"
               onClick={() => setKind(k)}
               data-testid={`button-stock-${k}`}
-              className={`px-2.5 py-2 text-xs transition-colors ${
+              className={`px-2.5 min-h-11 md:min-h-0 md:py-2 flex items-center justify-center text-xs transition-colors ${
                 kind === k ? "bg-primary/15 text-primary" : "bg-surface-1 text-muted-foreground"
               }`}
               aria-pressed={kind === k}
@@ -289,7 +289,7 @@ export function StockSearch({
           onClick={() => void search()}
           disabled={searching || query.trim().length < 2}
           data-testid="button-stock-search"
-          className="rounded-lg border border-hairline bg-surface-1 px-3 py-2 text-xs font-medium transition-all hover:border-primary/40 disabled:opacity-50"
+          className="rounded-lg border border-hairline bg-surface-1 px-3 min-h-11 md:min-h-0 md:py-2 text-xs font-medium transition-all hover:border-primary/40 disabled:opacity-50"
         >
           {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Search"}
         </button>

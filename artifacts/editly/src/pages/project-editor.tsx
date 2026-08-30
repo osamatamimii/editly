@@ -702,12 +702,17 @@ export default function ProjectEditor() {
           <Skeleton className="h-8 w-8 mr-4" />
           <Skeleton className="h-6 w-48" />
         </div>
-        <div className="flex-1 flex gap-6 p-6">
-          <div className="flex-1">
-            <Skeleton className="w-full h-full rounded-2xl" />
+        {/* The skeleton has to be the shape of the thing it stands in for.
+            The editor itself stacks below `lg` and puts the panel on the right
+            above it; a skeleton that is always two columns puts a 400px block
+            beside a flexible one on a 390px screen, which is a horizontal
+            scrollbar for as long as the project takes to load. */}
+        <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-6 p-4 lg:p-6 min-h-0">
+          <div className="flex-1 min-h-0">
+            <Skeleton className="w-full h-full min-h-[180px] rounded-2xl" />
           </div>
-          <div className="w-[400px]">
-            <Skeleton className="w-full h-full rounded-2xl" />
+          <div className="w-full lg:w-[400px] flex-shrink-0 basis-[45%] lg:basis-auto min-h-0">
+            <Skeleton className="w-full h-full min-h-[140px] rounded-2xl" />
           </div>
         </div>
       </div>
@@ -736,7 +741,7 @@ export default function ProjectEditor() {
       <div className="flex items-center gap-3">
         <button
           onClick={togglePlay}
-          className="w-9 h-9 flex-shrink-0 rounded-full bg-surface-2 hover:bg-surface-2 flex items-center justify-center transition-colors"
+          className="w-11 h-11 md:w-9 md:h-9 flex-shrink-0 rounded-full bg-surface-2 hover:bg-surface-2 flex items-center justify-center transition-colors"
           aria-label={isPlaying ? "Pause" : "Play"}
           data-testid="button-scrub-play"
         >
@@ -754,9 +759,14 @@ export default function ProjectEditor() {
             setCurrentTime(next);
             if (videoRef.current) videoRef.current.currentTime = next;
           }}
-          className="flex-1 min-w-0 h-1.5 appearance-none rounded-full bg-surface-2 accent-primary cursor-pointer
-                     [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5
-                     [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
+          // A 6px-tall track is a fine drawing and an impossible target: a
+          // fingertip is about 9mm, and this is one. The padding makes the
+          // *hit* area 44px while `bg-clip-content` keeps the *paint* inside
+          // the content box, so the scrubber still looks like a hairline and
+          // is no longer a game of skill. The thumb grows on touch too.
+          className="flex-1 min-w-0 h-11 py-[1.15rem] md:h-1.5 md:py-0 bg-clip-content appearance-none rounded-full bg-surface-2 accent-primary cursor-pointer
+                     [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 md:[&::-webkit-slider-thumb]:w-3.5
+                     [&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
                      [&::-webkit-slider-thumb]:bg-secondary
                      [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(155,107,255,0.8)]"
           data-testid="input-scrubber"
@@ -815,7 +825,7 @@ export default function ProjectEditor() {
         </div>
       ) : (
         <>
-          <p className="text-[11px] leading-snug text-muted-foreground mb-2">
+          <p className="text-xs leading-snug text-muted-foreground mb-2">
             Upload a short clip in the style you want and we read it: how often it cuts, how
             much silence it leaves, how loud and how graded it ends up. Under{" "}
             {formatBytes(MAX_REFERENCE_BYTES)} — we only look at the first two minutes.
@@ -886,14 +896,14 @@ export default function ProjectEditor() {
             template.needs === "music" ? " — needs a music file in this project" : ""
           }`}
           className={`flex-shrink-0 border border-hairline bg-surface-1 font-medium transition-all hover:border-primary/40 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed ${
-            sideBySide ? "rounded-xl px-4 py-3 text-left" : "rounded-full px-3 py-1.5 text-xs"
+            sideBySide ? "rounded-xl px-4 py-3 text-left" : "rounded-full px-3 min-h-11 md:min-h-0 md:py-1.5 text-xs"
           }`}
           data-testid={`button-template-${template.id}`}
         >
           {sideBySide ? (
             <>
               <span className="block text-sm font-semibold">{template.name}</span>
-              <span className="block text-[11px] leading-snug text-muted-foreground mt-0.5">
+              <span className="block text-xs leading-snug text-muted-foreground mt-0.5">
                 {template.description}
               </span>
               {/*
@@ -903,7 +913,7 @@ export default function ProjectEditor() {
                 label — the person has already committed to the edit by then.
               */}
               {template.needs === "music" ? (
-                <span className="block text-[11px] leading-snug text-secondary/80 mt-0.5">
+                <span className="block text-xs leading-snug text-secondary/80 mt-0.5">
                   Needs a music file in this project
                 </span>
               ) : null}
@@ -959,7 +969,17 @@ export default function ProjectEditor() {
         {/* Main Editor Area. min-h-0: without it this flex child refuses to
             shrink below its content and the stacked mobile layout overflows
             the screen instead of sharing it. */}
-        <div className="flex-1 min-h-0 flex flex-col relative p-4 lg:p-6 overflow-hidden">
+        {/* `overflow-hidden` above `lg` only.
+            On a phone the panels below the frame — looks, clips, the file
+            library, the reference uploader — are taller than the space this
+            column gets, and a hidden overflow does not make them smaller, it
+            makes them unreachable: flexbox pays them their content height and
+            takes it out of the one child that will shrink, which is the frame.
+            The result was an editor whose video was a few pixels tall with
+            three panels cut off below it and no way to scroll to them.
+            Scrolling is the honest answer at this width; the desktop layout,
+            which has the room to hold everything at once, is unchanged. */}
+        <div className="flex-1 min-h-0 flex flex-col relative p-4 lg:p-6 overflow-y-auto lg:overflow-hidden">
           
           {!hasVideo && (
             <div className="flex-1 relative rounded-2xl overflow-hidden glass-panel border border-hairline bg-band flex flex-col">
@@ -1022,7 +1042,11 @@ export default function ProjectEditor() {
                directly under it at exactly its width, and on a vertical clip the
                looks move into the column beside it rather than eating the height
                the clip needs. */
-            <div ref={stageRef} className="flex-1 min-h-0 flex items-stretch justify-center gap-4">
+            /* `min-h` so the frame keeps a shape inside a scrolling column:
+               `flex-1` in a scroller means "whatever is left", and what is left
+               under four panels is nothing. Above `lg` it goes back to taking
+               the space it is given. */
+            <div ref={stageRef} className="flex-1 min-h-[240px] lg:min-h-0 flex-shrink-0 lg:flex-shrink flex items-stretch justify-center gap-4">
               {/* Content-width, not flex-1: the frame and its controls read as
                   one object centred in the space, rather than the frame drifting
                   to one edge with a gap between them. */}

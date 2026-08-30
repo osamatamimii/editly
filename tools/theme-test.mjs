@@ -15,10 +15,15 @@
  * that copy-paste works.
  *
  * Usage: node tools/theme-test.mjs
- * Requires: nothing. No browser, no build, no network.
+ * Requires: the build, for the one check that reads what actually ships. No
+ * browser, no network.
  */
 import { readFile } from "node:fs/promises";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CSS_PATH = "artifacts/editly/src/index.css";
 const css = await readFile(CSS_PATH, "utf8");
 
@@ -217,6 +222,120 @@ console.log("\nText stays readable");
       check(`${theme}: ${what} — ${r.toFixed(2)}:1`, r >= floor, `needs ${floor}:1`);
     }
   }
+}
+
+/**
+ * Glass is a material, not a blur.
+ *
+ * Four properties separate a pane from a grey box at half opacity, and every
+ * one of them is the sort of thing that gets "simplified" out by someone
+ * tidying a stylesheet who has never seen the two side by side. They are cheap
+ * to assert and impossible to argue with once written down.
+ */
+console.log("\nThe glass is a material rather than a scrim");
+{
+  const panel = blockFor(".glass-panel") ?? "";
+  const ring = blockFor(".glass-panel::before") ?? "";
+
+  // 1. Saturation. Blur alone averages what is behind the pane towards grey.
+  //    This is the single change that stops a panel reading as a scrim.
+  check(
+    "the backdrop keeps its colour instead of turning to grey",
+    /backdrop-filter:[^;]*saturate\(/.test(panel),
+    "blur without saturate is a scrim with extra steps",
+  );
+  // Prefixed — but in the *built* stylesheet, which is the one a browser gets.
+  //
+  // This used to grep the source, and the source obliged: a hand-written
+  // `-webkit-backdrop-filter` sat right under the standard property. The
+  // minifier knows the two are the same declaration, keeps the last, and threw
+  // the standard one away — so the check passed while Chromium computed
+  // `backdrop-filter: none` on every panel in the product. A check that reads a
+  // different file from the one that ships is a check that can be satisfied
+  // without being true.
+  //
+  // Prefixes are the build's job. This asserts it did the job, and did it in
+  // the order that survives minification: alias first, standard last.
+  const built = (() => {
+    const dir = path.join(repoRoot, "dist/assets");
+    if (!existsSync(dir)) return null;
+    const file = readdirSync(dir).find((f) => f.endsWith(".css"));
+    return file ? readFileSync(path.join(dir, file), "utf8") : null;
+  })();
+  check(
+    "the build was run, so there is a shipped stylesheet to read",
+    built !== null,
+    "run `pnpm run vercel:build` first — this check reads what ships, not what is written",
+  );
+  const shippedPanel = built?.match(/\.glass-panel\{[^}]*\}/)?.[0] ?? "";
+  check(
+    "and is prefixed in the built stylesheet, because Safari is most of this product's audience",
+    /-webkit-backdrop-filter:blur\([^)]*\)\s*saturate\(/.test(shippedPanel),
+    shippedPanel.slice(0, 160),
+  );
+  check(
+    "with the standard property last, so the minifier keeps it",
+    shippedPanel.lastIndexOf("-webkit-backdrop-filter:") < shippedPanel.lastIndexOf(";backdrop-filter:"),
+    "alias written after the standard property is how the standard one gets dropped",
+  );
+
+  // 2. A tint lit from above rather than a flat fill.
+  check(
+    "the tint is lit from above rather than poured flat",
+    /background-image:\s*linear-gradient/.test(panel),
+    "a flat fill is a sheet of plastic",
+  );
+
+  // 3. The edge. A one-colour border is the tell that gives away every CSS
+  //    glass panel: a real edge catches light at the top and loses it lower.
+  check("the edge is drawn as a ring rather than a border", /mask-composite:\s*exclude/.test(ring));
+  for (const [name, tokens] of [["dark", dark], ["light", light]]) {
+    const lit = tokens.get("--glass-ring-lit");
+    const dim = tokens.get("--glass-ring-dim");
+    check(
+      `and it is brighter at the top than at the bottom in ${name}`,
+      Boolean(lit) && Boolean(dim) && lit !== dim,
+      `lit ${lit} vs dim ${dim} — the same value on both ends is a plain border`,
+    );
+  }
+
+  // 4. The fallback, which matters more than it looks: with no backdrop filter
+  //    the tint is a window, and text would sit on whatever is behind it.
+  check(
+    "and where the backdrop cannot be filtered, the panel goes opaque",
+    /@supports not \(\(backdrop-filter/.test(css) && /background-color:\s*hsl\(var\(--card\)\)/.test(css),
+    "readable beats pretty on a browser that cannot blur",
+  );
+}
+
+/**
+ * And the display face does not tighten Arabic.
+ *
+ * Cabinet Grotesk is drawn tight and wants negative tracking at heading sizes.
+ * It has no Arabic, so an Arabic heading falls through to the sans stack — and
+ * the tracking would follow it there and squeeze a script whose letters *join*,
+ * which is the difference between a heading and a smudge.
+ */
+console.log("\nThe headings are set for both scripts");
+{
+  check("headings take the display face from one rule", /h1, h2, h3, h4 \{[\s\S]{0,200}?font-family: var\(--app-font-display\)/.test(css));
+  check(
+    "and Arabic headings are given back their tracking and their leading",
+    /\[dir="rtl"\][\s\S]{0,220}?letter-spacing: 0;[\s\S]{0,80}?line-height/.test(css),
+    "negative tracking on a joined script is a smudge, not a heading",
+  );
+  check(
+    "the Arabic face is in the stack after Inter, so Latin never reaches it",
+    /--app-font-sans:\s*'Inter',\s*'IBM Plex Sans Arabic'/.test(css),
+    "in front of Inter it would set the English too",
+  );
+  // The italic serif is a voice, not a structure: it has no Arabic at all, so
+  // anything leaning on it structurally collapses the moment this is translated.
+  check(
+    "and the italic serif is not load-bearing in any heading rule",
+    !/h[1-4][^{]*\{[^}]*--app-font-serif/.test(css),
+    "an italic serif has no Arabic — a heading built on one cannot be translated",
+  );
 }
 
 console.log("\nThe no-flash script and the provider agree");

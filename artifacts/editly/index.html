@@ -17,9 +17,33 @@
     <meta property="og:image" content="/og-image.png" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <!--
+      Three faces, and each one earns its request.
+
+      Inter for everything that is read: interface, body, chat. It is the most
+      legible screen face there is at small sizes and it is already here.
+
+      Cabinet Grotesk for headings only. Inter at 700 is a fine heading and an
+      anonymous one — the whole category now looks like the same page, because
+      it is the same font at the same weight. A display face with actual
+      character is the cheapest thing that makes a product look like it was
+      made by someone.
+
+      IBM Plex Sans Arabic because half of what this product renders is Arabic,
+      and falling through to whatever the system happens to have is how Arabic
+      ends up looking like an afterthought next to a carefully set English
+      line. It sits in the sans stack after Inter: Latin glyphs never reach it,
+      Arabic ones always do.
+
+      All three `display=swap`, all three preconnected, and the stacks fall back
+      to Inter and then to the system — a font CDN having a bad morning must
+      cost the look and never the page.
+    -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
+    <link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@500,700,800,900&display=swap" rel="stylesheet">
     <!--
       Runs before the first paint, on purpose.
 

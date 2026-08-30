@@ -151,4 +151,8 @@ jobs:
       - run: node tools/checkout-test.mjs
       - run: node tools/stock-test.mjs
       - run: node tools/browser-test.mjs
+      # Needs the built `dist/` from the vercel:build step above — it measures
+      # the shipped bundle, because a class Tailwind purged is a class that is
+      # not there however good it looks in the source.
+      - run: node tools/mobile-test.mjs
       - run: node tools/worker-test.mjs

@@ -331,13 +331,16 @@ export default function Dashboard() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+      {/* A card built for a quarter of a desktop row is, stacked on a phone,
+          230px of padding around one number — three screens of scrolling before
+          the projects the person came for. The numbers stay; the box shrinks. */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6 mb-8 md:mb-12">
         <Card className="glass-panel border-hairline-faint">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between p-4 pb-1 md:p-6 md:pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Projects</CardTitle>
             <Video className="w-4 h-4 text-primary" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
             {statsState === "loading" ? (
               <Skeleton className="h-8 w-16" />
             ) : statsState === "failed" ? (
@@ -352,11 +355,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
         <Card className="glass-panel border-hairline-faint">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between p-4 pb-1 md:p-6 md:pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Currently Processing</CardTitle>
             <Activity className="w-4 h-4 text-secondary" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
             {statsState === "loading" ? (
               <Skeleton className="h-8 w-16" />
             ) : statsState === "failed" ? (
@@ -385,11 +388,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
         <Card className="glass-panel border-hairline-faint">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between p-4 pb-1 md:p-6 md:pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Completed Edits</CardTitle>
             <CheckCircle2 className="w-4 h-4 text-success" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
             {statsState === "loading" ? (
               <Skeleton className="h-8 w-16" />
             ) : statsState === "failed" ? (
@@ -586,7 +589,7 @@ export default function Dashboard() {
                     <Button 
                       variant="ghost" 
                       size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      className="h-11 w-11 md:h-8 md:w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       onClick={(e) => handleDelete(project.id, e)}
                       data-testid={`button-delete-${project.id}`}
                     >

@@ -1618,7 +1618,25 @@ section("The editor fits a phone, which is where the owner will test it");
   );
   check(
     "the player pane may shrink below its content, or stacking overflows the screen",
-    /flex-1 min-h-0 flex flex-col relative p-4 lg:p-6 overflow-hidden/.test(editorSrc),
+    /flex-1 min-h-0 flex flex-col relative p-4 lg:p-6 overflow-y-auto lg:overflow-hidden/.test(editorSrc),
+    "flex-1 + min-h-0 is what lets it share the column instead of overflowing it",
+  );
+  // This check used to demand `overflow-hidden` at every width, and got it —
+  // and the phone editor was a video a few pixels tall with the looks, the
+  // clips, the file library and the reference uploader cut off below it and no
+  // way to reach them. Hiding the overflow does not make the panels smaller; it
+  // pays them their full content height out of the only child that will shrink,
+  // which is the frame. Above `lg` there is room for all of it at once and the
+  // hidden overflow is right. Below it, the column scrolls.
+  check(
+    "and it scrolls on a phone, where the panels below the frame do not fit",
+    /overflow-y-auto lg:overflow-hidden/.test(editorSrc),
+    "a hidden overflow at phone width is a panel nobody can reach",
+  );
+  check(
+    "the frame keeps a height of its own inside that scroller",
+    /min-h-\[240px\] lg:min-h-0/.test(editorSrc),
+    "`flex-1` in a scrolling column means 'whatever is left', and under four panels that is nothing",
   );
   check(
     "the header's buttons drop their words on a phone rather than falling off the edge",
@@ -1831,6 +1849,59 @@ section("Every field that carries the person's words declares its direction");
             .join(" | "),
     );
   }
+}
+
+// ─── Every link goes somewhere the router declares ───────────────────────────
+//
+// `navigate("/projects/" + id)` compiles, runs, and lands on Not Found, because
+// the route is `/project/:id` — singular. Nothing fails: the request that
+// created the row succeeded, the navigation succeeded, and the person is told
+// the page does not exist. A typo in a string is not a type error and no test
+// that renders one page can see it, so the check is the whole set at once:
+// every internal path the app navigates to, against every path App.tsx routes.
+
+section("Every internal link lands on a route this app declares");
+{
+  const { readFileSync, readdirSync, statSync } = await import("node:fs");
+  const srcDir = path.join(repoRoot, "artifacts/editly/src");
+
+  const files = [];
+  (function walk(dir) {
+    for (const name of readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(name)) files.push(full);
+    }
+  })(srcDir);
+
+  // What the router answers to, as a shape: `/project/:id` becomes `/project/*`.
+  const app = readFileSync(path.join(srcDir, "App.tsx"), "utf8");
+  const declared = new Set();
+  for (const m of app.matchAll(/<Route\s+path="([^"]+)"/g)) {
+    declared.add(m[1].replace(/:[A-Za-z0-9_]+/g, "*"));
+  }
+  check("the router declares routes this check can read", declared.size >= 5, [...declared].join(" "));
+
+  // Every internal destination, from the three ways this app expresses one.
+  const NAVIGATES = /(?:navigate|setLocation)\(\s*(?:`([^`]*)`|"([^"]*)")|href=(?:\{\s*`([^`]*)`\s*\}|"([^"]*)")/g;
+  const wrong = [];
+  for (const file of files) {
+    if (file.endsWith("App.tsx")) continue;
+    const source = readFileSync(file, "utf8");
+    for (const m of source.matchAll(NAVIGATES)) {
+      const raw = m[1] ?? m[2] ?? m[3] ?? m[4] ?? "";
+      if (!raw.startsWith("/")) continue;           // external, anchor, or mailto
+      if (raw.startsWith("/api/")) continue;         // not a page
+      // An interpolated segment stands for whatever the route's parameter is.
+      const shape = raw.replace(/\$\{[^}]*\}/g, "*").split("?")[0].split("#")[0];
+      const normalised = shape.length > 1 ? shape.replace(/\/$/, "") : shape;
+      if (!declared.has(normalised)) {
+        wrong.push(`${path.relative(srcDir, file)}: ${raw} → ${normalised}`);
+      }
+    }
+  }
+
+  check("no link points at a path the router does not have", wrong.length === 0, wrong.join(" | "));
 }
 
 await browser.close();
