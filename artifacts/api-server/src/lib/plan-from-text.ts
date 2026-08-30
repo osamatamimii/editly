@@ -236,6 +236,22 @@ const CUTAWAY_DURATION = 3;
 const QUOTED = /["“”']([^"“”']{1,120})["“”']/;
 
 /**
+ * Asking for the words to arrive one at a time.
+ *
+ * The style exists and the model can choose it; this is the matcher learning
+ * the same word, which is the direction the two-heads rule allows — the cheap
+ * head may know less than the paid one, never more. It matters because the
+ * matcher is what answers when the model times out, and "the words came in as
+ * a slab today" is not a difference anybody would report as a bug.
+ *
+ * «كلمة كلمة» and «كلمة بكلمة» are how this is asked for in Arabic, and
+ * neither has a `\b` in front of it: a word boundary before an Arabic letter
+ * never matches, which is the trap this file has now fallen into three times.
+ */
+const KINETIC_WORDS =
+  /\bkinetic\b|\bword[- ]by[- ]word\b|\bone (word )?at a time\b|\bwords? (pop|land|drop)\w* in\b|كلمة كلمة|كلمة بكلمة|كلمة تلو/i;
+
+/**
  * The Arabic half was missing entirely, and this is the most-asked-for edit in
  * the product. Everything else here reads Arabic — the highlight, the hook,
  * the transitions, the looks, the music — but "اقصّ الصمت" produced *no
@@ -827,15 +843,23 @@ export function planFromText(
   if (quoted) {
     const words = quoted[1]!.trim();
     if (words.length > 0) {
+      // Kinetic when they asked for it, a card otherwise. The two look
+      // genuinely different on the frame — a card is one statement held, a
+      // kinetic line arrives a word at a time — so the reply says which.
+      const kinetic = KINETIC_WORDS.test(asked);
       operations.push({
         type: "motionTitle",
         text: words.slice(0, 120),
         at: 0.5,
         durationSeconds: 2.5,
-        style: "card",
+        style: kinetic ? "word" : "card",
         position: "center",
       });
-      willDo.push(say(`bring in the words "${words}" near the start`, `أُدخل عبارة "${words}" قرب البداية`));
+      willDo.push(
+        kinetic
+          ? say(`land the words "${words}" one at a time near the start`, `أُنزل كلمات "${words}" واحدةً واحدة قرب البداية`)
+          : say(`bring in the words "${words}" near the start`, `أُدخل عبارة "${words}" قرب البداية`),
+      );
     }
   } else if (/\btitle|\btext on screen\b/i.test(text) && !CAPTION_WORDS.test(text)) {
     cannotYet.push(
