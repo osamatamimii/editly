@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useGetSubscription } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,12 @@ import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { loadState } from "@/lib/load-state";
 import { LoadFailed } from "@/components/load-failed";
+import {
+  SocialConnections,
+  type PlatformInfo,
+  type ConnectedAccount,
+} from "@/components/social-connections";
+import { apiJson } from "@/lib/api-fetch";
 import { Loader2, LogOut, Mail, KeyRound, Trash2 } from "lucide-react";
 
 /**
@@ -38,6 +44,43 @@ export default function AccountPage() {
   // A plan card that shows nothing when the read failed leaves someone unsure
   // whether they are on the tier they paid for.
   const subscriptionState = loadState(subscriptionQuery);
+
+  /**
+   * The connected accounts, read directly rather than through the generated
+   * client.
+   *
+   * Two reads that belong together — what the deployment can post to, and what
+   * this person has connected — and a failure in either has the same answer on
+   * screen: say the panel could not be read, keep a retry, and do not draw an
+   * empty list. An empty list here would say "you have connected nothing",
+   * which is a claim about somebody's account made from a network error.
+   */
+  const [social, setSocial] = useState<{
+    state: "loading" | "ready" | "failed";
+    platforms: PlatformInfo[];
+    accounts: ConnectedAccount[];
+  }>({ state: "loading", platforms: [], accounts: [] });
+
+  const loadSocial = useCallback(async () => {
+    setSocial((prev) => ({ ...prev, state: "loading" }));
+    const [catalogue, mine] = await Promise.all([
+      apiJson<{ platforms?: PlatformInfo[] }>("/api/social/platforms"),
+      apiJson<{ accounts?: ConnectedAccount[] }>("/api/social/accounts"),
+    ]);
+    if (!catalogue.ok || !mine.ok) {
+      setSocial({ state: "failed", platforms: [], accounts: [] });
+      return;
+    }
+    setSocial({
+      state: "ready",
+      platforms: catalogue.body.platforms ?? [],
+      accounts: mine.body.accounts ?? [],
+    });
+  }, []);
+
+  useEffect(() => {
+    void loadSocial();
+  }, [loadSocial]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -206,6 +249,38 @@ export default function AccountPage() {
                   </Button>
                 </div>
               </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Where your edits go ────────────────────────────────────────── */}
+        <Card className="glass-panel border-hairline">
+          <CardHeader>
+            <CardTitle>Where your edits go</CardTitle>
+            <CardDescription>
+              Connect the accounts you post to and a finished edit can be scheduled straight from
+              the project, with the caption written once. Several accounts per platform, because
+              most people run more than one.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {social.state === "loading" ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" /> Reading your connections…
+              </div>
+            ) : social.state === "failed" ? (
+              <LoadFailed
+                what="your connected accounts"
+                compact
+                onRetry={loadSocial}
+                testId="social-failed"
+              />
+            ) : (
+              <SocialConnections
+                platforms={social.platforms}
+                accounts={social.accounts}
+                onChanged={loadSocial}
+              />
             )}
           </CardContent>
         </Card>
