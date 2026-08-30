@@ -413,7 +413,10 @@ section("The waiting-list page can actually reach the API");
   // two ends are checked against each other here rather than trusted to stay
   // in step.
   const page = read("artifacts/waitlist/index.html");
-  const app = read("artifacts/api-server/src/app.ts");
+  // The allowlist moved out of `app.ts` into its own module the day it was
+  // first tested — a decision that can only be exercised by standing up Express
+  // is a decision nobody exercises. This reads where it lives now.
+  const app = read("artifacts/api-server/src/lib/allowed-origins.ts");
 
   const apiUrl = /var API = "([^"]+)"/.exec(page)?.[1] ?? "";
   check("the page names an absolute API endpoint", /^https:\/\/\S+\/api\/waitlist$/.test(apiUrl), apiUrl);
@@ -431,7 +434,7 @@ section("The waiting-list page can actually reach the API");
   // The origins the page is *served* from are what CORS actually turns on, and
   // they are not the same string as the one above.
   for (const origin of ["https://editlyai.io", "https://www.editlyai.io"]) {
-    check(`the API allows ${origin} to call it`, app.includes(`"${origin}"`), "missing from STATIC_ORIGINS");
+    check(`the API allows ${origin} to call it`, app.includes(`"${origin}"`), "missing from the allowlist in lib/allowed-origins.ts");
   }
 
   // And the route it calls has to be the one that needs no bearer token: this
