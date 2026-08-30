@@ -33,12 +33,18 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { resolveTestDatabaseUrl } from "./lib/test-db.mjs";
 
 const require = createRequire(import.meta.url);
 const { Pool } = require(require.resolve("pg", { paths: ["lib/db"] }));
 
 const repoRoot = process.cwd();
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://postgres@127.0.0.1:5433/editly_test";
+// Resolved *into the environment*, before the bundle below is imported.
+// That module reads `process.env.DATABASE_URL` itself, at import time, so a
+// default kept in a local const here was never visible to the thing under test:
+// the line read like a fallback and was decoration, and this suite could only
+// run where the variable was already set.
+const DATABASE_URL = await resolveTestDatabaseUrl();
 const SCRATCH = "editly_schema_check";
 const scratchUrl = DATABASE_URL.replace(/\/[^/?]+(\?|$)/, `/${SCRATCH}$1`);
 

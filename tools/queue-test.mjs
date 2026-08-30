@@ -17,6 +17,7 @@
  * Requires: a Postgres carrying the production schema.
  */
 import { createRequire } from "node:module";
+import { resolveTestDatabaseUrl } from "./lib/test-db.mjs";
 
 const require = createRequire(import.meta.url);
 // `pg` is a dependency of lib/db, not of this repo's root, so it is resolved
@@ -24,7 +25,7 @@ const require = createRequire(import.meta.url);
 const { Pool } = require(require.resolve("pg", { paths: ["lib/db"] }));
 
 const DATABASE_URL =
-  process.env.DATABASE_URL ?? "postgresql://postgres@127.0.0.1:5433/editly_test";
+  await resolveTestDatabaseUrl();
 
 let checks = 0;
 let failures = 0;

@@ -31,6 +31,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { resolveTestDatabaseUrl } from "./lib/test-db.mjs";
 
 const require = createRequire(import.meta.url);
 const { Pool } = require(require.resolve("pg", { paths: ["lib/db"] }));
@@ -43,7 +44,7 @@ mkdirSync(objects, { recursive: true });
 const PORT = 4222;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 const DATABASE_URL =
-  process.env.DATABASE_URL ?? "postgresql://postgres@127.0.0.1:5433/editly_test";
+  await resolveTestDatabaseUrl();
 const ALICE = "11111111-1111-4111-8111-111111111111";
 
 let checks = 0;
@@ -882,7 +883,10 @@ section("A plan nothing in it can be applied is final, not retried");
   );
   check(
     "the failure is said in the conversation, in the same words as the error",
-    said.rows.length === 1 && /^I couldn't finish that edit — /.test(said.rows[0].content),
+    // The claim, not the punctuation. This pinned an em dash, and went red the
+    // day the em dash was taken out of everything a customer reads — a check on
+    // the copywriter rather than on the product.
+    said.rows.length === 1 && /^I couldn't finish that edit\b/.test(said.rows[0].content),
     JSON.stringify(said.rows),
   );
 }

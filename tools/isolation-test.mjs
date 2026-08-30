@@ -13,6 +13,7 @@ import http from "node:http";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
+import { resolveTestDatabaseUrl } from "./lib/test-db.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -162,7 +163,7 @@ process.env.FREEMIUS_SECRET_KEY = FREEMIUS_SECRET;
 process.env.FREEMIUS_PLAN_MAP = "9001:creator,9002:pro,9003:studio";
 process.env.FREEMIUS_PRODUCT_ID = "36845";
 process.env.FREEMIUS_PUBLIC_KEY = "pk_test_public_value";
-process.env.DATABASE_URL ??= "postgresql://postgres:postgres@127.0.0.1:5432/editly_test";
+await resolveTestDatabaseUrl();
 // The admin console's allowlist. Set before the bundle is required, because
 // `lib/admin.ts` reads it once at import — which is the property under test as
 // much as the routing is: an allowlist that can be re-read mid-process is an
