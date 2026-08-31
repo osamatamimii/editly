@@ -716,6 +716,25 @@ const PAGES = [
       const composer = page.getByTestId("schedule-composer");
       check("the scheduling composer is on the screen", await composer.isVisible(), "");
 
+      /*
+        A preview that will not play says so.
+
+        The frame had three states — signing, no URL, no video at all — and no
+        fourth for the one that happens on a real machine: the file is there,
+        the element has it, and the browser will not decode it. The master is
+        H.264 and that decoder is an operating-system component; without it the
+        element sits in NETWORK_LOADING forever with no `error`, which is a
+        black phone-shaped rectangle beside a green "Ready to Share".
+
+        The harness's storage is a stub, so nothing here ever decodes, which
+        makes this the one place that state can be rendered on purpose.
+      */
+      check(
+        "a preview this browser cannot draw says so rather than sitting black",
+        (await page.getByText("This file will not preview here").count()) > 0,
+        "",
+      );
+
       // A destination is a tap target before it is a chip. Phone only — this
       // product uses smaller controls on a desktop on purpose.
       if (viewport.phoneRules) {

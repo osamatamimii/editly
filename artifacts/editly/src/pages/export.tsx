@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { 
   useGetProject, 
@@ -11,7 +11,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, Download, Smartphone, PlaySquare, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
+import { ChevronLeft, Download, Smartphone, PlaySquare, CheckCircle2, Loader2, AlertCircle, VideoOff } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { usePlayableVideo } from "@/lib/video-storage";
@@ -19,6 +19,7 @@ import { loadState, isNotFound } from "@/lib/load-state";
 import { LoadFailed } from "@/components/load-failed";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { playbackVerdict, PLAYBACK_POLL_MS } from "@/lib/playability";
 import { ScheduleComposer } from "@/components/schedule-composer";
 import { apiJson } from "@/lib/api-fetch";
 import type { PlatformInfo, ConnectedAccount } from "@/components/social-connections";
@@ -128,6 +129,40 @@ export default function ExportPage() {
 
   /** A URL that is being minted is not a video that is missing. */
   const isSigning = playbackResolving || exportedResolving;
+
+  /*
+    And a URL that arrived is not a video that plays.
+
+    This screen had three states — signing, no URL, no video at all — and no
+    fourth for the one that actually happens on a real machine: the file is
+    there, the element has it, and the browser will not decode it. The master
+    is H.264 and that decoder is a licensed operating-system component; a
+    browser without it sits in `NETWORK_LOADING` forever with no `error` event,
+    which on screen is a black phone-shaped rectangle beside a green "Ready to
+    Share". The editor has said so for months. This screen said nothing.
+
+    Same verdict function as the editor and the stock sheet, so all three agree
+    about what "will not play" means — and it is asked repeatedly and allowed
+    to answer "fine" again, because a single timer once told the owner of a
+    perfectly good file that it would not play while the element was still
+    loading it.
+  */
+  const previewRef = useRef<HTMLVideoElement>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  useEffect(() => {
+    setPreviewFailed(false);
+    if (!shown.url) return;
+    const startedAt = Date.now();
+    const tick = () => {
+      const verdict = playbackVerdict(previewRef.current, Date.now() - startedAt);
+      if (verdict === "pending") return;
+      setPreviewFailed(verdict === "failed");
+      clearInterval(timer);
+    };
+    const timer = setInterval(tick, PLAYBACK_POLL_MS);
+    tick();
+    return () => clearInterval(timer);
+  }, [shown.url, shown.preview]);
 
   const startExport = useStartExport();
 
@@ -260,6 +295,7 @@ export default function ExportPage() {
             {shown.url ? (
               <video
                 key={shown.preview ?? shown.url}
+                ref={previewRef}
                 className="w-full h-full object-cover"
                 controls
                 /* See the note in project-editor: without this, pressing play
@@ -298,6 +334,23 @@ export default function ExportPage() {
               </div>
             )}
             
+            {/* The fourth state, over the frame rather than instead of it, so
+                the controls underneath stay usable — the same arrangement the
+                editor settled on, and for the same reason: not being able to
+                see a frame does not stop somebody from downloading the file or
+                scheduling it. */}
+            {previewFailed && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 bg-black/85 px-4 text-center">
+                <VideoOff className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                <p className="text-sm font-semibold leading-snug">
+                  This file will not preview here
+                </p>
+                <p className="text-xs text-muted-foreground leading-snug">
+                  It downloaded fine and it posts fine. This browser cannot draw it.
+                </p>
+              </div>
+            )}
+
             {/* Where the platform will put its own chrome.
                 This is a guide, not decoration: TikTok, Reels and Shorts all
                 draw a column of buttons up the right edge and a caption along
