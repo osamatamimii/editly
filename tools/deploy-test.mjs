@@ -91,6 +91,10 @@ section("Every variable the worker reads is one the deploy actually sets");
     // developer points it at whatever Chromium they already have. A path, and
     // paths are the other thing on this list.
     "CHROMIUM_PATH",
+    // Where the caption faces the image ships live. The Dockerfile puts them
+    // in one place and this names it; the suite that measures an uploaded font
+    // points at the repository's copies instead. A path, like the ones above.
+    "EDITLY_FONT_DIR",
   ]);
 
   const mustBeDeployed = [...referenced].filter((name) => !notSecrets.has(name)).sort();

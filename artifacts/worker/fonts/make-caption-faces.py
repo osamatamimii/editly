@@ -14,6 +14,11 @@ Both from the same source, in one pass, because a picker that previews a
 different font from the one that gets burned is worse than a picker with no
 preview at all.
 
+The repair itself is not in this file. It is in `facerepair.py`, because the
+same repair now runs over fonts a person uploads — see `prepare-user-font.py` —
+and a font somebody handed us getting a weaker repair than the ones we chose is
+the exact shape of the failure this whole area is about.
+
 ## Three things upstream does not do
 
 **Variable fonts.** Several of these ship as one file covering every weight.
@@ -74,7 +79,7 @@ because the licence requires it to travel with the font. Where a face's
 copyright line carries a Reserved Font Name the family is renamed; none of
 these do, and the version string of each built file records what was changed.
 """
-import unicodedata
+import sys
 import urllib.request
 from pathlib import Path
 
@@ -82,20 +87,12 @@ from fontTools import ttLib
 from fontTools.varLib import instancer
 from fontTools.subset import Subsetter, Options
 
+sys.path.insert(0, str(Path(__file__).parent))
+from facerepair import rename, repair, stamp  # noqa: E402
+
 HERE = Path(__file__).parent
 WEB = HERE.parents[1] / "editly" / "public" / "caption-fonts"
 GF = "https://raw.githubusercontent.com/google/fonts/main"
-
-# Everything a renderer may be handed that must occupy no space and draw
-# nothing. The two this product produces itself are 2066 and 2069.
-INVISIBLE = [
-    0x061C,
-    *range(0x200B, 0x2010),
-    *range(0x202A, 0x202F),
-    *range(0x2060, 0x2065),
-    *range(0x2066, 0x206A),
-    0xFEFF,
-]
 
 # What the picker draws in each face. Enough of both scripts to judge one by,
 # and small enough that twelve subsets are a rounding error on the page.
@@ -146,148 +143,6 @@ def fetch(url: str, to: Path, text: bool = False) -> Path:
     return to
 
 
-def rename(font: ttLib.TTFont, family: str) -> None:
-    """
-    One family name, everywhere a name table can hold one.
-
-    fontconfig matches on the family, libass asks fontconfig, and a file whose
-    name records say "Cairo" while the style says "Black" resolves to whatever
-    the system decides Cairo means. Naming the instance outright is how a style
-    row naming "Cairo Black" gets these bytes and not another cut.
-    """
-    name = font["name"]
-    for nid, value in [(1, family), (2, "Regular"), (4, family), (6, family.replace(" ", "-")), (16, family), (17, "Regular")]:
-        name.setName(value, nid, 3, 1, 0x409)
-        name.setName(value, nid, 1, 0, 0)
-
-
-# Unicode's name for each shape, and OpenType's. The presentation-form block
-# and the GSUB feature that produces the same shape are two spellings of one
-# idea, and this is the only place they have to be lined up.
-FORM_FEATURE = {
-    "<isolated>": "isol",
-    "<initial>": "init",
-    "<medial>": "medi",
-    "<final>": "fina",
-}
-
-
-def substitutions(font: ttLib.TTFont) -> dict[str, dict[str, str]]:
-    """
-    What each shaping feature does, read out of the font's own GSUB.
-
-    This is the difference between a repair that works and one that only looks
-    like it. A face with *no* presentation forms at all — Rubik, KO Sans,
-    GHAITHSANS — keeps every shape in GSUB and nowhere else, so mapping U+FE91
-    ("beh initial form") onto the plain beh glyph would put an isolated beh in
-    the middle of a word: a letter, not a box, and wrong in a way that reads as
-    a broken font rather than a missing one.
-
-    The right target is the glyph the font's own `init` lookup produces for
-    beh, which is exactly what a shaper would have drawn. It is in the file
-    already; it simply has no codepoint pointing at it.
-
-    Single substitutions only, plus the ligature lookups for lam-alef. Those
-    are the two shapes the Arabic presentation-form block actually contains,
-    and anything more elaborate in a font's GSUB is not something a legacy
-    codepoint can name.
-    """
-    if "GSUB" not in font:
-        return {}
-    gsub = font["GSUB"].table
-    if not gsub.FeatureList or not gsub.LookupList:
-        return {}
-
-    def subtables(lookup):
-        for sub in lookup.SubTable:
-            # A type 7 lookup is a box around another lookup, used when a font
-            # outgrows the 16-bit offsets. Unwrapping it is not optional: the
-            # larger the font, the more likely everything interesting is inside
-            # one, which would make this silently find nothing in exactly the
-            # fonts that need it most.
-            yield sub.ExtSubTable if lookup.LookupType == 7 else sub
-
-    out: dict[str, dict[str, str]] = {}
-    for record in gsub.FeatureList.FeatureRecord:
-        tag = record.FeatureTag
-        if tag not in {"isol", "init", "medi", "fina", "rlig", "liga"}:
-            continue
-        table = out.setdefault(tag, {})
-        for index in record.Feature.LookupListIndex:
-            lookup = gsub.LookupList.Lookup[index]
-            for sub in subtables(lookup):
-                if getattr(sub, "LookupType", lookup.LookupType) == 1 and hasattr(sub, "mapping"):
-                    table.update(sub.mapping)
-                elif hasattr(sub, "ligatures"):
-                    for first, records in sub.ligatures.items():
-                        for lig in records:
-                            table["+".join([first, *lig.Component])] = lig.LigGlyph
-    return out
-
-
-def repair(font: ttLib.TTFont) -> tuple[int, int]:
-    """Map the presentation forms and the invisibles. See the header."""
-    best = font.getBestCmap()
-    tables = [t for t in font["cmap"].tables if t.isUnicode()]
-    features = substitutions(font)
-
-    filled = 0
-    for codepoint in range(0xFE70, 0xFEFD):
-        if codepoint in best:
-            continue
-        decomposition = unicodedata.decomposition(chr(codepoint))
-        if not decomposition:
-            continue
-        tag, *parts = decomposition.split()
-        bases = [int(p, 16) for p in parts]
-        if tag not in FORM_FEATURE or any(b not in best for b in bases):
-            # A letter plus a diacritic, or a space plus one. There is no
-            # single glyph to point those at and no shaper produces one.
-            continue
-
-        glyphs = [best[b] for b in bases]
-        feature = FORM_FEATURE[tag]
-        target: str | None = None
-        if len(glyphs) == 1:
-            target = features.get(feature, {}).get(glyphs[0])
-            # No `isol` lookup is the normal case, not a failure: in a modern
-            # font the isolated shape *is* the base glyph, which is why these
-            # codepoints were left out of the cmap in the first place.
-            if target is None and tag == "<isolated>":
-                target = glyphs[0]
-        else:
-            # Lam-alef and friends. The ligature lives under `rlig` or `liga`
-            # depending on the foundry, and there is no third place to look.
-            key = "+".join(glyphs)
-            target = features.get("rlig", {}).get(key) or features.get("liga", {}).get(key)
-
-        if target is None or target not in font.getGlyphOrder():
-            continue
-        for table in tables:
-            table.cmap.setdefault(codepoint, target)
-        filled += 1
-
-    blank = "editlyZeroWidth"
-    order = font.getGlyphOrder()
-    if blank not in order:
-        from fontTools.ttLib.tables._g_l_y_f import Glyph
-
-        font["glyf"].glyphs[blank] = Glyph()
-        font["hmtx"].metrics[blank] = (0, 0)
-        font.setGlyphOrder([*order, blank])
-        font["maxp"].numGlyphs = len(font.getGlyphOrder())
-
-    invisible = 0
-    for codepoint in INVISIBLE:
-        if codepoint in best:
-            continue
-        for table in tables:
-            table.cmap.setdefault(codepoint, blank)
-        invisible += 1
-
-    return filled, invisible
-
-
 def main() -> None:
     WEB.mkdir(parents=True, exist_ok=True)
     cache = HERE / ".sources"
@@ -309,6 +164,7 @@ def main() -> None:
 
         rename(font, family)
         filled, invisible = repair(font)
+        stamp(font)
 
         out = HERE / f"{family.replace(' ', '-')}.ttf"
         font.save(out)
@@ -323,6 +179,7 @@ def main() -> None:
         subsetter = Subsetter(options=options)
         subsetter.populate(text=PREVIEW)
         subsetter.subset(web)
+        stamp(web)
         web.flavor = "woff2"
         web.save(WEB / f"{face_id}.woff2")
         print(f"  {face_id}.woff2: {(WEB / f'{face_id}.woff2').stat().st_size // 1024}KB")

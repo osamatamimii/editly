@@ -152,6 +152,10 @@ jobs:
       - run: node tools/planner-test.mjs
       - run: node tools/vocabulary-test.mjs
       - run: node tools/font-test.mjs
+      # After font-test, because it needs the same faces installed and there is
+      # no point measuring an uploaded font on a runner whose reference faces
+      # are wrong.
+      - run: node tools/user-font-test.mjs
       - run: node tools/account-test.mjs
       - run: node tools/critic-test.mjs
       - run: node tools/transcript-test.mjs
