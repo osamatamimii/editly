@@ -6,8 +6,8 @@
  * taken from a job row whose ownership the API already established — the worker
  * never derives a path from anything a client sent it directly.
  */
-import { createWriteStream } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { Readable, Transform } from "node:stream";
 
@@ -219,21 +219,57 @@ export async function downloadObject(key: string, destination: string): Promise<
   if (expected !== null && received !== expected) throw incomplete(received, expected);
 }
 
+/**
+ * The ceiling Storage itself enforces, so the message can name a number.
+ *
+ * Not our rule and not enforced here — the bucket decides, and it answers 413
+ * when it disagrees. This is only what we *say* when it does, and it is
+ * configuration rather than a constant because the day the project's plan
+ * changes, the true number changes with no deploy. It is 50 MB on Supabase's
+ * free plan, which is around ninety seconds of 1080p at the quality this
+ * renderer encodes at.
+ */
+const STATED_OBJECT_LIMIT_BYTES = Number(process.env["STORAGE_MAX_OBJECT_BYTES"]) || 50 * 1024 * 1024;
+
 export async function uploadObject(key: string, source: string, contentType = "video/mp4"): Promise<void> {
   assertSafeKey(key);
-  const body = await readFile(source);
+
+  /*
+    Streamed from disk, not read into memory.
+
+    This used to be `readFile` into a Buffer and then `new Uint8Array(buffer)`,
+    which is the same bytes twice. The worker has one gigabyte, so a 500 MB
+    output — eight minutes of what this renderer produces — was two gigabytes
+    of buffers and an OOM kill. And an OOM is not a failed render: the process
+    dies holding the lock, the stale sweep requeues the job, it renders again,
+    it dies again, and three attempts later the customer is told "Rendering
+    failed" having burned three renders of machine time. The limit that was
+    actually reached is never named anywhere.
+
+    Content-Length explicitly, from the file on disk. Without it undici sends
+    chunked, and an object store is entitled to refuse that.
+  */
+  const { size } = await stat(source);
+
+  const controller = new AbortController();
   // One request with no progress to read, so the clock is all there is. Thirty
   // minutes is far more than any render's output needs and still bounded.
-  const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(`${SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${key}`, {
       method: "POST",
-      headers: headers({ "Content-Type": contentType, "x-upsert": "true" }),
-      body: new Uint8Array(body),
+      headers: headers({
+        "Content-Type": contentType,
+        "x-upsert": "true",
+        "Content-Length": String(size),
+      }),
+      body: Readable.toWeb(createReadStream(source)) as ReadableStream,
+      // Required by undici whenever the body is a stream: it says we are not
+      // reading the response while still writing the request.
+      duplex: "half",
       signal: controller.signal,
-    });
+    } as RequestInit & { duplex: "half" });
   } catch (error) {
     if (controller.signal.aborted) {
       throw new StorageTransferError(
@@ -244,6 +280,30 @@ export async function uploadObject(key: string, source: string, contentType = "v
   } finally {
     clearTimeout(timer);
   }
+
+  // The bucket's own size limit, which is a real wall and not a hiccup.
+  //
+  // It arrives at the very last step of a render that has already cost its
+  // minutes, and as a bare 413 it reached people as "Rendering failed. We are
+  // looking into it." — a sentence that sends somebody to support to be told
+  // their video is too big. An edit can be larger than the file it came from:
+  // a phone compresses at a low bitrate and this renderer encodes at CRF 18,
+  // so an upload that fit can produce an output that does not.
+  if (res.status === 413) {
+    // Two sentences, because the number we state is configuration and the
+    // refusal is fact. When a file *under* the stated limit is refused, the
+    // stated limit is the thing that is wrong, and repeating it would produce
+    // a sentence that argues with itself — "it is 12MB and the limit is 50MB,
+    // so it did not fit" — which is worse than saying less.
+    throw new StorageTransferError(
+      size > STATED_OBJECT_LIMIT_BYTES
+        ? `Your edit was made, but it is ${inMegabytes(size)} and storage will not accept a file over ` +
+          `${inMegabytes(STATED_OBJECT_LIMIT_BYTES)}. Nothing was billed. A shorter edit will fit.`
+        : `Your edit was made, but storage refused it as too large at ${inMegabytes(size)}. ` +
+          `Nothing was billed. A shorter edit will fit.`,
+    );
+  }
+
   if (!res.ok) {
     throw new Error(`upload failed for ${key}: ${res.status} ${await res.text().catch(() => "")}`);
   }

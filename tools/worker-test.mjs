@@ -125,6 +125,16 @@ const storage = {
    * thirds of somebody's recording, with no error anywhere in the sequence.
    */
   truncateDownloads: 0,
+  /**
+   * Answer this many uploads with 413, the way the bucket does when a file is
+   * over its size limit. The videos bucket's limit is 50 MB on Supabase's free
+   * plan — about ninety seconds of what this renderer encodes — and an edit
+   * can be bigger than the file it came from, so this arrives at the very last
+   * step of a render that already cost its minutes.
+   */
+  refuseUploadsAsTooLarge: 0,
+  /** Every upload's Content-Length header, so a streamed body can be told from a buffered one. */
+  uploadLengths: [],
 };
 
 const server = http.createServer(async (req, res) => {
@@ -153,6 +163,12 @@ const server = http.createServer(async (req, res) => {
     return res.writeHead(200, { "content-type": "video/mp4" }).end(bytes);
   }
   if (req.method === "POST") {
+    if (storage.refuseUploadsAsTooLarge > 0) {
+      storage.refuseUploadsAsTooLarge -= 1;
+      req.resume();
+      return res.writeHead(413, { "content-type": "application/json" }).end('{"error":"Payload too large"}');
+    }
+    storage.uploadLengths.push(req.headers["content-length"] ?? null);
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     mkdirSync(path.dirname(file), { recursive: true });
@@ -1023,6 +1039,78 @@ section("Two thirds of a video is not a video");
     JSON.stringify(said.rows.map((r) => r.content.slice(0, 90))),
   );
   storage.truncateDownloads = 0;
+}
+
+// ─── A finished edit that will not fit ───────────────────────────────────────
+
+section("An edit too big for storage says so, at the end of a render that cost minutes");
+{
+  /*
+    The videos bucket has a 50 MB ceiling on Supabase's free plan, and the
+    browser already refuses an upload over it with a sentence. Nothing said
+    anything about the *output*, which is a separate file the customer never
+    chose the size of: a phone compresses at a low bitrate and this renderer
+    encodes at CRF 18, so a source that fit can produce an edit that does not.
+
+    As a bare 413 that reached people as "Rendering failed. We are looking into
+    it." — a sentence whose only next step is a support conversation ending in
+    "your video is too big".
+
+    Twice, because the job may retry and a retry that succeeds would hide it.
+  */
+  storage.refuseUploadsAsTooLarge = 2;
+  const projectId = await queue("too-big", {
+    over: { max_attempts: 2 },
+    plan: { version: 1, operations: [{ type: "normalizeLoudness", targetLufs: -14 }] },
+  });
+  putObject(`${ALICE}/${projectId}/source.mp4`, source);
+
+  const row = await settle("too-big");
+  check("the render fails rather than reporting a file that was never stored", row?.status === "failed", `${row?.status}`);
+  check(
+    "and says it is a size problem, not that rendering failed",
+    /too large|will not accept/.test(String(row?.error ?? "")),
+    String(row?.error),
+  );
+  check(
+    "naming the size, because that is the thing they can change",
+    /(KB|MB|GB)\b/.test(String(row?.error ?? "")),
+    String(row?.error),
+  );
+  check(
+    "and never argues with itself about the limit",
+    // A refusal of a file *under* the stated ceiling means the stated ceiling
+    // is what is wrong, and repeating it would produce "it is 12MB and the
+    // limit is 50MB, so it did not fit". Which is this fixture exactly: the
+    // stub refuses a file far under 50 MB.
+    !/is \d[\d.]*KB and storage will not accept a file over/.test(String(row?.error ?? "")),
+    String(row?.error),
+  );
+  check("and nothing is billed for it", !row?.billed_seconds, String(row?.billed_seconds));
+  storage.refuseUploadsAsTooLarge = 0;
+}
+
+section("The output is streamed to storage, not read into memory twice");
+{
+  /*
+    The worker has one gigabyte. `readFile` into a Buffer and then
+    `new Uint8Array(buffer)` is the same bytes twice, so a 500 MB output — about
+    eight minutes of what this renderer produces — was two gigabytes of buffers
+    and an OOM kill. An OOM is not a failed render: the process dies holding the
+    lock, the stale sweep requeues the job, it renders again, it dies again, and
+    the customer is told "Rendering failed" three renders of machine time later
+    with the actual limit named nowhere.
+
+    Not measurable from outside, but the header is: a streamed body carries an
+    explicit Content-Length because we set one, and without it undici would
+    send chunked, which an object store is entitled to refuse.
+  */
+  check("uploads happened at all", storage.uploadLengths.length > 0, String(storage.uploadLengths.length));
+  check(
+    "every one declared its length rather than going up chunked",
+    storage.uploadLengths.every((v) => typeof v === "string" && Number(v) > 0),
+    JSON.stringify(storage.uploadLengths.slice(0, 5)),
+  );
 }
 
 // ─── Stopping ────────────────────────────────────────────────────────────────
