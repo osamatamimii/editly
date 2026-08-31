@@ -9,14 +9,19 @@
  * The honest part is the state a platform is in before it works. Connecting
  * requires an app reviewed by the platform and credentials on this deployment,
  * and neither of those is something a person can do from this screen. So a
- * platform that is not switched on says so, in a sentence that names what is
- * missing, rather than offering a button that fails. That is the same rule the
- * login page follows for Google, and it exists because a button that does
- * nothing is indistinguishable from a product that is broken.
+ * platform that is not switched on says so rather than offering a button that
+ * fails — the same rule the login page follows for Google, and for the same
+ * reason: a button that does nothing is indistinguishable from a product that
+ * is broken.
+ *
+ * Said *once*, at the top, naming which platforms it applies to. It used to be
+ * a paragraph inside every unavailable platform — the same sentence five times
+ * with only the name changing, nine hundred pixels of it on a phone — which
+ * does not make one fact into five, it buries the accounts somebody has really
+ * connected underneath the explanation of the ones they have not.
  */
 import { useState } from "react";
 import { Loader2, Link2Off, AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api-fetch";
 import { PlatformMark, BRAND } from "@/components/platform-mark";
@@ -81,8 +86,40 @@ export function SocialConnections({
     }
   };
 
+  const waiting = platforms.filter((p) => !p.connected && p.needsReview);
+  const missing = platforms.filter((p) => !p.connected && !p.needsReview);
+
   return (
     <div className="space-y-3" data-testid="social-connections">
+      {/*
+        The reason, once.
+
+        It was a paragraph inside every platform that is not switched on — the
+        same sentence five times, with only the name changing, nine hundred
+        pixels of it on a phone. Five copies of one fact do not make it five
+        facts; they make the list unreadable and bury the accounts somebody has
+        actually connected underneath them.
+
+        So it is said here, naming which platforms it applies to, and each row
+        below carries the two words that say where it stands.
+      */}
+      {waiting.length > 0 || missing.length > 0 ? (
+        <p className="text-xs text-muted-foreground leading-relaxed" data-testid="social-why">
+          {waiting.length > 0 ? (
+            <>
+              {waiting.map((p) => p.label).join(", ")}{" "}
+              {waiting.length === 1 ? "reviews" : "review"} every app before letting one post on
+              your behalf. The editing and the scheduling are built; that review is the part
+              waiting on them.
+            </>
+          ) : null}
+          {waiting.length > 0 && missing.length > 0 ? " " : null}
+          {missing.length > 0 ? (
+            <>This deployment does not have {missing.map((p) => p.label).join(" or ")} credentials yet.</>
+          ) : null}
+        </p>
+      ) : null}
+
       {platforms.map((platform) => {
         const mine = accounts.filter((account) => account.platform === platform.platform);
         return (
@@ -103,29 +140,27 @@ export function SocialConnections({
                   {platform.shape === "vertical" ? " · vertical only" : ""}
                 </div>
               </div>
-              {platform.connected ? (
-                <Button size="sm" variant="outline" className="rounded-full flex-shrink-0" disabled>
-                  Connect
-                </Button>
-              ) : null}
+              {/*
+                Two words, not a dead button.
+
+                A `<Button disabled>Connect</Button>` sat here for any platform
+                this deployment holds credentials for — which is exactly the
+                thing the note at the top of this file says it will not do. A
+                button that cannot be pressed is indistinguishable from a
+                product that is broken, and it is worse than the sentence it
+                replaced because it looks like the way in.
+              */}
+              <span
+                className="text-xs text-muted-foreground flex-shrink-0"
+                data-testid={`social-state-${platform.platform}`}
+              >
+                {mine.length > 0
+                  ? `${mine.length} connected`
+                  : platform.needsReview
+                    ? "Waiting on review"
+                    : "Not set up yet"}
+              </span>
             </div>
-
-            {/*
-              Why a platform is not available, said once and plainly.
-
-              "Coming soon" is what a product says when it does not want to
-              explain. The real reason is that posting on somebody's behalf
-              needs an app the platform has reviewed, and that is a fact worth
-              telling the person who is wondering where the button is.
-            */}
-            {!platform.connected ? (
-              <p className="text-xs text-muted-foreground mt-3 leading-snug">
-                Not switched on yet.{" "}
-                {platform.needsReview
-                  ? `${platform.label} reviews every app before it will let one post on your behalf. The editing and the scheduling are built; this is the part that is waiting on them.`
-                  : `This deployment does not have ${platform.label} credentials yet.`}
-              </p>
-            ) : null}
 
             {mine.length > 0 ? (
               <ul className="mt-3 space-y-2">
