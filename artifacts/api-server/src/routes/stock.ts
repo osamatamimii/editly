@@ -33,7 +33,7 @@ const MAX_FILE_BYTES = 200 * 1024 * 1024;
 const NOT_CONFIGURED =
   "The stock library is not switched on for this deployment yet. Adding a Pexels key turns it on.";
 
-router.get("/stock/search", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
+router.get("/stock/search", rateLimit(LIMITS.stock), async (req, res): Promise<void> => {
   if (!stockConfigured) {
     // 503 rather than 404 or an empty list: "we have not set this up" and
     // "there are no photos of cats" are different answers, and a silent empty
@@ -157,11 +157,11 @@ async function streamStock(
  * plays neither the provider's copy nor ours, and the panel says so rather than
  * spinning.
  */
-router.get("/stock/preview/:id", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
+router.get("/stock/preview/:id", rateLimit(LIMITS.stock), async (req, res): Promise<void> => {
   await streamStock(req, res, resolveStockPreview, "private, max-age=3600");
 });
 
-router.get("/stock/file/:id", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
+router.get("/stock/file/:id", rateLimit(LIMITS.stock), async (req, res): Promise<void> => {
   await streamStock(req, res, resolveStockFile, "private, max-age=300");
 });
 

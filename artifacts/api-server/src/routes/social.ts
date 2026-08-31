@@ -174,7 +174,7 @@ router.get("/social/posts", async (req, res): Promise<void> => {
  * rules *before* anything is written, and the whole request is refused with the
  * reasons, per platform, if any of them cannot go.
  */
-router.post("/social/posts", rateLimit(LIMITS.createProject), async (req, res): Promise<void> => {
+router.post("/social/posts", rateLimit(LIMITS.schedulePost), async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const body = req.body as {
     projectId?: unknown;

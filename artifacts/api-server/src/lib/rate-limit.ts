@@ -274,6 +274,46 @@ export const LIMITS = {
     windowMs: 10 * 60 * 1000,
     message: "You've created a lot of projects very quickly. Give it a few minutes.",
   },
+  /**
+   * Scheduling posts, which is its own action and not a project being created.
+   *
+   * It borrowed `createProject`, and a borrowed limit is a limit that changes
+   * when somebody tunes the other one — the two have nothing to do with each
+   * other beyond both being writes that cost a row.
+   *
+   * A person planning a week of content schedules once per finished edit, not
+   * once per destination: the route writes every account in a single request
+   * and refuses the whole thing if any of them cannot take it. Ten in ten
+   * minutes covers somebody working through a batch of clips in one sitting.
+   */
+  schedulePost: {
+    name: "schedule-post",
+    limit: 50,
+    windowMs: 10 * 60 * 1000,
+    perPerson: 10,
+    message: "That's a lot of scheduling at once. Give it a few minutes; nothing already queued is affected.",
+  },
+  /**
+   * The stock library: somebody else's API, and bytes through ours.
+   *
+   * It borrowed `write`, whose own comment describes it as "renaming,
+   * deleting, editing — the small writes of an ordinary session". These are
+   * neither writes nor small. `/stock/search` spends a Pexels quota we do not
+   * own, and `/stock/file/:id` proxies up to two hundred megabytes through
+   * this server because a `<video>` cannot carry an Authorization header.
+   *
+   * Thirty is a real browse: a dozen searches and twenty previews while
+   * looking for one shot. What it stops is a loop that spends the day's Pexels
+   * allowance in a minute, or pulls a gigabyte through the proxy — neither of
+   * which is a thing this deployment finds out about until it stops working.
+   */
+  stock: {
+    name: "stock",
+    limit: 150,
+    windowMs: 10 * 60 * 1000,
+    perPerson: 30,
+    message: "That's a lot of searching at once. Give it a minute and carry on.",
+  },
   /** Cheap, but the path that mints signed storage URLs, so worth a ceiling. */
   write: {
     name: "write",

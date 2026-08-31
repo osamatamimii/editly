@@ -13,6 +13,8 @@ import http from "node:http";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolveTestDatabaseUrl } from "./lib/test-db.mjs";
 
 const require = createRequire(import.meta.url);
@@ -1263,6 +1265,22 @@ console.log("\nRender queue");
   const fresh = await call(ALICE, `/api/projects/${aliceProjectId}`);
   check("a job queued just now is not called stalled", fresh.json?.renderStalled === false, JSON.stringify(fresh.json?.renderStalled));
 
+  /*
+    The counters, read before and after — not against zero.
+
+    "It is not also counted as processing" was asserted as
+    `processingCount === 0`, which is a statement about the whole account
+    rather than about this job. Anything else of Alice's that happens to be in
+    flight — a leftover row from an earlier run of this suite against the same
+    database, which is the normal state of a development machine — made it fail
+    on a product that was behaving perfectly. A check that goes red for a
+    reason outside what it is testing teaches whoever reads it to ignore it.
+
+    What is actually being claimed is that this one job moves from one bucket
+    to the other: still counted, counted once, counted in the right place.
+  */
+  const beforeAging = (await call(ALICE, "/api/stats/dashboard")).json ?? {};
+
   const backdate = spawnSync(
     "psql",
     [
@@ -1285,11 +1303,18 @@ console.log("\nRender queue");
   const onCard = stats.json?.recentProjects?.find?.((p) => p.id === aliceProjectId);
   check("so does the dashboard card", onCard?.renderStalled === true, JSON.stringify(onCard?.renderStalled));
   // The counter above the cards has to agree with them.
-  check("a stalled render is counted as waiting, not as processing", stats.json?.stalledCount >= 1, JSON.stringify(stats.json?.stalledCount));
+  check(
+    "a stalled render is counted as waiting, not as processing",
+    stats.json?.stalledCount === (beforeAging.stalledCount ?? 0) + 1,
+    JSON.stringify({ before: beforeAging.stalledCount, after: stats.json?.stalledCount }),
+  );
   check(
     "and it is not also counted as processing",
-    stats.json?.processingCount === 0,
-    JSON.stringify(stats.json?.processingCount),
+    stats.json?.processingCount === (beforeAging.processingCount ?? 0) - 1,
+    // Counted once, and in the new place. Read as a move rather than as a
+    // total, so anything else of this account's that is in flight cannot
+    // decide the answer.
+    JSON.stringify({ before: beforeAging.processingCount, after: stats.json?.processingCount }),
   );
 
   const claimed = spawnSync(
@@ -1840,6 +1865,33 @@ console.log("\nOne person cannot spend everybody's money");
     "and every one says what to do rather than quoting a number of milliseconds",
     Object.values(LIMITS).every((l) => l.message.length > 30 && !/\d+\s*ms/.test(l.message)),
   );
+
+  /*
+    And every limit is used by something.
+
+    A borrowed limit is the failure this catches from the other side: two
+    unrelated routes counting into one bucket, so tuning either moves the
+    other. Scheduling posts borrowed `create-project` and the stock library
+    borrowed `write` — whose own comment calls it "the small writes of an
+    ordinary session", while `/stock/file/:id` proxies two hundred megabytes.
+
+    What is checkable without guessing at intent is the other half: a limit
+    nobody mounts is dead policy, and a route that reaches for one by name
+    finds only the names that exist. Both halves of the table are read here, so
+    adding an entry and forgetting to mount it fails.
+  */
+  {
+    const routes = readdirSync(path.join(process.cwd(), "artifacts/api-server/src/routes"))
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => readFileSync(path.join(process.cwd(), "artifacts/api-server/src/routes", f), "utf8"))
+      .join("\n");
+    const unused = Object.keys(LIMITS).filter((key) => !routes.includes(`LIMITS.${key}`));
+    check(
+      "every limit in the table is mounted on a route",
+      unused.length === 0,
+      `${unused.join(", ")} exists and guards nothing`,
+    );
+  }
   await rmd(rlDir, { recursive: true, force: true });
 
   // And against the real app. The limit is lowered in the table rather than in
