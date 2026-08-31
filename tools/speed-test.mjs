@@ -120,7 +120,16 @@ const requested = [];
 page.on("response", (r) => {
   requested.push([new URL(r.url()).pathname, Number(r.headers()["content-length"] ?? 0)]);
 });
-await page.goto(`${origin}/`, { waitUntil: "load" });
+/*
+  `?lang=en`, on a suite that is about neither language.
+
+  What is measured here is weight and frames, which are the same in Arabic and
+  in English: the same markup, the same chunk, the same reveals. The one check
+  below that reads words needs to know which language it is reading, and
+  pinning it to English keeps this file about bytes. The Arabic page's claims
+  are checked in `tools/landing-test.mjs`, which renders both.
+*/
+await page.goto(`${origin}/?lang=en`, { waitUntil: "load" });
 
 // Long enough for every reveal to have been triggered and settled.
 await page.evaluate(() => {

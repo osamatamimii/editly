@@ -8,6 +8,17 @@ import { useAuth } from "@/lib/auth";
 import { Logo } from "@/components/logo";
 import { RollingNumber } from "@/components/rolling-number";
 import { PLANS, SHARED_FEATURES, FREE_TIER } from "@/lib/pricing";
+import {
+  DEFAULT_LANGUAGE,
+  LANDING,
+  PRICING_AR,
+  directionOf,
+  isLanguage,
+  phrase,
+  say,
+  type Language,
+  type Phrase,
+} from "@/lib/landing-copy";
 
 /**
  * How long `.reveal`'s filter transition is given before the filter is dropped.
@@ -41,6 +52,92 @@ function usePhoneWidth(): boolean {
     return () => mq.removeEventListener("change", sync);
   }, []);
   return phone;
+}
+
+/** Where the choice is remembered. */
+const LANGUAGE_KEY = "editly:landing-language";
+
+/**
+ * Which language this page is in, and how that is decided.
+ *
+ * Arabic by default, and that is a position rather than an oversight. The first
+ * audience for this product is Arabic-speaking, the product underneath has been
+ * bilingual since the first render note, and a landing page that opens in
+ * English tells that audience the tool was built for somebody else. Phones in
+ * the region are very often set to English, so reading `navigator.language`
+ * would have quietly turned "Arabic first" into "English for nearly everyone",
+ * which is the decision this is not.
+ *
+ * Two things override it, in this order:
+ *
+ *   1. **`?lang=` on the URL**, because a link is how this page gets handed to
+ *      somebody. An English link sent to a reviewer should open in English, and
+ *      it should still be English after they click something.
+ *   2. **What they chose last time**, so the switch is worth pressing once.
+ */
+function readLanguage(): Language {
+  try {
+    const asked = new URLSearchParams(window.location.search).get("lang");
+    if (isLanguage(asked)) return asked;
+  } catch {
+    /* No URL to read. Nothing to recover; the default is a good answer. */
+  }
+  try {
+    const remembered = window.localStorage.getItem(LANGUAGE_KEY);
+    if (isLanguage(remembered)) return remembered;
+  } catch {
+    /*
+      `localStorage` *throws* in some privacy modes rather than answering null,
+      and this read happens on the paint path of the first screen anybody sees.
+      An unguarded read here is a blank page for the people most likely to be
+      cautious about a tool they have not used before.
+    */
+  }
+  return DEFAULT_LANGUAGE;
+}
+
+function useLandingLanguage(): [Language, (next: Language) => void] {
+  const [language, setLanguage] = useState<Language>(readLanguage);
+
+  const choose = (next: Language) => {
+    setLanguage(next);
+    try {
+      window.localStorage.setItem(LANGUAGE_KEY, next);
+    } catch {
+      /* Same privacy modes. The page still switches; it just forgets. */
+    }
+  };
+
+  return [language, choose];
+}
+
+/**
+ * Mirroring a drawing, and which drawings get mirrored.
+ *
+ * SVG has no logical properties: an `x` is a number of user units from the left
+ * edge whichever way the page reads. So a diagram whose meaning is a *flow*
+ * reads backwards in Arabic unless it is turned round, and the cheapest honest
+ * way to turn one round is to mirror the whole shape layer and place the text
+ * on top of it.
+ *
+ * The line is between a drawing of a **process** and a drawing of a **scene**.
+ * The step cards are processes: the take on one side, what came out on the
+ * other, a dotted line between them, and in Arabic that runs the other way. The
+ * hero's room is a scene: a person sitting off to one side of a frame because
+ * that is where a phone on a desk puts them. Mirroring a photograph because the
+ * caption is in Arabic is not a translation, it is a different photograph.
+ *
+ * `MIRROR` goes on the shapes; the text sits outside it and takes its position
+ * from `mirrored`, because a `scale(-1,1)` on a `<text>` renders the letters
+ * backwards.
+ */
+const MIRROR = "translate(320,0) scale(-1,1)";
+/** The same, for the square cells in the feature grid. */
+const MIRROR_CELL = "translate(120,0) scale(-1,1)";
+
+function mirrored(x: number, anchor: "start" | "end", rtl: boolean, width = 320) {
+  if (!rtl) return { x, textAnchor: anchor };
+  return { x: width - x, textAnchor: anchor === "end" ? ("start" as const) : ("end" as const) };
 }
 
 function useScrollReveal() {
@@ -151,24 +248,28 @@ const RANK = { free: 0, creator: 1, pro: 2, studio: 3 } as const;
  * `tools/demo-capture.mjs` measured on the sample take, and the operations
  * listed are the ones that plan actually produces.
  */
-function HeroEditor({ phone }: { phone: boolean }) {
+function HeroEditor({ phone, language }: { phone: boolean; language: Language }) {
+  const t = (phrase: Phrase) => say(phrase, language);
+  const copy = LANDING.heroEditor;
   return (
-    // `text-left` because the hero section around this is centred, and an app
-    // whose every label is centred does not read as an app.
-    <div className="force-dark text-left rounded-xl overflow-hidden relative bg-[#0a090b] text-[#efeaf7]">
+    // `text-start` because the hero section around this is centred, and an app
+    // whose every label is centred does not read as an app. Logical rather than
+    // `text-left`: this is a drawing of the product, and the product is set the
+    // way the language reads.
+    <div className="force-dark text-start rounded-xl overflow-hidden relative bg-[#0a090b] text-[#efeaf7]">
       {/* Title bar */}
       <div className="flex items-center gap-3 px-4 sm:px-5 h-12 sm:h-14 border-b border-white/[0.07] bg-white/[0.02]">
         <ChevronLeft className="w-4 h-4 text-white/35 flex-shrink-0" />
-        <p className="text-[13px] sm:text-[15px] font-semibold truncate">Podcast episode 14</p>
+        <p className="text-[13px] sm:text-[15px] font-semibold truncate">{t(copy.projectTitle)}</p>
         <span className="hidden sm:inline-flex text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-400/15 text-emerald-300 border border-emerald-400/25 flex-shrink-0">
-          done
+          {t(copy.status)}
         </span>
-        <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+        <div className="ms-auto flex items-center gap-2 flex-shrink-0">
           <span className="hidden sm:flex items-center gap-1.5 text-[13px] text-white/60 px-3 py-1.5 rounded-lg border border-white/10">
-            <Download className="w-3.5 h-3.5" /> Export
+            <Download className="w-3.5 h-3.5" /> {t(copy.exportLabel)}
           </span>
           <span className="flex items-center gap-1.5 text-[12px] sm:text-[13px] font-semibold text-white px-3 py-1.5 rounded-lg bg-[#6c3bff] shadow-[0_0_20px_rgba(108,59,255,0.45)]">
-            <Sparkles className="w-3.5 h-3.5" /> Generate Edit
+            <Sparkles className="w-3.5 h-3.5" /> {t(copy.generate)}
           </span>
         </div>
       </div>
@@ -177,7 +278,7 @@ function HeroEditor({ phone }: { phone: boolean }) {
         {/* ── What went in ── */}
         <div className="p-4 sm:p-5 md:border-r border-white/[0.07] flex flex-col gap-3">
           <p className="text-[12px] sm:text-[11px] uppercase tracking-[0.14em] text-white/35 font-semibold">
-            The raw take
+            {t(copy.rawTake)}
           </p>
 
           {/* The frame. A speaker sitting off to one side, which is what a
@@ -235,7 +336,7 @@ function HeroEditor({ phone }: { phone: boolean }) {
               {/* A vignette, because a lens has one. */}
               <rect width="320" height="180" fill="url(#hero-vignette)" />
             </svg>
-            <div className="absolute bottom-2 left-2 text-[12px] sm:text-[10px] font-mono text-white/45 bg-black/45 px-1.5 py-0.5 rounded">
+            <div className="absolute bottom-2 start-2 text-[12px] sm:text-[10px] font-mono text-white/45 bg-black/45 px-1.5 py-0.5 rounded" dir="ltr">
               1920×1080 · 12.3s
             </div>
           </div>
@@ -269,7 +370,8 @@ function HeroEditor({ phone }: { phone: boolean }) {
               ))}
             </svg>
             <p className="mt-2 text-[12px] text-white/45">
-              4 silences found · <span className="text-white/70">5.8s</span> of dead air
+              {t(copy.silencesLead)} <span className="text-white/70">{t(copy.deadAirAmount)}</span>{" "}
+              {t(copy.silencesTail)}
             </p>
           </div>
         </div>
@@ -277,8 +379,8 @@ function HeroEditor({ phone }: { phone: boolean }) {
         {/* ── What was asked, and what came back ── */}
         <div className="p-4 sm:p-5 flex flex-col gap-3">
           <div className="flex justify-end">
-            <p className="max-w-[85%] text-[12px] sm:text-[13.5px] leading-relaxed rounded-2xl rounded-br-sm px-3.5 py-2.5 bg-[#6c3bff] text-white">
-              Cut the dead air and make it vertical for TikTok
+            <p className="max-w-[85%] text-[12px] sm:text-[13.5px] leading-relaxed rounded-2xl rounded-ee-sm px-3.5 py-2.5 bg-[#6c3bff] text-white">
+              {t(copy.ask)}
             </p>
           </div>
 
@@ -287,24 +389,21 @@ function HeroEditor({ phone }: { phone: boolean }) {
               <Sparkles className="w-3.5 h-3.5 text-[#a78bfa]" />
             </span>
             <div className="min-w-0">
-              <p className="text-[12px] sm:text-[11px] font-semibold text-white/50 mb-1.5">Noah</p>
+              <p className="text-[12px] sm:text-[11px] font-semibold text-white/50 mb-1.5">{t(copy.assistant)}</p>
               <p className="text-[12px] sm:text-[13.5px] leading-relaxed text-white/80 mb-2.5">
-                Here is what I will do, before I do it:
+                {t(copy.intro)}
               </p>
               {/* The plan, itemised. This is the promise the product makes:
                   you see the edit described before it is rendered. */}
               <ul className="flex flex-col gap-1.5">
-                {[
-                  "Cut every silence longer than 0.4s",
-                  "Reframe to 9:16, keeping you in frame",
-                  "Burn in captions from what you said",
-                  "Level the audio to −14 LUFS",
-                ].map((line) => (
-                  <li key={line} className="flex items-start gap-2 text-[12px] sm:text-[13px] leading-snug text-white/70">
-                    <Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                    {line}
-                  </li>
-                ))}
+                {[copy.planCutSilence, copy.planReframe, copy.planCaptions, copy.planLevel]
+                  .map(t)
+                  .map((line) => (
+                    <li key={line} className="flex items-start gap-2 text-[12px] sm:text-[13px] leading-snug text-white/70">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0" />
+                      {line}
+                    </li>
+                  ))}
               </ul>
             </div>
           </div>
@@ -328,10 +427,10 @@ function HeroEditor({ phone }: { phone: boolean }) {
             </div>
             <div className="min-w-0 flex flex-col justify-center gap-1">
               <p className="text-[12px] sm:text-[13.5px] font-semibold text-white">
-                Done. 12.3s became 6.5s.
+                {t(copy.resultTitle)}
               </p>
               <p className="text-[12px] leading-snug text-white/55">
-                1080×1920 for TikTok · 4 captions burned in · levelled to −14 LUFS
+                {t(copy.resultDetail)}
               </p>
             </div>
           </div>
@@ -460,6 +559,9 @@ export default function Home() {
 
 
   const phone = usePhoneWidth();
+  const [language, chooseLanguage] = useLandingLanguage();
+  const rtl = language === "ar";
+  const t = (phrase: Phrase) => say(phrase, language);
 
   /* The landing page paints the document, not just its own subtree — see the
      note on the wrapper below. Scoped to the mount so /app keeps its theme. */
@@ -497,9 +599,26 @@ export default function Home() {
      * hero recording is a picture of a dark editor, and a picture of a dark
      * editor is dark on any page.
      */
+    /*
+     * `dir` and `lang` sit here rather than on `<html>`.
+     *
+     * Everything this page needs from them is inherited: the layout follows the
+     * wrapper, and the two typographic rules Arabic needs are written as
+     * `:where([dir="rtl"], [lang="ar"]) …` descendant selectors in index.css,
+     * so a subtree is enough to reach them. Putting them on the document would
+     * mean another attribute to unset on the way out, on a root the app also
+     * uses, for a scrollbar that changes sides.
+     *
+     * `lang` as well as `dir`, and not only for screen readers: the sans stack
+     * carries IBM Plex Sans Arabic after Inter, and the browser picks per
+     * language, not per character.
+     */
     <div
       className="light w-full flex flex-col items-center bg-background text-foreground"
       style={{ colorScheme: "light" }}
+      dir={directionOf(language)}
+      lang={language}
+      data-testid="landing"
       ref={sectionsRef}
     >
 
@@ -567,14 +686,22 @@ export default function Home() {
           <span className="font-bold text-lg sm:text-xl tracking-tight">Editly</span>
         </div>
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
-          {["Features", "Podcasts", "How it works", "Pricing"].map((item) => (
+          {/* The anchor is the section id, which is English and stays English:
+              it is a URL, and a URL that changes with the reader's language is
+              a link that breaks when it is shared. Only the label translates. */}
+          {[
+            { href: "#features", label: LANDING.nav.features },
+            { href: "#podcasts", label: LANDING.nav.podcasts },
+            { href: "#how-it-works", label: LANDING.nav.howItWorks },
+            { href: "#pricing", label: LANDING.nav.pricing },
+          ].map((item) => (
             <a
-              key={item}
-              href={`#${item.toLowerCase().replace(/ /g, "-")}`}
+              key={item.href}
+              href={item.href}
               className="relative hover:text-foreground transition-colors group"
             >
-              {item}
-              <span className="absolute -bottom-0.5 left-0 w-0 h-px bg-primary transition-all duration-300 group-hover:w-full" />
+              {t(item.label)}
+              <span className="absolute -bottom-0.5 start-0 w-0 h-px bg-primary transition-all duration-300 group-hover:w-full" />
             </a>
           ))}
         </nav>
@@ -592,13 +719,37 @@ export default function Home() {
           {/* The theme control is gone from this page, with the theme. It
               lives in the app, on the screens where somebody sits long enough
               for it to matter. */}
+          {/*
+            The language switch, and it is a word rather than a globe.
+
+            A globe icon is the international symbol for "a menu you have to
+            open to find out what is in it". There are two languages, so the
+            control says the other one in its own script: somebody who wants
+            English sees the word English, and somebody who wants Arabic sees
+            العربية. `lang` on the button is the language of its *label*, so
+            the browser reaches for the right face for those letters.
+
+            Sized to a thumb like everything else in this row, and it stands
+            down to a quieter treatment than the two buttons somebody came here
+            to press.
+          */}
+          <button
+            type="button"
+            onClick={() => chooseLanguage(rtl ? "en" : "ar")}
+            data-testid="button-language"
+            lang={rtl ? "en" : "ar"}
+            title={t(LANDING.languageToggle.title)}
+            className="px-2.5 sm:px-3 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-full font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
+          >
+            {t(LANDING.languageToggle.label)}
+          </button>
           {user ? (
             <Link
               href="/dashboard"
               data-testid="link-dashboard"
               className="glow-btn btn-gradient-cta text-white px-5 sm:px-6 min-h-[44px] inline-flex items-center rounded-full font-medium whitespace-nowrap animate-shimmer-border border border-transparent"
             >
-              Dashboard
+              {t(LANDING.header.dashboard)}
             </Link>
           ) : (
             <>
@@ -607,15 +758,15 @@ export default function Home() {
                 data-testid="link-log-in"
                 className="px-3 sm:px-4 min-h-[44px] inline-flex items-center rounded-full font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
               >
-                Log in
+                {t(LANDING.header.logIn)}
               </Link>
               <Link
                 href="/login?mode=signup"
                 data-testid="link-sign-up"
                 className="glow-btn btn-gradient-cta text-white px-4 sm:px-6 min-h-[44px] inline-flex items-center rounded-full font-medium text-sm sm:text-base whitespace-nowrap animate-shimmer-border border border-transparent"
               >
-                <span className="sm:hidden">Sign up</span>
-                <span className="hidden sm:inline">Sign up free</span>
+                <span className="sm:hidden">{t(LANDING.header.signUp)}</span>
+                <span className="hidden sm:inline">{t(LANDING.header.signUpFree)}</span>
               </Link>
             </>
           )}
@@ -645,7 +796,7 @@ export default function Home() {
               claims nothing we have not built: no version number, nothing that
               reads as "we shipped a model". The result is one line further down,
               where it has room to be specific. */}
-          <span className="text-sm font-medium text-foreground/80">Meet Noah. Tell him what you want</span>
+          <span className="text-sm font-medium text-foreground/80">{t(LANDING.hero.badge)}</span>
           <span className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]"
             style={{ animation: "glow-pulse 2s ease-in-out infinite" }} />
         </div>
@@ -661,7 +812,7 @@ export default function Home() {
               typed. `.headline-serif` carries the size and tracking corrections
               an italic serif needs beside a bold sans, and the RTL rule that
               says the same thing with weight when there is no italic to use. */}
-          <span className="glow-text">Stop editing.</span>
+          <span className="glow-text">{t(LANDING.hero.headlineLead)}</span>
           <br />
           <span
             className="headline-serif animate-gradient-shift"
@@ -673,7 +824,7 @@ export default function Home() {
               backgroundSize: "200% 200%",
             }}
           >
-            Start describing.
+            {t(LANDING.hero.headlineAnswer)}
           </span>
         </h1>
 
@@ -682,8 +833,7 @@ export default function Home() {
           className="text-lg md:text-xl text-muted-foreground mb-12 max-w-2xl animate-fade-up"
           style={{ animationDelay: "320ms" }}
         >
-          Upload the raw take. Describe the edit. Get three hours of your evening
-          back, on every video.
+          {t(LANDING.hero.subtext)}
         </p>
 
         {/* CTA Buttons */}
@@ -703,7 +853,7 @@ export default function Home() {
             className="glow-btn btn-gradient-cta flex items-center justify-center gap-2 text-white h-14 px-8 rounded-full font-semibold text-lg"
           >
             <Play className="w-5 h-5 fill-current" />
-            {user ? "Upload a raw take" : "Start editing free"}
+            {user ? t(LANDING.hero.ctaSignedIn) : t(LANDING.hero.ctaSignedOut)}
           </Link>
           {/* This said "Watch Demo" and had no handler at all — the second
               largest thing on the page did nothing when pressed, and there is
@@ -715,8 +865,13 @@ export default function Home() {
             data-testid="link-hero-secondary"
             className="group flex items-center justify-center gap-2 h-14 px-8 rounded-full font-semibold text-lg bg-surface-1 hover:bg-surface-1 border border-hairline transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_24px_rgba(108,59,255,0.2)] backdrop-blur-sm"
           >
-            See how it works
-            <ArrowRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
+            {t(LANDING.hero.secondary)}
+            {/* The arrow points the way the language reads, and moves that way
+                on hover. An arrow pointing right on a right-to-left page points
+                back at where the reader came from. */}
+            <ArrowRight
+              className={`w-4 h-4 transition-transform duration-300 ${rtl ? "rotate-180 group-hover:-translate-x-1" : "group-hover:translate-x-1"}`}
+            />
           </a>
         </div>
 
@@ -736,11 +891,10 @@ export default function Home() {
                 "0 40px 80px rgba(108,59,255,0.28), 0 80px 160px rgba(108,59,255,0.10), 0 0 0 1px rgba(155,107,255,0.12)",
             }}
           >
-            <HeroEditor phone={phone} />
+            <HeroEditor phone={phone} language={language} />
           </div>
           <p className="mt-4 text-xs sm:text-sm text-muted-foreground text-center">
-            One real edit: 12.3 seconds in, 6.5 out. Every number here is one the
-            renderer produced.
+            {t(LANDING.hero.caption)}
           </p>
         </div>
       </section>
@@ -751,9 +905,9 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6 relative z-10">
           <div className="text-center mb-16">
             <div className="reveal">
-              <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">How it works</p>
-              <h2 className="text-3xl md:text-4xl font-bold mb-4">Three steps, none of them tedious</h2>
-              <p className="text-muted-foreground text-lg">The part you dread, done while you are not looking.</p>
+              <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.steps.eyebrow)}</p>
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">{t(LANDING.steps.title)}</h2>
+              <p className="text-muted-foreground text-lg">{t(LANDING.steps.lead)}</p>
             </div>
           </div>
 
@@ -773,19 +927,17 @@ export default function Home() {
               {
                 num: "01",
                 icon: Upload,
-                title: "Upload the raw take",
-                desc: "The unedited one, with all the ums and restarts still in it. That is the point.",
+                title: t(LANDING.steps.one.title),
+                desc: t(LANDING.steps.one.desc),
                 delay: "0ms",
                 art: (
                   <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
-                    <rect x="20" y="18" width="280" height="144" rx="12" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" strokeDasharray="8 7" />
-                    <rect x="44" y="42" width="232" height="96" rx="10" className="fill-[var(--art-base)]" />
-                    <rect x="44" y="42" width="232" height="96" rx="10" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
-                    <text x="62" y="68" className="fill-[var(--art-accent)]" fontSize="13" fontWeight="600" fontFamily="ui-monospace, monospace">raw-take.mov</text>
-                    <text x="258" y="68" textAnchor="end" className="fill-[var(--art-line)]" fontSize="12" fontFamily="ui-monospace, monospace">12:04</text>
-                    {/* The take, with the dead air still in it — flat where
-                        nobody is talking, which is what step three removes. */}
-                    <g>
+                    <g transform={rtl ? MIRROR : undefined}>
+                      <rect x="20" y="18" width="280" height="144" rx="12" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" strokeDasharray="8 7" />
+                      <rect x="44" y="42" width="232" height="96" rx="10" className="fill-[var(--art-base)]" />
+                      <rect x="44" y="42" width="232" height="96" rx="10" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
+                      {/* The take, with the dead air still in it — flat where
+                          nobody is talking, which is what step three removes. */}
                       {[14, 22, 9, 26, 17, 24, 2, 2, 2, 2, 19, 27, 11, 23, 8, 2, 2, 2, 25, 13, 21, 16, 2, 2, 18, 26, 10, 20].map((h, n) => (
                         <rect
                           key={n}
@@ -798,35 +950,59 @@ export default function Home() {
                         />
                       ))}
                     </g>
+                    {/* A file name and a timecode, which are Latin either way:
+                        `dir` keeps `raw-take.mov` from being reordered when the
+                        page around it is right-to-left. */}
+                    <text {...mirrored(62, "start", rtl)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="13" fontWeight="600" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.file)}</text>
+                    <text {...mirrored(258, "end", rtl)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-line)]" fontSize="12" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.duration)}</text>
                   </svg>
                 ),
               },
               {
                 num: "02",
                 icon: MessageSquareText,
-                title: "Say what you want",
-                desc: "\"Cut the dead air and make it vertical for TikTok.\" Editly tells you exactly what it will do before it does it.",
+                title: t(LANDING.steps.two.title),
+                desc: t(LANDING.steps.two.desc),
                 delay: "120ms",
                 art: (
                   <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
-                    {/* What you typed, */}
-                    <rect x="78" y="18" width="226" height="48" rx="12" className="fill-[var(--art-accent-soft)]" />
-                    <rect x="78" y="18" width="226" height="48" rx="12" className="fill-none stroke-[var(--art-accent)]" strokeWidth="1.5" />
-                    <text x="94" y="39" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">Cut the dead air and make it</text>
-                    <text x="94" y="56" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">vertical for TikTok.</text>
-                    {/* and what it says back, before it starts. */}
-                    <circle cx="34" cy="98" r="12" className="fill-[var(--art-accent-soft)]" />
-                    <path d="M28 98l4.5 4.5L40 94" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <g transform={rtl ? MIRROR : undefined}>
+                      {/* What you typed, */}
+                      <rect x="78" y="18" width="226" height="48" rx="12" className="fill-[var(--art-accent-soft)]" />
+                      <rect x="78" y="18" width="226" height="48" rx="12" className="fill-none stroke-[var(--art-accent)]" strokeWidth="1.5" />
+                      {/* and what it says back, before it starts. The tick is
+                          moved rather than mirrored: a reversed check mark is a
+                          shape people read as almost-a-tick. */}
+                      <circle cx="34" cy="98" r="12" className="fill-[var(--art-accent-soft)]" />
+                      {[
+                        { y: 84, w: 162 },
+                        { y: 114, w: 124 },
+                        { y: 144, w: 158 },
+                      ].map((row) => (
+                        <g key={row.y}>
+                          <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-[var(--art-base)]" />
+                          <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
+                        </g>
+                      ))}
+                    </g>
+                    <path
+                      d="M28 98l4.5 4.5L40 94"
+                      transform={rtl ? "translate(252,0)" : undefined}
+                      className="fill-none stroke-[var(--art-accent)]"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <text {...mirrored(94, "start", rtl)} y="39" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">{t(LANDING.steps.two.askLine1)}</text>
+                    <text {...mirrored(94, "start", rtl)} y="56" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">{t(LANDING.steps.two.askLine2)}</text>
                     {[
-                      { y: 84, w: 162, t: "Remove 41s of silence" },
-                      { y: 114, w: 124, t: "Reframe to 9:16" },
-                      { y: 144, w: 158, t: "Burn in your captions" },
+                      { y: 84, label: LANDING.steps.two.planSilence },
+                      { y: 114, label: LANDING.steps.two.planReframe },
+                      { y: 144, label: LANDING.steps.two.planCaptions },
                     ].map((row) => (
-                      <g key={row.y}>
-                        <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-[var(--art-base)]" />
-                        <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
-                        <text x="72" y={row.y + 19} className="fill-[var(--art-accent)]" fontSize="11.5">{row.t}</text>
-                      </g>
+                      <text key={row.y} {...mirrored(72, "start", rtl)} y={row.y + 19} className="fill-[var(--art-accent)]" fontSize="11.5">
+                        {t(row.label)}
+                      </text>
                     ))}
                   </svg>
                 ),
@@ -834,27 +1010,29 @@ export default function Home() {
               {
                 num: "03",
                 icon: Send,
-                title: "Post it",
-                desc: "Framed for TikTok, Reels or Shorts, and waiting for you when you come back.",
+                title: t(LANDING.steps.three.title),
+                desc: t(LANDING.steps.three.desc),
                 delay: "240ms",
                 art: (
                   <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
-                    {/* The widescreen you shot, with the speaker sitting off
+                    <g transform={rtl ? MIRROR : undefined}>
+                      {/* The widescreen you shot, with the speaker sitting off
                         to one side of it the way a phone on a desk films you, */}
-                    <rect x="22" y="34" width="184" height="104" rx="8" className="fill-[var(--art-base)]" />
-                    <rect x="22" y="34" width="184" height="104" rx="8" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" strokeDasharray="6 5" />
-                    <circle cx="138" cy="74" r="17" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
-                    <path d="M120 116a18 18 0 0 1 36 0" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
-                    <text x="22" y="158" className="fill-[var(--art-line)]" fontSize="11" fontFamily="ui-monospace, monospace">16:9 source</text>
-                    {/* and the vertical it kept, centred on them, with the
+                      <rect x="22" y="34" width="184" height="104" rx="8" className="fill-[var(--art-base)]" />
+                      <rect x="22" y="34" width="184" height="104" rx="8" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" strokeDasharray="6 5" />
+                      <circle cx="138" cy="74" r="17" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
+                      <path d="M120 116a18 18 0 0 1 36 0" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
+                      {/* and the vertical it kept, centred on them, with the
                         words burned onto it. */}
-                    <rect x="104" y="16" width="94" height="148" rx="10" className="fill-[var(--art-accent-soft)]" />
-                    <rect x="104" y="16" width="94" height="148" rx="10" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
-                    <circle cx="151" cy="66" r="19" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
-                    <path d="M131 112a20 20 0 0 1 40 0" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
-                    <path d="M126 132h50M138 146h26" className="stroke-[var(--art-accent)]" strokeWidth="7" strokeLinecap="round" />
-                    <text x="216" y="90" className="fill-[var(--art-accent)]" fontSize="12" fontWeight="700" fontFamily="ui-monospace, monospace">9:16</text>
-                    <path d="M216 100h30" className="stroke-[var(--art-accent)]" strokeWidth="2" strokeLinecap="round" />
+                      <rect x="104" y="16" width="94" height="148" rx="10" className="fill-[var(--art-accent-soft)]" />
+                      <rect x="104" y="16" width="94" height="148" rx="10" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
+                      <circle cx="151" cy="66" r="19" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
+                      <path d="M131 112a20 20 0 0 1 40 0" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
+                      <path d="M126 132h50M138 146h26" className="stroke-[var(--art-accent)]" strokeWidth="7" strokeLinecap="round" />
+                      <path d="M216 100h30" className="stroke-[var(--art-accent)]" strokeWidth="2" strokeLinecap="round" />
+                    </g>
+                    <text {...mirrored(22, "start", rtl)} y="158" className="fill-[var(--art-line)]" fontSize="11" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.source)}</text>
+                    <text {...mirrored(216, "start", rtl)} y="90" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="12" fontWeight="700" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.output)}</text>
                   </svg>
                 ),
               },
@@ -866,7 +1044,7 @@ export default function Home() {
               >
                 <div className="relative bg-band border-b border-hairline-faint h-52 sm:h-56 overflow-hidden flex items-center justify-center p-5">
                   {step.art}
-                  <span className="absolute top-3 left-3 text-xs font-mono font-semibold text-muted-foreground bg-surface-1 px-2 py-1 rounded-md border border-hairline-faint">
+                  <span className="absolute top-3 start-3 text-xs font-mono font-semibold text-muted-foreground bg-surface-1 px-2 py-1 rounded-md border border-hairline-faint">
                     {step.num}
                   </span>
                 </div>
@@ -888,8 +1066,8 @@ export default function Home() {
         <div className="grid md:grid-cols-2 gap-16 items-center">
           <div>
             <div className="reveal">
-              <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">Features</p>
-              <h2 className="text-4xl font-bold mb-6 leading-tight">What it does today</h2>
+              <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.features.eyebrow)}</p>
+              <h2 className="text-4xl font-bold mb-6 leading-tight">{t(LANDING.features.title)}</h2>
             </div>
             {/* Five outcomes, not eleven mechanics.
                 This was a checklist of everything the renderer can do, one
@@ -899,56 +1077,32 @@ export default function Home() {
                 mechanics that produce it underneath, where they belong. Still
                 kept honest by hand: everything named works today. */}
             <ul className="space-y-6">
-              {[
-                {
-                  title: "A raw take becomes a post",
-                  detail:
-                    "Every silence and pause cut, framed for TikTok, Reels and Shorts (or YouTube, or square), and the levels fixed. From one sentence.",
-                },
-                {
-                  title: "The moments worth keeping, found for you",
-                  detail:
-                    "The strongest thirty seconds of a long take, or the whole thing cut into separate clips, each titled by what the speaker actually said. Open any of them and keep editing.",
-                },
-                {
-                  title: "Captions in your own words",
-                  detail:
-                    "Burned in from what you said, not from a template. In English or Arabic, laid out in the direction that language reads.",
-                },
-                {
-                  title: "It looks edited, not processed",
-                  detail:
-                    "Dissolves between the cuts, your own music ducking out of the way while you talk, and a grade: warm, cinematic, or matched to a clip whose colour you liked.",
-                },
-                {
-                  title: "It finishes without you",
-                  detail:
-                    "Close the tab and the render carries on. Your footage stays private to your account.",
-                },
-              ].map((feat, i) => (
-                <li
-                  key={feat.title}
-                  className="reveal flex items-start gap-4 group"
-                  style={{ transitionDelay: `${i * 80}ms` }}
-                >
-                  <div className="w-9 h-9 mt-0.5 flex-shrink-0 rounded-full bg-primary/15 flex items-center justify-center border border-primary/30 shadow-[0_0_8px_rgba(108,59,255,0.2)] group-hover:shadow-[0_0_16px_rgba(108,59,255,0.5)] group-hover:border-primary/60 transition-all duration-300">
-                    <CheckCircle2 className="w-4 h-4 text-secondary" />
-                  </div>
-                  <div>
-                    <span className="block text-lg font-semibold group-hover:text-foreground transition-colors">
-                      {feat.title}
-                    </span>
-                    <span className="block text-muted-foreground mt-1 leading-relaxed">{feat.detail}</span>
-                  </div>
-                </li>
-              ))}
+              {LANDING.features.list
+                .map((entry) => ({ title: t(entry.title), detail: t(entry.detail) }))
+                .map((feat, i) => (
+                  <li
+                    key={feat.title}
+                    className="reveal flex items-start gap-4 group"
+                    style={{ transitionDelay: `${i * 80}ms` }}
+                  >
+                    <div className="w-9 h-9 mt-0.5 flex-shrink-0 rounded-full bg-primary/15 flex items-center justify-center border border-primary/30 shadow-[0_0_8px_rgba(108,59,255,0.2)] group-hover:shadow-[0_0_16px_rgba(108,59,255,0.5)] group-hover:border-primary/60 transition-all duration-300">
+                      <CheckCircle2 className="w-4 h-4 text-secondary" />
+                    </div>
+                    <div>
+                      <span className="block text-lg font-semibold group-hover:text-foreground transition-colors">
+                        {feat.title}
+                      </span>
+                      <span className="block text-muted-foreground mt-1 leading-relaxed">{feat.detail}</span>
+                    </div>
+                  </li>
+                ))}
             </ul>
             <div className="mt-10 reveal">
               <Link
                 href="/dashboard"
                 className="group inline-flex items-center gap-2 min-h-[44px] text-primary hover:text-secondary font-semibold transition-colors"
               >
-                Try it yourself
+                {t(LANDING.features.tryIt)}
                 <Zap className="w-4 h-4 transition-transform group-hover:scale-125 group-hover:rotate-12" />
               </Link>
             </div>
@@ -979,25 +1133,28 @@ export default function Home() {
               <div className="grid grid-cols-2 gap-3 sm:gap-4">
                 {[
                   {
-                    label: "B-roll",
-                    hint: "cut in over the take",
+                    label: t(LANDING.features.grid[0].label),
+                    hint: t(LANDING.features.grid[0].hint),
                     art: (
                       <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
+                        <g transform={rtl ? MIRROR_CELL : undefined}>
                         <rect x="10" y="24" width="76" height="52" rx="6" className="fill-[var(--art-base)]" />
                         <rect x="10" y="24" width="76" height="52" rx="6" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
                         {/* The cutaway, lifted off the shot beneath it. */}
                         <rect x="46" y="44" width="64" height="46" rx="6" className="fill-[var(--art-accent-soft)]" />
                         <rect x="46" y="44" width="64" height="46" rx="6" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2" />
                         <path d="M62 60l18 9-18 9z" className="fill-[var(--art-accent)]" />
+                        </g>
                       </svg>
                     ),
                   },
                   {
-                    label: "Dead air",
-                    hint: "cut, not trimmed by hand",
+                    label: t(LANDING.features.grid[1].label),
+                    hint: t(LANDING.features.grid[1].hint),
                     accent: true,
                     art: (
                       <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
+                        <g transform={rtl ? MIRROR_CELL : undefined}>
                         {/* The waveform, with the flat stretches lifted out of
                             it — the one thing every take needs doing to it. */}
                         <g className="fill-[var(--art-accent)]">
@@ -1024,14 +1181,16 @@ export default function Home() {
                           strokeLinecap="round"
                         />
                         <path d="M76 96l-5-6h10z" className="fill-[var(--art-accent)]" />
+                        </g>
                       </svg>
                     ),
                   },
                   {
-                    label: "Captions",
-                    hint: "from what you said",
+                    label: t(LANDING.features.grid[2].label),
+                    hint: t(LANDING.features.grid[2].hint),
                     art: (
                       <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
+                        <g transform={rtl ? MIRROR_CELL : undefined}>
                         <rect x="14" y="18" width="92" height="84" rx="8" className="fill-[var(--art-base)]" />
                         <rect x="14" y="18" width="92" height="84" rx="8" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
                         {/* Filled, then half-filled, then waiting — the wipe. */}
@@ -1039,12 +1198,13 @@ export default function Home() {
                         <rect x="64" y="62" width="30" height="10" rx="5" className="fill-[var(--art-line)]" />
                         <rect x="64" y="62" width="13" height="10" rx="5" className="fill-[var(--art-accent)]" />
                         <rect x="26" y="78" width="46" height="10" rx="5" className="fill-[var(--art-line)]" />
+                        </g>
                       </svg>
                     ),
                   },
                   {
-                    label: "Transitions",
-                    hint: "dissolved, not dropped",
+                    label: t(LANDING.features.grid[3].label),
+                    hint: t(LANDING.features.grid[3].hint),
                     art: (
                       <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
                         <defs>
@@ -1057,9 +1217,11 @@ export default function Home() {
                             <stop offset="0.65" stopColor="var(--art-line)" stopOpacity="1" />
                           </linearGradient>
                         </defs>
+                        <g transform={rtl ? MIRROR_CELL : undefined}>
                         <rect x="8" y="34" width="70" height="52" rx="6" fill="url(#dissolve-a)" />
                         <rect x="42" y="34" width="70" height="52" rx="6" fill="url(#dissolve-b)" />
                         <rect x="8" y="34" width="104" height="52" rx="6" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
+                        </g>
                       </svg>
                     ),
                   },
@@ -1097,15 +1259,13 @@ export default function Home() {
         <div className="w-full max-w-7xl mx-auto px-6">
           <div className="max-w-2xl reveal">
             <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">
-              Podcasts and clipping
+              {t(LANDING.podcasts.eyebrow)}
             </p>
             <h2 className="text-4xl font-bold mb-4 leading-tight text-balance">
-              One recording on Tuesday. A week of posts by Wednesday.
+              {t(LANDING.podcasts.title)}
             </h2>
             <p className="text-muted-foreground text-lg leading-relaxed">
-              A two-hour conversation holds three or four moments worth posting, and finding them
-              is the work. Upload the take, say what you want, and each moment comes back as its
-              own vertical clip, captioned, levelled and titled by what was actually said in it.
+              {t(LANDING.podcasts.lead)}
             </p>
           </div>
 
@@ -1113,38 +1273,24 @@ export default function Home() {
               are three; a five-step diagram of a three-step process is a
               diagram somebody padded. */}
           <div className="grid md:grid-cols-3 gap-6 mt-12">
-            {[
-              {
-                step: "The whole take goes in",
-                detail:
-                  "Two hours, two people, one file. Up to four hours on Pro. Nothing has to be trimmed first, because trimming it first is the job.",
-              },
-              {
-                step: "The moments are found",
-                detail:
-                  "Read from what is said, not from the waveform. Fewer clips rather than padding to a number: a long take rarely holds more than three worth posting, and it comes back with three.",
-              },
-              {
-                step: "Each one is a finished post",
-                detail:
-                  "Cut vertical, captioned in the speaker's own words, levelled to what the platforms want, and named after the line it turns on. Open any of them and keep editing.",
-              },
-            ].map((item, i) => (
-              <div
-                key={item.step}
-                className="reveal rounded-2xl glass-panel border border-hairline p-6"
-                style={{ transitionDelay: `${i * 90}ms` }}
-              >
+            {LANDING.podcasts.steps
+              .map((entry) => ({ step: t(entry.step), detail: t(entry.detail) }))
+              .map((item, i) => (
+                <div
+                  key={item.step}
+                  className="reveal rounded-2xl glass-panel border border-hairline p-6"
+                  style={{ transitionDelay: `${i * 90}ms` }}
+                >
                 {/* Numbered because this genuinely is a sequence — the clips
                     cannot be found before the file arrives. Ordinals on a set
                     of unordered things are decoration. */}
-                <div className="text-xs font-mono text-secondary mb-3">
-                  {String(i + 1).padStart(2, "0")}
+                  <div className="text-xs font-mono text-secondary mb-3" dir="ltr">
+                    {String(i + 1).padStart(2, "0")}
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">{item.step}</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{item.detail}</p>
                 </div>
-                <h3 className="text-lg font-semibold mb-2">{item.step}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{item.detail}</p>
-              </div>
-            ))}
+              ))}
           </div>
 
           <div className="reveal mt-10 flex flex-col sm:flex-row sm:items-center gap-4">
@@ -1156,11 +1302,12 @@ export default function Home() {
               data-testid="link-podcast-cta"
               className="glow-btn btn-gradient-cta inline-flex items-center justify-center text-white h-12 px-7 rounded-full font-semibold whitespace-nowrap"
             >
-              Cut your first recording
+              {t(LANDING.podcasts.cta)}
             </Link>
             <p className="text-sm text-muted-foreground">
-              Two of the one-click looks do exactly this: <strong>Three clips</strong> and{" "}
-              <strong>Podcast clip</strong>. Both are on the free plan.
+              {t(LANDING.podcasts.noteLead)} <strong>{t(LANDING.podcasts.noteThreeClips)}</strong>{" "}
+              {t(LANDING.podcasts.noteAnd)} <strong>{t(LANDING.podcasts.notePodcastClip)}</strong>.{" "}
+              {t(LANDING.podcasts.noteTail)}
             </p>
           </div>
         </div>
@@ -1173,10 +1320,10 @@ export default function Home() {
               line is longer than they are, and at 5xl it wrapped with a single
               word stranded on the second line. */}
           <h2 className="text-3xl md:text-4xl font-bold mb-4 glow-text max-w-3xl mx-auto text-balance">
-            Priced by the minutes you publish, not the hours you record
+            {t(LANDING.pricing.title)}
           </h2>
           <p className="text-muted-foreground text-lg max-w-xl mx-auto">
-            Every plan does the same editing. Upload as much footage as you like.
+            {t(LANDING.pricing.lead)}
           </p>
         </div>
 
@@ -1191,7 +1338,7 @@ export default function Home() {
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Monthly
+              {t(LANDING.pricing.monthly)}
             </button>
             <button
               onClick={() => setIsYearly(true)}
@@ -1201,7 +1348,7 @@ export default function Home() {
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Yearly
+              {t(LANDING.pricing.yearly)}
               {/* The one thing on this page that is not the brand colour.
                   A saving has to jump off a section whose every other accent is
                   violet, and a second violet does not jump. `--deal` is 80
@@ -1211,7 +1358,7 @@ export default function Home() {
                 className="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all duration-300 text-deal"
                 style={{ backgroundColor: "var(--deal-soft)", borderColor: "var(--deal-edge)" }}
               >
-                Save 20%
+                {t(LANDING.pricing.save)}
               </span>
             </button>
           </div>
@@ -1227,18 +1374,34 @@ export default function Home() {
           data-testid="free-tier"
         >
           <div className="flex-shrink-0">
-            <div className="text-sm font-semibold text-primary">{FREE_TIER.headline}</div>
+            {/*
+              The four pricing sentences whose English half is not in the copy
+              file. It lives in `lib/pricing.ts`, which `tools/pricing-test.mjs`
+              reads beside the plan limits the server enforces, and a second
+              English copy here would be a page promising minutes nothing checks.
+              So the pair is built at the point of use: Arabic from the copy,
+              English from the module that is kept honest.
+            */}
+            <div className="text-sm font-semibold text-primary">
+              {t(phrase(PRICING_AR.free.headline, FREE_TIER.headline))}
+            </div>
             <div className="text-3xl font-bold mt-1">
-              $0<span className="text-base font-medium text-muted-foreground">/month</span>
+              {/* The price is a number and a currency sign, which are read left
+                  to right in Arabic too. The unit beside it is a word, and it
+                  translates. */}
+              <span dir="ltr">$0</span>
+              <span className="text-base font-medium text-muted-foreground">{t(LANDING.pricing.perMonth)}</span>
             </div>
           </div>
           <ul className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
-            {FREE_TIER.lines.map((line) => (
-              <li key={line} className="text-sm text-muted-foreground flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary/70" />
-                <span>{line}</span>
-              </li>
-            ))}
+            {FREE_TIER.lines
+              .map((line, i) => t(phrase(PRICING_AR.free.lines[i] ?? line, line)))
+              .map((line) => (
+                <li key={line} className="text-sm text-muted-foreground flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary/70" />
+                  <span>{line}</span>
+                </li>
+              ))}
           </ul>
         </div>
 
@@ -1266,9 +1429,9 @@ export default function Home() {
                   <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary to-transparent" />
                 )}
                 {isPro && (
-                  <div className="absolute top-4 right-4">
+                  <div className="absolute top-4 end-4">
                     <span className="text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full bg-primary/20 text-primary border border-primary/30">
-                      Most Popular
+                      {t(LANDING.pricing.mostPopular)}
                     </span>
                   </div>
                 )}
@@ -1290,7 +1453,7 @@ export default function Home() {
                             sibling of it: the row's `gap-1` was putting four
                             pixels between "$" and "115", which reads as two
                             things rather than a price. */}
-                        <span className="flex items-baseline text-4xl font-bold">
+                        <span className="flex items-baseline text-4xl font-bold" dir="ltr">
                           $
                           <RollingNumber
                             value={String(isYearly ? plan.yearlyPrice : plan.price)}
@@ -1298,11 +1461,11 @@ export default function Home() {
                           />
                         </span>
                         <span className="text-muted-foreground text-sm">
-                          /{isYearly ? "year" : "month"}
+                          {isYearly ? t(LANDING.pricing.perYear) : t(LANDING.pricing.perMonth)}
                         </span>
                       </div>
                       <p className={`text-xs text-muted-foreground mt-1.5 transition-all duration-300 ${isYearly ? "opacity-100" : "opacity-0 h-0 mt-0 overflow-hidden"}`}>
-                        {plan.yearlyPerMonth}
+                        {t(phrase(PRICING_AR.plans[plan.key].yearlyPerMonth, plan.yearlyPerMonth))}
                       </p>
                     </div>
                   </div>
@@ -1310,16 +1473,16 @@ export default function Home() {
                   <div className="mb-6 space-y-2">
                     <div className="flex items-center gap-2 text-sm font-semibold">
                       <span className="text-2xl">{plan.minutes}</span>
-                      <span className="text-muted-foreground">minutes of finished video</span>
+                      <span className="text-muted-foreground">{t(LANDING.pricing.minutesLabel)}</span>
                     </div>
-                    <div className="text-sm text-muted-foreground">{plan.upload}</div>
-                    <div className="text-xs text-muted-foreground/70 mt-1">{plan.forWho}</div>
+                    <div className="text-sm text-muted-foreground">{t(phrase(PRICING_AR.plans[plan.key].upload, plan.upload))}</div>
+                    <div className="text-xs text-muted-foreground/70 mt-1">{t(phrase(PRICING_AR.plans[plan.key].forWho, plan.forWho))}</div>
                   </div>
 
                   <div className="h-px bg-surface-1 mb-6" />
 
                   <ul className="space-y-3 flex-1 mb-8">
-                    {SHARED_FEATURES.map((feat) => (
+                    {SHARED_FEATURES.map((feat, i) => t(phrase(PRICING_AR.shared[i] ?? feat, feat))).map((feat) => (
                       <li key={feat} className="flex items-center gap-3 text-sm">
                         <div className="w-5 h-5 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center flex-shrink-0">
                           <CheckCircle2 className="w-3 h-3 text-primary" />
@@ -1332,7 +1495,7 @@ export default function Home() {
                   {isCurrent ? (
                     <div className="flex items-center justify-center gap-2 rounded-full py-3 px-6 bg-primary/10 border border-primary/30 text-primary font-semibold text-sm">
                       <Check className="w-4 h-4" />
-                      Current Plan
+                      {t(LANDING.pricing.currentPlan)}
                     </div>
                   ) : (
                     <button
@@ -1346,14 +1509,14 @@ export default function Home() {
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
                       {!planKnown
-                        ? "Checking your plan…"
+                        ? t(LANDING.pricing.checkingPlan)
                         : checkoutFor === plan.key
-                        ? "Opening checkout…"
+                        ? t(LANDING.pricing.openingCheckout)
                         : isDowngrade
                         ? updateSubscription.isPending
-                          ? "Switching…"
-                          : `Switch to ${plan.name}`
-                        : `Get ${plan.name}`}
+                          ? t(LANDING.pricing.switching)
+                          : `${t(LANDING.pricing.switchTo)} ${plan.name}`
+                        : `${t(LANDING.pricing.get)} ${plan.name}`}
                     </button>
                   )}
                 </div>
@@ -1371,7 +1534,7 @@ export default function Home() {
           </p>
         )}
         <p className="text-center text-xs text-muted-foreground mt-8 opacity-60">
-          No credit card required · Cancel anytime · All plans include a 7-day free trial
+          {t(LANDING.pricing.footnote)}
         </p>
       </section>
 
@@ -1392,18 +1555,20 @@ export default function Home() {
         />
 
         <div className="relative z-10 flex flex-col items-center reveal">
-          <h2 className="text-4xl md:text-5xl font-bold mb-4 glow-text">Turn your next video into your best one.</h2>
+          <h2 className="text-4xl md:text-5xl font-bold mb-4 glow-text">{t(LANDING.closing.title)}</h2>
           <p className="text-muted-foreground text-lg mb-10 max-w-lg">
-The tedious part is the part a machine should do.<br />Upload one take and see how much shorter it gets.
+            {t(LANDING.closing.leadFirst)}
+            <br />
+            {t(LANDING.closing.leadSecond)}
           </p>
           <Link
             href="/dashboard"
             className="glow-btn btn-gradient-cta animate-glow-pulse text-white h-16 px-12 rounded-full font-bold text-xl flex items-center gap-3"
           >
-            Start Editing Free
+            {t(LANDING.closing.cta)}
             <Zap className="w-5 h-5" />
           </Link>
-          <p className="text-xs text-muted-foreground mt-5 opacity-60">No credit card required · Cancel anytime</p>
+          <p className="text-xs text-muted-foreground mt-5 opacity-60">{t(LANDING.closing.note)}</p>
         </div>
       </section>
 
@@ -1462,7 +1627,7 @@ The tedious part is the part a machine should do.<br />Upload one take and see h
                 paying the filter pipeline to soften an edge that does not
                 exist. The stops carry the falloff instead. */}
             <div
-              className="absolute left-1/4 -top-24 w-1/2 h-40 pointer-events-none opacity-70"
+              className="absolute start-1/4 -top-24 w-1/2 h-40 pointer-events-none opacity-70"
               style={{
                 background:
                   "radial-gradient(ellipse at center, var(--wordmark-bloom) 0%, var(--wordmark-bloom) 18%, transparent 78%)",
@@ -1472,24 +1637,24 @@ The tedious part is the part a machine should do.<br />Upload one take and see h
 
           <div className="mt-10 grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-8 text-sm">
             <div>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">Product</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">{t(LANDING.footer.product)}</p>
               <ul className="flex flex-col">
-                <li><a href="/#how-it-works" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">How it works</a></li>
-                <li><a href="/#features" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Features</a></li>
-                <li><a href="/#podcasts" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Podcasts and clipping</a></li>
-                <li><a href="/#pricing" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Pricing</a></li>
+                <li><a href="/#how-it-works" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.howItWorks)}</a></li>
+                <li><a href="/#features" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.features)}</a></li>
+                <li><a href="/#podcasts" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.podcasts)}</a></li>
+                <li><a href="/#pricing" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.pricing)}</a></li>
               </ul>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">Account</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">{t(LANDING.footer.account)}</p>
               <ul className="flex flex-col">
-                <li><Link href="/login" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Log in</Link></li>
-                <li><Link href="/login?mode=signup" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Create an account</Link></li>
-                <li><Link href="/dashboard" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">Your projects</Link></li>
+                <li><Link href="/login" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.logIn)}</Link></li>
+                <li><Link href="/login?mode=signup" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.createAccount)}</Link></li>
+                <li><Link href="/dashboard" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.yourProjects)}</Link></li>
               </ul>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">Earn</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">{t(LANDING.footer.earn)}</p>
               <ul className="flex flex-col">
                 <li>
                   <a
@@ -1499,13 +1664,13 @@ The tedious part is the part a machine should do.<br />Upload one take and see h
                     className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
                     data-testid="link-become-affiliate"
                   >
-                    Become an affiliate
+                    {t(LANDING.footer.affiliate)}
                   </a>
                 </li>
                 {/* The number is the offer. Under the link rather than inside
                     it, so the link stays a link and the terms stay readable. */}
                 <li className="text-xs text-muted-foreground/70 leading-relaxed max-w-[16rem] pt-1">
-                  25% of every payment, for a year.
+                  {t(LANDING.footer.affiliateTerms)}
                 </li>
               </ul>
             </div>
@@ -1517,12 +1682,12 @@ The tedious part is the part a machine should do.<br />Upload one take and see h
               of their own: they are not a feature, and putting them beside the
               product links would suggest they are. */}
           <div className="mt-10 pt-6 border-t border-hairline-faint flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground/70">
-            <span>© {new Date().getFullYear()} Editly</span>
+            <span dir="ltr">© {new Date().getFullYear()} Editly</span>
             <span className="flex items-center gap-4">
-              <Link href="/privacy" className="min-h-11 inline-flex items-center hover:text-foreground transition-colors">Privacy</Link>
-              <Link href="/terms" className="min-h-11 inline-flex items-center hover:text-foreground transition-colors">Terms</Link>
+              <Link href="/privacy" className="min-h-11 inline-flex items-center hover:text-foreground transition-colors">{t(LANDING.footer.privacy)}</Link>
+              <Link href="/terms" className="min-h-11 inline-flex items-center hover:text-foreground transition-colors">{t(LANDING.footer.terms)}</Link>
             </span>
-            <span>Stop editing. Start describing.</span>
+            <span>{t(LANDING.footer.tagline)}</span>
           </div>
         </div>
       </footer>

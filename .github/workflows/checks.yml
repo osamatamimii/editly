@@ -258,6 +258,11 @@ jobs:
       # a budget and fails on a filter, a blur radius or a hidden <video> that
       # the compositor pays for and nobody sees.
       - run: node tools/speed-test.mjs
+      # Also the built `dist/`, and the last of the three that reads it: the
+      # landing page rendered in both languages and both directions, because a
+      # layout that is right in one and broken in the other is invisible to
+      # everyone on the team who only reads it in the direction they use.
+      - run: node tools/landing-test.mjs
       - run: node tools/worker-test.mjs
       - run: node tools/sfx-test.mjs
       # Last, because it is the whole product and the slowest thing here: a

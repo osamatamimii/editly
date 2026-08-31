@@ -1553,7 +1553,13 @@ section("The pricing page says nothing about your plan until it has been told");
   );
   check(
     "and they say what they are waiting for rather than offering a plan",
-    /Checking your plan/.test(home),
+    // The sentence itself moved to `lib/landing-copy.ts` when the page learned
+    // to say it in two languages. Both halves are checked: the button has to
+    // reach for the line, and the line has to exist to be reached.
+    /LANDING\.pricing\.checkingPlan/.test(home) &&
+      /checkingPlan: p\("[^"]+", "Checking your plan/.test(
+        readFileSync(path.join(repoRoot, "artifacts/editly/src/lib/landing-copy.ts"), "utf8"),
+      ),
   );
   check(
     "the handler refuses to act on a plan it has not read, even if a click gets through",
@@ -1566,10 +1572,16 @@ section("The landing page's feature list keeps up with what is actually built");
   // "What it does today" is kept honest by hand — everything on it works, and
   // what is not built stays off it. That honesty cuts both ways: a feature
   // that shipped and never made the list is the page understating the product.
+  //
+  // The sentences moved to `lib/landing-copy.ts` when the page learned to speak
+  // Arabic, and the claims are read from there now. The page itself is still
+  // read for the *drawings*, which live in the JSX because they are markup
+  // rather than words.
+  const copy = readFileSync(path.join(repoRoot, "artifacts/editly/src/lib/landing-copy.ts"), "utf8");
   const home = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/home.tsx"), "utf8");
   check(
     "clips are on the list now that they exist",
-    /cut into separate clips/i.test(home),
+    /cut into separate clips/i.test(copy),
     "the clips feature shipped but the landing page does not mention it",
   );
   // The claim, not the sentence. Pinning the exact prose makes this a check on
@@ -1578,33 +1590,36 @@ section("The landing page's feature list keeps up with what is actually built");
   // the test to match the page — the opposite of what it is for.
   check(
     "and the line sells the titles, which is what makes them worth having",
-    /titled by (its speaker's own words|what the speaker actually said)/i.test(home),
+    /titled by (its speaker's own words|what the speaker actually said)/i.test(copy),
     "the clips line must say the titles come from the speaker, not from a template",
   );
-  // This used to read `{ label: "Transitions", dimmed: false }` — the literal
-  // shape of a row in the old array. That pinned the check to a data structure
-  // rather than to the claim, so redrawing the grid broke it while the page was
-  // saying exactly the right thing. The claim is what matters: transitions ship,
-  // so the cell for them must be present and must not be sold as future work.
+  // The same claim in the other language, because the Arabic page is the one
+  // most visitors now see: a feature that exists in one column of the copy file
+  // and not the other is a page that is honest in English only.
+  check(
+    "and the Arabic says it too",
+    /قصاصات منفصلة/.test(copy) && /معنونة بما قاله المتحدّث/.test(copy),
+    "the clips line is English-only in the copy file",
+  );
   check(
     "the transitions cell is on the grid, because the fade ships",
-    /label: "Transitions"/.test(home),
+    /label: p\("[^"]+", "Transitions"\)/.test(copy),
     "the fade shipped but the grid does not show a transitions cell at all",
   );
   check(
     "and nothing on the grid is marked as not built yet",
     !/(dimmed: true|coming soon|not yet|soon\b)/i.test(
-      home.slice(home.indexOf('label: "B-roll"'), home.indexOf('label: "Transitions"') + 400),
+      copy.slice(copy.indexOf("grid: ["), copy.indexOf("grid: [") + 900),
     ),
     "a cell in the feature grid is presented as future work",
   );
   // Every cell is drawn, not written. A grid of words on a page selling a video
   // tool was the emptiest thing on it; each cell carries its own artwork now,
   // and a cell that loses it falls back to being a label again silently.
-  const gridCells = home.slice(home.indexOf('label: "B-roll"'), home.indexOf("].map((cell"));
+  const gridCells = home.slice(home.indexOf("LANDING.features.grid[0].label"), home.indexOf("].map((cell"));
   check(
     "every cell in the grid draws the thing it names",
-    (gridCells.match(/art: \(/g) ?? []).length === (gridCells.match(/label: "/g) ?? []).length,
+    (gridCells.match(/art: \(/g) ?? []).length === (gridCells.match(/LANDING\.features\.grid\[\d\]\.label/g) ?? []).length,
     "a feature-grid cell has a label but no artwork",
   );
 }

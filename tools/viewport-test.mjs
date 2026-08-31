@@ -592,7 +592,19 @@ const EMPTY_TILES = (cardSelector, frameSelector) => {
 };
 
 const PAGES = [
-  { url: "/", name: "the landing page", signedIn: false, expect: /Stop editing/ },
+  /*
+    The landing page twice, because it now has two of them.
+
+    Arabic is what it opens in, so that is the one measured first and the one
+    the tap targets and the overflow rules are really about. The English row is
+    not a duplicate: right-to-left and left-to-right are different layouts of
+    the same markup, and every bug this suite exists to catch — a control
+    collapsed to nothing, a row wider than the screen — can exist in one and
+    not the other. `?lang=` is how the page is asked for a language, so this is
+    also the mechanism a shared link uses.
+  */
+  { url: "/", name: "the landing page in Arabic", signedIn: false, expect: /توقّف عن المونتاج/ },
+  { url: "/?lang=en", name: "the landing page in English", signedIn: false, expect: /Stop editing/ },
   { url: "/login", name: "signing in", signedIn: false, expect: /Welcome back|Sign in/ },
   {
     url: "/dashboard",
