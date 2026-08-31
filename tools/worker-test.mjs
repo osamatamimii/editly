@@ -113,6 +113,18 @@ const storage = {
    * storage back on between two attempts is a test that races.
    */
   failDownloads: 0,
+  /**
+   * Serve this many downloads truncated: the real Content-Length, two thirds
+   * of the bytes, and a clean end to the connection.
+   *
+   * This is not a network error and it is not a 500. It is what a proxy or a
+   * storage node does when it drops a transfer mid-body, and every layer below
+   * reads it as success: `pipeline` sees an ordinary end-of-stream, the file
+   * lands on disk, and ffmpeg decodes it happily because MP4 plays whatever
+   * is present. The render then finishes, is billed, and is an edit of two
+   * thirds of somebody's recording, with no error anywhere in the sequence.
+   */
+  truncateDownloads: 0,
 };
 
 const server = http.createServer(async (req, res) => {
@@ -130,7 +142,15 @@ const server = http.createServer(async (req, res) => {
       return res.writeHead(503).end("storage is having a moment");
     }
     if (!existsSync(file)) return res.writeHead(404).end("no such object");
-    return res.writeHead(200, { "content-type": "video/mp4" }).end(readFileSync(file));
+    const bytes = readFileSync(file);
+    if (storage.truncateDownloads > 0) {
+      storage.truncateDownloads -= 1;
+      // The header promises the whole file; the body is two thirds of it and
+      // then a clean close. Nothing about this looks like a failure.
+      res.writeHead(200, { "content-type": "video/mp4", "content-length": String(bytes.length) });
+      return res.end(bytes.subarray(0, Math.floor(bytes.length * 0.66)));
+    }
+    return res.writeHead(200, { "content-type": "video/mp4" }).end(bytes);
   }
   if (req.method === "POST") {
     const chunks = [];
@@ -935,6 +955,74 @@ section("A render that failed on infrastructure is tried again");
     said.rows.length === 1 && !/couldn't finish/.test(said.rows[0].content),
     JSON.stringify(said.rows.map((r) => r.content.slice(0, 60))),
   );
+}
+
+// ─── A download that ended early ─────────────────────────────────────────────
+
+section("Two thirds of a video is not a video");
+{
+  /*
+    Measured before this was written, and the measurement changed what it is
+    for. The guess was that a body which ends early is invisible all the way
+    down — stream ends, file is written, ffmpeg decodes what is there, render
+    finishes, customer is billed for two thirds of their recording. It is not:
+    undici raises "terminated" when a connection closes before Content-Length
+    is satisfied, so the *refusal* below is the transport's, not ours. The
+    check stays anyway, because it is a real property and one that could stop
+    being true quietly.
+
+    What was ours to fix is the sentence. "Rendering failed. We are looking
+    into it." is right for a filter graph that blew up and wrong for this: it
+    sends somebody to support for a thing that would work on the next try, and
+    it costs us the reply we have to write. So the download counts bytes
+    against the header and names what happened either way — the branch the
+    transport notices first, and the branch nothing notices at all, which is a
+    body that ends *cleanly* short of what the header promised.
+
+    Two truncations, not one: the job may retry, and a retry that succeeds
+    would hide the whole thing.
+  */
+  storage.truncateDownloads = 2;
+  const projectId = await queue("cut-short", {
+    over: { max_attempts: 2 },
+    plan: { version: 1, operations: [{ type: "normalizeLoudness", targetLufs: -14 }] },
+  });
+  putObject(`${ALICE}/${projectId}/source.mp4`, source);
+
+  const row = await settle("cut-short");
+  check(
+    "a render is refused rather than made from a partial file (the transport's doing, pinned here)",
+    row?.status === "failed",
+    `${row?.status}: ${row?.error}`,
+  );
+  check(
+    "and nothing is billed for it",
+    row?.output_seconds === null || Number(row?.output_seconds ?? 0) === 0,
+    String(row?.output_seconds),
+  );
+  check(
+    "the reason says the video arrived short, not that rendering failed",
+    // "Rendering failed. We are looking into it." is the right sentence for a
+    // filter graph that blew up and the wrong one here: this is worth trying
+    // again in the next minute, and only we can tell them that.
+    /arrived incomplete/.test(String(row?.error ?? "")),
+    String(row?.error),
+  );
+  check(
+    "and it is a size somebody can read, not a byte count",
+    /MB|KB/.test(String(row?.error ?? "")),
+    String(row?.error),
+  );
+  const said = await pool.query(
+    "SELECT content FROM messages WHERE user_id = $1 AND project_id = $2 AND role = 'assistant'",
+    [ALICE, projectId],
+  );
+  check(
+    "and the conversation carries it too, because that is where they asked",
+    said.rows.length === 1 && /arrived incomplete/.test(said.rows[0].content),
+    JSON.stringify(said.rows.map((r) => r.content.slice(0, 90))),
+  );
+  storage.truncateDownloads = 0;
 }
 
 // ─── Stopping ────────────────────────────────────────────────────────────────

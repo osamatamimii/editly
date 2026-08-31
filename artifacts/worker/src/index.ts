@@ -17,7 +17,7 @@ import { sql, eq, and } from "drizzle-orm";
 import pino from "pino";
 import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
 import { EditPlan, type EditOperation } from "@workspace/api-zod";
-import { downloadObject, uploadObject } from "./storage";
+import { downloadObject, uploadObject, StorageTransferError } from "./storage";
 import { renderPlan, probeDuration, probeSource, grabPosterFrame, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
 import { reviewOutput } from "./review";
@@ -577,8 +577,17 @@ async function processJob(job: Job): Promise<void> {
   } catch (error) {
     // ffmpeg's complaints are specific enough to be worth showing; anything
     // else is infrastructure and the user can do nothing with the detail.
+    //
+    // A transfer that did not complete is the third kind, and it was being
+    // filed under the second. "Rendering failed. We are looking into it." is
+    // the right sentence for a filter graph that blew up and the wrong one for
+    // a video that arrived two thirds of the way: the first is ours to fix and
+    // the second is worth trying again in the next minute, and the person can
+    // only tell those apart if we say which happened.
     const message =
-      error instanceof PlanEmptiedError || error instanceof SourceTooLongError
+      error instanceof PlanEmptiedError ||
+      error instanceof SourceTooLongError ||
+      error instanceof StorageTransferError
         ? error.message.slice(0, 300)
         : error instanceof FfmpegError
           ? error.message.split("\n")[0].slice(0, 300)
