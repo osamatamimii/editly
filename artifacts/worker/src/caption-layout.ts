@@ -282,6 +282,38 @@ function fallbackAdvance(codePoint: number): number {
   return 1.05;
 }
 
+/**
+ * Break a line into the lines it will actually occupy.
+ *
+ * One greedy pass, and it lives here rather than in the wrapper because two
+ * different steps need the answer and they must not compute it differently.
+ * `wrapToLayout` breaks a cue onto lines with it; `buildCaptionCues` decides
+ * how many words a cue may hold by asking how many lines they would take.
+ *
+ * That used to be a character budget — lineLength × lines — which sounds
+ * equivalent and is not, because greedy line-filling leaves room at the end of
+ * every line. A cue whose text measures exactly three lines' worth of width
+ * lands on four, the fourth is over the limit, and it is truncated with an
+ * ellipsis. The words are simply gone, and nothing anywhere says two estimates
+ * disagreed about the same sentence.
+ */
+export function linesFor(text: string, widthInCapsAllowed: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && widthInCaps(candidate) > widthInCapsAllowed) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 /** How wide this string draws, in cap heights. */
 export function widthInCaps(text: string): number {
   let total = 0;

@@ -222,6 +222,12 @@ export async function enrichPlan(
       const cues = buildCaptionCues(transcript, {
         dropFillers: operation.dropFillers,
         maxCharsPerLine: layout.maxCharsPerLine,
+        // The same width, in the same unit, that `wrapToLayout` breaks on.
+        // The character count above is kept as the fallback for a caller with
+        // no layout; when both are present the measurement wins, so grouping
+        // and wrapping cannot disagree about the same sentence and truncate a
+        // caption between them.
+        lineWidthInCaps: layout.usableWidth / layout.capHeight,
         maxLines: layout.maxLines,
       });
       if (cues.length === 0) {
@@ -239,8 +245,18 @@ export async function enrichPlan(
           words: cue.words,
         })),
         style: operation.style,
-        // Karaoke without word timings is a lie about the rhythm; the schema
-        // allows it, so refuse it here rather than letting it render wrong.
+        /*
+          The animation is passed through, karaoke included.
+
+          The comment that used to sit here said this line refused karaoke when
+          there were no word timings, and it did not — it has always passed the
+          animation straight down. The refusal is real but it lives one layer
+          on, in `animateCue`, which takes the karaoke branch only for a cue
+          that actually carries words and falls back to a plain fade for one
+          that does not. Right behaviour, wrong address: a comment describing a
+          guard that is not on the line under it is worse than no comment,
+          because the next person reads it instead of the code.
+        */
         animation: operation.animation,
       });
       continue;

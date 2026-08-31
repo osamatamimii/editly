@@ -22,6 +22,7 @@ import {
   captionLayout,
   nominalSizeFor,
   widthInCaps,
+  linesFor,
   CAPTION_FACES,
   type CaptionFaceName,
   type CaptionLayout,
@@ -342,6 +343,27 @@ const RTL_STYLE = "CapRtl";
  * TikTok's bottom furniture, so the last line of every caption was drawn under
  * the username. Size and margins now come from caption-layout.ts.
  */
+/**
+ * The old character-count wrap, kept for a caller that hands in a partial
+ * layout — a shape a couple of tests use and nothing in the product does.
+ */
+function countedLines(text: string, maxCharsPerLine: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && candidate.length > maxCharsPerLine) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 function captionStyleRow(
   name: string,
   face: CaptionFaceName,
@@ -511,33 +533,24 @@ export function wrapToLayout(cues: CaptionCue[], layout: CaptionLayout): Caption
   const allowed = Number.isFinite(measured) && measured > 0 ? measured : null;
 
   return cues.map((cue) => {
-    const words = cue.text.split(/\s+/).filter(Boolean);
-    const lines: string[] = [];
-    let line = "";
+    /*
+      Measured, not counted, and by the same function the cue grouper uses.
 
-    for (const word of words) {
-      const candidate = line ? `${line} ${word}` : word;
-      // Measured, not counted.
-      //
-      // This was `candidate.length > layout.maxCharsPerLine`, and a character
-      // count is a fine estimate for ordinary prose and a bad one for
-      // anything else: `W` is three and a half times the width of `i`, so A
-      // LINE OF SHOUTING planned at eighteen characters drew past both
-      // margins. Nothing reported it, because libass silently rewrapped the
-      // overflow — and that rescue was itself putting extra lines on every
-      // caption. Both halves are fixed together or neither is.
-      const tooWide =
-        allowed === null
-          ? candidate.length > layout.maxCharsPerLine
-          : widthInCaps(candidate) > allowed;
-      if (tooWide && line) {
-        lines.push(line);
-        line = word;
-      } else {
-        line = candidate;
-      }
-    }
-    if (line) lines.push(line);
+      This counted characters against one average, and a character count is a
+      fine estimate for ordinary prose and a bad one for anything else: `W` is
+      three and a half times the width of `i`, so A LINE OF SHOUTING planned at
+      eighteen characters drew past both margins. Nothing reported it, because
+      libass silently rewrapped the overflow — and that rescue was itself
+      putting an extra line on every caption in the product. Both halves are
+      fixed together or neither is.
+
+      A caller with no usable layout falls back to the character count, because
+      the alternative is a NaN budget that never breaks a line at all.
+    */
+    const lines =
+      allowed === null
+        ? countedLines(cue.text, layout.maxCharsPerLine)
+        : linesFor(cue.text, allowed);
 
     // Beyond the allowed number of lines the caption would climb over the
     // speaker's face. Ending on an ellipsis is honest; silently spilling is not.

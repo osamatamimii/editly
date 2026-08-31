@@ -22,6 +22,7 @@
  * silence after it, never backward over speech that has not happened yet.
  */
 import type { Transcript, TranscriptWord } from "./providers/types";
+import { linesFor } from "./caption-layout";
 
 export interface CaptionCue {
   startMs: number;
@@ -33,6 +34,20 @@ export interface CaptionCue {
 export interface CaptionOptions {
   /** Characters per line before we wrap. Vertical video wants this small. */
   maxCharsPerLine?: number;
+  /**
+   * How wide a line may draw, in cap heights — the same unit and the same
+   * measurement `wrapToLayout` breaks lines on.
+   *
+   * Grouping and wrapping have to agree, and a character count and a width
+   * measurement do not. Left to the count, a group of eight capitals reads as
+   * comfortably inside two lines and then draws four, and the fourth is thrown
+   * away with an ellipsis — a caption cut short by two estimates disagreeing
+   * about the same sentence, with nothing anywhere to say so.
+   *
+   * Optional so a caller with no layout still gets the old behaviour rather
+   * than a NaN budget that groups an entire segment into one cue.
+   */
+  lineWidthInCaps?: number;
   /** Lines a single cue may occupy. */
   maxLines?: number;
   /** Longest a single cue may stay up, however few characters it has. */
@@ -56,7 +71,7 @@ const DEFAULTS = {
   breakOnPauseMs: 500,
   dropFillers: true,
   minConfidence: 0.4,
-} satisfies Required<CaptionOptions>;
+} satisfies Required<Omit<CaptionOptions, "lineWidthInCaps">>;
 
 /** Below this a cue is a flash, not a caption. */
 const MIN_CUE_MS = 700;
@@ -67,6 +82,26 @@ const CHARS_PER_SECOND = 20;
 export function buildCaptionCues(transcript: Transcript, options: CaptionOptions = {}): CaptionCue[] {
   const config = { ...DEFAULTS, ...options };
   const maxChars = config.maxCharsPerLine * config.maxLines;
+  const budget =
+    typeof options.lineWidthInCaps === "number" && options.lineWidthInCaps > 0
+      ? options.lineWidthInCaps
+      : null;
+  /*
+    Does this group still fit?
+
+    Answered by *doing the wrap* rather than by comparing a total width to a
+    budget, because those are not the same question. Greedy line-filling leaves
+    room at the end of every line, so a cue whose text measures exactly three
+    lines' worth of width lands on four — and the fourth is over the limit and
+    is truncated with an ellipsis. Words thrown away by two steps disagreeing
+    about the same sentence, with nothing anywhere to say so.
+
+    Same function as `wrapToLayout` calls, so they cannot disagree.
+  */
+  const overruns = (words: TranscriptWord[]): boolean =>
+    budget === null
+      ? charsOf(words) > maxChars
+      : linesFor(words.map((w) => w.text).join(" "), budget).length > config.maxLines;
   const cues: CaptionCue[] = [];
 
   for (const segment of transcript.segments) {
@@ -88,7 +123,7 @@ export function buildCaptionCues(transcript: Transcript, options: CaptionOptions
       }
 
       const previous = group[group.length - 1];
-      const wouldOverrun = charsOf([...group, word]) > maxChars;
+      const wouldOverrun = overruns([...group, word]);
       const pauseBefore = previous ? word.startMs - previous.endMs : 0;
       const wouldRunLong = group.length > 0 && word.endMs - group[0].startMs > config.maxCueMs;
 
@@ -101,7 +136,10 @@ export function buildCaptionCues(transcript: Transcript, options: CaptionOptions
   return holdLongEnough(cues);
 }
 
-function toCue(words: TranscriptWord[], config: Required<CaptionOptions>): CaptionCue | null {
+function toCue(
+  words: TranscriptWord[],
+  config: Required<Omit<CaptionOptions, "lineWidthInCaps">>,
+): CaptionCue | null {
   const kept = words.filter((w) => w.text.trim().length > 0);
   if (kept.length === 0) return null;
 

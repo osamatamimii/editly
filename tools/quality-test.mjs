@@ -225,6 +225,69 @@ console.log("\nCaptions land where the platform will not cover them");
   );
 }
 
+/*
+  The two estimates that decide a caption's shape have to be the same estimate.
+
+  Grouping words into cues and wrapping a cue onto lines are separate steps
+  with separate code, and each needs to answer "does this fit". If they answer
+  differently the caption is cut short: the grouper packs a cue it believes is
+  two lines, the wrapper draws three, the third is over the line limit, and it
+  is truncated with an ellipsis. Nothing fails. The words are simply gone, and
+  the only place the disagreement is visible is on the frame.
+
+  It is capitals that pull them apart, because a character count cannot see
+  that `W` is three and a half times the width of `i`.
+*/
+console.log("\nGrouping words and wrapping them agree about what fits");
+{
+  const layout = captionLayout({ width: 1080, height: 1920 }, "tiktok");
+  const lineWidthInCaps = layout.usableWidth / layout.capHeight;
+
+  const speak = (line) => {
+    let at = 0;
+    return {
+      segments: [{
+        startMs: 0,
+        endMs: line.split(" ").length * 320,
+        text: line,
+        words: line.split(" ").map((text) => {
+          const startMs = at;
+          at += 320;
+          return { text, startMs, endMs: at - 20, confidence: 0.95, filler: false };
+        }),
+      }],
+      language: "en",
+      source: "fixture",
+    };
+  };
+
+  for (const [name, line] of [
+    ["ordinary speech", "nobody tells you this but it completely changes how you edit every single video you make"],
+    ["shouting", "WHAT NOBODY EVER TELLS YOU ABOUT MAKING VIDEOS THAT PEOPLE ACTUALLY WATCH ALL THE WAY"],
+    ["Arabic", "لا أحد يخبرك بهذا لكنه يغير كل شيء عن الطريقة التي تحرر بها كل فيديو تصنعه"],
+  ]) {
+    const cues = captionsMod.buildCaptionCues(speak(line), {
+      dropFillers: true,
+      maxCharsPerLine: layout.maxCharsPerLine,
+      lineWidthInCaps,
+      maxLines: layout.maxLines,
+    });
+    const wrapped = wrapToLayout(cues, layout);
+    check(
+      `${name}: no cue is truncated between the grouping and the wrap`,
+      wrapped.every((c) => !c.text.includes("\u2026")),
+      // An ellipsis here is words thrown away by two estimates disagreeing,
+      // not by a caption that was genuinely too long to show.
+      JSON.stringify(wrapped.map((c) => c.text)),
+    );
+    check(
+      `${name}: and none uses more lines than the frame allows`,
+      wrapped.every((c) => c.text.split("\n").length <= layout.maxLines),
+      JSON.stringify(wrapped.map((c) => c.text.split("\n").length)),
+    );
+  }
+}
+
 console.log("\nThe caption is drawn in the face it was sized for");
 {
   const frame = { width: 1080, height: 1920 };
