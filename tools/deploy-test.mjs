@@ -95,6 +95,9 @@ section("Every variable the worker reads is one the deploy actually sets");
     // in one place and this names it; the suite that measures an uploaded font
     // points at the repository's copies instead. A path, like the ones above.
     "EDITLY_FONT_DIR",
+    // Where the font repair script lives. The image puts it beside the faces;
+    // a developer points it at the repository. A path, like the ones above.
+    "EDITLY_FONT_SCRIPTS",
   ]);
 
   const mustBeDeployed = [...referenced].filter((name) => !notSecrets.has(name)).sort();

@@ -377,6 +377,60 @@ export const CaptionFontChoice = z.object({
 });
 export type CaptionFontChoice = z.infer<typeof CaptionFontChoice>;
 
+/**
+ * A font somebody uploaded, as the browser sees it.
+ *
+ * `capRatio` and `widthScale` are here because the picker draws each option in
+ * its own face and has to size the sample the same way a caption would; and
+ * because a person who has uploaded a font should be able to see that it was
+ * *measured*, rather than take on faith that something happened to their file.
+ *
+ * `refusal` is the other half of that. A font that cannot be used says so in
+ * the language the person is reading, with the actual reason — no lam-alef
+ * shape, nothing on the frame came from the file — because "rejected" alone
+ * produces a support message instead of a second upload.
+ */
+export const UploadedFace = z.object({
+  id: z.string(),
+  label: z.string(),
+  declared: z.string().nullable(),
+  script: z.enum(["latin", "arabic"]),
+  status: z.enum(["pending", "preparing", "ready", "refused"]),
+  capRatio: z.number().nullable(),
+  widthScale: z.number().nullable(),
+  /** Where the browser can fetch the preview subset. Null until it is ready. */
+  previewPath: z.string().nullable(),
+  refusal: z.string().nullable(),
+  bytes: z.number().int().min(0),
+  createdAt: z.string(),
+});
+export type UploadedFace = z.infer<typeof UploadedFace>;
+
+export const ListFacesResponse = z.object({ faces: z.array(UploadedFace) });
+
+export const RegisterFaceBody = z.object({
+  /** Storage object path, `<userId>/fonts/<name>`. Checked, never trusted. */
+  path: z.string().min(3).max(400),
+  label: z.string().min(1).max(120),
+  script: z.enum(["latin", "arabic"]),
+  bytes: z.number().int().min(0).max(20_000_000).default(0),
+  /**
+   * What the person says about their right to use this font.
+   *
+   * Recorded, not verified — nothing can verify it. A font file carries no
+   * machine-readable statement of what its owner permits, and a name table
+   * saying "OFL" is a string somebody typed. What the product can do is ask
+   * the person who knows, keep the answer, and show it back.
+   *
+   * It is required rather than defaulted, so that uploading a font is an act
+   * in which the question was actually put.
+   */
+  rights: z.enum(["own", "licensed", "free"]),
+});
+export type RegisterFaceBody = z.infer<typeof RegisterFaceBody>;
+
+export const DeleteFaceParams = z.object({ id: z.string().min(1) });
+
 export const SendMessageBody = z.object({
   content: z.string().min(1),
   /* The same choice, on the other door a plan comes through. */

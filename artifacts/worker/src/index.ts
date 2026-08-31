@@ -28,6 +28,7 @@ import { enrichPlan } from "./enrich";
 import { resolveProviders } from "./providers";
 import { sayIn, type Language } from "./say";
 import { publishDuePosts, surfaceStrandedPosts } from "./publisher";
+import { prepareUploadedFaces, fetchUploadedFaces } from "./font-prepare";
 
 const WORKER_ID = `${hostname()}-${randomUUID().slice(0, 8)}`;
 const POLL_INTERVAL_MS = Number(process.env["POLL_INTERVAL_MS"] ?? 5000);
@@ -407,6 +408,28 @@ async function processJob(job: Job): Promise<void> {
       }
     }
 
+    // ── The fonts this person brought ─────────────────────────────────────
+    //
+    // Resolved here rather than in the renderer, for the reason every other id
+    // in a plan is: by the time a filter graph is being written, "may this job
+    // open this file" must already be answered. A renderer that could look up
+    // a font by id is one plan away from drawing with somebody else's.
+    //
+    // Downloaded into the job's own directory and handed to libass as a
+    // `fontsdir`, never installed. Two renders run side by side on some
+    // machines, and a family name is all it would take for one to draw the
+    // other's font.
+    const faces = await fetchUploadedFaces(
+      job.userId,
+      enriched.plan.operations.flatMap((op) =>
+        op.type === "autoCaptions" || op.type === "burnCaptions"
+          ? [(op as { font?: string }).font, (op as { fontArabic?: string }).fontArabic]
+          : [],
+      ),
+      workDir,
+      (fields, message) => log.warn(fields, message),
+    );
+
     // ── Several clips instead of one video ────────────────────────────────
     //
     // A clips plan is expanded here, not in the renderer: each chosen window
@@ -438,6 +461,7 @@ async function processJob(job: Job): Promise<void> {
       language: say.language,
       words,
       assets,
+      ...(faces ? { faces } : {}),
       onProgress: (fraction, stage) => {
         // Download and upload bracket the render; the middle 80% is ffmpeg.
         void reportProgress(job.id, 10 + fraction * 80, stage).catch(() => {});
@@ -1045,6 +1069,23 @@ async function sendDuePosts(): Promise<void> {
   }
 }
 
+/**
+ * Fonts somebody uploaded, prepared and measured.
+ *
+ * Wrapped like the post sweep is, and for the same reason: a font that cannot
+ * be prepared must never stop this worker rendering. The failure is written
+ * onto the row that caused it — see `font-prepare.ts` — so a person gets a
+ * refusal they can act on rather than a spinner that never stops.
+ */
+async function prepareFonts(): Promise<void> {
+  try {
+    const done = await prepareUploadedFaces((fields, message) => logger.info(fields, message));
+    if (done > 0) logger.info({ prepared: done }, "prepared uploaded fonts");
+  } catch (error) {
+    logger.error({ err: error }, "the font sweep failed; renders continue");
+  }
+}
+
 async function main(): Promise<void> {
   await db.execute(sql`select 1`);
   // Names of models, never keys. If captions are missing in production, this
@@ -1075,6 +1116,12 @@ async function main(): Promise<void> {
       // one thing a scheduler may not do. Sweeping first bounds the lateness
       // by the poll interval rather than by the longest render in the queue.
       await sendDuePosts();
+
+      // For the same reason, and more so: the person who uploaded a font is
+      // looking at the screen right now. Ten seconds is the wait; behind a
+      // render it would be twenty minutes, and they would have concluded it
+      // was broken and uploaded it again.
+      await prepareFonts();
 
       const job = await claimJob();
       if (!job) {

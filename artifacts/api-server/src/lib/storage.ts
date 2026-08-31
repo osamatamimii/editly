@@ -53,6 +53,23 @@ export function isOwnedObjectPath(path: string, userId: string, projectId: strin
   return segments[0] === userId && segments[1] === projectId;
 }
 
+/**
+ * A font's object path, which is a person's and not a project's.
+ *
+ * The same whitelist as above, with two segments instead of three: a font
+ * belongs to the person, not to one project — the whole point of uploading it
+ * is that it is available in the next project too. The middle segment is fixed
+ * so that a font's folder cannot be spelled as anything else, which keeps the
+ * per-user prefix a bucket policy can be written against.
+ */
+export function isOwnedFontPath(path: string, userId: string): boolean {
+  if (!path || path.startsWith("/") || path.endsWith("/")) return false;
+  const segments = path.split("/");
+  if (segments.length !== 3) return false;
+  if (!segments.every((s) => SAFE_SEGMENT.test(s))) return false;
+  return segments[0] === userId && segments[1] === "fonts";
+}
+
 function adminHeaders(): Record<string, string> {
   return {
     apikey: SERVICE_ROLE_KEY as string,

@@ -325,8 +325,8 @@ export async function intakeFace(
       refusal: {
         code: "drawsNothing",
         detail: `${family} drew no ink for the sample`,
-        english: "This font file draws nothing at all — the letters in it have no shapes, or the file is a stub.",
-        arabic: "هذا الملف لا يرسم شيئًا — الحروف فيه بلا أشكال، أو الملف ناقص.",
+        english: "This font file draws nothing at all. The letters in it have no shapes, or the file is a stub.",
+        arabic: "هذا الملف لا يرسم شيئًا. الحروف فيه بلا أشكال، أو الملف ناقص.",
       },
     };
   }
@@ -340,9 +340,9 @@ export async function intakeFace(
         code: "doesNotResolve",
         detail: `${family} renders identically to the fallback (${drawn.signature})`,
         english:
-          "The file loaded, but nothing on the frame came from it — the renderer fell back to its own font. The family name inside the file is not one it can be asked for.",
+          "The file loaded, but nothing on the frame came from it: the renderer fell back to its own font. The family name inside the file is not one it can be asked for.",
         arabic:
-          "حُمّل الملف، لكن لا شيء على الإطار جاء منه — رجع المحرّك إلى خطّه الخاص. اسم العائلة داخل الملف ليس اسمًا يمكن طلبه به.",
+          "حُمّل الملف، لكن لا شيء على الإطار جاء منه: رجع المحرّك إلى خطّه الخاص. اسم العائلة داخل الملف ليس اسمًا يمكن طلبه به.",
       },
     };
   }
@@ -357,7 +357,7 @@ export async function intakeFace(
       ok: false,
       refusal: {
         code: "ratioOutOfRange",
-        detail: `${family} measured ${capRatio} — outside 0.15..0.9`,
+        detail: `${family} measured ${capRatio}, outside 0.15..0.9`,
         english:
           "The letters in this font are an extreme fraction of its line height, so captions in it cannot be sized to match the rest. It is probably an icon or symbol font rather than a text one.",
         arabic:
@@ -393,12 +393,12 @@ export async function intakeFace(
         detail: `${family} drew "${probe}" as ${wordInk.signature}, boxes are ${boxes.signature}`,
         english:
           script === "arabic"
-            ? "This font cannot draw لا — it has no lam-alef shape, so real Arabic sentences would come out with empty boxes in them. It can still be used for English."
-            : "This font cannot draw ordinary Latin words — letters in it come out as empty boxes.",
+            ? "This font cannot draw لا. It has no lam-alef shape, so real Arabic sentences would come out with empty boxes in them. It can still be used for English."
+            : "This font cannot draw ordinary Latin words: letters in it come out as empty boxes.",
         arabic:
           script === "arabic"
-            ? "هذا الخط لا يرسم «لا» — لا يملك شكل اللام-ألف، فتخرج الجُمل العربية الحقيقية وفيها مربّعات فارغة. ما زال صالحًا للإنجليزية."
-            : "هذا الخط لا يرسم الكلمات اللاتينية العادية — تخرج حروفه مربّعات فارغة.",
+            ? "هذا الخط لا يرسم «لا»: لا يملك شكل اللام-ألف، فتخرج الجُمل العربية الحقيقية وفيها مربّعات فارغة. ما زال صالحًا للإنجليزية."
+            : "هذا الخط لا يرسم الكلمات اللاتينية العادية: تخرج حروفه مربّعات فارغة.",
       },
     };
   }

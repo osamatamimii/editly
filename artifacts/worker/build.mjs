@@ -36,3 +36,13 @@ await copyFile(
   path.join(dir, "scripts/track-subject.py"),
   path.join(dir, "dist/track-subject.py"),
 );
+
+// The font repair is Python for the same reason — fontTools is Python — and it
+// is copied for a second reason too: this is the *only* copy of it that ships.
+// `make-caption-faces.py` runs on a developer's machine and builds the
+// thirteen faces we ship; these two run in the image, over a file somebody
+// uploaded, and they import each other. A missing one here does not break the
+// build or any render: uploaded fonts would simply never leave `pending`.
+for (const name of ["facerepair.py", "prepare-user-font.py"]) {
+  await copyFile(path.join(dir, "fonts", name), path.join(dir, "dist", name));
+}

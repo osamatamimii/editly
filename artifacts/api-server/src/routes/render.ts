@@ -16,7 +16,7 @@ import { TEMPLATES, findTemplate } from "../lib/templates";
 import { isUnattended } from "../lib/queue-health";
 import { newestWorkerSeenAt } from "../lib/worker-presence";
 import { startRenderForProject } from "../lib/start-render";
-import { withCaptionFonts } from "../lib/caption-fonts";
+import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 
 const router: IRouter = Router();
@@ -114,7 +114,7 @@ router.post("/projects/:id/render", rateLimit(LIMITS.render), async (req, res): 
   // The chosen faces, applied once, after the plan exists and whichever way it
   // was made. Only the caption operations, and only where the plan has not
   // already named a face itself.
-  requested = withCaptionFonts({ version: 1, operations: requested }, body.data.fonts).operations;
+  requested = withCaptionFonts({ version: 1, operations: requested }, body.data.fonts, await myFaceIds(userId)).operations;
 
   // What "asked" becomes "queued" through lives in one place — the same place
   // the chat door uses — so the browser has no vote in the allowance, the

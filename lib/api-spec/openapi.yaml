@@ -1363,6 +1363,113 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /fonts:
+    get:
+      operationId: listUploadedFonts
+      tags: [fonts]
+      summary: The fonts this person has uploaded
+      description: >
+        Including the ones that were refused, with the reason, in the language
+        of the request. A font that cannot be used is more useful to show than
+        to hide - "rejected" with nothing after it produces a support message
+        instead of a second upload.
+      responses:
+        "200":
+          description: Every face this person owns, ready or not
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  faces:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UploadedFace"
+                required: [faces]
+
+    post:
+      operationId: registerUploadedFont
+      tags: [fonts]
+      summary: Register a font the browser has already uploaded
+      description: >
+        The bytes never pass through here. The browser uploads to Storage with
+        its own session, exactly as it does for video and images, and this
+        records where. Two claims are refused rather than believed - where the
+        file is, checked against the signed-in user; and what it is, which is
+        not decided here at all. Whether those bytes are a font, whether it
+        draws anything, and what its three numbers are, is settled by rendering
+        with it on the machine that will burn with it. A serverless function
+        has no libass and could only guess.
+
+
+        So the answer is 202 and not 201. The row exists; the font is not
+        usable yet, and a status meaning "created" would be describing
+        something that has not finished.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterFontRequest"
+      responses:
+        "202":
+          description: Recorded, and queued to be prepared and measured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadedFace"
+        "200":
+          description: This exact file was already registered; the existing face is returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadedFace"
+        "400":
+          description: Not a path this account can write to, or a malformed body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: This account is already holding as many fonts as it may
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many fonts registered too quickly
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /fonts/{id}:
+    delete:
+      operationId: deleteUploadedFont
+      tags: [fonts]
+      summary: Remove an uploaded font
+      description: >
+        The row goes. The objects are left for the storage sweep - an edit
+        already rendered with this face is not re-rendered, so nothing is
+        served from those bytes once the row is gone, and three calls that can
+        each fail halfway is a worse thing to put behind a small close button
+        than a few hundred unreferenced kilobytes.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Removed
+        "404":
+          description: No such font for this account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 
 components:
   parameters:
@@ -2433,6 +2540,82 @@ components:
             dark rather than saying "coming soon".
           type: boolean
       required: [platform, label, connected, captionLimit, maxDurationSeconds, shape, needsReview]
+
+    UploadedFace:
+      type: object
+      description: >
+        A font somebody uploaded. The two measured numbers are here because the
+        picker draws each option in its own face and has to size the sample the
+        way a caption would - and because a person should be able to see that
+        their file was measured rather than take it on faith.
+      properties:
+        id: { type: string }
+        label:
+          type: string
+          description: What the person called it.
+        declared:
+          type: string
+          nullable: true
+          description: >
+            What the file calls itself, which is usually not what the person
+            called it - `MyBrand-Final-2.otf` announces itself as something
+            else entirely.
+        script:
+          type: string
+          enum: [latin, arabic]
+        status:
+          type: string
+          enum: [pending, preparing, ready, refused]
+        capRatio:
+          type: number
+          nullable: true
+          description: >
+            The fraction of the line height a capital occupies - the alef, for
+            Arabic. Measured by rendering, null until that has happened.
+        widthScale:
+          type: number
+          nullable: true
+          description: How wide this face runs against the one the layout's advance table was measured from.
+        previewPath:
+          type: string
+          nullable: true
+          description: >
+            The subset the picker draws the sample in. The path is returned,
+            unlike an asset's - it is this person's own object, they signed the
+            upload themselves, and the browser must fetch it to draw anything.
+        refusal:
+          type: string
+          nullable: true
+          description: >
+            Why it cannot be used, already in the reader's language. The row
+            keeps both, so changing language does not change what a refusal
+            says it was.
+        bytes: { type: integer }
+        createdAt: { type: string, format: date-time }
+      required: [id, label, declared, script, status, capRatio, widthScale, previewPath, refusal, bytes, createdAt]
+
+    RegisterFontRequest:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "`<userId>/fonts/<name>`. Checked against the signed-in user, never trusted."
+        label: { type: string }
+        script:
+          type: string
+          enum: [latin, arabic]
+        bytes: { type: integer }
+        rights:
+          type: string
+          enum: [own, licensed, free]
+          description: >
+            What the person says about their right to use this font. Recorded,
+            not verified - nothing can verify it. A font file carries no
+            machine-readable statement of what its owner permits, and a name
+            table saying "OFL" is a string somebody typed. Required rather than
+            defaulted, so that uploading a font is an act in which the question
+            was actually put.
+      required: [path, label, script, rights]
 
     SocialAccount:
       description: >

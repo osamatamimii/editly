@@ -12,7 +12,7 @@ import { serializeMessage, serializeJob } from "../lib/transformers";
 import { currentUserId } from "../middlewares/auth";
 import { replyFor } from "../lib/plan-from-text";
 import { createPlanner } from "../lib/planner";
-import { withCaptionFonts } from "../lib/caption-fonts";
+import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
 import { plannerAssets } from "../lib/planner-assets";
 import { startRenderForProject } from "../lib/start-render";
 import { ALREADY_RENDERING } from "../lib/one-active-job";
@@ -120,6 +120,7 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
   intent.operations = withCaptionFonts(
     { version: 1, operations: intent.operations },
     parsed.data.fonts,
+    await myFaceIds(userId),
   ).operations;
   if (intent.operations.length > 0 && project.videoPath) {
     // The render's notes come back in the language the sentence was written

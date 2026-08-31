@@ -58,6 +58,7 @@ RUN apt-get update \
       ffmpeg fonts-dejavu-core fonts-noto-color-emoji fontconfig ca-certificates python3 python3-numpy python3-pip \
       chromium \
  && pip3 install --no-cache-dir --break-system-packages "opencv-python-headless==4.13.0.*" \
+ && pip3 install --no-cache-dir --break-system-packages "fonttools==4.61.*" "brotli==1.2.*" \
  && rm -rf /var/lib/apt/lists/*
 
 # Proven at build time rather than discovered on the first render that needed
@@ -68,6 +69,18 @@ RUN python3 -c "import cv2, os; \
     assert os.path.exists(p), 'face cascade missing from opencv'; \
     assert not cv2.CascadeClassifier(p).empty(), 'face cascade will not load'; \
     print('subject tracking ready:', cv2.__version__)"
+
+# And the same for the font repair, which is the other Python in this image.
+#
+# It runs over files people upload, and its whole job is to make a font that
+# libass can draw with — so a missing dependency here is not a crash, it is
+# every uploaded font sitting in `pending` for ever while the product says
+# nothing. brotli is not optional: it is what writes the woff2 the picker draws
+# its sample in, and fontTools reports its absence only when asked to save one.
+RUN python3 -c "from fontTools import ttLib; from fontTools.pens.cu2quPen import Cu2QuPen; \
+    import brotli; \
+    from fontTools.ttLib.woff2 import compress; \
+    print('font repair ready:', ttLib.version)"
 
 # Proven at build time rather than discovered on the first render in a language
 # that is not English.

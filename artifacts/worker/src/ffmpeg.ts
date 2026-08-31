@@ -1008,6 +1008,21 @@ export interface RenderContext {
    * project.
    */
   assets?: Map<string, { file: string; kind: "video" | "image" | "audio" }>;
+  /**
+   * Faces this person uploaded, already downloaded, already measured.
+   *
+   * Same shape and same reason as `assets` above: the caller resolves, this
+   * file draws. A renderer that could look up a font by id would be a renderer
+   * that can be handed somebody else's font id — and the numbers a face is
+   * drawn by are measured once, at upload, by rendering, so there is nothing
+   * here that could re-derive them anyway.
+   *
+   * `dir` is where the files are. It goes to libass as `fontsdir`, because a
+   * font that lives for the length of one render must not be installed into
+   * the machine: two renders running side by side would then see each other's
+   * fonts, and a family name is all it takes for one to draw the other's.
+   */
+  faces?: { available: CaptionFace[]; dir: string };
 }
 
 export interface RenderResult {
@@ -1935,7 +1950,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     // Resolved once and passed to both, because the wrapper measures against a
     // face's width and the style row names it: two calls that disagreed about
     // which face this render uses would wrap for one and draw the other.
-    const faces = facePair({ latin: captions.font, arabic: captions.fontArabic });
+    const faces = facePair({ latin: captions.font, arabic: captions.fontArabic }, ctx.faces?.available);
     const wrapped = wrapToLayout(cues, layout, faces);
     /**
      * Words that did not survive the wrap, said out loud.
@@ -1968,7 +1983,15 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       layout,
       faces,
     );
-    videoParts.push(`subtitles=${subtitlePath.replace(/[\\:']/g, "\\$&")}`);
+    /*
+      `fontsdir` only when there is one. libass reads the machine's fontconfig
+      either way; this adds a directory to it for the length of this render,
+      which is how an uploaded face is used without being installed.
+    */
+    const fontsdir = ctx.faces?.dir
+      ? `:fontsdir=${ctx.faces.dir.replace(/[\\:']/g, "\\$&")}`
+      : "";
+    videoParts.push(`subtitles=${subtitlePath.replace(/[\\:']/g, "\\$&")}${fontsdir}`);
     /**
      * A wipe needs word times, and the note used to claim it either way.
      *

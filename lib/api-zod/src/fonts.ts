@@ -237,6 +237,21 @@ export function facesFor(script: FaceScript): CaptionFace[] {
 }
 
 /**
+ * The faces a particular render or picker may choose from: the ones we ship,
+ * plus the ones this person uploaded.
+ *
+ * Uploaded faces come *after*, so a person cannot shadow a shipped id by
+ * uploading a font and naming it `montserrat-black`. Ids for uploaded faces
+ * are generated, so this cannot happen today; the order is what makes it still
+ * true the day somebody lets a person choose one.
+ */
+export function facesWith(extra: readonly CaptionFace[] | undefined): readonly CaptionFace[] {
+  if (!extra || extra.length === 0) return CAPTION_FACES;
+  const shipped = new Set(CAPTION_FACES.map((face) => face.id));
+  return [...CAPTION_FACES, ...extra.filter((face) => !shipped.has(face.id))];
+}
+
+/**
  * A face by id, or the default for that script.
  *
  * Never throws and never returns undefined. An id that no longer exists — a
@@ -244,13 +259,17 @@ export function facesFor(script: FaceScript): CaptionFace[] {
  * *something*, and the default is a caption in the wrong font rather than a
  * render that fails at the last step of a job somebody paid minutes for.
  */
-export function faceById(id: string | null | undefined, script: FaceScript): CaptionFace {
-  const found = CAPTION_FACES.find((face) => face.id === id && face.script === script);
+export function faceById(
+  id: string | null | undefined,
+  script: FaceScript,
+  extra?: readonly CaptionFace[],
+): CaptionFace {
+  const found = facesWith(extra).find((face) => face.id === id && face.script === script);
   if (found) return found;
   return CAPTION_FACES.find((face) => face.id === DEFAULT_FACE[script])!;
 }
 
 /** Whether an id names a face this deployment actually ships. */
-export function isCaptionFace(id: string): boolean {
-  return CAPTION_FACES.some((face) => face.id === id);
+export function isCaptionFace(id: string, extra?: readonly CaptionFace[]): boolean {
+  return facesWith(extra).some((face) => face.id === id);
 }

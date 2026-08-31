@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useLocation, useParams } from "wouter";
 import { 
   useGetProject, 
@@ -28,12 +28,14 @@ import {
   Maximize2, Minimize2, Type } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { FontPicker, DEFAULT_FONTS, type ChosenFonts } from "@/components/font-picker";
+import type { UploadedFace } from "@/components/font-upload";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { loadState } from "@/lib/load-state";
 import { playbackVerdict, PLAYBACK_POLL_MS } from "@/lib/playability";
 import { LoadFailed } from "@/components/load-failed";
 import { supabase } from "@/lib/supabase";
+import { apiFetch } from "@/lib/api-fetch";
 import {
   uploadProjectVideo,
   uploadReferenceVideo,
@@ -358,6 +360,31 @@ export default function ProjectEditor() {
    */
   /** Which of the four side panels is open, if any. See `panelRail`. */
   const [openPanel, setOpenPanel] = useState<"looks" | "type" | "clips" | "files" | "reference" | null>(null);
+
+  /*
+    The fonts this person has uploaded, and the token that lets them upload
+    another.
+
+    Fetched when the Type panel is first opened rather than with the project.
+    Most sessions never open it, and a list of somebody's fonts is not worth a
+    request on every project load — while the panel being open is exactly the
+    moment the list has to be current, because `FontUpload` polls through this
+    same callback while a font is being measured.
+  */
+  const [uploadedFaces, setUploadedFaces] = useState<UploadedFace[]>([]);
+  const [uploadToken, setUploadToken] = useState<string | null>(null);
+  const loadFaces = useCallback(async () => {
+    const response = await apiFetch("/api/fonts");
+    if (!response.ok) return;
+    const body = (await response.json()) as { faces: UploadedFace[] };
+    setUploadedFaces(body.faces);
+  }, []);
+  useEffect(() => {
+    if (openPanel !== "type") return;
+    void loadFaces();
+    void supabase.auth.getSession().then(({ data }) => setUploadToken(data.session?.access_token ?? null));
+  }, [openPanel, loadFaces]);
+
 
   const [chatOpen, setChatOpen] = useState(true);
   const [unreadFromNoah, setUnreadFromNoah] = useState(false);
@@ -1308,7 +1335,15 @@ export default function ProjectEditor() {
         <Type className="w-4 h-4 text-secondary flex-shrink-0" />
         <span className="text-sm font-medium text-muted-foreground">Caption type</span>
       </div>
-      <FontPicker value={fonts} onChange={chooseFonts} disabled={isProcessingEdit} />
+      <FontPicker
+        value={fonts}
+        onChange={chooseFonts}
+        disabled={isProcessingEdit}
+        uploaded={uploadedFaces}
+        userId={user?.id}
+        accessToken={uploadToken}
+        onFontsChanged={() => void loadFaces()}
+      />
     </div>
   );
 

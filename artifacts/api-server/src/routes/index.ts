@@ -14,6 +14,7 @@ import stockRouter from "./stock";
 import adminRouter from "./admin";
 import waitlistRouter from "./waitlist";
 import socialRouter from "./social";
+import fontsRouter from "./fonts";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -38,6 +39,7 @@ router.use(requireAuth);
 
 router.use(projectsRouter);
 router.use(socialRouter);
+router.use(fontsRouter);
 router.use(messagesRouter);
 router.use(exportsRouter);
 router.use(statsRouter);

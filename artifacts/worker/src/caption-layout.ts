@@ -143,10 +143,56 @@ export interface FacePair {
   arabic: CaptionFace;
 }
 
-export function facePair(chosen?: { latin?: string | null; arabic?: string | null }): FacePair {
+/**
+ * A stored row as the renderer's catalogue sees it.
+ *
+ * Here, and not beside the code that fetches it, because everything in that
+ * file reaches Storage — and this is arithmetic on six fields that a suite
+ * should be able to check without credentials. The type is structural for the
+ * same reason: the shape is the contract, not the table.
+ *
+ * The three numbers are already measured; this only renames the columns. The
+ * fallbacks exist because a `ready` row without them would be a bug elsewhere
+ * and a division by zero here, and captions at a plausible size beat a render
+ * that throws in its last step.
+ */
+export function asCaptionFace(row: {
+  id: string;
+  label: string;
+  declared: string | null;
+  script: string;
+  family: string | null;
+  capRatio: number | null;
+  widthScale: number | null;
+}): CaptionFace {
   return {
-    latin: faceById(chosen?.latin, "latin"),
-    arabic: faceById(chosen?.arabic, "arabic"),
+    id: row.id,
+    label: row.label,
+    script: row.script === "arabic" ? "arabic" : "latin",
+    family: row.family ?? "",
+    file: `${row.id}.ttf`,
+    capRatio: row.capRatio ?? 0.45,
+    widthScale: row.widthScale ?? 1,
+    note: row.declared ?? "",
+  };
+}
+
+export function facePair(
+  chosen?: { latin?: string | null; arabic?: string | null },
+  /**
+   * Faces this person uploaded, resolved and measured by the caller.
+   *
+   * Optional, and the default is the thirteen we ship. An id that names
+   * nothing in either list falls back rather than throwing — see `faceById`:
+   * a plan saved before a font was deleted has to render *something*, and a
+   * caption in the wrong face beats a job that fails at its last step after
+   * somebody paid minutes for it.
+   */
+  extra?: readonly CaptionFace[],
+): FacePair {
+  return {
+    latin: faceById(chosen?.latin, "latin", extra),
+    arabic: faceById(chosen?.arabic, "arabic", extra),
   };
 }
 

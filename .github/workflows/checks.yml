@@ -156,6 +156,8 @@ jobs:
       # no point measuring an uploaded font on a runner whose reference faces
       # are wrong.
       - run: node tools/user-font-test.mjs
+      # Needs the database as well as the faces, so it sits after both.
+      - run: node tools/typeface-test.mjs
       - run: node tools/account-test.mjs
       - run: node tools/critic-test.mjs
       - run: node tools/transcript-test.mjs

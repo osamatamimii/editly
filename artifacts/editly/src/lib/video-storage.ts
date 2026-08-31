@@ -774,3 +774,61 @@ export async function uploadProjectAsset(options: {
   if (!res.ok) throw new UploadError(`Could not store "${file.name}" (${res.status}).`);
   return { path, kind };
 }
+
+/** What a font file may weigh. A text face is under two megabytes; ten is a
+ *  CJK family nobody is burning captions with. */
+export const MAX_FONT_BYTES = 8 * 1024 * 1024;
+
+const FONT_EXTENSIONS = new Set(["ttf", "otf", "ttc"]);
+
+/**
+ * A font, straight into this person's own folder.
+ *
+ * Their folder, not a project's: the whole point of uploading a typeface is
+ * that it is there in the next project too. The middle segment is the literal
+ * word `fonts`, so the shape of a font's path is fixed and the server's check
+ * is a comparison rather than a parse.
+ *
+ * The extension is checked here and means nothing — a `.ttf` is whatever bytes
+ * somebody named `.ttf`. It exists so that dragging a PDF in gets an answer
+ * immediately instead of after a round trip and ten seconds of a worker. What
+ * the file actually is gets decided by rendering with it; see
+ * `artifacts/worker/src/font-intake.ts`.
+ */
+export async function uploadCaptionFont(options: {
+  file: File;
+  userId: string;
+  accessToken: string;
+}): Promise<{ path: string }> {
+  const { file, userId, accessToken } = options;
+  const extension = (file.name.split(".").pop() ?? "").toLowerCase();
+  if (!FONT_EXTENSIONS.has(extension)) {
+    throw new UploadError(
+      `"${file.name}" is not a font file. Fonts end in .ttf, .otf or .ttc.`,
+    );
+  }
+  if (file.size > MAX_FONT_BYTES) {
+    throw new UploadError(
+      `"${file.name}" is ${formatBytes(file.size)}. Fonts we can burn with are under ${formatBytes(MAX_FONT_BYTES)}.`,
+    );
+  }
+
+  const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const path = `${userId}/fonts/font-${stamp}.${extension}`;
+
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${path}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        "Content-Type": file.type || "font/ttf",
+        "x-upsert": "true",
+      },
+      body: file,
+    },
+  );
+  if (!res.ok) throw new UploadError(`Could not store "${file.name}" (${res.status}).`);
+  return { path };
+}

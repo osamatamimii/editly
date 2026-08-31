@@ -294,6 +294,25 @@ export const LIMITS = {
     message: "That's a lot of scheduling at once. Give it a few minutes; nothing already queued is affected.",
   },
   /**
+   * Registering an uploaded font.
+   *
+   * Its own limit rather than a borrowed one, because what it protects is
+   * unlike anything else here: each row is a few seconds of a *worker* — a
+   * Python parse, a repair, and eight ffmpeg renders to measure the face — on
+   * the same single-threaded process that renders video. A loop here does not
+   * fill a table, it stops the queue.
+   *
+   * Six per person in ten minutes is a person uploading the family they use.
+   * A brand has a typeface, not a folder.
+   */
+  registerFont: {
+    name: "register-font",
+    limit: 40,
+    windowMs: 10 * 60 * 1000,
+    perPerson: 6,
+    message: "That's a lot of fonts at once. Give it a few minutes; the ones already sent are being prepared.",
+  },
+  /**
    * The stock library: somebody else's API, and bytes through ours.
    *
    * It borrowed `write`, whose own comment describes it as "renaming,
