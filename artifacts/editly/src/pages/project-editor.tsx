@@ -24,7 +24,8 @@ import { Card } from "@/components/ui/card";
 import { 
   UploadCloud, Play, Pause, ChevronLeft, Send,
   Wand2, Download, CheckCircle2, Loader2,
-  Video, Sparkles, VideoOff, ChevronUp, ChevronDown, Scissors, FolderOpen } from "lucide-react";
+  Video, Sparkles, VideoOff, ChevronUp, ChevronDown, Scissors, FolderOpen,
+  Maximize2, Minimize2 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -134,6 +135,10 @@ export default function ProjectEditor() {
 
   const [playerDuration, setPlayerDuration] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  /* The picture itself, not the box it is centred in: what goes full screen is
+     the frame, so our own controls and its edges go with it. */
+  const pictureRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   /** The area the picture gets to live in, measured rather than assumed. */
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
@@ -165,6 +170,29 @@ export default function ProjectEditor() {
    */
   const [speechLanguage, setSpeechLanguage] = useState<SpeechLanguage>("en");
   const languageGuessed = useRef(false);
+  /*
+    Whether we are actually full screen, asked of the browser rather than
+    remembered from the click.
+
+    Escape leaves fullscreen. So does the system player's Done button, and so
+    does rotating an iPhone back. None of them tell this component anything, and
+    an icon that says "exit full screen" over a video that is already inline is
+    a control lying about the thing it controls.
+  */
+  useEffect(() => {
+    const sync = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", sync);
+    // Safari has never fired the unprefixed event; it fires this one instead,
+    // and a browser that fires both simply calls `sync` twice with the same
+    // answer.
+    document.addEventListener("webkitfullscreenchange", sync);
+    sync();
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      document.removeEventListener("webkitfullscreenchange", sync);
+    };
+  }, []);
+
   useEffect(() => {
     if (languageGuessed.current) return;
     const mine = (messages ?? []).filter((m) => m.role === "user").map((m) => m.content ?? "");
@@ -874,6 +902,45 @@ export default function ProjectEditor() {
   }
 
   /**
+   * Fill the screen, when they ask for it and not before.
+   *
+   * The other half of `playsInline`. That attribute stops iOS taking the whole
+   * screen the moment somebody presses play, which is the right default and
+   * leaves a real want unanswered: sometimes you *do* want the video big. So
+   * the transport carries a button, and the two together mean the video is
+   * inline until it is asked not to be.
+   *
+   * Two APIs, because iPhone Safari has no element fullscreen at all. On every
+   * other browser the *stage* goes fullscreen, which keeps our own controls and
+   * the frame's edges; on iPhone the only thing available is the system player
+   * on the `<video>` itself, and half a feature there is better than a button
+   * that does nothing.
+   *
+   * The state comes from the `fullscreenchange` event rather than from the
+   * click, because Escape and the system player's own Done button both leave
+   * fullscreen without telling this component — and an icon that says "exit"
+   * over a video that is already inline is a control lying about the thing it
+   * controls.
+   */
+  const toggleFullscreen = () => {
+    const stage = pictureRef.current;
+    const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+      return;
+    }
+    if (stage?.requestFullscreen) {
+      void stage.requestFullscreen().catch(() => {
+        // Refused, usually because the gesture was not trusted. The system
+        // player is the fallback rather than a dead press.
+        video?.webkitEnterFullscreen?.();
+      });
+      return;
+    }
+    video?.webkitEnterFullscreen?.();
+  };
+
+  /**
    * Play, scrubber, timecode. One set of controls, laid out two ways.
    *
    * A timeline belongs against the frame it scrubs — under it where there is
@@ -984,6 +1051,21 @@ export default function ProjectEditor() {
         </span>
     );
 
+    const fullscreenButton = (
+      <button
+        onClick={toggleFullscreen}
+        className={`w-11 h-11 md:w-9 md:h-9 flex-shrink-0 rounded-full flex items-center justify-center transition-colors ${
+          onPicture
+            ? "bg-black/55 text-white backdrop-blur-md border border-white/20"
+            : "bg-surface-2 text-muted-foreground hover:text-foreground"
+        }`}
+        aria-label={isFullscreen ? "Leave full screen" : "Fill the screen"}
+        data-testid="button-fullscreen"
+      >
+        {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+      </button>
+    );
+
     if (onPicture) {
       return (
         <div className="flex flex-col gap-0.5">
@@ -991,6 +1073,7 @@ export default function ProjectEditor() {
           <div className="flex items-center gap-3">
             {playButton}
             <span className="ml-auto">{timecode}</span>
+            {fullscreenButton}
           </div>
         </div>
       );
@@ -1001,6 +1084,7 @@ export default function ProjectEditor() {
         {playButton}
         {scrubber}
         {timecode}
+        {fullscreenButton}
       </div>
     );
   };
@@ -1444,6 +1528,7 @@ export default function ProjectEditor() {
               */}
               <div className="w-full min-w-0 flex flex-col items-center justify-start lg:justify-center gap-3">
                 <div
+                  ref={pictureRef}
                   className="force-dark relative rounded-2xl overflow-hidden glass-panel border border-hairline text-foreground"
                   style={{
                     width: picture ? `${picture.width}px` : "100%",

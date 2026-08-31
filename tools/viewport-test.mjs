@@ -487,18 +487,25 @@ async function measure(page) {
     /*
       Buttons whose ring is being shaved off by the edge of the screen.
 
-      `.aura-btn` — the look this product's buttons have — draws its depth with
-      a box-shadow *spread*, and a spread is painted outside the element's box.
-      Layout knows nothing about it. So a button flush against a container's
-      padding passes every check above: it is inside its parent, nothing
-      overflows, the page does not scroll sideways, and the one control that is
-      supposed to look raised is drawn with a flat side. It was doing exactly
-      that to "Generate Edit" on every phone.
+      `.aura-btn` — the look this product's buttons have — draws its depth
+      outside its own box, and layout knows nothing about what is painted
+      there. So a button flush against a container's padding passes every check
+      above: it is inside its parent, nothing overflows, the page does not
+      scroll sideways, and the one control that is supposed to look raised is
+      drawn with a flat side. It was doing exactly that to "Generate Edit" on
+      every phone.
 
-      Five pixels because that is the spread in the class. Measured against the
-      viewport rather than the parent, because that is the edge that clips.
+      Two pixels now, not five. The class used to paint a solid five-pixel ring
+      of the button's own colour and that ring is gone — the look was too loud
+      on fifty buttons at once, and what replaced it is a gradient face with the
+      light underneath. So the clearance this rule asks for is the clearance the
+      class actually needs, rather than a number left behind by the version that
+      needed more.
+
+      Measured against the viewport rather than the parent, because that is the
+      edge that clips.
     */
-    const RING = 5;
+    const RING = 2;
     const shaved = [...document.querySelectorAll(".aura-btn, .aura-chip")]
       .filter(visible)
       .map((e) => ({ e, r: e.getBoundingClientRect() }))
@@ -635,6 +642,25 @@ const PAGES = [
         "the scrubber is a usable fraction of the screen, not a hairline",
         Boolean(track && view && track.width >= view.width * 0.35),
         JSON.stringify({ track: track && Math.round(track.width), screen: view?.width }),
+      );
+
+      /*
+        And the way to make the video big.
+
+        `playsInline` is on every video in this product because iOS otherwise
+        takes the whole screen the moment somebody presses play, mid-edit, with
+        controls that are not ours. That is the right default and it leaves a
+        real want unanswered: sometimes you do want the video big. Without a
+        button, the fix for one complaint is the cause of the next.
+      */
+      const full = await page.getByTestId("button-fullscreen").boundingBox();
+      check(
+        "there is a way to fill the screen on purpose, since pressing play no longer does it",
+        // Drawn, not just present: it shares its classes with the play button
+        // beside it, so how big it is on a phone is already covered by the
+        // tap-target rule that runs on every screen in this suite.
+        Boolean(full && full.width > 0 && full.height > 0),
+        JSON.stringify(full && { w: Math.round(full.width), h: Math.round(full.height) }),
       );
 
       /*

@@ -1378,27 +1378,93 @@ html[data-page-theme="light"] body {
  *
  * Two shadows: a tight one that reads as a lit edge, and a wide soft one that
  * reads as light spilling onto what is behind it. */
+/*
+ * A render in progress, said with light.
+ *
+ * Two things at once, and they answer different questions. The glow breathes,
+ * which says *something is happening*; a lit line travels the border, which
+ * says *it is still happening* — a breath alone can be mistaken for a style,
+ * and a card that has quietly stopped looks exactly like one that has not.
+ *
+ * The travelling line is a conic gradient rotated through a custom property,
+ * masked down to the border itself. The mask is the whole trick: two identical
+ * fills, one clipped to the content box and one to the border box, composited
+ * so only the ring between them survives. Without it the gradient fills the
+ * card and the message is unreadable through it.
+ *
+ * `@property` is what makes an angle animatable — a plain custom property is a
+ * string to the animation engine and jumps from 0 to 360 in one frame. Where
+ * it is unsupported the arc simply holds still at its starting angle, which is
+ * a lit edge rather than a broken one, and the breath underneath still says
+ * the same thing.
+ */
+@property --noah-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
 @keyframes noah-working {
   0%, 100% {
-    box-shadow: 0 0 0 1px rgba(155,107,255,0.18),
-                0 0 18px rgba(108,59,255,0.16);
+    box-shadow: 0 0 0 1px rgba(155,107,255,0.16),
+                0 0 18px rgba(108,59,255,0.14);
   }
   50% {
-    box-shadow: 0 0 0 1px rgba(155,107,255,0.42),
-                0 0 34px rgba(108,59,255,0.42);
+    box-shadow: 0 0 0 1px rgba(155,107,255,0.36),
+                0 0 32px rgba(108,59,255,0.34);
   }
+}
+
+@keyframes noah-orbit {
+  to { --noah-angle: 360deg; }
 }
 
 .noah-working {
+  position: relative;
   animation: noah-working 2.4s ease-in-out infinite;
 }
 
-/* Anyone who has asked for less movement gets the lit edge without the breath —
- * the state is still legible, it just holds still. */
+.noah-working::before {
+  content: "";
+  position: absolute;
+  /* Just outside the card, so the line rides the edge rather than sitting on
+     the text. `inherit` on the radius keeps the corners true whatever the
+     card's rounding is. */
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--noah-angle),
+    rgba(155, 107, 255, 0) 0deg,
+    rgba(155, 107, 255, 0) 190deg,
+    rgba(124, 58, 237, 0.65) 250deg,
+    rgba(216, 180, 254, 1) 292deg,
+    rgba(124, 58, 237, 0.65) 334deg,
+    rgba(155, 107, 255, 0) 360deg
+  );
+  /* The ring, cut out of the fill: content-box minus border-box. Both spellings
+     because Safari implements the prefixed one and calls the operation `xor`. */
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: noah-orbit 2.8s linear infinite;
+}
+
+/* Anyone who has asked for less movement gets the lit edge without the breath
+ * and without the orbit — the state is still legible, it just holds still. */
 @media (prefers-reduced-motion: reduce) {
   .noah-working {
     animation: none;
     box-shadow: 0 0 0 1px rgba(155,107,255,0.35), 0 0 24px rgba(108,59,255,0.28);
+  }
+  .noah-working::before {
+    animation: none;
   }
 }
 
@@ -1485,42 +1551,61 @@ html[data-page-theme="light"] body {
    * this is the one every filled button starts from.
    */
   --aura-tint: hsl(var(--primary));
-  background-image: linear-gradient(to bottom, var(--aura-face-dark), var(--aura-face-light));
+  /*
+   * A gradient face and nothing around it.
+   *
+   * This used to draw a solid ring of the button's own colour, five pixels
+   * wide, at 72% opacity above and 92% below — an actual halo, painted outside
+   * the element where layout could not see it. It came from a reference the
+   * whole product was fitted to, it went on all fifty buttons at once, and the
+   * first person to look at it said it was too much. He is right: a halo reads
+   * as decoration on every button that is not the one you want pressed, which
+   * on most screens is all of them.
+   *
+   * What is left is the part that was doing the work. A vertical gradient so
+   * the face has a light source, a one-pixel inner rim so the edge is defined
+   * without a stroke, a contact shadow so it sits on the page, and one soft
+   * tinted lift *underneath* so the colour still spills a little. Depth from
+   * light, still — just a quieter light.
+   */
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, white 12%, var(--aura-tint)) 0%,
+    var(--aura-tint) 52%,
+    color-mix(in srgb, black 10%, var(--aura-tint)) 100%
+  );
   box-shadow:
-    0 -2px 0 5px color-mix(in srgb, var(--aura-tint) var(--aura-ring-top-mix), transparent),
-    0 3px 0 5px color-mix(in srgb, var(--aura-tint) var(--aura-ring-bottom-mix), transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
     inset 0 0 0 1px var(--aura-rim),
-    inset 0 3px 6px -3px var(--aura-rim),
-    0 2px 5px var(--aura-drop);
-  transition: box-shadow 200ms ease, background-image 200ms ease;
+    0 1px 2px var(--aura-drop),
+    0 8px 18px -10px color-mix(in srgb, var(--aura-tint) 65%, transparent);
+  transition: filter 180ms ease, box-shadow 180ms ease, transform 120ms ease;
 }
 .aura-btn:hover:not(:disabled) {
+  filter: brightness(1.07);
   box-shadow:
-    0 -2px 0 5px color-mix(in srgb, var(--aura-tint) var(--aura-ring-top-lit-mix), transparent),
-    0 3px 0 5px color-mix(in srgb, var(--aura-tint) var(--aura-ring-bottom-lit-mix), transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
     inset 0 0 0 1px var(--aura-rim),
-    inset 0 3px 6px -3px var(--aura-rim),
-    0 2px 5px var(--aura-drop);
+    0 2px 4px var(--aura-drop),
+    0 12px 24px -10px color-mix(in srgb, var(--aura-tint) 80%, transparent);
 }
-/* Pressed is the one state that moves, and it moves *in*: the face loses its
-   gradient, the rim deepens, the ring tightens. A recessed disc has somewhere
-   to go and this is it. */
+/* Pressed is the one state that moves, and it moves *in*: the lift goes, the
+   face darkens, the rim deepens. Half a pixel down, which is felt rather than
+   seen. */
 .aura-btn:active:not(:disabled) {
-  transform: scale(0.985);
-  background-image: linear-gradient(to bottom, var(--aura-face-dark-deep), var(--aura-face-dark));
+  transform: translateY(1px);
+  filter: brightness(0.94);
   box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--aura-tint) 90%, transparent),
+    inset 0 2px 5px -2px var(--aura-rim-deep),
     inset 0 0 0 1px var(--aura-rim),
-    inset 0 4px 9px -3px var(--aura-rim-deep),
-    0 1px 2px var(--aura-drop);
+    0 1px 1px var(--aura-drop);
 }
 .aura-btn:focus-visible {
   outline: none;
   box-shadow:
-    0 0 0 3px var(--background),
-    0 0 0 6px hsl(var(--primary)),
-    inset 0 0 0 1px var(--aura-rim),
-    inset 0 3px 6px -3px var(--aura-rim);
+    0 0 0 2px var(--background),
+    0 0 0 4px hsl(var(--primary)),
+    inset 0 0 0 1px var(--aura-rim);
 }
 .aura-btn:disabled {
   box-shadow: inset 0 0 0 1px var(--aura-rim);
@@ -1529,14 +1614,16 @@ html[data-page-theme="light"] body {
 
 /* The same object in the page's own colours rather than the brand's — their
    white `+`. Depth from the ring and the rim, never from a stroke. */
+/* The same object in the page's own colours rather than the brand's. Same
+   removal: the ring is gone and the light stays. */
 .aura-btn-neutral {
   background-color: var(--aura-neutral-face);
+  background-image: none;
   box-shadow:
-    0 -2px 0 5px var(--aura-neutral-ring-lo),
-    0 3px 0 5px var(--aura-neutral-ring),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
     inset 0 0 0 1px var(--aura-rim),
-    inset 0 3px 6px -3px var(--aura-rim),
-    0 2px 5px var(--aura-drop);
+    0 1px 2px var(--aura-drop),
+    0 8px 18px -12px var(--aura-neutral-ring);
 }
 
 @media (prefers-reduced-motion: reduce) {
