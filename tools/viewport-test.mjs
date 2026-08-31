@@ -178,6 +178,31 @@ const FIXTURES = {
       { id: "acc_3", platform: "x", handle: "@northlight", displayName: null, avatarUrl: null, status: "ok", statusDetail: null },
     ],
   },
+  /*
+    The clips library, with clips in it.
+
+    It had no fixture, so every run rendered its empty state — which means the
+    populated screen, the one somebody who uses this product actually sees, had
+    never been drawn at any width by anything. The tiles carry the two shapes
+    that break a grid: a clip still arriving with no file yet, and a title long
+    enough to want two lines.
+  */
+  "/api/clips": {
+    clips: [
+      { id: "cl_1", projectId: "11111111-1111-4111-8111-111111111111", projectTitle: "Podcast episode 14 — the whole two-hour take, unedited",
+        title: "nobody tells you this but it changes how you edit", note: null,
+        startSeconds: 71.3, endSeconds: 101.3, outputSeconds: 28.4,
+        outputPath: "renders/cl_1.mp4", thumbnailPath: "renders/cl_1.jpg", createdAt: "2026-08-30T09:00:00.000Z" },
+      { id: "cl_2", projectId: "11111111-1111-4111-8111-111111111111", projectTitle: "Podcast episode 14 — the whole two-hour take, unedited",
+        title: "the part where it goes wrong", note: null,
+        startSeconds: 402, endSeconds: 432, outputSeconds: 30,
+        outputPath: "renders/cl_2.mp4", thumbnailPath: null, createdAt: "2026-08-30T08:00:00.000Z" },
+      // Still arriving: no file, no title. The tile has to be a picture anyway.
+      { id: "cl_3", projectId: "22222222-2222-4222-8222-222222222222", projectTitle: "Store walkthrough",
+        title: null, note: null, startSeconds: 12, endSeconds: 40, outputSeconds: null,
+        outputPath: null, thumbnailPath: null, createdAt: "2026-08-30T07:00:00.000Z" },
+    ],
+  },
   "/api/social/posts": {
     posts: [
       { id: "sp_1", projectId: "p1", exportId: "exp_1", accountId: "acc_1", platform: "instagram",
@@ -516,6 +541,36 @@ async function measure(page) {
   });
 }
 
+/**
+ * Which of these tiles are holes.
+ *
+ * Runs in the page. An `<img>` whose object was deleted, and a `<video>` in a
+ * browser with no decoder for it, are elements that exist and draw nothing —
+ * and they satisfy every check that asks whether an element is there.
+ * `naturalWidth` and `videoWidth` are zero until a browser has really decoded
+ * a frame, which is the question worth asking; a painted div needs no such
+ * proof.
+ *
+ * One function because two screens have the same tile and the same failure,
+ * and a second copy of a rule is a second place for it to be relaxed.
+ */
+const EMPTY_TILES = (cardSelector, frameSelector) => {
+  return [...document.querySelectorAll(cardSelector)]
+    .map((card) => {
+      const frame = card.querySelector(frameSelector);
+      if (!frame) return `${card.getAttribute("data-testid")}: no picture area at all`;
+      const art = frame.querySelector('[data-testid="project-art"]');
+      const image = frame.querySelector("img");
+      const clip = frame.querySelector("video");
+      const painted =
+        Boolean(art) ||
+        (image !== null && image.naturalWidth > 0) ||
+        (clip !== null && clip.videoWidth > 0);
+      return painted ? null : `${card.getAttribute("data-testid")}: nothing here put a pixel down`;
+    })
+    .filter(Boolean);
+};
+
 const PAGES = [
   { url: "/", name: "the landing page", signedIn: false, expect: /Stop editing/ },
   { url: "/login", name: "signing in", signedIn: false, expect: /Welcome back|Sign in/ },
@@ -538,38 +593,13 @@ const PAGES = [
         is wrong is the *pixels*: a component that returns null and a component
         that draws something look identical to anything reading TSX.
       */
-      const empty = await page.evaluate(() => {
-        return [...document.querySelectorAll('[data-testid^="card-project-"]')]
-          .map((card) => {
-            // The poster *area*, not the card. A card always holds a status
-            // badge and a delete button, and both are SVG — so "does the card
-            // contain a picture element" is a question that answers yes for
-            // every card ever drawn, which is a check that cannot fail.
-            const frame = card.querySelector(".aspect-\\[16\\/9\\]");
-            if (!frame) return `${card.getAttribute("data-testid")}: no poster area at all`;
-            /*
-              Something that put pixels down, not something that is present.
-
-              An <img> whose object was deleted, and a <video> in a browser with
-              no decoder for it, are both elements that exist and draw nothing —
-              and they satisfy every check that asks whether an element is
-              there. `naturalWidth` and `videoWidth` are zero until a browser
-              has really decoded a frame, which is the question worth asking;
-              the generated art is a painted div and needs no such proof.
-            */
-            const art = frame.querySelector('[data-testid="project-art"]');
-            const image = frame.querySelector("img");
-            const clip = frame.querySelector("video");
-            const painted =
-              Boolean(art) ||
-              (image !== null && image.naturalWidth > 0) ||
-              (clip !== null && clip.videoWidth > 0);
-            return painted
-              ? null
-              : `${card.getAttribute("data-testid")}: nothing on this card put a pixel down`;
-          })
-          .filter(Boolean);
-      });
+      // The poster *area*, not the card. A card always holds a status badge and
+      // a delete button, and both are SVG — so "does the card contain a
+      // picture element" answers yes for every card ever drawn.
+      const empty = await page.evaluate(
+        ([body, cards, frames]) => new Function("return " + body)()(cards, frames),
+        [EMPTY_TILES.toString(), '[data-testid^="card-project-"]', ".aspect-\\[16\\/9\\]"],
+      );
       check(
         "every project card has a picture of some kind on it",
         empty.length === 0,
@@ -740,7 +770,30 @@ const PAGES = [
   // The library of everything cut out of every recording. On the list because
   // a screen that is only ever opened by somebody who already has clips is a
   // screen nobody looks at until a customer does.
-  { url: "/clips", name: "the clips library", signedIn: true },
+  {
+    url: "/clips",
+    name: "the clips library",
+    signedIn: true,
+    then: async (page, check) => {
+      check(
+        "the library shows the clips, not the empty state",
+        (await page.getByTestId("clips-grid").isVisible()) &&
+          (await page.locator('[data-testid^="clip-card-"]').count()) === 3,
+        `${await page.locator('[data-testid^="clip-card-"]').count()} tiles`,
+      );
+      const empty = await page.evaluate(
+        ([body, cards, frames]) => new Function("return " + body)()(cards, frames),
+        [EMPTY_TILES.toString(), '[data-testid^="clip-card-"]', ".aspect-\\[9\\/16\\]"],
+      );
+      check(
+        "and no tile is a hole where a clip should be",
+        empty.length === 0,
+        // The master is H.264, and there is a browser on this project's own
+        // desk that cannot decode it. Every tile was a black square there.
+        empty.join(", "),
+      );
+    },
+  },
   {
     url: "/account",
     name: "the account page",

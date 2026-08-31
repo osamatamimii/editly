@@ -40,8 +40,9 @@ function clock(seconds: number): string {
 }
 
 function ClipCard({ clip }: { clip: LibraryClip }) {
-  const { url } = usePlayableVideo(clip.outputPath);
+  const { url, previewUrl } = usePlayableVideo(clip.outputPath);
   const [taking, setTaking] = useState(false);
+  const [painted, setPainted] = useState(false);
 
   const take = async () => {
     if (!clip.outputPath) return;
@@ -69,20 +70,45 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
       data-testid={`clip-card-${clip.id}`}
     >
       <div className="force-dark relative w-full aspect-[9/16] rounded-xl overflow-hidden bg-background">
-        {url ? (
+        {/*
+          The art stays until the clip has really drawn a frame.
+
+          It was `url ? <video> : <art>`, and that answers the wrong question. A
+          signed URL means the file can be *fetched*; it says nothing about
+          whether this browser can decode it. The master is H.264, and H.264
+          decode is a licensed operating-system component — there is a browser
+          on this project's own desk that holds an edited render at
+          `readyState 0` forever, with no error, while `canPlayType` answers
+          "probably". Every tile in this library was a black square there.
+
+          So the VP9 mirror is offered first, the master second, and the art is
+          drawn underneath a *transparent* player until `videoWidth` says a
+          frame exists. `loadeddata`, not `loadedmetadata`: a browser with no
+          decoder reads the header perfectly well and then draws nothing.
+        */}
+        {painted ? null : <ProjectArt seed={clip.id} />}
+        {url || previewUrl ? (
           <video
-            src={`${url}#t=${Math.max(0.1, (clip.outputSeconds ?? 4) * 0.25)}`}
             preload="metadata"
             muted
             playsInline
             controls
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-        ) : (
-          /* The same generated art the project cards use, so a clip whose file
-             is still arriving is a picture rather than a hole. */
-          <ProjectArt seed={clip.id} />
-        )}
+            onLoadedData={(e) => {
+              if (e.currentTarget.videoWidth > 0) setPainted(true);
+            }}
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity ${
+              painted ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            {previewUrl ? <source src={previewUrl} type="video/webm" /> : null}
+            {url ? (
+              <source
+                src={`${url}#t=${Math.max(0.1, (clip.outputSeconds ?? 4) * 0.25)}`}
+                type="video/mp4"
+              />
+            ) : null}
+          </video>
+        ) : null}
         <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-black/70 text-white text-[11px] font-medium backdrop-blur-md">
           {clock(clip.outputSeconds ?? clip.endSeconds - clip.startSeconds)}
         </div>
@@ -95,11 +121,20 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
         {/* Which recording this came out of. A wall of clips titled by what was
             said in them, with no way to tell which take each belongs to, is a
             pile rather than a library. */}
+        {/*
+          `flex` with a `min-w-0` label, not a fixed `max-w`.
+
+          It was `max-w-[14rem]`, which is wider than a tile in a two-column
+          phone grid — so the title ran to the edge and stopped there, cut off
+          with no ellipsis to say so, and the little "opens elsewhere" arrow was
+          pushed off the card entirely. A flex child will not shrink below its
+          content unless it is told it may.
+        */}
         <Link
           href={`/project/${clip.projectId}`}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1 mt-1"
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 mt-1 max-w-full"
         >
-          <span dir="auto" className="truncate max-w-[14rem]">{clip.projectTitle}</span>
+          <span dir="auto" className="truncate min-w-0">{clip.projectTitle}</span>
           <SquareArrowOutUpRight className="w-3 h-3 flex-shrink-0" />
         </Link>
       </div>
