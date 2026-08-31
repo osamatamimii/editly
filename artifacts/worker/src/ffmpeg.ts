@@ -38,7 +38,7 @@ import {
   MIN_SUBJECT_COVERAGE,
 } from "./framing";
 import { trackSubject, trackNote } from "./subject";
-import { keepSegmentsFrom, outputDuration, remapTime, snapToWords, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
+import { keepSegmentsFrom, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
 import { chooseHighlight } from "./highlight";
 import { sayIn, type Language } from "./say";
 export { chooseHighlight, chooseClips } from "./highlight";
@@ -46,7 +46,7 @@ export { chooseHighlight, chooseClips } from "./highlight";
 // These moved to `timeline.ts` so the critic could share them without importing
 // the renderer that imports it. Re-exported because this is where callers —
 // including the test suites — have always found them.
-export { keepSegmentsFrom, outputDuration, remapTime, snapToWords, MOTION_OVERSCAN, type Segment, type SpokenWord };
+export { keepSegmentsFrom, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, MOTION_OVERSCAN, type Segment, type SpokenWord };
 
 export interface SourceInfo {
   width: number;
@@ -54,6 +54,23 @@ export interface SourceInfo {
   fps: number;
   duration: number;
   hasAudio: boolean;
+}
+
+/**
+ * How far a chosen window may move to land on a pause.
+ *
+ * A share of the ask rather than a fixed number of seconds, because the same
+ * two seconds mean different things: on a four-second hook it is half the
+ * clip, and on a ninety-second highlight it is noise. Fifteen per cent, with a
+ * floor so a very short ask can still move at all and a ceiling so a very long
+ * one cannot wander.
+ *
+ * The budget is the honesty in this: somebody asked for thirty seconds, and a
+ * clip that quietly became forty-one because the sentences ran long is not
+ * what they asked for.
+ */
+function breathingRoom(targetSeconds: number): number {
+  return Math.min(4, Math.max(0.75, targetSeconds * 0.15));
 }
 
 const FFMPEG = process.env["FFMPEG_PATH"] ?? "ffmpeg";
@@ -1207,11 +1224,21 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     } else {
       let window = choice.window;
       if (ctx.words && ctx.words.length > 0) {
-        // The scorer starts windows on word starts, but the right edge can
-        // still land mid-word; widening both edges to word boundaries costs a
-        // breath of extra footage and saves a clipped syllable.
+        // Two moves, and the second is the one somebody notices.
+        //
+        // Widening to word boundaries saves a clipped syllable: the scorer
+        // starts windows on word starts, but the right edge lands wherever
+        // `start + the length asked for` fell.
         const snapped = snapToWords([window], ctx.words);
         if (snapped.length === 1) window = { start: snapped[0].start, end: Math.min(source.duration, snapped[0].end) };
+        // Then onto the pauses. A word start in the middle of a sentence is
+        // still the middle of a sentence, and a highlight that opens on
+        // "...and that's why I think" is the most obvious way an automatic
+        // edit announces itself.
+        window = snapToSpeechBreaks(window, ctx.words, {
+          driftSeconds: breathingRoom(highlight.targetSeconds),
+          duration: source.duration,
+        });
       }
       const inside = (kept ?? [{ start: 0, end: source.duration }])
         .map((s) => ({ start: Math.max(s.start, window.start), end: Math.min(s.end, window.end) }))
@@ -1261,6 +1288,12 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       if (ctx.words && ctx.words.length > 0) {
         const snapped = snapToWords([window], ctx.words);
         if (snapped.length === 1) window = { start: snapped[0].start, end: Math.min(source.duration, snapped[0].end) };
+        // A hook is the one place this matters most: it is the first thing
+        // anybody hears, and half a sentence is not a hook.
+        window = snapToSpeechBreaks(window, ctx.words, {
+          driftSeconds: breathingRoom(coldOpen.seconds),
+          duration: source.duration,
+        });
       }
 
       // The hook is whatever of that window survived the earlier cuts; the

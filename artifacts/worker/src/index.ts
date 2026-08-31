@@ -22,6 +22,7 @@ import { renderPlan, probeDuration, probeSource, grabPosterFrame, FfmpegError } 
 import { encodePreview, previewPathFor } from "./preview";
 import { reviewOutput } from "./review";
 import { chooseClips } from "./highlight";
+import { snapToSpeechBreaks } from "./timeline";
 import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAllowanceMessage } from "./duration";
 import { enrichPlan } from "./enrich";
 import { resolveProviders } from "./providers";
@@ -729,6 +730,47 @@ async function renderClipSet(args: {
       ),
     );
   }
+  /*
+    Onto the pauses, which the clips path was not doing at all.
+
+    `extractHighlight` has snapped its window to word boundaries for a long
+    time. `extractClips` did not: its windows went straight into an
+    `extractRange` sub-plan, and `extractRange` deliberately never snaps —
+    a range somebody *named* ("from 1:20 to 2:10") is their choice and honouring
+    it exactly is the point. So the same product cut one clip on a word and six
+    clips wherever `start + thirty seconds` happened to fall, and nothing
+    anywhere said the two features had different standards.
+
+    Now both land on a real pause when one is within reach. The windows are
+    walked in order with each start floored at the previous end, because
+    `chooseClips` guarantees they do not overlap and a drifting boundary is
+    exactly the thing that could break that — two clips sharing a sentence read
+    as the same clip posted twice.
+  */
+  if (words.length > 0) {
+    const drift = Math.min(4, Math.max(0.75, clipsOp.targetSeconds * 0.15));
+    let floor = 0;
+    let moved = 0;
+    chosen.windows = chosen.windows.map((window) => {
+      const snapped = snapToSpeechBreaks(window, words, {
+        driftSeconds: drift,
+        duration: sourceSeconds,
+        notBefore: floor,
+      });
+      if (Math.abs(snapped.start - window.start) > 0.01 || Math.abs(snapped.end - window.end) > 0.01) moved += 1;
+      floor = snapped.end;
+      return snapped;
+    });
+    if (moved > 0) {
+      notes.push(
+        t(
+          `moved ${moved} clip edge${moved === 1 ? "" : "s"} onto a pause, so they start and end on a whole thought`,
+          `أزحت ${moved} من حواف القصاصات إلى سكتة، كي تبدأ وتنتهي عند فكرة كاملة`,
+        ),
+      );
+    }
+  }
+
   notes.push(
     chosen.how === "speech"
       ? t(

@@ -223,3 +223,125 @@ export function snapToWords(kept: Segment[], words: SpokenWord[]): Segment[] {
 
   return merged.filter((s) => s.end > s.start);
 }
+
+/**
+ * A gap between two words long enough to read as the end of a thought.
+ *
+ * Not punctuation — the recogniser does not give us any, and inventing
+ * sentence boundaries from grammar would need a model this stage does not
+ * have. It gives us times, and in speech the reliable signal is the breath:
+ * words inside a phrase sit tens of milliseconds apart, and a phrase boundary
+ * opens a gap you can hear.
+ *
+ * A third of a second is the shortest gap that is a break rather than a
+ * consonant. Below that, ordinary articulation crosses it constantly and every
+ * word would be a "sentence start", which is the same as having no boundaries
+ * at all.
+ */
+export const SPEECH_BREAK_SECONDS = 0.35;
+
+/** Where a thought could begin, and where one could end. */
+export interface SpeechBreaks {
+  /** Word starts that follow a real pause, earliest first. */
+  starts: { at: number; gap: number }[];
+  /** Word ends that are followed by one. */
+  ends: { at: number; gap: number }[];
+}
+
+/**
+ * The pauses in a transcript, as two lists of times.
+ *
+ * The first word's start and the last word's end are included with an infinite
+ * gap: the beginning and the end of the speech are the strongest boundaries
+ * there are, and a clip that starts where the talking starts never needs to be
+ * moved.
+ */
+export function speechBreaks(words: SpokenWord[], minGap = SPEECH_BREAK_SECONDS): SpeechBreaks {
+  const spoken = words.filter((w) => w.end > w.start).sort((a, b) => a.start - b.start);
+  if (spoken.length === 0) return { starts: [], ends: [] };
+
+  const starts = [{ at: spoken[0].start, gap: Infinity }];
+  const ends = [{ at: spoken[spoken.length - 1].end, gap: Infinity }];
+
+  for (let i = 0; i < spoken.length - 1; i += 1) {
+    const gap = spoken[i + 1].start - spoken[i].end;
+    if (gap >= minGap) {
+      ends.push({ at: spoken[i].end, gap });
+      starts.push({ at: spoken[i + 1].start, gap });
+    }
+  }
+
+  starts.sort((a, b) => a.at - b.at);
+  ends.sort((a, b) => a.at - b.at);
+  return { starts, ends };
+}
+
+/**
+ * Move a chosen window onto the edges of the speech inside it.
+ *
+ * The scorer that picks a window is looking for where the talking is densest,
+ * and it starts windows on word starts — so the boundary never lands inside a
+ * word. That is not the same as landing in a sensible place. A word start in
+ * the middle of a sentence is still the middle of a sentence, and a clip that
+ * opens on "...and that's why I think" is the single most obvious way an
+ * automatic edit announces itself. The right edge is worse: it is wherever
+ * `start + the length they asked for` happened to fall.
+ *
+ * So both edges move to the nearest real pause, within a budget. The budget is
+ * what keeps this honest: somebody asked for thirty seconds, and a clip that
+ * silently became forty-one because the sentences were long is not the thing
+ * they asked for. Inside the budget the *strongest* pause wins rather than the
+ * nearest one — a two-second silence is a better place to cut than a
+ * four-hundred-millisecond one, and both are equally allowed.
+ *
+ * The length is then held from the moved start, not from the original: the ask
+ * is a duration, so a start that moved back by a second takes its end with it
+ * rather than eating a second of the clip.
+ *
+ * Returns the window unchanged when there is no transcript, when nothing
+ * qualifies inside the budget, or when the result would be shorter than half
+ * what was asked for — the last because a clip cut down to nothing is worse
+ * than one that begins mid-sentence, and this function exists to improve a
+ * clip rather than to have an opinion at any price.
+ */
+export function snapToSpeechBreaks(
+  window: Segment,
+  words: SpokenWord[] | undefined,
+  options: { driftSeconds: number; duration: number; notBefore?: number },
+): Segment {
+  const asked = window.end - window.start;
+  if (!words || words.length === 0 || asked <= 0) return window;
+
+  const { starts, ends } = speechBreaks(words);
+  if (starts.length === 0) return window;
+
+  const drift = Math.max(0, options.driftSeconds);
+  const floor = options.notBefore ?? 0;
+
+  /** The strongest boundary within `drift` of `target`; null if there is none. */
+  const nearest = (list: { at: number; gap: number }[], target: number, lowest: number, highest: number) => {
+    let best: { at: number; gap: number } | null = null;
+    for (const candidate of list) {
+      if (candidate.at < lowest || candidate.at > highest) continue;
+      if (Math.abs(candidate.at - target) > drift) continue;
+      // Strongest first; among equals, the one that moves the edge least.
+      if (
+        best === null ||
+        candidate.gap > best.gap + 1e-9 ||
+        (Math.abs(candidate.gap - best.gap) < 1e-9 &&
+          Math.abs(candidate.at - target) < Math.abs(best.at - target))
+      ) {
+        best = candidate;
+      }
+    }
+    return best;
+  };
+
+  const startAt = nearest(starts, window.start, floor, options.duration)?.at ?? window.start;
+  const wantedEnd = Math.min(options.duration, startAt + asked);
+  const endAt = nearest(ends, wantedEnd, startAt, options.duration)?.at ?? wantedEnd;
+
+  const moved = { start: Math.max(floor, startAt), end: Math.min(options.duration, endAt) };
+  if (moved.end - moved.start < asked / 2) return window;
+  return moved;
+}

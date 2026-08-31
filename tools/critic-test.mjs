@@ -43,7 +43,7 @@ function bundle(entry, name) {
 }
 
 const { criticise } = await import(bundle("artifacts/worker/src/critic.ts", "critic.mjs"));
-const { remapTime, keepSegmentsFrom, snapToWords, MOTION_OVERSCAN } = await import(
+const { remapTime, keepSegmentsFrom, snapToWords, snapToSpeechBreaks, speechBreaks, SPEECH_BREAK_SECONDS, MOTION_OVERSCAN } = await import(
   bundle("artifacts/worker/src/timeline.ts", "timeline.mjs")
 );
 // The renderer must keep re-exporting these: two suites import them from there.
@@ -423,6 +423,104 @@ section("A cut never lands in the middle of a word");
 
   check("no words, no change", JSON.stringify(snapToWords(naive, [])) === JSON.stringify(naive));
   check("no segments, no crash", snapToWords([], words).length === 0);
+}
+
+section("A clip begins where a thought begins");
+{
+  /*
+    A window that starts on a word start is not the same as a window that
+    starts in a sensible place.
+
+    The scorer looks for where the talking is densest and starts its windows on
+    word starts, so a boundary never lands inside a word. It still lands in the
+    middle of a sentence, and a clip that opens on "...and that's why I think"
+    is the single most obvious way an automatic edit announces itself. The
+    right edge was worse: it was wherever `start + the length asked for` fell.
+
+    There is no punctuation in a transcript from a recogniser, so the boundary
+    is the breath: words inside a phrase sit tens of milliseconds apart, and a
+    phrase boundary opens a gap you can hear.
+  */
+  // Three sentences with clear pauses at 3.0-3.8 and 8.0-9.0.
+  const words = [
+    { start: 0.0, end: 0.6 }, { start: 0.65, end: 1.2 }, { start: 1.25, end: 2.0 },
+    { start: 2.05, end: 3.0 },
+    /* pause */
+    { start: 3.8, end: 4.4 }, { start: 4.45, end: 5.1 }, { start: 5.15, end: 6.0 },
+    { start: 6.05, end: 6.8 }, { start: 6.85, end: 8.0 },
+    /* pause */
+    { start: 9.0, end: 9.7 }, { start: 9.75, end: 10.6 }, { start: 10.65, end: 11.4 },
+  ];
+
+  const breaks = speechBreaks(words);
+  check(
+    "the pauses are found, and the ends of the speech count as the strongest",
+    breaks.starts.map((b) => b.at).join(",") === "0,3.8,9",
+    JSON.stringify(breaks.starts),
+  );
+  check(
+    "and so are the places a thought ends",
+    breaks.ends.map((b) => b.at).join(",") === "3,8,11.4",
+    JSON.stringify(breaks.ends),
+  );
+  check(
+    "a gap shorter than a breath is not a boundary",
+    speechBreaks([{ start: 0, end: 1 }, { start: 1.1, end: 2 }]).starts.length === 1,
+    // 0.1s is ordinary articulation. If that counted, every word would be a
+    // sentence start, which is the same as having no boundaries at all.
+    JSON.stringify(speechBreaks([{ start: 0, end: 1 }, { start: 1.1, end: 2 }])),
+  );
+
+  // A window the scorer might well choose: starts on a word, mid-sentence.
+  const naive = { start: 4.45, end: 9.45 };
+  const snapped = snapToSpeechBreaks(naive, words, { driftSeconds: 1, duration: 11.4 });
+  check("the start moves back to where the sentence began", near(snapped.start, 3.8), JSON.stringify(snapped));
+  check("and the end onto the pause after it", near(snapped.end, 8), JSON.stringify(snapped));
+  check(
+    "the length is held from the moved start, not from the original",
+    // Asked for 5s from 4.45. Moving the start back to 3.8 must not eat those
+    // 0.65 seconds: the end is measured from 3.8, then snapped.
+    snapped.end - snapped.start > naive.end - naive.start - 1.1,
+    `${(snapped.end - snapped.start).toFixed(2)}s vs ${(naive.end - naive.start).toFixed(2)}s asked`,
+  );
+
+  check(
+    "with no pause in reach it stays exactly where the scorer put it",
+    JSON.stringify(snapToSpeechBreaks(naive, words, { driftSeconds: 0.1, duration: 11.4 })) ===
+      JSON.stringify(naive),
+    // The budget is the honesty: somebody asked for five seconds, and a clip
+    // that quietly became eight because the sentences ran long is not it.
+    JSON.stringify(snapToSpeechBreaks(naive, words, { driftSeconds: 0.1, duration: 11.4 })),
+  );
+  check(
+    "and with no transcript at all",
+    JSON.stringify(snapToSpeechBreaks(naive, undefined, { driftSeconds: 5, duration: 11.4 })) ===
+      JSON.stringify(naive),
+    "",
+  );
+  check(
+    "a snap that would halve the clip is refused",
+    // Two boundaries close together could collapse a 5s ask to under a second.
+    // A clip cut down to nothing is worse than one that begins mid-sentence.
+    (() => {
+      const tight = snapToSpeechBreaks({ start: 2.05, end: 7.05 }, words, { driftSeconds: 4, duration: 11.4 });
+      return tight.end - tight.start >= 2.5;
+    })(),
+    JSON.stringify(snapToSpeechBreaks({ start: 2.05, end: 7.05 }, words, { driftSeconds: 4, duration: 11.4 })),
+  );
+  check(
+    "and a floor keeps one clip from drifting into the one before it",
+    snapToSpeechBreaks(naive, words, { driftSeconds: 2, duration: 11.4, notBefore: 4.2 }).start >= 4.2,
+    // chooseClips guarantees its windows do not overlap; a drifting boundary
+    // is exactly what could break that, and two clips sharing a sentence read
+    // as the same clip posted twice.
+    JSON.stringify(snapToSpeechBreaks(naive, words, { driftSeconds: 2, duration: 11.4, notBefore: 4.2 })),
+  );
+  check(
+    "the threshold is a breath, not a guess anybody has to look up",
+    SPEECH_BREAK_SECONDS >= 0.25 && SPEECH_BREAK_SECONDS <= 0.6,
+    String(SPEECH_BREAK_SECONDS),
+  );
 }
 
 section("Widening a cut on both sides cannot produce a stutter");

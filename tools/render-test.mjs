@@ -928,10 +928,34 @@ console.log("\nThe highlight is chosen from the words, cut for real, and honest 
     // that were written around one had to move with it. Matching the number is
     // the part that matters: a note that says which seconds it kept is the
     // difference between a claim and a receipt.
-    heard.notes.some((n) => /strongest 6s, 1[23]/.test(n)),
+    heard.notes.some((n) => /strongest [56]s, 1[23]/.test(n)),
     JSON.stringify(heard.notes),
   );
-  check("at roughly the asked length, allowing the word-boundary widening", heardSeconds > 5.4 && heardSeconds < 8, String(heardSeconds));
+  /*
+    And it now stops when the talking stops.
+
+    This fixture's speech runs 13.0 to 18.35 and the ask is six seconds, so the
+    window the scorer chooses is 13.0 to 19.0 — which ends two thirds of a
+    second into silence. That trailing dead air at the end of a clip is one of
+    the tells; the boundary moves back onto the end of the last word instead.
+
+    Which makes the clip 5.35s rather than 6s, and that is the trade this is
+    for: a length within the drift budget, spent on an edge that lands
+    somewhere. The budget is what keeps it honest, so the check is against the
+    budget rather than against "roughly" — 15% of the ask, floored at 0.75s.
+  */
+  const budget = Math.min(4, Math.max(0.75, 6 * 0.15));
+  check(
+    "at the asked length give or take the budget it is allowed to move",
+    Math.abs(heardSeconds - 6) <= budget + 0.35,
+    `${heardSeconds}s for a 6s ask, budget ${budget}s`,
+  );
+  check(
+    "and it ends where the speech ends rather than in the silence after it",
+    // The last word ends at 18.35. Ending at 19.0 would be 0.65s of nothing.
+    heardSeconds < 5.9,
+    String(heardSeconds),
+  );
 
   // ── Composed with silence removal: the silences are cut inside the window ──
   const both = await renderPlan(
