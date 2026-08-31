@@ -823,7 +823,9 @@ export function planFromText(
   }
 
   if (LOUDNESS_WORDS.test(text)) {
-    operations.push({ type: "normalizeLoudness", targetLufs: -14 });
+    // `voice` is decided at the end, once the whole sentence has been read —
+    // see the note above the loop below.
+    operations.push({ type: "normalizeLoudness", targetLufs: -14, voice: false });
     willDo.push(say("level the audio to what these platforms expect", "أضبط مستوى الصوت على ما تتوقّعه هذه المنصّات"));
   }
 
@@ -1105,6 +1107,23 @@ export function planFromText(
    * own.
    */
   cannotYet.push(...momentsNotHonoured(asked, operations));
+
+  /*
+    Whether the levelling should also take out what sits below a voice.
+
+    Decided here rather than where the operation is pushed, because the branch
+    that lays a music bed runs *after* that one — and this is the one question
+    the answer depends on. Below 80Hz there is room tone and no speech, so on a
+    talking clip the filter is free; under a track it is the bottom octave of a
+    kick drum, which is the part somebody chose that track for.
+
+    A sentence that asked for music gets the plain levelling. Everything else
+    is somebody talking, which is what this product is for.
+  */
+  const hasBed = operations.some((op) => op.type === "addMusic");
+  for (const operation of operations) {
+    if (operation.type === "normalizeLoudness") operation.voice = !hasBed;
+  }
 
   return { operations, willDo, cannotYet, language: languageOf(asked) };
 }

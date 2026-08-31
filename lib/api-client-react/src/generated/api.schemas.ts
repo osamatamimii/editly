@@ -453,6 +453,8 @@ export interface ZoomPunchOperation {
 export interface NormalizeLoudnessOperation {
   type: "normalizeLoudness";
   targetLufs?: number;
+  /** The clip is somebody talking, so take out what sits below their voice. Off by default: the same filter would take the bottom octave off a kick drum. */
+  voice?: boolean;
 }
 
 export interface WatermarkOperation {

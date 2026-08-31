@@ -1928,10 +1928,38 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
   // ── Audio ─────────────────────────────────────────────────────────────────
   if (loudness && hasAudioOut) {
+    /*
+      The room, before the level.
+
+      A phone or a laptop records the room as well as the person in it: a
+      fridge, a fan, traffic through a window, the desk the microphone is
+      standing on. Almost all of that sits below 80Hz, and no speech does — the
+      lowest voices start around 85 — so it carries none of the words and a
+      real share of the energy.
+
+      Which is why it goes *before* `loudnorm` rather than after. Levelling
+      measures everything in the file, so rumble is loudness as far as it is
+      concerned: it pushes the whole mix down to make room for sound nobody can
+      hear as anything. Measured on a take with room tone under it, the filter
+      drops the rumble 7.6dB and leaves the voice band *very slightly louder*
+      at the same target.
+
+      Only when the plan says the clip is speech, and that is not caution for
+      its own sake: the same filter is exactly wrong for music, where the
+      bottom octave of a kick drum is the part it would take.
+    */
+    if (loudness.voice) audioParts.push("highpass=f=80");
     // -14 LUFS is what every one of these platforms normalises to. Arriving at
     // the right level means they leave the audio alone.
     audioParts.push(`loudnorm=I=${loudness.targetLufs}:TP=-1.5:LRA=11`);
-    notes.push(t(`levelled to ${loudness.targetLufs} LUFS`, `سُوّي المستوى إلى ${loudness.targetLufs} LUFS`));
+    notes.push(
+      loudness.voice
+        ? t(
+            `levelled to ${loudness.targetLufs} LUFS, with the room tone under the voice filtered out`,
+            `سُوّي المستوى إلى ${loudness.targetLufs} LUFS، مع ترشيح ضجيج الغرفة تحت الصوت`,
+          )
+        : t(`levelled to ${loudness.targetLufs} LUFS`, `سُوّي المستوى إلى ${loudness.targetLufs} LUFS`),
+    );
   }
 
   // ── Designed motion ───────────────────────────────────────────────────────

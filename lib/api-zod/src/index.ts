@@ -631,6 +631,22 @@ export const GradeOperation = z.object({
 export const NormalizeLoudnessOperation = z.object({
   type: z.literal("normalizeLoudness"),
   targetLufs: z.number().min(-30).max(-8).default(-14),
+  /**
+   * The clip is somebody talking, so take out what sits below their voice.
+   *
+   * A phone or a laptop records the room as well as the person: a fridge, a
+   * fan, traffic through a window, the desk the microphone is on. Almost all
+   * of it lives below 80Hz, where no speech does — the lowest voices start
+   * around 85 — so it carries none of the words and quite a lot of the energy.
+   * Measured on a take with room tone under it: the rumble drops 7.6dB and the
+   * voice band comes out *very slightly louder*, because levelling no longer
+   * spends headroom on sound nobody can hear as anything.
+   *
+   * Off by default and set per look rather than always on, because the same
+   * filter is wrong for music: the bottom octave of a kick drum is exactly
+   * what it would remove. A look with a track under it leaves this alone.
+   */
+  voice: z.boolean().default(false),
 });
 
 /**

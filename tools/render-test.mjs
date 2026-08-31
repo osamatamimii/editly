@@ -633,6 +633,76 @@ console.log("\nAudio levelling");
   const after = measureLoudness(output);
   check("levelling lands within 2 LU of the target", Math.abs(after + 14) < 2, `${after} LUFS`);
   check("and says so", notes.some((n) => /-14 LUFS/.test(n)), JSON.stringify(notes));
+
+  /*
+    And the room under the voice, when the plan says the clip is speech.
+
+    A phone records the room as well as the person: a fridge, a fan, traffic,
+    the desk the microphone stands on. Almost all of it lives below 80Hz where
+    no speech does, so it carries none of the words and a real share of the
+    energy — and levelling *counts* it, pushing the whole mix down to make room
+    for sound nobody can hear as anything.
+
+    Measured on both sides, because either half alone would pass for the wrong
+    reason: a filter that removed everything would satisfy the first check and
+    ruin the clip, and one that did nothing would satisfy the second.
+  */
+  const rumbly = path.join(dir, "rumble.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=8",
+    // 180Hz stands in for a voice, 45Hz for the room it was recorded in.
+    "-f", "lavfi", "-i", "sine=frequency=180:duration=8",
+    "-f", "lavfi", "-i", "sine=frequency=45:duration=8",
+    "-filter_complex", "[1:a]volume=0.35[v];[2:a]volume=0.30[r];[v][r]amix=inputs=2:normalize=0[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", rumbly,
+  ]);
+
+  const bandRms = (file, filter) => {
+    const r = spawnSync("ffprobe", [
+      "-v", "error", "-f", "lavfi",
+      "-i", `amovie=${file},${filter},astats=metadata=1:reset=0`,
+      "-show_entries", "frame_tags=lavfi.astats.Overall.RMS_level",
+      "-of", "default=nw=1:nk=1",
+    ], { encoding: "utf8" });
+    const values = r.stdout.trim().split("\n").filter(Boolean).map(Number).filter(Number.isFinite);
+    return values.length > 0 ? values[values.length - 1] : NaN;
+  };
+
+  const plain = await renderPlan(
+    rumbly,
+    { version: 1, operations: [{ type: "normalizeLoudness", targetLufs: -14, voice: false }] },
+    { workDir: await scratch() },
+  );
+  const spoken = await renderPlan(
+    rumbly,
+    { version: 1, operations: [{ type: "normalizeLoudness", targetLufs: -14, voice: true }] },
+    { workDir: await scratch() },
+  );
+
+  const rumbleBefore = bandRms(plain.output, "lowpass=f=80");
+  const rumbleAfter = bandRms(spoken.output, "lowpass=f=80");
+  const voiceBefore = bandRms(plain.output, "highpass=f=120");
+  const voiceAfter = bandRms(spoken.output, "highpass=f=120");
+
+  check(
+    "on a speech clip the room under the voice is filtered out",
+    rumbleAfter < rumbleBefore - 4,
+    `${rumbleBefore.toFixed(1)}dB to ${rumbleAfter.toFixed(1)}dB below 80Hz`,
+  );
+  check(
+    "and the voice itself is not touched",
+    Math.abs(voiceAfter - voiceBefore) < 2,
+    // The half that matters. A high-pass set too high, or a filter that simply
+    // turned the clip down, would satisfy the check above and ruin the take.
+    `${voiceBefore.toFixed(1)}dB against ${voiceAfter.toFixed(1)}dB above 120Hz`,
+  );
+  check(
+    "the note says the room was filtered, and only when it was",
+    spoken.notes.some((n) => /room tone/.test(n)) && !plain.notes.some((n) => /room tone/.test(n)),
+    JSON.stringify([spoken.notes, plain.notes]),
+  );
 }
 
 console.log("\nCaptions on the frame");
