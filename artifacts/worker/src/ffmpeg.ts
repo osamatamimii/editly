@@ -43,6 +43,7 @@ import {
   MIN_SUBJECT_COVERAGE,
 } from "./framing";
 import { trackSubject, trackNote } from "./subject";
+import { overscanFor, scaleFor, takesFrom } from "./shots";
 import { keepSegmentsFrom, mergeSpans, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, MOTION_OVERSCAN, type RemovableSpan, type Segment, type SpokenWord } from "./timeline";
 import { tighten, type TightenResult } from "./tighten";
 import { placeSoundEffects, joinTimes, type SfxPalette } from "./sfx";
@@ -261,6 +262,14 @@ export function zoomExpression(
     totalFrames: number;
     kenBurns?: { to: number };
     punches?: Array<{ at: number; duration: number; amount: number }>;
+    /**
+     * Shot sizes held across stretches of the finished video, from `shots.ts`.
+     *
+     * `scale` is relative to the frame that was asked for: 1 is that frame, and
+     * anything below it pulls back into the overscan. These are the only terms
+     * here that can be negative, and the only ones with no ramp — see below.
+     */
+    takes?: Array<{ from: number; to: number; scale: number }>;
   },
 ): string {
   const { base, fps, totalFrames } = options;
@@ -278,6 +287,30 @@ export function zoomExpression(
     const outRamp = clampExpr(`(${(punch.at + punch.duration).toFixed(3)}-${t})/${RAMP}`);
     const amount = (punch.amount * base).toFixed(4);
     terms.push(`${amount}*min(${inRamp},${outRamp})`);
+  }
+
+  /*
+    A step, deliberately, where everything above it is a ramp.
+
+    A punch eases over a quarter of a second because the movement is the
+    emphasis. A shot size is the opposite: the illusion is that a second camera
+    was already running at this size, so the size has to be there in the first
+    frame of the shot with nothing travelling into it. Anything else is one
+    camera zooming across a cut, which is the amateur move this replaces.
+
+    `between` is inclusive at both ends, and that is safe here rather than
+    lucky: `alternateShots` merges neighbouring stretches of the same size, so
+    no two terms can ever be open at the same instant. The single frame that
+    lands exactly on a boundary belongs to the size that is ending, which is the
+    frame the cut is on anyway.
+  */
+  for (const take of options.takes ?? []) {
+    if (Math.abs(take.scale - 1) < 0.0005) continue;
+    // Parenthesised because a wide take's term is negative and the parts of
+    // this expression are joined with "+": `1.15+-0.15*...` is not something
+    // the expression parser reads, and the failure would be at render time.
+    const delta = ((take.scale - 1) * base).toFixed(4);
+    terms.push(`(${delta})*between(on/${fps.toFixed(4)},${take.from.toFixed(3)},${take.to.toFixed(3)})`);
   }
 
   return terms.join("+");
@@ -1345,6 +1378,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // `let`, because the critic revises these once it knows what the edit became.
   let kenBurns = find("kenBurns");
   let zoomPunch = find("zoomPunch");
+  const alternateFraming = find("alternateFraming");
   let captions = find("burnCaptions");
   const watermark = find("watermark");
   const loudness = find("normalizeLoudness");
@@ -2057,7 +2091,44 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   }
 
   // ── Framing ───────────────────────────────────────────────────────────────
-  const hasMotion = Boolean(kenBurns || zoomPunch);
+  //
+  // Shot sizes first, because whether there are any decides how wide the crop
+  // has to be, and the crop is the first thing built below.
+  //
+  // The decision is made from the cut, on the edited clock, and it is allowed
+  // to come back empty: too few pieces, or none long enough to hold a size.
+  // That is said out loud. An operation that quietly did nothing is the failure
+  // mode this repository keeps finding, and "alternate the framing" on a clip
+  // with one cut in it is exactly the shape of it.
+  const framingAmount = alternateFraming?.amount ?? 0;
+  const takes = alternateFraming ? takesFrom(kept, overlap, effectiveDuration) : [];
+  if (alternateFraming && takes.length === 0) {
+    notes.push(
+      t(
+        "left the framing alone: this edit has too few cuts to carry two shot sizes, and changing size once reads as a mistake rather than as coverage",
+        "تركت التأطير كما هو، في هذا التعديل قصّات أقلّ من أن تحمل حجمين، وتغيير الحجم مرّة واحدة يُقرأ خطأً لا تغطية",
+      ),
+    );
+  }
+
+  const hasMotion = Boolean(kenBurns || zoomPunch || takes.length > 0);
+  /*
+    How much wider than the delivered frame the picture is cropped.
+
+    Everything with motion in it is already cropped to `MOTION_OVERSCAN` so the
+    base zoom is a downscale rather than an upscale. The wide shot size lives in
+    exactly that margin, which is why the default costs nothing at all: at
+    `amount` 0.15 this is the same number it has always been. A larger pull-back
+    grows the crop instead of upscaling anything, and the price is paid once, in
+    scaling the source further, rather than on every wide frame.
+  */
+  const overscan = hasMotion ? overscanFor(MOTION_OVERSCAN, takes.length > 0 ? framingAmount : 0) : 1;
+  const takeScales = takes.map((take) => ({
+    from: take.from,
+    to: take.to,
+    scale: scaleFor(take.size, framingAmount),
+  }));
+
   let frameWidth = source.width;
   let frameHeight = source.height;
 
@@ -2085,7 +2156,6 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     // Crop wider than the target when something will move, so the base zoom is
     // a downscale rather than an upscale. lanczos because the default bilinear
     // is visibly softer on the large downscales this does.
-    const overscan = hasMotion ? MOTION_OVERSCAN : 1;
     const cropW = Math.round((target.w * overscan) / 2) * 2;
     const cropH = Math.round((target.h * overscan) / 2) * 2;
 
@@ -2194,8 +2264,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       t(`reframed to ${target.w}x${target.h} for ${reframe.platform}`, `أُعيد التأطير إلى ${target.w}x${target.h} لـ${reframe.platform}`),
     );
   } else if (hasMotion) {
-    const cropW = Math.round((source.width * MOTION_OVERSCAN) / 2) * 2;
-    const cropH = Math.round((source.height * MOTION_OVERSCAN) / 2) * 2;
+    const cropW = Math.round((source.width * overscan) / 2) * 2;
+    const cropH = Math.round((source.height * overscan) / 2) * 2;
     videoParts.push(`scale=${cropW}:${cropH}:flags=lanczos`, "setsar=1");
   }
 
@@ -2210,11 +2280,16 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     }));
 
     const z = zoomExpression({
-      base: MOTION_OVERSCAN,
+      // The overscan actually taken, not the constant. They are the same number
+      // unless a wide shot size asked for more, and passing the constant there
+      // would put the base zoom below the crop — every frame of the video
+      // wider than the person asked for, and nothing to say so.
+      base: overscan,
       fps,
       totalFrames,
       kenBurns: kenBurns ? { to: kenBurns.to } : undefined,
       punches,
+      takes: takeScales,
     });
 
     videoParts.push(
@@ -2227,6 +2302,20 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     if (punches.length > 0) {
       notes.push(
         t(`${punches.length} punch-in${punches.length === 1 ? "" : "s"}`, `${punches.length} تقريبة`),
+      );
+    }
+    if (takes.length > 0) {
+      // What the viewer can see, which is the number of *changes*, not the
+      // number of stretches. Neighbouring shots at one size are one take, and a
+      // note counting them separately would be counting something nobody
+      // watching the video could point at.
+      const changes = takes.length - 1;
+      const tight = takes.filter((take) => take.size === "tight").length;
+      notes.push(
+        t(
+          `cut between a wide and a tight version of the frame, changing size ${changes} time${changes === 1 ? "" : "s"} across ${takes.length} shots. ${tight} of them are the close one, and both sizes are native: the wide one is the margin the crop already had`,
+          `قطعت بين نسخة واسعة وأخرى ضيّقة من الكادر، وغيّرت الحجم ${changes} ${changes === 1 ? "مرّة" : "مرّات"} عبر ${takes.length} لقطات، منها ${tight} قريبة. والحجمان بدقّة أصلية، فالواسع هو الهامش الذي كان القصّ يأخذه أصلًا`,
+        ),
       );
     }
   }
@@ -3038,7 +3127,8 @@ export async function grabPosterFrame(video: string, seconds: number, destinatio
 function describeWork(plan: EditPlan): string {
   const types = new Set(plan.operations.map((o) => o.type));
   if (types.has("burnCaptions")) return "Cutting, reframing and burning captions";
-  if (types.has("kenBurns") || types.has("zoomPunch")) return "Cutting, reframing and adding motion";
+  if (types.has("kenBurns") || types.has("zoomPunch") || types.has("alternateFraming"))
+    return "Cutting, reframing and adding motion";
   if (types.has("removeSilence")) return "Cutting the silences and reframing";
   return "Rendering";
 }
@@ -3072,5 +3162,6 @@ export function describe(op: EditOperation): string {
     case "overlayImage": return "Laying your image over the frame";
     case "motionTitle": return "Animating your titles";
     case "soundEffects": return "Laying the sound effects in";
+    case "alternateFraming": return "Cutting between two shot sizes";
   }
 }

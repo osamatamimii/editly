@@ -239,6 +239,9 @@ jobs:
       - run: node tools/publisher-test.mjs
       - run: node tools/quality-test.mjs
       - run: node tools/framing-test.mjs
+      # Beside framing, because it is the other half of the same question: that
+      # one places the window, this one changes how wide it is across the cuts.
+      - run: node tools/shots-test.mjs
       - run: node tools/render-test.mjs
       - run: node tools/combination-test.mjs
       - run: node tools/promise-test.mjs

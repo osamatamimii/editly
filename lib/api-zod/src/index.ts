@@ -1223,6 +1223,27 @@ export const SoundEffectsOperation = z.object({
   onOpen: z.boolean().default(true),
 });
 
+/**
+ * Alternate between two shot sizes across the cuts.
+ *
+ * The one thing every human edit has and this one did not: coverage. A single
+ * camera at a single focal length is what an automatic edit looks like, and
+ * cutting between a wide and a tight version of the same window is what a
+ * second camera would have given. The renderer decides which shots get which
+ * size from where the cuts fell; nothing here is a number a person would want
+ * to argue about except how far apart the two sizes sit.
+ *
+ * `amount` is how far the wide size pulls back from the frame that was asked
+ * for, so the tight size is always the delivered frame at native resolution and
+ * the wide size is the overscan the renderer already crops and throws away. The
+ * default is exactly that margin, which is why it costs nothing; larger values
+ * widen the crop, which scales the picture from further into the source.
+ */
+export const AlternateFramingOperation = z.object({
+  type: z.literal("alternateFraming"),
+  amount: z.number().min(0.05).max(0.3).default(0.15),
+});
+
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
   TightenOperation,
@@ -1245,6 +1266,7 @@ export const EditOperation = z.discriminatedUnion("type", [
   OverlayImageOperation,
   MotionTitleOperation,
   SoundEffectsOperation,
+  AlternateFramingOperation,
 ]);
 export type EditOperation = z.infer<typeof EditOperation>;
 

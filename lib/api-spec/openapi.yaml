@@ -2293,6 +2293,7 @@ components:
         - $ref: "#/components/schemas/OverlayImageOperation"
         - $ref: "#/components/schemas/MotionTitleOperation"
         - $ref: "#/components/schemas/SoundEffectsOperation"
+        - $ref: "#/components/schemas/AlternateFramingOperation"
       discriminator:
         propertyName: type
 
@@ -3720,4 +3721,26 @@ components:
             the riser does not fit whole before it.
           type: boolean
           default: true
+      required: [type]
+
+    AlternateFramingOperation:
+      description: >
+        Alternate between two shot sizes across the cuts, so one camera reads as
+        two. The renderer decides which shots are wide and which are tight from
+        where the cuts fell; the tight size is the delivered frame at native
+        resolution and the wide size pulls back into the overscan the render
+        already crops away.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [alternateFraming]
+        amount:
+          description: >
+            How far the wide size pulls back from the frame that was asked for.
+            The default is the overscan already taken, so it costs no pixels.
+          type: number
+          minimum: 0.05
+          maximum: 0.3
+          default: 0.15
       required: [type]

@@ -763,6 +763,36 @@ const PUNCH_WORDS =
   /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b|زوم|تقريب|قرّب|قرِّب|حماس|طاقة|حيوية/i;
 const PUSH_WORDS =
   /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b|زوم بطيء|تقريب بطيء|حركة بطيئة|حركة سينمائية|كين بيرنز/i;
+
+/**
+ * Asking for coverage, which is what people call it when they do not know the
+ * word.
+ *
+ * Almost nobody types "alternate the framing". They type "make it look like two
+ * cameras", or "cut between wide and close", or «زي ما في كاميرتين» — the
+ * *effect*, described from the viewer's seat. So the vocabulary here is the
+ * effect's, and the operation's own name is not even in it.
+ *
+ * Deliberately not matching a bare "angle" or «زاوية». One angle is what this
+ * has; a person who says "shoot it from another angle" is asking for footage we
+ * do not have, and answering that with a crop is the product doing a different
+ * thing and reporting it as the thing asked for.
+ */
+const COVERAGE_WORDS =
+  /\btwo (?:cameras?|angles?|shot sizes?)\b|\bsecond camera\b|\bmulti-?cam\b|\bcoverage\b|\bwide and (?:close|tight)\b|\b(?:close|tight) and wide\b|\bdifferent shot sizes?\b|\bvary the (?:framing|shots?|shot sizes?)\b|\bchange up the framing\b|كاميرتين|كاميرا ثانية|كاميرتان|حجمين|حجمان|قريبة وبعيدة|بعيدة وقريبة|نوّع الكادر|نوع الكادر|تنويع الكادر|تغيير حجم اللقطة/i;
+
+/*
+  The refusal, written the same minute as the request it negates.
+
+  This file's own history is the argument: "no captions" added captions and
+  "keep the silence" cut it, both because a generous request pattern shipped
+  without one of these beside it. The framing is the sentence people are most
+  likely to be firm about — somebody who composed a shot and wants it left alone
+  says so — so a request pattern here without its negation would be the same
+  failure a third time.
+*/
+const NO_COVERAGE_WORDS =
+  /\bkeep the (?:framing|frame|shot|composition)\b|\bsame framing\b|\bdon'?t (?:change|touch|move) the (?:framing|frame|shot size|composition)\b|\bone (?:angle|shot size)\b|\bno (?:reframing|zoom(?:ing)?)\b|خلّي (?:الكادر|التأطير)|خلي (?:الكادر|التأطير)|لا تغيّر (?:الكادر|التأطير|حجم اللقطة)|لا تغير (?:الكادر|التأطير|حجم اللقطة)|بدون تغيير (?:الكادر|التأطير)|زاوية واحدة|حجم واحد/i;
 /**
  * "level the audio" was not in here, and that is the phrase this file's own
  * reply uses: "I'll level the audio to what these platforms expect". The
@@ -1048,6 +1078,23 @@ export function planFromText(
             `أقرّب الصورة عند ${moments.map(clockOf).join("، ")}`,
           )
         : say("punch in where you lean on a word", "أقرّب الصورة عند الكلمات التي تشدّد عليها"),
+    );
+  }
+
+  /*
+    Coverage is read after the two zooms and independently of them, because it
+    is not one of them. A slow push and a punch both move the frame *within* a
+    shot; this changes the frame *between* shots and never moves it. Someone who
+    asks for both should get both, and the renderer's own ceiling keeps the
+    compound zoom inside the pixels the crop reserved.
+  */
+  if (COVERAGE_WORDS.test(text) && !NO_COVERAGE_WORDS.test(text)) {
+    operations.push({ type: "alternateFraming", amount: 0.15 });
+    willDo.push(
+      say(
+        "cut between a wide and a close version of the frame, so one camera reads as two",
+        "أقطع بين نسخة واسعة وأخرى قريبة من الكادر، فتبدو الكاميرا الواحدة كاميرتين",
+      ),
     );
   }
 

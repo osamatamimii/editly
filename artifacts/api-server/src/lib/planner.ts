@@ -94,6 +94,7 @@ function buildSchema(assets: PlannerAsset[]) {
     "autoCaptions",
     "kenBurns",
     "zoomPunch",
+    "alternateFraming",
     "normalizeLoudness",
     "motionTitle",
     "grade",
@@ -346,6 +347,12 @@ function instructionFor(assets: PlannerAsset[]): string {
     "zoomPunch has punchOn: emphasis puts the punches where the speaker leans on a word, beat puts them on the",
     "music instead. Choose beat only when they asked for the cuts to follow the beat, and only when this project",
     "has a track to follow. Otherwise emphasis.",
+    "alternateFraming cuts between a wide and a tight version of the same frame across the cuts, so one",
+    "camera reads as two. Choose it when they ask for coverage, for two cameras or two angles, for wide and",
+    "close, for the framing to vary, or for it to look less like one static shot. It is not kenBurns and not",
+    "zoomPunch: those move the frame during a shot, this changes it between shots and never moves it. It needs",
+    "cuts to work, so it belongs with an edit that makes them; the worker leaves the frame alone and says so",
+    "when there are too few. Never choose it when they ask for the framing or the composition to be left alone.",
     "grade sets a named look: warm, cool, cinematic, mono (black and white) or punch. Choose it when they ask",
     "for a look or a colour, and choose the one they named. Cinematic is the teal-and-orange film look, punch is",
     "just more contrast and colour. If they name no look you have, choose no grade rather than guessing at one.",
@@ -644,6 +651,15 @@ function toOperation(
         };
       case "kenBurns":
         return { type, to: numberOr(raw["zoomTo"], 1.08) };
+      case "alternateFraming":
+        /*
+          No number from the model. How far the two sizes sit apart is the one
+          value here, it is measured against the overscan the renderer already
+          takes, and a model asked for it would be guessing at a constant it
+          cannot see. The default is exactly that margin, which is the only
+          value that costs nothing.
+        */
+        return { type };
       case "zoomPunch": {
         // Empty `at` is the plan saying "you choose" — the worker puts them on
         // the emphasis, which it can only know after hearing the clip, or on
@@ -951,6 +967,11 @@ function describeAll(operations: EditOperation[]): Phrase[] {
         return { en: "caption it from what is actually said", ar: "أكتب الترجمة من الكلام المنطوق نفسه" };
       case "kenBurns":
         return { en: "add a slow push so the frame is not static", ar: "أضيف حركة بطيئة كي لا تبقى الصورة ثابتة" };
+      case "alternateFraming":
+        return {
+          en: "cut between a wide and a close version of the frame, so one camera reads as two",
+          ar: "أقطع بين نسخة واسعة وأخرى قريبة من الكادر، فتبدو الكاميرا الواحدة كاميرتين",
+        };
       case "zoomPunch":
         // Two punches, two sentences.
         //

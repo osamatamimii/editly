@@ -154,6 +154,14 @@ const PAIRS = [
     expect: ["zoomPunch"],
   },
   {
+    // Nobody types the operation's name. Both of these are the effect described
+    // from the viewer's seat, which is the only way this is ever asked for.
+    what: "two shot sizes out of one camera",
+    en: "cut between wide and close so it looks like two cameras",
+    ar: "خليه يبان كأنه مصوّر بكاميرتين",
+    expect: ["alternateFraming"],
+  },
+  {
     what: "the slow push",
     en: "give it a slow push",
     ar: "حركة بطيئة على الصورة",
