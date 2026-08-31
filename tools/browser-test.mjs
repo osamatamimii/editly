@@ -2133,15 +2133,26 @@ section("Every field that carries the person's words declares its direction");
   for (const [file, expression, why] of CARRIES_THEIR_WORDS) {
     const source = readFileSync(path.join(repoRoot, "artifacts/editly/src", file), "utf8");
 
-    // Every place the expression appears, minus the ones that are an
-    // attribute's value rather than rendered text. `alt={project.title}` is
-    // read aloud, not laid out, and demanding a direction of it would be a
-    // check nobody could satisfy honestly — which is how a rule gets a
-    // meaningless `dir` added to shut it up. The tell is the character before
-    // the brace: `=` means it is an attribute.
+    /*
+      Every place the expression appears, minus the ones that are an
+      attribute's value rather than rendered text. `alt={project.title}` is read
+      aloud, not laid out, and demanding a direction of it would be a check
+      nobody could satisfy honestly — which is how a rule gets a meaningless
+      `dir` added to shut it up.
+
+      Two tells, and the second was added when the first was not enough. `=`
+      immediately before the brace catches `alt={project.title}`. It does not
+      catch `aria-label={`Delete ${project.title}`}`, where the character before
+      is a `$` — so the occurrence is also treated as an attribute when it sits
+      inside a quoted or backticked value, which is what an odd number of
+      unescaped quotes between the opening `<` and here means.
+    */
     const rendered = [];
     for (let at = source.indexOf(expression); at >= 0; at = source.indexOf(expression, at + 1)) {
       if (!expression.includes("=") && source[at - 1] === "=") continue;
+      const sinceTag = source.slice(source.lastIndexOf("<", at), at);
+      const quotes = (sinceTag.match(/(?<!\\)["`]/g) ?? []).length;
+      if (quotes % 2 === 1) continue;
       rendered.push(at);
     }
 
