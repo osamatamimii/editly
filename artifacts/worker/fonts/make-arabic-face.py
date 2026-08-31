@@ -94,16 +94,27 @@ INVISIBLE = [
 ]
 
 
-def fetch(url: str, to: Path) -> Path:
+def fetch(url: str, to: Path, normalise_newlines: bool = False) -> Path:
+    """
+    Download once, and land the same bytes every time.
+
+    `normalise_newlines` is for the licence, which upstream serves with CRLF.
+    Committed as it arrives, `git am` rewrites it to LF on the way in and the
+    tree that comes out of a patch is not the tree that went in — which turns
+    "the patch applied cleanly" into a claim that is not quite true. A licence
+    is text; LF is what the rest of this repository uses.
+    """
     if not to.exists():
         print(f"downloading {to.name}")
         urllib.request.urlretrieve(url, to)
+        if normalise_newlines:
+            to.write_bytes(to.read_bytes().replace(b"\r\n", b"\n"))
     return to
 
 
 def main() -> None:
     source = fetch(UPSTREAM, HERE / "Cairo-variable.ttf")
-    fetch(LICENCE, HERE / "Cairo-OFL.txt")
+    fetch(LICENCE, HERE / "Cairo-OFL.txt", normalise_newlines=True)
 
     font = instancer.instantiateVariableFont(
         ttLib.TTFont(source), {"wght": WEIGHT, "slnt": 0}, inplace=False, updateFontNames=True
