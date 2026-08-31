@@ -1758,6 +1758,15 @@ components:
           type: number
         maxUploadMinutes:
           type: number
+        maxUploadBytes:
+          type: number
+          description: >-
+            The ceiling Storage actually enforces, read from the bucket. Our
+            rule is `maxUploadMinutes`; this one is somebody else's, and on
+            Supabase's free plan it is 50 MB per object. Sent rather than
+            compiled into the front end so that changing the plan does not need
+            a redeploy before uploads stop being refused for a limit that no
+            longer exists.
         watermark:
           type: boolean
         referenceStyle:
@@ -1770,6 +1779,7 @@ components:
         - minutesUsedThisMonth
         - minutesRemaining
         - maxUploadMinutes
+        - maxUploadBytes
         - watermark
         - referenceStyle
         - pricePerMonth

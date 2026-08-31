@@ -38,7 +38,7 @@ import {
   MAX_REFERENCE_BYTES,
   usePlayableVideo,
   ACCEPTED_VIDEO_TYPES,
-  MAX_UPLOAD_BYTES,
+  uploadCeiling,
   formatBytes,
   readVideoFacts,
   captureThumbnail,
@@ -489,10 +489,13 @@ export default function ProjectEditor() {
       });
       return;
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
+    // Storage's ceiling, served from the subscription, not the one baked into
+    // this bundle at build time.
+    const ceiling = uploadCeiling(subscription);
+    if (file.size > ceiling) {
       toast({
         title: "File too large",
-        description: `That file is ${formatBytes(file.size)}. The current limit is ${formatBytes(MAX_UPLOAD_BYTES)} per video.`,
+        description: `That file is ${formatBytes(file.size)}. The current limit is ${formatBytes(ceiling)} per video.`,
         variant: "destructive"
       });
       return;
@@ -1364,7 +1367,7 @@ export default function ProjectEditor() {
                     </div>
                     <h3 className="text-xl font-semibold mb-2">Upload Raw Footage</h3>
                     <p className="text-muted-foreground mb-2">Drag and drop or click to browse</p>
-                    <p className="text-xs text-muted-foreground/60 mb-6">MP4, MOV or WebM &bull; up to {formatBytes(MAX_UPLOAD_BYTES)}</p>
+                    <p className="text-xs text-muted-foreground/60 mb-6">MP4, MOV or WebM &bull; up to {formatBytes(uploadCeiling(subscription))}</p>
                     <Button variant="secondary" className="rounded-full pointer-events-none">
                       Select Video
                     </Button>

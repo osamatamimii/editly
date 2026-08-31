@@ -607,8 +607,28 @@ section("A file the storage plan will not take is refused in words");
     }
   });
 
-  check("the person is told what the limit is", /8\.0 MB/.test(message ?? ""), message);
+  /*
+    A number they can act on, and not the wrong one.
+
+    This used to require the message to name the limit, and the limit it named
+    was `MAX_UPLOAD_BYTES` — a value compiled into the bundle. But a 413 is
+    only reached when the file *passed* the check made against that value, so
+    the one thing we know at this point is that the number is not the number
+    Storage is enforcing. The old message therefore read "your 1 KB file is
+    larger than the 8.0 MB limit", which argues with itself and sends the
+    person to support.
+
+    So the rule is now about the property the original was reaching for: the
+    sentence carries a real size, not a status code. The size of their file is
+    the number we actually know.
+  */
+  check("the person is told a size and not a status code", /\d[\d.]*\s?(KB|MB|GB)/.test(message ?? ""), message);
   check("rather than a status code", !/413/.test(message ?? ""), message);
+  check(
+    "and it never states a limit it has just been proved wrong about",
+    !/larger than the/.test(message ?? ""),
+    message,
+  );
 }
 
 section("A reference clip is capped before the network is touched");

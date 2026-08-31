@@ -281,6 +281,11 @@ export interface SubscriptionUsage {
   minutesUsedThisMonth: number;
   minutesRemaining: number;
   maxUploadMinutes: number;
+  /**
+   * The ceiling Storage actually enforces, in bytes, read from the bucket.
+   * `maxUploadMinutes` is our rule; this one is somebody else's.
+   */
+  maxUploadBytes: number;
   watermark: boolean;
   referenceStyle: boolean;
   pricePerMonth: number;

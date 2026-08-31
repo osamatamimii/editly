@@ -154,6 +154,21 @@ export const SubscriptionUsage = z.object({
   minutesUsedThisMonth: z.number(),
   minutesRemaining: z.number(),
   maxUploadMinutes: z.number(),
+  /**
+   * And the ceiling that is actually enforced, in bytes, read from Storage.
+   *
+   * `maxUploadMinutes` is our rule and this is somebody else's: a bucket
+   * refuses an object over its own limit whatever the plan says, and on
+   * Supabase's free plan that limit is 50 MB — around ninety seconds of what
+   * this renderer encodes, against a page that sells four-hour episodes.
+   *
+   * It is sent rather than compiled into the front end because the front end's
+   * copy was a build-time variable whose own comment claimed that moving the
+   * ceiling would need no code change. It would have needed a redeploy, and
+   * until somebody did one, uploads would go on being refused for a limit that
+   * no longer existed.
+   */
+  maxUploadBytes: z.number(),
   watermark: z.boolean(),
   referenceStyle: z.boolean(),
   pricePerMonth: z.number(),

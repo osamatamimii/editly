@@ -121,7 +121,7 @@ const FIXTURES = {
   "/api/projects": PROJECTS,
   "/api/subscription": {
     plan: "creator", minutesIncluded: 60, minutesGranted: 0, minutesUsedThisMonth: 12.5,
-    minutesRemaining: 47.5, maxUploadMinutes: 30, watermark: false, referenceStyle: true, pricePerMonth: 12,
+    minutesRemaining: 47.5, maxUploadMinutes: 30, maxUploadBytes: 50 * 1024 * 1024, watermark: false, referenceStyle: true, pricePerMonth: 12,
   },
   // The admin console. It is the one screen in this product nobody has ever
   // looked at on a phone, and it is also the one somebody looks at *from* a

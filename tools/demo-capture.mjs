@@ -142,7 +142,7 @@ function answer(pathname, method) {
   if (pathname === `/api/projects/${PROJECT_ID}/clips`) return [];
   if (pathname === `/api/projects/${PROJECT_ID}/export/status`) return { state: "idle" };
   if (pathname === "/api/subscription") {
-    return { plan: "creator", minutesIncluded: 60, minutesGranted: 0, minutesUsedThisMonth: 12.5, minutesRemaining: 47.5, maxUploadMinutes: 30, watermark: false, referenceStyle: true, pricePerMonth: 12 };
+    return { plan: "creator", minutesIncluded: 60, minutesGranted: 0, minutesUsedThisMonth: 12.5, minutesRemaining: 47.5, maxUploadMinutes: 30, maxUploadBytes: 50 * 1024 * 1024, watermark: false, referenceStyle: true, pricePerMonth: 12 };
   }
   if (pathname === "/api/templates") {
     return [

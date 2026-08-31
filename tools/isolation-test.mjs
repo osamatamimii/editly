@@ -1385,6 +1385,37 @@ console.log("\nPer-user statistics and quota");
     typeof aliceSub.json?.minutesUsedThisMonth === "number" && aliceSub.json?.videosUsedThisMonth === undefined,
     JSON.stringify(aliceSub.json),
   );
+
+  /*
+    And the ceiling that is not ours.
+
+    `maxUploadMinutes` is our rule. `maxUploadBytes` is the bucket's, and it is
+    the one that actually refuses a file: on Supabase's free plan it is 50 MB
+    per object, roughly ninety seconds of what this renderer encodes, against a
+    pricing page that sells four-hour episodes.
+
+    It was a build-time variable in the front end, under a comment claiming
+    that moving the ceiling would need no code change. It would have needed a
+    redeploy — and until somebody did one, uploads would go on being refused
+    for a limit that no longer existed, with that number in the sentence.
+
+    Served now. This deployment cannot reach Storage, so what is under test
+    here is the half that matters for correctness: the field is always a usable
+    number, because a screen that reads `undefined` here would compare every
+    file against NaN and accept all of them.
+  */
+  check(
+    "the upload ceiling Storage enforces is served, not compiled into the page",
+    typeof aliceSub.json?.maxUploadBytes === "number" && aliceSub.json.maxUploadBytes > 0,
+    JSON.stringify(aliceSub.json?.maxUploadBytes),
+  );
+  check(
+    "and it falls back to a real number when Storage cannot be asked",
+    // Not null and not zero: `file.size > null` is false, so a missing ceiling
+    // would silently accept every file and fail at the end of the upload.
+    aliceSub.json?.maxUploadBytes === 50 * 1024 * 1024,
+    JSON.stringify(aliceSub.json?.maxUploadBytes),
+  );
 }
 
 console.log("\nBilling integrity");

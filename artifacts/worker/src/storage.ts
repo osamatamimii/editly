@@ -220,16 +220,39 @@ export async function downloadObject(key: string, destination: string): Promise<
 }
 
 /**
- * The ceiling Storage itself enforces, so the message can name a number.
+ * What the bucket says its own per-object ceiling is, asked only when it matters.
  *
- * Not our rule and not enforced here — the bucket decides, and it answers 413
- * when it disagrees. This is only what we *say* when it does, and it is
- * configuration rather than a constant because the day the project's plan
- * changes, the true number changes with no deploy. It is 50 MB on Supabase's
- * free plan, which is around ninety seconds of 1080p at the quality this
- * renderer encodes at.
+ * The first version of this was an environment variable holding 50 MB, which
+ * is Supabase's free-plan limit today. Two things were wrong with that and
+ * they are the same thing: it is a copy of somebody else's number, so it is
+ * wrong from the moment the plan changes, and it is quoted in a sentence
+ * written at the exact moment we have been proved not to know it. "Your 12MB
+ * edit is over the 50MB limit" is a message that argues with itself.
+ *
+ * So the number is asked for, on the failure path only — one request, after a
+ * 413 has already happened, which is a place where an extra round trip costs
+ * nothing and a wrong number costs a support conversation. Null when Storage
+ * will not say, and the sentence then says less rather than guessing.
  */
-const STATED_OBJECT_LIMIT_BYTES = Number(process.env["STORAGE_MAX_OBJECT_BYTES"]) || 50 * 1024 * 1024;
+async function bucketObjectLimit(): Promise<number | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/storage/v1/bucket/${VIDEOS_BUCKET}`, {
+        headers: headers(),
+        signal: controller.signal,
+      });
+      if (!res.ok) return null;
+      const raw = ((await res.json()) as { file_size_limit?: unknown } | null)?.file_size_limit;
+      return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
+}
 
 export async function uploadObject(key: string, source: string, contentType = "video/mp4"): Promise<void> {
   assertSafeKey(key);
@@ -290,15 +313,16 @@ export async function uploadObject(key: string, source: string, contentType = "v
   // a phone compresses at a low bitrate and this renderer encodes at CRF 18,
   // so an upload that fit can produce an output that does not.
   if (res.status === 413) {
-    // Two sentences, because the number we state is configuration and the
-    // refusal is fact. When a file *under* the stated limit is refused, the
-    // stated limit is the thing that is wrong, and repeating it would produce
-    // a sentence that argues with itself — "it is 12MB and the limit is 50MB,
-    // so it did not fit" — which is worse than saying less.
+    // The limit from the bucket itself, and only if it agrees that this file
+    // is over it. A ceiling that says the file should have fit is a ceiling we
+    // have just been proved wrong about, and quoting it would produce a
+    // sentence that argues with itself.
+    const limit = await bucketObjectLimit();
+    const worthStating = limit !== null && size > limit;
     throw new StorageTransferError(
-      size > STATED_OBJECT_LIMIT_BYTES
+      worthStating
         ? `Your edit was made, but it is ${inMegabytes(size)} and storage will not accept a file over ` +
-          `${inMegabytes(STATED_OBJECT_LIMIT_BYTES)}. Nothing was billed. A shorter edit will fit.`
+          `${inMegabytes(limit)}. Nothing was billed. A shorter edit will fit.`
         : `Your edit was made, but storage refused it as too large at ${inMegabytes(size)}. ` +
           `Nothing was billed. A shorter edit will fit.`,
     );

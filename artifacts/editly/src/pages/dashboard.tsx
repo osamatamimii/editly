@@ -34,7 +34,7 @@ import {
   deleteProjectVideos,
   usePlayableVideo,
   ACCEPTED_VIDEO_TYPES,
-  MAX_UPLOAD_BYTES,
+  uploadCeiling,
   formatBytes,
 } from "@/lib/video-storage";
 import { stashPendingUpload, titleFromFilename } from "@/lib/pending-upload";
@@ -282,10 +282,14 @@ export default function Dashboard() {
       });
       return;
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
+    // The ceiling Storage will actually enforce, not the one this bundle was
+    // built with. They are the same number today and stop being the same the
+    // morning the storage plan changes.
+    const ceiling = uploadCeiling(subscription);
+    if (file.size > ceiling) {
       toast({
         title: "File too large",
-        description: `That file is ${formatBytes(file.size)}. The current limit is ${formatBytes(MAX_UPLOAD_BYTES)} per video.`,
+        description: `That file is ${formatBytes(file.size)}. The current limit is ${formatBytes(ceiling)} per video.`,
         variant: "destructive",
       });
       return;

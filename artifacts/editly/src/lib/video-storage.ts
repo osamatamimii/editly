@@ -12,19 +12,41 @@ import { supabase } from "./supabase";
 export const VIDEOS_BUCKET = "videos";
 
 /**
- * The largest file we will accept.
+ * The largest file we will accept, when nothing better has arrived yet.
  *
- * This is not our number. Supabase enforces a per-project upload ceiling, and
- * on the free plan that ceiling is 50 MB — roughly two minutes of phone video.
- * Raising it is a plan change on their side, not an edit here, which is why the
- * value is configuration rather than a constant: the day the ceiling moves,
- * nothing in this codebase needs to be touched.
+ * This is not our number. Supabase enforces a per-object ceiling on the bucket,
+ * and on the free plan that ceiling is 50 MB — roughly ninety seconds of what
+ * this product encodes. Raising it is a plan change on their side.
+ *
+ * This constant used to be the whole story, and its own comment said the thing
+ * that was wrong with it: "the value is configuration rather than a constant:
+ * the day the ceiling moves, nothing in this codebase needs to be touched."
+ * That is not what a Vite variable is. It is read when the bundle is *built*,
+ * so on the morning the plan changed the app would go on refusing files at the
+ * old number, naming it confidently in the message, until somebody remembered
+ * to set a variable and redeploy.
+ *
+ * So the real ceiling now comes from the server, which asks Storage — see
+ * `maxUploadBytes` on the subscription. This is the fallback for the moment
+ * before that answer arrives, and for a deployment where Storage will not say.
  *
  * The uploader below is already built for what comes after: files above
  * RESUMABLE_THRESHOLD go up in chunks and survive a dropped connection, so a
  * two-hour podcast is a long upload rather than an impossible one.
  */
 export const MAX_UPLOAD_BYTES = Number(import.meta.env.VITE_MAX_UPLOAD_BYTES) || 50 * 1024 * 1024;
+
+/**
+ * The ceiling to enforce, given what the subscription said.
+ *
+ * A helper rather than three copies of `??`, because the failure it prevents is
+ * one screen using the served number and another using the built-in one, which
+ * is a product that refuses a file on one page and accepts it on the next.
+ */
+export function uploadCeiling(subscription?: { maxUploadBytes?: number } | null): number {
+  const served = subscription?.maxUploadBytes;
+  return typeof served === "number" && served > 0 ? served : MAX_UPLOAD_BYTES;
+}
 
 /**
  * Above this, upload resumably. Supabase's resumable endpoint requires exactly
@@ -406,7 +428,13 @@ export function uploadProjectVideo(options: {
       } catch {
         /* Storage returned a non-JSON error page */
       }
-      if (xhr.status === 413) message = `This file is larger than the ${formatBytes(MAX_UPLOAD_BYTES)} limit.`;
+      // Reached only when the ceiling this page checked against was wrong, so
+      // it does not repeat that number: a sentence that says "your 12MB file
+      // is over the 50MB limit" is worse than one that says less. The size is
+      // ours to state; the limit, at this point, is not.
+      if (xhr.status === 413) {
+        message = `Storage refused this file as too large at ${formatBytes(file.size)}.`;
+      }
       reject(new UploadError(message));
     };
 
@@ -478,7 +506,7 @@ function uploadResumably(options: {
         "x-upsert": "true",
       },
     });
-    if (!response.ok) throw new UploadError(await uploadErrorText(response));
+    if (!response.ok) throw new UploadError(await uploadErrorText(response, file.size));
 
     const location = response.headers.get("location");
     if (!location) throw new UploadError("Storage did not return somewhere to upload to.");
@@ -563,9 +591,14 @@ function uploadResumably(options: {
   };
 }
 
-async function uploadErrorText(response: Response): Promise<string> {
+async function uploadErrorText(response: Response, size?: number): Promise<string> {
+  // Same reasoning as the direct uploader: getting here means the ceiling the
+  // page enforced was not the one Storage holds, so naming it again would be
+  // stating a number we can see is wrong.
   if (response.status === 413) {
-    return `This file is larger than the ${formatBytes(MAX_UPLOAD_BYTES)} limit your storage plan allows.`;
+    return size
+      ? `Storage refused this file as too large at ${formatBytes(size)}.`
+      : "Storage refused this file as too large.";
   }
   try {
     const body = await response.json();

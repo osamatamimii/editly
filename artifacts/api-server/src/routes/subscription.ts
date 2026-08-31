@@ -6,6 +6,7 @@ import { DEFAULT_PLAN, PLAN_LIMITS, planKeyFrom, type PlanKey } from "../lib/pla
 import { usageFor } from "../lib/usage";
 import { currentUserId, currentUserEmail } from "../middlewares/auth";
 import { claimPaidEvents } from "../lib/claim-paid-events";
+import { effectiveUploadLimitBytes } from "../lib/storage-limits";
 
 const router: IRouter = Router();
 
@@ -69,6 +70,7 @@ async function buildUsageResponse(userId: string, plan: string) {
     minutesUsedThisMonth: usage.minutesUsed,
     minutesRemaining: usage.minutesRemaining,
     maxUploadMinutes: limits.maxUploadMinutes,
+    maxUploadBytes: await effectiveUploadLimitBytes(),
     watermark: limits.watermark,
     referenceStyle: limits.referenceStyle,
     pricePerMonth: limits.pricePerMonth,
