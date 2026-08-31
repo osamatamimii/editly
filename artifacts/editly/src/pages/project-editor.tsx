@@ -1422,7 +1422,24 @@ export default function ProjectEditor() {
                 screen felt tight. Only the frame needs to be portrait; the
                 controls belong to the screen.
               */}
-              <div className="w-full min-w-0 flex flex-col items-center justify-center gap-3">
+              {/*
+                Top of the stage on a phone, centre of it from a tablet up.
+
+                The stage is `flex-1`, so it takes whatever height the sheet and
+                the looks row leave — which is right for a 9:16 clip and wrong
+                for a wide one. A 16:9 picture is 201px tall on a 390px screen,
+                and centring it in 520px of stage put a 150px band of nothing
+                above the video and another below it: a third of the phone
+                spent on gaps that sit either side of the one thing being
+                looked at.
+
+                Aligning to the top collects that slack into one band above the
+                looks row instead of two around the picture, so the video, its
+                controls and the mark button read as a group starting where the
+                header ends. On a wide screen there is no slack to collect and
+                centred is right, so it stays centred there.
+              */}
+              <div className="w-full min-w-0 flex flex-col items-center justify-start lg:justify-center gap-3">
                 <div
                   className="force-dark relative rounded-2xl overflow-hidden glass-panel border border-hairline text-foreground"
                   style={{
@@ -1517,12 +1534,47 @@ export default function ProjectEditor() {
                         sentence is shorter, because the long version was mostly
                         reassurance and the first line already carries the fact.
                       */
-                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 overflow-y-auto bg-black/85 px-4 py-6 text-center">
+                      /*
+                        And it leaves room for the transport underneath it.
+
+                        The bar is `z-30` and this is `z-20`, so on a phone it
+                        was drawn straight across the middle of the sentence
+                        explaining why the frame is black. Raising this above
+                        the bar only inverts the problem.
+
+                        The transport stays, and that is the part worth writing
+                        down: a scrubber over a video this browser cannot decode
+                        looks useless and is not. The container's duration is
+                        known even when its codec cannot be decoded, so the
+                        playhead moves, the timecode is real, and "Note this
+                        moment" still pins to the second somebody chose. Being
+                        unable to *see* the frame does not stop anybody pointing
+                        at it.
+
+                        So this sits at the top of the frame on a phone and
+                        centres from a tablet up. A 16:9 frame on a phone is
+                        about 210px tall and the bar takes the bottom hundred of
+                        it; centring what is left put the sentence back under
+                        the scrubber, one line or two.
+                      */
+                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-start sm:justify-center gap-1.5 overflow-y-auto bg-black/85 px-4 pt-4 sm:pt-6 pb-24 text-center">
                         <VideoOff className="w-5 h-5 text-muted-foreground flex-shrink-0" />
                         <p className="text-sm sm:text-base font-semibold leading-snug">
                           This file will not preview here
                         </p>
-                        <p className="text-xs sm:text-sm text-muted-foreground leading-snug max-w-md">
+                        {/*
+                          The reassurance only where there is room for it.
+
+                          A 16:9 frame on a phone is about 210px tall, and once
+                          the transport has its strip at the bottom there is not
+                          enough left for two lines and an icon — the second one
+                          came out clipped against the scrubber, which is an
+                          apology for a failure delivered as another failure.
+                          The headline carries the fact; this line carries
+                          comfort, and comfort is the part that can wait for a
+                          wider screen.
+                        */}
+                        <p className="hidden sm:block text-xs sm:text-sm text-muted-foreground leading-snug max-w-md">
                           It is stored safely, and it still edits and exports normally.
                         </p>
                       </div>
