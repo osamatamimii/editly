@@ -220,7 +220,7 @@ const FIXTURES = {
         caption: "Behind the scenes", hashtags: [],
         scheduledFor: new Date(Date.now() - 50 * 3600_000).toISOString(), status: "missed",
         externalUrl: null,
-        error: "This was due at 2026-08-28T19:00:00.000Z and is 121 minutes late, so it was not sent. Posting it now would put it in front of people at a time you did not choose. Schedule it again when you want it to go.",
+        error: "This was 121 minutes late, so it was not sent. Posting it now would put it in front of people at a time you did not choose. Schedule it again when you want it to go.",
         publishedAt: null },
     ],
   },

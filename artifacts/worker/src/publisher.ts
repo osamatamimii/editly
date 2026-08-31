@@ -171,11 +171,22 @@ export type PostOutcome =
 export function refusalToSend(post: ClaimedPost, now: Date = new Date()): PostOutcome | null {
   const lateBy = (now.getTime() - post.scheduledFor.getTime()) / 60000;
   if (lateBy > TOO_LATE_MINUTES) {
+    /*
+      No timestamp in the sentence.
+
+      It read "This was due at 2026-08-28T19:00:00.000Z and is 121 minutes
+      late" — an ISO string in prose somebody is meant to read, and a *second*
+      copy of a time the screen already shows directly above it, in their own
+      timezone. The row knows when it was due; what the row cannot work out is
+      how late is too late and why nothing went out, which is all this sentence
+      owes anybody.
+    */
+    const late = Math.round(lateBy);
     return {
       kind: "missed",
       reason:
-        `This was due at ${post.scheduledFor.toISOString()} and is ${Math.round(lateBy)} minutes late, ` +
-        `so it was not sent. Posting it now would put it in front of people at a time you did not choose. ` +
+        `This was ${late} ${late === 1 ? "minute" : "minutes"} late, so it was not sent. ` +
+        `Posting it now would put it in front of people at a time you did not choose. ` +
         `Schedule it again when you want it to go.`,
     };
   }

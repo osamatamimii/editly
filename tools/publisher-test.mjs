@@ -238,8 +238,16 @@ section("What it refuses to send, and says why");
   const missed = refusalToSend(veryLate, now);
   check("but hours late is not sent at all", missed?.kind === "missed", JSON.stringify(missed));
   check(
-    "and the reason says when it was due and that nothing went out",
-    /was due at/.test(missed.reason) && /not sent/.test(missed.reason),
+    "and the reason says how late it was and that nothing went out",
+    /\b\d+ minutes late/.test(missed.reason) && /not sent/.test(missed.reason),
+    missed.reason,
+  );
+  check(
+    "without putting a machine timestamp in a sentence somebody reads",
+    // The row above it already shows when the post was due, in the reader's
+    // own timezone. An ISO string here is a second copy of that, in a shape
+    // nobody reads.
+    !/\d{4}-\d{2}-\d{2}T/.test(missed.reason),
     missed.reason,
   );
   check(
