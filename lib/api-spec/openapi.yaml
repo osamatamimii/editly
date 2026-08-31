@@ -566,11 +566,15 @@ paths:
                   properties:
                     plan:
                       $ref: "#/components/schemas/EditPlan"
+                    fonts:
+                      $ref: "#/components/schemas/CaptionFontChoice"
                   required: [plan]
                 - type: object
                   properties:
                     templateId:
                       type: string
+                    fonts:
+                      $ref: "#/components/schemas/CaptionFontChoice"
                   required: [templateId]
       responses:
         "202":
@@ -1639,8 +1643,25 @@ components:
       properties:
         content:
           type: string
+        fonts:
+          $ref: "#/components/schemas/CaptionFontChoice"
       required:
         - content
+
+    CaptionFontChoice:
+      description: >-
+        Which caption faces to draw with, by id from lib/api-zod/src/fonts.ts.
+        One per script, because a caption track can carry both and each needs
+        its own. Attached to the request rather than to the plan: a plan reaches
+        the queue three ways and this is a person's preference, not a property
+        of any of them. An unknown id resolves to the default rather than
+        failing validation.
+      type: object
+      properties:
+        latin:
+          type: string
+        arabic:
+          type: string
 
     MessagePair:
       type: object

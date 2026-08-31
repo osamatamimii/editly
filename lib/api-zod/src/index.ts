@@ -358,7 +358,30 @@ export type ListMessagesResponse = z.infer<typeof ListMessagesResponse>;
 export const SendMessageParams = IdParams;
 export type SendMessageParams = z.infer<typeof SendMessageParams>;
 
-export const SendMessageBody = z.object({ content: z.string().min(1) });
+/**
+ * Which caption faces this render should use.
+ *
+ * Attached to the *request* rather than to the plan, because it is a person's
+ * standing preference and the plan is produced three different ways — a
+ * template, a sentence, or a plan sent whole. Applying it once, where the plan
+ * is accepted, means the choice holds however the plan was made instead of
+ * being remembered in three places and forgotten in two.
+ *
+ * Ids from `fonts.ts`. Unknown ones resolve to the default rather than failing
+ * validation: a saved preference naming a face that has since been removed
+ * should render a caption in the wrong font, not refuse the render.
+ */
+export const CaptionFontChoice = z.object({
+  latin: z.string().max(64).optional(),
+  arabic: z.string().max(64).optional(),
+});
+export type CaptionFontChoice = z.infer<typeof CaptionFontChoice>;
+
+export const SendMessageBody = z.object({
+  content: z.string().min(1),
+  /* The same choice, on the other door a plan comes through. */
+  fonts: CaptionFontChoice.optional(),
+});
 export type SendMessageBody = z.infer<typeof SendMessageBody>;
 
 export const MessagePair = z.object({
@@ -528,6 +551,22 @@ export const BurnCaptionsOperation = z.object({
     .min(1),
   style: z.enum(["bold-white", "bold-yellow", "karaoke-box"]).default("bold-white"),
   animation: z.enum(["none", "pop", "karaoke"]).default("pop"),
+  /*
+    Which face, per script.
+
+    Two fields rather than one, because a caption track can carry both and each
+    script needs its own: choosing a Latin display face says nothing about what
+    the Arabic lines in the same video should be drawn in, and libass would
+    quietly fall back for those at the fallback's own proportions.
+
+    Free-form strings rather than an enum on purpose. The catalogue lives in
+    `fonts.ts` beside this file, and an id that is not in it resolves to the
+    default rather than failing validation — a plan saved before a face was
+    removed, or a hand-edited request, should render a caption in the wrong
+    font rather than fail at the last step of a job somebody paid minutes for.
+  */
+  font: z.string().max(64).optional(),
+  fontArabic: z.string().max(64).optional(),
 });
 
 /**
@@ -548,6 +587,10 @@ export const AutoCaptionsOperation = z.object({
   type: z.literal("autoCaptions"),
   style: z.enum(["bold-white", "bold-yellow", "karaoke-box"]).default("bold-white"),
   animation: z.enum(["none", "pop", "karaoke"]).default("pop"),
+  /* Carried through to the `burnCaptions` this becomes. See it for why there
+     are two. */
+  font: z.string().max(64).optional(),
+  fontArabic: z.string().max(64).optional(),
   /** Leave "um" and "uh" out of what is burnt in. */
   dropFillers: z.boolean().default(true),
   /** BCP-47 hint. Omit to let the recogniser detect the language. */
@@ -1104,9 +1147,10 @@ export type StartRenderParams = z.infer<typeof StartRenderParams>;
  * Either a plan built by the caller, or the id of a saved one. A template is
  * resolved on the server so the numbers behind a named look live in one place.
  */
+
 export const StartRenderBody = z.union([
-  z.object({ plan: EditPlan }),
-  z.object({ templateId: z.string().min(1) }),
+  z.object({ plan: EditPlan, fonts: CaptionFontChoice.optional() }),
+  z.object({ templateId: z.string().min(1), fonts: CaptionFontChoice.optional() }),
 ]);
 export type StartRenderBody = z.infer<typeof StartRenderBody>;
 
@@ -1445,3 +1489,4 @@ export type ListWaitlistResponse = z.infer<typeof ListWaitlistResponse>;
 
 export * from "./social";
 export * from "./limits";
+export * from "./fonts";

@@ -128,123 +128,67 @@ RUN set -eu; \
       print "arabic captions ready: joined " j " against " a " unjoined" }'; \
     rm -f /tmp/probe.ass /tmp/probe.png
 
-# The caption face, from the repository rather than from a package.
+# The caption faces, from the repository rather than from packages.
 #
-# fontconfig scans this directory like any other; `fc-cache` is what makes the
-# family name resolvable in the same second rather than the first time
-# something rebuilds the cache. The licence travels with the font because the
-# OFL requires it to — see the README beside them.
-COPY artifacts/worker/fonts/Montserrat-Black.otf /usr/share/fonts/opentype/editly/
-COPY artifacts/worker/fonts/Montserrat-OFL.txt   /usr/share/fonts/opentype/editly/
-COPY artifacts/worker/fonts/Cairo-Black.ttf      /usr/share/fonts/truetype/editly/
-COPY artifacts/worker/fonts/Cairo-OFL.txt        /usr/share/fonts/truetype/editly/
-RUN fc-cache -f > /dev/null && echo "caption faces installed"
+# Twelve of them now, six per script, and every one is a *built* file rather
+# than an upstream download — see make-caption-faces.py beside them. fontconfig
+# scans this directory like any other; `fc-cache` is what makes each family
+# resolvable in the same second rather than the first time something rebuilds
+# the cache. The licences travel with the fonts because the OFL requires it.
+COPY artifacts/worker/fonts/ /usr/share/fonts/truetype/editly/
+RUN rm -f /usr/share/fonts/truetype/editly/*.py /usr/share/fonts/truetype/editly/*.md \
+ && fc-cache -f > /dev/null \
+ && echo "caption faces installed: $(ls /usr/share/fonts/truetype/editly/*.ttf | wc -l)"
 
 # Proven at build time rather than discovered by nobody at all.
 #
 # This is the quietest failure in the image. A font libass cannot find is not
-# an error — fontconfig substitutes the default, libass draws it, the caption
-# is legible, the words are right, the timing is right, and the whole reason
-# for the change is gone. Measured: a style naming a font that does not exist
-# renders byte-identically to one naming DejaVu Sans. So "did it draw" proves
-# nothing here, and neither does `fc-list`, which answers a question about the
+# an error — fontconfig substitutes, libass draws it, the caption is legible,
+# the words are right, the timing is right, and the whole reason for the change
+# is gone. Measured: a style naming a font that does not exist renders
+# byte-identically to one naming DejaVu Sans. So "did it draw" proves nothing
+# here, and neither does `fc-list`, which answers a question about the
 # filesystem rather than about the frame.
 #
-# What proves it is difference. The same word is drawn twice, in Montserrat
-# Black and in DejaVu Sans, and the two must not measure the same. If
-# Montserrat is missing, they are the same number, because the second render is
-# what the first one silently became.
+# Three questions, asked of every face in the catalogue.
 #
-# Then the number itself. caption-layout.ts sizes every caption by *cap height*
-# and converts to a nominal size through a per-face ratio — 0.54 for Montserrat
-# Black — so that ratio is not a comment, it is arithmetic the layout depends
-# on. If a later package revision ships a differently-proportioned cut, nothing
-# breaks: every caption in the product just quietly renders the wrong size. So
-# a capital is drawn at nominal 100 and its height is measured, and it has to
-# come back near 54.
+# **Is it there.** The face is drawn and measured against DejaVu Sans drawing
+# the same text. If it is missing, the two are the same number, because the
+# second render is what the first one silently became.
 #
-# The measurement squeezes the frame to a single column with area averaging —
-# each output pixel is the mean of its whole row — so a row with ink in it is
-# above the floor and an empty row is at zero. The threshold shaves a pixel or
-# two off each anti-aliased edge, which is why the band is 50 to 57 rather than
-# exactly 54.
-RUN set -eu; \
-    capof() { \
-      { echo '[Script Info]'; echo 'ScriptType: v4.00+'; echo 'PlayResX: 400'; echo 'PlayResY: 400'; \
-        echo 'WrapStyle: 2'; \
-        echo '[V4+ Styles]'; \
-        echo 'Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,Bold,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding'; \
-        echo "Style: P,$1,100,&H00FFFFFF,&H00000000,&H00000000,-1,1,0,0,5,10,10,10,1"; \
-        echo '[Events]'; \
-        echo 'Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text'; \
-        echo "Dialogue: 0,0:00:00.00,0:00:01.00,P,,0,0,0,,$2"; } > /tmp/cap.ass; \
-      ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=400x400:d=1 \
-        -vf "subtitles=/tmp/cap.ass,scale=1:400:flags=area,format=gray" \
-        -frames:v 1 -f rawvideo -y /tmp/cap.raw; \
-      od -An -v -tu1 /tmp/cap.raw | tr -s ' ' '\n' | grep -v '^$' \
-        | awk '{ if ($1 > 8) { if (!f) f = NR; l = NR } } END { print (f ? l - f + 1 : 0) }'; \
-    }; \
-    m=$(capof 'Montserrat Black' 'HANDLING'); \
-    d=$(capof 'DejaVu Sans' 'HANDLING'); \
-    awk -v m="$m" -v d="$d" 'BEGIN { \
-      if (m == 0) { print "the caption face drew nothing at all"; exit 1 } \
-      if (m == d) { print "Montserrat Black measures exactly as DejaVu Sans (" m "): it is not installed, and every caption is silently drawn in the fallback"; exit 1 } \
-      if (m < 50 || m > 57) { print "Montserrat Black draws a capital at " m "/100, not the ~54 caption-layout.ts sizes against: every caption would render the wrong size"; exit 1 } \
-      print "caption face ready: Montserrat Black at " m "/100 against DejaVu at " d }'; \
-    rm -f /tmp/cap.ass /tmp/cap.raw
-
-# And the same questions asked of the Arabic face, because the answers are
-# different and one of them was wrong today.
+# **Is it the right height.** caption-layout.ts sizes captions by a *height*
+# and converts to a nominal size through a per-face ratio — 0.31 to 0.57 across
+# these twelve. That ratio is not a comment, it is arithmetic the layout
+# depends on, and a face whose proportions do not match its entry renders every
+# caption in that face at the wrong size with nothing failing. The expected
+# value comes from `lib/api-zod/src/fonts.ts`, extracted at build time so the
+# check cannot drift from the table it is checking.
 #
-# **Is it there.** Same argument as above: a missing family is not an error,
-# fontconfig substitutes, and DejaVu draws perfectly readable Arabic. So Cairo
-# and DejaVu are measured against each other and must differ.
-#
-# **Is it the right height.** caption-layout.ts converts the layout's chosen
-# height to a nominal size through a ratio of 0.38 for Cairo, where DejaVu's is
-# 0.66. Swapping the family and leaving the old ratio would have rendered every
-# Arabic caption at 58% of its intended size, on a face nobody had complained
-# about. "Cap height" means the alef here — Arabic has no capitals, and the
-# alef is the stroke that plays a capital's part.
-#
-# **Does it draw the shapes nobody types.** This is the one that was broken,
-# and it is worth the paragraph.
-#
-# Arabic letters change shape by position, and there are two ways to express
-# that: `GSUB`, which a modern shaper applies, and the legacy Arabic
-# Presentation Forms block at U+FE70..FEFC, where every shape has its own
-# codepoint. FriBidi still uses the second. Handed Arabic, it rewrites each
-# letter to the presentation-form codepoint for the shape its position calls
-# for, and the renderer looks *that* up in the font's cmap.
-#
-# Cairo maps 89 of those codepoints and none of the **isolated** ones, because
-# in a modern font the isolated shape is the base glyph and U+FE8D is a
-# duplicate nobody should need. Measured: an isolated alef then resolves
-# through fontconfig to whatever else on the system has it, which is DejaVu —
-# so the letter renders, correctly, at DejaVu's proportions, a fifth larger
-# than the letters around it, in the middle of a Cairo caption. On an image
-# without DejaVu it is an empty box instead. Neither is an error and neither
-# is reported.
-#
-# It is not a rare shape. Alef, dal, thal, reh, zain and waw never join
-# leftward, so the letter after any of them is isolated; an alef opening a word
-# is isolated; a one-letter word is isolated. "لا أحد يخبرك بهذا" has three.
-#
-# So the check asks the font directly: fourteen U+FE8D, and the height that
-# comes back has to be Cairo's own alef. Anything else — 66 for DejaVu's, 57
-# for a box — is outside the band and named on the build log.
+# **Does it draw the shapes nobody types** — Arabic only, and this is the one
+# that was broken. FriBidi rewrites Arabic to the legacy presentation forms
+# (U+FE70..FEFC) and looks those up in the cmap; a modern face maps the joined
+# forms and not the isolated ones, because the isolated shape is the base
+# glyph and U+FE8D is a duplicate. Five of the seven Arabic faces tried here
+# drew empty boxes for every letter standing alone, and one drew boxes for
+# every letter in the sentence. It is not a rare shape: alef, dal, thal, reh,
+# zain and waw never join leftward, so the letter after any of them is
+# isolated. On a system that has another Arabic font the letter comes from
+# *that* one instead, at its proportions, which is worse than a box because it
+# is legible. So U+FE8D is drawn directly and has to measure like the face's
+# own alef.
 #
 # **And the two characters we put there ourselves.** Every right-to-left line
 # this renderer writes is wrapped in FSI and PDI (U+2066/U+2069) so a line
-# starting with a Latin word cannot flip. Cairo maps neither by default. A
-# wrapped run therefore has to measure exactly like an unwrapped one.
+# starting with a Latin word cannot flip. Most of these faces map neither. A
+# wrapped run has to measure exactly like an unwrapped one.
 #
 # Fourteen repetitions rather than three, and that is not decoration. `capof`
 # squeezes the frame to one column by *averaging* each row, so a row's value is
-# the mean of four hundred pixels. Three thin vertical strokes average to less
-# than the threshold and the measurement comes back zero — a face that is
-# installed, correct and drawing, reported as "drew nothing at all". The same
-# trap the render suite hit when it area-averaged a sparse caption line.
+# the mean of four hundred pixels. Three thin strokes average to less than the
+# threshold and the measurement comes back zero — a face that is installed,
+# correct and drawing, reported as "drew nothing at all". The same trap the
+# render suite hit when it area-averaged a sparse caption line.
+COPY lib/api-zod/src/fonts.ts /tmp/fonts-catalogue.ts
 RUN set -eu; \
     capof() { \
       { echo '[Script Info]'; echo 'ScriptType: v4.00+'; echo 'PlayResX: 400'; echo 'PlayResY: 400'; \
@@ -267,19 +211,37 @@ RUN set -eu; \
     boxes=$(rep "$(printf '\356\200\200')" 14); \
     fsi=$(printf '\342\201\246'); \
     pdi=$(printf '\342\201\251'); \
-    c=$(capof 'Cairo Black' "$alefs"); \
-    v=$(capof 'DejaVu Sans' "$alefs"); \
-    b=$(capof 'Cairo Black' "$boxes"); \
-    i=$(capof 'Cairo Black' "$isolated"); \
-    w=$(capof 'Cairo Black' "$fsi$alefs$pdi"); \
-    awk -v c="$c" -v v="$v" -v b="$b" -v i="$i" -v w="$w" 'BEGIN { \
-      if (c == 0)  { print "the Arabic caption face drew nothing at all"; exit 1 } \
-      if (c == v)  { print "Cairo Black measures exactly as DejaVu Sans (" c "): it is not installed, and every Arabic caption is silently drawn in the fallback"; exit 1 } \
-      if (c < 34 || c > 42) { print "Cairo Black draws an alef at " c "/100, not the ~38 caption-layout.ts sizes against: every Arabic caption would render the wrong size"; exit 1 } \
-      if (i < 34 || i > 42) { print "an isolated alef (U+FE8D) draws at " i "/100 where Cairo draws one at " c ", and a box is " b ": the isolated presentation forms are unmapped, so every letter that stands alone comes from another font at another size, or from none"; exit 1 } \
-      if (w != c)  { print "wrapping a line in FSI/PDI changes what is drawn (" w " against " c "): the isolates are drawing, at both ends of every Arabic caption"; exit 1 } \
-      print "arabic caption face ready: alef " c "/100, isolated form " i ", against DejaVu " v " and a box " b ", FSI/PDI invisible" }'; \
-    rm -f /tmp/cap.ass /tmp/cap.raw
+    box=$(capof 'Cairo Black' "$boxes"); \
+    fallback_lat=$(capof 'DejaVu Sans' 'HANDLING'); \
+    fallback_ar=$(capof 'DejaVu Sans' "$alefs"); \
+    faces=$(sed -n "s/.*family: \"\([^\"]*\)\".*/\1/p" /tmp/fonts-catalogue.ts); \
+    ratios=$(sed -n "s/.*capRatio: \([0-9]\.[0-9][0-9]*\).*/\1/p" /tmp/fonts-catalogue.ts); \
+    scripts=$(sed -n "s/.*script: \"\([a-z]*\)\".*/\1/p" /tmp/fonts-catalogue.ts | grep -v '^$'); \
+    n=$(echo "$faces" | wc -l); \
+    [ "$n" -ge 12 ] || { echo "read $n families out of the catalogue, expected at least 12"; exit 1; }; \
+    [ "$n" = "$(echo "$ratios" | wc -l)" ] && [ "$n" = "$(echo "$scripts" | wc -l)" ] \
+      || { echo "the three lists read out of fonts.ts are different lengths ($n families, $(echo "$ratios" | wc -l) ratios, $(echo "$scripts" | wc -l) scripts): this check is reading it wrong and would compare a face against another face's number"; exit 1; }; \
+    i=1; \
+    while [ "$i" -le "$n" ]; do \
+      fam=$(echo "$faces" | sed -n "${i}p"); \
+      ratio=$(echo "$ratios" | sed -n "${i}p"); \
+      script=$(echo "$scripts" | sed -n "${i}p"); \
+      if [ "$script" = "arabic" ]; then sample="$alefs"; fallback="$fallback_ar"; else sample=HANDLING; fallback="$fallback_lat"; fi; \
+      drawn=$(capof "$fam" "$sample"); \
+      wrapped=$(capof "$fam" "$fsi$sample$pdi"); \
+      if [ "$script" = "arabic" ]; then iso=$(capof "$fam" "$isolated"); else iso="$drawn"; fi; \
+      awk -v fam="$fam" -v r="$ratio" -v d="$drawn" -v f="$fallback" -v w="$wrapped" -v iso="$iso" -v box="$box" 'BEGIN { \
+        want = r * 100; \
+        if (d == 0)  { print fam ": drew nothing at all"; exit 1 } \
+        if (d == f)  { print fam " measures exactly as DejaVu Sans (" d "): it is not installed, and every caption in it is silently drawn in the fallback"; exit 1 } \
+        if (d < want - 4 || d > want + 4) { print fam " draws at " d "/100 where fonts.ts says " want ": every caption in it would render the wrong size"; exit 1 } \
+        if (iso < want - 4 || iso > want + 4) { print fam ": an isolated form draws at " iso "/100 against the face own " d ", and a box is " box ": the isolated presentation forms are unmapped, so every letter standing alone comes from another font at another size, or from none"; exit 1 } \
+        if (w != d)  { print fam ": wrapping in FSI/PDI changes what is drawn (" w " against " d "): the isolates are drawing, at both ends of every right-to-left caption"; exit 1 } \
+        printf "  %-26s %s/100, catalogue says %d\n", fam, d, want }' || exit 1; \
+      i=$((i + 1)); \
+    done; \
+    echo "all $n caption faces measure what the catalogue says"; \
+    rm -f /tmp/cap.ass /tmp/cap.raw /tmp/fonts-catalogue.ts
 
 # Proven at build time rather than discovered on the first render that wanted a
 # title. A browser that will not start is a build problem; finding out about it

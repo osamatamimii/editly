@@ -215,8 +215,14 @@ console.log("\nCaptions land where the platform will not cover them");
   const large = captionLayout({ width: 2160, height: 3840 }, "tiktok");
   check(
     "caption size scales with the frame instead of being fixed",
-    small.fontSize < 60 && large.fontSize > 120,
-    `${small.fontSize} / ${large.fontSize}`,
+    // Against the *frames* rather than against two numbers. The absolute
+    // values are a function of whichever face is the Latin default, and the
+    // day that face changed — 0.54 to 0.47 — this check went red about
+    // nothing, on a product whose captions were still exactly the same size on
+    // screen. What the layout promises is proportionality, so that is what is
+    // asserted: three times the frame, about three times the nominal size.
+    Math.abs(large.fontSize / small.fontSize - 3) < 0.15 && small.capHeight < large.capHeight,
+    `${small.fontSize} at 720 wide, ${large.fontSize} at 2160 — ratio ${(large.fontSize / small.fontSize).toFixed(2)}`,
   );
   check(
     "and the line length stays about the same however big the frame",
@@ -296,10 +302,10 @@ console.log("\nThe caption is drawn in the face it was sized for");
   // The whole point of sizing by cap height: both faces draw a capital the
   // same height, so an Arabic line and an English line beside it match. Under
   // one nominal size they did not, and nothing anywhere said so.
-  for (const face of Object.keys(CAPTION_FACES)) {
-    const drawn = nominalSizeFor(face, layout) * CAPTION_FACES[face].capRatio;
+  for (const [script, face] of Object.entries(CAPTION_FACES)) {
+    const drawn = nominalSizeFor(face, layout) * face.capRatio;
     check(
-      `${face}: a capital lands within a pixel of the height the layout asked for`,
+      `${script}: a capital lands within a pixel of the height the layout asked for`,
       Math.abs(drawn - layout.capHeight) < 1,
       `${drawn.toFixed(2)} vs ${layout.capHeight.toFixed(2)}`,
     );
@@ -314,7 +320,11 @@ console.log("\nThe caption is drawn in the face it was sized for");
   // a heavier display face at the same nominal size draws smaller, so every
   // caption in the product shrinks by a sixth and no test fails.
   check(
-    "the caption is the same size it was before the face changed",
+    "the caption is the same size it was before any face changed",
+    // A height in pixels, not a nominal size. It is the one number in this
+    // area that is a *decision* rather than a measurement — 6.5% of the frame's
+    // short side — and it has now survived two face changes and twelve faces
+    // arriving. Every nominal size in the product is derived from it.
     Math.abs(layout.capHeight - 70 * 0.65) < 1.5,
     `cap ${layout.capHeight.toFixed(1)}px against the 70px DejaVu row's ${(70 * 0.65).toFixed(1)}px`,
   );

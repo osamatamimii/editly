@@ -36,3 +36,7 @@ artifacts/worker/.motion-test/
 
 # Bundled beside the API for the same reason; see tools/stock-test.mjs
 artifacts/api-server/.stock-test/
+
+# Upstream font downloads, cached by make-caption-faces.py. What is committed is
+# the built face beside it, not the file it came from.
+artifacts/worker/fonts/.sources/

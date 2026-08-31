@@ -1,76 +1,80 @@
 # The caption faces
 
-Two files, one per script, both in the repository rather than installed from
-the distribution.
+Twelve files, six per script, every one *built* rather than downloaded — see
+`make-caption-faces.py` beside them, which says how and why in full.
 
-| script | family | file | ratio |
-|---|---|---|---|
-| Latin | Montserrat Black | `Montserrat-Black.otf` | 0.54 of nominal, cap height |
-| Arabic | Cairo Black | `Cairo-Black.ttf` | 0.38 of nominal, alef height |
+The catalogue that names them, with the measured numbers the renderer and the
+picker both use, is `lib/api-zod/src/fonts.ts`.
 
 ## Why they are here and not in an `apt-get` line
 
 **The arithmetic depends on these exact cuts.** `caption-layout.ts` sizes every
 caption by a height and converts it to a nominal ASS size through a per-face
-ratio. Those ratios are measured from *these bytes*, by rendering through
-libass and counting pixels. A packaged font is whatever version the archive
-happens to hold on the day the image is built, and a differently proportioned
-revision would not break anything: every caption in the product would simply
-render the wrong size. The Dockerfile checks both ratios for that reason, and
-pinning the files means the check has nothing left to catch.
+ratio — 0.31 to 0.57 across these twelve. Those ratios are measured from *these
+bytes*, by rendering through libass and counting pixels. A packaged font is
+whatever version the archive happens to hold on the day the image is built, and
+a differently proportioned revision would not break anything: every caption in
+that face would simply render the wrong size. The image build checks every
+ratio against the catalogue for that reason, and pinning the files means the
+check has nothing left to catch.
 
 **And a build should not depend on a package name.** The image installs the
-files; there is no line to go stale and nothing to resolve at build time that
+folder; there is no line to go stale and nothing to resolve at build time that
 could resolve differently next month.
 
-## The Latin face
+## What was done to them
 
-Montserrat Black. Nothing was done to it; it is the upstream file.
+Three things, all of them because upstream does not do them:
 
-Licensed under the SIL Open Font License 1.1 — `Montserrat-OFL.txt` here, which
-the licence requires to travel with the font. Redistribution is explicitly
-permitted; selling the font on its own is not, and we do not.
+**Variable fonts are instanced.** Several ship as one file covering every
+weight, and libass renders a variable font at its *default* instance — Regular
+for all of them. The upstream file would give captions in a light weight with
+no error anywhere.
 
-Upstream: https://github.com/JulietaUla/Montserrat
+**The isolated Arabic forms are mapped.** FriBidi rewrites Arabic to the legacy
+presentation forms (U+FE70..FEFC) and looks those up in the cmap; a modern face
+maps the joined forms and not the isolated ones, because the isolated shape is
+the base glyph and U+FE8D is a duplicate. Of the seven Arabic faces tried for
+this product, five drew empty boxes for every letter standing alone and one drew
+boxes for every letter in the sentence. Only Noto Kufi Arabic was complete.
 
-## The Arabic face
+It is not a rare shape: alef, dal, thal, reh, zain and waw never join leftward,
+so the letter after any of them is isolated. And on a system that has another
+Arabic font, the unmapped codepoint resolves to *that* one instead — so the
+letter renders correctly at another face's proportions in the middle of a
+caption, which is worse than a box because it is legible.
 
-Cairo Black, and it is **not** the file you would get by downloading Cairo.
-`make-arabic-face.py` beside it builds it from upstream and says why in full;
-the short version is two things upstream does not do:
+**The invisible characters get a zero-width glyph.** Most of these faces map
+none of U+200B..U+200F, the bidi overrides, U+2066..U+2069 or U+FEFF. Two matter
+directly: this renderer wraps every right-to-left line in FSI and PDI, and
+FriBidi leaves U+FEFF where it puts the lam-alef ligature. Unmapped, each is a
+box in the middle of a caption, put there by us.
 
-- Google ships Cairo as one variable file covering weight 200 to 1000. libass
-  renders a variable font at its default instance, which for Cairo is Regular,
-  so the upstream file would give captions in a light weight with no error
-  anywhere. The Black instance is baked out.
-- Cairo maps none of the **isolated** Arabic presentation forms (U+FE8D and its
-  35 siblings), because in a modern font the isolated shape is the base glyph
-  and those codepoints are duplicates. FriBidi still asks for them. Every
-  letter that stands alone — and after alef, dal, thal, reh, zain or waw, every
-  letter stands alone — then came from whatever other font on the system had
-  the codepoint, at that font's proportions, or from none at all and drew as a
-  box. The script maps each one onto the glyph it duplicates, taken from
-  Unicode's own decomposition data. It adds no outlines and changes no shapes.
-  It also gives the invisible formatting characters a real zero-width glyph,
-  including the FSI and PDI this renderer wraps every right-to-left line in.
+Before this product used Cairo it used DejaVu Sans for Arabic, which was never a
+choice: it is what Debian ships. Its Arabic is correct, thin and characterless,
+and beside a Montserrat Black caption it reads as an apology.
 
-Before this product used Cairo it used DejaVu Sans, which was never a choice:
-it is what Debian ships. Its Arabic is correct, thin and characterless, and
-beside a Montserrat Black caption it reads as an apology.
+## The previews
 
-Licensed under the SIL Open Font License 1.1 — `Cairo-OFL.txt` here. The OFL
-permits modification and redistribution, and Cairo's copyright line carries no
-Reserved Font Name, so the family name stays as it is; the version string in
-the built file records what was changed.
+The same pass writes a subset of each face to
+`artifacts/editly/public/caption-fonts/<id>.woff2` — the sample sentence and the
+alphabet, about eight kilobytes each — so the picker draws every option in the
+face it names. A picker that previews a different font from the one that gets
+burned is worse than a picker with no preview.
 
-Upstream: https://github.com/Gue3bara/Cairo
+## Licences
 
-## Rebuilding the Arabic face
+All twelve are under the SIL Open Font License 1.1, which permits modification
+and redistribution. Each `<id>-OFL.txt` is fetched beside its font because the
+licence requires it to travel with the font. None of these carries a Reserved
+Font Name, so the family names stay as they are; each built file's version
+string records what was changed.
 
-    pip install fonttools
-    python3 artifacts/worker/fonts/make-arabic-face.py
+## Rebuilding
 
-It downloads upstream, bakes the instance, fills the cmap and writes
-`Cairo-Black.ttf`. Nothing in CI runs it: CI proves the file that is committed
-has the properties the renderer needs, which is a different and better
-question than whether a script ran.
+    pip install fonttools brotli
+    python3 artifacts/worker/fonts/make-caption-faces.py
+
+Nothing in CI runs it. CI proves the files that are committed have the
+properties the renderer needs, which is a different and better question than
+whether a script ran.

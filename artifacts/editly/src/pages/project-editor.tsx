@@ -25,8 +25,9 @@ import {
   UploadCloud, Play, Pause, ChevronLeft, Send,
   Wand2, Download, CheckCircle2, Loader2,
   Video, Sparkles, VideoOff, ChevronUp, ChevronDown, Scissors, FolderOpen,
-  Maximize2, Minimize2 } from "lucide-react";
+  Maximize2, Minimize2, Type } from "lucide-react";
 import { BackButton } from "@/components/back-button";
+import { FontPicker, DEFAULT_FONTS, type ChosenFonts } from "@/components/font-picker";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { loadState } from "@/lib/load-state";
@@ -139,6 +140,33 @@ export default function ProjectEditor() {
      the frame, so our own controls and its edges go with it. */
   const pictureRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  /*
+    The chosen caption faces, kept on this device.
+
+    Not on the project row: it is a preference rather than a property of the
+    video, the same person wants the same faces on the next project, and a
+    column for it is a migration for a choice that has no consequences worth
+    keeping on a server. `localStorage` in a try/catch, because a private
+    window throws on read and a font picker is not worth a blank screen.
+  */
+  const [fonts, setFonts] = useState<ChosenFonts>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("editly:caption-fonts") ?? "null");
+      if (saved && typeof saved.latin === "string" && typeof saved.arabic === "string") return saved;
+    } catch {
+      /* Private window, cleared storage, or a value from an older shape. */
+    }
+    return DEFAULT_FONTS;
+  });
+  const chooseFonts = (next: ChosenFonts) => {
+    setFonts(next);
+    try {
+      localStorage.setItem("editly:caption-fonts", JSON.stringify(next));
+    } catch {
+      /* The choice still applies to this session; it just will not be here
+         tomorrow. Better than refusing to change it. */
+    }
+  };
   /** The area the picture gets to live in, measured rather than assumed. */
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
@@ -329,7 +357,7 @@ export default function ProjectEditor() {
    * is the same as no reply.
    */
   /** Which of the four side panels is open, if any. See `panelRail`. */
-  const [openPanel, setOpenPanel] = useState<"looks" | "clips" | "files" | "reference" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"looks" | "type" | "clips" | "files" | "reference" | null>(null);
 
   const [chatOpen, setChatOpen] = useState(true);
   const [unreadFromNoah, setUnreadFromNoah] = useState(false);
@@ -683,7 +711,11 @@ export default function ProjectEditor() {
     try {
       const result = await sendMessage.mutateAsync({
         id,
-        data: { content }
+        // The chosen faces travel with the sentence too: a plan reaches the
+        // queue through this door as often as through a template, and a
+        // preference that only applies to one of them is a preference that
+        // looks broken half the time.
+        data: { content, fonts }
       }) as unknown as { plan?: EditPlan | null; render?: { id: string } | null };
       // Whatever the reply promised is exactly what Generate Edit will build.
       if (result?.plan) setChatPlan(result.plan);
@@ -782,7 +814,7 @@ export default function ProjectEditor() {
    */
   const handleApplyTemplate = async (templateId: string) => {
     try {
-      await startRender.mutateAsync({ id, templateId });
+      await startRender.mutateAsync({ id, templateId, fonts });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
       toast({ title: "Render queued", description: "You can leave this page. We'll keep working." });
     } catch (error: unknown) {
@@ -1270,8 +1302,18 @@ export default function ProjectEditor() {
     </div>
   );
 
+  const typePanel = (
+    <div className="rounded-xl glass-panel border border-hairline flex flex-col gap-3 px-4 py-4 mt-3">
+      <div className="flex items-center gap-2">
+        <Type className="w-4 h-4 text-secondary flex-shrink-0" />
+        <span className="text-sm font-medium text-muted-foreground">Caption type</span>
+      </div>
+      <FontPicker value={fonts} onChange={chooseFonts} disabled={isProcessingEdit} />
+    </div>
+  );
+
   /**
-   * The four panels, as four icons.
+   * The five panels, as five icons.
    *
    * Looks, clips, files and the reference clip each used to be a card, always
    * open, stacked one under the next. On a laptop that is a column of prose
@@ -1290,6 +1332,9 @@ export default function ProjectEditor() {
    */
   const PANELS = [
     { key: "looks" as const, icon: Wand2, label: "Looks", available: Boolean(templates && templates.length > 0) },
+    // Always available: a project with no video still has captions in its
+    // future, and there is nothing here that depends on the file.
+    { key: "type" as const, icon: Type, label: "Type", available: true },
     { key: "clips" as const, icon: Scissors, label: "Clips", available: true },
     { key: "files" as const, icon: FolderOpen, label: "Files", available: Boolean(project && user?.id) },
     { key: "reference" as const, icon: Sparkles, label: "Match", available: Boolean(project) },
@@ -1298,7 +1343,15 @@ export default function ProjectEditor() {
   const panelRail = PANELS.length > 0 && (
     <div className={sideBySide ? "flex flex-col gap-2" : "mt-3"} data-testid="panel-rail">
       <div
-        className={`flex gap-2 ${sideBySide ? "flex-wrap" : "overflow-x-auto pb-1"}`}
+        /* Wrapping on a phone too, now that there are five.
+
+           It scrolled sideways before, and with four chips that was invisible
+           because they fitted. The fifth starts at 381px of a 390px screen, so
+           nine pixels of it are on the phone and the rest is behind a gesture
+           nothing indicates — a panel that exists and cannot be found, which is
+           the failure the whole rail was built to fix. Two rows of icons is not
+           elegant and it is honest. */
+        className="flex flex-wrap gap-2"
         role="tablist"
         aria-label="Editing panels"
       >
@@ -1325,6 +1378,7 @@ export default function ProjectEditor() {
       </div>
 
       {openPanel === "looks" && looks}
+      {openPanel === "type" && typePanel}
       {openPanel === "clips" && clipsPanel}
       {openPanel === "files" && library}
       {openPanel === "reference" && reference}

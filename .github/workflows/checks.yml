@@ -93,14 +93,13 @@ jobs:
       - name: Install the caption faces the image ships
         run: |
           set -euo pipefail
-          sudo mkdir -p /usr/share/fonts/opentype/editly /usr/share/fonts/truetype/editly
-          sudo cp artifacts/worker/fonts/Montserrat-Black.otf /usr/share/fonts/opentype/editly/
-          sudo cp artifacts/worker/fonts/Cairo-Black.ttf /usr/share/fonts/truetype/editly/
+          sudo mkdir -p /usr/share/fonts/truetype/editly
+          sudo cp artifacts/worker/fonts/*.ttf /usr/share/fonts/truetype/editly/
           sudo fc-cache -f > /dev/null
-          fc-match "Montserrat Black" | grep -qi montserrat \
-            || { echo "the Latin caption face did not resolve on this runner"; exit 1; }
-          fc-match "Cairo Black" | grep -qi cairo \
-            || { echo "the Arabic caption face did not resolve on this runner"; exit 1; }
+          # Every family in the catalogue, not a spot check on two of them: the
+          # suites measure captions in drawn pixels and a family that does not
+          # resolve here is measured as DejaVu, silently and green.
+          node tools/font-test.mjs --resolve-only
           echo "caption faces ready"
 
       - run: pnpm install --frozen-lockfile
@@ -152,6 +151,7 @@ jobs:
       - run: node tools/deadline-test.mjs
       - run: node tools/planner-test.mjs
       - run: node tools/vocabulary-test.mjs
+      - run: node tools/font-test.mjs
       - run: node tools/account-test.mjs
       - run: node tools/critic-test.mjs
       - run: node tools/transcript-test.mjs

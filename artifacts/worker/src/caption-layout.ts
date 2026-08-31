@@ -20,6 +20,8 @@
  * costs nothing, and being 3% too close costs the caption.
  */
 import type { Platform } from "@workspace/api-zod";
+import { faceById, type CaptionFace } from "@workspace/api-zod/fonts";
+export type { CaptionFace };
 
 export interface SafeArea {
   /** Fraction of frame height reserved at the top. */
@@ -118,57 +120,47 @@ export interface CaptionLayout {
  * OS/2 table would have been a claim about how it was built; ink on a frame is
  * a fact about what it does. The Dockerfile makes the same argument twice.
  */
-export interface CaptionFace {
-  /** The family name libass hands to fontconfig. */
-  family: string;
-  /** Cap height as a fraction of the ASS nominal size, measured off a frame. */
-  capRatio: number;
+/* `CaptionFace` now comes from the shared catalogue, above. It used to be
+   declared here with two fields, which was the right shape while there were
+   exactly two faces and nobody could choose. */
+
+/**
+ * The pair of faces one render draws with, resolved from the plan.
+ *
+ * There is a face per *script*, not per render, because one caption track can
+ * carry both: a sentence of Arabic followed by an English product name is one
+ * person's video, and libass would fall back per glyph on its own — correctly
+ * shaped, and at the fallback face's own proportions against a nominal size
+ * chosen for a different one. Naming both is how the two come out the same
+ * height.
+ *
+ * The catalogue itself is in `@workspace/api-zod/fonts`, shared with the API
+ * and the picker, because the family name and the ratio have to be the same
+ * three places or the thing that renders is not the thing that was chosen.
+ */
+export interface FacePair {
+  latin: CaptionFace;
+  arabic: CaptionFace;
 }
 
-export const CAPTION_FACES = {
-  /** Everything written in a Latin script. */
-  latin: { family: "Montserrat Black", capRatio: 0.54 },
-  /**
-   * Arabic.
-   *
-   * libass would fall back per glyph on its own — an Arabic line under the
-   * Latin style shapes and joins correctly, which is exactly why this needed
-   * saying out loud. What it does *not* do is resize: the fallback face draws
-   * its own cap height against a nominal size chosen for a different face, so
-   * an Arabic caption came out a fifth larger than the Latin one beside it and
-   * nothing anywhere reported a problem. Naming the face is how both scripts
-   * get the same height.
-   *
-   * ## Why this stopped being DejaVu Sans
-   *
-   * Because DejaVu was never chosen. It is what Debian ships, and it is a
-   * Latin-first face whose Arabic is correct, thin, and characterless — beside
-   * a Montserrat Black caption it reads as an apology. The first person to
-   * look at a real Arabic render said so in one sentence, and he was right.
-   *
-   * ## And why the ratio is 0.38 rather than 0.65
-   *
-   * "Cap height" is a Latin idea and Arabic has no capitals, so what this
-   * number means for an Arabic face is the height of the alef — the tall
-   * vertical stroke, the one feature that plays the part a capital plays. It
-   * is measured off these bytes by rendering through libass and counting
-   * pixels, like every other number here: 0.38 of the nominal size for Cairo,
-   * against 0.66 for DejaVu.
-   *
-   * That difference is not a detail. Swapping the family name and leaving 0.65
-   * in place would have rendered every Arabic caption at **58% of the size it
-   * should be**, on a face nobody had complained about, with no error
-   * anywhere — the same trap the Latin side fell into and the reason this
-   * field exists at all.
-   *
-   * Cairo's Arabic body height is about the same as its alef, where DejaVu's
-   * is two thirds of it, so at equal alef height Cairo also reads heavier.
-   * That is the point.
-   */
-  arabic: { family: "Cairo Black", capRatio: 0.38 },
-} as const;
+export function facePair(chosen?: { latin?: string | null; arabic?: string | null }): FacePair {
+  return {
+    latin: faceById(chosen?.latin, "latin"),
+    arabic: faceById(chosen?.arabic, "arabic"),
+  };
+}
 
-export type CaptionFaceName = keyof typeof CAPTION_FACES;
+/** The pair a render gets when the plan names none. */
+export const DEFAULT_FACES: FacePair = facePair();
+
+/**
+ * Kept for the layout's own arithmetic and for the suites that read it.
+ *
+ * It used to be the whole story — a hardcoded object with one Latin face and
+ * one Arabic one — and it is now a view of the default pair. Every caller that
+ * needs a *chosen* face takes a `CaptionFace` instead.
+ */
+export const CAPTION_FACES = DEFAULT_FACES;
 
 /**
  * Caption size is a fraction of frame *width*, not a constant.
@@ -368,13 +360,13 @@ function fallbackAdvance(codePoint: number): number {
  * ellipsis. The words are simply gone, and nothing anywhere says two estimates
  * disagreed about the same sentence.
  */
-export function linesFor(text: string, widthInCapsAllowed: number): string[] {
+export function linesFor(text: string, widthInCapsAllowed: number, widthScale = 1): string[] {
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let line = "";
   for (const word of words) {
     const candidate = line ? `${line} ${word}` : word;
-    if (line && widthInCaps(candidate) > widthInCapsAllowed) {
+    if (line && widthInCaps(candidate, widthScale) > widthInCapsAllowed) {
       lines.push(line);
       line = word;
     } else {
@@ -386,7 +378,7 @@ export function linesFor(text: string, widthInCapsAllowed: number): string[] {
 }
 
 /** How wide this string draws, in cap heights. */
-export function widthInCaps(text: string): number {
+export function widthInCaps(text: string, widthScale = 1): number {
   let total = 0;
   for (const ch of text) {
     // Bidi isolates and other formatting characters draw nothing. They are in
@@ -396,7 +388,19 @@ export function widthInCaps(text: string): number {
     if (cp === 0x2068 || cp === 0x2069 || (cp >= 0x200b && cp <= 0x200f)) continue;
     total += ADVANCE.get(ch) ?? fallbackAdvance(cp);
   }
-  return total;
+  /*
+    And the face's own width.
+
+    The table above is one face per script — Montserrat Black and Cairo Black,
+    the two it was measured from. Anton and Bebas Neue run at 0.6 of
+    Montserrat's width per unit of height and Archivo Black at 1.05, so a
+    single table with no scale wraps a condensed caption a third early (nothing
+    fails; the words move to another line) or runs a wide one past the
+    platform's safe area (nothing fails; the last word sits under the
+    username). Rounded up in the catalogue, because those two errors do not
+    cost the same.
+  */
+  return total * widthScale;
 }
 
 /**
@@ -450,8 +454,8 @@ export function captionBlockHeight(layout: CaptionLayout, lines: number): number
 }
 
 /** The nominal ASS size that draws this layout's cap height in a given face. */
-export function nominalSizeFor(face: CaptionFaceName, layout: CaptionLayout): number {
-  return Math.round(layout.capHeight / CAPTION_FACES[face].capRatio);
+export function nominalSizeFor(face: CaptionFace, layout: CaptionLayout): number {
+  return Math.round(layout.capHeight / face.capRatio);
 }
 
 export function captionLayout(
@@ -460,7 +464,7 @@ export function captionLayout(
 ): CaptionLayout {
   const safe = safeAreaFor(platform);
   const capHeight = Math.min(frame.width, frame.height) * CAP_FRACTION_OF_SHORT_SIDE;
-  const fontSize = Math.round(capHeight / CAPTION_FACES.latin.capRatio);
+  const fontSize = Math.round(capHeight / DEFAULT_FACES.latin.capRatio);
 
   // Both margins take the rail's width so the block stays centred in the frame
   // rather than centred in the space left over, which would read as crooked.

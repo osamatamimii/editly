@@ -25,7 +25,9 @@ import {
   widthInCaps,
   linesFor,
   CAPTION_FACES,
-  type CaptionFaceName,
+  facePair,
+  type CaptionFace,
+  type FacePair,
   type CaptionLayout,
 } from "./caption-layout";
 import {
@@ -401,13 +403,13 @@ function countedLines(text: string, maxCharsPerLine: number): string[] {
 
 function captionStyleRow(
   name: string,
-  face: CaptionFaceName,
+  face: CaptionFace,
   style: string,
   layout: CaptionLayout,
 ): string {
   const c = CAPTION_COLOURS[style] ?? CAPTION_COLOURS["bold-white"];
   return [
-    `Style: ${name}`, CAPTION_FACES[face].family, String(nominalSizeFor(face, layout)),
+    `Style: ${name}`, face.family, String(nominalSizeFor(face, layout)),
     c.primary, c.secondary, c.outline, c.back,
     "-1", "0", "0", "0",      // bold, italic, underline, strikeout
     "100", "100", "0", "0",   // scale x/y, spacing, angle
@@ -551,7 +553,11 @@ function animateCue(cue: CaptionCue, animation: string): string {
  * between words we chose, and a cue that cannot fit is truncated visibly rather
  * than pushed into the furniture.
  */
-export function wrapToLayout(cues: CaptionCue[], layout: CaptionLayout): CaptionCue[] {
+export function wrapToLayout(
+  cues: CaptionCue[],
+  layout: CaptionLayout,
+  faces: FacePair = facePair(),
+): CaptionCue[] {
   /*
     The width a line may draw to, in the same cap-height units the measurement
     returns. Comparing in caps rather than in pixels keeps this independent of
@@ -582,10 +588,20 @@ export function wrapToLayout(cues: CaptionCue[], layout: CaptionLayout): Caption
       A caller with no usable layout falls back to the character count, because
       the alternative is a NaN budget that never breaks a line at all.
     */
+    /*
+      And in the face this cue will actually be drawn in.
+
+      The line is measured in cap-height units, which is face-independent for
+      *height* and not for width: Anton runs at 0.6 of Montserrat's width per
+      unit of height. So the same sentence fits a third more on one face than
+      the other, and the wrapper has to know which — chosen by the same test
+      that chooses the style row, so the two cannot disagree about a cue.
+    */
+    const face = readsRightToLeft(cue.text) ? faces.arabic : faces.latin;
     const lines =
       allowed === null
         ? countedLines(cue.text, layout.maxCharsPerLine)
-        : linesFor(cue.text, allowed);
+        : linesFor(cue.text, allowed, face.widthScale);
 
     // Beyond the allowed number of lines the caption would climb over the
     // speaker's face. Ending on an ellipsis is honest; silently spilling is not.
@@ -606,6 +622,15 @@ export async function writeSubtitleFile(
   // platform rather than falling back to a constant. A caller who has not
   // thought about placement should still not get captions under a username.
   layout: CaptionLayout = captionLayout(frame, null),
+  /*
+    Which faces, chosen in the plan.
+
+    A pair rather than one, because a caption track can carry both scripts and
+    each has to be sized by its own measurement. Defaulted here so every caller
+    that has no opinion — and there are several, including this suite — keeps
+    the pair the product shipped with.
+  */
+  faces: FacePair = facePair(),
 ): Promise<void> {
   const header = [
     "[Script Info]",
@@ -641,8 +666,8 @@ export async function writeSubtitleFile(
     "",
     "[V4+ Styles]",
     "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-    captionStyleRow(LATIN_STYLE, "latin", style, layout),
-    captionStyleRow(RTL_STYLE, "arabic", style, layout),
+    captionStyleRow(LATIN_STYLE, faces.latin, style, layout),
+    captionStyleRow(RTL_STYLE, faces.arabic, style, layout),
     "",
     "[Events]",
     "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -1907,7 +1932,11 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
     const subtitlePath = path.join(ctx.workDir, "captions.ass");
     const layout = captionLayout({ width: frameWidth, height: frameHeight }, reframe?.platform ?? null);
-    const wrapped = wrapToLayout(cues, layout);
+    // Resolved once and passed to both, because the wrapper measures against a
+    // face's width and the style row names it: two calls that disagreed about
+    // which face this render uses would wrap for one and draw the other.
+    const faces = facePair({ latin: captions.font, arabic: captions.fontArabic });
+    const wrapped = wrapToLayout(cues, layout, faces);
     /**
      * Words that did not survive the wrap, said out loud.
      *
@@ -1937,6 +1966,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       captions.animation,
       { width: frameWidth, height: frameHeight },
       layout,
+      faces,
     );
     videoParts.push(`subtitles=${subtitlePath.replace(/[\\:']/g, "\\$&")}`);
     /**

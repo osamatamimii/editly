@@ -12,6 +12,7 @@ import { serializeMessage, serializeJob } from "../lib/transformers";
 import { currentUserId } from "../middlewares/auth";
 import { replyFor } from "../lib/plan-from-text";
 import { createPlanner } from "../lib/planner";
+import { withCaptionFonts } from "../lib/caption-fonts";
 import { plannerAssets } from "../lib/planner-assets";
 import { startRenderForProject } from "../lib/start-render";
 import { ALREADY_RENDERING } from "../lib/one-active-job";
@@ -113,6 +114,13 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
   // back as words in Noah's reply instead of as an HTTP error nobody sees.
   let render: { started: true } | { started: false; because: string } | undefined;
   let startedJob: ReturnType<typeof serializeJob> | null = null;
+  // The chosen faces, applied here for the same reason they are applied on the
+  // render route: the plan reaches the queue three ways and the choice belongs
+  // to the person, not to whichever of the three made it.
+  intent.operations = withCaptionFonts(
+    { version: 1, operations: intent.operations },
+    parsed.data.fonts,
+  ).operations;
   if (intent.operations.length > 0 && project.videoPath) {
     // The render's notes come back in the language the sentence was written
     // in. `intent.language` is read from what they typed, not from what the

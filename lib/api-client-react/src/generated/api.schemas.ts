@@ -184,6 +184,8 @@ export interface Message {
 
 export interface SendMessageBody {
   content: string;
+  /** Which caption faces to draw with, by id from fonts.ts. */
+  fonts?: { latin?: string; arabic?: string };
 }
 
 export interface MessagePair {

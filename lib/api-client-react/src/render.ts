@@ -18,7 +18,15 @@ export const getRenderStatusQueryKey = (projectId: string) =>
   [`/api/projects/${projectId}/render/status`] as const;
 
 /** Either a plan built here, or the id of one saved on the server. */
-export type RenderRequest = { plan: EditPlan } | { templateId: string };
+/** Which caption faces to draw with. Optional on both shapes; see fonts.ts. */
+export interface CaptionFontChoice {
+  latin?: string;
+  arabic?: string;
+}
+
+export type RenderRequest =
+  | { plan: EditPlan; fonts?: CaptionFontChoice }
+  | { templateId: string; fonts?: CaptionFontChoice };
 
 export async function startRender(projectId: string, request: RenderRequest): Promise<RenderJob> {
   return customFetch<RenderJob>(getStartRenderUrl(projectId), {

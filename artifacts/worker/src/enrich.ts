@@ -15,6 +15,7 @@
 import type { EditOperation, EditPlan, Platform } from "@workspace/api-zod";
 import { buildCaptionCues, emphasisPoints } from "./captions";
 import { captionLayout } from "./caption-layout";
+import { faceById } from "@workspace/api-zod/fonts";
 import { defaultHeightFor, frameFor, shapeFor } from "./ffmpeg";
 import { missingCapabilityNotes, type Providers } from "./providers";
 import { measureStyle, styleToSettings } from "./style-measure";
@@ -227,7 +228,20 @@ export async function enrichPlan(
         // no layout; when both are present the measurement wins, so grouping
         // and wrapping cannot disagree about the same sentence and truncate a
         // caption between them.
-        lineWidthInCaps: layout.usableWidth / layout.capHeight,
+        /*
+          Divided by the chosen face's width, because the grouping has to fit
+          the same line the wrap will draw. A condensed face fits a third more
+          on a line; grouping against Montserrat's width and drawing in Anton
+          leaves a third of every line empty, and grouping against Anton's while
+          drawing in Archivo Black overflows the safe area. Neither fails.
+
+          The Latin face, because this budget is one number for a whole
+          transcript while the wrap re-measures per cue in that cue's own face.
+          Where the two disagree the wrap is the stricter, which truncates
+          rather than spills — and says so in a note.
+        */
+        lineWidthInCaps:
+          layout.usableWidth / layout.capHeight / faceById(operation.font, "latin").widthScale,
         maxLines: layout.maxLines,
       });
       if (cues.length === 0) {
@@ -258,6 +272,8 @@ export async function enrichPlan(
           because the next person reads it instead of the code.
         */
         animation: operation.animation,
+        ...(operation.font ? { font: operation.font } : {}),
+        ...(operation.fontArabic ? { fontArabic: operation.fontArabic } : {}),
       });
       continue;
     }

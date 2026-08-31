@@ -286,74 +286,106 @@ section("The build context is the repo root, and does not carry the repo's build
   measures captions in pixels has to install the same bytes. Any one of those
   three drifting is a green suite about a font production does not ship.
 */
-section("The caption face is a file, and everything that draws with it uses that file");
+section("The caption faces are files, and everything that draws with them uses those files");
 {
-  const font = "artifacts/worker/fonts/Montserrat-Black.otf";
-  check("the font is in the repository", existsSync(path.join(repoRoot, font)));
-  check(
-    "the licence travels with it, because the OFL requires that",
-    existsSync(path.join(repoRoot, "artifacts/worker/fonts/Montserrat-OFL.txt")),
+  /*
+    Twelve faces now, and three places still have to agree about every one.
+
+    `caption-layout.ts` converts a height into a nominal size through a
+    per-face ratio measured from a *specific cut*. That is why the fonts are in
+    the repository rather than installed from packages: an archive holds
+    whatever revision it holds on the day an image is built, and a differently
+    proportioned cut breaks nothing — it just renders every caption in that
+    face at the wrong size.
+
+    So each file has to exist, the image has to copy it, and the runner that
+    measures captions in pixels has to install the same bytes. Any one of those
+    drifting is a green suite about fonts production does not ship.
+
+    The list is read out of the catalogue rather than written here, because a
+    list of twelve maintained by hand in a second place is a list that is wrong
+    the first time somebody adds a thirteenth.
+  */
+  const catalogue = read("lib/api-zod/src/fonts.ts");
+  const files = [...catalogue.matchAll(/file:\s*"([^"]+)"/g)].map((m) => m[1]);
+  const ids = [...catalogue.matchAll(/\n\s{4}id:\s*"([^"]+)"/g)].map((m) => m[1]);
+  const workflow = read(".github/workflows/checks.yml");
+
+  check("the catalogue lists faces at all", files.length >= 12, `${files.length}`);
+  check("and an id for each of them", ids.length === files.length, `${ids.length} ids, ${files.length} files`);
+
+  // Unique, because a face listed under both scripts is two entries over one
+  // file — Rubik is — and asking for a file per entry would ask for a second
+  // copy of the same bytes.
+  const missingFonts = [...new Set(files)].filter(
+    (f) => !existsSync(path.join(repoRoot, "artifacts/worker/fonts", f)),
   );
-  check("the image copies it in", new RegExp(`COPY ${font.replace(/[/.]/g, "\\$&")}`).test(dockerfile));
+  check("every one is committed", missingFonts.length === 0, missingFonts.join(", "));
+
+  /*
+    One licence per *file*, not per entry.
+
+    The OFL requires the licence to travel with the font, and a font listed
+    twice is still one font. Any id sharing a file satisfies it.
+  */
+  const byFile = new Map();
+  files.forEach((file, i) => byFile.set(file, [...(byFile.get(file) ?? []), ids[i]]));
+  const missingLicences = [...byFile.entries()]
+    .filter(([, group]) =>
+      !group.some((id) => existsSync(path.join(repoRoot, "artifacts/worker/fonts", `${id}-OFL.txt`))),
+    )
+    .map(([file]) => file);
   check(
-    "and rebuilds the font cache, so the family resolves in the same layer",
+    "every licence travels with its font, because the OFL requires that",
+    missingLicences.length === 0,
+    missingLicences.join(", "),
+  );
+
+  check(
+    "and the script that built them, because a font nobody can rebuild is a font nobody can check",
+    existsSync(path.join(repoRoot, "artifacts/worker/fonts/make-caption-faces.py")),
+  );
+
+  check(
+    "the image copies the whole folder in, so a thirteenth face needs no Dockerfile edit",
+    /COPY artifacts\/worker\/fonts\/ /.test(dockerfile),
+  );
+  check(
+    "and rebuilds the font cache, so the families resolve in the same layer",
     /fc-cache/.test(dockerfile),
   );
   check(
-    "the image does not also install it from a package, which would be two fonts with one name",
+    "the image does not also install one from a package, which would be two fonts with one name",
     !/fonts-montserrat/.test(dockerfile),
   );
   check(
-    "the suites measure the same file the image ships",
-    new RegExp(font.replace(/[/.]/g, "\\$&")).test(read(".github/workflows/checks.yml")),
-    // A runner carrying a package of the same name would measure a different
-    // cut, and every caption check would be green about the wrong thing.
+    "the runner installs the same folder the image does",
+    /artifacts\/worker\/fonts\/\*\.ttf/.test(workflow),
     "",
   );
   check(
-    "and the image proves the face resolved, because a missing font draws the fallback in silence",
-    /Montserrat Black measures exactly as DejaVu Sans/.test(dockerfile),
-  );
-
-  /*
-    And the Arabic face, which has one more way to be wrong.
-
-    Its ratio is different — 0.38 against Montserrat's 0.54, because "cap
-    height" for an Arabic face means the alef — so the same file-image-runner
-    agreement matters twice over. And it is a *modified* font: Cairo upstream
-    maps none of the isolated presentation forms FriBidi asks for, so a letter
-    standing alone came from whatever else on the system had the codepoint, at
-    that font's proportions. The script that repairs it lives beside the file
-    because a binary in a repository with no account of where it came from is
-    the thing nobody can ever check.
-  */
-  const arabic = "artifacts/worker/fonts/Cairo-Black.ttf";
-  check("the Arabic face is in the repository", existsSync(path.join(repoRoot, arabic)));
-  check(
-    "its licence travels with it too",
-    existsSync(path.join(repoRoot, "artifacts/worker/fonts/Cairo-OFL.txt")),
-  );
-  check(
-    "and the script that built it, because a font nobody can rebuild is a font nobody can check",
-    existsSync(path.join(repoRoot, "artifacts/worker/fonts/make-arabic-face.py")),
-  );
-  check("the image copies it in", new RegExp(`COPY ${arabic.replace(/[/.]/g, "\\$&")}`).test(dockerfile));
-  check(
-    "the suites measure the same file the image ships",
-    new RegExp(arabic.replace(/[/.]/g, "\\$&")).test(read(".github/workflows/checks.yml")),
+    "and proves every family resolved before a single caption is measured",
+    /font-test\.mjs --resolve-only/.test(workflow),
+    // A family that does not resolve is measured as DejaVu, silently, and every
+    // caption check in the suite is then green about the wrong font.
     "",
   );
   check(
-    "the image proves the Arabic face resolved rather than falling back",
-    /Cairo Black measures exactly as DejaVu Sans/.test(dockerfile),
+    "the image measures every face against the catalogue rather than a number in a comment",
+    /fonts-catalogue\.ts/.test(dockerfile) && /catalogue says/.test(dockerfile),
   );
   check(
-    "and proves the isolated forms are mapped, which is the half that draws from another font in silence",
+    "and proves the isolated Arabic forms are mapped, which is the half that draws from another font in silence",
     /isolated presentation forms are unmapped/.test(dockerfile),
   );
   check(
     "and that the isolates we wrap every RTL line in are invisible",
     /FSI\/PDI/.test(dockerfile),
+  );
+  check(
+    "the suite that measures them is in CI",
+    /node tools\/font-test\.mjs$/m.test(workflow),
+    "",
   );
 }
 
