@@ -109,9 +109,21 @@ section("Every variable the worker reads is one the deploy actually sets");
     missing.join(", "),
   );
 
-  // DATABASE_URL is read by lib/db, not by the worker's own source, and losing
-  // it is the difference between a worker and a process that exits at import.
-  check("including DATABASE_URL, which lives one package away", /DATABASE_URL/.test(workflow));
+  /*
+    Read by a package the worker imports rather than by its own source.
+
+    `DATABASE_URL` is read in lib/db, and the two storage variables moved into
+    lib/object-store when the worker stopped building Supabase URLs by hand.
+    The scan above cannot see any of them, and losing any of them is the
+    difference between a worker and a process that exits at import — so they
+    are named here and asserted below, which is the only place a list like this
+    is safe: it makes the deploy carry *more* than the scan can prove, never
+    less.
+  */
+  const readOnePackageAway = ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+  for (const name of readOnePackageAway) {
+    check(`including ${name}, which lives one package away`, workflow.includes(name));
+  }
 
   for (const required of ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "DATABASE_URL"]) {
     check(
@@ -124,7 +136,9 @@ section("Every variable the worker reads is one the deploy actually sets");
   // Anything the workflow sends that nothing reads is either a rename that went
   // half-done or a secret being handled for no reason.
   const sent = [...workflow.matchAll(/^\s+([A-Z][A-Z0-9_]*): \$\{\{ secrets\./gm)].map((m) => m[1]);
-  const unread = sent.filter((name) => name !== "FLY_API_TOKEN" && !referenced.has(name) && name !== "DATABASE_URL");
+  const unread = sent.filter(
+    (name) => name !== "FLY_API_TOKEN" && !referenced.has(name) && !readOnePackageAway.includes(name),
+  );
   check("and nothing is pushed that nothing reads", unread.length === 0, unread.join(", "));
 }
 

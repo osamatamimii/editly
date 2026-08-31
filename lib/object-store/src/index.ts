@@ -103,6 +103,52 @@ export interface StoreFacts {
   publicReads: boolean;
 }
 
+/**
+ * A request to the store that did not succeed, carrying the answer's status.
+ *
+ * Most of this package answers a failed metadata call with `null` or an empty
+ * array, which is right for the audit page — it asks questions it can live
+ * without an answer to. It is exactly wrong for the two callers that arrived
+ * after it: a deletion sweep that reads an empty listing as "there is nothing
+ * left" would report a customer's bytes gone every time Storage answered 500,
+ * and a health probe whose whole job is to tell a rejected credential from an
+ * unreachable host cannot do it from an empty array.
+ *
+ * So `list` throws this instead of swallowing, and the status is on the error
+ * because 401 and 503 mean opposite things to whoever is reading the page.
+ * `status` is null when there was no answer at all — a timeout, a DNS failure,
+ * a refused connection.
+ */
+export class ObjectStoreError extends Error {
+  readonly status: number | null;
+  constructor(message: string, status: number | null = null) {
+    super(message);
+    this.name = "ObjectStoreError";
+    this.status = status;
+  }
+}
+
+/**
+ * How much of a prefix to read, and how long to wait for it.
+ *
+ * Without a `limit` a listing drains every page, which is what a caller that
+ * wants an inventory means. With one it asks for a single page and returns it —
+ * which is what a caller that deletes what it reads and then asks again means,
+ * and the difference is not cosmetic: draining first and deleting after would
+ * hold a project's whole inventory in memory and lose the property that only an
+ * empty listing proves the sweep is finished.
+ *
+ * There is deliberately no `offset`. Supabase pages by offset and S3 pages by
+ * continuation token, and an offset in this interface would be a promise only
+ * one of the two providers could keep.
+ */
+export interface ListOptions {
+  /** One page of at most this many, instead of every page. */
+  limit?: number;
+  /** Ceiling on the request, for a caller on a path a person is waiting on. */
+  timeoutMs?: number;
+}
+
 export interface ObjectStore {
   readonly provider: Provider;
   readonly bucket: string;
@@ -122,7 +168,9 @@ export interface ObjectStore {
   signedPut(key: string, options: SignedPutOptions): Promise<SignedUpload | null>;
 
   head(key: string): Promise<StoredObject | null>;
-  list(prefix: string): Promise<StoredObject[]>;
+
+  /** Throws `ObjectStoreError` rather than answering an empty page. */
+  list(prefix: string, options?: ListOptions): Promise<StoredObject[]>;
   remove(keys: string[]): Promise<void>;
   copy(from: string, to: string): Promise<void>;
   facts(): Promise<StoreFacts | null>;

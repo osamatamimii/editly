@@ -1,20 +1,49 @@
 /**
- * The worker's side of Supabase Storage.
+ * The worker's side of the object store.
  *
- * Unlike the browser, the worker is not any particular user, so it uses the
- * service role key and bypasses row-level security. Every path it touches is
- * taken from a job row whose ownership the API already established — the worker
- * never derives a path from anything a client sent it directly.
+ * Unlike the browser, the worker is not any particular user, so it carries the
+ * deployment's own credential and bypasses row-level security. Every path it
+ * touches is taken from a job row whose ownership the API already established —
+ * the worker never derives a path from anything a client sent it directly.
+ *
+ * ## Where the address comes from, and where it stopped coming from
+ *
+ * This file used to spell `${SUPABASE_URL}/storage/v1/object/videos/${key}` in
+ * three places and hold the service role key in a module constant. That is the
+ * one thing in here that is a property of *which provider we are on* rather
+ * than of what a transfer has to survive, and R2 has no answer to any of it:
+ * no `apikey` header, no row policies, a PUT where Supabase wants a POST. So
+ * the URL, the verb and the headers now come from `@workspace/object-store`,
+ * and switching provider is a variable rather than an edit to this file.
+ *
+ * ## What deliberately did not move
+ *
+ * Everything below the address. The connect clock and the separate stall
+ * clock, the byte count that catches a body which ends short of its own
+ * Content-Length, the 413 that becomes a sentence naming the real ceiling,
+ * the stream-from-disk upload that exists because the worker has one gigabyte.
+ * Each of those was paid for by an outage, none of them is provider-specific,
+ * and moving them into the seam to make it look tidier would risk all of them
+ * for nothing. The rule for this file is: ask the seam *where*, then send the
+ * request with our own machinery.
  */
 import { createReadStream, createWriteStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { Readable, Transform } from "node:stream";
+import { objectStoreFrom, isSafeKey, VIDEOS_BUCKET } from "@workspace/object-store";
 
-const SUPABASE_URL = requireEnv("SUPABASE_URL").replace(/\/+$/, "");
-const SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+/*
+  Built once, at import, and allowed to throw.
 
-export const VIDEOS_BUCKET = "videos";
+  The two lines it replaces were `requireEnv` calls that threw here too, and
+  for the same reason: a worker that starts without knowing where storage is
+  will claim a job, download nothing, and fail a customer's render. Refusing
+  at boot turns that into a deploy that does not come up.
+*/
+const store = objectStoreFrom();
+
+export { VIDEOS_BUCKET };
 
 /**
  * A transfer that did not complete, said in words the person can act on.
@@ -51,20 +80,6 @@ function inMegabytes(bytes: number): string {
     : `${Math.max(1, Math.round(bytes / 1024))}KB`;
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} must be set for the worker to reach Storage.`);
-  return value;
-}
-
-function headers(extra: Record<string, string> = {}): Record<string, string> {
-  return {
-    apikey: SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-    ...extra,
-  };
-}
-
 /**
  * The same key rule the API applies before writing a path, applied again here
  * before one is used.
@@ -75,29 +90,23 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
  * the two, and it stood in the wrong place for a while, accepting
  * `%2e%2e/%2e%2e/` because it only looked for a literal `..`. The URL parser
  * resolves those before the request leaves this process, and this process holds
- * the service role key, so the request that goes out reads whatever folder the
- * traversal lands in.
+ * the deployment's credential, so the request that goes out reads whatever
+ * folder the traversal lands in.
  *
  * That hole is closed at the API now. This check exists because rows written
  * while it was open are still in the database, and because a guard that only
  * exists at the edge is one refactor away from not existing.
+ *
+ * The rule itself moved into the object store package, beside the thing it
+ * guards: every driver applies it as the first line of every method, so a key
+ * that fails it cannot reach a URL even if a caller here forgot to ask. Which
+ * is why the two transfers below no longer assert separately — `address()`
+ * refuses first, before there is anything to send. This stays exported because
+ * it is a question worth being able to ask without performing a transfer, and
+ * it is the same answer either way.
  */
-const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
 export function isSafeObjectKey(key: string): boolean {
-  if (!key || key.startsWith("/") || key.endsWith("/")) return false;
-  const segments = key.split("/");
-  return segments.length >= 3 && segments.every((s) => SAFE_SEGMENT.test(s));
-}
-
-function assertSafeKey(key: string): void {
-  if (!isSafeObjectKey(key)) {
-    // The key is not echoed: if it is hostile it is going into a log that
-    // somebody will later paste somewhere, and its shape is enough to debug.
-    throw new Error(
-      `refusing to touch a storage key that is not a plain <user>/<project>/<name> path (${key.split("/").length} segments)`,
-    );
-  }
+  return isSafeKey(key);
 }
 
 /**
@@ -146,7 +155,9 @@ export function bytesPulled(): number {
 }
 
 export async function downloadObject(key: string, destination: string): Promise<void> {
-  assertSafeKey(key);
+  // Where, and with what — from the seam. It applies the key rule before it
+  // builds anything, so an unsafe key throws here rather than reaching a URL.
+  const at = store.address(key, "GET");
 
   // Two clocks, because "the server never answered" and "the server answered
   // and then stopped sending" are different failures and only the first one
@@ -155,8 +166,9 @@ export async function downloadObject(key: string, destination: string): Promise<
   const connect = setTimeout(() => controller.abort(), CONNECT_TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(`${SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${key}`, {
-      headers: headers(),
+    res = await fetch(at.url, {
+      method: at.method,
+      headers: at.headers,
       signal: controller.signal,
     });
   } catch (error) {
@@ -261,27 +273,18 @@ export async function downloadObject(key: string, destination: string): Promise<
  */
 async function bucketObjectLimit(): Promise<number | null> {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5_000);
-    try {
-      const res = await fetch(`${SUPABASE_URL}/storage/v1/bucket/${VIDEOS_BUCKET}`, {
-        headers: headers(),
-        signal: controller.signal,
-      });
-      if (!res.ok) return null;
-      const raw = ((await res.json()) as { file_size_limit?: unknown } | null)?.file_size_limit;
-      return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
-    } finally {
-      clearTimeout(timer);
-    }
+    // Through the seam, which answers null on a provider that has no such
+    // ceiling of its own — which R2 does not, and saying so is the truth. On
+    // R2 the wall a file hits is ours, checked before the URL is signed, and a
+    // sentence quoting a bucket setting there would describe a wall that does
+    // not exist.
+    return (await store.facts())?.fileSizeLimit ?? null;
   } catch {
     return null;
   }
 }
 
 export async function uploadObject(key: string, source: string, contentType = "video/mp4"): Promise<void> {
-  assertSafeKey(key);
-
   /*
     Streamed from disk, not read into memory.
 
@@ -293,11 +296,20 @@ export async function uploadObject(key: string, source: string, contentType = "v
     it dies again, and three attempts later the customer is told "Rendering
     failed" having burned three renders of machine time. The limit that was
     actually reached is never named anywhere.
-
-    Content-Length explicitly, from the file on disk. Without it undici sends
-    chunked, and an object store is entitled to refuse that.
   */
   const { size } = await stat(source);
+
+  /*
+    The verb comes from the seam and is not this file's business: Supabase
+    writes an object with POST and answers 400 to a PUT for one that does not
+    exist yet, while S3 writes with PUT and has no POST at all. A hardcoded
+    verb here is a worker that only runs on one provider.
+
+    Content-Length goes through it too, explicitly, from the file on disk. It
+    was added because without it undici sends chunked, and an object store is
+    entitled to refuse that.
+  */
+  const at = store.address(key, "PUT", { contentType, upsert: true, contentLength: size });
 
   const controller = new AbortController();
   // One request with no progress to read, so the clock is all there is. Thirty
@@ -305,13 +317,9 @@ export async function uploadObject(key: string, source: string, contentType = "v
   const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(`${SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${key}`, {
-      method: "POST",
-      headers: headers({
-        "Content-Type": contentType,
-        "x-upsert": "true",
-        "Content-Length": String(size),
-      }),
+    res = await fetch(at.url, {
+      method: at.method,
+      headers: at.headers,
       body: Readable.toWeb(createReadStream(source)) as ReadableStream,
       // Required by undici whenever the body is a stream: it says we are not
       // reading the response while still writing the request.

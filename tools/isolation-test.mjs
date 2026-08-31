@@ -369,6 +369,29 @@ console.log("\nToken enforcement");
     JSON.stringify(healthBody?.capabilities?.admins),
   );
 
+  /*
+    And whether the storage credential actually authenticates.
+
+    Not "is a variable set" — that is the field beside it. This one performs a
+    real listing against the store and reports `ok`, `unauthorized` or
+    `unreachable`, and it is asserted here because its failure mode is the
+    silent kind: the probe lists a prefix, the shared key rule requires a
+    segment to begin with a letter or a digit, and a prefix that does not —
+    `__healthcheck__`, say — is refused before a request is ever made. The page
+    would then read `unreachable` forever, on a deployment where storage is
+    perfectly fine, and nothing would fail.
+  */
+  check(
+    "it says whether the storage credential actually works",
+    healthBody?.capabilities?.storageCheck === "ok",
+    JSON.stringify(healthBody?.capabilities?.storageCheck),
+  );
+  check(
+    "having asked storage rather than reading an environment variable",
+    storageCalls.some((c) => c.op === "list" && c.prefix !== null),
+    JSON.stringify(storageCalls.slice(0, 3)),
+  );
+
   /**
    * And whether a machine that can render is listening.
    *

@@ -19,6 +19,7 @@
  */
 import type {
   AddressOptions,
+  ListOptions,
   ObjectAddress,
   ObjectStore,
   SignedPutOptions,
@@ -26,7 +27,7 @@ import type {
   StoreFacts,
   StoredObject,
 } from "./index";
-import { guardKey, guardPrefix } from "./index";
+import { guardKey, guardPrefix, ObjectStoreError } from "./index";
 
 export interface SupabaseStoreConfig {
   bucket: string;
@@ -65,17 +66,36 @@ export function createSupabaseStore(config: SupabaseStoreConfig): ObjectStore {
     account, loading the console — so a provider that accepts the connection
     and then goes quiet is an await that never returns.
   */
-  async function json(path: string, init: RequestInit): Promise<unknown | null> {
+  async function ask(path: string, init: RequestInit, timeoutMs = METADATA_TIMEOUT_MS): Promise<unknown> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), METADATA_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(`${base}${path}`, { ...init, signal: controller.signal });
-      if (!res.ok) return null;
+      if (!res.ok) throw new ObjectStoreError(`${init.method ?? "GET"} ${path} answered ${res.status}`, res.status);
       return await res.json();
-    } catch {
-      return null;
+    } catch (error) {
+      // A refusal keeps its status; anything else — a timeout, a dropped
+      // connection, a body that is not JSON — has none, and saying so is the
+      // difference between "the key was rejected" and "nobody answered".
+      if (error instanceof ObjectStoreError) throw error;
+      throw new ObjectStoreError(`${init.method ?? "GET"} ${path} did not answer: ${String(error)}`, null);
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /**
+   * The same call for the questions this store can live without an answer to.
+   *
+   * `signedGet`, `signedPut` and `facts` all have a caller that renders "not
+   * known" and carries on, so they keep the swallow they were written with.
+   * `list` does not, and that is why it is the one that calls `ask` directly.
+   */
+  async function json(path: string, init: RequestInit): Promise<unknown | null> {
+    try {
+      return await ask(path, init);
+    } catch {
+      return null;
     }
   }
 
@@ -150,16 +170,23 @@ export function createSupabaseStore(config: SupabaseStoreConfig): ObjectStore {
       }
     },
 
-    async list(prefix: string): Promise<StoredObject[]> {
+    async list(prefix: string, options: ListOptions = {}): Promise<StoredObject[]> {
       guardPrefix(prefix);
       const folder = prefix.replace(/\/+$/, "");
+      const size = options.limit && options.limit > 0 ? Math.floor(options.limit) : LIST_PAGE;
+      // One page when the caller asked for one, every page when it did not.
+      const pages = options.limit ? 1 : MAX_LIST_PAGES;
       const found: StoredObject[] = [];
-      for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
-        const body = await json(`/object/list/${bucket}`, {
-          method: "POST",
-          headers: auth({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ prefix: folder, limit: LIST_PAGE, offset: page * LIST_PAGE }),
-        });
+      for (let page = 0; page < pages; page += 1) {
+        const body = await ask(
+          `/object/list/${bucket}`,
+          {
+            method: "POST",
+            headers: auth({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ prefix: folder, limit: size, offset: page * size }),
+          },
+          options.timeoutMs,
+        );
         const rows = Array.isArray(body) ? (body as Array<Record<string, unknown>>) : [];
         for (const row of rows) {
           const name = typeof row["name"] === "string" ? row["name"] : null;
@@ -173,7 +200,7 @@ export function createSupabaseStore(config: SupabaseStoreConfig): ObjectStore {
             updatedAt: typeof row["updated_at"] === "string" ? row["updated_at"] : null,
           });
         }
-        if (rows.length < LIST_PAGE) break;
+        if (rows.length < size) break;
       }
       return found;
     },

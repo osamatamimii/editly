@@ -277,6 +277,134 @@ section("Misconfiguration fails at the deploy, not at a customer's upload");
   );
 }
 
+section("An empty listing means empty, and a failed one says so");
+{
+  /*
+    The one place in this package where swallowing a failure is a lie.
+
+    Every other metadata call answers `null` and has a caller that renders "not
+    known" and carries on. `list` has two callers that cannot: the API's
+    deletion sweep, which reads an empty listing as "there is nothing left of
+    this project" and reports the customer's bytes gone, and the health probe,
+    whose entire output is whether a credential was *rejected* or a host never
+    answered. An empty array says neither of those things, so a request that
+    failed has to arrive as an error carrying its status.
+
+    Both drivers are held to it, because a caller that works on one and not the
+    other means the seam is in the wrong place.
+  */
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  /** Answers every request the same way, and records what was asked. */
+  const answerWith = (make) => {
+    globalThis.fetch = async (url, init = {}) => {
+      let body = null;
+      try {
+        body = init.body ? JSON.parse(init.body) : null;
+      } catch {
+        body = null;
+      }
+      calls.push({ url: String(url), body });
+      return make(calls.length);
+    };
+  };
+  const page = (rows) =>
+    new Response(JSON.stringify(rows.map((name) => ({ name, id: name, metadata: { size: 1 } }))), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  const xml = (keys, truncated = false) =>
+    new Response(
+      `<ListBucketResult>${keys.map((k) => `<Contents><Key>${k}</Key><Size>1</Size></Contents>`).join("")}` +
+        `<IsTruncated>${truncated}</IsTruncated>${truncated ? "<NextContinuationToken>t</NextContinuationToken>" : ""}` +
+        `</ListBucketResult>`,
+      { status: 200, headers: { "content-type": "application/xml" } },
+    );
+
+  try {
+    // ── A page is a page, on request ─────────────────────────────────────────
+    calls.length = 0;
+    answerWith(() => page(Array.from({ length: 100 }, (_, i) => `f${i}.mp4`)));
+    const onePage = await supabase.list("u/p", { limit: 100 });
+    check("Supabase returns the page it was asked for", onePage.length === 100, String(onePage.length));
+    check(
+      "and stops there rather than draining, which is what the sweep needs",
+      calls.length === 1,
+      `${calls.length} requests`,
+    );
+    check("the page size is the one the caller named", calls[0]?.body?.limit === 100, JSON.stringify(calls[0]?.body));
+    check("and the key is the full path, not the leaf name", onePage[0]?.key === "u/p/f0.mp4", onePage[0]?.key);
+
+    calls.length = 0;
+    answerWith(() => xml(["u/p/a.mp4", "u/p/b.mp4"]));
+    const r2Page = await r2.list("u/p", { limit: 100 });
+    check("R2 returns one page too", r2Page.length === 2, String(r2Page.length));
+    check("in one request", calls.length === 1, `${calls.length} requests`);
+    check(
+      "asking the store for that many keys and no more",
+      new URL(calls[0].url).searchParams.get("max-keys") === "100",
+      calls[0]?.url,
+    );
+
+    // ── Without a limit it still drains ──────────────────────────────────────
+    calls.length = 0;
+    answerWith((n) => (n === 1 ? page(Array.from({ length: 100 }, (_, i) => `f${i}.mp4`)) : page(["last.mp4"])));
+    const drained = await supabase.list("u/p");
+    check("a listing with no limit still drains every page", drained.length === 101, String(drained.length));
+
+    calls.length = 0;
+    answerWith((n) => (n === 1 ? xml(["u/p/a.mp4"], true) : xml(["u/p/b.mp4"])));
+    check("and so does R2, by its continuation token", (await r2.list("u/p")).length === 2);
+
+    // ── Empty is an answer ───────────────────────────────────────────────────
+    answerWith(() => page([]));
+    check("an empty page is an empty list, not an error", (await supabase.list("u/p")).length === 0);
+    answerWith(() => xml([]));
+    check("on R2 as well", (await r2.list("u/p")).length === 0);
+
+    // ── A refusal keeps its status ───────────────────────────────────────────
+    const failure = async (store_, make) => {
+      answerWith(make);
+      try {
+        await store_.list("u/p", { limit: 10 });
+        return "no error";
+      } catch (error) {
+        return error;
+      }
+    };
+
+    for (const [name, driver] of [["Supabase", supabase], ["R2", r2]]) {
+      const rejected = await failure(driver, () => new Response("no", { status: 401 }));
+      check(
+        `${name} turns a rejected credential into an error, not an empty page`,
+        rejected instanceof store.ObjectStoreError && rejected.status === 401,
+        String(rejected),
+      );
+      const broken = await failure(driver, () => new Response("no", { status: 503 }));
+      check(
+        `${name} keeps the status of a host that is having a moment`,
+        broken instanceof store.ObjectStoreError && broken.status === 503,
+        String(broken),
+      );
+      /*
+        No answer at all — a timeout, a refused connection, a DNS failure. The
+        status is null rather than a number, because "we do not know" is the
+        thing the health page has to be able to say.
+      */
+      const silent = await failure(driver, () => {
+        throw new TypeError("fetch failed");
+      });
+      check(
+        `${name} says it does not know when nothing answered`,
+        silent instanceof store.ObjectStoreError && silent.status === null,
+        String(silent),
+      );
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 section("Copying says so out loud rather than doing nothing");
 {
   /*

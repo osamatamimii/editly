@@ -34,6 +34,7 @@
  */
 import type {
   AddressOptions,
+  ListOptions,
   ObjectAddress,
   ObjectStore,
   SignedPutOptions,
@@ -41,7 +42,7 @@ import type {
   StoreFacts,
   StoredObject,
 } from "./index";
-import { guardKey, guardPrefix } from "./index";
+import { guardKey, guardPrefix, ObjectStoreError } from "./index";
 import { presign, R2_REGION, type SigningIdentity } from "./sigv4";
 
 export interface R2StoreConfig {
@@ -82,15 +83,25 @@ export function createR2Store(config: R2StoreConfig): ObjectStore {
   const sign = (method: string, key: string, expiresInSeconds: number, query?: Record<string, string>): string =>
     presign({ identity, method, endpoint, bucket, key, query, expiresInSeconds });
 
-  async function text(url: string, method: string): Promise<string | null> {
+  /*
+    Throws rather than answering `null`.
+
+    Its one caller is `list`, and an empty listing is a sentence with a meaning:
+    "there is nothing under this prefix". A driver that says that when it means
+    "the request failed" hands a deletion sweep a reason to report a customer's
+    bytes gone while they are still here. The status travels with the error so
+    a caller can tell a rejected signature from a host that never answered.
+  */
+  async function text(url: string, method: string, timeoutMs = METADATA_TIMEOUT_MS): Promise<string> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), METADATA_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(url, { method, signal: controller.signal });
-      if (!res.ok) return null;
+      if (!res.ok) throw new ObjectStoreError(`${method} on ${bucket} answered ${res.status}`, res.status);
       return await res.text();
-    } catch {
-      return null;
+    } catch (error) {
+      if (error instanceof ObjectStoreError) throw error;
+      throw new ObjectStoreError(`${method} on ${bucket} did not answer: ${String(error)}`, null);
     } finally {
       clearTimeout(timer);
     }
@@ -188,16 +199,21 @@ export function createR2Store(config: R2StoreConfig): ObjectStore {
       }
     },
 
-    async list(prefix: string): Promise<StoredObject[]> {
+    async list(prefix: string, options: ListOptions = {}): Promise<StoredObject[]> {
       guardPrefix(prefix);
       const folder = `${prefix.replace(/\/+$/, "")}/`;
+      const size = options.limit && options.limit > 0 ? Math.floor(options.limit) : LIST_PAGE;
+      // A caller that asked for one page gets one, and does not get a
+      // continuation token it has nowhere to put: the way it asks for the next
+      // page is by deleting this one and asking again.
+      const pages = options.limit ? 1 : MAX_LIST_PAGES;
       const found: StoredObject[] = [];
       let token: string | null = null;
-      for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+      for (let page = 0; page < pages; page += 1) {
         const query: Record<string, string> = {
           "list-type": "2",
           prefix: folder,
-          "max-keys": String(LIST_PAGE),
+          "max-keys": String(size),
         };
         if (token) query["continuation-token"] = token;
         const url = presign({
@@ -208,9 +224,7 @@ export function createR2Store(config: R2StoreConfig): ObjectStore {
           query,
           expiresInSeconds: INTERNAL_SECONDS,
         });
-        const xml = await text(url, "GET");
-        if (!xml) break;
-        const parsed = parseListing(xml);
+        const parsed = parseListing(await text(url, "GET", options.timeoutMs));
         found.push(...parsed.objects);
         if (!parsed.next) break;
         token = parsed.next;
