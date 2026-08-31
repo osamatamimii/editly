@@ -519,7 +519,64 @@ async function measure(page) {
 const PAGES = [
   { url: "/", name: "the landing page", signedIn: false, expect: /Stop editing/ },
   { url: "/login", name: "signing in", signedIn: false, expect: /Welcome back|Sign in/ },
-  { url: "/dashboard", name: "the dashboard", signedIn: true, expect: /Projects|project/i },
+  {
+    url: "/dashboard",
+    name: "the dashboard",
+    signedIn: true,
+    expect: /Projects|project/i,
+    then: async (page, check) => {
+      /*
+        No project card is a black hole.
+
+        The bucket is private, so every poster waits on a signed URL — and that
+        URL can be slow, can fail, and is simply absent while the page settles.
+        The card drew nothing at all for each of those, which on a dark
+        container is a black rectangle with a status badge floating in it, and
+        reads as a broken project rather than a pending one.
+
+        Measured on the rendered card rather than in the source, because what
+        is wrong is the *pixels*: a component that returns null and a component
+        that draws something look identical to anything reading TSX.
+      */
+      const empty = await page.evaluate(() => {
+        return [...document.querySelectorAll('[data-testid^="card-project-"]')]
+          .map((card) => {
+            // The poster *area*, not the card. A card always holds a status
+            // badge and a delete button, and both are SVG — so "does the card
+            // contain a picture element" is a question that answers yes for
+            // every card ever drawn, which is a check that cannot fail.
+            const frame = card.querySelector(".aspect-\\[16\\/9\\]");
+            if (!frame) return `${card.getAttribute("data-testid")}: no poster area at all`;
+            /*
+              Something that put pixels down, not something that is present.
+
+              An <img> whose object was deleted, and a <video> in a browser with
+              no decoder for it, are both elements that exist and draw nothing —
+              and they satisfy every check that asks whether an element is
+              there. `naturalWidth` and `videoWidth` are zero until a browser
+              has really decoded a frame, which is the question worth asking;
+              the generated art is a painted div and needs no such proof.
+            */
+            const art = frame.querySelector('[data-testid="project-art"]');
+            const image = frame.querySelector("img");
+            const clip = frame.querySelector("video");
+            const painted =
+              Boolean(art) ||
+              (image !== null && image.naturalWidth > 0) ||
+              (clip !== null && clip.videoWidth > 0);
+            return painted
+              ? null
+              : `${card.getAttribute("data-testid")}: nothing on this card put a pixel down`;
+          })
+          .filter(Boolean);
+      });
+      check(
+        "every project card has a picture of some kind on it",
+        empty.length === 0,
+        `${empty.join(", ")} drew nothing where the poster goes`,
+      );
+    },
+  },
   {
     url: `/project/${PROJECTS[0].id}`,
     name: "the project editor",

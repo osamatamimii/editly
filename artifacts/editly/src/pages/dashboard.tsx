@@ -15,7 +15,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -49,17 +49,53 @@ import { Badge } from "@/components/ui/badge";
  * signed before it can be shown — and each card signs its own rather than the
  * dashboard signing all of them, so one failure costs one card.
  */
-function ProjectThumbnail({ project }: { project: { title: string; thumbnailPath?: string | null; thumbnailUrl?: string | null } }) {
+/*
+  The art stays until the picture has actually painted.
+
+  Both of these used to return `null` while they had no URL, which left the
+  container exactly as it was drawn — black — with a status badge floating in
+  it. That covered the common case badly enough, and it missed the worse one
+  entirely: a URL that *resolves* and then does not decode. A poster whose
+  object was deleted, a link that expired between signing and fetching, or —
+  and this is the one that matters — a browser that will not decode H.264, of
+  which there is at least one on this project's own desk. In every one of those
+  the element is present, every check that asks "is there an <img>" says yes,
+  and the card is a black rectangle.
+
+  So the art is drawn *until* the media reports that it painted, and only then
+  does the art come out of the tree. Not underneath it, ever: the poster is
+  drawn at 80% opacity so it brightens on hover, and 80% over a coloured floor
+  is not a dimmed photograph, it is a tinted one — every card with real footage
+  in it was wearing somebody else's green the last time that shortcut was
+  taken. Underneath a *transparent* element is the one arrangement where the
+  two cannot mix.
+*/
+function ProjectThumbnail({
+  project,
+}: {
+  project: { id: string; title: string; thumbnailPath?: string | null; thumbnailUrl?: string | null };
+}) {
   const { url } = usePlayableVideo(project.thumbnailPath ?? project.thumbnailUrl);
-  if (!url) return null;
+  const [painted, setPainted] = useState(false);
+
   return (
-    <img
-      src={url}
-      alt={project.title}
-      loading="lazy"
-      className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity group-hover:scale-105 duration-500"
-      data-testid="img-project-thumbnail"
-    />
+    <>
+      {painted ? null : <ProjectArt seed={project.id} />}
+      {url ? (
+        <img
+          src={url}
+          alt={project.title}
+          loading="lazy"
+          onLoad={(e) => {
+            if (e.currentTarget.naturalWidth > 0) setPainted(true);
+          }}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity group-hover:scale-105 duration-500 ${
+            painted ? "opacity-80 group-hover:opacity-100" : "opacity-0"
+          }`}
+          data-testid="img-project-thumbnail"
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -82,20 +118,41 @@ function ProjectThumbnail({ project }: { project: { title: string; thumbnailPath
 function ProjectClipFrame({
   project,
 }: {
-  project: { title: string; videoPath?: string | null; videoUrl?: string | null; duration?: number | null };
+  project: {
+    id: string;
+    title: string;
+    videoPath?: string | null;
+    videoUrl?: string | null;
+    duration?: number | null;
+  };
 }) {
   const { url } = usePlayableVideo(project.videoPath ?? project.videoUrl);
-  if (!url) return null;
+  const [painted, setPainted] = useState(false);
   const at = project.duration && project.duration > 4 ? Math.round(project.duration * 0.25) : 1;
+
   return (
-    <video
-      src={`${url}#t=${at}`}
-      preload="metadata"
-      muted
-      playsInline
-      className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity group-hover:scale-105 duration-500"
-      data-testid="video-project-frame"
-    />
+    <>
+      {painted ? null : <ProjectArt seed={project.id} />}
+      {url ? (
+        <video
+          src={`${url}#t=${at}`}
+          preload="metadata"
+          muted
+          playsInline
+          // `loadeddata` rather than `loadedmetadata`: metadata means the
+          // browser read the header, and a browser with no decoder for the
+          // stream reads the header perfectly well and then draws nothing.
+          // `videoWidth` is the frame it really has.
+          onLoadedData={(e) => {
+            if (e.currentTarget.videoWidth > 0) setPainted(true);
+          }}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity group-hover:scale-105 duration-500 ${
+            painted ? "opacity-80 group-hover:opacity-100" : "opacity-0"
+          }`}
+          data-testid="video-project-frame"
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -330,11 +387,21 @@ export default function Dashboard() {
           </p>
           </div>
         </div>
-        {/* Wraps, because for one person it does not fit.
-            Three controls fit a phone; an admin gets a fourth — "Operations" —
-            and the row measured 526px against a 390px screen, so the whole
-            dashboard scrolled sideways. It went unseen because the only account
-            that sees that button is the one nobody tests with. */}
+        {/*
+          Icons on a phone, words from a tablet up.
+
+          It wrapped, and wrapping was the fix for the row measuring 526px
+          against a 390px screen — but wrapped is not the same as tidy: five
+          controls over two lines, one of them a bare icon with no label and the
+          other three carrying words, reads as a row that ran out of space
+          rather than one that was designed.
+
+          The secondary actions drop their words below `sm` and keep an
+          `aria-label`, which they needed anyway: "Clips" already hid its text
+          on a phone, and a button whose only text is `hidden` is a button with
+          no accessible name at all. "New Project" keeps its words, because it
+          is the one thing this screen is for and an icon is not an invitation.
+        */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
           <ThemeToggle />
           {/*
@@ -347,12 +414,13 @@ export default function Dashboard() {
           {isAdmin ? (
             <Button
               variant="outline"
-              className="border-hairline rounded-full h-12 px-4 sm:px-5"
+              className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
               onClick={() => setLocation("/admin")}
+              aria-label="Operations"
               data-testid="button-admin"
             >
-              <Gauge className="w-4 h-4 mr-2" />
-              Operations
+              <Gauge className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Operations</span>
             </Button>
           ) : null}
           {/* Clips are the output of the thing half this product's users come
@@ -360,8 +428,9 @@ export default function Dashboard() {
               them — eleven recordings, eleven panels, no library. */}
           <Button
             variant="outline"
-            className="border-hairline rounded-full h-12 px-4 sm:px-5"
+            className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
             onClick={() => setLocation("/clips")}
+            aria-label="Clips"
             data-testid="button-clips"
           >
             <Scissors className="w-4 h-4 sm:mr-2" />
@@ -369,12 +438,13 @@ export default function Dashboard() {
           </Button>
           <Button
             variant="outline"
-            className="border-hairline rounded-full h-12 px-4 sm:px-5"
+            className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
             onClick={() => setLocation("/account")}
+            aria-label="Account"
             data-testid="button-account"
           >
-            <UserRound className="w-4 h-4 mr-2" />
-            Account
+            <UserRound className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Account</span>
           </Button>
           <Button
             onClick={() => setIsCreateOpen(true)}
@@ -646,7 +716,10 @@ export default function Dashboard() {
                     to its edge: a picture with a margin around it reads as
                     something the card is holding, which is the difference
                     between a library and a list. */}
-                <Card className="glass-panel border-hairline-faint overflow-hidden hover:border-primary/50 transition-all group cursor-pointer h-full flex flex-col p-2 hover:-translate-y-0.5">
+                <Card
+                  className="glass-panel border-hairline-faint overflow-hidden hover:border-primary/50 transition-all group cursor-pointer h-full flex flex-col p-2 hover:-translate-y-0.5"
+                  data-testid={`card-project-${project.id}`}
+                >
                   <div className="force-dark w-full aspect-[16/9] bg-background text-foreground relative overflow-hidden flex-shrink-0 rounded-xl">
                     {/* What is under everything else.
                         This was a black rectangle with a grey camera in the
@@ -693,26 +766,36 @@ export default function Dashboard() {
                       {getStatusBadge(project.status, project.renderStalled)}
                     </div>
                   </div>
-                  <CardContent className="px-3 pt-3 pb-1 flex-1">
-                    <CardTitle dir="auto" className="text-lg mb-1 group-hover:text-primary transition-colors line-clamp-1" data-testid={`text-project-title-${project.id}`}>
-                      {project.title}
-                    </CardTitle>
-                    <div className="flex items-center text-xs text-muted-foreground">
-                      <Clock className="w-3 h-3 mr-1" />
-                      {format(new Date(project.updatedAt), 'MMM d, yyyy')}
+                  {/*
+                    The date and the bin share a row.
+
+                    The bin had a row of its own, which on a phone is fifty
+                    pixels of empty card between the date and the next project —
+                    three of them and a screen holds two projects instead of
+                    three. It is still a full tap target and still the furthest
+                    thing on the card from where a thumb lands when opening one.
+                  */}
+                  <CardContent className="px-3 pt-3 pb-2 flex-1 flex items-end justify-between gap-2">
+                    <div className="min-w-0">
+                      <CardTitle dir="auto" className="text-lg mb-1 group-hover:text-primary transition-colors line-clamp-1" data-testid={`text-project-title-${project.id}`}>
+                        {project.title}
+                      </CardTitle>
+                      <div className="flex items-center text-xs text-muted-foreground">
+                        <Clock className="w-3 h-3 mr-1 flex-shrink-0" />
+                        {format(new Date(project.updatedAt), 'MMM d, yyyy')}
+                      </div>
                     </div>
-                  </CardContent>
-                  <CardFooter className="px-3 pb-2 pt-0 flex justify-end">
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       size="icon"
-                      className="h-11 w-11 md:h-8 md:w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      className="h-11 w-11 md:h-8 md:w-8 flex-shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       onClick={(e) => handleDelete(project.id, e)}
+                      aria-label={`Delete ${project.title}`}
                       data-testid={`button-delete-${project.id}`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
-                  </CardFooter>
+                  </CardContent>
                 </Card>
               </Link>
             ))}
