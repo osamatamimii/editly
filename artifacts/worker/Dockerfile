@@ -205,6 +205,23 @@ RUN set -eu; \
       od -An -v -tu1 /tmp/cap.raw | tr -s ' ' '\n' | grep -v '^$' \
         | awk '{ if ($1 > 8) { if (!f) f = NR; l = NR } } END { print (f ? l - f + 1 : 0) }'; \
     }; \
+    draw() { \
+      { echo '[Script Info]'; echo 'ScriptType: v4.00+'; echo 'PlayResX: 500'; echo 'PlayResY: 300'; \
+        echo 'WrapStyle: 2'; \
+        echo '[V4+ Styles]'; \
+        echo 'Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,Bold,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding'; \
+        echo "Style: P,$1,100,&H00FFFFFF,&H00000000,&H00000000,-1,1,0,0,5,10,10,10,1"; \
+        echo '[Events]'; \
+        echo 'Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text'; \
+        echo "Dialogue: 0,0:00:00.00,0:00:01.00,P,,0,0,0,,$2"; } > /tmp/d.ass; \
+      ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=500x300:d=1 \
+        -vf "subtitles=/tmp/d.ass" -frames:v 1 -y "$3"; \
+    }; \
+    differs() { \
+      ffprobe -v error -f lavfi \
+        -i "movie=$1[a];movie=$2[b];[a][b]blend=all_mode=difference,signalstats" \
+        -show_entries frame_tags=lavfi.signalstats.YAVG -of default=nw=1:nk=1 | head -1; \
+    }; \
     rep() { s=''; i=0; while [ $i -lt "$2" ]; do s="$s$1"; i=$((i+1)); done; printf '%s' "$s"; }; \
     alefs=$(rep "$(printf '\330\247')" 14); \
     isolated=$(rep "$(printf '\357\272\215')" 14); \
@@ -238,6 +255,13 @@ RUN set -eu; \
         if (iso < want - 4 || iso > want + 4) { print fam ": an isolated form draws at " iso "/100 against the face own " d ", and a box is " box ": the isolated presentation forms are unmapped, so every letter standing alone comes from another font at another size, or from none"; exit 1 } \
         if (w != d)  { print fam ": wrapping in FSI/PDI changes what is drawn (" w " against " d "): the isolates are drawing, at both ends of every right-to-left caption"; exit 1 } \
         printf "  %-26s %s/100, catalogue says %d\n", fam, d, want }' || exit 1; \
+      if [ "$script" = "arabic" ]; then \
+        draw "$fam" "$(rep "$(printf '\331\204\330\247')" 3)" /tmp/lig.png; \
+        draw "$fam" "$(rep "$(printf '\356\200\200')" 3)" /tmp/box.png; \
+        diff=$(differs /tmp/lig.png /tmp/box.png); \
+        awk -v fam="$fam" -v diff="$diff" 'BEGIN { \
+          if (diff + 0 < 0.05) { print fam ": three lam-alefs render identically to three empty boxes — the font has no U+FEFB glyph, and FriBidi asks for that codepoint rather than shaping the ligature. Lam-alef is the commonest pair of letters in Arabic"; exit 1 } }' || exit 1; \
+      fi; \
       i=$((i + 1)); \
     done; \
     echo "all $n caption faces measure what the catalogue says"; \

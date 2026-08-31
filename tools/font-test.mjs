@@ -77,12 +77,22 @@ const FACES = [...source.matchAll(/\n\s{4}id:\s*"([^"]+)",[\s\S]*?script:\s*"(la
 section("The catalogue is readable, and it is the file the product ships");
 check("the parse found faces at all", FACES.length >= 12, `${FACES.length}`);
 check(
-  "the same number of each script, so neither language is an afterthought",
-  // Not a fixed count: the list grows. What must hold is that it grows on both
-  // sides — an Arabic creator choosing from two faces while an English one
-  // chooses from ten is the shape this product is being built against.
-  FACES.filter((f) => f.script === "latin").length ===
-    FACES.filter((f) => f.script === "arabic").length,
+  "at least six of each script, so neither language is an afterthought",
+  /*
+    A floor rather than parity, and the reason is Rubik.
+
+    It covers both scripts and was listed for both — then a real Arabic word
+    drew a box, because it has no lam-alef ligature glyph for plain alef and
+    FriBidi asks for U+FEFB by codepoint. So it is a Latin face only, and the
+    lists are seven and six.
+
+    Making them equal again would have meant shipping a seventh Arabic face to
+    satisfy a count, which is the wrong reason to ship a font. The rule that
+    matters is the one below: a face is listed for a script only if it can draw
+    a word in it.
+  */
+  FACES.filter((f) => f.script === "latin").length >= 6 &&
+    FACES.filter((f) => f.script === "arabic").length >= 6,
   `${FACES.filter((f) => f.script === "latin").length} latin, ${FACES.filter((f) => f.script === "arabic").length} arabic`,
 );
 check(
@@ -129,7 +139,7 @@ const H = 500;
  * A measurement taken under different flags from the thing it describes is a
  * measurement of something else.
  */
-function inkHeight(family, text) {
+function drawTo(family, text) {
   const ass = path.join(work, "m.ass");
   const png = path.join(work, "m.png");
   const rows = [
@@ -152,23 +162,47 @@ function inkHeight(family, text) {
     "-v", "error", "-f", "lavfi", "-i", `color=c=black:s=${W}x${H}:d=1`,
     "-vf", `subtitles=${ass}`, "-frames:v", "1", "-y", png,
   ]);
+  return png;
+}
+
+function inkHeight(family, text) {
+  return inkOf(family, text).h;
+}
+
+/**
+ * Everything about the ink at once: how much of it, how big, and a signature.
+ *
+ * The signature is what lets a check ask "is this the same glyph" rather than
+ * "is this about the same height", which is the difference between catching a
+ * font that cannot draw لا and passing it. Two runs of the same `.notdef` box
+ * produce the same three numbers to the pixel; two different glyphs do not.
+ */
+function inkOf(family, text) {
+  const png = drawTo(family, text);
   const grey = spawnSync("ffmpeg", [
     "-v", "error", "-i", png, "-vf", "format=gray", "-frames:v", "1", "-f", "rawvideo", "-",
   ], { maxBuffer: 1 << 26 }).stdout;
-  if (!grey || grey.length < W * H) return 0;
+  if (!grey || grey.length < W * H) return { ink: 0, w: 0, h: 0, signature: "none" };
+  let ink = 0;
   let top = -1;
   let bottom = -1;
+  let left = W;
+  let right = -1;
   for (let y = 0; y < H; y += 1) {
     const row = y * W;
     for (let x = 0; x < W; x += 1) {
       if (grey[row + x] > 40) {
+        ink += 1;
         if (top < 0) top = y;
         bottom = y;
-        break;
+        if (x < left) left = x;
+        if (x > right) right = x;
       }
     }
   }
-  return top < 0 ? 0 : bottom - top + 1;
+  const w = right < 0 ? 0 : right - left + 1;
+  const h = top < 0 ? 0 : bottom - top + 1;
+  return { ink, w, h, signature: `${ink}:${w}x${h}` };
 }
 
 /** The width of the ink, for the same text at the same size. */
@@ -280,6 +314,62 @@ section("Every width scale is the width the face actually runs at");
       // quarter above it.
       face.widthScale >= measured - 0.02 && face.widthScale <= measured + 0.25,
       `${measured.toFixed(3)} measured against ${face.widthScale} declared`,
+    );
+  }
+}
+
+section("Every Arabic face draws a word, not just letters");
+{
+  /*
+    The check that was missing, and the one that found the bug.
+
+    Everything else here draws runs of one letter and measures a height, which
+    is a fine way to ask "is this face installed and what size is it" and no
+    way at all to ask "can it draw Arabic". Rubik passed every one of them and
+    could not render لا — the commonest two letters in the language — because
+    it has no lam-alef ligature glyph for plain alef, and FriBidi asks for
+    U+FEFB by codepoint rather than shaping it.
+
+    So: one real sentence, containing initial, medial, final and isolated
+    forms and the lam-alef ligature, measured against a row of boxes. A face
+    that cannot draw it does not go in the list for that script, whatever else
+    it can do.
+
+    Boxes measured in the same face, because a `.notdef` box is a glyph of the
+    font and its height is the font's.
+  */
+  for (const face of FACES.filter((f) => f.script === "arabic")) {
+    /*
+      Lam-alef, on its own, against the face's own box.
+
+      A whole sentence does not work as the sample and it is worth saying why:
+      one box among fifteen letters barely moves the height of the tallest ink,
+      and the first version of this check passed Rubik with a box in the middle
+      of it. Drawing the one shape in question, several times, and comparing it
+      to the same face's `.notdef` is unambiguous — 61 against 62 for Rubik,
+      30 against 38 for Cairo.
+
+      Against the *face's own* box rather than a constant, because a box is a
+      glyph of the font and its height is the font's.
+    */
+    const boxes = inkOf(face.family, "\uE000".repeat(3));
+    const ligature = inkOf(face.family, "لا".repeat(3));
+    check(
+      `${face.family}: لا is a ligature and not a box`,
+      // Difference, not a threshold. If the face has no U+FEFB glyph, FriBidi's
+      // lam-alef codepoint resolves to `.notdef` and three of them render
+      // *identically* to three boxes — same glyph, same advance, same pixels.
+      // A height comparison is not enough: in Cairo the ligature and the box
+      // happen to be the same height, and the first version of this check went
+      // red on three correct fonts because of it.
+      ligature.ink > 0 && ligature.signature !== boxes.signature,
+      `lam-alef ${ligature.ink}px of ink at ${ligature.w}x${ligature.h}, a box ${boxes.ink} at ${boxes.w}x${boxes.h}`,
+    );
+    const sentence = inkHeight(face.family, "لا أحد يخبرك بهذا");
+    check(
+      `${face.family}: and a whole sentence draws`,
+      sentence > 0,
+      `${sentence}`,
     );
   }
 }

@@ -1791,8 +1791,3 @@ html[data-page-theme="light"] body {
   src: url("/caption-fonts/alexandria-extrabold.woff2") format("woff2");
   font-display: swap;
 }
-@font-face {
-  font-family: "editly-rubik-black-ar";
-  src: url("/caption-fonts/rubik-black-ar.woff2") format("woff2");
-  font-display: swap;
-}

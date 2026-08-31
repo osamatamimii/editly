@@ -147,7 +147,20 @@ export const CAPTION_FACES: readonly CaptionFace[] = [
     file: "Rubik-Black.ttf",
     capRatio: 0.46,
     widthScale: 1,
-    note: "Slightly rounded corners. The same file draws the Arabic list too.",
+    /*
+      Latin only, and it was nearly listed for Arabic too.
+
+      Rubik covers both scripts, so it was added to both lists — and then a
+      real Arabic *word* rendered a box where لا should be. The font has no
+      lam-alef ligature glyph for plain alef at all (only for alef-wasla), and
+      FriBidi asks for U+FEFB by codepoint, so there is nothing in the file to
+      point that codepoint at. Not a cmap problem and not fixable by one.
+
+      It passed every check at the time, because the checks drew isolated
+      letters and measured heights. Drawing one word is what found it, and the
+      suite draws one now.
+    */
+    note: "Slightly rounded corners, and a touch narrower than Montserrat.",
   },
 
   // ── Arabic ───────────────────────────────────────────────────────────────
@@ -210,25 +223,6 @@ export const CAPTION_FACES: readonly CaptionFace[] = [
     capRatio: 0.52,
     widthScale: 0.95,
     note: "طويل ومتّزن. أقرب إلى النصوص منه إلى العناوين.",
-  },
-  {
-    /*
-      The same file as `rubik-black` above, listed once per script.
-
-      Rubik covers both, and somebody setting captions in both languages wants
-      the option of one typeface rather than a pair that nearly match. Two
-      entries because the ratios differ — a Latin cap and an Arabic alef are
-      different heights in the same font, 0.46 against 0.50 — and one entry
-      would size one of the two scripts wrong.
-    */
-    id: "rubik-black-ar",
-    label: "Rubik Black",
-    script: "arabic",
-    family: "Rubik Black",
-    file: "Rubik-Black.ttf",
-    capRatio: 0.5,
-    widthScale: 1,
-    note: "زوايا مستديرة قليلًا. نفس الملفّ يرسم القائمة الإنجليزية أيضًا.",
   },
 ];
 

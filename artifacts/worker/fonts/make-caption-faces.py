@@ -120,13 +120,10 @@ FACES = [
     ("noto-kufi-black", "Noto Kufi Arabic Black", "ofl/notokufiarabic/NotoKufiArabic%5Bwght%5D.ttf", "ofl/notokufiarabic", {"wght": 900}),
     ("alexandria-extrabold", "Alexandria ExtraBold", "ofl/alexandria/Alexandria%5Bwght%5D.ttf", "ofl/alexandria", {"wght": 800}),
 
-    # One file, two entries in the catalogue.
-    #
-    # Rubik covers both scripts in one face, and a person setting captions in
-    # both wants the option of one typeface rather than a pair that nearly
-    # match. It is built once and listed twice — the ids differ, the ratios
-    # differ (a Latin cap and an Arabic alef are different heights in the same
-    # font), and the file is the same bytes.
+    # Latin only. Rubik draws Arabic and cannot draw لا: it has no lam-alef
+    # ligature glyph for plain alef, and FriBidi asks for U+FEFB by codepoint,
+    # so there is nothing in the file to point that codepoint at. It was listed
+    # for both scripts until one real word was rendered.
     ("rubik-black", "Rubik Black", "ofl/rubik/Rubik%5Bwght%5D.ttf", "ofl/rubik", {"wght": 900}),
 ]
 
@@ -164,10 +161,75 @@ def rename(font: ttLib.TTFont, family: str) -> None:
         name.setName(value, nid, 1, 0, 0)
 
 
+# Unicode's name for each shape, and OpenType's. The presentation-form block
+# and the GSUB feature that produces the same shape are two spellings of one
+# idea, and this is the only place they have to be lined up.
+FORM_FEATURE = {
+    "<isolated>": "isol",
+    "<initial>": "init",
+    "<medial>": "medi",
+    "<final>": "fina",
+}
+
+
+def substitutions(font: ttLib.TTFont) -> dict[str, dict[str, str]]:
+    """
+    What each shaping feature does, read out of the font's own GSUB.
+
+    This is the difference between a repair that works and one that only looks
+    like it. A face with *no* presentation forms at all — Rubik, KO Sans,
+    GHAITHSANS — keeps every shape in GSUB and nowhere else, so mapping U+FE91
+    ("beh initial form") onto the plain beh glyph would put an isolated beh in
+    the middle of a word: a letter, not a box, and wrong in a way that reads as
+    a broken font rather than a missing one.
+
+    The right target is the glyph the font's own `init` lookup produces for
+    beh, which is exactly what a shaper would have drawn. It is in the file
+    already; it simply has no codepoint pointing at it.
+
+    Single substitutions only, plus the ligature lookups for lam-alef. Those
+    are the two shapes the Arabic presentation-form block actually contains,
+    and anything more elaborate in a font's GSUB is not something a legacy
+    codepoint can name.
+    """
+    if "GSUB" not in font:
+        return {}
+    gsub = font["GSUB"].table
+    if not gsub.FeatureList or not gsub.LookupList:
+        return {}
+
+    def subtables(lookup):
+        for sub in lookup.SubTable:
+            # A type 7 lookup is a box around another lookup, used when a font
+            # outgrows the 16-bit offsets. Unwrapping it is not optional: the
+            # larger the font, the more likely everything interesting is inside
+            # one, which would make this silently find nothing in exactly the
+            # fonts that need it most.
+            yield sub.ExtSubTable if lookup.LookupType == 7 else sub
+
+    out: dict[str, dict[str, str]] = {}
+    for record in gsub.FeatureList.FeatureRecord:
+        tag = record.FeatureTag
+        if tag not in {"isol", "init", "medi", "fina", "rlig", "liga"}:
+            continue
+        table = out.setdefault(tag, {})
+        for index in record.Feature.LookupListIndex:
+            lookup = gsub.LookupList.Lookup[index]
+            for sub in subtables(lookup):
+                if getattr(sub, "LookupType", lookup.LookupType) == 1 and hasattr(sub, "mapping"):
+                    table.update(sub.mapping)
+                elif hasattr(sub, "ligatures"):
+                    for first, records in sub.ligatures.items():
+                        for lig in records:
+                            table["+".join([first, *lig.Component])] = lig.LigGlyph
+    return out
+
+
 def repair(font: ttLib.TTFont) -> tuple[int, int]:
-    """Map the isolated presentation forms and the invisibles. See the header."""
+    """Map the presentation forms and the invisibles. See the header."""
     best = font.getBestCmap()
     tables = [t for t in font["cmap"].tables if t.isUnicode()]
+    features = substitutions(font)
 
     filled = 0
     for codepoint in range(0xFE70, 0xFEFD):
@@ -178,12 +240,31 @@ def repair(font: ttLib.TTFont) -> tuple[int, int]:
             continue
         tag, *parts = decomposition.split()
         bases = [int(p, 16) for p in parts]
-        # Only one-to-one forms. The rest are a letter plus a diacritic, or a
-        # space plus one, and there is no single glyph to point them at.
-        if tag != "<isolated>" or len(bases) != 1 or bases[0] not in best:
+        if tag not in FORM_FEATURE or any(b not in best for b in bases):
+            # A letter plus a diacritic, or a space plus one. There is no
+            # single glyph to point those at and no shaper produces one.
+            continue
+
+        glyphs = [best[b] for b in bases]
+        feature = FORM_FEATURE[tag]
+        target: str | None = None
+        if len(glyphs) == 1:
+            target = features.get(feature, {}).get(glyphs[0])
+            # No `isol` lookup is the normal case, not a failure: in a modern
+            # font the isolated shape *is* the base glyph, which is why these
+            # codepoints were left out of the cmap in the first place.
+            if target is None and tag == "<isolated>":
+                target = glyphs[0]
+        else:
+            # Lam-alef and friends. The ligature lives under `rlig` or `liga`
+            # depending on the foundry, and there is no third place to look.
+            key = "+".join(glyphs)
+            target = features.get("rlig", {}).get(key) or features.get("liga", {}).get(key)
+
+        if target is None or target not in font.getGlyphOrder():
             continue
         for table in tables:
-            table.cmap.setdefault(codepoint, best[bases[0]])
+            table.cmap.setdefault(codepoint, target)
         filled += 1
 
     blank = "editlyZeroWidth"
@@ -231,7 +312,7 @@ def main() -> None:
 
         out = HERE / f"{family.replace(' ', '-')}.ttf"
         font.save(out)
-        print(f"  {out.name}: +{filled} isolated forms, +{invisible} zero-width")
+        print(f"  {out.name}: +{filled} presentation forms, +{invisible} zero-width")
 
         # And the preview, from the same object rather than a second download.
         web = ttLib.TTFont(out)
@@ -246,14 +327,7 @@ def main() -> None:
         web.save(WEB / f"{face_id}.woff2")
         print(f"  {face_id}.woff2: {(WEB / f'{face_id}.woff2').stat().st_size // 1024}KB")
 
-    # A face listed under both scripts is one file and two catalogue entries,
-    # and the picker asks for a preview per *entry*. Written rather than
-    # symlinked, because a repository that behaves differently on a filesystem
-    # without symlinks is a repository that behaves differently on Windows.
-    duplicate = WEB / "rubik-black.woff2"
-    if duplicate.exists():
-        (WEB / "rubik-black-ar.woff2").write_bytes(duplicate.read_bytes())
-        print("  rubik-black-ar.woff2: the same bytes, for the Arabic entry")
+
 
 
 if __name__ == "__main__":
