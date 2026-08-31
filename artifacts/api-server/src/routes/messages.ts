@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { eq, asc, and, desc } from "drizzle-orm";
-import { db, messagesTable, projectsTable, assetsTable, renderFollowupsTable } from "@workspace/db";
+import { eq, asc, and } from "drizzle-orm";
+import { db, messagesTable, projectsTable, renderFollowupsTable } from "@workspace/db";
 import {
   SendMessageBody,
   SendMessageParams,
@@ -12,6 +12,7 @@ import { serializeMessage, serializeJob } from "../lib/transformers";
 import { currentUserId } from "../middlewares/auth";
 import { replyFor } from "../lib/plan-from-text";
 import { createPlanner } from "../lib/planner";
+import { plannerAssets } from "../lib/planner-assets";
 import { startRenderForProject } from "../lib/start-render";
 import { ALREADY_RENDERING } from "../lib/one-active-job";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
@@ -96,12 +97,7 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
   // panel and the stock search would all exist and none of them would ever be
   // reachable from a sentence. Ids and labels only: the planner is never told
   // where a file is.
-  const assets = await db
-    .select({ id: assetsTable.id, kind: assetsTable.kind, label: assetsTable.label })
-    .from(assetsTable)
-    .where(eq(assetsTable.projectId, params.data.id))
-    .orderBy(desc(assetsTable.createdAt))
-    .limit(40);
+  const assets = await plannerAssets(params.data.id);
 
   const intent = await planner.plan(parsed.data.content, {
     defaultPlatform: project.platform as never,
