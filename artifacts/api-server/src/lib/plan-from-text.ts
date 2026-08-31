@@ -303,6 +303,25 @@ const QUOTED = /["“”']([^"“”']{1,120})["“”']/;
  * neither has a `\b` in front of it: a word boundary before an Arabic letter
  * never matches, which is the trap this file has now fallen into three times.
  */
+/**
+ * Captions that emphasise, as distinct from captions that wipe.
+ *
+ * Two animations now do something word by word and they are not the same
+ * thing: `karaoke` wipes a fill across each word as it is said, and `kinetic`
+ * reveals each word and then draws the one the speaker leaned on larger and in
+ * the accent colour. Somebody who says "word by word" means the wipe — that is
+ * what the phrase has meant in this product since it shipped — so this pattern
+ * deliberately does **not** claim it, and karaoke is tested first.
+ *
+ * What it claims is the vocabulary the wipe never had: emphasis, and movement.
+ *
+ * `\bkinetic\b` also lives in `KINETIC_WORDS`, which chooses the *title* style
+ * — and that is not a collision, because this one is only ever read inside the
+ * caption branch. A sentence has to be about captions before it gets here.
+ */
+const KINETIC_CAPTION_WORDS =
+  /\bkinetic\b|\banimated (?:captions?|subtitles?)\b|\bcaptions? that (?:pop|move|bounce)\b|\bemphasi[sz]\w*|\bstress(?:ed|es)? (?:the )?word|\bmake the (?:captions?|words) (?:pop|move)\b|كابشن متحرك|كابشنز متحركة|كتابة متحركة|ترجمة متحركة|تشديد|شدّد الكلمات|أبرز الكلمة|ابرز الكلمة|كلمة بارزة/i;
+
 const KINETIC_WORDS =
   /\bkinetic\b|\bword[- ]by[- ]word\b|\bone (word )?at a time\b|\bwords? (pop|land|drop)\w* in\b|كلمة كلمة|كلمة بكلمة|كلمة تلو/i;
 
@@ -945,10 +964,30 @@ export function planFromText(
     operations.push({
       type: "autoCaptions",
       style: KARAOKE_WORDS.test(text) ? "karaoke-box" : YELLOW_WORDS.test(text) ? "bold-yellow" : "bold-white",
-      animation: KARAOKE_WORDS.test(text) ? "karaoke" : "pop",
+      /*
+        Karaoke first, and the order is the decision.
+
+        "Word by word" reaches both patterns, and it has meant the wipe since
+        the wipe shipped. A new animation that quietly took an established
+        phrase would change what an existing sentence produces — which is the
+        shape of regression this file keeps finding — so `kinetic` only answers
+        the words the wipe never claimed.
+      */
+      animation: KARAOKE_WORDS.test(text)
+        ? "karaoke"
+        : KINETIC_CAPTION_WORDS.test(text)
+          ? "kinetic"
+          : "pop",
       dropFillers: true,
     });
-    willDo.push(say("caption it from what is actually said", "أكتب الترجمة من الكلام المنطوق نفسه"));
+    willDo.push(
+      KINETIC_CAPTION_WORDS.test(text) && !KARAOKE_WORDS.test(text)
+        ? say(
+            "caption it from what is actually said, with each word arriving as it is spoken and the word you lean on drawn larger",
+            "أكتب الترجمة من الكلام المنطوق نفسه، تصل كل كلمة حين تُقال، والكلمة التي تشدّد عليها تُرسم أكبر",
+          )
+        : say("caption it from what is actually said", "أكتب الترجمة من الكلام المنطوق نفسه"),
+    );
   }
 
   // An empty `at` means "you choose": the worker puts the punches where the

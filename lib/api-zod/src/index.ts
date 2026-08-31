@@ -632,7 +632,13 @@ export const BurnCaptionsOperation = z.object({
     )
     .min(1),
   style: z.enum(["bold-white", "bold-yellow", "karaoke-box"]).default("bold-white"),
-  animation: z.enum(["none", "pop", "karaoke"]).default("pop"),
+  /**
+   * `kinetic` is the one that needs the words: each arrives with the voice, and
+   * the word the speaker leaned on is drawn in the accent colour and pops. It
+   * degrades to `pop` when a provider returned sentences without word timings,
+   * the same way `karaoke` does, and says so rather than pretending.
+   */
+  animation: z.enum(["none", "pop", "karaoke", "kinetic"]).default("pop"),
   /*
     Which face, per script.
 
@@ -668,7 +674,11 @@ export const BurnCaptionsOperation = z.object({
 export const AutoCaptionsOperation = z.object({
   type: z.literal("autoCaptions"),
   style: z.enum(["bold-white", "bold-yellow", "karaoke-box"]).default("bold-white"),
-  animation: z.enum(["none", "pop", "karaoke"]).default("pop"),
+  /* Same four as `burnCaptions`, because this becomes one. A value that
+     existed on one and not the other would be a plan that validates and then
+     silently loses the animation it asked for at the moment the worker
+     rewrites it. */
+  animation: z.enum(["none", "pop", "karaoke", "kinetic"]).default("pop"),
   /* Carried through to the `burnCaptions` this becomes. See it for why there
      are two. */
   font: z.string().max(64).optional(),

@@ -3242,7 +3242,7 @@ components:
           default: bold-white
         animation:
           type: string
-          enum: [none, pop, karaoke]
+          enum: [none, pop, karaoke, kinetic]
           default: pop
       required: [type, cues]
 
@@ -3263,7 +3263,7 @@ components:
           default: bold-white
         animation:
           type: string
-          enum: [none, pop, karaoke]
+          enum: [none, pop, karaoke, kinetic]
           default: pop
         dropFillers:
           description: Leave "um" and "uh" out of what is burnt in.

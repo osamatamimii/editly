@@ -195,25 +195,58 @@ function charsOf(words: TranscriptWord[]): number {
  * model and no key, and it beats spreading punches evenly across the clip by a
  * distance you can see immediately.
  */
+/** The least a word needs from this signal. Also the shape both readers use. */
+export interface TimedWord {
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * How hard a word was leaned on, against the pace of the speech around it.
+ *
+ * One function because there are now two readers of this signal and they must
+ * not drift: a punch-in lands on a stressed word, and — since captions became
+ * kinetic — the stressed word is also the one drawn larger and in the accent
+ * colour. Two implementations of "which word matters" would mean a video where
+ * the picture punches on one word while the caption emphasises another, which
+ * reads as the software not understanding the sentence.
+ *
+ * Both signals matter and neither alone is enough: a long word mid-flow is
+ * often just a long word, and a pause followed by a short word is a breath. An
+ * ordinary word with neither scores 1.
+ */
+export function emphasisScore(word: TimedWord, previous: TimedWord | undefined, typicalMs: number): number {
+  if (!(typicalMs > 0) || word.endMs <= word.startMs) return 0;
+  const pauseBefore = previous ? word.startMs - previous.endMs : 0;
+  const stretch = (word.endMs - word.startMs) / typicalMs;
+  return stretch + Math.min(Math.max(0, pauseBefore), 800) / 400;
+}
+
+/**
+ * Below this there is no evidence of emphasis, only ordinary speech — and a
+ * punch on ordinary speech is the tell of an automatic edit. Flat delivery
+ * should get no emphasis at all rather than arbitrary emphasis.
+ */
+export const EMPHASIS_MIN_SCORE = 2;
+
+/** The middle value, which is what "typical" means when a few words are long. */
+export function medianOf(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
 export function emphasisPoints(transcript: Transcript, limit = 8): number[] {
   const words = transcript.segments.flatMap((s) => s.words).filter((w) => !w.filler && w.endMs > w.startMs);
   if (words.length < 4) return [];
 
-  const durations = words.map((w) => w.endMs - w.startMs);
-  const typical = median(durations);
+  const typical = median(words.map((w) => w.endMs - w.startMs));
   if (typical <= 0) return [];
 
   const scored = words
-    .map((word, i) => {
-      const previous = words[i - 1];
-      const pauseBefore = previous ? word.startMs - previous.endMs : 0;
-      const stretch = (word.endMs - word.startMs) / typical;
-      // Both signals matter, and neither alone is enough: a long word mid-flow
-      // is often just a long word, and a pause followed by a short word is a
-      // breath. An ordinary word with neither scores 1.
-      return { atMs: word.startMs, score: stretch + Math.min(pauseBefore, 800) / 400 };
-    })
-    .filter((point) => point.score >= MIN_EMPHASIS_SCORE);
+    .map((word, i) => ({ atMs: word.startMs, score: emphasisScore(word, words[i - 1], typical) }))
+    .filter((point) => point.score >= EMPHASIS_MIN_SCORE);
 
   // Strongest first, and each one silences its neighbours. Taking the top N by
   // score and *then* thinning by time gets this backwards: an ordinary word
@@ -229,18 +262,7 @@ export function emphasisPoints(transcript: Transcript, limit = 8): number[] {
   return chosen.sort((a, b) => a.atMs - b.atMs).map((p) => +(p.atMs / 1000).toFixed(2));
 }
 
-/**
- * Below this there is no evidence of emphasis, only ordinary speech — and a
- * punch on ordinary speech is the tell of an automatic edit. Flat delivery
- * should get no punches at all rather than arbitrary ones.
- */
-const MIN_EMPHASIS_SCORE = 2;
-
 /** Punches closer together than this stop reading as emphasis and start reading as a tic. */
 const MIN_EMPHASIS_GAP_MS = 1500;
 
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
+const median = medianOf;

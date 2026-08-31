@@ -30,6 +30,7 @@ import {
   type FacePair,
   type CaptionLayout,
 } from "./caption-layout";
+import { emphasisScore, medianOf, EMPHASIS_MIN_SCORE } from "./captions";
 import {
   chooseCropCenter,
   coverScale,
@@ -468,7 +469,65 @@ export function readsRightToLeft(text: string): boolean {
  * as deliberate rather than as an accessibility track: a small overshoot on
  * entry, and a word-level wipe that tracks the speaker.
  */
-function animateCue(cue: CaptionCue, animation: string): string {
+/**
+ * What a kinetic caption needs to know about the frame it is drawn in.
+ *
+ * Only the width question, and it is not a nicety. See `POP_SCALE`.
+ */
+export interface KineticContext {
+  /** Typical word length across the whole track, in ms. The pace to judge against. */
+  typicalWordMs: number;
+  /** True when this line can grow by `POP_SCALE` and still be inside the frame. */
+  fits: (line: string, rtl: boolean, scale: number) => boolean;
+}
+
+/**
+ * How much larger the stressed word is drawn at the peak of its pop.
+ *
+ * The scale is a taste decision; whether it is applied is not.
+ *
+ * `WrapStyle: 2` means libass does no wrapping of its own — a line wider than
+ * its box runs out of it rather than breaking — and `wrapToLayout` sizes every
+ * line to fill that box **at 100%**. Growing one word therefore grows the whole
+ * line, by roughly that word's share of it: measured on a three-word line in a
+ * 488-pixel band, 394 pixels drawn became 400. Five per cent, not fifteen, and
+ * small enough that most captions would never notice.
+ *
+ * It is still checked, because "most" is the wrong word for a guarantee. The
+ * band is not decoration — it is what keeps a caption clear of the platform's
+ * own furniture, the username and the buttons — and a line that `wrapToLayout`
+ * has filled to the last pixel is exactly the line a pop would push past it.
+ * A full line gets the colour without the scale: emphasis in two halves, and
+ * the half that can cost something is the half that gets measured.
+ */
+export const POP_SCALE = 1.15;
+
+/** Up, then back. Long enough to read as weight, short enough not to strobe. */
+const POP_RISE_MS = 140;
+const POP_FALL_MS = 160;
+
+/**
+ * The colour a stressed word takes, per style.
+ *
+ * Each one is a colour the style does not already use for its body text —
+ * emphasis that matches the rest of the line is not emphasis. ASS colours are
+ * `&HAABBGGRR`, which is backwards from every other format and the single
+ * easiest thing here to get wrong.
+ */
+const EMPHASIS_COLOUR: Record<string, string> = {
+  // Yellow on white.
+  "bold-white": "&H00E5FF&",
+  // White on yellow: the same pair, the other way round.
+  "bold-yellow": "&HFFFFFF&",
+  "karaoke-box": "&H00E5FF&",
+};
+
+function animateCue(
+  cue: CaptionCue,
+  animation: string,
+  style: string,
+  kinetic: KineticContext | null,
+): string {
   // `wrapToLayout` has already chosen where this cue breaks, for a box that
   // clears the platform's furniture. Those are the lines every animation draws.
   const lines = cue.text
@@ -536,7 +595,109 @@ function animateCue(cue: CaptionCue, animation: string): string {
     return drawn.join("\\N");
   }
 
-  if (animation === "pop") {
+  if (animation === "kinetic" && kinetic && cue.words && cue.words.length > 0) {
+    /*
+      Words that arrive with the voice, and one that is leaned on.
+
+      Two mechanisms, and they are separated on purpose because only one of
+      them can change the geometry of a line:
+
+      **Reveal** is `\alpha`, and alpha does not touch a glyph's advance width.
+      A word that has not been said yet still occupies its space, so nothing
+      moves as the line fills in — which is the whole difference between a
+      caption arriving and a caption reflowing.
+
+      **Emphasis** is a colour and, where there is room, a scale that overshoots
+      and settles back to 100%. It returns to 100% so the line's final geometry
+      is the geometry `wrapToLayout` measured; the widening lasts 300ms and is
+      the movement the eye reads as weight.
+
+      ## And the runs are laid down in reverse for a right-to-left line
+
+      Measured, not assumed, and it is the same finding the karaoke branch
+      records: an override block carrying `\alpha` and `\t` starts a new layout
+      run, exactly as `\kf` does. libass reorders *within* each run and then
+      sets the runs down left to right — so the first word of an Arabic
+      sentence lit up at the **left** end of the line. Every word shaped
+      perfectly, the sentence backwards. Reversing puts them back where the
+      bidi algorithm would have put them.
+    */
+    const rtl = readsRightToLeft(cue.text);
+    const words = cue.words;
+
+    // At most one per cue. Two stressed words in one breath is not emphasis,
+    // it is a style — and it reads as the caption flickering.
+    let stressed = -1;
+    let best = EMPHASIS_MIN_SCORE;
+    for (let i = 0; i < words.length; i += 1) {
+      const score = emphasisScore(words[i], words[i - 1], kinetic.typicalWordMs);
+      if (score >= best) {
+        best = score;
+        stressed = i;
+      }
+    }
+
+    const accent = EMPHASIS_COLOUR[style] ?? EMPHASIS_COLOUR["bold-white"];
+    const remaining = [...words];
+    let index = 0;
+
+    const drawn = lines.map((line) => {
+      // Whether *this* line can afford the pop, not the cue. A cue's lines are
+      // wrapped independently and only one of them is usually near the edge.
+      const roomToPop = kinetic.fits(line, rtl, POP_SCALE);
+      const tokens = line.split(/\s+/).filter(Boolean);
+      const runs = tokens.map((token) => {
+        const word = remaining.shift();
+        const at = index;
+        index += 1;
+        // The tokens come from this cue's own text so they line up with its
+        // words. Where a provider's text and word list disagree, the line is
+        // drawn from what is left and the timing degrades before the words do.
+        if (!word) return { text: token, tags: "" };
+        // `wrapToLayout` marks a truncated cue by appending the ellipsis to the
+        // last token it kept. That mark belongs to the caption, not the word.
+        const text = token.endsWith("…") && !word.text.endsWith("…") ? `${word.text}…` : word.text;
+
+        // Relative to the line's own start, which is what `\t` measures from.
+        // Clamped at zero: a word whose timing starts a hair before its cue
+        // would otherwise be given a negative transform and never appear.
+        const inMs = Math.max(0, Math.round(word.startMs - cue.startMs));
+        let tags = `\\alpha&HFF&\\t(${inMs},${inMs + 1},\\alpha&H00&`;
+        if (at === stressed) tags += `\\c${accent}`;
+        tags += ")";
+        if (at === stressed && roomToPop) {
+          tags +=
+            `\\t(${inMs + 1},${inMs + 1 + POP_RISE_MS},\\fscx${Math.round(POP_SCALE * 100)}\\fscy${Math.round(POP_SCALE * 100)})` +
+            `\\t(${inMs + 1 + POP_RISE_MS},${inMs + 1 + POP_RISE_MS + POP_FALL_MS},\\fscx100\\fscy100)`;
+        }
+        return { text, tags };
+      });
+      const ordered = rtl ? [...runs].reverse() : runs;
+      return ordered
+        // Each word is isolated too: the run boundary the tag creates is also a
+        // boundary the line's own isolate cannot reach across, so a word
+        // carrying its sentence's full stop needs its own.
+        .map((run) => `{${run.tags}}${isolate(run.text.replace(/[{}]/g, ""))} `)
+        .join("")
+        .trimEnd();
+    });
+
+    // No fade *in*: the words reveal themselves, and a fade on top of that is
+    // the caption arriving twice.
+    return `{\\fad(0,60)}${drawn.join("\\N")}`;
+  }
+
+  /*
+    `kinetic` lands here when the words came back without their own timings.
+
+    A word cannot arrive when it is spoken if nobody said when it was spoken,
+    and the honest fallback is the whole caption arriving at once — which is
+    exactly `pop`. Sharing the branch rather than falling through to the plain
+    fade is what makes the note true: the renderer tells somebody their captions
+    "pop in rather than arriving a word at a time", and a plain fade would have
+    made that sentence a small lie.
+  */
+  if (animation === "pop" || animation === "kinetic") {
     // Overshoot to 108% then settle. 120ms is short enough to feel snappy and
     // long enough not to strobe.
     return `{\\fad(60,60)\\fscx70\\fscy70\\t(0,120,\\fscx108\\fscy108)\\t(120,200,\\fscx100\\fscy100)}${body}`;
@@ -674,13 +835,43 @@ export async function writeSubtitleFile(
     "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
   ];
 
+  /*
+    Everything the kinetic animation needs, built once where the layout and the
+    faces are in hand.
+
+    `typicalWordMs` is the median across the whole track rather than within a
+    cue, because "leaned on" only means anything against the pace of the speech
+    around it, and five words is not a pace. It is the same measurement
+    `emphasisPoints` takes for the punch-ins, through the same function, so the
+    picture and the caption cannot end up emphasising different words.
+  */
+  const kinetic: KineticContext | null =
+    animation === "kinetic"
+      ? (() => {
+          const durations = cues
+            .flatMap((c) => c.words ?? [])
+            .map((w) => w.endMs - w.startMs)
+            .filter((ms) => ms > 0);
+          const measured = layout.usableWidth / layout.capHeight;
+          const allowed = Number.isFinite(measured) && measured > 0 ? measured : null;
+          return {
+            typicalWordMs: medianOf(durations),
+            // No usable width means no measurement to be safe against, and the
+            // safe answer is the colour without the scale.
+            fits: (line, rtl, scale) =>
+              allowed !== null &&
+              widthInCaps(line, (rtl ? faces.arabic : faces.latin).widthScale) * scale <= allowed,
+          };
+        })()
+      : null;
+
   const events = cues
     .filter((c) => c.endMs > c.startMs)
     .map(
       (c) =>
         `Dialogue: 0,${toAssTime(c.startMs)},${toAssTime(c.endMs)},${
           readsRightToLeft(c.text) ? RTL_STYLE : LATIN_STYLE
-        },,0,0,0,,${animateCue(c, animation)}`,
+        },,0,0,0,,${animateCue(c, animation, style, kinetic)}`,
     );
 
   await writeFile(file, [...header, ...events].join("\n"), "utf8");
@@ -2096,6 +2287,22 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         t(
           `burned ${cues.length} captions, but the words came back without their own timings, so they fade in rather than wiping across`,
           `حرقت ${cues.length} كابشن، لكن الكلمات عادت بلا توقيت خاصّ بها، فتظهر بتلاشٍ بدل المسح كلمةً كلمة`,
+        ),
+      );
+    } else if (captions.animation === "kinetic" && !wipeable) {
+      /*
+        The same admission as the wipe's, for the same reason.
+
+        Kinetic is built out of per-word times: a word cannot arrive when it is
+        spoken if nobody said when it was spoken. The animation degrades to the
+        whole caption popping in, which is a real animation and not the one
+        that was asked for — and somebody who asked, did not get it, and was
+        told they did has no way to find out why.
+      */
+      notes.push(
+        t(
+          `burned ${cues.length} captions, but the words came back without their own timings, so the whole caption pops in rather than arriving a word at a time`,
+          `حرقت ${cues.length} كابشن، لكن الكلمات عادت بلا توقيت خاصّ بها، فتظهر الجملة كاملة بدل أن تصل كلمةً كلمة`,
         ),
       );
     } else {

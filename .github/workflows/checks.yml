@@ -176,6 +176,11 @@ jobs:
       # somebody meant is worse than leaving one they did not, so the checks
       # that an ordinary word is never removed are the ones that matter.
       - run: node tools/tighten-test.mjs
+      # Kinetic captions, in drawn pixels rather than in the subtitle file: ASS
+      # is a format with opinions, and two of them shaped this design — an
+      # \alpha override splits the layout run the same way \kf does, and a
+      # scale on one word widens the whole line.
+      - run: node tools/kinetic-test.mjs
       # Beside the planner, because what it checks is a rule about the parser:
       # a habit must never be applied over the sentence somebody just typed.
       - run: node tools/habits-test.mjs

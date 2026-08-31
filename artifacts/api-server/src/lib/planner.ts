@@ -158,7 +158,7 @@ function buildSchema(assets: PlannerAsset[]) {
             cutFillers: { type: ["boolean", "null"] },
             cutRepeats: { type: ["boolean", "null"] },
             captionStyle: { type: ["string", "null"], enum: ["bold-white", "bold-yellow", "karaoke-box", null] },
-            captionAnimation: { type: ["string", "null"], enum: ["none", "pop", "karaoke", null] },
+            captionAnimation: { type: ["string", "null"], enum: ["none", "pop", "karaoke", "kinetic", null] },
             /** 1.02–1.5. How far a slow push travels. */
             zoomTo: { type: ["number", "null"] },
             /** 0.02–0.6. How hard a punch hits. */
@@ -313,6 +313,11 @@ function instructionFor(assets: PlannerAsset[]): string {
     "0.25). It only does anything when there are cuts to join, so it goes with removeSilence.",
     "If they just say 'transitions' with nothing else, choose fade and a dissolve transition.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
+    "captionAnimation is how the caption behaves: none is a plain fade, pop grows the whole caption in on entry,",
+    "karaoke wipes a fill across each word as it is spoken, and kinetic reveals each word as it is said and draws",
+    "the word the speaker leaned on larger and in the accent colour. Choose karaoke when they ask for word by word",
+    "or a highlight that follows the voice, and kinetic when they ask for animated or emphasised captions, or for",
+    "the captions to pop or to move. Default pop.",
     "motionTitle animates words onto the screen. Use the person's own words. Never write copy they did not ask for.",
     "titleStyle: card is a full sentence held in the middle; lower-third is a name or label along the bottom;",
     "word is kinetic type, where the words land one after another - choose it when they ask for words that move,",
