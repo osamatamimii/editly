@@ -211,6 +211,12 @@ jobs:
       - run: node tools/typeface-test.mjs
       - run: node tools/account-test.mjs
       - run: node tools/critic-test.mjs
+      # Beside the critic, because it is the other half of the same job: the
+      # critic reads the plan, this reads the file that came out of it — the
+      # level that actually landed, a black picture, and the look at the
+      # frames. Its one dangerous path is a vision model's prose reaching a
+      # customer, and that is what most of the suite is about.
+      - run: node tools/review-test.mjs
       - run: node tools/transcript-test.mjs
       # After the transcript, because it is the step that reads one: chapters,
       # claims, questions, peaks and a hook. Its checks are asymmetric on

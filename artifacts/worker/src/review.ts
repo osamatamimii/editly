@@ -24,15 +24,42 @@
  * worse is worth more than one that does not arrive, and the one unforgivable
  * thing is to know about a defect and stay quiet.
  *
+ * ## And then the half that measurement cannot reach
+ *
+ * Everything above is arithmetic: a level, a length, a mean luma. All of it can
+ * be true of a video nobody would watch. Nothing in this file could say "the
+ * captions are sitting across his mouth" or "the first three seconds give
+ * nobody a reason to stay", and those are the two defects that actually cost a
+ * post its audience — the second of them is the whole reason short-form editing
+ * exists as a craft.
+ *
+ * So the finished file is also *looked at*. Frames out of the render, plus the
+ * opening, put in front of a vision model with two questions and nothing else:
+ * **does this hold anyone?** and **what is covered by something?**
+ *
+ * The answer comes back in a vocabulary we chose, not in the model's own words.
+ * That is the important design decision in here and it is worth being explicit
+ * about: what may be covered is an enumeration, what may be covering it is an
+ * enumeration, and the verdict on the opening is three values. Every sentence
+ * the customer reads is then written by us, in both languages, from those
+ * values — while the model's own prose goes to the log and no further. A note
+ * is this product's honesty layer; free text from a model, machine-translated
+ * into somebody's second language and shown as our judgement of their work, is
+ * not honesty, it is a liability with good grammar.
+ *
  * Failures of the review itself never fail the render: every path in here
- * degrades to "deliver the file we have".
+ * degrades to "deliver the file we have". That goes double for this half,
+ * which depends on somebody else's server: no key, no answer, a bad answer, a
+ * slow answer — each one ends with the file being delivered and a line in the
+ * log, never with a paid render turned into a failure.
  */
 import { spawn } from "node:child_process";
 import { guard, LIMITS } from "./deadline";
-import { rename, unlink } from "node:fs/promises";
+import { readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { EditOperation } from "@workspace/api-zod";
 import { sayIn, type Language } from "./say";
+import { withDeadline } from "./providers/deadline";
 
 export interface ReviewContext {
   operations: EditOperation[];
@@ -58,6 +85,16 @@ export interface ReviewContext {
   /** Seconds the cut map said the edit should run, or null when unknown. */
   expectedSeconds: number | null;
   workDir: string;
+  /**
+   * How the look at the picture reaches the model, when it does.
+   *
+   * Absent in production: the deployment's own `GEMINI_API_KEY` is read here,
+   * the same key and the same model the scene reader already uses, so this adds
+   * no secret to the deploy and no line to any workflow. Present in the suite,
+   * where `fetchImpl` is a stub — because the one thing worth testing about a
+   * call to somebody else's server is everything except the server.
+   */
+  vision?: { apiKey?: string; model?: string; fetchImpl?: typeof fetch };
 }
 
 export interface ReviewResult {
@@ -69,6 +106,16 @@ export interface ReviewResult {
   repaired: boolean;
   /** Integrated loudness of the delivered file, when it was measured. */
   measuredLufs: number | null;
+  /**
+   * What the look at the picture came back with, or null when it did not run.
+   *
+   * Null and "it ran and found nothing wrong" are different facts, which is why
+   * this is a field and not an empty list. A deployment with no key answers
+   * null quietly and deliberately — that is a purchase somebody chose not to
+   * make, not an incident — and every other way of reaching null puts its
+   * reason in `warnings` on the way past.
+   */
+  seen: VisionRead | null;
 }
 
 /**
@@ -104,6 +151,334 @@ const SOURCE_LUMA_FLOOR = 36;
 
 /** Seconds of picture to sample when checking for black output. */
 const LUMA_SAMPLE_SECONDS = 30;
+
+/**
+ * What may be hidden, and what may be hiding it.
+ *
+ * Closed lists, and that is the point. The model picks from these; we write the
+ * sentence. A free-text field here would be a stranger's prose shown to a
+ * customer as our assessment of their work, in a language it was not written
+ * in half the time — and unreviewable besides, because there is no way to test
+ * a sentence that has not been written yet.
+ *
+ * Each entry carries both languages at the point of declaration, so a value the
+ * model can return but we cannot say does not compile.
+ */
+const COVERABLE = {
+  face: { en: "the speaker's face", ar: "وجه المتحدّث" },
+  mouth: { en: "the speaker's mouth", ar: "فم المتحدّث" },
+  eyes: { en: "the speaker's eyes", ar: "عينا المتحدّث" },
+  screenText: { en: "text on screen", ar: "نصّ على الشاشة" },
+  subject: { en: "the thing the shot is about", ar: "موضوع اللقطة" },
+} as const;
+
+const COVERING = {
+  captions: { en: "the captions", ar: "الكابشن" },
+  watermark: { en: "the watermark", ar: "العلامة المائية" },
+  overlay: { en: "an overlay", ar: "طبقة فوقها" },
+  other: { en: "something laid over the picture", ar: "شيء موضوع فوق الصورة" },
+} as const;
+
+export type Coverable = keyof typeof COVERABLE;
+export type Covering = keyof typeof COVERING;
+
+export interface Occlusion {
+  what: Coverable;
+  by: Covering;
+  /** Where it was seen, for the log. Null when the model did not say. */
+  atSeconds: number | null;
+}
+
+export interface VisionRead {
+  /** Whether the opening gives anyone a reason to keep watching. */
+  holds: "yes" | "no" | "unsure";
+  /** The model's own words, for the log. Never shown to anybody. */
+  because: string;
+  occlusions: Occlusion[];
+}
+
+/**
+ * Which moments of the render to look at.
+ *
+ * Two groups, because the two questions are not about the same part of the
+ * file. **The opening** decides whether anybody watches the rest, so it is
+ * sampled densely inside the first three seconds — that is where a post is won
+ * or lost and it is a stretch nothing else in this pipeline has ever examined.
+ * **The body** is spread evenly across what is left, because an overlay that
+ * covers a face usually covers it for a long stretch and a handful of spread
+ * samples finds that; a caption that covers a face for four frames is not the
+ * complaint anybody has.
+ *
+ * The first and last moments are avoided: a fade-in makes the opening frame
+ * dark and the final frame is often the tail of a transition, and both would
+ * be read as a defect by anything looking at one picture.
+ *
+ * Pure, and exported, so the plan can be checked without an encoder.
+ */
+export const HOOK_SECONDS = 3;
+const HOOK_AT = [0.2, 1.1, 2.2];
+const BODY_FRACTIONS = [0.1, 0.26, 0.42, 0.58, 0.74, 0.9];
+/** Two samples closer together than this are one sample and a wasted request. */
+const MIN_FRAME_GAP = 0.25;
+
+export function framePlan(durationSeconds: number): number[] {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return [];
+  const wanted = [
+    ...HOOK_AT.filter((at) => at < durationSeconds),
+    ...BODY_FRACTIONS.map((f) => Number((durationSeconds * f).toFixed(2))),
+  ]
+    .filter((at) => at > 0 && at < durationSeconds)
+    .sort((a, b) => a - b);
+
+  const kept: number[] = [];
+  for (const at of wanted) {
+    if (kept.length === 0 || at - kept[kept.length - 1]! >= MIN_FRAME_GAP) kept.push(at);
+  }
+  return kept;
+}
+
+/** Below this there is not enough picture to have an opinion about. */
+const MIN_FRAMES_TO_LOOK = 3;
+
+/*
+  What this costs, because a clips render asks it twelve times.
+
+  Nine stills at the model's default tile resolution is on the order of two
+  thousand input tokens, against a flash-lite price that makes one look a small
+  fraction of a cent. A twelve-clip render therefore spends less on looking at
+  all twelve than the render spends on a second of machine time — which is why
+  there is no per-clip gate here. If that arithmetic ever changes, the gate
+  belongs at the call site that knows it is making twelve of something, not in
+  a constant hidden in this file.
+*/
+
+/** Wide enough for a caption to be legible, small enough to be a rounding error. */
+const FRAME_WIDTH = 512;
+
+/**
+ * The look is bounded far tighter than an ordinary provider call.
+ *
+ * It happens after the render is finished and paid for, on a machine that
+ * cannot claim another job until this returns. A minute is generous for one
+ * request carrying nine small stills, and every second past that is a render
+ * machine held out of service to improve a note.
+ */
+const VISION_TIMEOUT_MS = 60_000;
+
+const VISION_API_ROOT = "https://generativelanguage.googleapis.com";
+const VISION_DEFAULT_MODEL = "gemini-flash-lite-latest";
+
+const VISION_SCHEMA = {
+  type: "object",
+  properties: {
+    holds: { type: "string", enum: ["yes", "no", "unsure"] },
+    because: { type: "string" },
+    occlusions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          what: { type: "string", enum: Object.keys(COVERABLE) },
+          by: { type: "string", enum: Object.keys(COVERING) },
+          atSeconds: { type: "number" },
+        },
+        required: ["what", "by"],
+      },
+    },
+  },
+  required: ["holds", "because", "occlusions"],
+} as const;
+
+const VISION_INSTRUCTION = [
+  "These stills are taken from one short video that has just been edited automatically.",
+  `The first few are inside the opening ${HOOK_SECONDS} seconds, in order; the rest are spread across the whole thing.`,
+  "Answer two questions and nothing else.",
+  "",
+  "1. holds: looking only at the opening frames, would this make somebody scrolling a feed stop and watch?",
+  "   Answer 'no' only if the opening is genuinely inert — a blank or near-blank frame, a title card with",
+  "   nothing happening, or somebody visibly still setting up. Answer 'unsure' when a still cannot tell you.",
+  "   Put your reasoning in 'because', in one sentence.",
+  "",
+  "2. occlusions: is anything laid over the picture hiding something that matters?",
+  "   Report it only when it genuinely obscures — a caption whose box crosses a mouth, a watermark over",
+  "   on-screen text. Do not report an element that merely sits near something. If nothing is obscured,",
+  "   return an empty list. Give 'atSeconds' as roughly where in the video you saw it, if you can tell.",
+].join("\n");
+
+/**
+ * The whole look: grab the frames, ask, and come back with something or null.
+ *
+ * Every failure inside is a null and a line in `warnings`. There is no path out
+ * of here that can fail a render, and there is no path that stays quiet: a look
+ * that silently did nothing on every render for a month is the failure this
+ * repository keeps finding, and the log is what makes it visible.
+ */
+async function lookAtPicture(
+  file: string,
+  ctx: ReviewContext,
+  durationSeconds: number,
+  warnings: string[],
+): Promise<VisionRead | null> {
+  const apiKey = (ctx.vision?.apiKey ?? process.env["GEMINI_API_KEY"] ?? "").trim();
+  if (!apiKey) {
+    // Not a warning. A deployment without the key has decided not to buy this,
+    // and a log line on every render would be noise about a choice.
+    return null;
+  }
+
+  const moments = framePlan(durationSeconds);
+  if (moments.length < MIN_FRAMES_TO_LOOK) {
+    warnings.push(`too little picture to look at: ${moments.length} frames from ${durationSeconds.toFixed(1)}s`);
+    return null;
+  }
+
+  const grabbed: string[] = [];
+  try {
+    const parts: unknown[] = [];
+    for (const [index, at] of moments.entries()) {
+      const still = path.join(ctx.workDir, `review-frame-${index}.jpg`);
+      try {
+        await ffmpegOrThrow([
+          "-y",
+          // Before `-i`, which is the fast seek: it decodes from the nearest
+          // keyframe rather than from the top of the file, and on a ninety
+          // minute render the difference is the whole cost of this feature.
+          "-ss", at.toFixed(2),
+          "-i", file,
+          "-frames:v", "1",
+          "-vf", `scale=${FRAME_WIDTH}:-2`,
+          "-q:v", "4",
+          still,
+        ]);
+      } catch {
+        // One frame that would not come out is not a reason to abandon the
+        // look. The plan has nine; the questions survive losing one.
+        continue;
+      }
+      grabbed.push(still);
+      parts.push({
+        inlineData: { mimeType: "image/jpeg", data: (await readFile(still)).toString("base64") },
+      });
+    }
+
+    if (parts.length < MIN_FRAMES_TO_LOOK) {
+      warnings.push(`could not read enough frames out of the render to look at it (${parts.length})`);
+      return null;
+    }
+    parts.push({ text: VISION_INSTRUCTION });
+
+    const doFetch = withDeadline(ctx.vision?.fetchImpl ?? fetch, VISION_TIMEOUT_MS);
+    const model = ctx.vision?.model ?? process.env["GEMINI_MODEL"]?.trim() ?? VISION_DEFAULT_MODEL;
+    const response = await doFetch(`${VISION_API_ROOT}/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts }],
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: VISION_SCHEMA,
+          temperature: 0.1,
+        },
+      }),
+    });
+    if (!response.ok) {
+      warnings.push(`the look at the picture was refused: ${response.status}`);
+      return null;
+    }
+    return parseVisionRead(await response.json());
+  } catch (error) {
+    warnings.push(`the look at the picture did not finish: ${String(error).slice(0, 200)}`);
+    return null;
+  } finally {
+    for (const still of grabbed) await unlink(still).catch(() => {});
+  }
+}
+
+/**
+ * The answer, reduced to things this file knows how to say.
+ *
+ * Pulled out so the shape can be tested without a key or a network — and
+ * written to distrust its input, because a schema is a request rather than a
+ * guarantee: a value outside the enumeration, a verdict that is not one of
+ * three, a number where a string belongs. Anything unrecognised is dropped
+ * rather than passed along, since the alternative is an undefined key reaching
+ * a template and a customer reading "the undefined is covered by undefined".
+ */
+export function parseVisionRead(payload: unknown): VisionRead | null {
+  const root = payload as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  const text = root?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  if (!text.trim()) return null;
+
+  let parsed: { holds?: unknown; because?: unknown; occlusions?: unknown };
+  try {
+    parsed = JSON.parse(text) as typeof parsed;
+  } catch {
+    return null;
+  }
+
+  const holds =
+    parsed.holds === "yes" || parsed.holds === "no" || parsed.holds === "unsure" ? parsed.holds : "unsure";
+
+  const seen = new Set<string>();
+  const occlusions: Occlusion[] = [];
+  for (const raw of Array.isArray(parsed.occlusions) ? parsed.occlusions : []) {
+    const entry = raw as { what?: unknown; by?: unknown; atSeconds?: unknown };
+    const what = typeof entry.what === "string" && entry.what in COVERABLE ? (entry.what as Coverable) : null;
+    const by = typeof entry.by === "string" && entry.by in COVERING ? (entry.by as Covering) : null;
+    if (!what || !by) continue;
+    // The same complaint about the same pair, seen in four frames, is one
+    // complaint. A note repeated four times reads as a broken product.
+    const key = `${what}/${by}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const at = Number(entry.atSeconds);
+    occlusions.push({ what, by, atSeconds: Number.isFinite(at) && at >= 0 ? at : null });
+  }
+
+  return {
+    holds,
+    because: typeof parsed.because === "string" ? parsed.because.slice(0, 300) : "",
+    occlusions,
+  };
+}
+
+/**
+ * What the customer is told, in their own language, from values we chose.
+ *
+ * Exported and pure so that every sentence this feature can produce is
+ * enumerable by a test — which is the only way to be sure none of them is a
+ * model's words wearing our voice.
+ *
+ * The opening verdict is reported only when it is `no`. `unsure` is the honest
+ * answer to a question asked of still frames and there is nothing to do with
+ * it, and `yes` is a compliment nobody needs from their own tooling.
+ */
+export function notesFromVision(read: VisionRead, language: Language | null | undefined): string[] {
+  const t = sayIn(language);
+  const notes: string[] = [];
+
+  for (const occlusion of read.occlusions) {
+    const what = COVERABLE[occlusion.what];
+    const by = COVERING[occlusion.by];
+    notes.push(
+      t(
+        `${what.en} is covered by ${by.en} in places. Moving it, or turning it off, is a one-line change and worth it`,
+        `${what.ar} يغطّيه ${by.ar} في مواضع. تحريكه أو إيقافه تعديل بسطر واحد ويستحقّ`,
+      ),
+    );
+  }
+
+  if (read.holds === "no") {
+    notes.push(
+      t(
+        `the first ${HOOK_SECONDS} seconds do not give anybody a reason to keep watching. Starting on the moment rather than on the introduction is usually the whole fix`,
+        `أوّل ${HOOK_SECONDS} ثوانٍ لا تعطي أحدًا سببًا ليكمل. البدء من اللحظة نفسها بدل المقدّمة هو الحلّ عادةً`,
+      ),
+    );
+  }
+
+  return notes;
+}
 
 export async function reviewOutput(file: string, ctx: ReviewContext): Promise<ReviewResult> {
   const t = sayIn(ctx.language);
@@ -190,9 +565,11 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
   // Only when the output looks black do we pay for a second read to ask
   // whether the source was black too — someone rendering an audio-only clip
   // over a black frame deserves no apology for their own footage.
+  let blackPicture = false;
   if (probe.hasVideo) {
     const outLuma = await meanLuma(file);
     if (outLuma != null && outLuma < BLACK_LUMA) {
+      blackPicture = true;
       const sourceLuma = await meanLuma(ctx.sourcePath);
       if (sourceLuma != null && sourceLuma > SOURCE_LUMA_FLOOR) {
         warnings.push(
@@ -208,7 +585,33 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
     }
   }
 
-  return { notes, warnings, repaired, measuredLufs };
+  // ── And the look at it ────────────────────────────────────────────────────
+  /*
+    Skipped on a picture already known to be black, and that is not an
+    optimisation.
+
+    A black render has already been reported above, in the one sentence that is
+    true about it. Asking a model whether a black rectangle holds an audience
+    would spend a request to be told what a mean luma of 16 already said, and
+    then add a second note underneath the first — two complaints about one
+    defect, the second one softer than the truth.
+  */
+  let seen: VisionRead | null = null;
+  if (probe.hasVideo && !blackPicture && probe.duration > 0) {
+    seen = await lookAtPicture(file, ctx, probe.duration, warnings);
+    if (seen) {
+      notes.push(...notesFromVision(seen, ctx.language));
+      if (seen.because) warnings.push(`opening read as "${seen.holds}": ${seen.because}`);
+      for (const occlusion of seen.occlusions) {
+        warnings.push(
+          `${occlusion.what} covered by ${occlusion.by}` +
+            (occlusion.atSeconds != null ? ` around ${occlusion.atSeconds.toFixed(1)}s` : ""),
+        );
+      }
+    }
+  }
+
+  return { notes, warnings, repaired, measuredLufs, seen };
 }
 
 // ── Measurements ────────────────────────────────────────────────────────────
