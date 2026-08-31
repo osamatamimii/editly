@@ -172,6 +172,10 @@ jobs:
       - run: node tools/publish-test.mjs
       - run: node tools/deadline-test.mjs
       - run: node tools/planner-test.mjs
+      # Beside the planner, because the sentence is half of it: cutting a word
+      # somebody meant is worse than leaving one they did not, so the checks
+      # that an ordinary word is never removed are the ones that matter.
+      - run: node tools/tighten-test.mjs
       # Beside the planner, because what it checks is a rule about the parser:
       # a habit must never be applied over the sentence somebody just typed.
       - run: node tools/habits-test.mjs

@@ -319,7 +319,45 @@ const KINETIC_WORDS =
  * has bitten this file once before.
  */
 const SILENCE_WORDS =
-  /\bsilence|silent|quiet|pause|dead air|um+s?\b|\bfiller|tighten|trim|short|fast|snapp|pace|boring|drag|صمت|سكتات|سكوت|وقفات|فراغات|اختصر|قصّر|قصر الفيديو|سرّع/i;
+  /\bsilence|silent|quiet|pause|dead air|tighten|trim|short|fast|snapp|pace|boring|drag|صمت|سكتات|سكوت|وقفات|فراغات|اختصر|قصّر|قصر الفيديو|سرّع/i;
+
+/**
+ * The hesitations and the false starts, which are not silence.
+ *
+ * `um+s?` and `filler` used to live in `SILENCE_WORDS`, and they were in the
+ * wrong list: an "um" is *loud*, so cutting the silences has never removed one.
+ * Somebody who wrote "cut the ums" got the silences cut and every hesitation
+ * left in — the request answered by doing a different thing, which is the
+ * shape of failure this file keeps finding.
+ *
+ * They are separate patterns rather than one because the two asks are
+ * different sentences. "Cut the ums" is precise and gets exactly that;
+ * "tighten it up" is a person asking for the whole treatment, and that is
+ * silences *and* hesitations, which is why the generic word stayed above.
+ */
+const HESITATION_WORDS =
+  /\bum+s?\b|\buh+s?\b|\bfiller|hesitat|stumbl|stutter|false start|\bmumbl|\bآآ|ترددات|التردد|تلعثم|يتلعثم|كلمات? الحشو|بدايات? مكرّرة|بدايات? مكررة|يعيد الجملة|كرّر الجملة/i;
+
+/**
+ * Refusals, in the same file as the thing they refuse.
+ *
+ * A generous request pattern with no matching refusal pattern is how "no
+ * captions" once added captions and "keep the silence" cut it. The pattern was
+ * written the same day as the request it negates so it cannot be forgotten
+ * separately.
+ */
+/**
+ * "Tidy this up", said without naming a part of it.
+ *
+ * Deliberately narrow. These are the words for the whole treatment, and every
+ * one of them already appears in `SILENCE_WORDS` — which is the point: a
+ * sentence that reaches both patterns gets both operations, and a sentence
+ * that names only one of them gets only that one.
+ */
+const WHOLE_TREATMENT_WORDS = /\btighten|snapp|\bmake it tight|شدّه|اشدّه|اشده|رتّبه|نظّفه|نظفه/i;
+
+const NO_TIGHTEN_WORDS =
+  /\bkeep the (?:ums?|uhs?|hesitations?|stumbles?)|don'?t (?:cut|remove) (?:the )?(?:ums?|uhs?|hesitations?)|\bleave the (?:ums?|hesitations?)|خلّي الترددات|خلي الترددات|لا تشيل الترددات|بدون حذف الترددات/i;
 
 const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b|عمودي|عامودي|طولي/i;
 
@@ -813,9 +851,35 @@ export function planFromText(
     silence: SILENCE_WORDS.test(text) || refusesSilenceCut,
   };
 
+  /*
+    Three sentences, three answers.
+
+    "Cut the ums" names the hesitations, and gets exactly those. "Tighten it
+    up" is a person asking for the whole treatment, which is the pauses *and*
+    the hesitations, because that is what the phrase means to the person saying
+    it. And "cut the silences" is as precise as the first one — so it gets the
+    silences and nothing else.
+
+    That last case is the one worth writing down. Deriving this from
+    `wantsSilenceCut` would have made every silence request also start deleting
+    speech, on the reasoning that they are both tidying. They are not: a pause
+    removed is time, and a word removed is what somebody said.
+  */
+  const refusesTighten = NO_TIGHTEN_WORDS.test(text);
+  const namedHesitations = HESITATION_WORDS.test(text) && !refusesTighten;
+  const wantsWholeTreatment = WHOLE_TREATMENT_WORDS.test(text) && !refusesTighten;
+  const wantsTighten = namedHesitations || wantsWholeTreatment;
+
   if (wantsSilenceCut) {
     operations.push({ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 });
     willDo.push(say("cut out the silences and dead air", "أقصّ الصمت والفراغات"));
+  }
+
+  if (wantsTighten) {
+    operations.push({ type: "tighten", fillers: true, repeats: true });
+    willDo.push(
+      say("cut the hesitations and the false starts", "أقصّ الترددات والبدايات المكرّرة"),
+    );
   }
 
   // Several pieces, each its own output. Checked before the highlight and the

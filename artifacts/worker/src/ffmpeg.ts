@@ -40,7 +40,8 @@ import {
   MIN_SUBJECT_COVERAGE,
 } from "./framing";
 import { trackSubject, trackNote } from "./subject";
-import { keepSegmentsFrom, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
+import { keepSegmentsFrom, mergeSpans, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, MOTION_OVERSCAN, type RemovableSpan, type Segment, type SpokenWord } from "./timeline";
+import { tighten, type TightenResult } from "./tighten";
 import { chooseHighlight } from "./highlight";
 import { sayIn, type Language } from "./say";
 export { chooseHighlight, chooseClips } from "./highlight";
@@ -48,7 +49,7 @@ export { chooseHighlight, chooseClips } from "./highlight";
 // These moved to `timeline.ts` so the critic could share them without importing
 // the renderer that imports it. Re-exported because this is where callers —
 // including the test suites — have always found them.
-export { keepSegmentsFrom, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, MOTION_OVERSCAN, type Segment, type SpokenWord };
+export { keepSegmentsFrom, mergeSpans, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, MOTION_OVERSCAN, type RemovableSpan, type Segment, type SpokenWord };
 
 export interface SourceInfo {
   width: number;
@@ -1096,6 +1097,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   };
 
   const silence = find("removeSilence");
+  const tightening = find("tighten");
   const highlight = find("extractHighlight");
   const range = find("extractRange");
   const reframe = find("formatForPlatform");
@@ -1124,15 +1126,74 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   ctx.onProgress?.(0.02, "Looking at your footage");
 
   // ── Cuts ──────────────────────────────────────────────────────────────────
+  //
+  // Two kinds of removal, one machinery.
+  //
+  // Silence is found in the samples; hesitations and false starts are found in
+  // the words. They arrive as the same thing — spans of source to drop — and go
+  // through `keepSegmentsFrom` together, because everything downstream of the
+  // cut (snapping off a word, remapping every caption and punch onto the edited
+  // clock, the critic's guards) is correct exactly once and must stay that way.
+  // A second cutter would be a second place for source-versus-edited time to be
+  // got wrong, which is the worst bug this renderer has ever had.
   let kept: Segment[] | null = null;
-  if (silence) {
-    if (!source.hasAudio) {
+
+  /** What tightening took, kept for the note and for the case where it is alone. */
+  let tightened: TightenResult | null = null;
+  if (tightening) {
+    if (!ctx.words || ctx.words.length === 0) {
+      notes.push(
+        t(
+          "nothing to tighten: this needs the words, and there is no transcript",
+          "لا شيء أشدّه: هذا يحتاج الكلمات، ولا يوجد تفريغ",
+        ),
+      );
+    } else {
+      tightened = tighten(ctx.words, {
+        fillers: tightening.fillers,
+        repeats: tightening.repeats,
+        duration: source.duration,
+      });
+      if (tightened.refused === "too much") {
+        /*
+          Said out loud rather than trimmed to the limit.
+
+          If a quarter of a recording reads as hesitation, the reading is wrong
+          — and a video that came back a quarter shorter with no explanation is
+          a bug report, not an edit.
+        */
+        notes.push(
+          t(
+            "left the hesitations in: too much of this reads as filler for that to be right",
+            "أبقيت الترددات: نسبة كبيرة جدًا من هذا تُقرأ كتردّد، وهذا لا يكون صحيحًا",
+          ),
+        );
+      }
+    }
+  }
+
+  const wordCuts: RemovableSpan[] = tightened?.cuts ?? [];
+
+  if (silence || wordCuts.length > 0) {
+    if (silence && !source.hasAudio) {
       notes.push(t("no audio track, nothing to trim", "لا مسار صوت، فلا شيء يُقصّ"));
     } else {
-      ctx.onProgress?.(0.06, "Finding the silences");
-      const silences = await detectSilences(input, silence.thresholdDb, silence.minSilenceMs / 1000);
-      const protect = (silence.protect ?? []).map((r) => ({ start: r.startMs / 1000, end: r.endMs / 1000 }));
-      let candidate = keepSegmentsFrom(source.duration, silences, silence.paddingMs / 1000, protect);
+      let silences: RemovableSpan[] = [];
+      if (silence && source.hasAudio) {
+        ctx.onProgress?.(0.06, "Finding the silences");
+        silences = await detectSilences(input, silence.thresholdDb, silence.minSilenceMs / 1000);
+      }
+      const protect = (silence?.protect ?? []).map((r) => ({ start: r.startMs / 1000, end: r.endMs / 1000 }));
+
+      /*
+        Merged before inverting, because `keepSegmentsFrom` walks its input in
+        order and assumes the spans do not overlap. A hesitation sitting inside
+        a detected silence is one removal, not two, and two overlapping spans
+        would have the second one's start land behind the cursor and quietly
+        produce a kept stretch of negative length.
+      */
+      const spans = mergeSpans([...silences, ...wordCuts]);
+      let candidate = keepSegmentsFrom(source.duration, spans, (silence?.paddingMs ?? 0) / 1000, protect);
 
       // Amplitude does not respect words. A stop consonant or an unvoiced
       // syllable dips below the threshold, the detector reads a pause, and the
@@ -1175,12 +1236,39 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(t("no silence found to remove", "لم أجد صمتًا أزيله"));
       } else {
         kept = candidate;
-        notes.push(
-          t(
-            `removed ${(source.duration - keptDuration).toFixed(1)}s of silence across ${silences.length} gaps`,
-            `أزلت ${(source.duration - keptDuration).toFixed(1)} ثانية من الصمت موزّعة على ${silences.length} فجوة`,
-          ),
-        );
+        if (silence && silences.length > 0) {
+          notes.push(
+            t(
+              `removed ${(source.duration - keptDuration).toFixed(1)}s of silence across ${silences.length} gaps`,
+              `أزلت ${(source.duration - keptDuration).toFixed(1)} ثانية من الصمت موزّعة على ${silences.length} فجوة`,
+            ),
+          );
+        }
+        /*
+          Counted separately from the silence line.
+
+          "Removed 40s of silence" and "removed 40s, twelve of them hesitations"
+          are different sentences, and the second is the one that tells somebody
+          the product did the thing they could not have done with a noise gate.
+        */
+        if (tightened && tightened.cuts.length > 0) {
+          const parts: string[] = [];
+          const partsAr: string[] = [];
+          if (tightened.fillersFound > 0) {
+            parts.push(`${tightened.fillersFound} hesitation${tightened.fillersFound === 1 ? "" : "s"}`);
+            partsAr.push(`${tightened.fillersFound} تردّد`);
+          }
+          if (tightened.repeatsFound > 0) {
+            parts.push(`${tightened.repeatsFound} false start${tightened.repeatsFound === 1 ? "" : "s"}`);
+            partsAr.push(`${tightened.repeatsFound} بداية مكرّرة`);
+          }
+          notes.push(
+            t(
+              `and cut ${parts.join(" and ")}, ${tightened.droppedSeconds.toFixed(1)}s that was not silent`,
+              `وقصصت ${partsAr.join(" و")}، أي ${tightened.droppedSeconds.toFixed(1)} ثانية لم تكن صامتة`,
+            ),
+          );
+        }
       }
     }
   }
@@ -2481,6 +2569,7 @@ function describeWork(plan: EditPlan): string {
 export function describe(op: EditOperation): string {
   switch (op.type) {
     case "removeSilence": return "Cutting the silences";
+    case "tighten": return "Cutting the hesitations";
     case "extractHighlight": return "Finding the strongest stretch";
     case "extractRange": return "Cutting to the stretch you named";
     // Expanded by the worker into one extractRange render per clip before the

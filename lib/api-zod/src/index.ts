@@ -559,6 +559,34 @@ export const RemoveSilenceOperation = z.object({
     .optional(),
 });
 
+/**
+ * Remove what was said and did not need to be: hesitations, and false starts.
+ *
+ * `removeSilence` cuts where the audio is quiet, which is only half of what a
+ * person means by "tidy this up". The other half is loud — an «آآ» held at full
+ * volume, a sentence begun twice, a "the — the" stutter — and none of it is
+ * silent, so a video with every pause removed still sounds like somebody
+ * thinking out loud.
+ *
+ * It needs a transcript, and it is the only operation here whose inputs are
+ * words rather than samples. A deployment with no recogniser loses it and says
+ * so, the same way it loses captions.
+ */
+export const TightenOperation = z.object({
+  type: z.literal("tighten"),
+  /** Hesitations: «آآ», "um", "uh". Never an ordinary word — see `fillers.ts`. */
+  fillers: z.boolean().default(true),
+  /**
+   * A phrase started, abandoned, and started again. The abandoned attempt goes.
+   *
+   * Separate from `fillers` because they fail differently: a filler wrongly cut
+   * removes a sound, and a repeat wrongly cut removes a sentence somebody meant
+   * to say twice. Anybody who wants one without the other should be able to say
+   * so without giving up both.
+   */
+  repeats: z.boolean().default(true),
+});
+
 /** Reframe to a platform's aspect ratio by cropping to the centre. */
 export const FormatForPlatformOperation = z.object({
   type: z.literal("formatForPlatform"),
@@ -1136,6 +1164,7 @@ export const ColdOpenOperation = z.object({
 
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
+  TightenOperation,
   ExtractHighlightOperation,
   ExtractRangeOperation,
   ExtractClipsOperation,

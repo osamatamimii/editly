@@ -2135,6 +2135,7 @@ components:
     EditOperation:
       oneOf:
         - $ref: "#/components/schemas/RemoveSilenceOperation"
+        - $ref: "#/components/schemas/TightenOperation"
         - $ref: "#/components/schemas/ExtractHighlightOperation"
         - $ref: "#/components/schemas/ExtractRangeOperation"
         - $ref: "#/components/schemas/ExtractClipsOperation"
@@ -3139,6 +3140,34 @@ components:
                 type: number
                 minimum: 0
             required: [startMs, endMs]
+      required: [type]
+
+    TightenOperation:
+      description: >
+        Remove what was said and did not need to be: the hesitations, and the
+        false starts where a sentence begins twice. Not removeSilence - those
+        sounds are loud, so cutting the silences never touches one. Needs a
+        transcript; a deployment with no recogniser loses it and says so.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [tighten]
+        fillers:
+          description: >
+            Hesitations - "um", "uh", a held «آآ». Never an ordinary word: the
+            Arabic list refuses «يعني» and «طيب» because both are also words
+            somebody meant, and cutting one changes what they said.
+          type: boolean
+          default: true
+        repeats:
+          description: >
+            A phrase started, abandoned, and started again. The abandoned
+            attempt is the one removed. Separate from fillers because the two
+            fail differently - a filler wrongly cut removes a sound, a repeat
+            wrongly cut removes a sentence.
+          type: boolean
+          default: true
       required: [type]
 
     FormatForPlatformOperation:

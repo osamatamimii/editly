@@ -19,6 +19,17 @@ export interface Segment {
 }
 
 /**
+ * A span to be taken out, and how much of its own edges it keeps.
+ *
+ * `pad` is absent on a silence, which takes the pass's padding, and zero on a
+ * span that came from a transcript, which is exact already. It exists at all
+ * because the two kinds of removal now arrive at the same function.
+ */
+export interface RemovableSpan extends Segment {
+  pad?: number;
+}
+
+/**
  * Headroom kept around the frame when anything moves.
  *
  * Reframing crops to this multiple of the target, and the base zoom then scales
@@ -27,6 +38,40 @@ export interface Segment {
  * inventing them.
  */
 export const MOTION_OVERSCAN = 1.15;
+
+/**
+ * One ordered, non-overlapping list out of several sources of removals.
+ *
+ * `keepSegmentsFrom` walks its input in order and assumes the spans do not
+ * overlap: two that do would put the second one's start behind the cursor and
+ * quietly produce a kept stretch of negative length, which is not an error
+ * anywhere — it is a video missing a piece nobody asked to remove.
+ *
+ * That did not matter while silences were the only source. It does now that
+ * hesitations arrive from the transcript, because a held "um" inside a detected
+ * pause is exactly the overlap this has to collapse.
+ *
+ * The merged span keeps the **smaller** padding of the two. A span that came
+ * from word boundaries is exact and asks for none; padding the union by the
+ * silence pass's amount would put the start of a hesitation back into the
+ * video, and half an "um" is more noticeable than a whole one.
+ */
+export function mergeSpans(spans: RemovableSpan[]): RemovableSpan[] {
+  const sorted = [...spans].filter((s) => s.end > s.start).sort((a, b) => a.start - b.start);
+  const merged: RemovableSpan[] = [];
+  for (const span of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && span.start <= last.end) {
+      last.end = Math.max(last.end, span.end);
+      if (span.pad !== undefined) {
+        last.pad = last.pad === undefined ? span.pad : Math.min(last.pad, span.pad);
+      }
+      continue;
+    }
+    merged.push({ ...span });
+  }
+  return merged;
+}
 
 /**
  * Inverts a list of silences into the parts worth keeping, growing each kept
@@ -41,7 +86,7 @@ export const MOTION_OVERSCAN = 1.15;
  */
 export function keepSegmentsFrom(
   duration: number,
-  silences: Segment[],
+  silences: RemovableSpan[],
   padding: number,
   protect: Segment[] = [],
 ): Segment[] {
@@ -68,11 +113,21 @@ export function keepSegmentsFrom(
   const EDGE = 1e-3;
   for (const silence of silences) {
     if (isProtected(silence)) continue;
+    /*
+      Padding is per span, because not every span is a silence.
+
+      `tighten` removes hesitations and abandoned phrases, and its spans come
+      from word boundaries in a transcript — they are already exact. Padding one
+      by the silence pass's eightieth of a second leaves the first and last
+      fraction of an "um" in the video, which is audible as a click rather than
+      as a word. Amplitude-detected silences still need theirs.
+    */
+    const pad = silence.pad ?? padding;
     const opensTheFile = silence.start <= EDGE;
     const closesTheFile = silence.end >= duration - EDGE;
-    const start = opensTheFile ? 0 : Math.max(0, silence.start + padding);
+    const start = opensTheFile ? 0 : Math.max(0, silence.start + pad);
     if (start > cursor) kept.push({ start: cursor, end: start });
-    cursor = closesTheFile ? duration : Math.max(cursor, Math.min(duration, silence.end - padding));
+    cursor = closesTheFile ? duration : Math.max(cursor, Math.min(duration, silence.end - pad));
   }
   if (cursor < duration) kept.push({ start: cursor, end: duration });
 
@@ -155,6 +210,16 @@ export interface SpokenWord {
   end: number;
   /** True for "um", "uh" and friends. A punch must not land on one. */
   filler?: boolean;
+  /**
+   * What was said, where the caller has it.
+   *
+   * Optional because the two oldest readers of this type — the cut snapper and
+   * the critic — need only the boundaries and the filler flag. `tighten` needs
+   * the word itself, because a sentence started twice can only be recognised by
+   * reading it, and the worker has been carrying the text alongside these
+   * fields all along without the type saying so.
+   */
+  text?: string;
 }
 
 /**

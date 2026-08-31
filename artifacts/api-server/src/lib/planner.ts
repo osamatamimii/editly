@@ -83,6 +83,7 @@ function buildSchema(assets: PlannerAsset[]) {
 
   const types = [
     "removeSilence",
+    "tighten",
     "extractHighlight",
     "extractRange",
     "extractClips",
@@ -122,6 +123,8 @@ function buildSchema(assets: PlannerAsset[]) {
             "zoomTo",
             "punchAmount",
             "minSilenceMs",
+            "cutFillers",
+            "cutRepeats",
             "targetSeconds",
             "startSeconds",
             "endSeconds",
@@ -145,6 +148,15 @@ function buildSchema(assets: PlannerAsset[]) {
               type: ["string", "null"],
               enum: ["tiktok", "reels", "shorts", "youtube", "square", null],
             },
+            /**
+             * `tighten`'s two halves, separately, because they fail
+             * differently: a hesitation wrongly cut removes a sound, and a
+             * false start wrongly cut removes a sentence somebody meant to say
+             * twice. Somebody who wants one without the other must be able to
+             * say so without giving up both.
+             */
+            cutFillers: { type: ["boolean", "null"] },
+            cutRepeats: { type: ["boolean", "null"] },
             captionStyle: { type: ["string", "null"], enum: ["bold-white", "bold-yellow", "karaoke-box", null] },
             captionAnimation: { type: ["string", "null"], enum: ["none", "pop", "karaoke", null] },
             /** 1.02–1.5. How far a slow push travels. */
@@ -283,6 +295,11 @@ function instructionFor(assets: PlannerAsset[]): string {
     "formatForPlatform reframes the picture. tiktok, reels and shorts are the vertical 9:16 feeds; youtube is",
     "widescreen 16:9 for a long-form player; square is 1:1, the shape a feed post shares. Choose the one they",
     "named - 'for YouTube' is widescreen unless they said shorts, which is vertical.",
+    "tighten removes what was said and did not need to be: the hesitations (um, uh, aa) and the false",
+    "starts, where somebody begins a sentence, stops, and begins it again. It is not removeSilence: those",
+    "sounds are loud, so cutting the silences does not touch them. Choose it when they ask to tighten it,",
+    "to make it snappier, to cut the ums or the hesitations or the stumbles or the repeated bits, or to make",
+    "them sound more fluent. cutFillers and cutRepeats are both true unless they asked for only one of them.",
     "coldOpen builds a hook: it opens the video on its strongest moment and then plays from the top",
     "without it - choose it when they ask for a hook, a cold open, or to start with the best bit.",
     "durationSeconds is how long the opening moment should be (1-15, default 4).",
@@ -530,6 +547,17 @@ function toOperation(
           thresholdDb: -32,
           minSilenceMs: numberOr(raw["minSilenceMs"], 500),
           paddingMs: 80,
+        };
+      case "tighten":
+        /*
+          Defaults to both, because a person who says "tidy this up" means
+          both, and the two flags exist for the person who says "leave the
+          repeats, just take out the ums".
+        */
+        return {
+          type,
+          fillers: raw["cutFillers"] === false ? false : true,
+          repeats: raw["cutRepeats"] === false ? false : true,
         };
       case "extractHighlight":
         // Clamped rather than rejected: "the best 3 minutes" should become
@@ -808,6 +836,20 @@ function describeAll(operations: EditOperation[]): Phrase[] {
     switch (op.type) {
       case "removeSilence":
         return { en: "cut out the silences and dead air", ar: "أقصّ الصمت والفراغات" };
+      case "tighten":
+        /*
+          Named by what it removes, not by the word "tighten".
+
+          "I'll tighten it up" is what an editor says to another editor. The
+          person reading this wants to know what is about to disappear from a
+          recording of their own voice, and the answer has to be specific
+          enough that they can object to it.
+        */
+        return op.fillers && op.repeats
+          ? { en: "cut the hesitations and the false starts", ar: "أقصّ الترددات والبدايات المكرّرة" }
+          : op.repeats
+            ? { en: "cut the false starts, where a sentence begins twice", ar: "أقصّ البدايات المكرّرة، حيث تبدأ الجملة مرّتين" }
+            : { en: "cut the hesitations", ar: "أقصّ الترددات" };
       case "extractHighlight":
         return {
           en: `pull the strongest ${Math.round(op.targetSeconds)} seconds into its own cut`,
