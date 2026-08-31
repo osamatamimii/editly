@@ -30,6 +30,28 @@ export function takePendingUpload(projectId: string): File | null {
 }
 
 /**
+ * The sentence chosen on the first-run screen, typed into the editor.
+ *
+ * Same idea as the file above and the same lifetime, so it lives beside it
+ * rather than in a module of its own. It is **placed in the box, not sent**:
+ * the whole point of the first-run screen is that somebody sees what a request
+ * to this product looks like, and a sentence that fires on arrival is a
+ * sentence they never read.
+ */
+const pendingMessages = new Map<string, string>();
+
+export function stashPendingMessage(projectId: string, sentence: string): void {
+  pendingMessages.set(projectId, sentence);
+}
+
+/** Claim and remove, so a re-mount cannot refill a box somebody just cleared. */
+export function takePendingMessage(projectId: string): string | null {
+  const sentence = pendingMessages.get(projectId) ?? null;
+  pendingMessages.delete(projectId);
+  return sentence;
+}
+
+/**
  * "My Viral Short", not "my-viral-short_v2_FINAL.mp4".
  *
  * The name is a courtesy, not a commitment — the person can rename the project

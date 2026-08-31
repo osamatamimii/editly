@@ -53,7 +53,7 @@ import { ToastAction } from "@/components/ui/toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ProjectLibrary } from "@/components/project-library";
 import { ProjectClips, getListClipsQueryKey } from "@/components/project-clips";
-import { takePendingUpload } from "@/lib/pending-upload";
+import { takePendingUpload, takePendingMessage } from "@/lib/pending-upload";
 import { VoiceInput, SpeechLanguageToggle } from "@/components/voice/voice-input";
 import { guessSpeechLanguage, type SpeechLanguage } from "@/components/voice/speech-language";
 import { MomentMarks, marksToSentence, type Mark } from "@/components/moment-marks";
@@ -685,6 +685,23 @@ export default function ProjectEditor() {
     if (file) void validateAndUpload(file);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once, when the pieces are all present
   }, [id, user, project?.id, project?.videoPath]);
+
+  /**
+   * A sentence chosen on the first-run screen, put in the box.
+   *
+   * Placed, never sent. The whole point of that screen is that somebody sees
+   * what a request to this product looks like — and a sentence that fires on
+   * arrival is a sentence they never read. They press send, and then they know
+   * what to type the second time.
+   *
+   * It defers to anything already typed, and `takePendingMessage` deletes on
+   * read, so a re-mount cannot refill a box somebody has just cleared.
+   */
+  useEffect(() => {
+    if (!id) return;
+    const suggested = takePendingMessage(id);
+    if (suggested) setChatInput((current) => (current.trim() ? current : suggested));
+  }, [id]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

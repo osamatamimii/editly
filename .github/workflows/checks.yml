@@ -181,6 +181,12 @@ jobs:
       # \alpha override splits the layout run the same way \kf does, and a
       # scale on one word widens the whole line.
       - run: node tools/kinetic-test.mjs
+      # The first screen, held to the parser it teaches people to use: every
+      # suggested sentence is run through the real keyword planner in both
+      # languages. Copy that drifts from the parser means the first thing a new
+      # person ever asks for comes back refused, and nobody who hits that files
+      # a bug.
+      - run: node tools/onboarding-test.mjs
       # Beside the planner, because what it checks is a rule about the parser:
       # a habit must never be applied over the sentence somebody just typed.
       - run: node tools/habits-test.mjs

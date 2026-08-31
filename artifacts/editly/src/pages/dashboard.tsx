@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, Redirect } from "wouter";
 import { format } from "date-fns";
 import { 
   useListProjects, 
@@ -39,6 +39,7 @@ import {
   formatBytes,
 } from "@/lib/video-storage";
 import { stashPendingUpload, titleFromFilename } from "@/lib/pending-upload";
+import { hasSkippedFirstRun } from "@/lib/first-run";
 import { loadState } from "@/lib/load-state";
 import { FREE_TIER } from "@/lib/pricing";
 import { LoadFailed } from "@/components/load-failed";
@@ -486,6 +487,33 @@ export default function Dashboard() {
               </Card>
             </Link>
   );
+
+  /*
+    An account with nothing in it goes to the first-run screen instead.
+
+    Two conditions, and the first one is the whole reason `loadState` exists.
+    **Only `"empty"`** — a *successful* read of zero projects. A failed read
+    also leaves `projects` undefined, and treating that as empty is how a total
+    outage looked like an empty account for two days; here it would be worse
+    than a wrong screen, because the first-run screen offers to create a
+    project on top of a library the person already has and cannot see.
+
+    And having any project ends the first run permanently, on every device,
+    whatever a browser happened to remember. The skip flag only covers somebody
+    who chose to look around and has not made anything yet.
+
+    `projectsFailed` is redundant against `loadState` and it is written out
+    anyway. The rule "check for failure before you say the account is empty" is
+    the one this page has already been wrong about once, and `browser-test`
+    enforces it by reading the order of these two comparisons in the source —
+    a guard that only works if the rule is *visible*, rather than resting on
+    somebody remembering what `loadState` returns.
+  */
+  const projectsFailed = projectsState === "failed";
+  const accountIsNew = !projectsFailed && projectsState === "empty";
+  if (accountIsNew && !hasSkippedFirstRun()) {
+    return <Redirect to="/onboarding" />;
+  }
 
   return (
     <div className="w-full max-w-7xl mx-auto px-6 py-12">

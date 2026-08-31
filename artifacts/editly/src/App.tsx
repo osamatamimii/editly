@@ -29,6 +29,7 @@ import Home from "@/pages/home";
  */
 const Login = lazy(() => import("@/pages/login"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Onboarding = lazy(() => import("@/pages/onboarding"));
 const ProjectEditor = lazy(() => import("@/pages/project-editor"));
 const ExportPage = lazy(() => import("@/pages/export"));
 const AccountPage = lazy(() => import("@/pages/account"));
@@ -90,6 +91,14 @@ function Router() {
       </Route>
       <Route path="/dashboard">
         <Protected component={Dashboard} />
+      </Route>
+      {/*
+        Behind `Protected` like everything else. The first-run screen creates a
+        project, so it needs a session — and an unauthenticated visitor reaching
+        it would get a create that 401s rather than a sign-in prompt.
+      */}
+      <Route path="/onboarding">
+        <Protected component={Onboarding} />
       </Route>
       <Route path="/project/:id">
         <Protected component={ProjectEditor} />
