@@ -35,6 +35,13 @@ const AccountPage = lazy(() => import("@/pages/account"));
 const ClipsPage = lazy(() => import("@/pages/clips"));
 const ScheduledPage = lazy(() => import("@/pages/scheduled"));
 const AdminPage = lazy(() => import("@/pages/admin"));
+/*
+  Public, and not behind `Protected`: a privacy policy a reader has to sign in
+  to read is a privacy policy nobody can check before deciding whether to sign
+  up — and every platform review reads it while signed out.
+*/
+const PrivacyPage = lazy(() => import("@/pages/privacy"));
+const TermsPage = lazy(() => import("@/pages/terms"));
 
 const queryClient = new QueryClient();
 
@@ -109,6 +116,8 @@ function Router() {
       <Route path="/admin">
         <Protected component={AdminPage} />
       </Route>
+      <Route path="/privacy" component={PrivacyPage} />
+      <Route path="/terms" component={TermsPage} />
       <Route component={NotFound} />
     </Switch>
     </Suspense>

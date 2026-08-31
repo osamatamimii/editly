@@ -153,6 +153,9 @@ jobs:
       - run: node tools/theme-test.mjs
       - run: node tools/upload-types-test.mjs
       - run: node tools/policy-test.mjs
+      # The privacy page cannot become a lie by addition: every host the code
+      # sends a request to has to be named on it.
+      - run: node tools/privacy-test.mjs
       - run: node tools/refusal-test.mjs
       - run: node tools/posting-test.mjs
       # Beside posting, because it is the step posting never had: a way to put

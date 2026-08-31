@@ -1511,8 +1511,17 @@ The tedious part is the part a machine should do.<br />Upload one take and see h
             </div>
           </div>
 
+          {/* The two documents every platform review asks for before it will
+              look at an app, and the two a person is entitled to read *before*
+              signing up rather than after. In the last row rather than a column
+              of their own: they are not a feature, and putting them beside the
+              product links would suggest they are. */}
           <div className="mt-10 pt-6 border-t border-hairline-faint flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground/70">
             <span>© {new Date().getFullYear()} Editly</span>
+            <span className="flex items-center gap-4">
+              <Link href="/privacy" className="min-h-11 inline-flex items-center hover:text-foreground transition-colors">Privacy</Link>
+              <Link href="/terms" className="min-h-11 inline-flex items-center hover:text-foreground transition-colors">Terms</Link>
+            </span>
             <span>Stop editing. Start describing.</span>
           </div>
         </div>
