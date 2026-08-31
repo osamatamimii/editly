@@ -68,3 +68,105 @@ export function workerOnline(
   // beat settle it.
   return now - seen < WORKER_OFFLINE_AFTER_MS;
 }
+
+
+// ─── How long the wait actually is ──────────────────────────────────────────
+
+/**
+ * "Waiting for a free slot" is true and it is not an answer.
+ *
+ * One worker renders one job at a time, and that is a measurement rather than a
+ * choice: peak resident memory for ffmpeg on a 1080p source is 602 MB for two
+ * pieces and 1088 MB for six, against a machine with one gigabyte
+ * (`MAX_SEPARATE_DECODES` in the renderer carries the whole table). A second
+ * render inside the same box does not go slower, it gets OOM-killed — and an
+ * OOM is not a failed render, it is a job that dies with no note while the
+ * customer's minute is spent. So capacity is machines, not threads.
+ *
+ * Which makes the number below the thing that actually matters to somebody
+ * waiting. Ten people uploading in an afternoon is a queue whatever the machine
+ * count is, and a sentence that says "waiting" without saying *how long* reads
+ * as a fault the tenth time somebody sees it. These three functions turn the
+ * queue into a number, and refuse to when the number would be invented.
+ */
+
+/**
+ * How many workers are actually listening.
+ *
+ * A count and not a boolean, because the wait divides by it: adding a machine
+ * has to shorten the estimate on its own, without anybody editing a constant.
+ */
+export function liveWorkers(
+  lastSeenAts: Array<Date | string | null | undefined>,
+  now = Date.now(),
+): number {
+  return lastSeenAts.filter((seen) => workerOnline(seen, now)).length;
+}
+
+/**
+ * The fewest finished renders before a median means anything.
+ *
+ * Production has ten renders in its whole history. A "typical" drawn from three
+ * of them is not a typical, it is one video with a confident sentence wrapped
+ * around it — and a wait that is wrong by a factor of five is worse than no
+ * wait at all, because somebody plans around it.
+ */
+export const RATE_SAMPLE_MIN = 5;
+
+export interface RenderSample {
+  /** Wall-clock milliseconds from claim to finish. */
+  wallMs: number;
+  /** Length of the source that render was made from. */
+  sourceSeconds: number;
+}
+
+/**
+ * Milliseconds of work per second of source, at the middle of what we have seen.
+ *
+ * Per second of source rather than a flat average per job, because render time
+ * scales with the length of the footage and a queue holding one podcast and
+ * four clips is not five equal waits. A flat median would tell everyone behind
+ * the podcast the same wrong number.
+ *
+ * The median rather than the mean, for the same reason and in the other
+ * direction: one pathological render — a machine that stalled, a provider that
+ * timed out — should not move the answer everybody else is given.
+ */
+export function renderRate(samples: RenderSample[]): number | null {
+  const usable = samples
+    .filter((s) => s.wallMs > 0 && s.sourceSeconds > 0)
+    .map((s) => s.wallMs / s.sourceSeconds)
+    .sort((a, b) => a - b);
+  if (usable.length < RATE_SAMPLE_MIN) return null;
+  const mid = Math.floor(usable.length / 2);
+  return usable.length % 2 === 0 ? (usable[mid - 1]! + usable[mid]!) / 2 : usable[mid]!;
+}
+
+export interface WaitInput {
+  /** Source seconds of everything that will be rendered before this job is. */
+  aheadSourceSeconds: number;
+  workers: number;
+  /** From `renderRate`. Null means we have not seen enough to say. */
+  rate: number | null;
+}
+
+/**
+ * Seconds until this job starts, rounded up, or null when we cannot say.
+ *
+ * Three ways to get null, and each one is a refusal rather than a fallback: no
+ * rate is not enough history, no workers is a different sentence entirely —
+ * "nothing is listening" — and no work ahead means the wait is not the thing to
+ * show, the render is about to start.
+ *
+ * Rounded **up**, to the half minute. Somebody told four minutes and given
+ * three and a half has been treated well; somebody told three and given four
+ * has been lied to. And a wait shown to the second would be false precision
+ * dressed as care: the number underneath it is a median of five renders.
+ */
+export function waitEstimate(input: WaitInput): number | null {
+  if (input.rate === null || input.rate <= 0) return null;
+  if (input.workers <= 0) return null;
+  if (input.aheadSourceSeconds <= 0) return null;
+  const seconds = (input.aheadSourceSeconds * input.rate) / 1000 / input.workers;
+  return Math.max(30, Math.ceil(seconds / 30) * 30);
+}

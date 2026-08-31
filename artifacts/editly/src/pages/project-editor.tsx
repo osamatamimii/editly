@@ -54,6 +54,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ProjectLibrary } from "@/components/project-library";
 import { ProjectClips, getListClipsQueryKey } from "@/components/project-clips";
 import { takePendingUpload, takePendingMessage } from "@/lib/pending-upload";
+import { waitInWords } from "@/lib/wait-in-words";
 import { VoiceInput, SpeechLanguageToggle } from "@/components/voice/voice-input";
 import { guessSpeechLanguage, type SpeechLanguage } from "@/components/voice/speech-language";
 import { MomentMarks, marksToSentence, type Mark } from "@/components/moment-marks";
@@ -2058,7 +2059,19 @@ export default function ProjectEditor() {
                         <>
                           <p className="font-semibold text-secondary mb-3 flex items-center gap-2">
                             <Loader2 className="w-4 h-4 animate-spin" />
-                            {renderJob?.status === "queued" ? "Waiting for a free slot…" : (renderJob?.stage ?? "Working on it…")}
+                            {/*
+                              A queued render that the server annotated with a
+                              wait says how long. Where it could not — too
+                              little history to have a typical render, or no
+                              worker to divide by — this falls back to the
+                              sentence it has always shown, which is vague and
+                              true. `stage` still wins when it is set, because
+                              the server writes a better sentence there for the
+                              case where nothing has picked the job up at all.
+                            */}
+                            {renderJob?.status === "queued"
+                              ? (renderJob.stage ?? waitInWords(renderJob.waitSeconds))
+                              : (renderJob?.stage ?? "Working on it…")}
                           </p>
                           <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
                             <div

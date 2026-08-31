@@ -101,3 +101,28 @@ jobs:
         run: flyctl deploy --config artifacts/worker/fly.toml --dockerfile artifacts/worker/Dockerfile --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      # How many render machines there are, in version control rather than in
+      # somebody's shell history.
+      #
+      # One render per machine is a measured limit, not a setting — see the
+      # memory table in fly.toml — so the only way to render two things at once
+      # is to run two machines. This makes that a number anybody can find, and
+      # changing it a commit rather than a command nobody remembers running.
+      #
+      # Default 1, because raising it costs money on somebody's card. Set the
+      # repository variable WORKER_COUNT to raise it; the product picks the
+      # change up on its own, dividing its wait estimate by however many
+      # machines are actually beating.
+      - name: Scale to the declared number of machines
+        run: |
+          set -euo pipefail
+          count="${WORKER_COUNT:-1}"
+          case "$count" in
+            ''|*[!0-9]*) echo "::error::WORKER_COUNT must be a whole number, got '$count'"; exit 1 ;;
+          esac
+          echo "scaling editly-worker to $count machine(s)"
+          flyctl scale count "$count" --app editly-worker --yes
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          WORKER_COUNT: ${{ vars.WORKER_COUNT }}

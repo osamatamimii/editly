@@ -14,14 +14,29 @@ primary_region = "fra"  # same region as the Supabase project, so pulling and
 
 # No [http_service]: this process serves nothing. It polls the queue and exits
 # only when told to, so it must not be scaled to zero on inbound traffic.
+# One render per machine, and that is a measurement rather than a preference.
+#
+# An edit that plays out of order gives each piece its own decode of the source,
+# and peak resident memory for the whole ffmpeg process was measured on a 1080p
+# clip at 602 MB for two pieces, 1088 MB for six and 1532 MB for eight — the
+# table is in ffmpeg.ts beside MAX_SEPARATE_DECODES. One render already fills
+# most of this box. A second one inside it does not go slower, it gets
+# OOM-killed, and an OOM is not a failed render: the job dies with no note and
+# no output while the customer's minute is spent either way.
+#
+# So capacity here is machines, not threads. Raising `memory` would buy room for
+# more pieces in one render, not for two renders — that is what the piece cap is
+# for. Adding throughput is `WORKER_COUNT` in the deploy workflow, and the
+# product divides its wait estimate by however many are actually beating.
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "1gb"   # ffmpeg on a 1080p clip sits well under this; 512mb is tight
+  memory = "1gb"
   cpus = 1
 
 [deploy]
-  # One worker claims one job at a time. Rolling avoids two copies fighting over
-  # the queue during a deploy — though SKIP LOCKED would make that safe anyway.
+  # Rolling, so a deploy does not empty the queue of workers for a moment. Two
+  # copies overlapping is safe on its own — the claim is FOR UPDATE SKIP LOCKED,
+  # which is also what makes running several machines safe at all.
   strategy = "rolling"
 
 [processes]

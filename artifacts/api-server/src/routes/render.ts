@@ -13,8 +13,8 @@ import { currentUserId } from "../middlewares/auth";
 import { serializeJob } from "../lib/transformers";
 import type { EditOperation } from "@workspace/api-zod";
 import { TEMPLATES, findTemplate } from "../lib/templates";
-import { isUnattended } from "../lib/queue-health";
-import { newestWorkerSeenAt } from "../lib/worker-presence";
+import { isUnattended, waitEstimate } from "../lib/queue-health";
+import { newestWorkerSeenAt, renderCapacity, workAheadOf } from "../lib/worker-presence";
 import { startRenderForProject } from "../lib/start-render";
 import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
@@ -30,6 +30,29 @@ function annotateStaleQueue(
     ...job,
     stage: "Still waiting for a render machine, nothing has picked this up yet.",
   };
+}
+
+/**
+ * How long this job will wait, when that can be answered honestly.
+ *
+ * Only for a job that is actually queued, and that is a cost decision as much
+ * as a correctness one: this route is polled every few seconds by every open
+ * editor, and somebody watching a render that is already running has nothing to
+ * learn from a queue depth. Two extra reads, on the people who are waiting.
+ *
+ * Null wherever the number would be invented — too little history to have a
+ * typical render, no worker to divide by, nothing ahead. `waitEstimate` decides
+ * which, and every one of those cases already has a truer sentence attached to
+ * it somewhere else on the screen.
+ */
+async function withWait(job: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (job["status"] !== "queued") return job;
+  const [{ workers, rate }, aheadSourceSeconds] = await Promise.all([
+    renderCapacity(),
+    workAheadOf(String(job["id"])),
+  ]);
+  if (aheadSourceSeconds === null) return job;
+  return { ...job, waitSeconds: waitEstimate({ aheadSourceSeconds, workers, rate }) };
 }
 
 /**
@@ -200,7 +223,11 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
   }
 
   const workerLastSeenAt = job ? await newestWorkerSeenAt() : null;
-  res.json(GetRenderStatusResponse.parse(job ? serializeJob(annotateStaleQueue(job, workerLastSeenAt)) : null));
+  res.json(
+    GetRenderStatusResponse.parse(
+      job ? serializeJob(await withWait(annotateStaleQueue(job, workerLastSeenAt))) : null,
+    ),
+  );
 });
 
 /** The named looks. Public shape, no per-user data — but still behind auth. */

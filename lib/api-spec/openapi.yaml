@@ -3430,6 +3430,14 @@ components:
           type: array
           items:
             type: string
+        waitSeconds:
+          description: >
+            Seconds until this render starts. Present only on a queued job, and
+            null wherever the number would be invented - too few finished
+            renders to have a typical one, no worker to divide by, or nothing
+            ahead in the queue. A made-up wait is worse than none, because
+            somebody plans around it.
+          type: ["number", "null"]
         createdAt:
           type: string
         updatedAt:

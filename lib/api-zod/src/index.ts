@@ -1216,6 +1216,16 @@ export const RenderJob = z.object({
   outputPath: z.string().nullable(),
   /** See ExportJob.notes — what was done, and what could not be. */
   notes: z.array(z.string()).optional(),
+  /**
+   * Seconds until this render starts, when that can be answered honestly.
+   *
+   * Only ever present on a queued job, and null wherever the number would be
+   * invented: too few finished renders to have a typical one, no worker to
+   * divide by, or nothing ahead in the queue at all. "Waiting for a free slot"
+   * is a true sentence and it is not an answer — but a made-up number is worse
+   * than no number, because somebody plans around it.
+   */
+  waitSeconds: z.number().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

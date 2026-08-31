@@ -513,6 +513,13 @@ export interface RenderJob {
   outputPath: string | null;
   /** What the render did, and what it could not do. */
   notes?: string[];
+  /**
+   * Seconds until this render starts. Present only on a queued job, and null
+   * wherever the number would be invented - too few finished renders to have a
+   * typical one, no worker to divide by, or nothing ahead in the queue.
+   * @nullable
+   */
+  waitSeconds?: number | null;
   createdAt: string;
   updatedAt: string;
 }

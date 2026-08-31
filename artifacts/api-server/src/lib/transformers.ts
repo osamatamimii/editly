@@ -34,6 +34,15 @@ export function serializeJob(job: Record<string, unknown>) {
     // What the render did and could not do. Reaching the client is the whole
     // point of having written them; they used to stop at a log line.
     notes: Array.isArray(job.notes) ? job.notes : [],
+    /*
+      Absent unless somebody is actually waiting. `null` is a real answer here —
+      "queued, and we cannot honestly say how long" — and it is a different
+      answer from the field not being there at all, which is what a running or
+      finished job gets.
+    */
+    ...(typeof job.waitSeconds === "number" || job.waitSeconds === null
+      ? { waitSeconds: job.waitSeconds as number | null }
+      : {}),
     createdAt: job.createdAt instanceof Date ? job.createdAt.toISOString() : job.createdAt,
     updatedAt: job.updatedAt instanceof Date ? job.updatedAt.toISOString() : job.updatedAt,
   };
