@@ -17,10 +17,12 @@ import { Router, type IRouter } from "express";
 import { and, count, desc, asc, eq } from "drizzle-orm";
 import { db, clipsTable, projectsTable, subscriptionsTable } from "@workspace/db";
 import {
+  CLIPS_LIBRARY_LIMIT,
   DeleteClipParams,
   GetProjectResponse,
   ListClipsParams,
   ListClipsResponse,
+  PROJECT_CLIPS_LIMIT,
   PromoteClipParams,
 } from "@workspace/api-zod";
 import { currentUserId } from "../middlewares/auth";
@@ -64,14 +66,6 @@ function serialize(row: typeof clipsTable.$inferSelect): unknown {
  * was said in them, with no way to tell which recording each came out of, is a
  * pile rather than a library.
  */
-/**
- * How many tiles the library sends at once.
- *
- * Every one of them signs a storage URL and draws a video element, and nobody
- * scrolls a thousand. The number is here rather than inline so the page can be
- * told what it is, which is the difference between a cap and a truncation.
- */
-const LIBRARY_LIMIT = 200;
 
 router.get("/clips", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
@@ -88,7 +82,7 @@ router.get("/clips", async (req, res): Promise<void> => {
     // project row if a project id were ever reused.
     .where(and(eq(clipsTable.userId, userId), eq(projectsTable.userId, userId)))
     .orderBy(desc(clipsTable.createdAt), asc(clipsTable.idx))
-    .limit(LIBRARY_LIMIT);
+    .limit(CLIPS_LIBRARY_LIMIT);
 
   /*
     And how many there are, which is not always how many were sent.
@@ -145,7 +139,12 @@ router.get("/projects/:id/clips", async (req, res): Promise<void> => {
     .from(clipsTable)
     .where(and(eq(clipsTable.projectId, params.data.id), eq(clipsTable.userId, userId)))
     .orderBy(desc(clipsTable.createdAt), asc(clipsTable.idx))
-    .limit(60);
+    // Capped, and the panel is told the same number so it can say so. This
+    // response is a bare array — an older shape other callers already read —
+    // so there is nowhere to put a `total`, and the page compares lengths
+    // against the cap instead. Hence the constant being shared rather than
+    // written twice.
+    .limit(PROJECT_CLIPS_LIMIT);
 
   res.json(ListClipsResponse.parse(rows.map(serialize)));
 });

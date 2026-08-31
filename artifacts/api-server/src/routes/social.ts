@@ -36,6 +36,7 @@ import {
 import { currentUserId } from "../middlewares/auth";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 import {
+  SCHEDULED_POSTS_LIMIT,
   platformCatalogue,
   isSocialPlatform,
   SOCIAL_LABEL,
@@ -150,7 +151,7 @@ router.delete("/social/accounts/:id", async (req, res): Promise<void> => {
  * lost something. `total` is counted, not inferred from the length, because
  * `posts.length === 200` is also what exactly two hundred posts looks like.
  */
-const POSTS_LIMIT = 200;
+const POSTS_LIMIT = SCHEDULED_POSTS_LIMIT;
 
 /** Not yet gone: still cancellable, still worth leading with. */
 const PENDING_STATUSES = ["scheduled", "publishing"];

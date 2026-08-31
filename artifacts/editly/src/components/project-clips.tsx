@@ -16,6 +16,7 @@ import { Scissors, Download, Trash2, ChevronDown, ChevronRight, SquareArrowOutUp
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useListClips, getListClipsQueryKey, type Clip } from "@workspace/api-client-react";
+import { PROJECT_CLIPS_LIMIT } from "@workspace/api-zod/limits";
 import { usePlayableVideo, signedVideoUrl } from "@/lib/video-storage";
 import { supabase } from "@/lib/supabase";
 
@@ -204,6 +205,19 @@ export function ProjectClips({ projectId }: { projectId: string }) {
           opening={opening === clip.id}
         />
       ))}
+      {/* Where the panel stops.
+
+          The endpoint is a bare array with no count in it, so this compares
+          against the cap it shares with the route. At exactly sixty clips the
+          sentence is shown when nothing was actually dropped — and it is still
+          true, which is the property that makes it safe to say: it points at
+          the library either way, and the library knows its own total. */}
+      {clips.length >= PROJECT_CLIPS_LIMIT && (
+        <p className="text-xs text-muted-foreground" data-testid="project-clips-capped">
+          The newest {PROJECT_CLIPS_LIMIT} clips from this recording. Anything earlier is on your
+          Clips page.
+        </p>
+      )}
       {earlier.length > 0 && (
         <>
           <button
