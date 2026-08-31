@@ -141,6 +141,12 @@ jobs:
       # deliberate act and `deploy-test` can assert that none has been forgotten.
       # Ordered cheapest first: a typo fails in seconds rather than after the
       # renders.
+      # The capability table, and the four holes it looks for: an operation in
+      # the contract with no renderer branch, one built that nothing can ask
+      # for, one the two planners disagree about, and one no suite names. Also
+      # a route file nobody wrote a purpose line for. Cheap, and first, because
+      # what it catches is a thing somebody added and did not finish wiring.
+      - run: node tools/inventory.mjs --check
       - run: node tools/contract-test.mjs
       - run: node tools/deploy-test.mjs
       - run: node tools/pricing-test.mjs
@@ -152,6 +158,9 @@ jobs:
       # Beside posting, because it is the step posting never had: a way to put
       # a real account into the queue.
       - run: node tools/connect-test.mjs
+      # And the other end of it: what actually reaches YouTube, and what a
+      # failed post says to the person who scheduled it.
+      - run: node tools/publish-test.mjs
       - run: node tools/deadline-test.mjs
       - run: node tools/planner-test.mjs
       # Beside the planner, because what it checks is a rule about the parser:

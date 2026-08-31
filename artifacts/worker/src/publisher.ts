@@ -32,9 +32,14 @@
  * over a post that does not exist. The second one is the failure this whole
  * codebase is organised against, and it would be one line shorter to write.
  */
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { configuredPlatforms, isSocialPlatform, SOCIAL_LABEL } from "@workspace/api-zod";
+import { configuredPlatforms, isSocialPlatform, SOCIAL_LABEL, type SocialPlatform } from "@workspace/api-zod";
+import { usableToken, TokenError } from "./social-token.js";
+import { publishToYouTube, PublishError } from "./publish-youtube.js";
 
 /**
  * How late is too late.
@@ -270,6 +275,144 @@ export async function surfaceStrandedPosts(staleMinutes = 15): Promise<number> {
   return stranded.rows.length;
 }
 
+
+/**
+ * The platforms that can actually be sent to.
+ *
+ * One, for now, and the map is the honest shape of that: a platform with no
+ * entry falls through to a refusal that says so, rather than to a branch that
+ * pretends. Each of the other five arrives here when its review does.
+ */
+const CAN_SEND = new Set<SocialPlatform>(["youtube"]);
+
+/**
+ * Where this post's video actually is.
+ *
+ * From the export's job when the post names one, and from the project's own
+ * pointer otherwise — the same two places the export screen reads, because a
+ * post scheduled from a finished render and a post scheduled from "the latest"
+ * are two different asks and both are real.
+ */
+async function filePathFor(post: ClaimedPost): Promise<string | null> {
+  if (post.exportId) {
+    const found = await db.execute(sql`
+      select j.output_path as path
+        from exports e
+        left join jobs j on j.id = e.job_id
+       where e.id = ${post.exportId} and e.user_id = ${post.userId}
+       limit 1
+    `);
+    const row = found.rows[0] as { path: string | null } | undefined;
+    if (row?.path) return row.path;
+  }
+  const project = await db.execute(sql`
+    select edited_video_path as path
+      from projects
+     where id = ${post.projectId} and user_id = ${post.userId}
+     limit 1
+  `);
+  return ((project.rows[0] as { path: string | null } | undefined)?.path) ?? null;
+}
+
+/** The credential for this post's account, read at the moment it is needed. */
+async function credentialFor(accountId: string) {
+  const found = await db.execute(sql`
+    select access_token, refresh_token, expires_at
+      from social_accounts
+     where id = ${accountId}
+     limit 1
+  `);
+  const row = found.rows[0] as
+    | { access_token: string; refresh_token: string | null; expires_at: string | null }
+    | undefined;
+  if (!row) return null;
+  return {
+    accessToken: row.access_token,
+    refreshToken: row.refresh_token,
+    expiresAt: row.expires_at ? new Date(row.expires_at) : null,
+  };
+}
+
+/**
+ * One post, sent.
+ *
+ * Every failure here is `failed` rather than thrown, and every one of them
+ * carries a sentence: a post that did not go out is a thing somebody has to
+ * decide what to do about, and "failed" on its own is not a thing anybody can
+ * act on.
+ *
+ * The file is downloaded to this worker rather than streamed from a signed URL
+ * because the platform APIs want a body, not a link — and because a signed URL
+ * that expires halfway through a slow upload fails in the middle of a file
+ * that is already partly on somebody's channel.
+ */
+async function send(post: ClaimedPost): Promise<PostOutcome> {
+  const platform = post.platform as SocialPlatform;
+  if (!CAN_SEND.has(platform)) {
+    return {
+      kind: "failed",
+      reason: `Editly cannot send to ${SOCIAL_LABEL[platform] ?? post.platform} yet. Nothing was posted.`,
+    };
+  }
+
+  const key = await filePathFor(post);
+  if (!key) {
+    return {
+      kind: "failed",
+      reason: "The finished video for this post could not be found. Nothing was posted.",
+    };
+  }
+
+  const credential = await credentialFor(post.accountId);
+  if (!credential) {
+    return { kind: "failed", reason: "That account was disconnected before this went out." };
+  }
+
+  /*
+    Imported here rather than at the top of the file, and it is the same reason
+    the habits reader defers its database: `storage.ts` throws on import when
+    `SUPABASE_URL` is unset, and everything above this line — which platform can
+    be sent to, whether the file exists, whether the account is still there — is
+    a decision a suite should be able to check without credentials. The
+    credentials are needed to *send*, and this is where sending starts.
+  */
+  const { downloadObject } = await import("./storage.js");
+
+  const work = await mkdtemp(path.join(tmpdir(), "editly-post-"));
+  try {
+    const token = await usableToken(post.accountId, platform, credential);
+    const file = path.join(work, "post.mp4");
+    await downloadObject(key, file);
+    const landed = await publishToYouTube({
+      file,
+      caption: post.caption,
+      hashtags: post.hashtags,
+      accessToken: token,
+    });
+    return { kind: "published", externalPostId: landed.externalPostId, externalUrl: landed.externalUrl };
+  } catch (error) {
+    /*
+      Three kinds, and they read differently to whoever is looking.
+
+      A token problem is something the person fixes by reconnecting, and the
+      account row already says so. A platform refusal is the platform's own
+      sentence. Anything else is ours, and saying "nothing was posted" matters
+      more than saying what broke — because the first question after a failed
+      post is always whether it went out twice.
+    */
+    if (error instanceof TokenError) return { kind: "failed", reason: error.message };
+    if (error instanceof PublishError) {
+      return { kind: "failed", reason: `${SOCIAL_LABEL[platform]} refused it: ${error.message}` };
+    }
+    return {
+      kind: "failed",
+      reason: "Something went wrong on our side while sending this. Nothing was posted.",
+    };
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+}
+
 /**
  * One pass. Returns what it did, for the log line.
  *
@@ -297,14 +440,11 @@ export async function publishDuePosts(now: Date = new Date()): Promise<{
       continue;
     }
 
-    // The send itself. Every platform's client lands here when its credentials
-    // do, and until then `refusalToSend` above has already returned for every
-    // reachable post — so this branch is unreachable rather than untrue.
-    await settle(post.id, {
-      kind: "failed",
-      reason: "There is no way to send to this platform yet. Nothing was posted.",
-    });
-    failed += 1;
+    const outcome = await send(post);
+    await settle(post.id, outcome);
+    if (outcome.kind === "published") published += 1;
+    else if (outcome.kind === "missed") missed += 1;
+    else failed += 1;
   }
 
   return { claimed: posts.length, published, failed, missed };

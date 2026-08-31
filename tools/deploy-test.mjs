@@ -456,12 +456,20 @@ section("Every suite in tools/ is one CI actually runs");
     .filter((f) => !existsSync(path.join(repoRoot, "tools", f)));
   check("and runs nothing that does not exist", phantom.length === 0, phantom.join(", "));
 
-  // Renaming a suite is the usual way this breaks, and a workflow step that
-  // silently succeeds on a missing file is how it stays broken.
+  /*
+    Renaming a suite is the usual way this breaks, and a workflow step that
+    silently succeeds on a missing file is how it stays broken.
+
+    Counted over `*-test.mjs` steps only. `tools/` also holds things CI runs
+    that are not suites — `inventory.mjs --check` reads the capability table
+    and fails on a hole — and counting those against the number of suites made
+    this assert an equality between two different sets.
+  */
+  const suiteSteps = (checksWorkflow.match(/^ {6}- run: node tools\/\S+-test\.mjs\s*$/gm) ?? []).length;
   check(
     "each suite is its own step, so the one that fails is named",
-    (checksWorkflow.match(/^ {6}- run: node tools\//gm) ?? []).length === suites.length,
-    `${(checksWorkflow.match(/^ {6}- run: node tools\//gm) ?? []).length} steps for ${suites.length} suites`,
+    suiteSteps === suites.length,
+    `${suiteSteps} steps for ${suites.length} suites`,
   );
 }
 
