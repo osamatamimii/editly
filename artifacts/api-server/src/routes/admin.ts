@@ -401,6 +401,9 @@ router.get("/admin/jobs", async (req, res): Promise<void> => {
         progress: job.progress,
         stage: job.stage ?? null,
         error: job.error ?? null,
+        // The only place this column is ever read. Every customer-facing shape
+        // names its fields one at a time, which is what keeps it here.
+        errorDetail: job.errorDetail ?? null,
         attempts: job.attempts,
         billedSeconds: job.billedSeconds ?? job.outputSeconds ?? null,
         createdAt: new Date(job.createdAt).toISOString(),

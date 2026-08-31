@@ -2129,6 +2129,61 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
   );
   psqlGlobal(`delete from jobs where id = '${notedJobId}'`);
 
+  /*
+    The render that failed, and the two different sentences about it.
+
+    `jobs.error` is written for the person waiting on the video, so anything
+    that is not a plan, length or transfer problem reads "Rendering failed. We
+    are looking into it." This console was reading that column and calling it
+    the error — its own schema said "carried verbatim rather than prettified" —
+    so every failure worth opening the console for arrived already stripped of
+    its answer, which lived in a log line on Fly instead.
+
+    Both are checked here, and so is the thing that makes a second column safe:
+    that it reaches the console and nowhere else.
+  */
+  const detailJobId = "admin-detail-test-job";
+  psqlGlobal(
+    `insert into jobs (id, project_id, user_id, status, plan, input_path, error, error_detail, created_at, updated_at) ` +
+      `values ('${detailJobId}', '${aliceProjectId}', '${ALICE}', 'failed', ` +
+      `'{"version":1,"operations":[]}'::jsonb, '${ALICE}/${aliceProjectId}/source.mp4', ` +
+      `'Rendering failed. We are looking into it.', ` +
+      `'TypeError: Cannot read properties of undefined (reading ''duration'')', now(), now())`,
+  );
+  const detailed = await call(ALICE, "/api/admin/jobs?limit=200");
+  const detailRow = (detailed.json?.jobs ?? []).find((job) => job.id === detailJobId);
+  check("the console can read what actually went wrong", Boolean(detailRow), `job ${detailJobId} not in the page`);
+  check(
+    "unedited, because the whole point is that it was not written for a customer",
+    detailRow?.errorDetail === "TypeError: Cannot read properties of undefined (reading 'duration')",
+    JSON.stringify(detailRow?.errorDetail),
+  );
+  check(
+    "beside what the customer was told, which is a different question",
+    detailRow?.error === "Rendering failed. We are looking into it.",
+    JSON.stringify(detailRow?.error),
+  );
+
+  // And the reason a second column is allowed to exist at all: no route a
+  // customer can reach hands it back. `serializeJob` names its fields one at a
+  // time, and this is the check that says so out loud.
+  const ownStatus = await call(ALICE, `/api/projects/${aliceProjectId}/export/status`);
+  const ownMessages = await call(ALICE, `/api/projects/${aliceProjectId}/messages`);
+  const ownProject = await call(ALICE, `/api/projects/${aliceProjectId}`);
+  for (const [what, response] of [
+    ["the export status", ownStatus],
+    ["the conversation", ownMessages],
+    ["the project", ownProject],
+  ]) {
+    const body = JSON.stringify(response.json ?? {});
+    check(
+      `${what} never carries the operator's copy of the failure`,
+      !/errorDetail|error_detail/.test(body),
+      body.slice(0, 200),
+    );
+  }
+  psqlGlobal(`delete from jobs where id = '${detailJobId}'`);
+
   const failedOnly = await call(ALICE, "/api/admin/jobs?status=failed&limit=5");
   check(
     "and filtering by status returns only that status",

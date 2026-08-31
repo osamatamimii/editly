@@ -628,8 +628,15 @@ export interface AdminJob {
   status: string;
   progress: number;
   stage: string | null;
-  /** Verbatim. A message rewritten for reassurance has had the answer taken out. */
+  /** What the customer was told. A message rewritten for reassurance has had the answer taken out. */
   error: string | null;
+  /**
+   * The failure unedited, for whoever has to fix it. Anything that is not a
+   * plan, length or transfer problem reaches the customer as "Rendering
+   * failed. We are looking into it.", and this is what that stood in for.
+   * @nullable
+   */
+  errorDetail: string | null;
   attempts: number;
   billedSeconds: number | null;
   createdAt: string;

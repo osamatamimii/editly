@@ -1276,10 +1276,13 @@ export type ListAdminAccountsResponse = z.infer<typeof ListAdminAccountsResponse
 /**
  * One render, as operations sees it.
  *
- * `error` is carried verbatim rather than prettified. The whole value of this
- * screen is turning "my video did not work" into an answer in ten seconds, and
- * a message rewritten for reassurance is a message that has had the answer
- * taken out of it.
+ * `error` is the sentence the customer was given, and `errorDetail` is what
+ * actually happened. Both, because they answer different questions — "what
+ * does this person think went wrong" and "what went wrong" — and for months
+ * only the first was here while the schema claimed it was the second. The
+ * whole value of this screen is turning "my video did not work" into an answer
+ * in ten seconds, and a message rewritten for reassurance is a message that
+ * has had the answer taken out of it.
  */
 export const AdminJob = z.object({
   id: z.string(),
@@ -1289,6 +1292,20 @@ export const AdminJob = z.object({
   progress: z.number().int(),
   stage: z.string().nullable(),
   error: z.string().nullable(),
+  /**
+   * The same failure, unedited.
+   *
+   * `error` is what the customer was told, and for anything that is not a plan
+   * problem, a length problem or a transfer problem that sentence is
+   * "Rendering failed. We are looking into it." This screen was showing that
+   * to the operator and calling it the error — so every failure worth opening
+   * the console for arrived here already stripped of its answer, which sat in
+   * a log line on Fly instead.
+   *
+   * Null on rows that failed before the column existed, and on every row that
+   * did not fail.
+   */
+  errorDetail: z.string().nullable(),
   attempts: z.number().int(),
   billedSeconds: z.number().nullable(),
   createdAt: z.string(),

@@ -508,16 +508,43 @@ export default function AdminPage() {
             <Problem>{COULD_NOT_LOAD}</Problem>
           ) : (
             <Table
-              head={["Status", "Project", "Billed", "Created", "Finished", "Error", "What it did", ""]}
+              head={["Status", "Project", "Billed", "Created", "Finished", "What they were told, and what happened", "What it did", ""]}
               rows={(jobs.data?.jobs ?? []).map((job) => [
                 job.unattended ? `${job.status} · unattended` : job.status,
                 job.projectId.slice(0, 8),
                 job.billedSeconds === null ? EMPTY : `${Math.round(job.billedSeconds)}s`,
                 new Date(job.createdAt).toLocaleString(),
                 job.finishedAt ? new Date(job.finishedAt).toLocaleString() : EMPTY,
-                // Verbatim, and not truncated to something tidy: the whole
-                // value of this column is that it says what actually happened.
-                job.error ?? EMPTY,
+                /*
+                  Two sentences, because they answer different questions and
+                  this column had only ever carried the first.
+
+                  `error` is what the customer was told. For anything that is
+                  not a plan, length or transfer problem that reads "Rendering
+                  failed. We are looking into it." — so an operator opening
+                  this screen for a failed render was shown our own
+                  reassurance, while the actual reason sat in a log line on
+                  Fly. Logs you have to go and read are the shape the August
+                  outage had.
+
+                  Verbatim, and not truncated to something tidy: the whole
+                  value of this column is that it says what actually happened.
+                */
+                job.error || job.errorDetail ? (
+                  <span key="err" className="block max-w-xs whitespace-normal">
+                    <span dir="auto">{job.error ?? EMPTY}</span>
+                    {job.errorDetail && job.errorDetail !== job.error ? (
+                      <span
+                        className="block mt-1 font-mono text-[11px] leading-snug text-muted-foreground break-words"
+                        data-testid={`admin-job-detail-${job.id}`}
+                      >
+                        {job.errorDetail}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : (
+                  EMPTY
+                ),
                 /*
                   The column that answers the support question the other six
                   cannot. "It worked and it did not do what I asked" leaves no

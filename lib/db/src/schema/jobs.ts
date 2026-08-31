@@ -51,6 +51,23 @@ export const jobsTable = pgTable(
     error: text("error"),
 
     /**
+     * The same failure, unedited, for whoever has to fix it.
+     *
+     * `error` above is written for the person waiting on the video, so an
+     * ffmpeg filter graph's complaint becomes "Rendering failed. We are
+     * looking into it." That is right for them and useless for the operations
+     * console, which was reading that column and presenting it as the error —
+     * so every infrastructure failure, which is every failure worth opening
+     * the console for, showed the operator our own reassurance. The real
+     * reason lived only in the worker's logs.
+     *
+     * Read by the admin routes and by nothing else. `serializeJob` names its
+     * fields one at a time, so no customer-facing response can pick this up by
+     * accident, and tools/isolation-test.mjs asserts none does.
+     */
+    errorDetail: text("error_detail"),
+
+    /**
      * Which language this render's notes are written in.
      *
      * Taken from the sentence that started the render and snapshotted here at

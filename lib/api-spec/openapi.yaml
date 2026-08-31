@@ -2497,9 +2497,12 @@ components:
 
     AdminJob:
       description: >
-        One render, as operations sees it. `error` is carried verbatim: the
-        value of this screen is turning "my video did not work" into an answer,
-        and a message rewritten for reassurance has had the answer taken out.
+        One render, as operations sees it. `error` is the sentence the customer
+        was given and `errorDetail` is what actually happened; both, because
+        they answer different questions and for months only the first was here
+        while this description claimed it was the second. The value of this
+        screen is turning "my video did not work" into an answer, and a message
+        rewritten for reassurance has had the answer taken out.
       type: object
       properties:
         id: { type: string }
@@ -2509,6 +2512,15 @@ components:
         progress: { type: integer }
         stage: { type: string, nullable: true }
         error: { type: string, nullable: true }
+        errorDetail:
+          type: string
+          nullable: true
+          description: >-
+            The failure unedited, for whoever has to fix it. Anything that is
+            not a plan, length or transfer problem reaches the customer as
+            "Rendering failed. We are looking into it.", and this is what that
+            sentence was standing in for. Null on rows that failed before the
+            column existed.
         attempts: { type: integer }
         billedSeconds: { type: number, nullable: true }
         createdAt: { type: string, format: date-time }
@@ -2525,7 +2537,7 @@ components:
             own sentences about its own decisions: counts, seconds and values
             out of the plan. Nothing from inside the video.
       required:
-        [id, userId, projectId, status, progress, stage, error, attempts, billedSeconds, createdAt, lockedAt, finishedAt, unattended, notes]
+        [id, userId, projectId, status, progress, stage, error, errorDetail, attempts, billedSeconds, createdAt, lockedAt, finishedAt, unattended, notes]
 
     ListAdminJobsResponse:
       type: object

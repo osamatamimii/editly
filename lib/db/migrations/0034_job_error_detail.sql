@@ -1,0 +1,24 @@
+-- What actually went wrong, for the person who has to fix it.
+--
+-- `jobs.error` is the sentence the customer reads, and it should be: an ffmpeg
+-- filter graph's complaint helps nobody, so anything that is not a plan
+-- problem, a length problem or a transfer problem is written there as
+-- "Rendering failed. We are looking into it."
+--
+-- The operations console then reads that same column, and its own schema calls
+-- it "carried verbatim rather than prettified" on the grounds that "the whole
+-- value of this screen is turning 'my video did not work' into an answer in ten
+-- seconds". For every infrastructure failure — which is every failure worth
+-- opening the console for — it was showing the operator the customer's
+-- reassurance and calling it the error. The answer existed only in the
+-- worker's logs, which is where the two-day outage in August also lived.
+--
+-- So: a second column, written by the worker with the real thing, read by the
+-- console and by nothing else. `serializeJob` names its fields one by one, so
+-- the customer-facing shape cannot pick this up by accident, and a check in
+-- tools/isolation-test.mjs asserts that it does not.
+--
+-- Nullable with no default and no backfill. A row that failed before this
+-- column existed has no detail to give, and inventing one would be worse than
+-- an empty cell.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS error_detail text;

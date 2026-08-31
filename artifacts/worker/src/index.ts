@@ -521,6 +521,9 @@ async function processJob(job: Job): Promise<void> {
         progress: 100,
         stage: null,
         error: null,
+        // Cleared with it: a retry that succeeded must not leave the console
+        // showing the reason the first attempt failed beside a finished job.
+        errorDetail: null,
         outputPath,
         notes,
         outputSeconds: measured.seconds,
@@ -594,6 +597,24 @@ async function processJob(job: Job): Promise<void> {
           : "Rendering failed. We are looking into it.";
     // A plan nothing could be done with will be just as impossible next time,
     // and a file will not get shorter.
+    /*
+      And the same failure again, unedited, for the operations console.
+
+      `message` above is written for the person waiting on the video. The
+      console was reading that column and calling it the error, so an operator
+      looking up a failed render was shown our own reassurance — "Rendering
+      failed. We are looking into it." — while the reason sat in a log line on
+      Fly. Logs you have to go and read are the shape the August outage had.
+
+      Name first, because "TypeError" and "FfmpegError" send you to different
+      halves of the codebase before a word of the message is read. Truncated
+      because a filter graph in an error message can run to kilobytes, and the
+      first two thousand characters have always been the ones that matter.
+    */
+    const detail = (
+      error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+    ).slice(0, 2000);
+
     const final = error instanceof PlanEmptiedError || error instanceof SourceTooLongError;
     const willRetry = !final && job.attempts < job.maxAttempts;
 
@@ -604,6 +625,7 @@ async function processJob(job: Job): Promise<void> {
       .set({
         status: willRetry ? "queued" : "failed",
         error: message,
+        errorDetail: detail,
         stage: null,
         lockedAt: null,
         lockedBy: null,
@@ -860,6 +882,7 @@ async function renderClipSet(args: {
       progress: 100,
       stage: null,
       error: null,
+      errorDetail: null,
       outputPath: firstClipPath,
       notes,
       outputSeconds: outputSecondsSum,
