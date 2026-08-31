@@ -233,8 +233,8 @@ const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
     patterns:
       /\b(post|publish|upload|share)\b[^.!?]{0,30}\b(instagram|insta|reels?|tiktok|facebook|snapchat|twitter|on x)\b|\bschedule (it|this|them|the (post|clip|video))\b|\b(post|publish) (it|this|them) (for me|later|at|on|tomorrow|tonight)\b|(?:انشر|جدول)/i,
     label: say(
-      "post it to your accounts yet. The scheduling is built — pick the accounts, write the caption once, choose the time — and every platform has to approve this app before it will let one post for you. None has yet, so nothing can go out on your behalf",
-      "أنشرها على حساباتك بعد. الجدولة مبنيّة — تختار الحسابات وتكتب الكابشن مرّة وتحدّد الوقت — لكن كل منصّة يجب أن تعتمد هذا التطبيق قبل أن تسمح له بالنشر نيابةً عنك، ولم تعتمده أيٌّ منها بعد",
+      "post it to your accounts yet. The scheduling itself is built, so you can pick the accounts, write the caption once and choose the time. What is missing is that every platform has to approve this app before it will let one post for you, and none has yet",
+      "أنشرها على حساباتك بعد. الجدولة نفسها مبنيّة، فتختار الحسابات وتكتب الكابشن مرّة وتحدّد الوقت. الناقص أن كل منصّة يجب أن تعتمد هذا التطبيق قبل أن تسمح له بالنشر نيابةً عنك، ولم تعتمده أيٌّ منها بعد",
     ),
   },
 ];

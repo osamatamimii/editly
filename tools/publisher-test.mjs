@@ -339,8 +339,19 @@ section("A post the publisher died holding is surfaced, never retried");
     [old],
   );
 
+  /*
+    Counted as "did this row move", not "how many rows moved".
+
+    `surfaceStrandedPosts` sweeps the whole table, and a previous run of this
+    file leaves its own `publishing` rows behind. Fifteen minutes later those
+    rows are strandable too, so `surfaced === 1` is green when the file is run
+    once and red when it is run twice in an afternoon — a test that fails for a
+    reason that has nothing to do with the code it is about. The claim being
+    made here is about this row.
+  */
   const surfaced = await surfaceStrandedPosts(15);
-  check("the old one is surfaced", surfaced === 1, `${surfaced}`);
+  check("something was surfaced", surfaced >= 1, `${surfaced}`);
+  check("the old one is one of them", (await rowOf(old)).status !== "publishing", `${surfaced}`);
   check(
     "and it is not put back in the queue",
     (await rowOf(old)).status === "failed",

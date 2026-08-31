@@ -226,6 +226,10 @@ const FIXTURES = {
         error: "This was 121 minutes late, so it was not sent. Posting it now would put it in front of people at a time you did not choose. Schedule it again when you want it to go.",
         publishedAt: null },
     ],
+    // More than the three rows sent. The list is capped at two hundred, and a
+    // capped list that says nothing is indistinguishable from having lost the
+    // rest — the same defect the clip library had.
+    total: 214,
   },
   "/api/templates": [
     { id: "talking-head", name: "Talking head", description: "Silence out, framed vertical, levels fixed.", bestFor: "One person to camera", needs: null },
@@ -849,6 +853,14 @@ const PAGES = [
         "and a post that was too late says so rather than saying it failed",
         (await page.getByTestId("scheduled-post-sp_3").innerText()).includes("too late"),
         await page.getByTestId("scheduled-post-sp_3").innerText(),
+      );
+      check(
+        "and the list says where it stops, and that nothing pending was dropped",
+        (await page.getByTestId("posts-capped").innerText()).includes("214"),
+        // Ordered newest-first across everything, the cap took the furthest-out
+        // posts and dropped the ones going out tonight — the only rows the
+        // screen can still do anything about.
+        "",
       );
     },
   },

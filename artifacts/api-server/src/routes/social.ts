@@ -24,7 +24,7 @@
  */
 import { randomUUID } from "crypto";
 import { Router, type IRouter } from "express";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, notInArray } from "drizzle-orm";
 import {
   db,
   socialAccountsTable,
@@ -131,6 +131,30 @@ router.delete("/social/accounts/:id", async (req, res): Promise<void> => {
   res.json({ disconnected: true, cancelledPosts: cancelled.length });
 });
 
+/**
+ * How many posts one read may return, and which ones they are.
+ *
+ * The cap itself is fine — nobody reads a thousand rows. What was wrong is the
+ * two things a cap has to get right and this one got both backwards.
+ *
+ * *Which end.* The list was ordered newest-first across everything, so an
+ * account with three hundred future posts got the three hundredth-furthest
+ * first and the ones going out tonight fell off the end. On the screen whose
+ * two questions are "is that still going out" and "can I stop it", the rows it
+ * dropped were exactly the answerable ones. So what has not gone yet is read
+ * separately and soonest-first, and history fills whatever room is left,
+ * newest-first — the only ordering where the top of the list is the next thing
+ * to happen and the rest is a receipt.
+ *
+ * *And saying so.* A list that quietly stops is indistinguishable from having
+ * lost something. `total` is counted, not inferred from the length, because
+ * `posts.length === 200` is also what exactly two hundred posts looks like.
+ */
+const POSTS_LIMIT = 200;
+
+/** Not yet gone: still cancellable, still worth leading with. */
+const PENDING_STATUSES = ["scheduled", "publishing"];
+
 router.get("/social/posts", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const projectId = typeof req.query["projectId"] === "string" ? req.query["projectId"] : null;
@@ -139,14 +163,33 @@ router.get("/social/posts", async (req, res): Promise<void> => {
     ? and(eq(scheduledPostsTable.userId, userId), eq(scheduledPostsTable.projectId, projectId))
     : eq(scheduledPostsTable.userId, userId);
 
-  const posts = await db
+  const pending = await db
     .select()
     .from(scheduledPostsTable)
-    .where(where)
-    .orderBy(desc(scheduledPostsTable.scheduledFor))
-    .limit(200);
+    .where(and(where, inArray(scheduledPostsTable.status, PENDING_STATUSES)))
+    .orderBy(asc(scheduledPostsTable.scheduledFor))
+    .limit(POSTS_LIMIT);
+
+  // If somebody really has two hundred posts queued, they see two hundred
+  // queued posts and no history. That is the right way round: history can be
+  // read later, tonight cannot.
+  const roomLeft = POSTS_LIMIT - pending.length;
+  const history =
+    roomLeft <= 0
+      ? []
+      : await db
+          .select()
+          .from(scheduledPostsTable)
+          .where(and(where, notInArray(scheduledPostsTable.status, PENDING_STATUSES)))
+          .orderBy(desc(scheduledPostsTable.scheduledFor))
+          .limit(roomLeft);
+
+  const [counted] = await db.select({ n: count() }).from(scheduledPostsTable).where(where);
+
+  const posts = [...pending, ...history];
 
   res.json({
+    total: Number(counted?.n ?? posts.length),
     posts: posts.map((post) => ({
       id: post.id,
       projectId: post.projectId,

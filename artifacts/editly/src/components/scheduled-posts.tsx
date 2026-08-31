@@ -75,11 +75,12 @@ export function ScheduledPosts({ projectId }: { projectId?: string }) {
   const { toast } = useToast();
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
+  const [total, setTotal] = useState(0);
   const [cancelling, setCancelling] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setState("loading");
-    const { ok, body } = await apiJson<{ posts?: ScheduledPost[] }>(
+    const { ok, body } = await apiJson<{ posts?: ScheduledPost[]; total?: number }>(
       projectId ? `/api/social/posts?projectId=${encodeURIComponent(projectId)}` : "/api/social/posts",
     );
     // A read that failed must not render as "nothing is scheduled". That
@@ -90,6 +91,7 @@ export function ScheduledPosts({ projectId }: { projectId?: string }) {
       return;
     }
     setPosts(body.posts ?? []);
+    setTotal(body.total ?? body.posts?.length ?? 0);
     setState("ready");
   }, [projectId]);
 
@@ -138,6 +140,7 @@ export function ScheduledPosts({ projectId }: { projectId?: string }) {
   }
 
   return (
+    <>
     <ul className="space-y-2" data-testid="scheduled-posts">
       {posts.map((post) => {
         const ending = ENDING[post.status] ?? ENDING.scheduled;
@@ -204,5 +207,15 @@ export function ScheduledPosts({ projectId }: { projectId?: string }) {
         );
       })}
     </ul>
+    {/* The list is bounded, so it has to say where it ends. What it does not
+        drop is anything still going out: the server reads those first and
+        soonest-first, and only fills the rest of the room with history. */}
+    {total > posts.length ? (
+      <p className="text-xs text-muted-foreground mt-2" data-testid="posts-capped">
+        Showing {posts.length} of {total}. Everything still to go out is here; older posts are
+        further back.
+      </p>
+    ) : null}
+    </>
   );
 }

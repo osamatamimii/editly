@@ -926,7 +926,10 @@ paths:
             type: string
       responses:
         "200":
-          description: Scheduled posts, newest first
+          description: >
+            What has not gone out yet, soonest first, then history newest
+            first. Capped; `total` is how many there are, which is not always
+            how many were sent.
           content:
             application/json:
               schema:
@@ -936,7 +939,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/ScheduledPost"
-                required: [posts]
+                  total: { type: integer }
+                required: [posts, total]
     post:
       operationId: schedulePosts
       tags: [social]
