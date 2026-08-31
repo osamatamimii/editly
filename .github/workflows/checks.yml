@@ -170,6 +170,12 @@ jobs:
       # And the other end of it: what actually reaches YouTube, and what a
       # failed post says to the person who scheduled it.
       - run: node tools/publish-test.mjs
+      # The two platforms after YouTube, driven against APIs that answer the way
+      # theirs do: TikTok refuses with HTTP 200 and a code in the envelope, and
+      # Graph refuses with HTTP 200 and an error object. A client that read the
+      # status code would mark published a post that never existed.
+      - run: node tools/publish-tiktok-test.mjs
+      - run: node tools/publish-meta-test.mjs
       - run: node tools/deadline-test.mjs
       - run: node tools/planner-test.mjs
       # Beside the planner, because the sentence is half of it: cutting a word

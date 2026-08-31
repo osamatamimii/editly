@@ -39,7 +39,9 @@ import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { configuredPlatforms, isSocialPlatform, SOCIAL_LABEL, type SocialPlatform } from "@workspace/api-zod";
 import { usableToken, TokenError } from "./social-token.js";
-import { publishToYouTube, PublishError } from "./publish-youtube.js";
+import { publishToYouTube, PublishError, type Published } from "./publish-youtube.js";
+import { publishToTikTok } from "./publish-tiktok.js";
+import { publishToInstagram, publishToFacebook } from "./publish-meta.js";
 
 /**
  * How late is too late.
@@ -277,13 +279,52 @@ export async function surfaceStrandedPosts(staleMinutes = 15): Promise<number> {
 
 
 /**
- * The platforms that can actually be sent to.
+ * The platforms that can actually be sent to, and how each one takes a file.
  *
- * One, for now, and the map is the honest shape of that: a platform with no
- * entry falls through to a refusal that says so, rather than to a branch that
- * pretends. Each of the other five arrives here when its review does.
+ * Two shapes, and the difference is not cosmetic. YouTube and TikTok want the
+ * **bytes**, so the worker downloads the finished render and streams it up.
+ * Instagram and Facebook want a **link**, and fetch it themselves — so those
+ * two never download anything, and what they need instead is a URL that
+ * outlives Meta's own fetch.
+ *
+ * A platform with no entry falls through to a refusal that says so, rather than
+ * to a branch that pretends. The two still missing — X and Snapchat — arrive
+ * when their uploads are written.
  */
-const CAN_SEND = new Set<SocialPlatform>(["youtube"]);
+type Uploader =
+  | { takes: "file"; send: (a: FileUpload) => Promise<Published> }
+  | { takes: "url"; send: (a: UrlUpload) => Promise<Published> };
+
+interface FileUpload {
+  file: string;
+  caption: string;
+  hashtags: string[];
+  accessToken: string;
+}
+
+interface UrlUpload {
+  videoUrl: string;
+  caption: string;
+  hashtags: string[];
+  accessToken: string;
+}
+
+const UPLOADERS: Partial<Record<SocialPlatform, Uploader>> = {
+  youtube: { takes: "file", send: publishToYouTube },
+  tiktok: { takes: "file", send: publishToTikTok },
+  instagram: { takes: "url", send: publishToInstagram },
+  facebook: { takes: "url", send: publishToFacebook },
+};
+
+/**
+ * How long a link handed to Meta stays good for.
+ *
+ * Half an hour, and it is a fetch budget rather than a guess: Meta downloads
+ * and transcodes on its own schedule, and a link that expires while it is
+ * reading produces a container stuck in `IN_PROGRESS` and then `ERROR` — a
+ * failure whose cause is nowhere in its own message.
+ */
+const LINK_SECONDS = 30 * 60;
 
 /**
  * Where this post's video actually is.
@@ -348,7 +389,8 @@ async function credentialFor(accountId: string) {
  */
 async function send(post: ClaimedPost): Promise<PostOutcome> {
   const platform = post.platform as SocialPlatform;
-  if (!CAN_SEND.has(platform)) {
+  const uploader = UPLOADERS[platform];
+  if (!uploader) {
     return {
       kind: "failed",
       reason: `Editly cannot send to ${SOCIAL_LABEL[platform] ?? post.platform} yet. Nothing was posted.`,
@@ -377,18 +419,42 @@ async function send(post: ClaimedPost): Promise<PostOutcome> {
     credentials are needed to *send*, and this is where sending starts.
   */
   const { downloadObject } = await import("./storage.js");
+  const { objectStoreFrom } = await import("@workspace/object-store");
 
   const work = await mkdtemp(path.join(tmpdir(), "editly-post-"));
   try {
     const token = await usableToken(post.accountId, platform, credential);
-    const file = path.join(work, "post.mp4");
-    await downloadObject(key, file);
-    const landed = await publishToYouTube({
-      file,
-      caption: post.caption,
-      hashtags: post.hashtags,
-      accessToken: token,
-    });
+    let landed: Published;
+    if (uploader.takes === "url") {
+      /*
+        Nothing is downloaded for these two. Meta fetches the file itself, so
+        the worker's part is a link it can read without a credential of ours —
+        signed by the object store, short-lived, and long enough to outlive
+        Meta's own fetch and transcode.
+      */
+      const videoUrl = await objectStoreFrom().signedGet(key, LINK_SECONDS);
+      if (!videoUrl) {
+        return {
+          kind: "failed",
+          reason: "The finished video could not be made readable for this platform. Nothing was posted.",
+        };
+      }
+      landed = await uploader.send({
+        videoUrl,
+        caption: post.caption,
+        hashtags: post.hashtags,
+        accessToken: token,
+      });
+    } else {
+      const file = path.join(work, "post.mp4");
+      await downloadObject(key, file);
+      landed = await uploader.send({
+        file,
+        caption: post.caption,
+        hashtags: post.hashtags,
+        accessToken: token,
+      });
+    }
     return { kind: "published", externalPostId: landed.externalPostId, externalUrl: landed.externalUrl };
   } catch (error) {
     /*

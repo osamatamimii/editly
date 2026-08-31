@@ -167,6 +167,7 @@ export const PROCESSORS: readonly Processor[] = [
       "www.youtube.com",
       "graph.facebook.com",
       "www.facebook.com",
+      "www.instagram.com",
       "open.tiktokapis.com",
       "www.tiktok.com",
       "api.twitter.com",

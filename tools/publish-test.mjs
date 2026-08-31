@@ -236,12 +236,25 @@ section("A platform with no sender is refused rather than pretended at");
   const publisher = readFileSync(path.join(repoRoot, "artifacts/worker/src/publisher.ts"), "utf8");
   check(
     "the set of platforms that can be sent to is explicit",
-    /CAN_SEND\s*=\s*new Set<SocialPlatform>\(\[/.test(publisher),
-    "a map with one entry is the honest shape of one working platform",
+    /const UPLOADERS: Partial<Record<SocialPlatform, Uploader>>/.test(publisher),
+    "a map is the honest shape of a list that grows one platform at a time",
   );
+  /*
+    It was a `Set` of names while one platform worked. It is a map now because
+    the platforms do not take a file the same way: YouTube and TikTok want the
+    bytes, Instagram and Facebook fetch a link themselves — so "can we send
+    there" and "how" are the same question and belong in the same place.
+  */
   check(
-    "and youtube is in it",
-    /CAN_SEND\s*=\s*new Set<SocialPlatform>\(\["youtube"\]\)/.test(publisher),
+    "and every entry says how that platform takes a file",
+    (publisher.match(/takes: "(file|url)"/g) ?? []).length >= 4,
+    String((publisher.match(/takes: "(file|url)"/g) ?? []).length),
+  );
+  check("youtube is one of them", /youtube: \{ takes: "file"/.test(publisher));
+  check(
+    "and the two that fetch it themselves never download it",
+    /uploader\.takes === "url"/.test(publisher) && /signedGet\(key, LINK_SECONDS\)/.test(publisher),
+    "a worker that downloads a file nobody asked it for is paying egress twice",
   );
   check(
     "and the refusal for the others names the platform",
