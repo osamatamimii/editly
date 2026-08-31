@@ -291,9 +291,33 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
     primary: "&H0000E5FF", secondary: "&H00FFFFFF", outline: "&H00000000", back: "&HA0000000",
     borderStyle: 1, outlineWidth: 5, shadow: 2,
   },
+  /*
+    The box style, with the wipe running the way a wipe runs.
+
+    It was primary white and secondary yellow, which is backwards: with `\kf`
+    the words already spoken take the *primary* colour and the ones still to
+    come take the secondary, so the yellow was on the part of the line nobody
+    had said yet. Most of the line was loud, the eye was pulled to the words
+    ahead of the voice, and the colour drained away as the sentence was read.
+    Nothing was broken — it is a legible caption with the two colours the other
+    way round — and it is the difference between the line filling with colour
+    as somebody speaks and the line emptying of it.
+  */
   "karaoke-box": {
-    primary: "&H00FFFFFF", secondary: "&H0000E5FF", outline: "&H00000000", back: "&HC0000000",
-    borderStyle: 3, outlineWidth: 0, shadow: 0,
+    primary: "&H0000E5FF", secondary: "&H00FFFFFF", outline: "&H00000000", back: "&HC0000000",
+    /*
+      `Outline` is the box's padding when BorderStyle is 3, not a stroke.
+
+      It was 0, so the style called "karaoke-box" drew a box of zero size and
+      had never drawn a box at all. On anything dark that is invisible and
+      fine; on a beige wall or a bright sky it is white text on a light ground,
+      which is the one thing an opaque backing exists to prevent. Six pixels is
+      about a fifth of the cap height at the sizes this renders at.
+
+      `Shadow` stays 0: BorderStyle 3 already fills behind the line, and a drop
+      shadow under an opaque box is a second rectangle offset from the first.
+    */
+    borderStyle: 3, outlineWidth: 6, shadow: 0,
   },
 };
 

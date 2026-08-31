@@ -2321,24 +2321,48 @@ console.log("\nThe captions can draw Arabic, not just accept it");
     return output;
   };
 
-  // Limited-range black is Y=16, not 0, so a crop with no ink in it reads 16.
-  // Subtracting that floor leaves a number proportional to the ink itself,
-  // which is what makes two renders comparable.
-  const BLACK = 16;
+  /*
+    How much *lettering* is in this part of the frame.
+
+    The pixels are thresholded before they are averaged, so the number counts
+    bright pixels rather than measuring brightness. That distinction is the
+    whole reliability of every check below.
+
+    It used to be the plain mean above a black floor, and that quietly measured
+    two things at once: where the letters are, and what colour they happen to
+    be. Two consequences, both real. A style whose karaoke wipe paints spoken
+    words yellow rather than white moved the number without moving a single
+    glyph. And once `karaoke-box` started drawing the opaque box its name
+    promises, the box — three quarters black, and much larger than the letters
+    — pulled the mean *below* the floor, so a frame full of legible captions
+    measured as no ink at all.
+
+    A threshold at 140 sits above the darkest thing a caption is drawn in
+    (yellow is Y=210, the dimmed word in `bold-white` is 160) and far above the
+    box, the outline and any shot these tests use.
+  */
   const BAND = { whole: "iw:400:0:ih-700", left: "iw/2:400:0:ih-700", right: "iw/2:400:iw/2:ih-700" };
   const inkIn = (file, crop) => {
     const r = spawnSync(
       "ffprobe",
       [
         "-v", "error", "-f", "lavfi",
-        "-i", `movie=${file},trim=start=1:end=1.06,crop=${crop},signalstats`,
+        "-i",
+        // The commas inside `lut` are escaped twice on purpose: once for this
+        // template literal, once for ffmpeg's own filtergraph parser, which
+        // would otherwise read them as the end of the filter. Written with a
+        // single backslash the escape is eaten by JavaScript, ffprobe fails to
+        // parse the graph, no frame is produced, and every measurement below
+        // silently becomes "no ink" — which reads as a caption bug rather than
+        // as a broken command.
+        `movie=${file},trim=start=1:end=1.06,crop=${crop},format=gray,lut=y='if(gt(val\\,140)\\,255\\,0)',signalstats`,
         "-show_entries", "frame_tags=lavfi.signalstats.YAVG",
         "-of", "default=nw=1:nk=1",
       ],
       { encoding: "utf8" },
     );
     const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number);
-    return vals.length > 0 ? Math.max(0, vals[0] - BLACK) : NaN;
+    return vals.length > 0 ? vals[0] : NaN;
   };
 
   // ── The font has the glyphs at all ──────────────────────────────────────
@@ -2473,21 +2497,52 @@ console.log("\nThe captions can draw Arabic, not just accept it");
     { text: heavy, startMs: 0, endMs: 1000 },
     { text: light, startMs: 1000, endMs: 2000 },
   ];
-  const plainSentence = await captioned(sentence);
+  /*
+    The control is the *same* style with the wipe turned off, not a different
+    style.
+
+    These checks compare where the ink sits, measured as brightness in each
+    half of the frame, so the two renders have to agree about colour or the
+    measurement reads the palette instead of the word order. It used to compare
+    `karaoke-box` against `bold-white`, and that passed only because the box
+    style happened to paint spoken words the same white the plain style paints
+    everything. Correcting the box style's wipe to run forwards — the colour
+    trailing the voice rather than sitting ahead of it — made the two disagree,
+    and this check reported a bidi bug that did not exist.
+  */
+  const plainSentence = await withWords(sentence, spoken, "none");
   const sungSentence = await withWords(sentence, spoken, "karaoke");
+  const sungBackwards = await withWords(`${light} ${heavy}`, [
+    { text: light, startMs: 0, endMs: 1000 },
+    { text: heavy, startMs: 1000, endMs: 2000 },
+  ], "karaoke");
+
+  /*
+    Before comparing where the ink is, there has to be ink.
+
+    Every check in this section is a comparison of two sides of a frame, and a
+    frame with nothing on it satisfies most of them: 0 is not greater than 0,
+    so `leansRight` is false for a blank render and false for a blank render,
+    and "the wipe did not move the words" passes on a video with no captions in
+    it at all. This is the one check here that cannot pass vacuously.
+  */
+  check(
+    "each of these renders actually burned a caption",
+    [plainSentence, sungSentence, sungBackwards].every((f) => inkIn(f, BAND.whole) > 0.5),
+    [plainSentence, sungSentence, sungBackwards]
+      .map((f) => `${inkIn(f, BAND.whole).toFixed(2)}`)
+      .join(" / "),
+  );
+
   check(
     "a karaoke wipe leaves the words where the sentence puts them",
     leansRight(sungSentence) === leansRight(plainSentence),
     `karaoke left ${inkIn(sungSentence, BAND.left)}/right ${inkIn(sungSentence, BAND.right)} against plain left ${inkIn(plainSentence, BAND.left)}/right ${inkIn(plainSentence, BAND.right)} — a difference means the wipe reversed the sentence`,
   );
 
-  // The control for that one: saying the words in the other order must move
-  // the weight. Without it the check above passes for a renderer that ignores
+  // The control for the one above: saying the words in the other order must
+  // move the weight. Without it that check passes for a renderer that ignores
   // word order entirely and centres everything.
-  const sungBackwards = await withWords(`${light} ${heavy}`, [
-    { text: light, startMs: 0, endMs: 1000 },
-    { text: heavy, startMs: 1000, endMs: 2000 },
-  ], "karaoke");
   check(
     "and saying them in the other order moves the weight — so word order is what is being read",
     leansRight(sungBackwards) !== leansRight(sungSentence),
@@ -2503,7 +2558,7 @@ console.log("\nThe captions can draw Arabic, not just accept it");
     { text: "WWWWWWWW", startMs: 0, endMs: 1000 },
     { text: "ii", startMs: 1000, endMs: 2000 },
   ];
-  const plainEnglish = await captioned(englishSentence);
+  const plainEnglish = await withWords(englishSentence, englishWords, "none");
   const sungEnglish = await withWords(englishSentence, englishWords, "karaoke");
   check(
     "an English sentence is not touched by any of this",

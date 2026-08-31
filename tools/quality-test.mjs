@@ -699,6 +699,79 @@ console.log("\nAnd what libass actually draws");
       arabic.lines > 0,
     `${arabic.left}..${arabic.right}, ${arabic.lines} lines`,
   );
+
+  /*
+    The box, and which way the colour runs.
+
+    Two things that are invisible on a dark test frame and decide whether a
+    caption is readable on a real one.
+
+    `karaoke-box` had `Outline: 0`, and with BorderStyle 3 the outline width
+    *is* the box's padding — so the style called "box" had never drawn a box.
+    Over anything dark that is fine and looks deliberate; over a beige wall or
+    a bright sky it is white text on a light ground, which is the one thing an
+    opaque backing exists to prevent. So it is measured over a light frame.
+
+    And the wipe ran backwards. With `\kf` the words already spoken take the
+    *primary* colour and the ones still to come take the secondary, and this
+    style had the loud colour on the secondary — so the yellow sat on the part
+    of the line nobody had said yet, the eye was pulled ahead of the voice, and
+    the colour drained out of the sentence as it was read. A legible caption
+    with its two colours the other way round, which nothing but a person
+    watching it could have called wrong. Counting the coloured pixels at two
+    moments says which way it runs.
+  */
+  const spoken = "nobody tells you this but it changes everything";
+  const perWordBox = spoken.split(" ").map((text, i) => ({
+    text, startMs: i * 340, endMs: (i + 1) * 340,
+  }));
+  const boxFile = at("box.ass");
+  await writeSubtitleFile(
+    boxFile,
+    wrapToLayout([{ startMs: 0, endMs: 3000, text: spoken, words: perWordBox }], layout),
+    "karaoke-box",
+    "karaoke",
+    frame,
+    layout,
+  );
+
+  const swatch = (seconds, tag) => {
+    const png = at(`box-${tag}.png`);
+    ff([
+      // A light ground, because that is where an opaque backing earns its keep.
+      "-f", "lavfi", "-i", `color=c=0xd8d0c0:s=${frame.width}x${frame.height}:d=3`,
+      "-vf", `subtitles=${boxFile}`, "-ss", String(seconds), "-frames:v", "1", png,
+    ]);
+    const rgb = spawnSync("ffmpeg", [
+      "-v", "error", "-i", png, "-vf", "format=rgb24", "-frames:v", "1", "-f", "rawvideo", "-",
+    ], { maxBuffer: 1 << 26 }).stdout;
+    let dark = 0;
+    let warm = 0;
+    for (let i = 0; i < rgb.length; i += 3) {
+      const r = rgb[i];
+      const g = rgb[i + 1];
+      const b = rgb[i + 2];
+      if (r < 60 && g < 60 && b < 60) dark += 1;
+      // The highlight is &H0000E5FF: full red, 229 green, no blue.
+      if (r > 180 && g > 140 && b < 90) warm += 1;
+    }
+    return { dark, warm };
+  };
+
+  const early = swatch(0.5, "early");
+  const late = swatch(2.5, "late");
+
+  check(
+    "the box style draws a box, so a caption over a bright shot is still readable",
+    early.dark > 20000,
+    // Zero here is the state it shipped in: BorderStyle 3 with no padding.
+    `${early.dark} dark pixels behind the words`,
+  );
+  check(
+    "and the colour fills the line as it is spoken rather than draining out of it",
+    late.warm > early.warm * 1.5,
+    `${early.warm} coloured pixels at 0.5s against ${late.warm} at 2.5s`,
+  );
 }
 
 await rm(workDir, { recursive: true, force: true });
