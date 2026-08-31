@@ -514,12 +514,17 @@ section("The rules the schema itself enforces");
     /REFERENCES projects\(id\) ON DELETE CASCADE/.test(byName["clips_project_id_fkey"] ?? ""),
     byName["clips_project_id_fkey"],
   );
+  check(
+    "and so does what was understood about it — a reading of a video that is gone is a record of nothing",
+    /REFERENCES projects\(id\) ON DELETE CASCADE/.test(byName["comprehensions_project_id_fkey"] ?? ""),
+    byName["comprehensions_project_id_fkey"],
+  );
   // clips.job_id is deliberately NOT here: jobs are the billing record, and a
   // clip must not vanish because a cleanup pruned old job rows — the file it
   // names still exists and still belongs to the person.
   check(
     "and there are no others nobody has reasoned about",
-    keys.length === 6,
+    keys.length === 7,
     JSON.stringify(keys.map((k) => k.conname)),
   );
 
@@ -593,7 +598,7 @@ section("The rules the schema itself enforces");
   const { rows: indexes } = await pool.query(
     "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public'",
   );
-  for (const [table, column] of [["messages", "project_id"], ["exports", "project_id"], ["exports", "job_id"], ["clips", "project_id"]]) {
+  for (const [table, column] of [["messages", "project_id"], ["exports", "project_id"], ["exports", "job_id"], ["clips", "project_id"], ["comprehensions", "project_id"]]) {
     check(
       `${table}.${column} is indexed, so the cascade is not a table scan`,
       indexes.some((i) => new RegExp(`ON public\\.${table} USING btree \\(${column}\\)`).test(i.indexdef)),

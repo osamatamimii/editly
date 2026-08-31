@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { sql, eq, and } from "drizzle-orm";
 import pino from "pino";
-import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
+import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, comprehensionsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
 import { EditPlan, type EditOperation } from "@workspace/api-zod";
 import { downloadObject, uploadObject, bytesPulled, StorageTransferError } from "./storage";
 import { renderPlan, probeDuration, probeSource, grabPosterFrame, FfmpegError } from "./ffmpeg";
@@ -25,6 +25,7 @@ import { chooseClips } from "./highlight";
 import { snapToSpeechBreaks } from "./timeline";
 import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAllowanceMessage } from "./duration";
 import { enrichPlan } from "./enrich";
+import { comprehend, transcriptDigest, wordsOf, COMPREHENSION_VERSION } from "./comprehend";
 import { resolveProviders } from "./providers";
 import { sayIn, type Language } from "./say";
 import { publishDuePosts, surfaceStrandedPosts } from "./publisher";
@@ -359,6 +360,23 @@ async function processJob(job: Job): Promise<void> {
         text: word.text,
       })),
     );
+
+    /*
+      What this video is *about*, read once and kept with the project.
+
+      Best-effort, and the one call in this function that is allowed to fail
+      silently in the log rather than on the job: nobody paid for a reading, and
+      a render that succeeded must not be turned into a failure by the step that
+      came after it. `readMaterial` therefore swallows everything.
+
+      It runs only when a transcript already exists — which means when the plan
+      needed one for something else. A render that asked for silence removal and
+      a vertical crop never transcribes, and paying a speech model on its behalf
+      so that a *later* request might be better planned would be charging
+      somebody for a feature they did not ask for. The step that decides a
+      reading is worth buying is the one that wants it.
+    */
+    await readMaterial(job, enriched.transcript, sourceSeconds, say.language, log);
 
     // Only the assets this plan actually names, and only after each one has
     // been confirmed to belong to this project.
@@ -702,6 +720,119 @@ async function processJob(job: Job): Promise<void> {
     }
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * The project's reading of its own material, made once and reused.
+ *
+ * This is the step the product never had. Everything above it can execute an
+ * instruction; nothing anywhere knew what the video was about, so "the
+ * strongest thirty seconds" meant "where the talking was densest" — a fact
+ * about the audio and not about the content, which is why the clips come out
+ * plausible and are rarely the right piece. `comprehend.ts` turns the
+ * transcript into chapters, claims, questions, peaks and a hook; this writes
+ * that down beside the project so the next request starts from it instead of
+ * from the sentence alone.
+ *
+ * Three things keep it cheap and honest.
+ *
+ * **It is skipped when the words have not changed.** `digest` fingerprints the
+ * transcript, not the file: a re-encode of the same recording is a different
+ * file and the same material, and paying a model to read it again would buy a
+ * second opinion nobody asked for — and a second opinion is worse than no
+ * opinion here, because the same project would then have had two different
+ * ideas about where its chapters are.
+ *
+ * **It never throws.** A reading is not a deliverable. Losing one costs the
+ * next plan some context; failing a finished render over one would cost a
+ * customer their video.
+ *
+ * **It records how it was made.** With no model configured the structure comes
+ * from the shape of the speech, which is a weaker answer that looks exactly the
+ * same from the outside — so `how` and the notes say which it was, and the
+ * shape path stores no claims and no hook at all.
+ */
+async function readMaterial(
+  job: Job,
+  transcript: Awaited<ReturnType<typeof enrichPlan>>["transcript"],
+  sourceSeconds: number,
+  language: Language,
+  log: pino.Logger,
+): Promise<void> {
+  if (!transcript) return;
+  try {
+    const words = wordsOf(transcript);
+    if (words.length === 0) return;
+    const digest = transcriptDigest(words);
+
+    const [stored] = await db
+      .select()
+      .from(comprehensionsTable)
+      .where(
+        and(
+          eq(comprehensionsTable.projectId, job.projectId),
+          eq(comprehensionsTable.userId, job.userId),
+        ),
+      )
+      .limit(1);
+    if (stored && stored.digest === digest && stored.version === COMPREHENSION_VERSION) {
+      log.info({ how: stored.how }, "the reading of this material is still current");
+      return;
+    }
+
+    const reading = await comprehend({
+      transcript,
+      durationSeconds: sourceSeconds,
+      reader: providers.structureReader,
+      unavailable: providers.status.structure,
+      language,
+    });
+
+    const row = {
+      projectId: job.projectId,
+      userId: job.userId,
+      version: reading.version,
+      durationSeconds: reading.durationSeconds,
+      language: reading.language,
+      how: reading.how,
+      source: reading.source,
+      digest: reading.digest,
+      chapters: reading.chapters,
+      claims: reading.claims,
+      questions: reading.questions,
+      peaks: reading.peaks,
+      hook: reading.hook,
+      notes: reading.notes,
+    };
+
+    await db
+      .insert(comprehensionsTable)
+      .values({ id: randomUUID(), ...row })
+      // One row per project: the second reading of one video is not a history,
+      // it is an ambiguity about which one is true.
+      .onConflictDoUpdate({
+        target: comprehensionsTable.projectId,
+        set: { ...row, updatedAt: new Date() },
+      });
+
+    log.info(
+      {
+        how: reading.how,
+        source: reading.source,
+        chapters: reading.chapters.length,
+        claims: reading.claims.length,
+        questions: reading.questions.length,
+        peaks: reading.peaks.length,
+        hook: reading.hook !== null,
+        notes: reading.notes,
+      },
+      "read what this material is",
+    );
+  } catch (error) {
+    // Deliberately swallowed. See the doc comment: a render that produced a
+    // video must not fail because the step that reads it did.
+    log.warn({ err: error }, "could not read this material; the render is unaffected");
   }
 }
 
@@ -1113,6 +1244,10 @@ async function main(): Promise<void> {
       pollIntervalMs: POLL_INTERVAL_MS,
       transcription: providers.transcriber?.name ?? "unavailable",
       vision: providers.sceneReader?.name ?? "unavailable",
+      // Named here for the same reason as the other two: when the chapters on
+      // a project look like a list of pauses rather than a list of subjects,
+      // this line is the first place to look and it answers outright.
+      comprehension: providers.structureReader?.name ?? "unavailable",
     },
     "worker ready",
   );

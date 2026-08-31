@@ -86,6 +86,9 @@ section("Every variable the worker reads is one the deploy actually sets");
     "PROVIDER_TIMEOUT_MS",
     "GEMINI_MEDIA_RESOLUTION", "TMPDIR",
     "DEEPGRAM_MODEL", "ELEVENLABS_MODEL", "GEMINI_MODEL",
+    // Which model reads the transcript for structure, when it should not be the
+    // one that watches the video. A knob with a default, like the three above.
+    "GEMINI_STRUCTURE_MODEL",
     "FFMPEG_PATH", "FFPROBE_PATH", "PYTHON_PATH", "SUBJECT_SCRIPT",
     // Where the browser that draws the titles lives. The image sets it; a
     // developer points it at whatever Chromium they already have. A path, and

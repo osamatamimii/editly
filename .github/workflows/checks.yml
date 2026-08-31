@@ -212,6 +212,12 @@ jobs:
       - run: node tools/account-test.mjs
       - run: node tools/critic-test.mjs
       - run: node tools/transcript-test.mjs
+      # After the transcript, because it is the step that reads one: chapters,
+      # claims, questions, peaks and a hook. Its checks are asymmetric on
+      # purpose — a reading that invents a sentence somebody never said parses,
+      # validates and looks exactly like a true one, so most of the suite is
+      # about what gets *dropped*.
+      - run: node tools/comprehend-test.mjs
       - run: node tools/reference-test.mjs
       - run: node tools/billing-test.mjs
       - run: node tools/models-test.mjs

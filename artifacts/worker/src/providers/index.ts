@@ -18,12 +18,21 @@ import { createCrossCheckedTranscriber } from "./cross-check";
 import { createDeepgramTranscriber } from "./deepgram";
 import { createElevenLabsTranscriber } from "./elevenlabs";
 import { createGeminiSceneReader } from "./gemini";
-import type { ProviderStatus, SceneReader, Transcriber } from "./types";
+import { createGeminiStructureReader } from "./gemini-structure";
+import type { ProviderStatus, SceneReader, StructureReader, Transcriber } from "./types";
 import { pick, sayIn, type Say } from "../say";
 
 export interface Providers {
   transcriber: Transcriber | null;
   sceneReader: SceneReader | null;
+  /**
+   * Reads the transcript for structure — chapters, claims, questions, peaks,
+   * the hook. Text only, and therefore the cheapest thing in here by two orders
+   * of magnitude; it is separate from `sceneReader` because they answer
+   * different questions from different inputs and one can be down while the
+   * other is not.
+   */
+  structureReader: StructureReader | null;
   /** Null where the capability is available; otherwise why it is not. */
   status: ProviderStatus;
 }
@@ -36,6 +45,8 @@ export interface ProviderEnv {
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
   GEMINI_MEDIA_RESOLUTION?: string;
+  /** Overrides `GEMINI_MODEL` for the transcript reading alone. */
+  GEMINI_STRUCTURE_MODEL?: string;
 }
 
 export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv): Providers {
@@ -68,9 +79,20 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
       })
     : null;
 
+  // The same key as the scene reader, and deliberately its own field: the two
+  // are separate capabilities on one account, and a deployment that turns the
+  // expensive one off should not lose the cheap one with it.
+  const structureReader = geminiKey
+    ? createGeminiStructureReader({
+        apiKey: geminiKey,
+        model: trimmed(env.GEMINI_STRUCTURE_MODEL) ?? trimmed(env.GEMINI_MODEL),
+      })
+    : null;
+
   return {
     transcriber,
     sceneReader,
+    structureReader,
     status: {
       transcription: transcriber
         ? null
@@ -93,6 +115,12 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
                 ar: "نموذج كلام واحد فقط مُهيّأ، فالكابشن يستند إلى قراءة واحدة بدل قراءتين تتّفقان",
               }
             : null,
+      structure: structureReader
+        ? null
+        : {
+            en: "nothing is configured to read what was said for meaning, so the strongest moments are chosen by how densely somebody was talking rather than by what they said",
+            ar: "لا يوجد ما يقرأ الكلام قراءةً معنويّة، فاختيار أقوى اللحظات يجري بكثافة الكلام لا بما قيل فيه",
+          },
     },
   };
 }

@@ -136,4 +136,66 @@ export interface ProviderStatus {
    * easiest one to lose without noticing, because everything still works.
    */
   crossCheck: NotePair | null;
+  /**
+   * Null when a model can read the material for meaning. Otherwise why not —
+   * and the consequence is worth stating plainly, because it is invisible:
+   * without it the product still cuts, still captions, still picks a
+   * "strongest thirty seconds". It just picks them by how densely somebody was
+   * talking, which is a fact about the audio and not about the content.
+   */
+  structure: NotePair | null;
+}
+
+/**
+ * What a model says the *material* is, as opposed to what was said or what is
+ * on screen.
+ *
+ * The transcript is a list of words with times on them. It does not know where
+ * one idea stops and the next begins, which sentence was the question and which
+ * was its answer, or which twenty seconds are the reason somebody would watch
+ * at all. Every one of those is a reading of meaning, and until this interface
+ * existed nothing in the product performed one: the "strongest thirty seconds"
+ * was speech density minus a hesitation penalty, which is a measurement of the
+ * *audio* and not of the content.
+ *
+ * Two rules shape this type, and both come from the same failure mode.
+ *
+ * **Times are seconds, and they are a suggestion.** A model reading a
+ * transcript will confidently place a chapter at 03:12 of a ninety-second clip.
+ * Nothing about that answer looks wrong from here — it parses, it validates, it
+ * has the right shape — and an edit built on it cuts to a moment that does not
+ * exist. So every number that comes out of this interface is reconciled against
+ * the words' own clock before anything is allowed to use it; see
+ * `comprehend.ts`.
+ *
+ * **Quotes are the model's, and they have to be real.** Every item carries the
+ * words it is about, copied out of the transcript rather than paraphrased, so
+ * that the claim can be *checked* — a quote that does not appear in what the
+ * person said is a hallucination, and the only way to find one is to look for
+ * it. Paraphrase would make that check impossible, which is precisely why the
+ * instruction asks for the exact words.
+ */
+export interface StructureRead {
+  /** Where one part of the material stops and the next begins. */
+  chapters: Array<{ startSeconds: number; endSeconds: number; title: string }>;
+  /** Statements the speaker asserted, in their own words. */
+  claims: Array<{ atSeconds: number; quote: string }>;
+  /** Questions that were asked, and where the answer starts when there is one. */
+  questions: Array<{ atSeconds: number; quote: string; answeredAtSeconds?: number }>;
+  /** Stretches that earn a place in a short cut, and why. */
+  peaks: Array<{ startSeconds: number; endSeconds: number; why: string; strength: number }>;
+  /** The line this video should open on. Null when nothing in it works as one. */
+  hook: { atSeconds: number; quote: string } | null;
+}
+
+export interface StructureReadOptions {
+  /** BCP-47, when the transcript reported one. The answer is written in it. */
+  language?: string | null;
+  signal?: AbortSignal;
+}
+
+export interface StructureReader {
+  readonly name: string;
+  /** `transcript` is the timestamped text built by `comprehend.ts`. */
+  read(transcript: string, options?: StructureReadOptions): Promise<StructureRead>;
 }
