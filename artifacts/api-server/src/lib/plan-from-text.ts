@@ -208,6 +208,35 @@ const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
       "أدرّج اللون إلى لوك لا أملكه بعد، سمّ warm أو cool أو cinematic أو الأبيض والأسود أو punch، أو ارفع فيديو تريد مطابقة لونه",
     ),
   },
+  {
+    /*
+      Asking for it to be posted.
+
+      The scheduling is built — accounts, captions per platform, a time, a
+      publisher that will not send the same post twice — and not one platform
+      has approved this app to post on somebody's behalf yet. So a sentence
+      that asks for it got silence: no operation, and nothing in the reply.
+
+      Silence is the worst of the three answers available. A refusal at least
+      says the product heard you; silence looks like it worked.
+
+      Narrow on purpose. "post" alone is in "post-production" and "share" is in
+      half of everything, so a platform has to be named beside a posting verb,
+      or the sentence has to say "schedule" outright.
+
+      And no `\b` on the Arabic. A word boundary in JavaScript is defined
+      against `\w`, which is ASCII, so `\bانشر\b` matches nothing at all —
+      the same trap that once made «ومضة» invisible to the transition matcher.
+      A bare alternation is correct here anyway: «انشرها» and «انشره» both
+      contain «انشر».
+    */
+    patterns:
+      /\b(post|publish|upload|share)\b[^.!?]{0,30}\b(instagram|insta|reels?|tiktok|facebook|snapchat|twitter|on x)\b|\bschedule (it|this|them|the (post|clip|video))\b|\b(post|publish) (it|this|them) (for me|later|at|on|tomorrow|tonight)\b|(?:انشر|جدول)/i,
+    label: say(
+      "post it to your accounts yet. The scheduling is built — pick the accounts, write the caption once, choose the time — and every platform has to approve this app before it will let one post for you. None has yet, so nothing can go out on your behalf",
+      "أنشرها على حساباتك بعد. الجدولة مبنيّة — تختار الحسابات وتكتب الكابشن مرّة وتحدّد الوقت — لكن كل منصّة يجب أن تعتمد هذا التطبيق قبل أن تسمح له بالنشر نيابةً عنك، ولم تعتمده أيٌّ منها بعد",
+    ),
+  },
 ];
 
 /**

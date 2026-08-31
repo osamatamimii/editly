@@ -1023,6 +1023,59 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
     JSON.stringify(between.cannotYet),
   );
 
+  /*
+    Asking for it to be posted.
+
+    The scheduling is built and no platform has approved this app to post on
+    anybody's behalf, so the honest answer is a refusal that says which half is
+    ready. What it must never be is silence — a sentence that asks for
+    something and gets no operation and no mention reads as having worked.
+
+    The narrowness is the interesting half. "post" lives inside
+    "post-production" and "share" lives inside half of everything, so a
+    platform has to be named beside a posting verb, or the sentence has to say
+    "schedule" outright.
+  */
+  {
+    const said = async (sentence) => (await planner.plan(sentence, {})).cannotYet.map(inEnglish);
+    const mentionsPosting = (list) => list.some((c) => /post it to your accounts/i.test(c));
+
+    for (const sentence of [
+      "cut the silence and post it to Instagram",
+      "make it vertical then upload to tiktok",
+      "schedule it for tomorrow morning",
+      "قص الصمت وانشرها على انستغرام",
+    ]) {
+      check(
+        `heard: "${sentence}"`,
+        mentionsPosting(await said(sentence)),
+        JSON.stringify(await said(sentence)),
+      );
+    }
+
+    for (const sentence of [
+      "give it a post-production look",
+      "share the screen recording I uploaded",
+      "cut the silence and caption it",
+    ]) {
+      check(
+        `not heard as posting: "${sentence}"`,
+        !mentionsPosting(await said(sentence)),
+        // A refusal on a sentence that never asked is worse than a missing
+        // one: it tells somebody the product misunderstood them.
+        JSON.stringify(await said(sentence)),
+      );
+    }
+
+    check(
+      "and the rest of the sentence is still planned",
+      (await planner.plan("cut the silence and post it to Instagram", {})).operations.some(
+        (o) => o.type === "removeSilence",
+      ),
+      "a refusal about one half must not swallow the other",
+    );
+  }
+
   const shaped = await planner.plan("wipe from one shot to the next", {});
   check(
     "a shaped transition is built now, not admitted as missing",
