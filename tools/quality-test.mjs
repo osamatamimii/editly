@@ -764,6 +764,48 @@ console.log("\nAnd what libass actually draws");
   );
 
   /*
+    And the two scripts come out the same size, which is the only thing
+    `capRatio` exists to guarantee and the one thing nothing else measures.
+
+    Every other check on it is arithmetic — `nominalSizeFor(face) * capRatio`
+    equals the height the layout asked for, which is true by construction
+    whatever number is in the field. What makes the number right or wrong is
+    the *font*, and the only way to ask a font is to draw with it.
+
+    This is not a hypothetical. The Arabic face moved from DejaVu Sans to Cairo
+    Black, and their ratios are 0.66 and 0.38 — the same 46-pixel target
+    produces a nominal size of 70 for one and 121 for the other. Carrying the
+    old number over would have rendered every Arabic caption at 58% of its
+    intended size: perfectly legible, obviously wrong to anybody who looked,
+    and green in every check in this repository.
+
+    One line each, so the measurement is a single band of ink. Six pixels of
+    tolerance, because a capital H and an alef are different shapes and neither
+    is trying to be the other.
+  */
+  const latinBand = await drawn("HANDLING", "bold-white", "none", null);
+  const arabicBand = await drawn("االاالاا", "bold-white", "none", null);
+  const latinHeight = latinBand.bottom - latinBand.top;
+  const arabicHeight = arabicBand.bottom - arabicBand.top;
+  check(
+    "the Latin face draws at the height the layout asked for",
+    Math.abs(latinHeight - layout.capHeight) <= 6,
+    `${latinHeight}px drawn against ${layout.capHeight.toFixed(1)} asked`,
+  );
+  check(
+    "and the Arabic face draws at the same height, which is what capRatio is for",
+    Math.abs(arabicHeight - layout.capHeight) <= 6,
+    // Wrong here means every Arabic caption in the product is the wrong size,
+    // with nothing failing anywhere.
+    `${arabicHeight}px drawn against ${layout.capHeight.toFixed(1)} asked`,
+  );
+  check(
+    "so the two scripts match each other on screen",
+    Math.abs(latinHeight - arabicHeight) <= 6,
+    `Latin ${latinHeight}px, Arabic ${arabicHeight}px`,
+  );
+
+  /*
     The box, and which way the colour runs.
 
     Two things that are invisible on a dark test frame and decide whether a

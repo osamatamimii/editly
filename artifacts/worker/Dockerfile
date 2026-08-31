@@ -136,7 +136,9 @@ RUN set -eu; \
 # OFL requires it to — see the README beside them.
 COPY artifacts/worker/fonts/Montserrat-Black.otf /usr/share/fonts/opentype/editly/
 COPY artifacts/worker/fonts/Montserrat-OFL.txt   /usr/share/fonts/opentype/editly/
-RUN fc-cache -f > /dev/null && echo "caption face installed"
+COPY artifacts/worker/fonts/Cairo-Black.ttf      /usr/share/fonts/truetype/editly/
+COPY artifacts/worker/fonts/Cairo-OFL.txt        /usr/share/fonts/truetype/editly/
+RUN fc-cache -f > /dev/null && echo "caption faces installed"
 
 # Proven at build time rather than discovered by nobody at all.
 #
@@ -175,20 +177,108 @@ RUN set -eu; \
         echo "Style: P,$1,100,&H00FFFFFF,&H00000000,&H00000000,-1,1,0,0,5,10,10,10,1"; \
         echo '[Events]'; \
         echo 'Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text'; \
-        echo 'Dialogue: 0,0:00:00.00,0:00:01.00,P,,0,0,0,,HANDLING'; } > /tmp/cap.ass; \
+        echo "Dialogue: 0,0:00:00.00,0:00:01.00,P,,0,0,0,,$2"; } > /tmp/cap.ass; \
       ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=400x400:d=1 \
         -vf "subtitles=/tmp/cap.ass,scale=1:400:flags=area,format=gray" \
         -frames:v 1 -f rawvideo -y /tmp/cap.raw; \
       od -An -v -tu1 /tmp/cap.raw | tr -s ' ' '\n' | grep -v '^$' \
         | awk '{ if ($1 > 8) { if (!f) f = NR; l = NR } } END { print (f ? l - f + 1 : 0) }'; \
     }; \
-    m=$(capof 'Montserrat Black'); \
-    d=$(capof 'DejaVu Sans'); \
+    m=$(capof 'Montserrat Black' 'HANDLING'); \
+    d=$(capof 'DejaVu Sans' 'HANDLING'); \
     awk -v m="$m" -v d="$d" 'BEGIN { \
       if (m == 0) { print "the caption face drew nothing at all"; exit 1 } \
       if (m == d) { print "Montserrat Black measures exactly as DejaVu Sans (" m "): it is not installed, and every caption is silently drawn in the fallback"; exit 1 } \
       if (m < 50 || m > 57) { print "Montserrat Black draws a capital at " m "/100, not the ~54 caption-layout.ts sizes against: every caption would render the wrong size"; exit 1 } \
       print "caption face ready: Montserrat Black at " m "/100 against DejaVu at " d }'; \
+    rm -f /tmp/cap.ass /tmp/cap.raw
+
+# And the same questions asked of the Arabic face, because the answers are
+# different and one of them was wrong today.
+#
+# **Is it there.** Same argument as above: a missing family is not an error,
+# fontconfig substitutes, and DejaVu draws perfectly readable Arabic. So Cairo
+# and DejaVu are measured against each other and must differ.
+#
+# **Is it the right height.** caption-layout.ts converts the layout's chosen
+# height to a nominal size through a ratio of 0.38 for Cairo, where DejaVu's is
+# 0.66. Swapping the family and leaving the old ratio would have rendered every
+# Arabic caption at 58% of its intended size, on a face nobody had complained
+# about. "Cap height" means the alef here — Arabic has no capitals, and the
+# alef is the stroke that plays a capital's part.
+#
+# **Does it draw the shapes nobody types.** This is the one that was broken,
+# and it is worth the paragraph.
+#
+# Arabic letters change shape by position, and there are two ways to express
+# that: `GSUB`, which a modern shaper applies, and the legacy Arabic
+# Presentation Forms block at U+FE70..FEFC, where every shape has its own
+# codepoint. FriBidi still uses the second. Handed Arabic, it rewrites each
+# letter to the presentation-form codepoint for the shape its position calls
+# for, and the renderer looks *that* up in the font's cmap.
+#
+# Cairo maps 89 of those codepoints and none of the **isolated** ones, because
+# in a modern font the isolated shape is the base glyph and U+FE8D is a
+# duplicate nobody should need. Measured: an isolated alef then resolves
+# through fontconfig to whatever else on the system has it, which is DejaVu —
+# so the letter renders, correctly, at DejaVu's proportions, a fifth larger
+# than the letters around it, in the middle of a Cairo caption. On an image
+# without DejaVu it is an empty box instead. Neither is an error and neither
+# is reported.
+#
+# It is not a rare shape. Alef, dal, thal, reh, zain and waw never join
+# leftward, so the letter after any of them is isolated; an alef opening a word
+# is isolated; a one-letter word is isolated. "لا أحد يخبرك بهذا" has three.
+#
+# So the check asks the font directly: fourteen U+FE8D, and the height that
+# comes back has to be Cairo's own alef. Anything else — 66 for DejaVu's, 57
+# for a box — is outside the band and named on the build log.
+#
+# **And the two characters we put there ourselves.** Every right-to-left line
+# this renderer writes is wrapped in FSI and PDI (U+2066/U+2069) so a line
+# starting with a Latin word cannot flip. Cairo maps neither by default. A
+# wrapped run therefore has to measure exactly like an unwrapped one.
+#
+# Fourteen repetitions rather than three, and that is not decoration. `capof`
+# squeezes the frame to one column by *averaging* each row, so a row's value is
+# the mean of four hundred pixels. Three thin vertical strokes average to less
+# than the threshold and the measurement comes back zero — a face that is
+# installed, correct and drawing, reported as "drew nothing at all". The same
+# trap the render suite hit when it area-averaged a sparse caption line.
+RUN set -eu; \
+    capof() { \
+      { echo '[Script Info]'; echo 'ScriptType: v4.00+'; echo 'PlayResX: 400'; echo 'PlayResY: 400'; \
+        echo 'WrapStyle: 2'; \
+        echo '[V4+ Styles]'; \
+        echo 'Format: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,Bold,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding'; \
+        echo "Style: P,$1,100,&H00FFFFFF,&H00000000,&H00000000,-1,1,0,0,5,10,10,10,1"; \
+        echo '[Events]'; \
+        echo 'Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text'; \
+        echo "Dialogue: 0,0:00:00.00,0:00:01.00,P,,0,0,0,,$2"; } > /tmp/cap.ass; \
+      ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=400x400:d=1 \
+        -vf "subtitles=/tmp/cap.ass,scale=1:400:flags=area,format=gray" \
+        -frames:v 1 -f rawvideo -y /tmp/cap.raw; \
+      od -An -v -tu1 /tmp/cap.raw | tr -s ' ' '\n' | grep -v '^$' \
+        | awk '{ if ($1 > 8) { if (!f) f = NR; l = NR } } END { print (f ? l - f + 1 : 0) }'; \
+    }; \
+    rep() { s=''; i=0; while [ $i -lt "$2" ]; do s="$s$1"; i=$((i+1)); done; printf '%s' "$s"; }; \
+    alefs=$(rep "$(printf '\330\247')" 14); \
+    isolated=$(rep "$(printf '\357\272\215')" 14); \
+    boxes=$(rep "$(printf '\356\200\200')" 14); \
+    fsi=$(printf '\342\201\246'); \
+    pdi=$(printf '\342\201\251'); \
+    c=$(capof 'Cairo Black' "$alefs"); \
+    v=$(capof 'DejaVu Sans' "$alefs"); \
+    b=$(capof 'Cairo Black' "$boxes"); \
+    i=$(capof 'Cairo Black' "$isolated"); \
+    w=$(capof 'Cairo Black' "$fsi$alefs$pdi"); \
+    awk -v c="$c" -v v="$v" -v b="$b" -v i="$i" -v w="$w" 'BEGIN { \
+      if (c == 0)  { print "the Arabic caption face drew nothing at all"; exit 1 } \
+      if (c == v)  { print "Cairo Black measures exactly as DejaVu Sans (" c "): it is not installed, and every Arabic caption is silently drawn in the fallback"; exit 1 } \
+      if (c < 34 || c > 42) { print "Cairo Black draws an alef at " c "/100, not the ~38 caption-layout.ts sizes against: every Arabic caption would render the wrong size"; exit 1 } \
+      if (i < 34 || i > 42) { print "an isolated alef (U+FE8D) draws at " i "/100 where Cairo draws one at " c ", and a box is " b ": the isolated presentation forms are unmapped, so every letter that stands alone comes from another font at another size, or from none"; exit 1 } \
+      if (w != c)  { print "wrapping a line in FSI/PDI changes what is drawn (" w " against " c "): the isolates are drawing, at both ends of every Arabic caption"; exit 1 } \
+      print "arabic caption face ready: alef " c "/100, isolated form " i ", against DejaVu " v " and a box " b ", FSI/PDI invisible" }'; \
     rm -f /tmp/cap.ass /tmp/cap.raw
 
 # Proven at build time rather than discovered on the first render that wanted a

@@ -2497,31 +2497,40 @@ console.log("\nThe captions can draw Arabic, not just accept it");
 
   // ── And they run right to left ──────────────────────────────────────────
   //
-  // Alef is a bare tall stroke and beh is a short bowl, so three alefs weigh
-  // one side of the line down. Put the beh last and the alefs sit on the
-  // right; put it first and they sit on the left. What is asserted is that
-  // the two answers are opposites, which needs no reference frame and no
-  // absolute number — only that reversing the word moves the weight.
-  const behLast = await captioned("اااب");
-  const behFirst = await captioned("بااا");
+  // Alef is a bare tall stroke and meem is a filled bowl, so a run of alefs
+  // weighs one side of the line down and a run of meems weighs the other. Put
+  // the meems last and they sit on the left; put them first and they sit on
+  // the right. What is asserted is that the two answers are opposites, which
+  // needs no reference frame and no absolute number — only that reversing the
+  // word moves the weight.
+  //
+  // Fifteen characters rather than four, and meem rather than beh, because
+  // this check went red on a font change that had not broken anything. The
+  // Arabic face moved from DejaVu Sans to Cairo Black, whose beh and alef
+  // carry nearly the same ink, and a four-character caption occupies about a
+  // third of the frame — so both halves of the measurement were reading mostly
+  // empty margin and the lean was noise. Measured, not guessed: the same pair
+  // at fifteen characters separates cleanly in both faces.
+  const heavyLast = await captioned("ااااااااااامممم");
+  const heavyFirst = await captioned("ممممااااااااااا");
   const leansRight = (file) => inkIn(file, BAND.right) > inkIn(file, BAND.left);
 
   check(
-    "the last letter is drawn on the left, because Arabic runs right to left",
-    leansRight(behLast),
-    `left ${inkIn(behLast, BAND.left)}, right ${inkIn(behLast, BAND.right)}`,
+    "the last letters are drawn on the left, because Arabic runs right to left",
+    leansRight(heavyLast),
+    `left ${inkIn(heavyLast, BAND.left)}, right ${inkIn(heavyLast, BAND.right)}`,
   );
   check(
     "and reversing the word moves the weight to the other side",
-    !leansRight(behFirst),
-    `left ${inkIn(behFirst, BAND.left)}, right ${inkIn(behFirst, BAND.right)} — the same lean both ways means the order is not being applied`,
+    !leansRight(heavyFirst),
+    `left ${inkIn(heavyFirst, BAND.left)}, right ${inkIn(heavyFirst, BAND.right)} — the same lean both ways means the order is not being applied`,
   );
 
   // The control again: a left-to-right override in front of the same word
   // makes it lay out the way an ffmpeg without FriBidi would lay it out, and
   // the lean goes the other way. Without this the two checks above could both
   // be satisfied by a renderer that never reorders anything.
-  const overridden = await captioned("\u202D\u0627\u0627\u0627\u0628");
+  const overridden = await captioned("\u202D" + "ااااااااااامممم");
   check(
     "a word forced left-to-right leans the other way — so that is what is being read",
     !leansRight(overridden),

@@ -129,7 +129,7 @@ export const CAPTION_FACES = {
   /** Everything written in a Latin script. */
   latin: { family: "Montserrat Black", capRatio: 0.54 },
   /**
-   * Arabic, and anything else DejaVu covers that Montserrat does not.
+   * Arabic.
    *
    * libass would fall back per glyph on its own — an Arabic line under the
    * Latin style shapes and joins correctly, which is exactly why this needed
@@ -137,9 +137,35 @@ export const CAPTION_FACES = {
    * its own cap height against a nominal size chosen for a different face, so
    * an Arabic caption came out a fifth larger than the Latin one beside it and
    * nothing anywhere reported a problem. Naming the face is how both scripts
-   * get the same cap height.
+   * get the same height.
+   *
+   * ## Why this stopped being DejaVu Sans
+   *
+   * Because DejaVu was never chosen. It is what Debian ships, and it is a
+   * Latin-first face whose Arabic is correct, thin, and characterless — beside
+   * a Montserrat Black caption it reads as an apology. The first person to
+   * look at a real Arabic render said so in one sentence, and he was right.
+   *
+   * ## And why the ratio is 0.38 rather than 0.65
+   *
+   * "Cap height" is a Latin idea and Arabic has no capitals, so what this
+   * number means for an Arabic face is the height of the alef — the tall
+   * vertical stroke, the one feature that plays the part a capital plays. It
+   * is measured off these bytes by rendering through libass and counting
+   * pixels, like every other number here: 0.38 of the nominal size for Cairo,
+   * against 0.66 for DejaVu.
+   *
+   * That difference is not a detail. Swapping the family name and leaving 0.65
+   * in place would have rendered every Arabic caption at **58% of the size it
+   * should be**, on a face nobody had complained about, with no error
+   * anywhere — the same trap the Latin side fell into and the reason this
+   * field exists at all.
+   *
+   * Cairo's Arabic body height is about the same as its alef, where DejaVu's
+   * is two thirds of it, so at equal alef height Cairo also reads heavier.
+   * That is the point.
    */
-  arabic: { family: "DejaVu Sans", capRatio: 0.65 },
+  arabic: { family: "Cairo Black", capRatio: 0.38 },
 } as const;
 
 export type CaptionFaceName = keyof typeof CAPTION_FACES;
@@ -235,6 +261,50 @@ const ADVANCE_IN_CAPS: Array<[number, string]> = [
   [1.4, "w"],
   [1.5, "@m"],
   [1.74, "W"],
+
+  /*
+    And Arabic, measured the same way off the same face.
+
+    These letters used to fall through to `fallbackAdvance`'s single 0.8, which
+    was a fair average of DejaVu and is a bad average of anything: س and ش are
+    1.42 and ا is 0.48, three times narrower. One number for a script whose
+    letters differ by 3x either wraps a line of alefs and lams a third early or
+    lets a line of seens run past the safe area, and neither of those fails.
+
+    The measurement is what a letter costs *in running text*, not in isolation:
+    each was rendered ten times and twenty times and the difference divided,
+    which cancels the side bearings and gives the joined width — the only width
+    Arabic ever actually occupies.
+
+    The combining marks are 0.0 because they are: a fatha rides on the letter
+    before it and takes no width of its own. Counting them as characters is how
+    a vowelled line wraps half way across the frame.
+  */
+  [0.0, "ًٌٍَُِّْ"],
+  [0.38, "،"],
+  [0.4, "؛"],
+  [0.48, "اآ٠"],
+  [0.5, "أإ"],
+  [0.52, "رز"],
+  [0.54, "بلنىئ١"],
+  [0.64, "٤"],
+  [0.66, "؟"],
+  [0.7, "تثي"],
+  [0.72, "دذ"],
+  [0.78, "٦"],
+  [0.8, "٢"],
+  [0.84, "ء٩"],
+  [0.86, "وؤ"],
+  [0.9, "جحخ"],
+  [0.92, "ة"],
+  [0.96, "فق٧٨"],
+  [0.98, "عغ"],
+  [1.0, "مه"],
+  [1.02, "ك٥"],
+  [1.14, "٣"],
+  [1.18, "طظ"],
+  [1.28, "صض"],
+  [1.42, "سش"],
 ];
 
 const ADVANCE = new Map<string, number>();
@@ -249,11 +319,12 @@ for (const [width, chars] of ADVANCE_IN_CAPS) {
  * the same way — rendered through libass and the drawn pixels counted — and
  * each rounded up from what came back.
  *
- * Arabic joins, so its letters are *narrower* than Latin ones: three real
- * sentences measured 0.66, 0.73 and 0.68 caps per character. Using a Latin
- * number for it would break every Arabic caption a third early and truncate
- * the tail with an ellipsis — the quiet direction of this bug, where nothing
- * fails and words are thrown away.
+ * Arabic is now in the table above, letter by letter, so this catches only
+ * what is left of the range: presentation forms, Hebrew, Syriac, Thaana, and
+ * the letters of the extended Arabic blocks. 0.95 rather than the old 0.8,
+ * because 0.8 was an average of DejaVu and the face is Cairo now, whose seen
+ * and sheen are 1.42 — an average that runs a line past the safe area does not
+ * fail, it just puts the last words under the username.
  *
  * CJK is the opposite: one character is a full square, 1.22 caps measured.
  *
@@ -267,7 +338,7 @@ function fallbackAdvance(codePoint: number): number {
     (codePoint >= 0xfb1d && codePoint <= 0xfdff) ||
     (codePoint >= 0xfe70 && codePoint <= 0xfeff)
   ) {
-    return 0.8;
+    return 0.95;
   }
   // CJK, kana, Hangul, and the full-width forms.
   if (

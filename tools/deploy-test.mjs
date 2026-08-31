@@ -314,6 +314,47 @@ section("The caption face is a file, and everything that draws with it uses that
     "and the image proves the face resolved, because a missing font draws the fallback in silence",
     /Montserrat Black measures exactly as DejaVu Sans/.test(dockerfile),
   );
+
+  /*
+    And the Arabic face, which has one more way to be wrong.
+
+    Its ratio is different — 0.38 against Montserrat's 0.54, because "cap
+    height" for an Arabic face means the alef — so the same file-image-runner
+    agreement matters twice over. And it is a *modified* font: Cairo upstream
+    maps none of the isolated presentation forms FriBidi asks for, so a letter
+    standing alone came from whatever else on the system had the codepoint, at
+    that font's proportions. The script that repairs it lives beside the file
+    because a binary in a repository with no account of where it came from is
+    the thing nobody can ever check.
+  */
+  const arabic = "artifacts/worker/fonts/Cairo-Black.ttf";
+  check("the Arabic face is in the repository", existsSync(path.join(repoRoot, arabic)));
+  check(
+    "its licence travels with it too",
+    existsSync(path.join(repoRoot, "artifacts/worker/fonts/Cairo-OFL.txt")),
+  );
+  check(
+    "and the script that built it, because a font nobody can rebuild is a font nobody can check",
+    existsSync(path.join(repoRoot, "artifacts/worker/fonts/make-arabic-face.py")),
+  );
+  check("the image copies it in", new RegExp(`COPY ${arabic.replace(/[/.]/g, "\\$&")}`).test(dockerfile));
+  check(
+    "the suites measure the same file the image ships",
+    new RegExp(arabic.replace(/[/.]/g, "\\$&")).test(read(".github/workflows/checks.yml")),
+    "",
+  );
+  check(
+    "the image proves the Arabic face resolved rather than falling back",
+    /Cairo Black measures exactly as DejaVu Sans/.test(dockerfile),
+  );
+  check(
+    "and proves the isolated forms are mapped, which is the half that draws from another font in silence",
+    /isolated presentation forms are unmapped/.test(dockerfile),
+  );
+  check(
+    "and that the isolates we wrap every RTL line in are invisible",
+    /FSI\/PDI/.test(dockerfile),
+  );
 }
 
 section("A change that affects the worker triggers a deploy");
