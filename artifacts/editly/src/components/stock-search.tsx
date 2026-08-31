@@ -55,12 +55,10 @@ function fileNameFor(id: string, contentType: string): string {
 
 export function StockSearch({
   projectId,
-  userId,
   onAdded,
   ceiling,
 }: {
   projectId: string;
-  userId: string;
   onAdded: () => void | Promise<void>;
   /**
    * The bucket's ceiling, so a stock clip too big to store is refused before
@@ -227,7 +225,6 @@ export function StockSearch({
 
       const { path, kind: storedKind } = await uploadProjectAsset({
         file,
-        userId,
         projectId,
         accessToken: token,
         ceiling,

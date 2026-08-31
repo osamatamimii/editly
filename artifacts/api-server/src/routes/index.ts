@@ -15,6 +15,7 @@ import adminRouter from "./admin";
 import waitlistRouter from "./waitlist";
 import socialRouter, { socialCallbackRouter } from "./social";
 import fontsRouter from "./fonts";
+import uploadsRouter from "./uploads";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -43,6 +44,10 @@ router.use(socialCallbackRouter);
 router.use(requireAuth);
 
 router.use(projectsRouter);
+// Above the routes that record where a file landed, because it is the step
+// before them: permission to upload is minted here, and every other upload
+// path in this product is the browser reporting back afterwards.
+router.use(uploadsRouter);
 router.use(socialRouter);
 router.use(fontsRouter);
 router.use(messagesRouter);

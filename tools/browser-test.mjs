@@ -144,6 +144,13 @@ const storage = {
   uploads: new Map(),
   /** Set to a status to make the next single-shot POST fail with it. */
   failSingleWith: null,
+  /**
+   * Make our own API refuse the next ticket, with the sentence it would send.
+   *
+   * The point of the endpoint is that a refusal is ours and is a sentence, so
+   * the browser has to be shown one refusing and asked what it says.
+   */
+  refuseTicketWith: null,
   /** Pretend the server has never heard of the upload URL it handed out. */
   forgetUploads: false,
   /** Answer HEAD with an offset of our choosing, whatever was received. */
@@ -164,12 +171,23 @@ const storage = {
     this.log = [];
     this.uploads.clear();
     this.failSingleWith = null;
+    this.refuseTicketWith = null;
     this.forgetUploads = false;
     this.claimOffset = null;
     this.dropChunks = 0;
     this.chunkDelayMs = 0;
   },
 };
+
+/**
+ * Who the stubbed API says the caller is.
+ *
+ * The real one reads it off a verified token; there is no token here, so it is
+ * a constant. What matters for these tests is that the browser is *told* the
+ * key rather than choosing it, which is exactly what a constant proves: the
+ * page has no way to know this value.
+ */
+const STUB_USER = "u";
 
 const page = `<!doctype html><meta charset="utf-8"><title>t</title>
 <body><script type="module" src="/bundle.js"></script></body>`;
@@ -235,6 +253,65 @@ const server = http.createServer(async (req, res) => {
     return res
       .writeHead(200, { "content-type": "application/json" })
       .end(JSON.stringify({ signedURL: `/object/sign/videos/${key}?token=signed-for-test` }));
+  }
+
+  /*
+    ── our own API, which is now the first thing an upload talks to ──
+
+    A stub of `POST /uploads`, standing in for the route the way the handlers
+    above stand in for Supabase. It mints the same shapes the real one does:
+    a key beginning with the signed-in user, a content type from the extension,
+    and a transfer that is a signed single request below six megabytes and the
+    tus endpoint above it.
+
+    The signed URL it hands back points at the same object path the browser
+    used to build for itself, which is what keeps the Storage handlers below
+    unchanged: the question this file has always asked is what the browser does
+    with a transfer, and that has not changed. What changed is who decided.
+  */
+  if (p === "/api/uploads" && req.method === "POST") {
+    const raw = await new Promise((resolve) => {
+      let text = "";
+      req.on("data", (c) => (text += c));
+      req.on("end", () => resolve(text));
+    });
+    if (storage.refuseTicketWith) {
+      const { status, error } = storage.refuseTicketWith;
+      storage.refuseTicketWith = null;
+      return res
+        .writeHead(status, { "content-type": "application/json" })
+        .end(JSON.stringify({ error }));
+    }
+    const ask = JSON.parse(raw || "{}");
+    const extension = (ask.filename ?? "").split(".").pop()?.toLowerCase() ?? "mp4";
+    const contentType =
+      { mov: "video/quicktime", webm: "video/webm", png: "image/png", jpg: "image/jpeg", mp3: "audio/mpeg", ttf: "font/ttf", otf: "font/otf" }[extension] ??
+      "video/mp4";
+    const leaf = {
+      source: `source.${extension}`,
+      reference: `reference.${extension}`,
+      thumbnail: "thumb.jpg",
+      asset: `asset-stub.${extension}`,
+    }[ask.purpose];
+    const key = leaf ? `${STUB_USER}/${ask.projectId}/${leaf}` : `${STUB_USER}/fonts/font-stub.${extension}`;
+    const expiresAt = new Date(Date.now() + 3600_000).toISOString();
+    const transfer =
+      ask.bytes > 6 * 1024 * 1024
+        ? {
+            mode: "resumable",
+            url: `${ORIGIN}/storage/v1/upload/resumable`,
+            headers: { "x-upsert": "true" },
+            metadata: { bucketName: "videos", objectName: key, contentType, cacheControl: "3600" },
+          }
+        : {
+            mode: "signed",
+            url: `${ORIGIN}/storage/v1/object/videos/${key}`,
+            method: "POST",
+            headers: { "content-type": contentType, "x-upsert": "true" },
+          };
+    return res
+      .writeHead(201, { "content-type": "application/json" })
+      .end(JSON.stringify({ path: key, contentType, maxBytes: 8 * 1024 * 1024, expiresAt, transfer }));
   }
 
   // ── tus ──
@@ -346,7 +423,6 @@ section("A small file goes in one request; anything worth resuming is resumed");
     const file = new File([new Uint8Array(1024 * 512)], "clip.mp4", { type: "video/mp4" });
     return window.VS.uploadProjectVideo({
       file,
-      userId: "user-1",
       projectId: "proj-1",
       accessToken: "token",
     }).done;
@@ -357,8 +433,8 @@ section("A small file goes in one request; anything worth resuming is resumed");
   check("nothing resumable was created for it", !storage.log.some((l) => l.path.includes("/upload/resumable")));
   check("all of the bytes went", posts[0]?.bytes === 1024 * 512, String(posts[0]?.bytes));
   check(
-    "and the key is the user's own folder, so the storage policy can see whose it is",
-    key === "user-1/proj-1/source.mp4",
+    "and the key is the one the API handed back, not one this page spelled",
+    key === "u/proj-1/source.mp4",
     key,
   );
 }
@@ -370,7 +446,6 @@ section("The extension follows the file, and falls back to what the browser call
     const upload = (name, type) =>
       window.VS.uploadProjectVideo({
         file: new File([new Uint8Array(16)], name, { type }),
-        userId: "u",
         projectId: "p",
         accessToken: "t",
       }).done;
@@ -396,7 +471,6 @@ section("A large file is chunked, and the server decides where each chunk goes")
     const seen = [];
     await window.VS.uploadProjectVideo({
       file: new File([new Uint8Array(size)], "big.mp4", { type: "video/mp4" }),
-      userId: "u",
       projectId: "p",
       accessToken: "t",
       onProgress: (percent) => seen.push(percent),
@@ -444,7 +518,6 @@ section("The offset is the server's answer, not ours");
       );
       return window.VS.uploadProjectVideo({
         file,
-        userId: "u",
         projectId: "p",
         accessToken: "t",
       }).done;
@@ -480,7 +553,6 @@ section("An upload the server has forgotten is started again, not patched into")
       localStorage.setItem(memory, `${origin}/storage/v1/upload/resumable/gone-forever`);
       const key = await window.VS.uploadProjectVideo({
         file,
-        userId: "u",
         projectId: "p",
         accessToken: "t",
       }).done;
@@ -505,9 +577,9 @@ section("A different file at the same path is a different upload");
     const a = new File([new Uint8Array(7 * 1024 * 1024)], "take-1.mp4", { type: "video/mp4" });
     const b = new File([new Uint8Array(7 * 1024 * 1024 + 5)], "take-2.mp4", { type: "video/mp4" });
     localStorage.clear();
-    await window.VS.uploadProjectVideo({ file: a, userId: "u", projectId: "p", accessToken: "t" }).done;
+    await window.VS.uploadProjectVideo({ file: a, projectId: "p", accessToken: "t" }).done;
     const afterA = Object.keys(localStorage).length;
-    await window.VS.uploadProjectVideo({ file: b, userId: "u", projectId: "p", accessToken: "t" }).done;
+    await window.VS.uploadProjectVideo({ file: b, projectId: "p", accessToken: "t" }).done;
     return { afterA, afterB: Object.keys(localStorage).length, uploads: null };
   });
 
@@ -530,7 +602,6 @@ section("Cancelling stops the transfer and says so");
   const result = await run(async () => {
     const handle = window.VS.uploadProjectVideo({
       file: new File([new Uint8Array(12 * 1024 * 1024)], "long.mp4", { type: "video/mp4" }),
-      userId: "u",
       projectId: "p",
       accessToken: "t",
     });
@@ -566,7 +637,6 @@ section("A dropped connection is an error the person can act on");
     try {
       await window.VS.uploadProjectVideo({
         file: new File([new Uint8Array(7 * 1024 * 1024)], "flaky.mp4", { type: "video/mp4" }),
-        userId: "u",
         projectId: "p",
         accessToken: "t",
       }).done;
@@ -597,7 +667,6 @@ section("A file the storage plan will not take is refused in words");
     try {
       await window.VS.uploadProjectVideo({
         file: new File([new Uint8Array(1024)], "small-but-refused.mp4", { type: "video/mp4" }),
-        userId: "u",
         projectId: "p",
         accessToken: "t",
       }).done;
@@ -631,6 +700,41 @@ section("A file the storage plan will not take is refused in words");
   );
 }
 
+section("A refusal from our own API is the sentence it came with");
+{
+  /*
+    The whole reason `POST /uploads` exists.
+
+    Before it, a file the bucket would not take was refused by Supabase, to a
+    browser, on a request no log of ours recorded, and what the person saw was
+    a status code. Now the refusal is ours and it is a sentence, and the only
+    thing this page has to get right is to show it rather than replace it with
+    something of its own.
+  */
+  storage.reset();
+  storage.refuseTicketWith = {
+    status: 409,
+    error: "You can keep 60 files in a project. Remove one to add another.",
+  };
+  const result = await run(async () => {
+    try {
+      await window.VS.uploadProjectVideo({
+        file: new File([new Uint8Array(1024)], "one-too-many.mp4", { type: "video/mp4" }),
+        projectId: "p",
+        accessToken: "t",
+      }).done;
+      return { rejected: false };
+    } catch (error) {
+      return { rejected: true, message: String(error.message), isUploadError: error instanceof window.VS.UploadError };
+    }
+  });
+
+  check("the upload does not start", result.rejected, JSON.stringify(result));
+  check("as an UploadError, so the page can show it like any other", result.isUploadError === true);
+  check("and the person reads the server's sentence, not a status code", /Remove one to add another/.test(result.message ?? ""), result.message);
+  check("nothing was sent to storage at all", storage.log.every((l) => !l.path.startsWith("/storage/")), JSON.stringify(storage.log));
+}
+
 section("A reference clip is capped before the network is touched");
 {
   storage.reset();
@@ -638,7 +742,6 @@ section("A reference clip is capped before the network is touched");
     try {
       await window.VS.uploadReferenceVideo({
         file: new File([new Uint8Array(26 * 1024 * 1024)], "whole-episode.mp4", { type: "video/mp4" }),
-        userId: "u",
         projectId: "p",
         accessToken: "t",
       });

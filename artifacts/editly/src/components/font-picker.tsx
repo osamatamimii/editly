@@ -219,7 +219,6 @@ export function FontPicker({
           <FontUpload
             script="latin"
             faces={uploaded}
-            userId={userId}
             accessToken={accessToken ?? null}
             onChanged={onFontsChanged}
             disabled={disabled}
@@ -246,7 +245,6 @@ export function FontPicker({
           <FontUpload
             script="arabic"
             faces={uploaded}
-            userId={userId}
             accessToken={accessToken ?? null}
             onChanged={onFontsChanged}
             disabled={disabled}

@@ -1,14 +1,33 @@
 /**
  * Uploads and plays video through the private "videos" Storage bucket.
  *
- * The bytes go straight from the browser to Storage — they never pass through
- * the serverless API, which could not stream a 50 MB body anyway. Row-level
- * security confines every request to the signed-in user's own folder, so the
- * only thing the API is told afterwards is the resulting object key.
+ * The bytes still go straight from the browser to Storage — they never pass
+ * through the serverless API, which could not stream a 50 MB body anyway. What
+ * changed is everything before the first byte: this file no longer decides
+ * where a file goes or whether it may go at all. It asks `POST /api/uploads`,
+ * which answers with a key our server chose, the content type it settled, the
+ * ceiling it measured against, and a URL it signed.
+ *
+ * That is not bookkeeping. Storage's refusals used to arrive at a browser on a
+ * request our server never saw: a content type the bucket does not hold, a file
+ * over a ceiling that lives in a Supabase setting, each answered with a bare
+ * 400 and no line in any log we own. Two of the worst bugs this product has had
+ * were that exact shape. Now the refusal is ours, it is written down, and it is
+ * a sentence.
+ *
+ * The pre-flight checks in here stayed. They are not the enforcement — the
+ * server's are — they are the courtesy of refusing a 26 MB reference clip
+ * before the network is touched instead of after a round trip.
  */
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
-import { uploadContentTypeFor, uploadKindFor } from "@workspace/api-zod/limits";
+import { uploadKindFor } from "@workspace/api-zod/limits";
+import type {
+  ResumableTransfer,
+  SignedTransfer,
+  UploadPurpose,
+  UploadTicket,
+} from "@workspace/api-zod/uploads";
 
 export const VIDEOS_BUCKET = "videos";
 
@@ -31,9 +50,9 @@ export const VIDEOS_BUCKET = "videos";
  * `maxUploadBytes` on the subscription. This is the fallback for the moment
  * before that answer arrives, and for a deployment where Storage will not say.
  *
- * The uploader below is already built for what comes after: files above
- * RESUMABLE_THRESHOLD go up in chunks and survive a dropped connection, so a
- * two-hour podcast is a long upload rather than an impossible one.
+ * The uploader below is already built for what comes after: a large file goes
+ * up in chunks and survives a dropped connection, so a two-hour podcast is a
+ * long upload rather than an impossible one.
  */
 export const MAX_UPLOAD_BYTES = Number(import.meta.env.VITE_MAX_UPLOAD_BYTES) || 50 * 1024 * 1024;
 
@@ -54,17 +73,26 @@ export function uploadCeiling(subscription?: { maxUploadBytes?: number } | null)
  * this chunk size for every part but the last, so it doubles as the threshold:
  * below one chunk there is nothing to resume and a single request is cheaper.
  */
+/**
+ * How much goes in one PATCH.
+ *
+ * *Whether* a file is chunked at all is no longer decided here: the ticket says
+ * which transfer this upload is, because that answer depends on what the
+ * storage provider can sign, which is a thing only the server knows.
+ */
 const CHUNK_BYTES = 6 * 1024 * 1024;
-const RESUMABLE_THRESHOLD = CHUNK_BYTES;
 
 export const ACCEPTED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
+/*
+  Re-exported rather than defined.
+
+  The sentence that names a ceiling is written on the server now, and the same
+  file printing "25.0 MB" on one side of a refusal and "25 MB" on the other is
+  the small wrongness that makes a person stop believing the number at all.
+*/
+export { formatBytes } from "@workspace/api-zod/uploads";
+import { formatBytes } from "@workspace/api-zod/uploads";
 
 function extensionFor(file: File): string {
   const fromName = file.name.match(/\.([a-z0-9]{2,5})$/i)?.[1]?.toLowerCase();
@@ -75,6 +103,131 @@ function extensionFor(file: File): string {
 }
 
 export class UploadError extends Error {}
+
+/**
+ * The name we tell the server, which always carries an extension.
+ *
+ * The server decides the content type from the extension and refuses a name it
+ * cannot read, which is the right rule: browsers disagree about fonts and
+ * several audio formats, and `file.type` is the disagreement. But a file really
+ * can arrive with no extension at all — a recording handed over by a share
+ * sheet — and the browser is the only place that knows what that browser
+ * thought it was. So the fallback happens here, once, and what leaves is a name
+ * the shared table can answer for.
+ */
+function nameToSend(file: File): string {
+  return /\.[a-z0-9]{2,5}$/i.test(file.name) ? file.name : `${file.name}.${extensionFor(file)}`;
+}
+
+/**
+ * Ask the API where these bytes may go, before sending any.
+ *
+ * What comes back is a key our server chose, the type it settled, the ceiling
+ * it measured against, and a transfer to perform. What comes back on a refusal
+ * is a sentence somebody wrote, which is the whole reason this call exists: the
+ * alternative is a 400 from Storage on a request nobody here logged.
+ */
+async function requestTicket(request: {
+  purpose: UploadPurpose;
+  filename: string;
+  bytes: number;
+  projectId?: string;
+  accessToken: string;
+}): Promise<UploadTicket> {
+  const { accessToken, ...body } = request;
+  let response: Response;
+  try {
+    response = await fetch("/api/uploads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // Before a byte moved, so there is nothing half-sent to explain.
+    throw new UploadError("We could not reach Editly to start this upload. Check your connection and try again.");
+  }
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new UploadError(failure.error ?? `This upload could not be started (${response.status}).`);
+  }
+  return (await response.json()) as UploadTicket;
+}
+
+interface TransferOptions {
+  ticket: UploadTicket;
+  body: Blob;
+  accessToken: string;
+  onProgress?: (percent: number, loaded: number, total: number) => void;
+  /** Somewhere to leave the request in flight, so a cancel can reach it. */
+  hold?: (xhr: XMLHttpRequest | null) => void;
+  isCancelled?: () => boolean;
+}
+
+/**
+ * Perform the transfer the ticket describes, and answer with the key.
+ *
+ * Which of the two it is was decided by the server, because the answer depends
+ * on what the storage provider can sign, and that is not a thing the browser
+ * should be reasoning about.
+ */
+async function transfer(options: TransferOptions): Promise<string> {
+  const how = options.ticket.transfer;
+  return how.mode === "resumable" ? sendResumably(options, how) : sendInOneRequest(options, how);
+}
+
+/**
+ * One request to a URL our server signed.
+ *
+ * XMLHttpRequest rather than fetch because it is still the only browser API
+ * that reports upload progress, which is the difference between a person
+ * waiting and a person wondering.
+ */
+function sendInOneRequest(options: TransferOptions, how: SignedTransfer): Promise<string> {
+  const { ticket, body, onProgress, hold } = options;
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    hold?.(xhr);
+    xhr.open(how.method, how.url, true);
+    // Exactly the headers the signature was computed over. Adding one of our
+    // own here is how a signed PUT becomes a 403 that names no cause.
+    for (const [name, value] of Object.entries(how.headers)) xhr.setRequestHeader(name, value);
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
+      onProgress?.(percent, event.loaded, event.total);
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(100, body.size, body.size);
+        resolve(ticket.path);
+        return;
+      }
+      let message = `Upload failed (${xhr.status})`;
+      try {
+        const failure = JSON.parse(xhr.responseText);
+        if (failure?.message) message = failure.message;
+        else if (failure?.error) message = failure.error;
+      } catch {
+        /* Storage returned a non-JSON error page */
+      }
+      // Reached only when the ceiling the server measured against was not the
+      // one Storage holds, so it does not repeat that number: a sentence that
+      // says "your 12MB file is over the 50MB limit" is worse than one that
+      // says less. The size is ours to state; the limit, at this point, is not.
+      if (xhr.status === 413) {
+        message = `Storage refused this file as too large at ${formatBytes(body.size)}.`;
+      }
+      reject(new UploadError(message));
+    };
+
+    xhr.onerror = () => reject(new UploadError("Network error during upload."));
+    xhr.onabort = () => reject(new UploadError("Upload cancelled."));
+
+    xhr.send(body);
+  });
+}
 
 export interface VideoFacts {
   /** Seconds. */
@@ -297,72 +450,61 @@ export function captureFrameFrom(src: string, atFraction = 0.25): Promise<Blob> 
 /** Uploads the poster frame beside the video and returns its object key. */
 export async function uploadThumbnail(options: {
   blob: Blob;
-  userId: string;
   projectId: string;
   accessToken: string;
 }): Promise<string> {
-  const { blob, userId, projectId, accessToken } = options;
-  const path = `${userId}/${projectId}/thumb.jpg`;
-  const res = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${path}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        "Content-Type": "image/jpeg",
-        "x-upsert": "true",
-      },
-      body: blob,
-    },
-  );
-  if (!res.ok) throw new UploadError(`Could not store the poster frame (${res.status}).`);
-  return path;
+  const { blob, projectId, accessToken } = options;
+  // A JPEG this code encoded a moment ago, so the name is a description rather
+  // than a claim. The server holds this purpose to that one type for the same
+  // reason: the key it mints is the fixed name `thumb.jpg`.
+  const ticket = await requestTicket({
+    purpose: "thumbnail",
+    filename: "thumb.jpg",
+    bytes: blob.size,
+    projectId,
+    accessToken,
+  });
+  return transfer({ ticket, body: blob, accessToken });
 }
 
 /**
  * Sends a reference video — the one whose look this edit should match.
  *
- * Deliberately the plain, non-resumable path with a tight size cap. A reference
- * is a sample of a style, not a deliverable: the worker only ever reads the
- * first two minutes of it, so asking someone to upload a whole episode as a
- * reference would cost them minutes of transfer for bytes we throw away. The
- * cap is the honest expression of that.
+ * Capped far tighter than anything else, because a reference is a sample of a
+ * style and not a deliverable: the worker only ever reads the first two minutes
+ * of it, so asking someone to upload a whole episode as a reference would cost
+ * them minutes of transfer for bytes we throw away. The cap is the honest
+ * expression of that.
+ *
+ * The cap is checked here as well as on the server. That is not the
+ * enforcement, which happens where it can be trusted; it is the difference
+ * between refusing a file instantly and refusing it after a round trip.
  */
 export const MAX_REFERENCE_BYTES = 25 * 1024 * 1024;
 
 export async function uploadReferenceVideo(options: {
   file: File;
-  userId: string;
   projectId: string;
   accessToken: string;
 }): Promise<string> {
-  const { file, userId, projectId, accessToken } = options;
+  const { file, projectId, accessToken } = options;
   if (file.size > MAX_REFERENCE_BYTES) {
     throw new UploadError(
       `That reference is ${formatBytes(file.size)}. We only read the first couple of minutes of one, so keep it under ${formatBytes(MAX_REFERENCE_BYTES)}. A short clip in the style you want is plenty.`,
     );
   }
 
-  // Same per-user, per-project prefix as everything else: the storage policy
-  // and the server's ownership check both key off it, and a reference is no
-  // more shareable than the footage it is being matched to.
-  const path = `${userId}/${projectId}/reference.${extensionFor(file)}`;
-  const res = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${path}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        "Content-Type": file.type || "video/mp4",
-        "x-upsert": "true",
-      },
-      body: file,
-    },
-  );
-  if (!res.ok) throw new UploadError(`Could not store the reference video (${res.status}).`);
-  return path;
+  // The same per-user, per-project prefix as everything else, and the server is
+  // the one that spells it: a reference is no more shareable than the footage
+  // it is being matched to.
+  const ticket = await requestTicket({
+    purpose: "reference",
+    filename: nameToSend(file),
+    bytes: file.size,
+    projectId,
+    accessToken,
+  });
+  return transfer({ ticket, body: file, accessToken });
 }
 
 export interface UploadHandle {
@@ -373,79 +515,68 @@ export interface UploadHandle {
 }
 
 /**
- * Sends `file` to "<userId>/<projectId>/source.<ext>" and reports real transfer
- * progress. XMLHttpRequest is used rather than fetch because it is still the
- * only browser API that exposes upload progress events.
+ * Sends a take, and reports real transfer progress.
  *
- * Anything worth resuming is resumed. A single POST is the right shape for a
- * small file and the wrong shape for a large one: one dropped connection at
- * 90% and the person starts again from zero, which on a phone is how an upload
- * fails three times in a row and the person leaves. Above one chunk we use
- * Supabase's resumable endpoint, remember where we were across a page reload,
- * and pick the transfer back up.
+ * The key it lands under is no longer spelled here. This asks the API, which
+ * checks the project is this person's, the file is a video, and its size is
+ * inside the ceiling the bucket actually holds, and then answers with a key and
+ * a transfer. Anything wrong is a sentence at that point, before a byte moves,
+ * instead of a 400 from Storage twenty minutes into an upload.
+ *
+ * Anything worth resuming is resumed, and that decision is the server's too: a
+ * single POST is the right shape for a small file and the wrong shape for a
+ * large one, because one dropped connection at 90% and the person starts again
+ * from zero, which on a phone is how an upload fails three times and the person
+ * leaves.
  */
 export function uploadProjectVideo(options: {
   file: File;
-  userId: string;
   projectId: string;
   accessToken: string;
   onProgress?: (percent: number, loaded: number, total: number) => void;
 }): UploadHandle {
-  const { file, userId, projectId, accessToken, onProgress } = options;
-  const path = `${userId}/${projectId}/source.${extensionFor(file)}`;
+  const { file, projectId, accessToken, onProgress } = options;
 
-  if (file.size > RESUMABLE_THRESHOLD) {
-    return uploadResumably({ file, path, accessToken, onProgress });
-  }
+  /*
+    A handle, returned before the ticket has been asked for.
 
-  const endpoint = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${path}`;
+    The caller wires `cancel` to a button that is already on screen, so it
+    cannot be handed something that only exists one await later. The flag is
+    what covers the gap: a cancel that lands during the ticket request is
+    honoured at the first place that looks, rather than being lost and then
+    surprising somebody with a completed upload they stopped.
+  */
+  let current: XMLHttpRequest | null = null;
+  let cancelled = false;
 
-  const xhr = new XMLHttpRequest();
+  const done = (async () => {
+    const ticket = await requestTicket({
+      purpose: "source",
+      filename: nameToSend(file),
+      bytes: file.size,
+      projectId,
+      accessToken,
+    });
+    if (cancelled) throw new UploadError("Upload cancelled.");
+    return transfer({
+      ticket,
+      body: file,
+      accessToken,
+      onProgress,
+      hold: (xhr) => {
+        current = xhr;
+      },
+      isCancelled: () => cancelled,
+    });
+  })();
 
-  const done = new Promise<string>((resolve, reject) => {
-    xhr.open("POST", endpoint, true);
-    xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
-    xhr.setRequestHeader("apikey", import.meta.env.VITE_SUPABASE_ANON_KEY);
-    xhr.setRequestHeader("x-upsert", "true");
-    if (file.type) xhr.setRequestHeader("Content-Type", file.type);
-
-    xhr.upload.onprogress = (event) => {
-      if (!event.lengthComputable) return;
-      const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
-      onProgress?.(percent, event.loaded, event.total);
-    };
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        onProgress?.(100, file.size, file.size);
-        resolve(path);
-        return;
-      }
-      let message = `Upload failed (${xhr.status})`;
-      try {
-        const body = JSON.parse(xhr.responseText);
-        if (body?.message) message = body.message;
-        else if (body?.error) message = body.error;
-      } catch {
-        /* Storage returned a non-JSON error page */
-      }
-      // Reached only when the ceiling this page checked against was wrong, so
-      // it does not repeat that number: a sentence that says "your 12MB file
-      // is over the 50MB limit" is worse than one that says less. The size is
-      // ours to state; the limit, at this point, is not.
-      if (xhr.status === 413) {
-        message = `Storage refused this file as too large at ${formatBytes(file.size)}.`;
-      }
-      reject(new UploadError(message));
-    };
-
-    xhr.onerror = () => reject(new UploadError("Network error during upload."));
-    xhr.onabort = () => reject(new UploadError("Upload cancelled."));
-
-    xhr.send(file);
-  });
-
-  return { done, cancel: () => xhr.abort() };
+  return {
+    done,
+    cancel: () => {
+      cancelled = true;
+      current?.abort();
+    },
+  };
 }
 
 /**
@@ -457,60 +588,53 @@ export function uploadProjectVideo(options: {
  * the server's answer, never ours, which is what makes resuming safe after a
  * crash we did not see.
  *
+ * This is the one transfer that still carries the person's own session, and it
+ * is not an oversight: Supabase's resumable endpoint has no signed form, so the
+ * alternative is not "a signed resumable upload", it is no resumable upload at
+ * all. What moved to the server is the part that can move — the key, the type,
+ * the ceiling, and the line in the log — and the metadata below is read off the
+ * ticket rather than assembled here for exactly that reason.
+ *
  * The upload URL is kept in localStorage against this exact file, so closing
  * the tab mid-transfer costs the current chunk rather than the whole video. It
  * is keyed by path, size and last-modified time: a different file at the same
  * path is a different upload, and silently appending one file's bytes onto
  * another's would produce a video that plays for a while and then does not.
  */
-function uploadResumably(options: {
-  file: File;
-  path: string;
-  accessToken: string;
-  onProgress?: (percent: number, loaded: number, total: number) => void;
-}): UploadHandle {
-  const { file, path, accessToken, onProgress } = options;
-  const base = import.meta.env.VITE_SUPABASE_URL;
-  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const memory = `editly:upload:${path}:${file.size}:${file.lastModified}`;
-
-  let current: XMLHttpRequest | null = null;
-  let cancelled = false;
+function sendResumably(options: TransferOptions, how: ResumableTransfer): Promise<string> {
+  const { ticket, body, accessToken, onProgress, hold, isCancelled } = options;
+  const lastModified = body instanceof File ? body.lastModified : 0;
+  const memory = `editly:upload:${ticket.path}:${body.size}:${lastModified}`;
 
   const auth = {
     authorization: `Bearer ${accessToken}`,
-    apikey: anon,
+    apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
     "tus-resumable": "1.0.0",
   };
 
   const report = (uploaded: number) => {
-    const percent = Math.min(99, Math.round((uploaded / file.size) * 100));
-    onProgress?.(percent, uploaded, file.size);
+    const percent = Math.min(99, Math.round((uploaded / body.size) * 100));
+    onProgress?.(percent, uploaded, body.size);
   };
 
   async function createUpload(): Promise<string> {
-    const meta = [
-      ["bucketName", VIDEOS_BUCKET],
-      ["objectName", path],
-      // Ours, from the extension, not the browser's guess. The bucket compares
-      // this string against its allow-list and 400s on a miss — mid-upload, on
-      // a file somebody has already spent minutes sending.
-      ["contentType", uploadContentTypeFor(file.name) ?? "video/mp4"],
-      ["cacheControl", "3600"],
-    ]
-      .map(([k, v]) => `${k} ${btoa(unescape(encodeURIComponent(v)))}`)
+    // Every value here was decided by the server. The bucket compares
+    // `contentType` against its allow-list and 400s on a miss, mid-upload, on a
+    // file somebody has already spent minutes sending.
+    const meta = Object.entries(how.metadata)
+      .map(([key, value]) => `${key} ${btoa(unescape(encodeURIComponent(value)))}`)
       .join(",");
 
-    const response = await fetch(`${base}/storage/v1/upload/resumable`, {
+    const response = await fetch(how.url, {
       method: "POST",
       headers: {
         ...auth,
-        "upload-length": String(file.size),
+        ...how.headers,
+        "upload-length": String(body.size),
         "upload-metadata": meta,
-        "x-upsert": "true",
       },
     });
-    if (!response.ok) throw new UploadError(await uploadErrorText(response, file.size));
+    if (!response.ok) throw new UploadError(await uploadErrorText(response, body.size));
 
     const location = response.headers.get("location");
     if (!location) throw new UploadError("Storage did not return somewhere to upload to.");
@@ -527,9 +651,9 @@ function uploadResumably(options: {
 
   function sendChunk(url: string, offset: number): Promise<number> {
     return new Promise((resolve, reject) => {
-      const chunk = file.slice(offset, Math.min(offset + CHUNK_BYTES, file.size));
+      const chunk = body.slice(offset, Math.min(offset + CHUNK_BYTES, body.size));
       const xhr = new XMLHttpRequest();
-      current = xhr;
+      hold?.(xhr);
 
       xhr.open("PATCH", url, true);
       for (const [key, value] of Object.entries(auth)) xhr.setRequestHeader(key, value);
@@ -553,7 +677,7 @@ function uploadResumably(options: {
     });
   }
 
-  const done = (async () => {
+  return (async () => {
     let url = localStorage.getItem(memory);
     let offset = 0;
 
@@ -576,23 +700,15 @@ function uploadResumably(options: {
 
     report(offset);
 
-    while (offset < file.size) {
-      if (cancelled) throw new UploadError("Upload cancelled.");
+    while (offset < body.size) {
+      if (isCancelled?.()) throw new UploadError("Upload cancelled.");
       offset = await sendChunk(url, offset);
     }
 
     localStorage.removeItem(memory);
-    onProgress?.(100, file.size, file.size);
-    return path;
+    onProgress?.(100, body.size, body.size);
+    return ticket.path;
   })();
-
-  return {
-    done,
-    cancel: () => {
-      cancelled = true;
-      current?.abort();
-    },
-  };
 }
 
 async function uploadErrorText(response: Response, size?: number): Promise<string> {
@@ -756,7 +872,6 @@ export function assetKindOf(file: File): AssetKind | null {
 
 export async function uploadProjectAsset(options: {
   file: File;
-  userId: string;
   projectId: string;
   accessToken: string;
   /**
@@ -768,7 +883,7 @@ export async function uploadProjectAsset(options: {
    */
   ceiling: number;
 }): Promise<{ path: string; kind: AssetKind }> {
-  const { file, userId, projectId, accessToken, ceiling } = options;
+  const { file, projectId, accessToken, ceiling } = options;
   const kind = assetKindOf(file);
   if (!kind) {
     throw new UploadError(
@@ -781,29 +896,19 @@ export async function uploadProjectAsset(options: {
     );
   }
 
-  // A name derived from the bytes, not from the browser's. Two people uploading
-  // "logo.png" into one project must not collide, and a filename is the one
-  // part of an upload an attacker fully controls — the path segments are
-  // validated server-side, and generating the leaf here means there is nothing
-  // to validate.
-  const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  const path = `${userId}/${projectId}/asset-${stamp}.${extensionFor(file)}`;
-
-  const res = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${path}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        // Ours, from the extension. See `uploadContentTypeFor`.
-        "Content-Type": uploadContentTypeFor(file.name) ?? "video/mp4",
-        "x-upsert": "true",
-      },
-      body: file,
-    },
-  );
-  if (!res.ok) throw new UploadError(`Could not store "${file.name}" (${res.status}).`);
+  // The unique leaf is generated on the server now, along with the rest of the
+  // key. Two people uploading "logo.png" into one project must not collide, and
+  // a filename is the one part of an upload an attacker fully controls, so the
+  // right place for it to have no influence at all is the side that also holds
+  // the ownership check.
+  const ticket = await requestTicket({
+    purpose: "asset",
+    filename: nameToSend(file),
+    bytes: file.size,
+    projectId,
+    accessToken,
+  });
+  const path = await transfer({ ticket, body: file, accessToken });
   return { path, kind };
 }
 
@@ -830,10 +935,9 @@ const FONT_EXTENSIONS = new Set(["ttf", "otf", "ttc"]);
  */
 export async function uploadCaptionFont(options: {
   file: File;
-  userId: string;
   accessToken: string;
 }): Promise<{ path: string }> {
-  const { file, userId, accessToken } = options;
+  const { file, accessToken } = options;
   const extension = (file.name.split(".").pop() ?? "").toLowerCase();
   if (!FONT_EXTENSIONS.has(extension)) {
     throw new UploadError(
@@ -846,33 +950,26 @@ export async function uploadCaptionFont(options: {
     );
   }
 
-  const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  const path = `${userId}/fonts/font-${stamp}.${extension}`;
-
   /*
-    Our name for the type, not the browser's.
+    The type is the server's answer, not the browser's.
 
     The bucket rejects any content type outside its allow-list, and browsers
     disagree about fonts: one sends `font/otf`, another `application/x-font-otf`,
     a third an empty string. Sending whatever this browser happened to think
     would make the upload work on some machines and fail on others, with a 400
-    from Storage and nothing anywhere saying why.
-  */
-  const contentType = uploadContentTypeFor(file.name) ?? "font/ttf";
+    from Storage and nothing anywhere saying why. So the name goes and the type
+    comes back, from the one table both sides share.
 
-  const res = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${path}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        "Content-Type": contentType,
-        "x-upsert": "true",
-      },
-      body: file,
-    },
-  );
-  if (!res.ok) throw new UploadError(`Could not store "${file.name}" (${res.status}).`);
+    The folder is the person's rather than a project's, and the server spells
+    that too: the whole point of uploading a typeface is that it is there in
+    the next project.
+  */
+  const ticket = await requestTicket({
+    purpose: "font",
+    filename: file.name,
+    bytes: file.size,
+    accessToken,
+  });
+  const path = await transfer({ ticket, body: file, accessToken });
   return { path };
 }

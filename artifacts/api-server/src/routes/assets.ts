@@ -33,8 +33,14 @@ import { rateLimit, LIMITS } from "../lib/rate-limit";
 
 const router: IRouter = Router();
 
-/** How many files one project may hold. A library, not a backup drive. */
-const MAX_ASSETS_PER_PROJECT = 60;
+/**
+ * How many files one project may hold. A library, not a backup drive.
+ *
+ * Exported because the upload route enforces the same number one step earlier,
+ * before the bytes rather than after them, and two copies of it would mean an
+ * upload authorised here and refused there.
+ */
+export const MAX_ASSETS_PER_PROJECT = 60;
 
 function serialize(row: typeof assetsTable.$inferSelect): unknown {
   return {

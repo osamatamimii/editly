@@ -158,6 +158,11 @@ jobs:
       # verified against AWS's own published vector, so being right does not
       # depend on having an account.
       - run: node tools/object-store-test.mjs
+      # The other half of that seam: the endpoint that mints the signed upload
+      # URL, and the decisions it makes before it mints one. Reads no bucket
+      # and no database, because the decision is a pure function and the wiring
+      # around it is checked by reading the route.
+      - run: node tools/uploads-test.mjs
       - run: node tools/policy-test.mjs
       # The privacy page cannot become a lie by addition: every host the code
       # sends a request to has to be named on it.

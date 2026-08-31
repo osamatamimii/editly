@@ -511,7 +511,6 @@ export default function ProjectEditor() {
         if (!accessToken) return;
         const thumbnailPath = await uploadThumbnail({
           blob,
-          userId: user.id,
           projectId: project.id,
           accessToken,
         });
@@ -603,7 +602,6 @@ export default function ProjectEditor() {
     // Real bytes on the wire, not a timer pretending to be one.
     const handle = uploadProjectVideo({
       file,
-      userId: user.id,
       projectId: id,
       accessToken,
       onProgress: (percent, loaded, total) => {
@@ -632,7 +630,6 @@ export default function ProjectEditor() {
       if (posterBlob) {
         thumbnailPath = await uploadThumbnail({
           blob: posterBlob,
-          userId: user.id,
           projectId: id,
           accessToken,
         }).catch(() => undefined);
@@ -808,7 +805,6 @@ export default function ProjectEditor() {
     try {
       const referenceVideoPath = await uploadReferenceVideo({
         file,
-        userId: user.id,
         projectId: project.id,
         accessToken,
       });
@@ -1287,7 +1283,7 @@ export default function ProjectEditor() {
   // operations, and a panel that appears only after the upload teaches people
   // the library is an afterthought.
   const library = project && user?.id && (
-    <ProjectLibrary projectId={project.id} userId={user.id} ceiling={uploadCeiling(subscription)} />
+    <ProjectLibrary projectId={project.id} ceiling={uploadCeiling(subscription)} />
   );
 
   const clipsPanel = (

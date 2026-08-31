@@ -1470,6 +1470,144 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /uploads:
+    post:
+      operationId: authoriseUpload
+      tags: [uploads]
+      summary: Ask where a file may go, before sending it
+      description: >
+        The step that puts this API back on the path of an upload. The browser
+        says what it is about to send; the server decides where it goes and
+        whether it may go at all, and answers with a key it chose, the content
+        type it settled, the ceiling it measured against and a URL it signed.
+
+
+        Four things are checked here and every one of them before anything is
+        signed - that the project belongs to the caller, that the shelf it is
+        going on is not already full, that the type is one this product holds,
+        and that the size is inside the smaller of the bucket's ceiling and
+        this product's own for the purpose. Each refusal carries a sentence and
+        leaves a line in the log with a reason code. Before this endpoint every
+        one of those refusals came from Storage, to a browser, on a request no
+        log here recorded.
+
+
+        The storage key is not in the request and never was: it is built from
+        the verified user id, so another account's folder is unspellable rather
+        than merely rejected.
+
+
+        The transfer comes back in one of two shapes. "signed" is a URL this
+        API minted and carries no credential of ours. "resumable" is the tus
+        endpoint, used for a file large enough that starting again from zero
+        would cost somebody their upload - Supabase's resumable endpoint has no
+        signed form, so that transfer still carries the person's own session
+        while every decision about it was made here. A provider whose multipart
+        upload can be signed per part never answers with this mode.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                purpose:
+                  type: string
+                  enum: [source, asset, reference, thumbnail, font]
+                  description: >
+                    What the file is for, which is what decides the key, the
+                    ceiling and the types that are acceptable.
+                filename:
+                  type: string
+                  description: >
+                    Used for the content type and the extension and nothing
+                    else. It never becomes part of the key.
+                bytes:
+                  type: integer
+                projectId:
+                  type: string
+                  description: Required by every purpose except a font, which belongs to the person.
+              required: [purpose, filename, bytes]
+      responses:
+        "201":
+          description: Authorised, with somewhere to send the bytes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                    description: The storage key, chosen here. What the browser reports back afterwards.
+                  contentType:
+                    type: string
+                  maxBytes:
+                    type: integer
+                    description: The ceiling this was measured against, so the screen can name a real number.
+                  expiresAt:
+                    type: string
+                  transfer:
+                    type: object
+                    description: Either a signed URL, or the resumable endpoint and the metadata to create with.
+                    properties:
+                      mode:
+                        type: string
+                        enum: [signed, resumable]
+                      url:
+                        type: string
+                      method:
+                        type: string
+                        enum: [PUT, POST]
+                      headers:
+                        type: object
+                        additionalProperties:
+                          type: string
+                      metadata:
+                        type: object
+                        additionalProperties:
+                          type: string
+                    required: [mode, url, headers]
+                required: [path, contentType, maxBytes, expiresAt, transfer]
+        "400":
+          description: A type this product cannot use, a purpose with no project, or a body that could not be read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: No such project for this account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: The project or the account is already holding as many files as it may
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Larger than the ceiling that was actually applied, which the sentence names
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many uploads started too quickly
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: >
+            Storage is not configured, or would not sign. Not a 400 - a person
+            told their file is the problem will spend the afternoon trying
+            smaller ones.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /social/connect/{platform}:
     post:
       operationId: startSocialConnection

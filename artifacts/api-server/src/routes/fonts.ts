@@ -36,8 +36,11 @@ const router: IRouter = Router();
  * A brand has a typeface, maybe three. This is a picker, and a picker with
  * forty entries is a search problem rather than a choice — and every one of
  * them is a file a render may have to fetch.
+ *
+ * Exported because the upload route enforces the same number one step earlier,
+ * before the bytes rather than after them.
  */
-const MAX_FACES = 24;
+export const MAX_FACES = 24;
 
 function serialize(row: typeof captionFacesTable.$inferSelect, language: string) {
   return {

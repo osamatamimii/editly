@@ -30,11 +30,9 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 export function ProjectLibrary({
   projectId,
-  userId,
   ceiling,
 }: {
   projectId: string;
-  userId: string;
   /**
    * The bucket's real ceiling, handed down rather than looked up here.
    *
@@ -88,7 +86,7 @@ export function ProjectLibrary({
         const token = data.session?.access_token;
         if (!token) throw new Error("Your session expired. Sign in again.");
 
-        const { path, kind } = await uploadProjectAsset({ file, userId, projectId, accessToken: token, ceiling });
+        const { path, kind } = await uploadProjectAsset({ file, projectId, accessToken: token, ceiling });
         const res = await fetch(`/api/projects/${projectId}/assets`, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -190,7 +188,7 @@ export function ProjectLibrary({
         </ul>
       )}
 
-      <StockSearch projectId={projectId} userId={userId} onAdded={refresh} ceiling={ceiling} />
+      <StockSearch projectId={projectId} onAdded={refresh} ceiling={ceiling} />
     </div>
   );
 }

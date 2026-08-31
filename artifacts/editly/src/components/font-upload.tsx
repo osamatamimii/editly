@@ -51,14 +51,12 @@ const SAYING: Record<UploadedFace["status"], string> = {
 export function FontUpload({
   script,
   faces,
-  userId,
   accessToken,
   onChanged,
   disabled,
 }: {
   script: FaceScript;
   faces: UploadedFace[];
-  userId: string;
   accessToken: string | null;
   onChanged: () => void;
   disabled?: boolean;
@@ -90,7 +88,7 @@ export function FontUpload({
     }
     setBusy(true);
     try {
-      const { path } = await uploadCaptionFont({ file, userId, accessToken });
+      const { path } = await uploadCaptionFont({ file, accessToken });
       const response = await apiFetch("/api/fonts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -224,7 +224,7 @@ const storage = http.createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Headers", req.headers["access-control-request-headers"] ?? "*");
   res.setHeader("Access-Control-Expose-Headers", "location, upload-offset, upload-length, tus-resumable, content-length");
   if (req.method === "OPTIONS") { res.writeHead(204).end(); return; }
-  const key = decodeURIComponent(url.pathname.replace(/^\/storage\/v1\/object\/(?:public\/|sign\/|authenticated\/)?videos\//, ""));
+  const key = decodeURIComponent(url.pathname.replace(/^\/storage\/v1\/object\/(?:public\/|sign\/|authenticated\/|upload\/sign\/)?videos\//, ""));
 
   // JWKS first: the catch-all below starts with the same prefix, and answering
   // `{}` to a key request is a 401 on every call the browser makes.
@@ -253,6 +253,27 @@ const storage = http.createServer(async (req, res) => {
     // page silently had nothing to play while the render itself was perfect.
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ signedURL: `/object/sign/videos/${key}?token=t` }));
+    return;
+  }
+  /*
+    Minting an *upload* URL, which is a different endpoint from minting a
+    playback one and is now the first thing every upload does.
+
+    The browser no longer carries its own token to Storage: it asks our API
+    where the file may go, our API asks Storage for a URL to write to with the
+    service key, and the browser PUTs to that. So this branch answers the API,
+    and the PUT that follows it falls through to the store below like any other
+    write — which is the point, because the bytes take exactly the path they
+    always did.
+
+    Told apart from that PUT by the absence of a token: the mint is a POST from
+    a server that holds the service key, the write is a request carrying the
+    token this answered with.
+  */
+  if (req.method === "POST" && url.pathname.includes("/object/upload/sign/") && !url.searchParams.has("token")) {
+    for await (const _ of req) { /* drain the body; it is not the object */ }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ url: `/object/upload/sign/videos/${key}?token=t` }));
     return;
   }
   if (req.method === "POST" || req.method === "PUT") {
