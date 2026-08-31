@@ -83,11 +83,36 @@ export function evenlySpacedPunches(durationSeconds: number | null, count: numbe
   return Array.from({ length: count }, (_, i) => Number((start + step * (i + 1)).toFixed(2)));
 }
 
+/**
+ * The caption on a look that is meant to be posted.
+ *
+ * Not decoration and not an accessory: a talking clip in these feeds is read
+ * with the sound off, and a look that produces a post without captions
+ * produces something nobody can use. Three looks here did — the two built
+ * around a person talking to camera, and the podcast one, which are between
+ * them the most-used looks in the product.
+ *
+ * `karaoke` rather than `pop`, and that is a decision about information rather
+ * than about taste. The pipeline already knows when each word was said — it
+ * transcribes to write the captions in the first place — and `pop` throws that
+ * away to scale the whole cue in at once. The wipe spends it: the colour
+ * arrives with the voice, which is what holds somebody through a clip they are
+ * watching muted. When word timings are genuinely missing the renderer falls
+ * back to a plain fade rather than faking a rhythm, so this is never worse than
+ * having asked for nothing.
+ *
+ * `dropFillers` throughout. "Um" burned onto a frame is the tell of a caption
+ * nobody read before it went out.
+ */
+function captions(style: "bold-white" | "bold-yellow" | "karaoke-box") {
+  return { type: "autoCaptions" as const, style, animation: "karaoke" as const, dropFillers: true };
+}
+
 export const TEMPLATES: Template[] = [
   {
     id: "tight-talking-head",
     name: "Tight talking head",
-    description: "Cuts every pause, pushes in slowly, levels the audio.",
+    description: "Cuts every pause, pushes in slowly, captions it, levels the audio.",
     bestFor: "One person to camera",
     build: (context) =>
       withWatermark(
@@ -97,6 +122,7 @@ export const TEMPLATES: Template[] = [
           // A locked-off camera plus a slow push is the entire look. 1.08 over
           // the clip is roughly a percent every few seconds — felt, not seen.
           { type: "kenBurns", to: 1.08 },
+          captions("bold-white"),
           { type: "normalizeLoudness", targetLufs: -14 },
         ],
         context,
@@ -105,7 +131,7 @@ export const TEMPLATES: Template[] = [
   {
     id: "high-energy",
     name: "High energy",
-    description: "Aggressive silence cuts and punch-in zooms throughout.",
+    description: "Aggressive silence cuts, punch-in zooms and loud captions throughout.",
     bestFor: "Rants, reactions, anything fast",
     build: (context) =>
       withWatermark(
@@ -124,6 +150,10 @@ export const TEMPLATES: Template[] = [
             amount: 0.14,
             holdMs: 900,
           },
+          // Yellow, because this look is the loud one and a caption that
+          // matches it reads as one edit rather than as a caption laid over
+          // somebody else's.
+          captions("bold-yellow"),
           { type: "normalizeLoudness", targetLufs: -13 },
         ],
         context,
@@ -147,7 +177,11 @@ export const TEMPLATES: Template[] = [
   {
     id: "the-look",
     name: "The look",
-    description: "Cuts the pauses, dissolves between them, and grades it cinematic.",
+    // The captions were always here — the comment in the build below has
+    // referred to them since it was written — and the sentence a person reads
+    // did not mention them. An omission rather than a lie, and still a look
+    // that does something to somebody's video without saying it would.
+    description: "Cuts the pauses, dissolves between them, captions it, and grades it cinematic.",
     bestFor: "A take you want to look produced rather than recorded",
     build: (context) =>
       withWatermark(
@@ -167,7 +201,7 @@ export const TEMPLATES: Template[] = [
           // The grade goes on the picture and not on what is drawn over it, so
           // the captions below stay white rather than drifting with the look.
           { type: "grade", saturation: 1, look: "cinematic" },
-          { type: "autoCaptions", style: "bold-white", animation: "pop", dropFillers: true },
+          captions("bold-white"),
           { type: "normalizeLoudness", targetLufs: -14 },
         ],
         context,
@@ -189,7 +223,7 @@ export const TEMPLATES: Template[] = [
           { type: "formatForPlatform", platform: context.platform },
           // A highlight exists to be posted, and posted clips get read with
           // the sound off. Captions are the look, not an accessory to it.
-          { type: "autoCaptions", style: "bold-white", animation: "pop", dropFillers: true },
+          captions("bold-white"),
           { type: "normalizeLoudness", targetLufs: -14 },
         ],
         context,
@@ -212,7 +246,7 @@ export const TEMPLATES: Template[] = [
           { type: "formatForPlatform", platform: context.platform },
           // Same reasoning as the highlight: a clip made to be posted is a
           // clip read with the sound off.
-          { type: "autoCaptions", style: "bold-white", animation: "pop", dropFillers: true },
+          captions("bold-white"),
           { type: "normalizeLoudness", targetLufs: -14 },
           // Half a second at each end. A piece cut out of the middle of a
           // recording starts and stops mid-room; the fade is what makes it
@@ -277,16 +311,36 @@ export const TEMPLATES: Template[] = [
   {
     id: "podcast-clip",
     name: "Podcast clip",
-    description: "Keeps the natural rhythm, adds a gentle push and even levels.",
+    description: "Finds the best 45 seconds of the conversation, captions it in a box, evens the levels.",
     bestFor: "Two people talking, longer takes",
     build: (context) =>
       withWatermark(
         [
+          /*
+            It has to cut something out, or it is not a clip.
+
+            This look was the whole take, cleaned: point it at a ninety-minute
+            episode — which is precisely what "longer takes" invites — and it
+            returned a ninety-minute file with captions burned across all of
+            it. Nothing failed; it is a correct render of an edit nobody can
+            post, under a name that says the opposite.
+
+            Forty-five rather than the thirty the other looks use, because a
+            moment from a conversation needs the line before the good line.
+          */
+          { type: "extractHighlight", targetSeconds: 45 },
           // A long threshold on purpose: cutting every pause out of a
           // conversation makes it sound like an argument.
           { type: "removeSilence", thresholdDb: -36, minSilenceMs: 900, paddingMs: 150 },
           { type: "formatForPlatform", platform: context.platform },
           { type: "kenBurns", to: 1.05 },
+          // The box, and only here. A podcast is shot in whatever room the
+          // people are in — a bright window behind one of them, a white wall,
+          // a lamp — and white letters with an outline are a gamble against
+          // that. An opaque backing is the one caption style that cannot be
+          // lost to the shot behind it, and this is the look most likely to be
+          // pointed at footage nobody lit.
+          captions("karaoke-box"),
           { type: "normalizeLoudness", targetLufs: -14 },
         ],
         context,

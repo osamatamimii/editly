@@ -577,6 +577,57 @@ console.log("\nEvery template we ship renders");
 
   check("there are templates to render", TEMPLATES.length >= 5, String(TEMPLATES.length));
 
+  /*
+    The description is a promise, and it is the only part of a look anybody
+    reads.
+
+    Nobody opens a template to see which operations it contains. They read one
+    sentence in a row of cards and press it, so that sentence is the entire
+    contract — and until this check existed, three looks broke it in the two
+    directions it can be broken.
+
+    `tight-talking-head`, `high-energy` and `podcast-clip` burned no captions
+    at all. Between them they are the looks built around a person talking to
+    camera, which is most of what this product is pointed at, and a talking
+    clip in these feeds is read with the sound off. Nothing failed: a correct
+    render of something nobody can post.
+
+    And `podcast-clip` said "clip" in its own name while cutting nothing out.
+    Pointed at the ninety-minute episode its own `bestFor` invites, it returned
+    ninety captioned minutes.
+
+    So: a look that says it captions must carry a caption operation, a look
+    that does not must not, and a look whose words promise a piece of the take
+    must take a piece of it. Read off the description rather than from a list
+    kept beside it, because a list beside it is a second thing to forget.
+  */
+  {
+    const wrong = [];
+    for (const template of TEMPLATES) {
+      const said = `${template.name} ${template.description}`.toLowerCase();
+      const operations = template.build({
+        platform: "tiktok", durationSeconds: 36, watermark: false, musicAssetId: "track",
+      });
+      const kinds = operations.map((o) => o.type);
+      const hasCaptions = kinds.includes("autoCaptions") || kinds.includes("burnCaptions");
+      const promisesCaptions = /caption/.test(said);
+      const cuts = kinds.includes("extractClips") || kinds.includes("extractHighlight");
+      // "clip" as a noun for what comes out — not "clips every pause", which
+      // is a different verb about a different thing.
+      const promisesAPiece = /\bclips?\b|best \d+ seconds|strongest \d+ seconds/.test(said);
+
+      if (promisesCaptions !== hasCaptions) {
+        wrong.push(
+          `${template.id}: says ${promisesCaptions ? "" : "nothing about "}captions and ${hasCaptions ? "burns" : "burns none"}`,
+        );
+      }
+      if (promisesAPiece && !cuts) {
+        wrong.push(`${template.id}: its own words promise a piece of the take, and it returns all of it`);
+      }
+    }
+    check("every look does what its own sentence says", wrong.length === 0, wrong.join(" | "));
+  }
+
   const results = new Map();
   const broke = [];
   const drifted = [];
