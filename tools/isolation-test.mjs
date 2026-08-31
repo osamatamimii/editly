@@ -1391,7 +1391,7 @@ console.log("\nPer-user statistics and quota");
 
     `maxUploadMinutes` is our rule. `maxUploadBytes` is the bucket's, and it is
     the one that actually refuses a file: on Supabase's free plan it is 50 MB
-    per object, roughly ninety seconds of what this renderer encodes, against a
+    per object, roughly roughly a minute of what this renderer encodes, against a
     pricing page that sells four-hour episodes.
 
     It was a build-time variable in the front end, under a comment claiming

@@ -15,7 +15,7 @@ export const VIDEOS_BUCKET = "videos";
  * The largest file we will accept, when nothing better has arrived yet.
  *
  * This is not our number. Supabase enforces a per-object ceiling on the bucket,
- * and on the free plan that ceiling is 50 MB — roughly ninety seconds of what
+ * and on the free plan that ceiling is 50 MB — roughly a minute of what
  * this product encodes. Raising it is a plan change on their side.
  *
  * This constant used to be the whole story, and its own comment said the thing

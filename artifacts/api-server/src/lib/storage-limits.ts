@@ -15,7 +15,7 @@
  * longer exists, with a sentence naming it confidently.
  *
  * That day is coming: this project is on Supabase's free plan, where a bucket
- * cannot exceed 50 MB per object, which is around ninety seconds of what this
+ * cannot exceed 50 MB per object, which is roughly a minute of what this
  * renderer encodes. The pricing page sells four-hour episodes. The gap closes
  * with a plan change on their side, and on the morning it does, this should
  * already be right.

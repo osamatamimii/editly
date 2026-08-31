@@ -128,7 +128,7 @@ const storage = {
   /**
    * Answer this many uploads with 413, the way the bucket does when a file is
    * over its size limit. The videos bucket's limit is 50 MB on Supabase's free
-   * plan — about ninety seconds of what this renderer encodes — and an edit
+   * plan — about roughly a minute of what this renderer encodes — and an edit
    * can be bigger than the file it came from, so this arrives at the very last
    * step of a render that already cost its minutes.
    */

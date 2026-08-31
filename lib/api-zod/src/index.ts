@@ -159,7 +159,7 @@ export const SubscriptionUsage = z.object({
    *
    * `maxUploadMinutes` is our rule and this is somebody else's: a bucket
    * refuses an object over its own limit whatever the plan says, and on
-   * Supabase's free plan that limit is 50 MB — around ninety seconds of what
+   * Supabase's free plan that limit is 50 MB, which is roughly a minute of what
    * this renderer encodes, against a page that sells four-hour episodes.
    *
    * It is sent rather than compiled into the front end because the front end's
