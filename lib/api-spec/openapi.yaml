@@ -1470,6 +1470,100 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /social/connect/{platform}:
+    post:
+      operationId: startSocialConnection
+      tags: [social]
+      summary: Begin connecting an account on a platform
+      description: >
+        Returns the URL to send somebody to, rather than redirecting to it. The
+        browser reaches every route in this API with an `Authorization` header,
+        and `fetch` follows a 302 with that header still attached - so a
+        redirecting endpoint would hand this person's Editly bearer token to
+        Facebook. The page opens the URL itself.
+
+
+        For the two platforms that require PKCE the verifier is set as an
+        httpOnly cookie here and read back in the callback. It never appears on
+        a URL, which is the whole point of PKCE: a verifier in a query string
+        has been seen by the browser's history, the referrer, and every proxy
+        on the path.
+      parameters:
+        - name: platform
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [instagram, facebook, tiktok, x, snapchat, youtube]
+      responses:
+        "200":
+          description: Where to send the person
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: { type: string }
+                required: [url]
+        "404":
+          description: No such platform
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: This deployment holds no credentials for that platform
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /social/callback/{platform}:
+    get:
+      operationId: finishSocialConnection
+      tags: [social]
+      summary: Where the platform sends somebody back
+      description: >
+        Not an API call: a browser navigation from the platform, carrying no
+        bearer token and unable to carry one. It is therefore the one route
+        under /api that is not behind authentication, and who the connection
+        belongs to comes from the signed state on the URL instead.
+
+
+        That state is the security of this whole flow. An OAuth callback is a
+        plain GET anybody can cause; without a state bound to the signed-in
+        person, an attacker sends their own code here and a victim's account is
+        connected to the attacker's feed, after which everything that person
+        schedules is published to a stranger. The state is an HMAC over the
+        user, the platform and an expiry, and every kind of bad state is
+        refused with the same sentence - a reply that said which part was wrong
+        would be an oracle for building one that is not.
+
+
+        Always answers with a redirect to /scheduled, carrying the outcome on
+        the query string, because a person staring at a blank page after
+        signing in to Instagram has no idea whether it worked.
+      security: []
+      parameters:
+        - name: platform
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Back to the scheduling page, with the outcome on the query string
+
 
 components:
   parameters:

@@ -13,7 +13,7 @@ import clipsRouter from "./clips";
 import stockRouter from "./stock";
 import adminRouter from "./admin";
 import waitlistRouter from "./waitlist";
-import socialRouter from "./social";
+import socialRouter, { socialCallbackRouter } from "./social";
 import fontsRouter from "./fonts";
 import { requireAuth } from "../middlewares/auth";
 
@@ -31,6 +31,11 @@ router.use(billingWebhookRouter);
 // waiting list has no account yet, which is the whole point of a waiting list.
 // It is rate limited by address instead of by user — see routes/waitlist.ts.
 router.use(waitlistRouter);
+
+// The OAuth callback, before the auth middleware for the same reason the
+// billing webhook is: it is a browser navigation from a platform and carries no
+// bearer token. Who it belongs to comes from the signed state on the URL.
+router.use(socialCallbackRouter);
 
 // Everything below this line is per-user data. `requireAuth` populates
 // `req.userId`, and each handler filters on it — mounting a data route outside

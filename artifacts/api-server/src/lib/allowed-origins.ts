@@ -59,3 +59,23 @@ export function isAllowedOrigin(origin: string): boolean {
 
   return VERCEL_PREVIEW.test(origin);
 }
+
+/**
+ * Where this deployment lives, as one absolute origin with no trailing slash.
+ *
+ * Needed because an OAuth redirect URI is matched by every platform as a
+ * *literal string* against what is registered with them. A trailing slash, or
+ * `editlyai.io` where `app.editlyai.io` is registered, is a failed connection
+ * with an error from the platform and nothing from us — so the one place that
+ * builds it is here, beside the list that already knows what this app is
+ * called, rather than interpolated at each call site.
+ *
+ * `APP_ORIGIN` first, because a deployment that sets it means it. The app's own
+ * domain otherwise, for the same reason it is in the list above: it is ours, it
+ * will not change without this file changing, and an unset variable must not
+ * turn every "Connect" button into a broken one.
+ */
+export function appOrigin(env: Record<string, string | undefined> = process.env): string {
+  const configured = env["APP_ORIGIN"]?.trim();
+  return (configured || "https://app.editlyai.io").replace(/\/+$/, "");
+}

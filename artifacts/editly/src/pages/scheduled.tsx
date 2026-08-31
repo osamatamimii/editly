@@ -24,8 +24,10 @@ import { LoadFailed } from "@/components/load-failed";
 import { SocialConnections, type PlatformInfo, type ConnectedAccount } from "@/components/social-connections";
 import { ScheduledPosts } from "@/components/scheduled-posts";
 import { apiJson } from "@/lib/api-fetch";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Scheduled() {
+  const { toast } = useToast();
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [platforms, setPlatforms] = useState<PlatformInfo[]>([]);
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
@@ -51,6 +53,42 @@ export default function Scheduled() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /*
+    What the platform said, on the way back in.
+
+    A connection ends as a browser navigation from Instagram or Google to this
+    page, carrying its verdict on the query string. Without this the page looks
+    exactly the same whether the connection worked or was refused — and the one
+    thing a person needs after signing in somewhere else is to be told whether
+    it took.
+
+    The parameters are removed once read, with `replaceState` rather than a
+    navigation, so a refresh does not repeat a toast about something that
+    happened five minutes ago and the back button still goes where it went.
+  */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    if (!connected) return;
+    const platform = params.get("platform") ?? "That account";
+    if (connected === "yes") {
+      toast({
+        title: `${params.get("handle") ?? platform} connected`,
+        description: "It can be scheduled to from any finished edit.",
+      });
+      void load();
+    } else {
+      toast({
+        title: `${platform} was not connected`,
+        // The platform's own words. "redirect_uri mismatch" is something
+        // somebody can act on; "could not connect" is not.
+        description: params.get("why") ?? "The platform refused the connection.",
+        variant: "destructive",
+      });
+    }
+    window.history.replaceState({}, "", window.location.pathname);
+  }, [toast, load]);
 
   return (
     <div className="min-h-screen px-4 sm:px-6 py-6 sm:py-10 max-w-4xl mx-auto flex flex-col gap-8">

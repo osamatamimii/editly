@@ -57,6 +57,37 @@ export function SocialConnections({
 }) {
   const { toast } = useToast();
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState<string | null>(null);
+
+  /**
+   * Send them to the platform to sign in.
+   *
+   * The URL is asked for rather than navigated to, and that is not a
+   * roundabout way of doing a redirect. Every route in this API is reached
+   * with an `Authorization` header, and `fetch` follows a 302 with that header
+   * still attached — so a redirecting endpoint would hand this person's Editly
+   * bearer token to Facebook. The server returns a URL; the page opens it.
+   *
+   * Same tab, not a popup. A popup during an OAuth round trip is a blocked
+   * window on half of mobile Safari, and coming back to a tab that closed
+   * itself is a worse ending than coming back to the page you left.
+   */
+  const connect = async (platform: string, label: string) => {
+    setConnecting(platform);
+    try {
+      const response = await apiFetch(`/api/social/connect/${platform}`, { method: "POST" });
+      const body = (await response.json()) as { url?: string; error?: string };
+      if (!response.ok || !body.url) throw new Error(body.error ?? `Could not start connecting ${label}.`);
+      window.location.href = body.url;
+    } catch (error) {
+      setConnecting(null);
+      toast({
+        title: `Could not connect ${label}`,
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const disconnect = async (account: ConnectedAccount) => {
     setDisconnecting(account.id);
@@ -150,16 +181,40 @@ export function SocialConnections({
                 product that is broken, and it is worse than the sentence it
                 replaced because it looks like the way in.
               */}
-              <span
-                className="text-xs text-muted-foreground flex-shrink-0"
-                data-testid={`social-state-${platform.platform}`}
-              >
-                {mine.length > 0
-                  ? `${mine.length} connected`
-                  : platform.needsReview
-                    ? "Waiting on review"
-                    : "Not set up yet"}
-              </span>
+              {/*
+                A button only where one can work.
+
+                `connected` is this deployment holding credentials for the
+                platform, and it is the whole condition: without them the
+                button would open an authorize URL with an empty client id and
+                come back with the platform's own error, which reads as our bug
+                and is not one. Where there are none, the two words stay.
+              */}
+              {platform.connected ? (
+                <button
+                  type="button"
+                  onClick={() => void connect(platform.platform, platform.label)}
+                  disabled={connecting !== null}
+                  className="flex-shrink-0 h-11 md:h-8 px-3 rounded-full text-xs font-medium border border-hairline bg-surface-1 hover:border-primary/40 hover:bg-white/[0.05] transition-colors disabled:opacity-40 flex items-center gap-1.5"
+                  data-testid={`button-connect-${platform.platform}`}
+                >
+                  {connecting === platform.platform ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : null}
+                  {mine.length > 0 ? "Add another" : "Connect"}
+                </button>
+              ) : (
+                <span
+                  className="text-xs text-muted-foreground flex-shrink-0"
+                  data-testid={`social-state-${platform.platform}`}
+                >
+                  {mine.length > 0
+                    ? `${mine.length} connected`
+                    : platform.needsReview
+                      ? "Waiting on review"
+                      : "Not set up yet"}
+                </span>
+              )}
             </div>
 
             {mine.length > 0 ? (

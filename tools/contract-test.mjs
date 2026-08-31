@@ -71,7 +71,17 @@ const routesDir = path.join(repoRoot, "artifacts/api-server/src/routes");
 const routes = [];
 for (const file of readdirSync(routesDir).filter((f) => f.endsWith(".ts") && f !== "index.ts")) {
   const source = readFileSync(path.join(routesDir, file), "utf8");
-  const pattern = /\b(?:router|billingWebhookRouter)\s*\.\s*(get|post|patch|put|delete)\s*\(\s*"([^"]+)"/g;
+  /*
+    Every router name a route file mounts, not just the default one.
+
+    Two routes in this product cannot be behind the auth middleware — the
+    billing webhook and the OAuth callback — so each lives on a second router
+    that `routes/index.ts` mounts before `requireAuth`. Naming only `router`
+    here made those invisible: the callback was served, undocumented, and this
+    check said the spec was complete. A route that no reader of the spec knows
+    exists is the failure this file is for.
+  */
+  const pattern = /\b(?:router|billingWebhookRouter|socialCallbackRouter)\s*\.\s*(get|post|patch|put|delete)\s*\(\s*"([^"]+)"/g;
   let match;
   while ((match = pattern.exec(source)) !== null) {
     routes.push({ method: match[1], path: match[2], file });

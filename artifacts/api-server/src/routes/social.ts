@@ -42,9 +42,42 @@ import {
   SOCIAL_LABEL,
   refusalsFor,
   scheduleRefusal,
+  configuredPlatforms,
 } from "@workspace/api-zod";
+import {
+  signState,
+  readState,
+  pkcePair,
+  authorizeUrlFor,
+  exchangeCode,
+  ENDPOINTS,
+  VERIFIER_COOKIE,
+} from "../lib/social-oauth";
+import { identityFor } from "../lib/social-identity";
+import { appOrigin } from "../lib/allowed-origins";
 
 const router: IRouter = Router();
+
+/**
+ * The one route here that cannot be behind authentication.
+ *
+ * An OAuth callback is a browser navigation *from the platform*: it carries no
+ * bearer token and never can. So it is its own router, mounted before
+ * `requireAuth` — the same shape the billing webhook has, and for the same
+ * reason. Who this is comes from the signed state instead, which is why that
+ * state is an HMAC and not a nonce in a table somebody has to clean up.
+ */
+export const socialCallbackRouter: IRouter = Router();
+
+/** One cookie out of the header, without a dependency for it. */
+function cookieFrom(header: string | undefined, name: string): string | null {
+  for (const part of (header ?? "").split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) return decodeURIComponent(rest.join("="));
+  }
+  return null;
+}
+
 
 /**
  * The columns of a connected account that may leave this process.
@@ -70,6 +103,60 @@ router.get("/social/platforms", async (_req, res): Promise<void> => {
   // same answer for everybody. It is behind the auth middleware anyway because
   // everything under /api is, and there is no reason to widen that.
   res.json({ platforms: platformCatalogue(process.env) });
+});
+
+
+/**
+ * Start connecting an account.
+ *
+ * Returns a URL rather than redirecting, and that is the whole reason this is
+ * a JSON endpoint. The browser reaches every route in this API with an
+ * `Authorization` header, and a 302 from `fetch` is followed with that header
+ * still attached — which would send this person's Editly bearer token to
+ * Facebook. The page opens the URL itself.
+ */
+router.post("/social/connect/:platform", rateLimit(LIMITS.schedulePost), async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  const platform = req.params["platform"];
+  if (!isSocialPlatform(platform)) {
+    res.status(404).json({ error: "No such platform." });
+    return;
+  }
+  if (!configuredPlatforms(process.env)[platform]) {
+    // The same answer the catalogue already gives, said again at the moment
+    // somebody presses the button — because a screen can be stale and a
+    // "Connect" that silently does nothing is worse than one that explains.
+    res.status(503).json({
+      error: `${SOCIAL_LABEL[platform]} is not switched on for this deployment yet.`,
+    });
+    return;
+  }
+
+  const state = signState({ userId, platform, expiresAt: Date.now() + 10 * 60 * 1000 });
+  let challenge: string | null = null;
+  if (ENDPOINTS[platform].pkce) {
+    const pair = pkcePair();
+    challenge = pair.challenge;
+    /*
+      httpOnly, and that is what makes PKCE worth doing at all. A verifier
+      readable by script, or carried in the state on the URL, has been seen by
+      the browser's history, the referrer and every proxy on the path — which
+      is the exact interception PKCE exists to survive.
+
+      `lax` rather than `strict`: the callback arrives as a top-level
+      navigation *from the platform*, and `strict` would withhold the cookie on
+      exactly that request.
+    */
+    res.cookie(VERIFIER_COOKIE, pair.verifier, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      maxAge: 10 * 60 * 1000,
+      path: "/api/social",
+    });
+  }
+
+  res.json({ url: authorizeUrlFor(platform, state, challenge) });
 });
 
 router.get("/social/accounts", async (req, res): Promise<void> => {
@@ -424,6 +511,111 @@ router.delete("/social/posts/:id", async (req, res): Promise<void> => {
   }
 
   res.json({ cancelled: true });
+});
+
+/**
+ * Where the platform sends them back.
+ *
+ * A browser navigation, not an API call, so it answers with a redirect to a
+ * page rather than JSON — and it carries no bearer token, which is why the
+ * state has to say who this is. Everything that can go wrong ends on the same
+ * screen with a reason on the query string, because a person staring at a
+ * blank page after signing in to Instagram has no idea whether it worked.
+ */
+socialCallbackRouter.get("/social/callback/:platform", async (req, res): Promise<void> => {
+  const platform = req.params["platform"];
+  const back = (params: Record<string, string>) =>
+    res.redirect(`${appOrigin()}/scheduled?${new URLSearchParams(params).toString()}`);
+
+  if (!isSocialPlatform(platform)) {
+    back({ connected: "no", why: "That link is not one of ours." });
+    return;
+  }
+
+  // The platform's own refusal — somebody pressed "Cancel", or the app is not
+  // approved for a scope. Reported before anything else, because it is the
+  // commonest outcome that is not an error on our side.
+  const denied = req.query["error_description"] ?? req.query["error"];
+  if (denied) {
+    back({ connected: "no", platform, why: String(denied).slice(0, 200) });
+    return;
+  }
+
+  const claims = readState(String(req.query["state"] ?? ""));
+  if (!claims || claims.platform !== platform) {
+    /*
+      One message for every kind of bad state, and deliberately so.
+
+      This is the check that stops an attacker sending their own `code` here
+      and having a stranger's Editly account connected to the attacker's feed —
+      after which everything that person schedules is published to it. A reply
+      that said *which* part of the state was wrong would be an oracle for
+      building one that is not.
+    */
+    back({ connected: "no", platform, why: "That connection link has expired. Try again." });
+    return;
+  }
+
+  const code = String(req.query["code"] ?? "");
+  if (!code) {
+    back({ connected: "no", platform, why: "The platform sent us back without an authorization code." });
+    return;
+  }
+
+  const verifier = cookieFrom(req.headers.cookie, VERIFIER_COOKIE);
+  res.clearCookie(VERIFIER_COOKIE, { path: "/api/social" });
+
+  try {
+    const tokens = await exchangeCode(platform, code, verifier);
+    // Who this is, before the row exists. A row without a real external id
+    // makes every reconnection a second account, and "publish to both" then
+    // sends one clip twice to one feed.
+    const who = await identityFor(platform, tokens.accessToken);
+
+    await db
+      .insert(socialAccountsTable)
+      .values({
+        id: randomUUID(),
+        userId: claims.userId,
+        platform,
+        externalId: who.externalId,
+        handle: who.handle,
+        displayName: who.displayName,
+        avatarUrl: who.avatarUrl,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: tokens.expiresAt,
+        status: "ok",
+        statusDetail: null,
+      })
+      .onConflictDoUpdate({
+        target: [socialAccountsTable.userId, socialAccountsTable.platform, socialAccountsTable.externalId],
+        set: {
+          handle: who.handle,
+          displayName: who.displayName,
+          avatarUrl: who.avatarUrl,
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          expiresAt: tokens.expiresAt,
+          status: "ok",
+          statusDetail: null,
+          updatedAt: new Date(),
+        },
+      });
+
+    back({ connected: "yes", platform, handle: who.handle });
+  } catch (error) {
+    /*
+      The platform's own words, forwarded.
+
+      "redirect_uri mismatch" is a thing somebody can fix in ten minutes and
+      "could not connect" is not. Logged too, because the person reading the
+      screen is not always the person who can fix it.
+    */
+    const why = error instanceof Error ? error.message : "The platform refused the connection.";
+    req.log?.warn({ platform, err: why }, "a social connection failed");
+    back({ connected: "no", platform, why: why.slice(0, 200) });
+  }
 });
 
 export default router;
