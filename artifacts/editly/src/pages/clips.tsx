@@ -158,10 +158,11 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
 export default function ClipsPage() {
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [clips, setClips] = useState<LibraryClip[]>([]);
+  const [total, setTotal] = useState(0);
 
   const load = useCallback(async () => {
     setState("loading");
-    const { ok, body } = await apiJson<{ clips?: LibraryClip[] }>("/api/clips");
+    const { ok, body } = await apiJson<{ clips?: LibraryClip[]; total?: number }>("/api/clips");
     // A failed read must not render as an empty library. "You have no clips"
     // is a claim about somebody's work, and making it from a network error is
     // the failure this codebase keeps finding.
@@ -170,6 +171,7 @@ export default function ClipsPage() {
       return;
     }
     setClips(body.clips ?? []);
+    setTotal(body.total ?? body.clips?.length ?? 0);
     setState("ready");
   }, []);
 
@@ -209,11 +211,24 @@ export default function ClipsPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4" data-testid="clips-grid">
-          {clips.map((clip) => (
-            <ClipCard key={clip.id} clip={clip} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4" data-testid="clips-grid">
+            {clips.map((clip) => (
+              <ClipCard key={clip.id} clip={clip} />
+            ))}
+          </div>
+          {/* Where the list stops, said out loud.
+              The cap is right — every tile signs a URL and draws a player, and
+              nobody scrolls a thousand. What is not right is a library that
+              quietly ends: somebody with three hundred clips saw the newest two
+              hundred and nothing to say the rest were still there. */}
+          {total > clips.length ? (
+            <p className="text-sm text-muted-foreground mt-6" data-testid="clips-capped">
+              Showing the newest {clips.length} of {total}. The rest are in the recordings they came
+              from.
+            </p>
+          ) : null}
+        </>
       )}
     </div>
   );

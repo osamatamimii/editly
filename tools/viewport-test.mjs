@@ -188,6 +188,9 @@ const FIXTURES = {
     enough to want two lines.
   */
   "/api/clips": {
+    // Three tiles, and a total that says there are more. The cap is right and
+    // a cap that says nothing is a library that quietly ends.
+    total: 214,
     clips: [
       { id: "cl_1", projectId: "11111111-1111-4111-8111-111111111111", projectTitle: "Podcast episode 14 — the whole two-hour take, unedited",
         title: "nobody tells you this but it changes how you edit", note: null,
@@ -803,6 +806,13 @@ const PAGES = [
       const empty = await page.evaluate(
         ([body, cards, frames]) => new Function("return " + body)()(cards, frames),
         [EMPTY_TILES.toString(), '[data-testid^="clip-card-"]', ".aspect-\\[9\\/16\\]"],
+      );
+      check(
+        "and it says where the list stops rather than just stopping",
+        (await page.getByTestId("clips-capped").innerText()).includes("214"),
+        // Somebody with three hundred clips saw the newest two hundred and
+        // nothing at all to say the rest were still there.
+        "",
       );
       check(
         "and no tile is a hole where a clip should be",

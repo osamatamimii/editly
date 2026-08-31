@@ -817,7 +817,13 @@ paths:
                             projectTitle:
                               type: string
                           required: [projectTitle]
-                required: [clips]
+                  # How many this account has, which is not always how many are
+                  # in the array. The list is capped, and a cap that says
+                  # nothing is a library that quietly stops at 200 - the person
+                  # sees the newest and no sign that the rest exist.
+                  total:
+                    type: integer
+                required: [clips, total]
 
   /social/platforms:
     get:

@@ -14,7 +14,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
-import { and, desc, asc, eq } from "drizzle-orm";
+import { and, count, desc, asc, eq } from "drizzle-orm";
 import { db, clipsTable, projectsTable, subscriptionsTable } from "@workspace/db";
 import {
   DeleteClipParams,
@@ -64,6 +64,15 @@ function serialize(row: typeof clipsTable.$inferSelect): unknown {
  * was said in them, with no way to tell which recording each came out of, is a
  * pile rather than a library.
  */
+/**
+ * How many tiles the library sends at once.
+ *
+ * Every one of them signs a storage URL and draws a video element, and nobody
+ * scrolls a thousand. The number is here rather than inline so the page can be
+ * told what it is, which is the difference between a cap and a truncation.
+ */
+const LIBRARY_LIMIT = 200;
+
 router.get("/clips", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
 
@@ -79,13 +88,32 @@ router.get("/clips", async (req, res): Promise<void> => {
     // project row if a project id were ever reused.
     .where(and(eq(clipsTable.userId, userId), eq(projectsTable.userId, userId)))
     .orderBy(desc(clipsTable.createdAt), asc(clipsTable.idx))
-    .limit(200);
+    .limit(LIBRARY_LIMIT);
+
+  /*
+    And how many there are, which is not always how many were sent.
+
+    The cap is right — nobody scrolls a thousand tiles, and every one of them
+    signs a URL. What was wrong is that the cap said nothing: an account with
+    three hundred clips got the newest two hundred and no sign that the rest
+    existed, on the screen whose whole job is "what have I got to post". A
+    library that quietly stops is worse than one that says where it stops.
+
+    Counted rather than inferred from the length, because `rows.length === 200`
+    is also what an account with exactly two hundred clips looks like.
+  */
+  const [counted] = await db
+    .select({ n: count() })
+    .from(clipsTable)
+    .innerJoin(projectsTable, eq(clipsTable.projectId, projectsTable.id))
+    .where(and(eq(clipsTable.userId, userId), eq(projectsTable.userId, userId)));
 
   res.json({
     clips: rows.map((row) => ({
       ...(serialize(row.clip) as Record<string, unknown>),
       projectTitle: row.projectTitle,
     })),
+    total: Number(counted?.n ?? rows.length),
   });
 });
 
