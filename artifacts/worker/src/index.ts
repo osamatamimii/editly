@@ -932,11 +932,36 @@ function clock(seconds: number): string {
  * them being blocked by the other's problem is not a trade this worker gets to
  * make.
  */
+/*
+  How often each half of the sweep runs.
+
+  The render loop polls every five seconds, and hanging both of these off it
+  meant twenty-four queries a minute, forever, against a table that is empty —
+  on a database whose plan is measured in connections and rows read.
+
+  Fifteen seconds for the due sweep is granularity nobody can feel: a post
+  cannot be scheduled less than a minute ahead, and the console does not call
+  one overdue until two minutes past. Five minutes for the stranded sweep,
+  because it looks for rows that have been sitting for fifteen — asking twelve
+  times a minute is asking a question whose answer cannot have changed.
+*/
+const DUE_SWEEP_EVERY_MS = 15_000;
+const STRANDED_SWEEP_EVERY_MS = 5 * 60_000;
+let lastDueSweep = 0;
+let lastStrandedSweep = 0;
+
 async function sendDuePosts(): Promise<void> {
+  const now = Date.now();
+  if (now - lastDueSweep < DUE_SWEEP_EVERY_MS) return;
+  lastDueSweep = now;
+
   try {
-    const stranded = await surfaceStrandedPosts();
-    if (stranded > 0) {
-      logger.warn({ stranded }, "posts were mid-flight when a publisher stopped; marked for review");
+    if (now - lastStrandedSweep >= STRANDED_SWEEP_EVERY_MS) {
+      lastStrandedSweep = now;
+      const stranded = await surfaceStrandedPosts();
+      if (stranded > 0) {
+        logger.warn({ stranded }, "posts were mid-flight when a publisher stopped; marked for review");
+      }
     }
 
     const done = await publishDuePosts();

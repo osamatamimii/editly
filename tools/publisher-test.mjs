@@ -24,6 +24,7 @@
  * Requires: a Postgres with the production schema. No keys, no network.
  */
 import { mkdtemp, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -356,6 +357,46 @@ section("A post the publisher died holding is surfaced, never retried");
     "a post claimed a second ago is left to finish",
     (await rowOf(fresh)).status === "publishing",
     (await rowOf(fresh)).status,
+  );
+}
+
+// ── How often it asks ───────────────────────────────────────────────────────
+section("The sweep does not run on every poll of the render loop");
+{
+  const worker = readFileSync(path.join(process.cwd(), "artifacts/worker/src/index.ts"), "utf8");
+
+  /*
+    The render loop polls every five seconds. Hanging both halves of the
+    scheduled-post sweep off it is twenty-four queries a minute, forever,
+    against a table that is empty — on a database whose plan is counted in
+    connections and rows read.
+
+    Read out of the source rather than measured, because measuring it means
+    running a worker for a minute to count queries, and what is worth
+    protecting here is the *decision*: that somebody who adds a third sweep
+    later finds this rule sitting next to the two that already obey it.
+  */
+  check(
+    "the due sweep has an interval of its own",
+    /DUE_SWEEP_EVERY_MS\s*=\s*[\d_]+/.test(worker),
+    "",
+  );
+  check(
+    "and the stranded sweep a longer one, because it looks for rows fifteen minutes old",
+    (() => {
+      const due = Number((worker.match(/DUE_SWEEP_EVERY_MS\s*=\s*([\d_]+)/) ?? [])[1]?.replace(/_/g, ""));
+      const stranded = worker.match(/STRANDED_SWEEP_EVERY_MS\s*=\s*([^;]+);/)?.[1] ?? "";
+      const strandedMs = Function(`return ${stranded.replace(/_/g, "")}`)();
+      return Number.isFinite(due) && Number.isFinite(strandedMs) && strandedMs > due * 4;
+    })(),
+    "",
+  );
+  check(
+    "and both are actually consulted before anything is asked of the database",
+    /if \(now - lastDueSweep < DUE_SWEEP_EVERY_MS\) return;/.test(worker) &&
+      /if \(now - lastStrandedSweep >= STRANDED_SWEEP_EVERY_MS\)/.test(worker),
+    // A constant nothing reads is a comment with a semicolon after it.
+    "",
   );
 }
 
