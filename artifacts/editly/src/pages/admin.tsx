@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import {
   useGetAdminOverview,
@@ -18,6 +18,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, ArrowLeft, Search } from "lucide-react";
 import NotFound from "@/pages/not-found";
+import { apiFetch } from "@/lib/api-fetch";
 import { Sparkline, weekOnWeek } from "@/components/sparkline";
 import type { AdminTrend } from "@workspace/api-client-react";
 import { loadState, isNotFound, COULD_NOT_LOAD } from "@/lib/load-state";
@@ -54,6 +55,29 @@ const EMPTY = "\u00b7";
  * platform is healthy and why a particular render failed, and those questions
  * are answered by metadata. See admin-console.md.
  */
+/** Bytes as a number somebody reads, not as a number somebody counts. */
+function gigabytes(bytes: number): string {
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 10) return `${Math.round(gb)} GB`;
+  if (gb >= 0.1) return `${gb.toFixed(1)} GB`;
+  return `${Math.max(1, Math.round(bytes / (1024 * 1024)))} MB`;
+}
+
+/**
+ * What this much egress costs where the files are today.
+ *
+ * Supabase includes 250 GB and charges $0.09 for each one after. The number is
+ * here rather than fetched because it is a published price that changes about
+ * once a year, and a console that showed nothing until a pricing API answered
+ * would show nothing.
+ */
+function egressCost(bytes: number): string {
+  const gb = bytes / (1024 * 1024 * 1024);
+  const billable = Math.max(0, gb - 250);
+  if (billable === 0) return "nothing yet";
+  return `$${(billable * 0.09).toFixed(2)}`;
+}
+
 export default function AdminPage() {
   // `retry: false` throughout, because the expected failure here is a 404 that
   // means "you are not an admin" — retrying it three times is three more
@@ -74,6 +98,55 @@ export default function AdminPage() {
   const [reason, setReason] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [jobFilter, setJobFilter] = useState<string>("");
+
+  /*
+    What the deployment actually does, against what the code assumes.
+
+    Fetched here rather than through the generated client because the endpoint
+    is new and the client is regenerated from the spec on a schedule; a console
+    that has to wait for a codegen run to show a wrong bucket is a console that
+    shows it a day late. `retry: false` for the same reason as everything else
+    here: the expected failure is a 404 meaning "you are not an admin".
+  */
+  const [deployment, setDeployment] = useState<{
+    findings: Array<{ id: string; verdict: "ok" | "wrong" | "unknown"; expected: string; actual: string; consequence: string }>;
+    summary: { wrong: number; unknown: number; ok: number };
+    usage: {
+      storedBytes: number | null;
+      objects: number | null;
+      egressBytes: number;
+      measuredRenders: number;
+      unmeasuredRenders: number;
+    };
+  } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const response = await apiFetch("/api/admin/deployment");
+      if (!response.ok || cancelled) return;
+      const body = (await response.json().catch(() => null)) as unknown;
+      /*
+        Checked before it is trusted, and this caught a real white screen.
+
+        The page read `deployment.summary.wrong` the moment the state was set,
+        so any answer without a `summary` — a proxy returning an empty body, a
+        deploy mid-rollout, an endpoint that 200s with nothing — took the whole
+        admin console down with a TypeError. Every other read on this page goes
+        through the generated client, which validates; this one is hand-written
+        and had to do the same job by hand.
+      */
+      const ok =
+        body !== null &&
+        typeof body === "object" &&
+        Array.isArray((body as { findings?: unknown }).findings) &&
+        typeof (body as { summary?: unknown }).summary === "object" &&
+        (body as { summary: unknown }).summary !== null;
+      if (ok) setDeployment(body as typeof deployment);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const waitlist = useListWaitlist(
     { limit: 200 },
     { query: { queryKey: getListWaitlistQueryKey({ limit: 200 }), retry: false } },
@@ -261,6 +334,105 @@ export default function AdminPage() {
             </p>
           ) : null}
         </section>
+
+        {/* ── What we are storing, and what it costs to move ───────────
+            The largest line on the bill of a video product is neither compute
+            nor the database. It is egress, and this product's own loop — ask
+            again, it is free — multiplies it: a published video costs three or
+            more full downloads of its source.
+
+            Both numbers are measured. `jobs.bytes_in` is counted off the wire
+            by the worker; the stored total comes from `storage.objects`, which
+            knows the exact size of every object. The comparison is here so the
+            decision to move object stores is made on our number rather than on
+            somebody's estimate in a document. */}
+        {deployment?.usage ? (
+          <section className="rounded-xl border border-border bg-card p-4 space-y-3" data-testid="admin-usage">
+            <div className="flex items-baseline justify-between gap-3 flex-wrap">
+              <h2 className="text-sm font-semibold">Storage, and what moving it costs</h2>
+              <span className="text-xs text-muted-foreground">this month</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <Card
+                label="Stored"
+                value={deployment.usage.storedBytes === null ? "not known" : gigabytes(deployment.usage.storedBytes)}
+                hint={deployment.usage.objects === null ? "storage did not answer" : `${deployment.usage.objects} objects`}
+              />
+              <Card
+                label="Pulled by renders"
+                value={gigabytes(deployment.usage.egressBytes)}
+                hint={
+                  deployment.usage.unmeasuredRenders > 0
+                    ? `${deployment.usage.measuredRenders} counted, ${deployment.usage.unmeasuredRenders} before counting began`
+                    : `${deployment.usage.measuredRenders} renders`
+                }
+              />
+              <Card
+                label="That egress costs"
+                value={egressCost(deployment.usage.egressBytes)}
+                hint="on R2 it is $0, at any volume"
+              />
+            </div>
+            {deployment.usage.unmeasuredRenders > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {/* Null is not zero. A render from before the column existed
+                    moved bytes nobody counted, and saying so keeps the total
+                    from reading as smaller than it was. */}
+                Renders from before this was measured are not in the total, so the real figure is
+                higher.
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {/* ── Where this deployment disagrees with the code ────────────
+            Above the queue on purpose. A worker that is up and a bucket that
+            refuses PNG look identical from every other card on this page, and
+            the second one is the kind of thing that ships for weeks: the
+            browser talks to Storage directly, so nothing we log ever sees it.
+        */}
+        {deployment && deployment.summary.wrong + deployment.summary.unknown > 0 ? (
+          <section
+            className="rounded-xl border border-border bg-card p-4 space-y-3"
+            data-testid="admin-deployment"
+          >
+            <div className="flex items-baseline justify-between gap-3 flex-wrap">
+              <h2 className="text-sm font-semibold">This deployment against the code</h2>
+              <span className="text-xs text-muted-foreground">
+                {deployment.summary.wrong} wrong · {deployment.summary.unknown} unknown ·{" "}
+                {deployment.summary.ok} fine
+              </span>
+            </div>
+            <ul className="space-y-2">
+              {deployment.findings
+                .filter((f) => f.verdict !== "ok")
+                .map((f) => (
+                  <li
+                    key={f.id}
+                    className={`rounded-lg border px-3 py-2 text-sm ${
+                      f.verdict === "wrong"
+                        ? "border-destructive/40 bg-destructive/5"
+                        : "border-warning/30 bg-warning/5"
+                    }`}
+                    data-testid={`deployment-${f.id}`}
+                  >
+                    <div className="font-mono text-xs text-muted-foreground">{f.id}</div>
+                    {/* Both halves, always. "Mismatch" is a line somebody
+                        scrolls past; the pair is a line somebody fixes. */}
+                    <div className="mt-1">
+                      <span className="text-muted-foreground">expects</span> {f.expected}
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">actually</span> {f.actual}
+                    </div>
+                    {f.consequence ? (
+                      <div className="mt-1 text-muted-foreground">{f.consequence}</div>
+                    ) : null}
+                  </li>
+                ))}
+            </ul>
+          </section>
+        ) : null}
 
         {/* ── Health ───────────────────────────────────────────────────── */}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="admin-health">

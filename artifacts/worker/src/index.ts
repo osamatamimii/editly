@@ -17,7 +17,7 @@ import { sql, eq, and } from "drizzle-orm";
 import pino from "pino";
 import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
 import { EditPlan, type EditOperation } from "@workspace/api-zod";
-import { downloadObject, uploadObject, StorageTransferError } from "./storage";
+import { downloadObject, uploadObject, bytesPulled, StorageTransferError } from "./storage";
 import { renderPlan, probeDuration, probeSource, grabPosterFrame, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
 import { reviewOutput } from "./review";
@@ -251,6 +251,16 @@ async function reportProgress(jobId: string, progress: number, stage: string): P
 async function processJob(job: Job): Promise<void> {
   const log = logger.child({ jobId: job.id, projectId: job.projectId });
   const workDir = await mkdtemp(path.join(tmpdir(), "editly-render-"));
+  /*
+    The mark to measure this job's downloads against.
+
+    A delta rather than a per-job counter, because a render pulls from three
+    different call sites in two files and the thing being counted is a property
+    of the process. This worker takes one job at a time, so the delta is exact
+    — and the day that stops being true, `bytesIn`'s own comment says what has
+    to change.
+  */
+  const pulledAtStart = bytesPulled();
   /**
    * The language this job answers in.
    *
@@ -446,6 +456,7 @@ async function processJob(job: Job): Promise<void> {
         enriched,
         words,
         assets,
+        pulledAtStart,
         workDir,
         inputFile,
         sourceSeconds,
@@ -556,6 +567,10 @@ async function processJob(job: Job): Promise<void> {
         // rather than left to the meter's fallback, so the charge is a
         // recorded fact and not an inference.
         billedSeconds: measured.seconds,
+        // What this render pulled out of storage. Not billing: the one term of
+        // the infrastructure bill that can be counted exactly, and the term
+        // that decides where this product's files should live. See the column.
+        bytesIn: bytesPulled() - pulledAtStart,
         outputSecondsSource: measured.how,
         sourceSeconds,
         lockedAt: null,
@@ -709,6 +724,8 @@ async function renderClipSet(args: {
   enriched: Awaited<ReturnType<typeof enrichPlan>>;
   words: Array<{ start: number; end: number; filler: boolean; text?: string }>;
   assets: Map<string, { file: string; kind: "video" | "image" | "audio" }>;
+  /** Where the job's download counter stood when it started. See `bytesIn`. */
+  pulledAtStart: number;
   workDir: string;
   inputFile: string;
   sourceSeconds: number;
@@ -716,7 +733,7 @@ async function renderClipSet(args: {
   language: Language;
   log: pino.Logger;
 }): Promise<void> {
-  const { job, clipsOp, enriched, words, assets, workDir, inputFile, sourceSeconds, sourceHadAudio, log } = args;
+  const { job, clipsOp, enriched, words, assets, pulledAtStart, workDir, inputFile, sourceSeconds, sourceHadAudio, log } = args;
   const t = sayIn(args.language);
 
   await reportProgress(job.id, 9, "Choosing the clips");
@@ -956,6 +973,7 @@ async function renderClipSet(args: {
       // window, renders each piece — so the source is what it is billed at,
       // and the note below says so before anyone reads it off an invoice.
       billedSeconds: sourceSeconds,
+      bytesIn: bytesPulled() - pulledAtStart,
       outputSecondsSource: weakestMeasure,
       sourceSeconds,
       lockedAt: null,

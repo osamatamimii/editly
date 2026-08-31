@@ -124,6 +124,27 @@ const DOWNLOAD_STALL_MS = 2 * 60_000;
 const UPLOAD_TIMEOUT_MS = 30 * 60_000;
 
 /** Streams an object to a local file rather than buffering it — these are videos. */
+/**
+ * Everything this process has pulled out of storage since it started.
+ *
+ * A module-level counter, which is the one shape that is honest here: a render
+ * downloads a source, sometimes a reference, and any number of assets, through
+ * three different call sites in two files. Threading a total back through all
+ * of them would be an argument on every function for a number none of them
+ * cares about — and the thing being measured is a property of the *process*,
+ * not of any one download.
+ *
+ * The worker renders one job at a time, so reading the delta across a job is
+ * exact. If that ever stops being true, this has to become per-job, and the
+ * comment on `jobs.bytes_in` is where somebody will find out why.
+ */
+let pulledBytes = 0;
+
+/** What has been pulled so far. `bytesPulled()` before and after is one job's. */
+export function bytesPulled(): number {
+  return pulledBytes;
+}
+
 export async function downloadObject(key: string, destination: string): Promise<void> {
   assertSafeKey(key);
 
@@ -178,6 +199,10 @@ export async function downloadObject(key: string, destination: string): Promise<
   const count = new Transform({
     transform(chunk: Buffer, _encoding, done) {
       received += chunk.length;
+      // Counted here rather than from Content-Length, because what egress
+      // costs is what actually crossed the wire — a download that stalls
+      // halfway is billed for the half that arrived.
+      pulledBytes += chunk.length;
       lastByteAt = Date.now();
       done(null, chunk);
     },

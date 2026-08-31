@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, uuid, integer, real, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, uuid, integer, real, bigint, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { sql } from "drizzle-orm";
 import { z } from "zod/v4";
@@ -111,6 +111,23 @@ export const jobsTable = pgTable(
      * which is exactly what they were billed at the time.
      */
     billedSeconds: real("billed_seconds"),
+
+    /**
+     * Bytes this render pulled out of storage: the source, the reference, and
+     * any assets it composited.
+     *
+     * Not billing — nobody is charged for it. It is the one term of the
+     * infrastructure bill that can be counted exactly, and it happens to be
+     * the dominant one: every render downloads the whole source, people ask
+     * again because asking again is free, and a published video therefore
+     * costs three or more of those downloads. Egress is what decides whether
+     * this product runs on object storage that charges for it.
+     *
+     * Null on every row written before it existed. A zero would say "this
+     * render moved nothing", which is a claim; null says "nobody was counting
+     * then", which is true.
+     */
+    bytesIn: bigint("bytes_in", { mode: "number" }),
 
     /**
      * How that number was arrived at: `probe` (read from the finished file),

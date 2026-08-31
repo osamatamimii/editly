@@ -46,7 +46,12 @@ CREATE TABLE IF NOT EXISTS storage.objects (
   id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   bucket_id text,
   name      text,
-  owner     uuid
+  owner     uuid,
+  -- Where Supabase keeps an object's size, among other things. Named here
+  -- because a migration reads it to answer "how much are we storing", and a
+  -- shim missing a column a migration names fails at apply time with a
+  -- message about the column rather than about the shim.
+  metadata  jsonb
 );
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 

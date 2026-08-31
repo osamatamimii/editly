@@ -1564,6 +1564,74 @@ paths:
         "302":
           description: Back to the scheduling page, with the outcome on the query string
 
+  /admin/deployment:
+    get:
+      operationId: adminDeployment
+      tags: [admin]
+      summary: Where this deployment disagrees with the code running on it
+      description: >
+        Read-only, and it exists because of two bugs found in one night that no
+        test could have caught: the storage bucket refused image/png and
+        audio/mpeg while the app offered both, and the extra-files panel
+        promised 512 MB against a 50 MB bucket. Both were invisible from the
+        server's side by construction - the browser talks to Storage directly,
+        gets a 400, and this API is never called.
+
+
+        Every finding names what the code assumes and what the deployment
+        actually does, never merely that they differ, because "mismatch" is a
+        line somebody scrolls past. Anything that could not be checked comes
+        back as `unknown` rather than `ok`: a green tick for a question nobody
+        asked is the failure this endpoint is a response to.
+
+
+        It also carries what is stored and what renders have pulled out of
+        storage this month, both measured rather than estimated - egress is the
+        largest line on a video product's bill and the one number that differs
+        by two orders of magnitude between object stores.
+      responses:
+        "200":
+          description: Findings, a count of each verdict, and this month's usage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  findings:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        verdict: { type: string, enum: [ok, wrong, unknown] }
+                        expected: { type: string }
+                        actual: { type: string }
+                        consequence: { type: string }
+                      required: [id, verdict, expected, actual, consequence]
+                  summary:
+                    type: object
+                    properties:
+                      wrong: { type: integer }
+                      unknown: { type: integer }
+                      ok: { type: integer }
+                    required: [wrong, unknown, ok]
+                  usage:
+                    type: object
+                    properties:
+                      storedBytes: { type: integer, nullable: true }
+                      objects: { type: integer, nullable: true }
+                      egressBytes: { type: integer }
+                      measuredRenders: { type: integer }
+                      unmeasuredRenders: { type: integer }
+                    required: [storedBytes, objects, egressBytes, measuredRenders, unmeasuredRenders]
+                required: [findings, summary, usage]
+        "404":
+          description: Not an admin on this deployment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 
 components:
   parameters:

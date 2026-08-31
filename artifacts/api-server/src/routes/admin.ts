@@ -22,6 +22,7 @@ import {
   isPlanKeyGuard,
 } from "@workspace/api-zod";
 import { requireAdmin } from "../middlewares/admin";
+import { auditDeployment, summarise, readUsage } from "../lib/deployment-audit";
 import { currentUserId } from "../middlewares/auth";
 import { isUnattended, workerOnline } from "../lib/queue-health";
 import { DEFAULT_PLAN, PLAN_LIMITS, minutesFrom, type PlanKey } from "../lib/plan-limits";
@@ -334,6 +335,23 @@ router.get("/admin/accounts", async (req, res): Promise<void> => {
  * route that *writes* to this table is public, and the route that reads it is
  * the most private one we have.
  */
+/**
+ * Where this deployment disagrees with the code running on it.
+ *
+ * Read-only, like everything else on this console, and it exists because of
+ * two bugs found in one night that no suite could have caught: the storage
+ * bucket refused PNG and MP3 while the app offered both, and the extra-files
+ * panel promised 512 MB against a 50 MB bucket. Both were invisible from our
+ * side — the browser talks to Storage directly, and our API is never called.
+ *
+ * Not cached. This is opened by a person asking "is anything wrong", and a
+ * cached answer is an audit reporting yesterday's configuration.
+ */
+router.get("/admin/deployment", async (_req, res): Promise<void> => {
+  const [findings, usage] = await Promise.all([auditDeployment(), readUsage()]);
+  res.json({ findings, summary: summarise(findings), usage });
+});
+
 router.get("/admin/waitlist", async (req, res): Promise<void> => {
   const limit = Math.min(500, Math.max(1, Number(req.query["limit"] ?? 100) || 100));
 
