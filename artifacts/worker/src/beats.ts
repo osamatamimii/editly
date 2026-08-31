@@ -30,6 +30,7 @@
  * and the caller is expected to say out loud when nothing came back.
  */
 import { spawn } from "node:child_process";
+import { guard, LIMITS } from "./deadline";
 
 /** Enough for onsets; a tenth of the data of 44.1k. */
 const SAMPLE_RATE = 22050;
@@ -73,9 +74,23 @@ async function monoPcm(file: string): Promise<Float32Array | null> {
     const ff = spawn("ffmpeg", [
       "-v", "error", "-i", file, "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", "-",
     ]);
-    ff.stdout.on("data", (c: Buffer) => chunks.push(c));
-    ff.on("close", (c) => resolve(c ?? 1));
-    ff.on("error", () => resolve(1));
+    // It streams PCM the whole time it is decoding, so silence is the tell.
+    // A killed child closes like any other, so the flag is checked rather
+    // than the exit code: a fragment of a track would produce a confident
+    // beat grid for music that was never fully read.
+    const deadline = guard(ff, { ...LIMITS.analysis, what: "reading the music track" });
+    ff.stdout.on("data", (c: Buffer) => {
+      deadline.touch();
+      chunks.push(c);
+    });
+    ff.on("close", (c) => {
+      deadline.clear();
+      resolve(deadline.expired ? 1 : (c ?? 1));
+    });
+    ff.on("error", () => {
+      deadline.clear();
+      resolve(1);
+    });
   });
   if (code !== 0) return null;
   const raw = Buffer.concat(chunks);

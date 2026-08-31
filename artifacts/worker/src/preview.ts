@@ -27,6 +27,7 @@
  * mirror it is checked in.
  */
 import { spawn } from "node:child_process";
+import { guard, LIMITS } from "./deadline";
 
 /** Where the preview lives, derived from where the master lives. */
 export function previewPathFor(outputPath: string): string {
@@ -55,12 +56,23 @@ export function encodePreview(
       output,
     ]);
 
+    // `-loglevel error` means this says nothing at all while it works, so a
+    // stall limit would fire on a healthy encode. Only the clock can judge it.
+    const deadline = guard(child, { ...LIMITS.preview, what: "encoding the browser-playable copy" });
     let err = "";
     child.stderr.on("data", (d: Buffer) => {
       err += d.toString();
     });
-    child.on("error", reject);
+    child.on("error", (e) => {
+      deadline.clear();
+      reject(e);
+    });
     child.on("close", (code) => {
+      deadline.clear();
+      if (deadline.expired) {
+        reject(deadline.error);
+        return;
+      }
       if (code === 0) resolve();
       else reject(new Error(`preview encode exited ${code}: ${err.trim().slice(0, 200)}`));
     });

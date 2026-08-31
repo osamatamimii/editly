@@ -133,7 +133,14 @@ router.get("/healthz", async (_req, res): Promise<void> => {
       // Deliberately not folded into `status`. A dead worker is not a broken
       // API, and answering 503 here would tell every uptime check and deploy
       // gate something untrue. It means something because something reads it:
-      // `.github/workflows/watch.yml`, every fifteen minutes.
+      // `.github/workflows/watch.yml`, hourly and after every Checks run.
+      //
+      // It is a liveness signal and not a progress one, which is a real limit
+      // worth naming here rather than in a postmortem: the heartbeat is
+      // renewed on a timer for as long as a job is being worked on, so a
+      // worker wedged inside one goes on reporting itself online. What stops
+      // that from being a permanent invisible outage is the ceiling on every
+      // child process — artifacts/worker/src/deadline.ts — not this line.
       worker: await worker(),
       // Which ways in are switched on. Not a health signal — email sign-in is
       // a complete product — but the one question about turning Google on that

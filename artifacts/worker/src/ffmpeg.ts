@@ -12,6 +12,7 @@
  * graph is assembled from labelled, individually readable stages and logged.
  */
 import { spawn } from "node:child_process";
+import { guard, LIMITS, type Limits } from "./deadline";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { criticise } from "./critic";
@@ -63,22 +64,39 @@ export class FfmpegError extends Error {}
 function run(
   bin: string,
   args: string[],
-  options: { onStderr?: (chunk: string) => void } = {},
+  options: { onStderr?: (chunk: string) => void; limits?: Omit<Limits, "what"> } = {},
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    // Nothing here may run forever; see deadline.ts for what a hang does to
+    // the rest of the platform. The default is the render's, because the
+    // unqualified call in this file is the render.
+    const deadline = guard(child, { ...(options.limits ?? LIMITS.render), what: bin });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => {
+      deadline.touch();
       stdout += d.toString();
     });
     child.stderr.on("data", (d) => {
+      deadline.touch();
       const text = d.toString();
       stderr += text;
       options.onStderr?.(text);
     });
-    child.on("error", (err) => reject(new FfmpegError(`${bin} could not be started: ${err.message}`)));
+    child.on("error", (err) => {
+      deadline.clear();
+      reject(new FfmpegError(`${bin} could not be started: ${err.message}`));
+    });
     child.on("close", (code) => {
+      deadline.clear();
+      // Before the exit code, because a killed child closes with a code like
+      // any other and would otherwise be reported as an ordinary failure —
+      // or, worse, as a success on the wrappers that tolerate a bad code.
+      if (deadline.expired) {
+        reject(deadline.error);
+        return;
+      }
       if (code === 0) resolve({ stdout, stderr });
       else {
         // ffmpeg's useful message is always the last few lines, never the
@@ -106,7 +124,7 @@ export async function probeSource(file: string): Promise<SourceInfo> {
     "-show_entries", "format=duration",
     "-of", "default=noprint_wrappers=1",
     file,
-  ]);
+  ], { limits: LIMITS.probe });
 
   const read = (key: string): string | undefined =>
     stdout.split("\n").find((l) => l.startsWith(`${key}=`))?.split("=")[1]?.trim();
@@ -145,7 +163,7 @@ export async function containerSeconds(file: string): Promise<number> {
     "-show_entries", "format=duration",
     "-of", "csv=p=0",
     file,
-  ]);
+  ], { limits: LIMITS.probe });
   const seconds = Number(stdout.trim());
   return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
 }
@@ -157,7 +175,7 @@ export async function hasAudioStream(file: string): Promise<boolean> {
     "-show_entries", "stream=index",
     "-of", "csv=p=0",
     file,
-  ]);
+  ], { limits: LIMITS.probe });
   return stdout.trim().length > 0;
 }
 

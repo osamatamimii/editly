@@ -27,6 +27,7 @@
  * least what the person shooting expected.
  */
 import { spawn } from "node:child_process";
+import { guard, LIMITS } from "./deadline";
 
 /** Columns the frame is reduced to. Enough to place a person, cheap to read. */
 export const COLUMNS = 64;
@@ -73,10 +74,26 @@ export function measureInterest(file: string, seconds = MAX_SAMPLE_SECONDS): Pro
       "-f", "rawvideo", "-",
     ]);
 
+    const deadline = guard(child, { ...LIMITS.analysis, what: "measuring where the picture is busiest" });
     const chunks: Buffer[] = [];
-    child.stdout.on("data", (d: Buffer) => chunks.push(d));
-    child.on("error", reject);
+    child.stdout.on("data", (d: Buffer) => {
+      deadline.touch();
+      chunks.push(d);
+    });
+    child.on("error", (err) => {
+      deadline.clear();
+      reject(err);
+    });
     child.on("close", () => {
+      deadline.clear();
+      // A killed child yields a truncated stream of frames, and `profileFrom`
+      // would happily read it — an interest profile from the first four
+      // seconds of a ninety-second clip, which frames the whole video by what
+      // happened at the start.
+      if (deadline.expired) {
+        reject(deadline.error);
+        return;
+      }
       try {
         resolve(profileFrom(Buffer.concat(chunks)));
       } catch (error) {

@@ -20,6 +20,7 @@
  * automatic edit can announce itself.
  */
 import { spawn } from "node:child_process";
+import { guard, LIMITS } from "./deadline";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -151,26 +152,51 @@ function run(
 
     const tracker = spawn(python, [script, String(width), String(height)]);
 
+    // Both ends, because either can be the one that hangs and the survivor
+    // would then wait on a pipe that never closes. The tracker prints a line
+    // per sampled frame, so its silence is the tell; ffmpeg is judged on the
+    // frames it hands over, which is the tracker's input.
+    const trackerDeadline = guard(tracker, { ...LIMITS.analysis, what: "following the speaker" });
+    const decodeDeadline = guard(ffmpeg, { ...LIMITS.analysis, what: "decoding frames to follow the speaker" });
+
     let out = "";
     let err = "";
     tracker.stdout.on("data", (d: Buffer) => {
+      trackerDeadline.touch();
       out += d.toString();
     });
     tracker.stderr.on("data", (d: Buffer) => {
+      trackerDeadline.touch();
       err += d.toString();
     });
 
+    // Piped first, then listened to. Attaching a `data` handler is what puts a
+    // stream into flowing mode, and doing that before the pipe exists is how
+    // frames get read by nobody.
     ffmpeg.stdout.pipe(tracker.stdin);
+    ffmpeg.stdout.on("data", () => decodeDeadline.touch());
     // ffmpeg finishing first is normal; the pipe closing is what ends the
     // tracker. An error on either side is the same outcome to the caller.
-    ffmpeg.on("error", reject);
-    tracker.on("error", reject);
+    const fail = (error: unknown) => {
+      trackerDeadline.clear();
+      decodeDeadline.clear();
+      reject(error);
+    };
+    ffmpeg.on("error", fail);
+    tracker.on("error", fail);
     ffmpeg.stdout.on("error", () => {});
     tracker.stdin.on("error", () => {});
 
     tracker.on("close", (code) => {
       ffmpeg.kill("SIGKILL");
-      if (code === 0) resolve(out.split("\n"));
+      trackerDeadline.clear();
+      decodeDeadline.clear();
+      // A partial track is worse than no track: the frame would follow the
+      // speaker for the first few seconds and then hold wherever they were
+      // standing when we stopped looking, which reads as a deliberate choice.
+      const timedOut = trackerDeadline.error ?? decodeDeadline.error;
+      if (timedOut) reject(timedOut);
+      else if (code === 0) resolve(out.split("\n"));
       else reject(new Error(`subject tracking exited ${code}: ${err.trim().slice(0, 200)}`));
     });
   });

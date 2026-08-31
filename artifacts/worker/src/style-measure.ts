@@ -16,6 +16,7 @@
  * ours rather than the user's.
  */
 import { spawn } from "node:child_process";
+import { guard, LIMITS } from "./deadline";
 
 export interface StyleProfile {
   /** Visual changes per minute — cuts, and by extension how restless the edit is. */
@@ -66,14 +67,26 @@ const MOTION_FULL_SCALE = 32;
 function ffmpeg(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn("ffmpeg", ["-hide_banner", "-nostdin", ...args]);
+    const deadline = guard(child, { ...LIMITS.analysis, what: "measuring the reference clip" });
     let said = "";
     const collect = (d: Buffer) => {
+      deadline.touch();
       said += d.toString();
     };
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
-    child.on("error", reject);
-    child.on("close", () => resolve(said));
+    child.on("error", (err) => {
+      deadline.clear();
+      reject(err);
+    });
+    child.on("close", () => {
+      deadline.clear();
+      // This resolves on any exit code, so the flag is the only thing that
+      // separates "the clip had nothing to report" from "we stopped reading
+      // it" — and the first of those is a style of flat grey footage.
+      if (deadline.expired) reject(deadline.error);
+      else resolve(said);
+    });
   });
 }
 
@@ -182,12 +195,22 @@ function probeDuration(path: string): Promise<number> {
       "-of", "default=nw=1:nk=1",
       path,
     ]);
+    const deadline = guard(child, { ...LIMITS.probe, what: "reading the reference clip's length" });
     let out = "";
     child.stdout.on("data", (d) => {
       out += d.toString();
     });
-    child.on("error", () => resolve(0));
-    child.on("close", () => resolve(Number(out.trim()) || 0));
+    child.on("error", () => {
+      deadline.clear();
+      resolve(0);
+    });
+    child.on("close", () => {
+      deadline.clear();
+      // Zero is this function's own "could not tell", which is what a killed
+      // probe honestly is. It fails soft because a reference clip we cannot
+      // measure is a style we do not copy, not a render we refuse.
+      resolve(deadline.expired ? 0 : Number(out.trim()) || 0);
+    });
   });
 }
 

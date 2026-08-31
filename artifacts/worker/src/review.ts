@@ -28,6 +28,7 @@
  * degrades to "deliver the file we have".
  */
 import { spawn } from "node:child_process";
+import { guard, LIMITS } from "./deadline";
 import { rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { EditOperation } from "@workspace/api-zod";
@@ -321,18 +322,35 @@ async function meanLuma(file: string): Promise<number | null> {
 const FFMPEG = process.env["FFMPEG_PATH"] ?? "ffmpeg";
 const FFPROBE = process.env["FFPROBE_PATH"] ?? "ffprobe";
 
-/** Runs ffmpeg for its report, not its output; never throws on exit code. */
+/**
+ * Runs ffmpeg for its report, not its output; never throws on exit code.
+ *
+ * "Never throws on exit code" is exactly why the deadline has to be checked
+ * separately here. A killed child closes like a finished one, and this
+ * function's whole contract is to hand back whatever was said — so without the
+ * flag a hung measurement pass would return a few lines of ffmpeg banner and
+ * the critic would review a render against nothing.
+ */
 function ffmpeg(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(FFMPEG, ["-hide_banner", "-nostdin", ...args]);
+    const deadline = guard(child, { ...LIMITS.analysis, what: "measuring the finished render" });
     let said = "";
     const collect = (d: Buffer) => {
+      deadline.touch();
       said += d.toString();
     };
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
-    child.on("error", reject);
-    child.on("close", () => resolve(said));
+    child.on("error", (err) => {
+      deadline.clear();
+      reject(err);
+    });
+    child.on("close", () => {
+      deadline.clear();
+      if (deadline.expired) reject(deadline.error);
+      else resolve(said);
+    });
   });
 }
 
@@ -340,13 +358,20 @@ function ffmpeg(args: string[]): Promise<string> {
 function ffmpegOrThrow(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(FFMPEG, ["-hide_banner", "-nostdin", ...args]);
+    const deadline = guard(child, { ...LIMITS.analysis, what: "cutting a sample of the render" });
     let said = "";
     child.stderr.on("data", (d: Buffer) => {
+      deadline.touch();
       said += d.toString();
     });
-    child.on("error", reject);
+    child.on("error", (err) => {
+      deadline.clear();
+      reject(err);
+    });
     child.on("close", (code) => {
-      if (code === 0) resolve();
+      deadline.clear();
+      if (deadline.expired) reject(deadline.error);
+      else if (code === 0) resolve();
       else reject(new Error(`ffmpeg exited ${code}: ${said.slice(-400)}`));
     });
   });
@@ -379,12 +404,20 @@ async function probeStreams(file: string): Promise<{ duration: number; hasAudio:
       "-of", "json",
       file,
     ]);
+    const deadline = guard(child, { ...LIMITS.probe, what: "reading the render's own header" });
     let said = "";
     child.stdout.on("data", (d: Buffer) => {
       said += d.toString();
     });
-    child.on("error", reject);
-    child.on("close", () => resolve(said));
+    child.on("error", (err) => {
+      deadline.clear();
+      reject(err);
+    });
+    child.on("close", () => {
+      deadline.clear();
+      if (deadline.expired) reject(deadline.error);
+      else resolve(said);
+    });
   });
   try {
     const parsed = JSON.parse(out) as {
