@@ -83,6 +83,12 @@ const PROJECTS = [
   project("11111111-1111-4111-8111-111111111111", "Podcast episode 14 — the whole two-hour take, unedited", "done"),
   project("22222222-2222-4222-8222-222222222222", "Store walkthrough", "processing"),
   project("33333333-3333-4333-8333-333333333333", "Launch teaser", "ready"),
+  // Two hours of source, and the reason it is its own row rather than a
+  // `duration` on the one above: the project editor's checks all run against
+  // PROJECTS[0], and a mark pinned at 0:25 of a two-hour recording sits at
+  // 0.3% of the track — which is a correct drawing of a wrong fixture, and it
+  // failed the pin check the moment the length changed.
+  project("55555555-5555-4555-8555-555555555555", "Thursday show — the raw two-hour take", "done", { duration: 7182 }),
 ];
 
 /**
@@ -106,7 +112,7 @@ const VERTICAL_PROJECT = project(
 
 const FIXTURES = {
   "/api/stats/dashboard": {
-    totalProjects: 3, processingCount: 1, stalledCount: 0, doneCount: 1,
+    totalProjects: 4, processingCount: 1, stalledCount: 0, doneCount: 2,
     recentProjects: PROJECTS,
     // Relative to now, not a date written down once.
     //
@@ -618,6 +624,42 @@ const PAGES = [
         "every project card has a picture of some kind on it",
         empty.length === 0,
         `${empty.join(", ")} drew nothing where the poster goes`,
+      );
+
+      /*
+        And a two-hour recording is not filed beside a nine-second hook.
+
+        Both are "a project" and in one grid the episode is a card like any
+        other, which is backwards for the person this is being built for: you
+        do not open an episode to watch it, you open it to take pieces out of
+        it, and you come back to the same one for weeks.
+      */
+      const podcasts = await page.getByTestId("grid-podcasts");
+      check("long recordings have a section of their own", await podcasts.isVisible(), "");
+      check(
+        "and the two-hour take is in it rather than in the grid below",
+        (await podcasts.innerText()).includes("Thursday show"),
+        (await podcasts.innerText()).slice(0, 120),
+      );
+      check(
+        "while a short project is not",
+        !(await podcasts.innerText()).includes("Launch teaser") &&
+          (await page.getByTestId("grid-projects").innerText()).includes("Launch teaser"),
+        "",
+      );
+
+      /*
+        And scheduling has a door.
+
+        It was built, tested and reachable, and the first person to look for it
+        could not find it: the composer is at the bottom of the export screen
+        and the queue is three cards down the account page. Neither is where
+        anybody looks for "what is going out".
+      */
+      check(
+        "there is a way into scheduling from the screen people start on",
+        await page.getByTestId("button-scheduled").isVisible(),
+        "",
       );
     },
   },

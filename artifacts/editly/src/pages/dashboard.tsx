@@ -11,7 +11,8 @@ import {
   getGetDashboardStatsQueryKey,
   getGetSubscriptionQueryKey,
   useGetAdminOverview,
-  getGetAdminOverviewQueryKey
+  getGetAdminOverviewQueryKey,
+  type Project
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ import { Label } from "@/components/ui/label";
 import {
   Video, Plus, Clock, PlayCircle, CheckCircle2,
   Trash2, AlertCircle, Loader2, Sparkles, Activity, TrendingUp, UserRound,
-  UploadCloud, Gauge, Scissors
+  UploadCloud, Gauge, Scissors, CalendarClock, Mic
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { ProjectArt } from "@/components/project-art";
@@ -372,6 +373,120 @@ export default function Dashboard() {
     }
   };
 
+  /*
+    One card, rendered from two lists.
+
+    The grid used to be a single `projects.map`, and it is now two — podcasts
+    above, everything else below. Pulled into a function rather than copied,
+    because a card that renders one way in one section and another way in the
+    other is the failure that makes a split like this worse than no split.
+  */
+  /*
+    Where a recording stops being an edit and starts being a source.
+
+    Eight minutes of uploaded video. Under it, a project is a thing you are
+    editing; over it, a project is a thing you are taking pieces out of, and
+    those two want different screens even though they are the same row.
+
+    `duration` is measured from the file at upload, so a project whose source
+    never arrived — or whose measurement failed — is not a podcast by default.
+    A wrong guess in that direction hides nothing: the project is still in the
+    grid below.
+  */
+  const PODCAST_SECONDS = 8 * 60;
+  const podcasts = (projects ?? []).filter((p) => (p.duration ?? 0) >= PODCAST_SECONDS);
+  const shortForm = (projects ?? []).filter((p) => (p.duration ?? 0) < PODCAST_SECONDS);
+
+  const projectCard = (project: Project) => (
+            <Link key={project.id} href={`/project/${project.id}`}>
+              {/* The thumbnail is inset inside the card rather than bleeding
+                  to its edge: a picture with a margin around it reads as
+                  something the card is holding, which is the difference
+                  between a library and a list. */}
+              <Card
+                className="glass-panel border-hairline-faint overflow-hidden hover:border-primary/50 transition-all group cursor-pointer h-full flex flex-col p-2 hover:-translate-y-0.5"
+                data-testid={`card-project-${project.id}`}
+              >
+                <div className="force-dark w-full aspect-[16/9] bg-background text-foreground relative overflow-hidden flex-shrink-0 rounded-xl">
+                  {/* What is under everything else.
+                      This was a black rectangle with a grey camera in the
+                      middle, three across — the least appealing screen in the
+                      product and the one people open most. The art belongs to
+                      the project (its hue comes from its id) so the grid is
+                      something you can find your way around by colour, and a
+                      poster that fails to load lands on a picture rather than
+                      on a hole. See components/project-art.tsx. */}
+                  {/*
+                    The art is what a project has *instead of* a picture, not
+                    underneath one.
+
+                    It was drawn unconditionally, on the reasoning that a
+                    floor under everything is safer than a fallback that might
+                    not fire. That reasoning was right about the black
+                    rectangle it replaced and wrong the moment the floor had
+                    colour in it: a poster is `object-contain`, so a clip
+                    whose shape is not 16:9 leaves bars at the sides — and the
+                    bars filled with someone else's ribbons. Every card with a
+                    real frame in it had a green or violet edge around the
+                    person's own video.
+
+                    So it is drawn only when there is nothing to draw over it.
+                    The camera glyph goes with it, for the same reason: a
+                    watermark on top of a photograph is not a fallback, it is
+                    a mark on the photograph.
+                  */}
+                  {hasPoster(project) ? (
+                    project.thumbnailPath || project.thumbnailUrl ? (
+                      <ProjectThumbnail project={project} />
+                    ) : (
+                      <ProjectClipFrame project={project} />
+                    )
+                  ) : (
+                    <>
+                      <ProjectArt seed={project.id} />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Video className="w-10 h-10 text-white/25" />
+                      </div>
+                    </>
+                  )}
+                  <div className="absolute top-3 right-3">
+                    {getStatusBadge(project.status, project.renderStalled)}
+                  </div>
+                </div>
+                {/*
+                  The date and the bin share a row.
+
+                  The bin had a row of its own, which on a phone is fifty
+                  pixels of empty card between the date and the next project —
+                  three of them and a screen holds two projects instead of
+                  three. It is still a full tap target and still the furthest
+                  thing on the card from where a thumb lands when opening one.
+                */}
+                <CardContent className="px-3 pt-3 pb-2 flex-1 flex items-end justify-between gap-2">
+                  <div className="min-w-0">
+                    <CardTitle dir="auto" className="text-lg mb-1 group-hover:text-primary transition-colors line-clamp-1" data-testid={`text-project-title-${project.id}`}>
+                      {project.title}
+                    </CardTitle>
+                    <div className="flex items-center text-xs text-muted-foreground">
+                      <Clock className="w-3 h-3 mr-1 flex-shrink-0" />
+                      {format(new Date(project.updatedAt), 'MMM d, yyyy')}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-11 w-11 md:h-8 md:w-8 flex-shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    onClick={(e) => handleDelete(project.id, e)}
+                    aria-label={`Delete ${project.title}`}
+                    data-testid={`button-delete-${project.id}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </CardContent>
+              </Card>
+            </Link>
+  );
+
   return (
     <div className="w-full max-w-7xl mx-auto px-6 py-12">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-12 gap-4">
@@ -439,6 +554,24 @@ export default function Dashboard() {
           >
             <Scissors className="w-4 h-4 sm:mr-2" />
             <span className="hidden sm:inline">Clips</span>
+          </Button>
+          {/* Scheduling had no door.
+
+              It was built, tested and reachable, and the first person to look
+              for it in the product could not find it — because the composer is
+              at the bottom of the export screen, visible only after a render
+              finishes, and the queue is three cards down the account page under
+              the plan and the addresses. Neither is where anybody would look
+              for "what is going out". */}
+          <Button
+            variant="outline"
+            className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
+            onClick={() => setLocation("/scheduled")}
+            aria-label="Scheduled"
+            data-testid="button-scheduled"
+          >
+            <CalendarClock className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Scheduled</span>
           </Button>
           <Button
             variant="outline"
@@ -673,9 +806,47 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/*
+        Podcasts and long recordings, first and separate.
+
+        A two-hour episode and a nine-second hook are both "a project", and in
+        one undifferentiated grid the episode is a card like any other — which
+        is exactly backwards for the person this product is being built for.
+        You do not open an episode to watch it. You open it to take pieces out
+        of it, and you come back to the same one for weeks.
+
+        The line is drawn at eight minutes of *source*, because that is where
+        the intent changes: nothing under it is a recording you clip from, and
+        the free plan's own upload ceiling is ten. Measured from the file, not
+        from a label somebody has to remember to set — a section you have to
+        maintain by hand is a section that is wrong by the second week.
+
+        Hidden entirely when there are none, rather than showing an empty
+        heading: a section that says "no podcasts" to somebody who does not
+        make podcasts is furniture.
+      */}
+      {podcasts.length > 0 && (
+        <div className="space-y-4 mb-10">
+          <div className="flex items-baseline gap-3">
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <Mic className="w-5 h-5 text-secondary flex-shrink-0" />
+              Podcasts and long recordings
+            </h2>
+            <span className="text-xs text-muted-foreground">
+              open one to cut clips out of it
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="grid-podcasts">
+            {podcasts.map(projectCard)}
+          </div>
+        </div>
+      )}
+
       {/* Projects Grid */}
       <div className="space-y-4">
-        <h2 className="text-xl font-semibold">Recent Projects</h2>
+        <h2 className="text-xl font-semibold">
+          {podcasts.length > 0 ? "Everything else" : "Recent Projects"}
+        </h2>
         
         {projectsState === "loading" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -713,96 +884,8 @@ export default function Dashboard() {
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {projects?.map(project => (
-              <Link key={project.id} href={`/project/${project.id}`}>
-                {/* The thumbnail is inset inside the card rather than bleeding
-                    to its edge: a picture with a margin around it reads as
-                    something the card is holding, which is the difference
-                    between a library and a list. */}
-                <Card
-                  className="glass-panel border-hairline-faint overflow-hidden hover:border-primary/50 transition-all group cursor-pointer h-full flex flex-col p-2 hover:-translate-y-0.5"
-                  data-testid={`card-project-${project.id}`}
-                >
-                  <div className="force-dark w-full aspect-[16/9] bg-background text-foreground relative overflow-hidden flex-shrink-0 rounded-xl">
-                    {/* What is under everything else.
-                        This was a black rectangle with a grey camera in the
-                        middle, three across — the least appealing screen in the
-                        product and the one people open most. The art belongs to
-                        the project (its hue comes from its id) so the grid is
-                        something you can find your way around by colour, and a
-                        poster that fails to load lands on a picture rather than
-                        on a hole. See components/project-art.tsx. */}
-                    {/*
-                      The art is what a project has *instead of* a picture, not
-                      underneath one.
-
-                      It was drawn unconditionally, on the reasoning that a
-                      floor under everything is safer than a fallback that might
-                      not fire. That reasoning was right about the black
-                      rectangle it replaced and wrong the moment the floor had
-                      colour in it: a poster is `object-contain`, so a clip
-                      whose shape is not 16:9 leaves bars at the sides — and the
-                      bars filled with someone else's ribbons. Every card with a
-                      real frame in it had a green or violet edge around the
-                      person's own video.
-
-                      So it is drawn only when there is nothing to draw over it.
-                      The camera glyph goes with it, for the same reason: a
-                      watermark on top of a photograph is not a fallback, it is
-                      a mark on the photograph.
-                    */}
-                    {hasPoster(project) ? (
-                      project.thumbnailPath || project.thumbnailUrl ? (
-                        <ProjectThumbnail project={project} />
-                      ) : (
-                        <ProjectClipFrame project={project} />
-                      )
-                    ) : (
-                      <>
-                        <ProjectArt seed={project.id} />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <Video className="w-10 h-10 text-white/25" />
-                        </div>
-                      </>
-                    )}
-                    <div className="absolute top-3 right-3">
-                      {getStatusBadge(project.status, project.renderStalled)}
-                    </div>
-                  </div>
-                  {/*
-                    The date and the bin share a row.
-
-                    The bin had a row of its own, which on a phone is fifty
-                    pixels of empty card between the date and the next project —
-                    three of them and a screen holds two projects instead of
-                    three. It is still a full tap target and still the furthest
-                    thing on the card from where a thumb lands when opening one.
-                  */}
-                  <CardContent className="px-3 pt-3 pb-2 flex-1 flex items-end justify-between gap-2">
-                    <div className="min-w-0">
-                      <CardTitle dir="auto" className="text-lg mb-1 group-hover:text-primary transition-colors line-clamp-1" data-testid={`text-project-title-${project.id}`}>
-                        {project.title}
-                      </CardTitle>
-                      <div className="flex items-center text-xs text-muted-foreground">
-                        <Clock className="w-3 h-3 mr-1 flex-shrink-0" />
-                        {format(new Date(project.updatedAt), 'MMM d, yyyy')}
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-11 w-11 md:h-8 md:w-8 flex-shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                      onClick={(e) => handleDelete(project.id, e)}
-                      aria-label={`Delete ${project.title}`}
-                      data-testid={`button-delete-${project.id}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="grid-projects">
+            {shortForm.map(projectCard)}
           </div>
         )}
       </div>

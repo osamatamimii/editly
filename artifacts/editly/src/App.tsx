@@ -33,6 +33,7 @@ const ProjectEditor = lazy(() => import("@/pages/project-editor"));
 const ExportPage = lazy(() => import("@/pages/export"));
 const AccountPage = lazy(() => import("@/pages/account"));
 const ClipsPage = lazy(() => import("@/pages/clips"));
+const ScheduledPage = lazy(() => import("@/pages/scheduled"));
 const AdminPage = lazy(() => import("@/pages/admin"));
 
 const queryClient = new QueryClient();
@@ -91,6 +92,9 @@ function Router() {
       </Route>
       <Route path="/clips">
         <Protected component={ClipsPage} />
+      </Route>
+      <Route path="/scheduled">
+        <Protected component={ScheduledPage} />
       </Route>
       <Route path="/account">
         <Protected component={AccountPage} />
