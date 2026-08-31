@@ -31,10 +31,8 @@
  * file is a response to.
  */
 import { UPLOAD_CONTENT_TYPES } from "@workspace/api-zod";
+import { objectStoreFrom, type StoreFacts } from "@workspace/object-store";
 import { VIDEOS_BUCKET, FALLBACK_UPLOAD_BYTES } from "./storage-limits";
-
-const SUPABASE_URL = (process.env["SUPABASE_URL"] ?? "").replace(/\/+$/, "");
-const SERVICE_ROLE_KEY = process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "";
 
 export type Verdict = "ok" | "wrong" | "unknown";
 
@@ -53,57 +51,66 @@ export interface Finding {
 const megabytes = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`;
 
 /**
- * The bucket, read whole rather than one field at a time.
+ * The bucket, read whole rather than one field at a time, and through the seam.
  *
- * `storage-limits.ts` reads the same endpoint for the size, and caches it for
- * five minutes because it is on the path of a customer's dashboard. This is
- * not: it runs when somebody opens the console, so it asks fresh — a cached
- * answer here would be an audit reporting yesterday's configuration, which is
- * exactly the thing an audit is for.
+ * `storage-limits.ts` reads the same thing for the size and caches it for five
+ * minutes, because it is on the path of a customer's dashboard. This is not: it
+ * runs when somebody opens the console, so it asks fresh — a cached answer here
+ * would be an audit reporting yesterday's configuration, which is exactly the
+ * thing an audit is for.
+ *
+ * It goes through `@workspace/object-store` rather than building a Supabase URL,
+ * which is not tidying. It means this page answers correctly on the day the
+ * provider changes, and it means the page can say **which** provider answered.
+ * An audit whose own questions assume one object store is an audit that goes
+ * quietly wrong the moment there are two.
  */
-async function readBucket(): Promise<Record<string, unknown> | null> {
-  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return null;
+async function readFacts(): Promise<StoreFacts | null> {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5_000);
-    try {
-      const res = await fetch(`${SUPABASE_URL}/storage/v1/bucket/${VIDEOS_BUCKET}`, {
-        headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
-        signal: controller.signal,
-      });
-      if (!res.ok) return null;
-      return (await res.json()) as Record<string, unknown>;
-    } finally {
-      clearTimeout(timer);
-    }
+    return await objectStoreFrom().facts();
   } catch {
+    // Constructing the store throws when the deployment is not configured for
+    // one at all. That is a finding, not a crash, and it is reported below.
     return null;
   }
 }
 
 export async function auditDeployment(env: NodeJS.ProcessEnv = process.env): Promise<Finding[]> {
   const findings: Finding[] = [];
-  const bucket = await readBucket();
+  const facts = await readFacts();
 
   // ── The bucket ────────────────────────────────────────────────────────────
 
-  if (!bucket) {
+  if (!facts) {
     findings.push({
       id: "storage.reachable",
       verdict: "unknown",
-      expected: `the ${VIDEOS_BUCKET} bucket answers a request with the service key`,
-      actual: SERVICE_ROLE_KEY
+      expected: `the ${VIDEOS_BUCKET} bucket answers a request with this deployment's credentials`,
+      actual: env["SUPABASE_SERVICE_ROLE_KEY"]?.trim()
         ? "it did not answer, or answered with an error"
-        : "SUPABASE_SERVICE_ROLE_KEY is not set on this deployment, so nothing could be asked",
+        : "no storage credentials are set on this deployment, so nothing could be asked",
       consequence:
         "everything below about storage is unchecked, and the two worst bugs this product has had were both in there",
     });
   } else {
-    const allowed = Array.isArray(bucket["allowed_mime_types"])
-      ? (bucket["allowed_mime_types"] as string[])
-      : null;
+    /*
+      Which store is answering.
 
-    if (allowed === null) {
+      Reported even when everything about it is fine, because it is the fact
+      every other finding on this page is conditional on — and because the
+      day it changes is the day somebody will want to see it in writing.
+    */
+    findings.push({
+      id: "storage.provider",
+      verdict: "ok",
+      expected: "one object store, named",
+      actual: `${facts.provider}, bucket ${facts.bucket}`,
+      consequence: "",
+    });
+
+    const allowed = facts.allowedContentTypes;
+
+    if (allowed === null && facts.provider === "supabase") {
       /*
         A bucket with no list takes anything. That is not a failure and it is
         not what this product wants: the list is what keeps a private bucket
@@ -116,6 +123,21 @@ export async function auditDeployment(env: NodeJS.ProcessEnv = process.env): Pro
         actual: "the bucket has no list at all, so it accepts anything",
         consequence:
           "nothing breaks for a customer, and this private bucket will take any file anybody can name",
+      });
+    } else if (allowed === null) {
+      /*
+        R2 has no content-type list to read, and that is not a misconfiguration
+        — it has no such feature. It is still a finding, because it moves a
+        wall: on this provider the only thing refusing a file is our own code,
+        before it signs the upload URL.
+      */
+      findings.push({
+        id: "storage.types",
+        verdict: "unknown",
+        expected: `only the ${UPLOAD_CONTENT_TYPES.length} types this product uploads reach storage`,
+        actual: `${facts.provider} has no content-type list of its own`,
+        consequence:
+          "nothing at the store refuses a file, so the only check is the one our API makes before it signs the upload",
       });
     } else {
       const refused = UPLOAD_CONTENT_TYPES.filter((t) => !allowed.includes(t));
@@ -135,13 +157,12 @@ export async function auditDeployment(env: NodeJS.ProcessEnv = process.env): Pro
       });
     }
 
-    const limit = bucket["file_size_limit"];
-    const bytes = typeof limit === "number" && limit > 0 ? limit : null;
+    const bytes = facts.fileSizeLimit;
     findings.push({
       id: "storage.size",
       verdict: bytes === null ? "unknown" : bytes >= FALLBACK_UPLOAD_BYTES ? "ok" : "wrong",
       expected: `at least ${megabytes(FALLBACK_UPLOAD_BYTES)} per file, which is what the browser falls back to promising`,
-      actual: bytes === null ? "the bucket names no limit of its own" : `${megabytes(bytes)} per file`,
+      actual: bytes === null ? "the store names no limit of its own" : `${megabytes(bytes)} per file`,
       consequence:
         bytes !== null && bytes < FALLBACK_UPLOAD_BYTES
           ? "the app offers a larger file than Storage will take, and the refusal arrives with no sentence attached"
@@ -150,13 +171,12 @@ export async function auditDeployment(env: NodeJS.ProcessEnv = process.env): Pro
 
     findings.push({
       id: "storage.private",
-      verdict: bucket["public"] === false ? "ok" : "wrong",
+      verdict: facts.publicReads ? "wrong" : "ok",
       expected: "the bucket is private, so every file is reached through a signed link",
-      actual: bucket["public"] === false ? "it is private" : "it is public",
-      consequence:
-        bucket["public"] === false
-          ? ""
-          : "every customer's video is readable by anybody who can guess a path, and paths contain account ids",
+      actual: facts.publicReads ? "it is public" : "it is private",
+      consequence: facts.publicReads
+        ? "every customer's video is readable by anybody who can guess a path, and paths contain account ids"
+        : "",
     });
   }
 

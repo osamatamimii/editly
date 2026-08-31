@@ -172,6 +172,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/object-store':
+        specifier: workspace:*
+        version: link:../../lib/object-store
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -425,6 +428,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/object-store':
+        specifier: workspace:*
+        version: link:../../lib/object-store
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.45.2(@types/pg@8.20.4)(pg@8.22.0)
@@ -485,6 +491,12 @@ importers:
       drizzle-kit:
         specifier: ^0.31.9
         version: 0.31.10
+
+  lib/object-store:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.5
 
 packages:
 

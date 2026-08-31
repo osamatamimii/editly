@@ -12,6 +12,7 @@ on:
       - "artifacts/worker/**"
       - "lib/db/**"
       - "lib/api-zod/**"
+      - "lib/object-store/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/deploy-worker.yml"
   workflow_dispatch:
