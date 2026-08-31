@@ -31,9 +31,12 @@ WORKDIR /app
 # font that drawtext and the ASS caption style both name; without it the
 # watermark and captions render as nothing at all, silently.
 #
-# fonts-montserrat is the face the captions are actually drawn in. DejaVu is
-# still installed and still used — for Arabic, which Montserrat has no glyphs
-# for, and as the control in the proof below.
+# The caption face is *not* installed from here. It is a file in the repository,
+# copied in below: `caption-layout.ts` sizes every caption by cap height and
+# converts through a ratio measured from those exact bytes, and a packaged font
+# is whatever revision the archive holds on the day the image is built. DejaVu
+# is installed and still used — for Arabic, which Montserrat has no glyphs for,
+# and as the control in the proof below.
 #
 # fonts-noto-color-emoji is what makes a sticker a picture. Without it an emoji
 # a person typed comes back as an empty box — the same silent shape as a missing
@@ -52,7 +55,7 @@ WORKDIR /app
 # working deployment down without a single line of code changing.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ffmpeg fonts-dejavu-core fonts-montserrat fonts-noto-color-emoji ca-certificates python3 python3-numpy python3-pip \
+      ffmpeg fonts-dejavu-core fonts-noto-color-emoji fontconfig ca-certificates python3 python3-numpy python3-pip \
       chromium \
  && pip3 install --no-cache-dir --break-system-packages "opencv-python-headless==4.13.0.*" \
  && rm -rf /var/lib/apt/lists/*
@@ -124,6 +127,16 @@ RUN set -eu; \
       if (j >= a)    { print "Arabic letters are not being joined (word " j " vs unjoined " a ") — shaping is missing, or the glyphs are tofu"; exit 1 } \
       print "arabic captions ready: joined " j " against " a " unjoined" }'; \
     rm -f /tmp/probe.ass /tmp/probe.png
+
+# The caption face, from the repository rather than from a package.
+#
+# fontconfig scans this directory like any other; `fc-cache` is what makes the
+# family name resolvable in the same second rather than the first time
+# something rebuilds the cache. The licence travels with the font because the
+# OFL requires it to — see the README beside them.
+COPY artifacts/worker/fonts/Montserrat-Black.otf /usr/share/fonts/opentype/editly/
+COPY artifacts/worker/fonts/Montserrat-OFL.txt   /usr/share/fonts/opentype/editly/
+RUN fc-cache -f > /dev/null && echo "caption face installed"
 
 # Proven at build time rather than discovered by nobody at all.
 #

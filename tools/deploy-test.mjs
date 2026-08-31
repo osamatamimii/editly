@@ -272,6 +272,50 @@ section("The build context is the repo root, and does not carry the repo's build
   );
 }
 
+/*
+  The caption face ships as a file, and three places have to agree about it.
+
+  Every Latin caption is drawn in Montserrat Black, and `caption-layout.ts`
+  converts a cap height into a nominal size through a ratio measured from a
+  *specific cut* of it. That is why the font is in the repository rather than
+  installed from a package: an archive holds whatever revision it holds on the
+  day an image is built, and a differently proportioned cut breaks nothing — it
+  just renders every caption in the product at the wrong size.
+
+  So the file has to exist, the image has to copy it, and the runner that
+  measures captions in pixels has to install the same bytes. Any one of those
+  three drifting is a green suite about a font production does not ship.
+*/
+section("The caption face is a file, and everything that draws with it uses that file");
+{
+  const font = "artifacts/worker/fonts/Montserrat-Black.otf";
+  check("the font is in the repository", existsSync(path.join(repoRoot, font)));
+  check(
+    "the licence travels with it, because the OFL requires that",
+    existsSync(path.join(repoRoot, "artifacts/worker/fonts/Montserrat-OFL.txt")),
+  );
+  check("the image copies it in", new RegExp(`COPY ${font.replace(/[/.]/g, "\\$&")}`).test(dockerfile));
+  check(
+    "and rebuilds the font cache, so the family resolves in the same layer",
+    /fc-cache/.test(dockerfile),
+  );
+  check(
+    "the image does not also install it from a package, which would be two fonts with one name",
+    !/fonts-montserrat/.test(dockerfile),
+  );
+  check(
+    "the suites measure the same file the image ships",
+    new RegExp(font.replace(/[/.]/g, "\\$&")).test(read(".github/workflows/checks.yml")),
+    // A runner carrying a package of the same name would measure a different
+    // cut, and every caption check would be green about the wrong thing.
+    "",
+  );
+  check(
+    "and the image proves the face resolved, because a missing font draws the fallback in silence",
+    /Montserrat Black measures exactly as DejaVu Sans/.test(dockerfile),
+  );
+}
+
 section("A change that affects the worker triggers a deploy");
 {
   // A path filter that misses a dependency is a worker running last month's

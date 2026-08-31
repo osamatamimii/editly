@@ -71,23 +71,34 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          # ffmpeg for every render check; Montserrat because that is the face
-          # captions are drawn in, and DejaVu because drawtext names it and
-          # Arabic captions are set in it — a missing font here renders
-          # *nothing*, or renders the wrong face, and does it silently; the
-          # colour emoji font because a sticker without it is an empty box and
-          # the suite would be measuring the runner's fonts rather than the
-          # image's; python3-opencv for the subject tracker, whose section
-          # skips itself when OpenCV is missing — and a section that skips is a
-          # section that is not testing anything.
+          # ffmpeg for every render check; DejaVu because drawtext names it and
+          # Arabic captions are set in it — a missing font renders *nothing*,
+          # silently; the colour emoji font because a sticker without it is an
+          # empty box and the suite would be measuring the runner's fonts
+          # rather than the image's; python3-opencv for the subject tracker,
+          # whose section skips itself when OpenCV is missing — and a section
+          # that skips is a section that is not testing anything.
           sudo apt-get install -y --no-install-recommends \
-            ffmpeg fonts-dejavu-core fonts-montserrat fonts-noto-color-emoji python3 python3-opencv postgresql-client
+            ffmpeg fonts-dejavu-core fonts-noto-color-emoji fontconfig python3 python3-opencv postgresql-client
           ffmpeg -version | head -1
-          # The runner must agree with the image about what the caption face
-          # measures, or every pixel check below is measuring a fallback.
-          fc-match "Montserrat Black" | grep -qi montserrat \
-            || { echo "the caption face is not installed on this runner"; exit 1; }
           python3 -c "import cv2; print('opencv', cv2.__version__)"
+
+      # The caption face, from the repository — the same bytes the worker image
+      # copies in, not a package with the same name.
+      #
+      # The suite measures captions in drawn pixels and the layout converts cap
+      # height through a ratio taken from a specific cut of this font. A runner
+      # holding a different revision would measure something production does
+      # not ship, which is a green suite about the wrong thing.
+      - name: Install the caption face the image ships
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /usr/share/fonts/opentype/editly
+          sudo cp artifacts/worker/fonts/Montserrat-Black.otf /usr/share/fonts/opentype/editly/
+          sudo fc-cache -f > /dev/null
+          fc-match "Montserrat Black" | grep -qi montserrat \
+            || { echo "the caption face did not resolve on this runner"; exit 1; }
+          echo "caption face ready"
 
       - run: pnpm install --frozen-lockfile
 
