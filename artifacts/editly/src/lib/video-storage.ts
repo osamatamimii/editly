@@ -8,6 +8,7 @@
  */
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
+import { uploadContentTypeFor, uploadKindFor } from "@workspace/api-zod/limits";
 
 export const VIDEOS_BUCKET = "videos";
 
@@ -491,7 +492,10 @@ function uploadResumably(options: {
     const meta = [
       ["bucketName", VIDEOS_BUCKET],
       ["objectName", path],
-      ["contentType", file.type || "video/mp4"],
+      // Ours, from the extension, not the browser's guess. The bucket compares
+      // this string against its allow-list and 400s on a miss — mid-upload, on
+      // a file somebody has already spent minutes sending.
+      ["contentType", uploadContentTypeFor(file.name) ?? "video/mp4"],
       ["cacheControl", "3600"],
     ]
       .map(([k, v]) => `${k} ${btoa(unescape(encodeURIComponent(v)))}`)
@@ -723,12 +727,18 @@ export type AssetKind = "video" | "image" | "audio";
  * would not know what to do with, so an unsupported drop is refused here with
  * a sentence rather than at render time with a filter-graph error.
  */
+/**
+ * What a file is for, decided by its name rather than by `file.type`.
+ *
+ * `video/*`, `image/*`, `audio/*` accepted far more than the bucket does, and
+ * the gap was invisible: a PNG logo and an MP3 bed both passed this check and
+ * were then refused by Storage with a 400 and no sentence. The table is shared
+ * with the content type that gets sent, so the two cannot disagree — see
+ * `UPLOAD_CONTENT_TYPES`.
+ */
 export function assetKindOf(file: File): AssetKind | null {
-  const type = (file.type || "").toLowerCase();
-  if (type.startsWith("video/")) return "video";
-  if (type.startsWith("image/")) return "image";
-  if (type.startsWith("audio/")) return "audio";
-  return null;
+  const kind = uploadKindFor(file.name);
+  return kind === "video" || kind === "image" || kind === "audio" ? kind : null;
 }
 
 export async function uploadProjectAsset(options: {
@@ -741,7 +751,7 @@ export async function uploadProjectAsset(options: {
   const kind = assetKindOf(file);
   if (!kind) {
     throw new UploadError(
-      `We can use video, images and audio. "${file.name}" is neither, so there is nothing we could do with it in an edit.`,
+      `We can use video, images and audio. "${file.name}" is none of those, so there is nothing we could do with it in an edit.`,
     );
   }
   if (file.size > MAX_ASSET_BYTES) {
@@ -765,7 +775,8 @@ export async function uploadProjectAsset(options: {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        "Content-Type": file.type || "application/octet-stream",
+        // Ours, from the extension. See `uploadContentTypeFor`.
+        "Content-Type": uploadContentTypeFor(file.name) ?? "video/mp4",
         "x-upsert": "true",
       },
       body: file,
@@ -780,6 +791,7 @@ export async function uploadProjectAsset(options: {
 export const MAX_FONT_BYTES = 8 * 1024 * 1024;
 
 const FONT_EXTENSIONS = new Set(["ttf", "otf", "ttc"]);
+
 
 /**
  * A font, straight into this person's own folder.
@@ -816,6 +828,17 @@ export async function uploadCaptionFont(options: {
   const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const path = `${userId}/fonts/font-${stamp}.${extension}`;
 
+  /*
+    Our name for the type, not the browser's.
+
+    The bucket rejects any content type outside its allow-list, and browsers
+    disagree about fonts: one sends `font/otf`, another `application/x-font-otf`,
+    a third an empty string. Sending whatever this browser happened to think
+    would make the upload work on some machines and fail on others, with a 400
+    from Storage and nothing anywhere saying why.
+  */
+  const contentType = uploadContentTypeFor(file.name) ?? "font/ttf";
+
   const res = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${path}`,
     {
@@ -823,7 +846,7 @@ export async function uploadCaptionFont(options: {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        "Content-Type": file.type || "font/ttf",
+        "Content-Type": contentType,
         "x-upsert": "true",
       },
       body: file,

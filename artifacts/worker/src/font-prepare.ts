@@ -248,6 +248,8 @@ async function prepareOne(
     }
 
     const facePath = `${row.user_id}/fonts/${row.id}.ttf`;
+    // The repaired face is always TrueType, whatever came in: `to_truetype`
+    // converts CFF outlines on the way through. See `facerepair.py`.
     await uploadObject(path.join(faceDir, prepared.file), facePath, "font/ttf");
     let previewPath: string | null = null;
     if (prepared.preview) {

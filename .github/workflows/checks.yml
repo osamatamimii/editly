@@ -145,6 +145,7 @@ jobs:
       - run: node tools/deploy-test.mjs
       - run: node tools/pricing-test.mjs
       - run: node tools/theme-test.mjs
+      - run: node tools/upload-types-test.mjs
       - run: node tools/policy-test.mjs
       - run: node tools/refusal-test.mjs
       - run: node tools/posting-test.mjs
