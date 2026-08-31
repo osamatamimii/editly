@@ -45,7 +45,7 @@ export const socialAccountsTable = pgTable(
     id: text("id").primaryKey(),
     userId: uuid("user_id").notNull(),
 
-    /** instagram | facebook | tiktok | x | snapchat */
+    /** instagram | facebook | tiktok | x | snapchat | youtube */
     platform: text("platform").notNull(),
 
     /**

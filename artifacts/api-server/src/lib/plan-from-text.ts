@@ -51,6 +51,18 @@ export interface ParsedIntent {
   cannotYet: Phrase[];
   /** The language they asked in, which is the language of the reply. */
   language: Language;
+  /**
+   * Which subjects the sentence itself decided.
+   *
+   * Not the same as which operations came out. "no captions on this one"
+   * produces no caption operation and is a decision *about* captions — and
+   * anything that fills in a person's usual settings has to be able to tell
+   * those two apart, or the one sentence where somebody says no gets captions
+   * anyway. See `lib/habits.ts`.
+   *
+   * A subject is spoken if the words are about it, whichever way they went.
+   */
+  spoke: { platform: boolean; captions: boolean; silence: boolean };
 }
 
 /**
@@ -231,7 +243,7 @@ const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
       contain «انشر».
     */
     patterns:
-      /\b(post|publish|upload|share)\b[^.!?]{0,30}\b(instagram|insta|reels?|tiktok|facebook|snapchat|twitter|on x)\b|\bschedule (it|this|them|the (post|clip|video))\b|\b(post|publish) (it|this|them) (for me|later|at|on|tomorrow|tonight)\b|(?:انشر|جدول)/i,
+      /\b(post|publish|upload|share)\b[^.!?]{0,30}\b(instagram|insta|reels?|tiktok|facebook|snapchat|twitter|youtube|shorts?|on x)\b|\bschedule (it|this|them|the (post|clip|video))\b|\b(post|publish) (it|this|them) (for me|later|at|on|tomorrow|tonight)\b|(?:انشر|جدول)/i,
     label: say(
       "post it to your accounts yet. The scheduling itself is built, so you can pick the accounts, write the caption once and choose the time. What is missing is that every platform has to approve this app before it will let one post for you, and none has yet",
       "أنشرها على حساباتك بعد. الجدولة نفسها مبنيّة، فتختار الحسابات وتكتب الكابشن مرّة وتحدّد الوقت. الناقص أن كل منصّة يجب أن تعتمد هذا التطبيق قبل أن تسمح له بالنشر نيابةً عنك، ولم تعتمده أيٌّ منها بعد",
@@ -310,6 +322,25 @@ const SILENCE_WORDS =
   /\bsilence|silent|quiet|pause|dead air|um+s?\b|\bfiller|tighten|trim|short|fast|snapp|pace|boring|drag|صمت|سكتات|سكوت|وقفات|فراغات|اختصر|قصّر|قصر الفيديو|سرّع/i;
 
 const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b|عمودي|عامودي|طولي/i;
+
+/*
+  The three patterns below exist only so that a *refusal* can be recognised.
+
+  Nothing acts on them: saying "no captions" produces no operation, which is
+  already what happens. What they do is mark the subject as spoken, so that
+  what somebody usually asks for is not added to the one video where they said
+  not to. A person who is contradicted on the sentence where they were most
+  explicit does not conclude the product knows them.
+
+  Kept beside the patterns they negate rather than in a block of their own,
+  because a negation that drifts away from the thing it negates is a negation
+  that stops covering it.
+*/
+const HORIZONTAL_WORDS = /\bhorizontal|16:9|landscape|widescreen\b|أفقي|افقي|عريض/i;
+const NO_CAPTION_WORDS =
+  /\bno (?:captions?|subtitles?)|without (?:captions?|subtitles?)|\bdon'?t caption|بدون (?:ترجمة|ترجمه|كابشن|كتابة)|بلا (?:ترجمة|كابشن)|من غير (?:ترجمة|كابشن)|لا ترجمة|ما بدي (?:ترجمة|كابشن)/i;
+const NO_SILENCE_WORDS =
+  /\bkeep the (?:silence|pauses)|don'?t cut (?:the )?(?:silence|pauses)|\bno (?:silence )?cut(?:ting)?\b|خلّي الصمت|خلي الصمت|لا تقص الصمت|بدون قص/i;
 
 /**
  * Captions, in both languages this product is asked in.
@@ -747,9 +778,40 @@ export function planFromText(
   const willDo: Phrase[] = [];
   const cannotYet: Phrase[] = [];
 
-  const wantsSilenceCut = SILENCE_WORDS.test(text);
+  /*
+    A refusal contains the word it refuses, and until now that was the whole
+    behaviour: "keep the silence" contains "silence" and produced a silence
+    cut; "no captions on this one" contains "captions" and produced captions.
+    The product did the opposite of what those sentences asked, reported it as
+    done, and rendered it.
+
+    It went unnoticed because both patterns were written to be generous — the
+    right instinct for the ways people ask for a thing, and exactly wrong for
+    the ways they decline it. Generosity about a request has to be paired with
+    a reading of the refusal, or the more phrasings you accept the more
+    refusals you swallow.
+  */
+  const refusesCaptions = NO_CAPTION_WORDS.test(text);
+  const refusesSilenceCut = NO_SILENCE_WORDS.test(text);
+
+  const wantsSilenceCut = SILENCE_WORDS.test(text) && !refusesSilenceCut;
   const platform = PLATFORM_WORDS.find((p) => p.patterns.test(text))?.platform ?? null;
   const wantsVertical = platform !== null || VERTICAL_WORDS.test(text);
+
+  /*
+    What the sentence is *about*, as opposed to what it asked for.
+
+    A refusal is a decision. "no captions" mentions captions, produces no
+    caption operation, and must stop anything from adding one on the strength
+    of what this person usually does — which is the difference between a
+    product that knows you and one that ignores you. So the test is the
+    subject's own vocabulary plus its negations, not the operation list.
+  */
+  const spoke = {
+    platform: platform !== null || VERTICAL_WORDS.test(text) || HORIZONTAL_WORDS.test(text),
+    captions: CAPTION_WORDS.test(text) || TRANSLATE_WORDS.test(text) || refusesCaptions,
+    silence: SILENCE_WORDS.test(text) || refusesSilenceCut,
+  };
 
   if (wantsSilenceCut) {
     operations.push({ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 });
@@ -815,7 +877,7 @@ export function planFromText(
     );
   }
 
-  if (CAPTION_WORDS.test(text) && !wantsTranslation) {
+  if (CAPTION_WORDS.test(text) && !wantsTranslation && !refusesCaptions) {
     operations.push({
       type: "autoCaptions",
       style: KARAOKE_WORDS.test(text) ? "karaoke-box" : YELLOW_WORDS.test(text) ? "bold-yellow" : "bold-white",
@@ -1154,7 +1216,7 @@ export function planFromText(
     if (operation.type === "normalizeLoudness") operation.voice = !hasBed;
   }
 
-  return { operations, willDo, cannotYet, language: languageOf(asked) };
+  return { operations, willDo, cannotYet, language: languageOf(asked), spoke };
 }
 
 /** Seconds as m:ss, because "80s" is a number and "1:20" is a moment. */

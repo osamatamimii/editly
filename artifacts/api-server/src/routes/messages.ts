@@ -13,6 +13,7 @@ import { currentUserId } from "../middlewares/auth";
 import { replyFor } from "../lib/plan-from-text";
 import { createPlanner } from "../lib/planner";
 import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
+import { applyHabits, habitsFor } from "../lib/habits";
 import { plannerAssets } from "../lib/planner-assets";
 import { startRenderForProject } from "../lib/start-render";
 import { ALREADY_RENDERING } from "../lib/one-active-job";
@@ -122,6 +123,29 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     parsed.data.fonts,
     await myFaceIds(userId),
   ).operations;
+
+  /*
+    And the things they always ask for, on the sentence where they did not.
+
+    After the font choice, because the picker is a thing they set *now* and a
+    habit is a thing they set by repetition; the explicit one wins where both
+    have an opinion. Before the render starts, because the whole point is that
+    the plan that runs is the one they would have typed.
+
+    Only the subjects the sentence left alone — see `spoke`. And every fill is
+    added to `willDo`, so the reply says it happened: a memory that silently
+    changes what somebody gets is the failure this codebase is written
+    against, and it does not stop being that because the guess was right.
+  */
+  if (intent.operations.length > 0) {
+    const { operations, applied } = applyHabits(
+      intent.operations,
+      await habitsFor(userId),
+      intent.spoke,
+    );
+    intent.operations = operations;
+    for (const fill of applied) intent.willDo.push({ en: fill.en, ar: fill.ar });
+  }
   if (intent.operations.length > 0 && project.videoPath) {
     // The render's notes come back in the language the sentence was written
     // in. `intent.language` is read from what they typed, not from what the

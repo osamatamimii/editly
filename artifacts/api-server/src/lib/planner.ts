@@ -459,6 +459,18 @@ export function createPlanner(options: PlannerOptions = {}) {
            */
           cannotYet: momentsNotHonoured(text, operations),
           language: languageOf(text),
+          /*
+            Read from the sentence, not from the model's plan, and that is the
+            point of it. What subjects a person spoke about is a fact about
+            their words: the model can decline to caption a video whose author
+            said nothing about captions, and it can caption one whose author
+            said not to. Only the words can say which happened, and this is
+            what stops a habit being applied over an explicit no.
+
+            The matcher already computes it, so it is taken from there rather
+            than worked out twice in two files that would drift.
+          */
+          spoke: planFromText(text, context).spoke,
           source: "model",
         };
       } catch (error) {

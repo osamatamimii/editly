@@ -1,10 +1,11 @@
 /**
  * Will this actually post?
  *
- * Scheduling an edit to five places is a promise, and the only way to keep it
+ * Scheduling an edit to six places is a promise, and the only way to keep it
  * is to know each platform's rules before the moment the post is due. X stops
  * at 280 characters and 140 seconds; TikTok wants vertical and ten minutes;
- * Snapchat stops at 250. A person writing one caption for four places cannot
+ * Snapchat stops at 250; YouTube takes twelve hours of anything. A person
+ * writing one caption for four places cannot
  * hold four sets of rules in their head, and the failure this feature exists
  * to remove is finding out at 9pm that the 9pm post was refused.
  *
@@ -86,9 +87,9 @@ const post = (over = {}) => ({
 });
 
 // ── The platforms ────────────────────────────────────────────────────────────
-section("The five places an edit can go");
+section("The six places an edit can go");
 
-check("all five are known", PLATFORMS.length === 5, PLATFORMS.join(", "));
+check("all six are known", PLATFORMS.length === 6, PLATFORMS.join(", "));
 check("and each one has a spec", PLATFORMS.every((p) => PLATFORM_SPEC[p]));
 check(
   "every platform names two environment variables, and no two share one",
@@ -96,10 +97,20 @@ check(
     .size === PLATFORMS.length * 2,
   "a shared variable means turning one platform on turns another on too",
 );
-check("a string that is not a platform is not a platform", !isPlatform("youtube") && !isPlatform(""));
+/*
+  "vimeo" rather than "youtube", and the change is the point.
+
+  This line used to read `!isPlatform("youtube")`, and it was a good example
+  while YouTube was only a *frame shape* — `Platform` and `SocialPlatform`
+  share names and mean different things, and the check was guarding that. It is
+  a destination now, so the example had to move to a name that is neither:
+  a test asserting that a real feature does not exist is a test that will be
+  deleted rather than read.
+*/
+check("a string that is not a platform is not a platform", !isPlatform("vimeo") && !isPlatform(""));
 
 // An empty environment must say "nothing is connected" rather than showing
-// five buttons that cannot work.
+// six buttons that cannot work.
 check(
   "with no credentials set, nothing claims to be connected",
   Object.values(configuredPlatforms({})).every((on) => on === false),

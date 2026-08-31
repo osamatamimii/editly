@@ -1,5 +1,5 @@
 /**
- * The five places an edit can go, what each of them refuses, and whether this
+ * The six places an edit can go, what each of them refuses, and whether this
  * deployment can actually send it there.
  *
  * Shared, and that is the point. Three processes have to agree about X's 280
@@ -12,7 +12,7 @@
  * secret, and — for four of the five — a review before the app may post on a
  * real person's behalf. None of that is code, all of it takes days, and the
  * code has to exist first or there is nothing to submit for review. So this
- * file is the honest middle: the product knows about five platforms, says out
+ * file is the honest middle: the product knows about six platforms, says out
  * loud which are switched on, and never shows a "Connect Instagram" button
  * that cannot work.
  *
@@ -26,7 +26,7 @@
  * refactor to find it.
  */
 
-export const SOCIAL_PLATFORMS = ["instagram", "facebook", "tiktok", "x", "snapchat"] as const;
+export const SOCIAL_PLATFORMS = ["instagram", "facebook", "tiktok", "x", "snapchat", "youtube"] as const;
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
 export function isSocialPlatform(value: unknown): value is SocialPlatform {
@@ -40,6 +40,7 @@ export const SOCIAL_LABEL: Record<SocialPlatform, string> = {
   tiktok: "TikTok",
   x: "X",
   snapchat: "Snapchat",
+  youtube: "YouTube",
 };
 
 /**
@@ -108,6 +109,36 @@ export const SOCIAL_SPEC: Record<SocialPlatform, SocialPlatformSpec> = {
     captionLimit: 250,
     maxDurationSeconds: 180,
     shape: "vertical",
+    needsReview: true,
+  },
+  youtube: {
+    clientIdVar: "YOUTUBE_CLIENT_ID",
+    clientSecretVar: "YOUTUBE_CLIENT_SECRET",
+    /*
+      The one destination that is two destinations, and the numbers are the
+      wider of the two on purpose.
+
+      A YouTube upload is a Short when it is vertical and under three minutes,
+      and an ordinary video otherwise — the platform decides, from the file,
+      with no flag to set. So `shape` is "any" and the ceiling is YouTube's own
+      twelve hours: a limit that refused a widescreen upload because Shorts are
+      short would be this product inventing a rule the platform does not have,
+      which is the one thing these numbers exist not to do.
+
+      The caption limit is the *description*, 5000 characters, and the title is
+      a separate 100 that nothing here writes yet. Worth knowing before that is
+      built: a description trimmed to 5000 is fine and a title trimmed to 100
+      is a title cut in half.
+    */
+    captionLimit: 5000,
+    maxDurationSeconds: 12 * 60 * 60,
+    shape: "any",
+    /*
+      Uploading to somebody's own channel needs `youtube.upload`, which Google
+      treats as a sensitive scope: an app may do it for up to a hundred test
+      users unverified, and needs a verification review to do it for the
+      public. Same shape as the other four, so it is reported the same way.
+    */
     needsReview: true,
   },
 };
