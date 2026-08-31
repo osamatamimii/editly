@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Trash2, ImageIcon, Film, Music, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { uploadProjectAsset, formatBytes, assetKindOf, MAX_ASSET_BYTES } from "@/lib/video-storage";
+import { uploadProjectAsset, formatBytes, assetKindOf } from "@/lib/video-storage";
 import { StockSearch } from "./stock-search";
 
 export interface ProjectAsset {
@@ -28,7 +28,22 @@ async function authHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export function ProjectLibrary({ projectId, userId }: { projectId: string; userId: string }) {
+export function ProjectLibrary({
+  projectId,
+  userId,
+  ceiling,
+}: {
+  projectId: string;
+  userId: string;
+  /**
+   * The bucket's real ceiling, handed down rather than looked up here.
+   *
+   * The editor already reads it from the subscription for the source video,
+   * and two components asking separately is two chances to answer differently
+   * — a product that refuses a file on one panel and accepts it on the next.
+   */
+  ceiling: number;
+}) {
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +88,7 @@ export function ProjectLibrary({ projectId, userId }: { projectId: string; userI
         const token = data.session?.access_token;
         if (!token) throw new Error("Your session expired. Sign in again.");
 
-        const { path, kind } = await uploadProjectAsset({ file, userId, projectId, accessToken: token });
+        const { path, kind } = await uploadProjectAsset({ file, userId, projectId, accessToken: token, ceiling });
         const res = await fetch(`/api/projects/${projectId}/assets`, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -144,7 +159,7 @@ export function ProjectLibrary({ projectId, userId }: { projectId: string; userI
       {assets.length === 0 ? (
         <div className="text-xs text-muted-foreground">
           Nothing yet. Files you add here can be cut in as b-roll, laid over the frame, or, if it is
-          a track you have the rights to, played under the whole edit. Up to {formatBytes(MAX_ASSET_BYTES)} each.
+          a track you have the rights to, played under the whole edit. Up to {formatBytes(ceiling)} each.
         </div>
       ) : (
         <ul className="flex flex-col gap-1.5">
@@ -175,7 +190,7 @@ export function ProjectLibrary({ projectId, userId }: { projectId: string; userI
         </ul>
       )}
 
-      <StockSearch projectId={projectId} userId={userId} onAdded={refresh} />
+      <StockSearch projectId={projectId} userId={userId} onAdded={refresh} ceiling={ceiling} />
     </div>
   );
 }

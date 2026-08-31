@@ -718,7 +718,20 @@ export function usePlayableVideo(pathOrUrl: string | null | undefined): {
  * is the database table, not a listing of the bucket. A file nobody registered
  * is a file no plan can name.
  */
-export const MAX_ASSET_BYTES = 512 * 1024 * 1024;
+/**
+ * There is no separate ceiling for an extra file, and there never was one.
+ *
+ * This used to be 512 MB while the bucket refused anything over 50, and the
+ * gap was invisible in the way this whole area is invisible: the browser talks
+ * to Storage directly, gets a 400, and our API is never called. So the panel
+ * said "up to 512 MB each" and a 60 MB logo animation failed with no sentence
+ * anywhere.
+ *
+ * The real ceiling is one number, served from the subscription, asked of
+ * Storage — `uploadCeiling`. An extra file goes into the same bucket as the
+ * source video, so a second constant could only ever have been a second chance
+ * to disagree with it.
+ */
 
 export type AssetKind = "video" | "image" | "audio";
 
@@ -746,17 +759,25 @@ export async function uploadProjectAsset(options: {
   userId: string;
   projectId: string;
   accessToken: string;
+  /**
+   * The bucket's real ceiling for this account, from `uploadCeiling`.
+   *
+   * Required rather than defaulted. A default here is a caller that forgot,
+   * silently enforcing a number that has nothing to do with the bucket — which
+   * is exactly what the 512 MB constant this replaced was.
+   */
+  ceiling: number;
 }): Promise<{ path: string; kind: AssetKind }> {
-  const { file, userId, projectId, accessToken } = options;
+  const { file, userId, projectId, accessToken, ceiling } = options;
   const kind = assetKindOf(file);
   if (!kind) {
     throw new UploadError(
       `We can use video, images and audio. "${file.name}" is none of those, so there is nothing we could do with it in an edit.`,
     );
   }
-  if (file.size > MAX_ASSET_BYTES) {
+  if (file.size > ceiling) {
     throw new UploadError(
-      `"${file.name}" is ${formatBytes(file.size)}. Keep each extra file under ${formatBytes(MAX_ASSET_BYTES)}.`,
+      `"${file.name}" is ${formatBytes(file.size)}. Keep each extra file under ${formatBytes(ceiling)}.`,
     );
   }
 

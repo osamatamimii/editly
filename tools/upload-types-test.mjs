@@ -168,6 +168,79 @@ check(
   UPLOAD_CONTENT_TYPES.filter((t) => t.startsWith("application/")).join(", "),
 );
 
+section("There is one upload ceiling, and it comes from the bucket");
+{
+  /*
+    The same failure as the MIME list, in the other dimension.
+
+    The extra-files panel carried its own `MAX_ASSET_BYTES = 512 MB` while the
+    bucket refused anything over 50, and said "up to 512 MB each" on screen. A
+    60 MB logo animation failed with a 400 from Storage and no sentence
+    anywhere — our API is never called on that path, so no log we own has a
+    line for it.
+
+    The real number is served from the subscription, which asks Storage. Any
+    second constant is a second chance to disagree with it, so there must not
+    be one.
+  */
+  const storage = await readFile(path.join(repoRoot, "artifacts/editly/src/lib/video-storage.ts"), "utf8");
+
+  /*
+    The rule is not "one constant". It is that **no constant may promise more
+    than the bucket will take.**
+
+    A ceiling *below* the bucket's is a legitimate product decision — a
+    reference clip is only measured for its colour and a font that can be
+    burned with is a couple of megabytes, so both are held tighter on purpose.
+    A ceiling *above* it is the bug: it is a number the screen states and
+    Storage refuses, with the refusal arriving as a 400 the browser gets
+    directly and no log we own ever sees.
+  */
+  const sizes = [...storage.matchAll(/^export const (MAX_[A-Z_]*BYTES)[^=]*=\s*(?:Number\([^)]*\)\s*\|\|\s*)?(\d+)\s*\*\s*1024\s*\*\s*1024/gm)]
+    .map((m) => ({ name: m[1], mb: Number(m[2]) }));
+  const bucketMb = sizes.find((c) => c.name === "MAX_UPLOAD_BYTES")?.mb ?? 0;
+
+  check("the fallback ceiling is readable", bucketMb > 0, `${bucketMb} MB`);
+  for (const size of sizes.filter((c) => c.name !== "MAX_UPLOAD_BYTES")) {
+    check(
+      `${size.name} (${size.mb} MB) does not promise more than the bucket takes`,
+      size.mb <= bucketMb,
+      `the bucket stops at ${bucketMb} MB, so a file between the two is accepted here and refused there with no message`,
+    );
+  }
+  check(
+    "and no constant stands in for the extra-files ceiling",
+    // That one was 512 MB against a 50 MB bucket, and the panel said so on
+    // screen. The real number is served from the subscription.
+    !/MAX_ASSET_BYTES/.test(storage),
+  );
+  check(
+    "and the extra-files uploader is handed the ceiling rather than choosing one",
+    /ceiling: number;/.test(storage),
+    "an uploader with a default ceiling is a caller that forgot, enforcing a number unrelated to the bucket",
+  );
+
+  for (const file of [
+    "artifacts/editly/src/components/project-library.tsx",
+    "artifacts/editly/src/components/stock-search.tsx",
+  ]) {
+    const source = await readFile(path.join(repoRoot, file), "utf8");
+    check(
+      `${path.basename(file)} passes a ceiling to every upload it starts`,
+      (source.match(/uploadProjectAsset\(/g) ?? []).length === (source.match(/ceiling,?\s*[,}]/g) ?? []).length ||
+        /ceiling,/.test(source),
+      "an upload without one would not compile, but a default would have hidden it",
+    );
+  }
+
+  const editor = await readFile(path.join(repoRoot, "artifacts/editly/src/pages/project-editor.tsx"), "utf8");
+  check(
+    "and the number handed down is the served one",
+    /ceiling=\{uploadCeiling\(subscription\)\}/.test(editor),
+    "uploadCeiling reads what the server asked Storage; anything else is a guess",
+  );
+}
+
 section("The bucket is named where somebody changing the list will read it");
 {
   const source = await readFile(path.join(repoRoot, "lib/api-zod/src/limits.ts"), "utf8");

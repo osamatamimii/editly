@@ -57,10 +57,21 @@ export function StockSearch({
   projectId,
   userId,
   onAdded,
+  ceiling,
 }: {
   projectId: string;
   userId: string;
   onAdded: () => void | Promise<void>;
+  /**
+   * The bucket's ceiling, so a stock clip too big to store is refused before
+   * it is fetched rather than after.
+   *
+   * This path had no size check at all, and it is the one where a person is
+   * least able to guess: they picked a thumbnail. A two-hundred-megabyte clip
+   * downloaded through our proxy and then refused by Storage costs the wait,
+   * the bandwidth, and a failure with nothing to act on.
+   */
+  ceiling: number;
 }) {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<"image" | "video">("video");
@@ -219,6 +230,7 @@ export function StockSearch({
         userId,
         projectId,
         accessToken: token,
+        ceiling,
       });
       const registered = await fetch(`/api/projects/${projectId}/assets`, {
         method: "POST",

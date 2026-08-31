@@ -1269,7 +1269,7 @@ export default function ProjectEditor() {
   // operations, and a panel that appears only after the upload teaches people
   // the library is an afterthought.
   const library = project && user?.id && (
-    <ProjectLibrary projectId={project.id} userId={user.id} />
+    <ProjectLibrary projectId={project.id} userId={user.id} ceiling={uploadCeiling(subscription)} />
   );
 
   const clipsPanel = (
