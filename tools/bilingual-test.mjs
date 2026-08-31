@@ -126,6 +126,16 @@ const PAIRS = [
     expect: ["removeSilence"],
   },
   {
+    // The coverage check below found this one missing: `tighten` shipped, the
+    // matcher understood it in both languages from the first day, and no pair
+    // here said so — which is the difference between "it works" and "it is
+    // known to work", and the whole reason that check reads the source.
+    what: "cutting the hesitations, which is not the same as cutting the silence",
+    en: "cut the ums",
+    ar: "اقصّ الترددات",
+    expect: ["tighten"],
+  },
+  {
     what: "going vertical",
     en: "make it vertical",
     ar: "خليها عمودية",

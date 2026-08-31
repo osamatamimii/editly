@@ -94,6 +94,11 @@ const OWED = {
   // Both branches again: the punches are placed from the speech, so an edit
   // whose emphasis did not survive the cut legitimately has none — and says so.
   zoomPunch: /punch-in|no punch survived the cut/,
+  // Both branches, like zoomPunch above. Tightening needs the words, so on a
+  // deployment with no recogniser — which is this one — the honest note is the
+  // refusal, and an edit that asked for it and said nothing at all is the
+  // failure this table exists to catch.
+  tighten: /and cut \d+ (hesitation|false start)|nothing to tighten|left the hesitations in/,
   normalizeLoudness: /levelled to/,
   grade: /warmed the picture|cooled the picture|graded it cinematic|took the colour out|pushed the contrast|colour pushed|colour pulled/,
   addMusic: /laid music under|skipped the music/,
