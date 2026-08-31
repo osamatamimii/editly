@@ -241,6 +241,12 @@ const PAIRS = [
     expect: [],
     refuses: "no music to cut to",
   },
+  {
+    what: "sound effects",
+    en: "add sound effects",
+    ar: "ضيف مؤثرات صوتية",
+    expect: ["soundEffects"],
+  },
 ];
 
 console.log("\nthe same ask, in both languages");

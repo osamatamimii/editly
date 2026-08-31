@@ -102,6 +102,11 @@ function buildSchema(assets: PlannerAsset[]) {
     // No catalogue: without a track of their own there is nothing to lay under
     // the edit, so the operation is not in the model's vocabulary at all.
     ...(tracks.length > 0 ? ["addMusic"] : []),
+    // Not conditional on the library, unlike the three above it. The sixteen
+    // sounds are shipped in the worker image and were written by us, so there
+    // is no file for the person to be missing and nothing to make this one
+    // appear and disappear.
+    "soundEffects",
   ];
 
   return {
@@ -141,6 +146,7 @@ function buildSchema(assets: PlannerAsset[]) {
             "transitionStyle",
             "gainDb",
             "duck",
+            "sfxPalette",
           ],
           properties: {
             type: { type: "string", enum: types },
@@ -245,6 +251,16 @@ function buildSchema(assets: PlannerAsset[]) {
              */
             gainDb: { type: ["number", "null"] },
             duck: { type: ["boolean", "null"] },
+            /**
+             * For soundEffects: which set of sounds.
+             *
+             * Its own property rather than sharing `look`, because the two are
+             * different vocabularies and a model that can put "cinematic" in
+             * the sound field is a model whose mistakes land silently: the
+             * transformer would fall back to the default palette and the person
+             * would get a layer they did not choose with nothing saying so.
+             */
+            sfxPalette: { type: ["string", "null"], enum: ["clean", "punchy", "quiet", null] },
             /** For grade: the named look. Nothing else is a look we have. */
             look: { type: ["string", "null"], enum: ["warm", "cool", "cinematic", "mono", "punch", null] },
             /** Where on the frame. Titles use top/center/bottom; overlays use the corners. */
@@ -333,6 +349,14 @@ function instructionFor(assets: PlannerAsset[]): string {
     "grade sets a named look: warm, cool, cinematic, mono (black and white) or punch. Choose it when they ask",
     "for a look or a colour, and choose the one they named. Cinematic is the teal-and-orange film look, punch is",
     "just more contrast and colour. If they name no look you have, choose no grade rather than guessing at one.",
+    "soundEffects puts a layer of sound on the edit: air across the cuts, weight under the punch-ins, and a",
+    "riser into the first seam. The sounds are ours and ship with the product, so it needs no file from them.",
+    "It has no atSeconds either: the worker places every sound from the finished edit, because only the worker",
+    "knows where the cuts ended up. sfxPalette is clean (air and a soft body, the default), punchy (lower and",
+    "louder) or quiet (short marks, for a talking head). gainDb is how far under the voice the layer sits,",
+    "-30 to 0, default -12. Choose it when they ask for sound effects, whooshes, a riser, or for the cuts to",
+    "sound like something. Do not choose it because an edit has cuts in it: an effect nobody asked for is the",
+    "one thing in this list a person notices immediately and cannot say why they dislike.",
   ];
 
   if (clips.length > 0 || stills.length > 0 || tracks.length > 0) {
@@ -707,6 +731,22 @@ function toOperation(
           loop: true,
         };
       }
+      case "soundEffects": {
+        // No asset and no moments: the sounds are ours and the placements come
+        // from the finished edit, which nothing at this end of the product can
+        // see. What the model chooses is whether to have a layer, how loud, and
+        // which set — and, like every number here, the level is clamped rather
+        // than rejected.
+        const palette = raw["sfxPalette"];
+        return {
+          type,
+          gainDb: Math.min(0, Math.max(-30, numberOr(raw["gainDb"], -12))),
+          palette: SFX_PALETTES.has(palette as string) ? (palette as never) : "clean",
+          onCuts: true,
+          onPunches: true,
+          onOpen: true,
+        };
+      }
       case "overlayImage": {
         const assetId = assetOfKind("image");
         if (!assetId) return null;
@@ -814,6 +854,16 @@ const OVERLAY_PLACEMENTS = new Set([
  * look and no saturation is an operation that does nothing, and the model
  * choosing it would be the model saying nothing while appearing to answer. */
 const GRADE_LOOKS = new Set(["warm", "cool", "cinematic", "mono", "punch"]);
+/**
+ * The sound sets, spelled here and in the contract and nowhere else.
+ *
+ * Two copies, because this package cannot import the worker and the worker
+ * cannot import the API. `sfx-test.mjs` checks all three against each other —
+ * the schema the model is handed, the enum the contract validates, and the
+ * palettes the renderer can actually build — because a name only two of them
+ * know is a plan that validates and renders as the default with nothing said.
+ */
+const SFX_PALETTES = new Set(["clean", "punchy", "quiet"]);
 
 const TITLE_PLACEMENTS = new Set(["top", "center", "bottom"]);
 const TITLE_STYLES = new Set(["card", "lower-third", "word"]);
@@ -966,6 +1016,19 @@ function describeAll(operations: EditOperation[]): Phrase[] {
           en: `bring in the words "${op.text}" at ${Math.round(op.at)}s`,
           ar: `أُدخل عبارة "${op.text}" عند الثانية ${Math.round(op.at)}`,
         };
+      // Named by where the sounds land, not by the word "SFX". The person is
+      // being told what they will hear, and the honest version of that is
+      // "on the cuts" — the worker chooses the moments from the finished edit,
+      // and this sentence must not imply the plan named them.
+      case "soundEffects":
+        return op.onCuts && op.onPunches
+          ? {
+              en: "put sound effects on the cuts and under the punch-ins",
+              ar: "أضع مؤثّرات صوتية على القصّات وتحت التقريبات",
+            }
+          : op.onPunches
+            ? { en: "put sound effects under the punch-ins", ar: "أضع مؤثّرات صوتية تحت التقريبات" }
+            : { en: "put sound effects on the cuts", ar: "أضع مؤثّرات صوتية على القصّات" };
     }
   });
 }

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { copyFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
@@ -45,4 +45,23 @@ await copyFile(
 // build or any render: uploaded fonts would simply never leave `pending`.
 for (const name of ["facerepair.py", "prepare-user-font.py"]) {
   await copyFile(path.join(dir, "fonts", name), path.join(dir, "dist", name));
+}
+
+// The sound effects, for the third version of the same reason: esbuild bundles
+// TypeScript, not audio. `sfx.ts` names sixteen files and `ffmpeg.ts` looks for
+// them beside this bundle first.
+//
+// Only the .flac. `make-sfx.mjs` and README.md live with them in the source
+// tree because that is where a person changing a sound will look for them, and
+// neither belongs in a container.
+//
+// Forgetting this would not break the build or fail a render: every plan asking
+// for a sound layer would come back with "could not find the sound effect files
+// in this build" and the videos would quietly go back to being silent on the
+// cuts. Which is why the image build measures them — see the Dockerfile.
+await mkdir(path.join(dir, "dist/sfx"), { recursive: true });
+const sounds = (await readdir(path.join(dir, "assets/sfx"))).filter((f) => f.endsWith(".flac"));
+if (sounds.length === 0) throw new Error("no sound effects in artifacts/worker/assets/sfx");
+for (const name of sounds) {
+  await copyFile(path.join(dir, "assets/sfx", name), path.join(dir, "dist/sfx", name));
 }

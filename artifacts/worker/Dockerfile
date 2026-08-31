@@ -329,5 +329,32 @@ ENV TMPDIR=/tmp
 # Carries the bundle and the tracker script beside it.
 COPY --from=build /repo/artifacts/worker/dist ./dist
 
+# And the sound effects, proven rather than assumed.
+#
+# This is the quietest of the failures in this file, which is saying something.
+# `ffmpeg.ts` treats a missing sound as a note, on purpose — a flourish must
+# never fail a render somebody paid for — so a build that shipped without these
+# would produce videos that are correct in every measurable way and silent on
+# every cut, with one line in the notes nobody reads. There is no exit code
+# anywhere and no support ticket anybody can write.
+#
+# So the files are measured, not counted. `ls | wc -l` would pass on sixteen
+# empty files, and a FLAC that decodes to silence is exactly what a broken
+# generator produces: every check downstream of it is green and the layer is
+# not there. -30 dB is far below anything in the catalogue (the quietest peaks
+# at -3) and far above a decode that produced nothing.
+RUN set -eu; \
+    n=0; \
+    for f in dist/sfx/*.flac; do \
+      peak=$(ffmpeg -hide_banner -nostats -i "$f" -af volumedetect -f null - 2>&1 \
+        | sed -n 's/.*max_volume: \(-*[0-9.]*\) dB.*/\1/p' | head -1); \
+      [ -n "$peak" ] || { echo "$f: ffmpeg could not read a level out of it — it does not decode"; exit 1; }; \
+      awk -v f="$f" -v p="$peak" 'BEGIN { \
+        if (p + 0 < -30) { print f ": decodes to silence (" p " dB peak). Every cut in every video would be silent and nothing would fail"; exit 1 } }' || exit 1; \
+      n=$((n + 1)); \
+    done; \
+    [ "$n" -ge 16 ] || { echo "only $n sound effects in the image, the catalogue names 16"; exit 1; }; \
+    echo "sound effects ready: $n files, all of them audible"
+
 USER node
 CMD ["node", "--enable-source-maps", "dist/index.mjs"]

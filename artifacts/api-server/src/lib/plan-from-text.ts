@@ -188,6 +188,41 @@ export function emojiIn(text: string): string {
   return (text.match(EMOJI_RUN) ?? []).slice(0, 3).join(" ");
 }
 
+/**
+ * Asking for a sound layer, and asking for it to be left alone.
+ *
+ * The two are written here together on purpose. A generous pattern with no
+ * refusal beside it is exactly how «no captions» came to add captions: the ask
+ * matched a substring of the refusal and the product did the opposite of what
+ * was typed, confidently. Every pattern added to this file from here gets its
+ * negative in the same commit, and this pair is checked in both directions by
+ * the suite.
+ *
+ * `\b` is left off every Arabic alternative. A word boundary in JavaScript is
+ * defined against `\w`, which is ASCII, so `\bمؤثرات\b` matches nothing at
+ * all — the trap that once made «ومضة» invisible to the transition matcher. A
+ * bare alternation is correct anyway: «مؤثرات» is inside «بالمؤثرات».
+ *
+ * Both spellings of «مؤثّرات», with the shadda and without, because nobody
+ * types the shadda and the product cannot be a spelling test.
+ */
+const SFX_WORDS =
+  /\bsound ?effects?\b|\bsfx\b|\bwhoosh(?:es)?\b|\bswoosh(?:es)?\b|\brisers?\b|\bimpact sounds?\b|\btransition sounds?\b|مؤثرات صوتية|مؤثّرات صوتية|مؤثرات الصوت|مؤثّرات الصوت|اصوات انتقال|أصوات انتقال|صوت على القص/i;
+
+const NO_SFX_WORDS =
+  /\bno sound ?effects?\b|\bno sfx\b|\bwithout (?:any )?sound ?effects?\b|\bno whoosh(?:es)?\b|\bdon'?t add (?:any )?sound ?effects?\b|بدون مؤثرات|بدون مؤثّرات|بلا مؤثرات|بلا مؤثّرات|من غير مؤثرات|لا مؤثرات|لا مؤثّرات/i;
+
+/**
+ * Which set, and only when they said so.
+ *
+ * Read *inside* the sound-effects branch and nowhere else, which is what makes
+ * words this loose safe: «خفيفة» on its own is not a request for anything, and
+ * a sentence that already asked for effects and then said "subtle" is asking
+ * about the effects.
+ */
+const SFX_QUIET_WORDS = /\bsubtle\b|\bminimal\b|\bgentle\b|\blight touch\b|خفيفة|خفيف|بسيطة|هادئة/i;
+const SFX_PUNCHY_WORDS = /\bpunchy\b|\baggressive\b|\bhard[- ]hitting\b|\bheavy\b|قوية|عنيفة|ثقيلة/i;
+
 const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?) )?to (the )?(beat|music|rhythm|drop)\b|على الإيقاع|مع الإيقاع/i;
 
 /**
@@ -1193,6 +1228,47 @@ export function planFromText(
         ),
       );
     }
+  }
+
+  /*
+    The sound layer.
+
+    Not conditional on the library, unlike the three blocks above it: the
+    sixteen sounds ship inside the worker image and were written by us, so there
+    is no file for anybody to be missing. That is the whole reason this is the
+    one audio operation a brand-new project can ask for on its first sentence.
+
+    The refusal is checked first and wins outright. "add captions but no sound
+    effects" contains the ask *and* the refusal, and a matcher that reads them
+    in the other order does the thing the sentence spent its last three words
+    saying not to.
+  */
+  if (SFX_WORDS.test(text) && !NO_SFX_WORDS.test(text)) {
+    const palette = SFX_PUNCHY_WORDS.test(text) ? "punchy" : SFX_QUIET_WORDS.test(text) ? "quiet" : "clean";
+    operations.push({
+      type: "soundEffects",
+      gainDb: palette === "punchy" ? -10 : palette === "quiet" ? -15 : -12,
+      palette,
+      onCuts: true,
+      onPunches: true,
+      onOpen: true,
+    });
+    willDo.push(
+      palette === "clean"
+        ? say(
+            "put sound effects on the cuts and under the punch-ins, and a riser into the first seam",
+            "أضع مؤثّرات صوتية على القصّات وتحت التقريبات، ولفتة صاعدة إلى أوّل وصلة",
+          )
+        : palette === "punchy"
+          ? say(
+              "put hard sound effects on the cuts and under the punch-ins",
+              "أضع مؤثّرات صوتية قوية على القصّات وتحت التقريبات",
+            )
+          : say(
+              "put light sound effects on the cuts, short ones that stay out of the way",
+              "أضع مؤثّرات صوتية خفيفة على القصّات، قصيرة لا تزاحم الكلام",
+            ),
+    );
   }
 
   if (OVERLAY_WORDS.test(text)) {

@@ -13,7 +13,9 @@
  */
 import { spawn } from "node:child_process";
 import { guard, LIMITS, type Limits } from "./deadline";
-import { writeFile } from "node:fs/promises";
+import { writeFile, access } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { criticise } from "./critic";
 import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle } from "./motion";
@@ -43,6 +45,7 @@ import {
 import { trackSubject, trackNote } from "./subject";
 import { keepSegmentsFrom, mergeSpans, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, MOTION_OVERSCAN, type RemovableSpan, type Segment, type SpokenWord } from "./timeline";
 import { tighten, type TightenResult } from "./tighten";
+import { placeSoundEffects, joinTimes, type SfxPalette } from "./sfx";
 import { chooseHighlight } from "./highlight";
 import { sayIn, type Language } from "./say";
 export { chooseHighlight, chooseClips } from "./highlight";
@@ -1019,6 +1022,53 @@ const GRADE_LOOKS: Record<
 const AUDIO_ENCODE = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000"];
 
 /**
+ * Where the shipped sound effects live.
+ *
+ * Same shape as `subject.ts` resolving the tracker script, and for the same
+ * reason: esbuild bundles TypeScript, not FLAC, so `build.mjs` copies the
+ * folder beside the bundle and this looks there first. The source tree is the
+ * fallback, which is what lets the suite run from a checkout with no build.
+ *
+ * A missing folder is not a failed render. It is a note — see the mix below —
+ * because a sound layer is a flourish and the video is paid work.
+ */
+function sfxDirCandidates(): string[] {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const fromEnv = process.env["EDITLY_SFX_DIR"];
+  return [
+    ...(fromEnv ? [fromEnv] : []),
+    path.join(here, "sfx"),
+    path.join(here, "..", "assets", "sfx"),
+    path.join(here, "assets", "sfx"),
+    /*
+      Last, and only reached from a checkout.
+
+      A suite bundles this module into a temp directory, so "beside the bundle"
+      resolves to somewhere with no sounds in it — and a renderer that silently
+      finds none in every test is a renderer whose sound layer is only ever
+      measured by the one suite that remembered to set the override. It cannot
+      match in the container: `dist/sfx` is found two candidates earlier, and
+      there is no repository under `/app`.
+    */
+    path.join(process.cwd(), "artifacts", "worker", "assets", "sfx"),
+  ];
+}
+
+/** The file for one catalogue name, or null when the folder did not ship. */
+async function sfxFile(name: string): Promise<string | null> {
+  for (const dir of sfxDirCandidates()) {
+    const candidate = path.join(dir, `${name}.flac`);
+    try {
+      await access(candidate, fsConstants.R_OK);
+      return candidate;
+    } catch {
+      // next candidate
+    }
+  }
+  return null;
+}
+
+/**
  * The ramp at every cut edge of the audio. 15ms sits in the gap between the
  * two perceptual thresholds that matter: far too short to register as a fade,
  * far too long to leave a click — a waveform cut mid-cycle steps
@@ -1312,7 +1362,20 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
    */
   const musicAsset = music ? (ctx.assets?.get(music.assetId) ?? null) : null;
   const musicUsable = musicAsset !== null && musicAsset.kind === "audio";
-  const hasAudioOut = source.hasAudio || musicUsable;
+  const soundEffects = find("soundEffects");
+  /**
+   * `let`, because a sound layer can be the only sound in the file.
+   *
+   * It starts as the question it has always answered — is there speech, is
+   * there a bed — and the sound layer below turns it on if it actually laid
+   * anything down. Deliberately *after* the loudness pass reads it: an edit
+   * whose entire soundtrack is four whooshes must not be levelled to -14 LUFS,
+   * which would make the accents as loud as a person talking. And deliberately
+   * not turned on by the *presence* of the operation, because a plan can ask
+   * for a layer on an edit with no cuts and no punches, where the honest answer
+   * is a note and no audio stream at all.
+   */
+  let hasAudioOut = source.hasAudio || musicUsable;
 
   ctx.onProgress?.(0.02, "Looking at your footage");
 
@@ -2530,6 +2593,38 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     overlayLinks.push(`[${inLabel}][mot]overlay=0:0:eof_action=pass[${outLabel}]`);
   }
 
+  // ── The sound layer, decided ──────────────────────────────────────────────
+  //
+  // Decided here and mixed after the bed, and the split is not tidiness: the
+  // bed needs to know where the riser is. A riser that runs into a moment and
+  // then stops is only half the effect — the other half is that everything else
+  // gets out of the way while it climbs, which is the deliberate silence a
+  // person hears as "something is about to happen". So the music dips under it,
+  // and the music chain is built below.
+  //
+  // Nothing here opens a file. `sfx.ts` is a pure function over the finished
+  // timeline, so every threshold in it is checked without ffmpeg; what is left
+  // for this file is turning a list of moments into inputs.
+  const sfxPlan =
+    soundEffects
+      ? placeSoundEffects({
+          duration: effectiveDuration,
+          // Joins on the *output* clock, overlap included — a whoosh placed by
+          // the un-overlapped map drifts further out of sync with every join it
+          // survives, which is the same arithmetic every caption is placed by.
+          joins: kept ? joinTimes(kept, overlap) : [],
+          // `zoomPunch.at` is already on the output clock here: the critic
+          // remapped the emphasis moments and the beat grid was never on any
+          // other clock. This is the first line in the file where both are true.
+          punches: zoomPunch?.at ?? [],
+          palette: soundEffects.palette as SfxPalette,
+          onCuts: soundEffects.onCuts,
+          onPunches: soundEffects.onPunches,
+          onOpen: soundEffects.onOpen,
+        })
+      : null;
+  const riserCue = sfxPlan?.cues.find((c) => c.reason === "open") ?? null;
+
   // ── The bed ───────────────────────────────────────────────────────────────
   //
   // Music is the one thing in this file laid on the *output* clock. Everything
@@ -2588,10 +2683,35 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
             `,afade=t=out:st=${Math.max(0, effectiveDuration - fadeSeconds).toFixed(3)}:d=${fadeSeconds.toFixed(3)}`
           : "";
 
+      /*
+        The hole the riser climbs into.
+
+        A riser works by removing things, not by adding one. The lift announces
+        a moment; what makes the moment land is that the bed steps out of the
+        way while it climbs and steps back after. Without this the riser is one
+        more sound competing with the music it is supposed to be clearing.
+
+        A trapezoid rather than a switch, and written as a `min` of two ramps
+        for the same reason `zoomExpression` is: `enable=` toggles the filter
+        between frames, and a bed jumping 8 dB in one frame is a click. Down
+        over 300ms from where the riser starts, held to the seam, back over
+        500ms after it — the release is longer because coming back is the part
+        nobody should be able to point at.
+
+        `eval=frame` is not optional: without it ffmpeg evaluates the expression
+        once, at zero, and the bed plays the whole edit at whatever the dip
+        happened to be on the first frame. Nothing fails; the mix is simply
+        wrong for the entire video.
+      */
+      const dipChain = riserCue
+        ? `,volume=volume='1-0.6*max(0,min(1,min((t-${riserCue.at.toFixed(3)})/0.3,` +
+          `(${(riserCue.at + riserCue.seconds + 0.5).toFixed(3)}-t)/0.5)))':eval=frame`
+        : "";
+
       musicParts.push(
         `[${idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,` +
           `atrim=0:${effectiveDuration.toFixed(3)},asetpts=PTS-STARTPTS,` +
-          `volume=${music.gainDb.toFixed(1)}dB${fadeChain}[mus]`,
+          `volume=${music.gainDb.toFixed(1)}dB${fadeChain}${dipChain}[mus]`,
       );
 
       const wantsDuck = music.duck && source.hasAudio;
@@ -2618,6 +2738,15 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         aLabel = "mus";
       }
       musicMixed = true;
+
+      if (riserCue) {
+        notes.push(
+          t(
+            "pulled the music down under the riser so the moment it leads into is not competing with it",
+            "خفضت الموسيقى تحت اللفتة الصاعدة كي لا تزاحم اللحظة التي تقود إليها",
+          ),
+        );
+      }
 
       notes.push(
         !source.hasAudio
@@ -2646,6 +2775,146 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     }
   }
 
+  // ── The sound layer, mixed ────────────────────────────────────────────────
+  //
+  // One ffmpeg input per sound, delayed to its moment, all of them summed into
+  // one bus and the bus mixed under the programme. `normalize=0` on both mixes
+  // for the reason spelled out over the bed: amix averages by default, so a
+  // layer laid in at -12 dB would also pull the voice down and the loudness
+  // note above would be a lie about a file that is quieter than it says.
+  //
+  // Before `loudnorm`, not after, and that is a choice. The platforms level to
+  // -14 LUFS integrated; what they measure is the finished programme including
+  // its accents, so the accents have to be inside the measurement or the file
+  // arrives at the wrong level and gets turned down on the way in.
+  //
+  // Every failure here is a note. A missing folder, a name with no file, an
+  // edit with nothing to accent: none of them fail a render somebody paid for.
+  const sfxParts: string[] = [];
+  let sfxMixed = false;
+  if (soundEffects && sfxPlan) {
+    if (sfxPlan.cues.length === 0) {
+      notes.push(
+        t(
+          "left the sound effects out: this edit has no cuts and no punch-ins for one to land on",
+          "تركت المؤثّرات الصوتية: هذا التعديل لا قصّات فيه ولا تقريبات تقع عليها",
+        ),
+      );
+    } else {
+      const labels: string[] = [];
+      let missing = 0;
+      for (const cue of sfxPlan.cues) {
+        const file = await sfxFile(cue.sound);
+        if (!file) {
+          missing += 1;
+          continue;
+        }
+        const idx = addInput("-i", file);
+        const label = `sfx${labels.length}`;
+        // Trimmed to the room left before the end. A file that would run past
+        // the last frame is not silently truncated by the mux — it is cut mid
+        // waveform, which is a click on the last thing anybody hears.
+        const room = Math.max(0.05, effectiveDuration - cue.at);
+        const length = Math.min(cue.seconds, room);
+        const delayMs = Math.round(cue.at * 1000);
+        sfxParts.push(
+          `[${idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,` +
+            `atrim=0:${length.toFixed(3)},asetpts=PTS-STARTPTS,` +
+            `volume=${(soundEffects.gainDb + cue.trimDb).toFixed(1)}dB` +
+            `${delayMs > 0 ? `,adelay=${delayMs}:all=1` : ""}[${label}]`,
+        );
+        labels.push(label);
+      }
+
+      if (labels.length === 0) {
+        notes.push(
+          t(
+            "could not find the sound effect files in this build, so the edit was left without them",
+            "لم أجد ملفّات المؤثّرات الصوتية في هذه النسخة، فتُرك التعديل بلا مؤثّرات",
+          ),
+        );
+      } else {
+        let bus = labels[0]!;
+        if (labels.length > 1) {
+          // `duration=longest`, because each of these is a different length and
+          // ending the bus with the first sound would drop every later one.
+          sfxParts.push(
+            `${labels.map((l) => `[${l}]`).join("")}` +
+              `amix=inputs=${labels.length}:duration=longest:dropout_transition=0:normalize=0[sfxbus]`,
+          );
+          bus = "sfxbus";
+        }
+
+        // A clip with no sound of its own and no bed still has to come out with
+        // the layer on it, and `amix` needs something to be the programme. An
+        // explicit silence of exactly the right length is that something —
+        // `duration=first` then means "as long as the video", which is what
+        // every other branch of this mix already means.
+        if (!source.hasAudio && !musicMixed) {
+          const idx = addInput("-f", "lavfi", "-t", effectiveDuration.toFixed(3), "-i", "anullsrc=r=48000:cl=stereo");
+          sfxParts.push(`[${idx}:a]asetpts=PTS-STARTPTS[sfxbase]`);
+          aLabel = "sfxbase";
+        }
+
+        sfxParts.push(
+          `[${aLabel}][${bus}]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[amixsfx]`,
+        );
+        aLabel = "amixsfx";
+        sfxMixed = true;
+        hasAudioOut = true;
+
+        const cuts = sfxPlan.cues.filter((c) => c.reason === "cut").length;
+        const hits = sfxPlan.cues.filter((c) => c.reason === "punch").length;
+        const parts: string[] = [];
+        const partsAr: string[] = [];
+        if (cuts > 0) {
+          parts.push(`${cuts} on the cuts`);
+          partsAr.push(`${cuts} على القصّات`);
+        }
+        if (hits > 0) {
+          parts.push(`${hits} under the punch-ins`);
+          partsAr.push(`${hits} تحت التقريبات`);
+        }
+        if (riserCue) {
+          parts.push("and a riser into the first seam");
+          partsAr.push("ولفتة صاعدة إلى أوّل وصلة");
+        }
+        notes.push(
+          t(
+            `laid ${labels.length} sound effect${labels.length === 1 ? "" : "s"} at ${soundEffects.gainDb.toFixed(0)}dB: ${parts.join(", ")}`,
+            `وضعت ${labels.length} مؤثّرًا صوتيًّا عند ${soundEffects.gainDb.toFixed(0)}dB: ${partsAr.join("، ")}`,
+          ),
+        );
+        if (missing > 0) {
+          notes.push(
+            t(
+              `${missing} of them had no file in this build and were left out`,
+              `${missing} منها بلا ملفّ في هذه النسخة فتُركت`,
+            ),
+          );
+        }
+        // Said rather than silently done. Somebody who cut forty times and hears
+        // eleven whooshes should know that was a decision, not a fault.
+        if (sfxPlan.thinned > 0) {
+          notes.push(
+            t(
+              `${sfxPlan.thinned} more moment${sfxPlan.thinned === 1 ? "" : "s"} could have taken one and did not: a sound on every cut stops being an accent`,
+              `${sfxPlan.thinned} لحظة أخرى كانت تحتمل مؤثّرًا ولم تأخذه: صوتٌ على كل قصّة يكفّ عن كونه لكنة`,
+            ),
+          );
+        }
+        if (sfxPlan.riserSkipped === "no-room" || sfxPlan.riserSkipped === "no-join") {
+          notes.push(
+            t(
+              "there was no room for a riser before the first join, so it was left out rather than started halfway",
+              "لا متّسع للفتة صاعدة قبل أوّل وصلة، فتُركت بدل أن تبدأ من منتصفها",
+            ),
+          );
+        }
+      }
+    }
+  }
+
   // ── Assemble ──────────────────────────────────────────────────────────────
   const graphParts: string[] = [];
   // With overlays present the main chain stops at a named link and the overlay
@@ -2658,6 +2927,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   else if (hasOverlays) graphParts.push(`[${kept ? vLabel : "0:v"}]null[OVBASE]`);
   graphParts.push(...overlayLinks);
   graphParts.push(...musicParts);
+  graphParts.push(...sfxParts);
   if (hasAudioOut && audioParts.length > 0) graphParts.push(`[${aLabel}]${audioParts.join(",")}[aout]`);
 
   // A bracketed name is a filter label; a bare one is an input stream. Mixing
@@ -2665,7 +2935,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // that touches only the picture.
   const overlayTail = overlayLinks.length > 0 ? `[ov${overlayLinks.length / 2}]` : null;
   let finalV = overlayTail ?? (videoParts.length > 0 ? "[vout]" : kept ? `[${vLabel}]` : "0:v");
-  let finalA = audioParts.length > 0 ? "[aout]" : kept || musicMixed ? `[${aLabel}]` : "0:a";
+  let finalA = audioParts.length > 0 ? "[aout]" : kept || musicMixed || sfxMixed ? `[${aLabel}]` : "0:a";
 
   // ── The fade ──────────────────────────────────────────────────────────────
   //
@@ -2801,5 +3071,6 @@ export function describe(op: EditOperation): string {
     case "insertBRoll": return "Cutting in your b-roll";
     case "overlayImage": return "Laying your image over the frame";
     case "motionTitle": return "Animating your titles";
+    case "soundEffects": return "Laying the sound effects in";
   }
 }

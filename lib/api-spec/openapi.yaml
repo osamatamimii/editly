@@ -2292,6 +2292,7 @@ components:
         - $ref: "#/components/schemas/AddMusicOperation"
         - $ref: "#/components/schemas/OverlayImageOperation"
         - $ref: "#/components/schemas/MotionTitleOperation"
+        - $ref: "#/components/schemas/SoundEffectsOperation"
       discriminator:
         propertyName: type
 
@@ -3656,3 +3657,67 @@ components:
           description: Present only when there is something to explain.
           type: string
       required: [deleted, projects, loginRemoved]
+
+    SoundEffectsOperation:
+      description: >
+        A layer of sound on the edit: air across the joins between cuts, weight
+        under the punch-ins, and a riser leading into the first seam that ends
+        in its own silence as the seam arrives. Half of what makes a clip feel
+        made is in the audio, and it is the half nobody notices on purpose.
+
+
+        Unlike addMusic this carries no assetId, and the difference is the
+        licensing argument. A bed is the customer's own file because a track we
+        handed out would be a licence bought on their behalf. These sixteen
+        sounds are not recordings: every sample is computed by a script in the
+        repository and dedicated to the public domain by us, so shipping them
+        takes nothing on anybody's behalf.
+
+
+        It carries no `at` either. Where each sound lands is decided from the
+        finished edit - where the joins ended up once the cuts were made, where
+        the punch-ins were placed - and none of that is knowable at the API. The
+        plan carries the decision to have a layer, how loud it sits, and which
+        set of sounds. The render notes say how many were laid and how many
+        moments were passed over, because a sound on every cut stops being an
+        accent.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [soundEffects]
+        gainDb:
+          description: >
+            How far under the programme the layer sits. -12 dB is an accent you
+            feel on a cut and could not point at afterwards.
+          type: number
+          minimum: -30
+          maximum: 0
+          default: -12
+        palette:
+          description: >
+            Which set of sounds. `clean` is air and a soft body; `punchy` is
+            lower and louder; `quiet` is punctuation, nothing over a fifth of a
+            second, for a talking head or an explainer. Three sets rather than a
+            slider, because a palette is a group of files balanced against each
+            other and a number between two of them is a promise the catalogue
+            cannot keep.
+          type: string
+          enum: [clean, punchy, quiet]
+          default: clean
+        onCuts:
+          description: Air across the joins between cuts.
+          type: boolean
+          default: true
+        onPunches:
+          description: Weight under the punch-ins.
+          type: boolean
+          default: true
+        onOpen:
+          description: >
+            A riser into the first seam. With a cold open that seam is the hook
+            handing over to the video. Left out rather than started halfway when
+            the riser does not fit whole before it.
+          type: boolean
+          default: true
+      required: [type]

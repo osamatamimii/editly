@@ -100,6 +100,10 @@ const OWED = {
   insertBRoll: /cut to b-roll|skipped an overlay|dropped an overlay/,
   overlayImage: /laid an image over|skipped an (image )?overlay|dropped an overlay/,
   motionTitle: /rendered \d+ title|could not render the titles|dropped a title/,
+  // Three branches, and the second two matter as much as the first: an edit
+  // with nothing to accent and a build with no sound files both come out as a
+  // note, never as a failure, because a flourish must not fail paid work.
+  soundEffects: /laid \d+ sound effect|left the sound effects out|could not find the sound effect files/,
 };
 
 /**
@@ -147,6 +151,7 @@ const SENTENCES = [
   "make it black and white and punchy for youtube",
   "اقصّ الصمت وخليها عمودية للتيك توك",
   "ابدأ بالأقوى وذوّب القصّات",
+  "cut the silences and put sound effects on the cuts",
 ];
 
 console.log("\nEvery sentence a person types becomes a video");

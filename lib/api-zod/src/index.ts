@@ -1172,6 +1172,57 @@ export const ColdOpenOperation = z.object({
   seconds: z.number().min(1).max(15).default(4),
 });
 
+/**
+ * A layer of sound on the edit: air across the joins, weight on the punch-ins,
+ * a lift into the first seam.
+ *
+ * Half of what makes a clip feel *made* is in the audio, and it is the half
+ * nobody notices on purpose — which is why it works. This product had twenty
+ * operations and not one of them put a sound anywhere.
+ *
+ * Unlike `addMusic` this one names no asset, and the difference is the whole
+ * licensing argument. A music bed is the person's own file because a track we
+ * handed out would be a licence bought on their behalf. These sixteen sounds
+ * are not recordings at all: every sample is computed by a script in this
+ * repository (`artifacts/worker/assets/sfx/make-sfx.mjs`) and dedicated to the
+ * public domain by us, so shipping them takes nothing on anybody's behalf.
+ *
+ * It has no `at`, for the same reason `addMusic` has none: the placements are
+ * decided from the finished edit — where the joins ended up, where the punches
+ * landed — and those are facts the API cannot know. What the plan carries is
+ * the decision to have a layer, how loud, and made of what.
+ */
+export const SoundEffectsOperation = z.object({
+  type: z.literal("soundEffects"),
+  /**
+   * How far under the programme the layer sits.
+   *
+   * -12 dB is an accent you feel on a cut and would not be able to point at
+   * afterwards. 0 would make every join louder than the person talking.
+   */
+  gainDb: z.number().min(-30).max(0).default(-12),
+  /**
+   * Which set of sounds. `clean` is air and a soft body; `punchy` is lower and
+   * louder; `quiet` is punctuation — nothing over a fifth of a second, for a
+   * talking head or an explainer.
+   *
+   * Three sets rather than a slider, because a palette is a group of files
+   * balanced against each other and a number between two of them would be a
+   * promise the catalogue cannot keep.
+   */
+  palette: z.enum(["clean", "punchy", "quiet"]).default("clean"),
+  /** Air across the joins between cuts. */
+  onCuts: z.boolean().default(true),
+  /** Weight under the punch-ins. */
+  onPunches: z.boolean().default(true),
+  /**
+   * A riser leading into the first seam, ending in its own silence just as the
+   * seam arrives. With a cold open that seam is the hook handing over to the
+   * video, which is the most designed moment short-form video has.
+   */
+  onOpen: z.boolean().default(true),
+});
+
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
   TightenOperation,
@@ -1193,6 +1244,7 @@ export const EditOperation = z.discriminatedUnion("type", [
   AddMusicOperation,
   OverlayImageOperation,
   MotionTitleOperation,
+  SoundEffectsOperation,
 ]);
 export type EditOperation = z.infer<typeof EditOperation>;
 

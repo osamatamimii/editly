@@ -98,6 +98,11 @@ section("Every variable the worker reads is one the deploy actually sets");
     // Where the font repair script lives. The image puts it beside the faces;
     // a developer points it at the repository. A path, like the ones above.
     "EDITLY_FONT_SCRIPTS",
+    // Where the shipped sound effects live. `build.mjs` copies them beside the
+    // bundle and the renderer looks there first; this override is what lets the
+    // suite measure the mix against the repository's copies without building
+    // the worker. A path, like the ones above.
+    "EDITLY_SFX_DIR",
   ]);
 
   const mustBeDeployed = [...referenced].filter((name) => !notSecrets.has(name)).sort();
