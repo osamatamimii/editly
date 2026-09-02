@@ -342,4 +342,20 @@ export const LIMITS = {
     perPerson: 60,
     message: "Too many changes at once. Give it a moment and try again.",
   },
+  /**
+   * Crash reports from a browser, which is the second public write in the
+   * product and the only one that exists because the app is broken.
+   *
+   * The thing being protected is a log rather than a bill, and the person
+   * being protected from is the one filling it. Four is what a real crash loop
+   * produces: somebody reloads into the same failure a few times before they
+   * give up, and every one of those is an honest report we would rather have.
+   */
+  clientErrors: {
+    name: "client-errors",
+    limit: 20,
+    windowMs: 10 * 60 * 1000,
+    perPerson: 4,
+    message: "That is a lot of crash reports from one place. Nothing else is affected.",
+  },
 } as const satisfies Record<string, LimitOptions>;

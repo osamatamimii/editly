@@ -269,6 +269,11 @@ jobs:
       - run: node tools/beat-test.mjs
       - run: node tools/checkout-test.mjs
       - run: node tools/stock-test.mjs
+      # Beside browser-test, and for the failure browser-test cannot see: a React
+      # exception used to unmount the tree and leave a blank document, with
+      # nothing logged anywhere on our side. This one throws inside a real
+      # component in a real browser and reads what is on the screen afterwards.
+      - run: node tools/boundary-test.mjs
       - run: node tools/browser-test.mjs
       # Needs the built `dist/` from the vercel:build step above — it measures
       # the shipped bundle, because a class Tailwind purged is a class that is

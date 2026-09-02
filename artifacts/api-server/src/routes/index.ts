@@ -14,6 +14,7 @@ import stockRouter from "./stock";
 import adminRouter from "./admin";
 import waitlistRouter from "./waitlist";
 import socialRouter, { socialCallbackRouter } from "./social";
+import clientErrorsRouter from "./client-errors";
 import fontsRouter from "./fonts";
 import uploadsRouter from "./uploads";
 import { requireAuth } from "../middlewares/auth";
@@ -37,6 +38,12 @@ router.use(waitlistRouter);
 // billing webhook is: it is a browser navigation from a platform and carries no
 // bearer token. Who it belongs to comes from the signed state on the URL.
 router.use(socialCallbackRouter);
+
+// Public for the reason the others are not: it has to work when the app is
+// broken. A React exception on the login screen has no session to carry, and a
+// crash reporter that needed one would be silent in exactly the case it exists
+// for. Rate limited by address, and it records nothing a token would identify.
+router.use(clientErrorsRouter);
 
 // Everything below this line is per-user data. `requireAuth` populates
 // `req.userId`, and each handler filters on it — mounting a data route outside

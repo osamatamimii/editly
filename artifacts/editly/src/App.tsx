@@ -1,4 +1,4 @@
-import { type ComponentType, Suspense, lazy } from "react";
+import { type ComponentType, Suspense, lazy, useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import NotFound from "@/pages/not-found";
+import { ErrorBoundary, watchForCrashes } from "@/components/error-boundary";
 
 import Home from "@/pages/home";
 
@@ -134,11 +135,23 @@ function Router() {
 }
 
 function App() {
+  /*
+    The two kinds of failure a boundary cannot see.
+
+    An error boundary catches what is thrown while React renders. It does not
+    catch an event handler, a timer, or a promise nobody awaited, and in an app
+    that spends its life waiting on uploads those are the common case. Wired
+    here rather than at module scope so that importing this file has no side
+    effect, and so that the listeners come off if the app is ever unmounted.
+  */
+  useEffect(() => watchForCrashes(), []);
+
   // The class on <html> is set by the inline script in index.html, before the
   // first paint, and maintained from here on by ThemeProvider. This used to be
   // an effect that forced `dark` on mount, which is what made the theme
   // unswitchable — it would have reapplied dark on every remount.
   return (
+    <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <AuthProvider>
@@ -153,6 +166,7 @@ function App() {
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

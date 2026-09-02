@@ -1833,6 +1833,56 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /client-errors:
+    post:
+      operationId: reportClientError
+      tags: [health]
+      summary: A browser saying it crashed
+      description: >
+        The second public write in the product, and the only one that exists
+        because the app is broken: a React exception unmounts the tree and
+        leaves a white document, which the server is never part of and would
+        otherwise never hear about. Open with no token on purpose, because a
+        crash on the login screen has no session to carry. Rate limited by
+        client address. Every field is truncated on the server rather than
+        trusted from the browser, the path is reduced to its pathname so a
+        query string cannot carry a token into a log, and nothing that
+        identifies a person is recorded. It answers 204 to everything,
+        including a report it discarded, so that it cannot be used as a probe.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum: [render, promise, handler]
+                  description: Which of the three failures this was. Anything else is read as a render crash.
+                message:
+                  type: string
+                  maxLength: 300
+                component:
+                  type: string
+                  nullable: true
+                  maxLength: 300
+                  description: The first component frame React named, when there is one.
+                path:
+                  type: string
+                  maxLength: 200
+                  description: Pathname only. A query or a fragment is stripped before it is recorded.
+                reference:
+                  type: string
+                  maxLength: 12
+                  description: The code shown on the crash screen, so a support message finds one log line.
+              required: [message]
+      responses:
+        "204":
+          description: Taken, or discarded. Deliberately the same answer.
+        "429":
+          description: Too many reports from one address
+
 
 components:
   parameters:
