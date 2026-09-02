@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, gte, count, and } from "drizzle-orm";
 import { db, subscriptionsTable, projectsTable } from "@workspace/db";
 import { GetSubscriptionResponse, UpdateSubscriptionBody, UpdateSubscriptionResponse } from "@workspace/api-zod";
-import { DEFAULT_PLAN, PLAN_LIMITS, planKeyFrom, type PlanKey } from "../lib/plan-limits";
+import { DEFAULT_PLAN, PLAN_LIMITS, planKeyFrom, uploadCeiling, type PlanKey } from "../lib/plan-limits";
 import { usageFor } from "../lib/usage";
 import { currentUserId, currentUserEmail } from "../middlewares/auth";
 import { claimPaidEvents } from "../lib/claim-paid-events";
@@ -70,7 +70,12 @@ async function buildUsageResponse(userId: string, plan: string) {
     minutesUsedThisMonth: usage.minutesUsed,
     minutesRemaining: usage.minutesRemaining,
     maxUploadMinutes: limits.maxUploadMinutes,
-    maxUploadBytes: await effectiveUploadLimitBytes(),
+    // The smaller of what the plan was sold as and what the bucket will take.
+    // It was the bucket's alone, which meant every plan reported the same
+    // ceiling and the page said 50 MB to somebody paying for four-hour
+    // episodes. `uploadCeiling` also says which of the two bound it; the
+    // browser does not need that, but the upload door does.
+    maxUploadBytes: uploadCeiling(validPlan, await effectiveUploadLimitBytes()).bytes,
     watermark: limits.watermark,
     referenceStyle: limits.referenceStyle,
     pricePerMonth: limits.pricePerMonth,

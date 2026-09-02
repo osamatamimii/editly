@@ -55,13 +55,14 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { and, eq, count } from "drizzle-orm";
-import { db, assetsTable, captionFacesTable, projectsTable } from "@workspace/db";
+import { db, assetsTable, captionFacesTable, projectsTable, subscriptionsTable } from "@workspace/db";
 import { UploadTicketBody, type UploadTicket } from "@workspace/api-zod/uploads";
 import { objectStoreFrom } from "@workspace/object-store";
 import { currentUserId } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 import { effectiveUploadLimitBytes } from "../lib/storage-limits";
+import { planKeyFrom, uploadCeiling, type PlanKey } from "../lib/plan-limits";
 import { MAX_ASSETS_PER_PROJECT } from "./assets";
 import { MAX_FACES } from "./fonts";
 import {
@@ -113,6 +114,27 @@ async function quotaFor(
   return undefined;
 }
 
+/**
+ * Which plan this account is on.
+ *
+ * Its own read rather than a value threaded from somewhere, because this door
+ * is reached before a project exists and there is nothing else here that knows.
+ * A missing row is the free plan, which is what a brand new account has anyway —
+ * a throw here would turn "I chose a file" into a 500.
+ */
+async function planFor(userId: string): Promise<PlanKey> {
+  try {
+    const [row] = await db
+      .select({ plan: subscriptionsTable.plan })
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.userId, userId))
+      .limit(1);
+    return planKeyFrom(row?.plan);
+  } catch {
+    return planKeyFrom(null);
+  }
+}
+
 router.post("/uploads", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const body = UploadTicketBody.safeParse(req.body);
@@ -129,11 +151,24 @@ router.post("/uploads", rateLimit(LIMITS.write), async (req, res): Promise<void>
     return;
   }
 
+  /*
+    The ceiling that applies to this person, which is two promises meeting.
+
+    Until now this door applied one of them — what the bucket will accept — to
+    everybody, so the free plan and Pro were refused at exactly the same size
+    while the pricing page sold ten minutes against four hours. The plan's own
+    number is the other, and the smaller wins. Which one won is carried along
+    because it decides what the refusal may offer: an upgrade cannot lift a
+    bucket limit, and offering one there sells a plan that refuses the same file.
+  */
+  const ceiling = uploadCeiling(await planFor(userId), await effectiveUploadLimitBytes());
+
   const decision = planUpload(
     { purpose, filename, bytes, projectId },
     {
       userId,
-      ceilingBytes: await effectiveUploadLimitBytes(),
+      ceilingBytes: ceiling.bytes,
+      ceilingBound: ceiling.bound,
       quota: await quotaFor(purpose, userId, projectId),
       // A uuid rather than a timestamp and a random suffix. Two files dropped
       // in the same millisecond is a thing a person does by selecting both.

@@ -46,6 +46,7 @@ import {
 } from "@workspace/api-zod/limits";
 import { formatBytes, type UploadPurpose } from "@workspace/api-zod/uploads";
 import { isSafeKey } from "@workspace/object-store";
+import { PLAN_LIMITS, smallestPlanForBytes } from "./plan-limits";
 
 /**
  * What a reference clip may weigh.
@@ -100,6 +101,17 @@ export interface UploadContext {
   userId: string;
   /** What Storage says it will take, or our fallback when it will not say. */
   ceilingBytes: number;
+  /**
+   * Which promise set `ceilingBytes` — the plan, or what storage will accept.
+   *
+   * It changes what the refusal is allowed to offer. A file over the *plan's*
+   * ceiling has a real answer ("the Pro plan takes four hours in one file"); a
+   * file over *storage's* has none, and offering an upgrade there sells
+   * somebody a plan that will refuse the same file at the same size. Optional,
+   * and storage when unsaid, because that is the ceiling this door applied for
+   * its whole life before plans had one.
+   */
+  ceilingBound?: "plan" | "storage" | undefined;
   quota?: UploadQuota;
   /**
    * The random part of a generated leaf.
@@ -300,12 +312,28 @@ export function planUpload(request: UploadRequest, context: UploadContext): Uplo
       confidence. Here the ceiling is the one that was actually applied, half a
       line above, so saying it is the useful thing rather than the dishonest one.
     */
+    /*
+      And what the person can do about it, when there is anything.
+
+      Only when the plan is what bound the ceiling, and only when a bigger plan
+      would actually take this file. Both conditions matter: the first because
+      an upgrade cannot lift a bucket limit, and the second because "upgrade"
+      with no plan large enough is a dead end dressed as an option — the same
+      distinction `smallestPlanFor` makes for minutes on the render door.
+    */
+    const bigger =
+      context.ceilingBound === "plan" && own === null ? smallestPlanForBytes(bytes) : null;
+    const offer =
+      bigger && PLAN_LIMITS[bigger].maxUploadBytes > maxBytes
+        ? ` The ${bigger} plan takes files up to ${formatBytes(PLAN_LIMITS[bigger].maxUploadBytes)}.`
+        : "";
+
     return refuse(
       413,
       "too-large",
       purpose === "reference"
         ? `That reference is ${formatBytes(bytes)}. We only read the first couple of minutes of one, so keep it under ${formatBytes(maxBytes)}. A short clip in the style you want is plenty.`
-        : `"${filename}" is ${formatBytes(bytes)}. Keep it under ${formatBytes(maxBytes)}.`,
+        : `"${filename}" is ${formatBytes(bytes)}. Keep it under ${formatBytes(maxBytes)}.${offer}`,
     );
   }
 

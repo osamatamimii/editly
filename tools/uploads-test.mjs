@@ -495,6 +495,107 @@ section("The browser no longer spells a storage path");
   );
 }
 
+/* ── which ceiling refused you, and what that entitles you to hear ──────── */
+
+section("A refusal offers an upgrade only when an upgrade would work");
+
+const planLimits = await import(build("artifacts/api-server/src/lib/plan-limits.ts", "plan-limits.mjs"));
+const { PLAN_LIMITS, uploadCeiling, uploadBytesFor, smallestPlanForBytes } = planLimits;
+
+// Two promises meet at this door. Until now only one of them was applied — what
+// the bucket will accept — so the free plan and Pro were refused at exactly the
+// same size while the page sold ten minutes against four hours.
+check(
+  "the plan's ceiling is derived from the minutes it advertises",
+  PLAN_LIMITS.pro.maxUploadBytes === uploadBytesFor(PLAN_LIMITS.pro.maxUploadMinutes) &&
+    PLAN_LIMITS.free.maxUploadBytes === uploadBytesFor(PLAN_LIMITS.free.maxUploadMinutes),
+);
+check(
+  "so a longer plan is always a larger one",
+  PLAN_LIMITS.free.maxUploadBytes < PLAN_LIMITS.creator.maxUploadBytes &&
+    PLAN_LIMITS.creator.maxUploadBytes < PLAN_LIMITS.pro.maxUploadBytes &&
+    PLAN_LIMITS.pro.maxUploadBytes < PLAN_LIMITS.studio.maxUploadBytes,
+);
+
+const tinyBucket = 50 * 1024 * 1024;
+check("a small bucket binds every plan", uploadCeiling("pro", tinyBucket).bound === "storage");
+check("and the number reported is the bucket's", uploadCeiling("pro", tinyBucket).bytes === tinyBucket);
+check("a large bucket lets the plan bind", uploadCeiling("free", 100 * GB).bound === "plan");
+check("and the number reported is the plan's", uploadCeiling("free", 100 * GB).bytes === PLAN_LIMITS.free.maxUploadBytes);
+// Ties go to storage on purpose: when the two are equal, upgrading does not
+// help, and a refusal that implies it would is selling a plan that will refuse
+// the same file at the same size.
+check(
+  "and a tie goes to storage, because upgrading would not help",
+  uploadCeiling("free", PLAN_LIMITS.free.maxUploadBytes).bound === "storage",
+);
+
+const over = PLAN_LIMITS.free.maxUploadBytes + 1;
+const refusedByPlan = plan(
+  { purpose: "source", filename: "episode.mp4", bytes: over, projectId: "p1" },
+  { ceilingBytes: PLAN_LIMITS.free.maxUploadBytes, ceilingBound: "plan" },
+);
+check("a file over the plan's ceiling is refused", refusedByPlan.ok === false && refusedByPlan.refusal.status === 413);
+check(
+  "and is told which plan would take it",
+  refusedByPlan.ok === false && /creator plan takes files up to/i.test(refusedByPlan.refusal.message),
+);
+
+const refusedByStorage = plan(
+  { purpose: "source", filename: "episode.mp4", bytes: over, projectId: "p1" },
+  { ceilingBytes: PLAN_LIMITS.free.maxUploadBytes, ceilingBound: "storage" },
+);
+check(
+  "the same file over storage's ceiling is refused with no upgrade offered",
+  refusedByStorage.ok === false && !/plan takes files up to/i.test(refusedByStorage.refusal.message),
+);
+// The bound is optional and storage when unsaid, because that is the ceiling
+// this door applied for its whole life before plans had one. A default of
+// "plan" would have every existing caller offering upgrades that do nothing.
+const refusedByDefault = plan(
+  { purpose: "source", filename: "episode.mp4", bytes: over, projectId: "p1" },
+  { ceilingBytes: PLAN_LIMITS.free.maxUploadBytes },
+);
+check(
+  "and an unsaid bound behaves as storage rather than as a plan",
+  refusedByDefault.ok === false && refusedByDefault.refusal.message === refusedByStorage.refusal.message,
+);
+
+// A file no plan would take must not be offered a plan. "Upgrade" with nothing
+// large enough is a dead end dressed as an option.
+const enormous = PLAN_LIMITS.studio.maxUploadBytes + 1;
+const refusedForever = plan(
+  { purpose: "source", filename: "master.mov", bytes: enormous, projectId: "p1" },
+  { ceilingBytes: PLAN_LIMITS.studio.maxUploadBytes, ceilingBound: "plan" },
+);
+check("no plan is offered when none is large enough", smallestPlanForBytes(enormous) === null);
+check(
+  "and the refusal does not invent one",
+  refusedForever.ok === false && !/plan takes files up to/i.test(refusedForever.refusal.message),
+);
+
+// A reference clip has its own much smaller ceiling, and that one is neither a
+// plan promise nor a bucket limit — so it must not borrow either sentence.
+const refusedReference = plan(
+  { purpose: "reference", filename: "look.mp4", bytes: 40 * 1024 * 1024 },
+  { ceilingBytes: GB, ceilingBound: "plan" },
+);
+check(
+  "a reference over its own ceiling is not sold an upgrade",
+  refusedReference.ok === false && !/plan takes files up to/i.test(refusedReference.refusal.message),
+);
+
+section("The door reads the plan, and the browser is told the same number");
+
+const uploadsRoute = await read("artifacts/api-server/src/routes/uploads.ts");
+check("the upload door asks which plan this is", uploadsRoute.includes("uploadCeiling(await planFor(userId)"));
+check("a missing subscription row is the free plan, not a 500", /catch \{\s*return planKeyFrom\(null\);/.test(uploadsRoute));
+const subscriptionRoute = await read("artifacts/api-server/src/routes/subscription.ts");
+check(
+  "and what the browser is told is the same two numbers meeting",
+  /maxUploadBytes: uploadCeiling\(validPlan, await effectiveUploadLimitBytes\(\)\)\.bytes/.test(subscriptionRoute),
+);
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

@@ -32,6 +32,16 @@ export interface PlanLimits {
   minutesPerMonth: number;
   /** Longest single upload accepted, in minutes. The real tier differentiator. */
   maxUploadMinutes: number;
+  /**
+   * Largest single upload accepted, in bytes.
+   *
+   * Derived from `maxUploadMinutes` rather than typed in, and that is the whole
+   * point of it existing. A plan that promises four hours and refuses at two
+   * gigabytes is two promises that disagree, and the one a person meets is
+   * whichever they hit first — with a sentence naming the other. Derivation
+   * means the pair cannot drift: change the minutes and the bytes follow.
+   */
+  maxUploadBytes: number;
   pricePerMonth: number;
   /** Free renders carry a mark; it is the growth loop, not a punishment. */
   watermark: boolean;
@@ -44,12 +54,35 @@ export interface PlanLimits {
   seats: number;
 }
 
+/**
+ * The bitrate a plan's byte ceiling is computed at: 8 Mbps, one megabyte a
+ * second.
+ *
+ * Chosen as the ceiling of what people actually hand us rather than the
+ * average. A phone recording 1080p30 lands near 6–10 Mbps; a screen recording
+ * is far below it; a camera original can be far above, and somebody uploading a
+ * 100 Mbps intra-frame master is doing something this product cannot afford to
+ * accept at any tier — they are refused at the byte ceiling with the number
+ * named, which is the honest answer.
+ *
+ * Stated as one constant because the alternative is four hand-typed numbers
+ * that each say something slightly different about what a minute of video
+ * weighs.
+ */
+export const UPLOAD_BYTES_PER_SECOND = 1024 * 1024;
+
+/** A plan's byte ceiling from its minute ceiling. See `UPLOAD_BYTES_PER_SECOND`. */
+export function uploadBytesFor(maxUploadMinutes: number): number {
+  return maxUploadMinutes * 60 * UPLOAD_BYTES_PER_SECOND;
+}
+
 export const PLAN_LIMITS: Record<PlanKey, PlanLimits> = {
   // A trial, not a home. Two short videos is enough to see the quality and
   // not enough to live in.
   free: {
     minutesPerMonth: 5,
     maxUploadMinutes: 10,
+    maxUploadBytes: uploadBytesFor(10),
     pricePerMonth: 0,
     watermark: true,
     maxHeight: 1280,
@@ -61,6 +94,7 @@ export const PLAN_LIMITS: Record<PlanKey, PlanLimits> = {
   creator: {
     minutesPerMonth: 60,
     maxUploadMinutes: 30,
+    maxUploadBytes: uploadBytesFor(30),
     pricePerMonth: 12,
     watermark: false,
     maxHeight: 1920,
@@ -73,6 +107,7 @@ export const PLAN_LIMITS: Record<PlanKey, PlanLimits> = {
   pro: {
     minutesPerMonth: 400,
     maxUploadMinutes: 240,
+    maxUploadBytes: uploadBytesFor(240),
     pricePerMonth: 29,
     watermark: false,
     maxHeight: 2160,
@@ -83,6 +118,7 @@ export const PLAN_LIMITS: Record<PlanKey, PlanLimits> = {
   studio: {
     minutesPerMonth: 1000,
     maxUploadMinutes: 600,
+    maxUploadBytes: uploadBytesFor(600),
     pricePerMonth: 79,
     watermark: false,
     maxHeight: 2160,
@@ -131,5 +167,50 @@ export function minutesFrom(seconds: number): number {
  * the moment someone decides whether the meter was fair.
  */
 export function exhaustedMessage(plan: PlanKey, minutesIncluded: number): string {
-  return `You've used all ${minutesIncluded} minutes of finished video on the ${plan} plan this month. Uploading is unlimited. It's the exported minutes that count. Upgrade for more, or your allowance resets on the 1st.`;
+  // "Uploading is unlimited" was here, and it stopped being true the day a plan
+  // grew a byte ceiling. It was never quite the claim it sounded like — it
+  // meant uploading does not spend the meter — and the day one promise in this
+  // product contradicts another is the day somebody reads both and believes the
+  // wrong one. Said as what it actually means instead.
+  return `You've used all ${minutesIncluded} minutes of finished video on the ${plan} plan this month. Uploading doesn't spend it; only the exported minutes count. Upgrade for more, or your allowance resets on the 1st.`;
+}
+
+/**
+ * The ceiling that actually applies to one upload, and which promise set it.
+ *
+ * Two numbers meet here and they are not the same kind of thing. One is what
+ * the plan was sold as; the other is what the bucket will physically accept,
+ * which on the free Supabase plan is 50 MB — a minute of what this renderer
+ * encodes, against a pricing page that sells four-hour episodes.
+ *
+ * Which one binds decides what the refusal may offer. If the plan is the
+ * smaller, "the Pro plan takes four hours in one file" is a true and useful
+ * sentence. If storage is the smaller, that same sentence sells somebody an
+ * upgrade that will refuse their file at exactly the same size — and this
+ * codebase has already shipped one screen that promised 512 MB against a bucket
+ * that stopped at 50.
+ *
+ * Ties go to storage, deliberately: when the two are equal, upgrading does not
+ * help, so the refusal must not imply that it would.
+ */
+export function uploadCeiling(
+  plan: PlanKey,
+  storageBytes: number,
+): { bytes: number; bound: "plan" | "storage" } {
+  const planBytes = PLAN_LIMITS[plan].maxUploadBytes;
+  return planBytes < storageBytes
+    ? { bytes: planBytes, bound: "plan" }
+    : { bytes: storageBytes, bound: "storage" };
+}
+
+/**
+ * The cheapest plan that would take a file this size, or null if none would.
+ *
+ * The byte twin of `smallestPlanFor` in `render-policy.ts`, and kept beside the
+ * numbers rather than there because this module imports nothing — the refusal
+ * that quotes it is built where there is no database.
+ */
+export function smallestPlanForBytes(bytes: number): PlanKey | null {
+  const order: PlanKey[] = ["free", "creator", "pro", "studio"];
+  return order.find((key) => PLAN_LIMITS[key].maxUploadBytes >= bytes) ?? null;
 }

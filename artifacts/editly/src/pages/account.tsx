@@ -187,7 +187,7 @@ export default function AccountPage() {
         <Card className="glass-panel border-hairline">
           <CardHeader>
             <CardTitle>Your plan</CardTitle>
-            <CardDescription>Minutes of finished video, not videos. Uploading is unlimited.</CardDescription>
+            <CardDescription>Minutes of finished video, not videos. Uploading doesn't spend them.</CardDescription>
           </CardHeader>
           <CardContent>
             {subscriptionState === "failed" ? (
