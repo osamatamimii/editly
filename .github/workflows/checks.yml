@@ -104,6 +104,22 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Does the lockfile contain a known vulnerability?
+      #
+      # Sixty suites ran here and not one of them asked. The first time anybody
+      # did, the answer was two moderate advisories in `qs`, reached through
+      # `express` — which is the request parser on every route in the product,
+      # so "transitive" meant "on the hot path". Neither was exotic and both had
+      # been patched for a while; nothing was watching.
+      #
+      # `--prod` because a devDependency advisory is a finding about this
+      # machine and not about the deployment, and a check that goes amber over
+      # something nobody ships is a check people learn to skip. `high` rather
+      # than `low` for the same reason: this fails a build, and it has to keep
+      # meaning something on the day it does.
+      - name: Does anything shipped have a known vulnerability?
+        run: pnpm audit --audit-level=high --prod
+
       - name: Install Chromium for the browser suite
         run: pnpm exec playwright install chromium
 

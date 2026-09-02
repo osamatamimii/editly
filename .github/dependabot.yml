@@ -1,0 +1,32 @@
+# Somebody has to be told when a dependency moves.
+#
+# `pnpm audit` in Checks answers "is anything shipped known-vulnerable today",
+# which is the question that matters at the moment of a build. It does not open
+# a pull request, and it says nothing until a CVE is published — so on its own
+# the lockfile ages until an advisory lands and the upgrade has to be done under
+# time pressure, in whatever state the tree happens to be.
+#
+# Monthly rather than weekly, and grouped rather than one pull request per
+# package: this is a one-person repository with sixty test suites, and a stream
+# of single-package pull requests is a stream nobody reads. One batch a month is
+# a thing somebody actually merges.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    groups:
+      production:
+        dependency-type: "production"
+      development:
+        dependency-type: "development"
+
+  # The actions in `.github/workflows/` are code that runs with this
+  # repository's secrets. They pin to major tags, which move.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
