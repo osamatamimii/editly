@@ -177,17 +177,99 @@ section("Unsubscribing from news does not switch off a receipt");
   check("with no request made", news.calls.length === 0);
 
   /*
-    And the reason it does not, today, is stronger than the preference: there is
-    no unsubscribe endpoint yet, so marketing is refused for everybody. That
-    flag is the point of the split existing on day one — the alternative is a
-    newsletter that ships before its own unsubscribe link, which is unlawful in
-    most of the places this product will be read.
+    Somebody who never unsubscribed does get it, and that is the change.
+
+    For the whole life of this module `UNSUBSCRIBE_ROUTE_EXISTS` was `false`
+    and marketing was refused for everybody — not as a preference but as a
+    refusal to send a newsletter before its own unsubscribe link existed, which
+    is unlawful in most of the places this product will be read. The split
+    between the two kinds was built on day one so that turning it on could be
+    one line, and this is the check that says the line was earned.
   */
-  check("marketing is refused outright until there is a way out of it", mail.UNSUBSCRIBE_ROUTE_EXISTS === false);
   const fresh = provider();
   const toSomebodyNew = await mail.send({ userId: BASHIR, to: "b@example.test", kind: "news", event: "newsletter", reference: "2026-09", letter }, fresh.impl);
-  check("even for somebody who never unsubscribed", toSomebodyNew.sent === false && fresh.calls.length === 0, JSON.stringify(toSomebodyNew));
-  check("and the reason names the missing door, not a preference they never set", toSomebodyNew.because === "no-way-out", toSomebodyNew.because);
+  check("news reaches somebody who never unsubscribed", toSomebodyNew.sent === true, JSON.stringify(toSomebodyNew));
+}
+
+section("The way out is real, and it is in the letter and in the headers");
+{
+  /*
+    The flag is a claim about the world, so it is checked against the world.
+
+    `UNSUBSCRIBE_ROUTE_EXISTS = true` unblocks every marketing message this
+    product will ever send. If it were set while the route or the screen did not
+    exist, the result would be a newsletter with a link to a 404 — worse than
+    the refusal it replaced, because it looks like compliance.
+  */
+  check("the flag is on", mail.UNSUBSCRIBE_ROUTE_EXISTS === true);
+
+  const route = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/mail.ts"), "utf8");
+  check("there is a route behind it", /router\.post\("\/mail\/unsubscribe\/:token"/.test(route));
+  check("that reads without acting, because scanners follow links", /router\.get\("\/mail\/unsubscribe\/:token"/.test(route));
+  check(
+    "and the GET really does not change anything",
+    !/update mail_settings[\s\S]{0,400}?\}\);\s*\n\s*\/\*\*[\s\S]{0,200}Stop the news/.test(route) &&
+      route.indexOf("update mail_settings") > route.indexOf('router.post("/mail/unsubscribe'),
+    "a GET that unsubscribes is a GET that unsubscribes everybody whose mail passes a scanner",
+  );
+
+  const mounted = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/index.ts"), "utf8");
+  const aboveAuth = mounted.slice(0, mounted.indexOf("router.use(requireAuth)"));
+  check(
+    "mounted where somebody with no session can reach it",
+    aboveAuth.includes("router.use(mailRouter)"),
+    "the person clicking is in an email client, not signed in",
+  );
+
+  const screen = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/unsubscribe.tsx"), "utf8");
+  const app = readFileSync(path.join(repoRoot, "artifacts/editly/src/App.tsx"), "utf8");
+  check("there is a screen for the link to land on", screen.length > 500);
+  check("declared as a route", /path="\/unsubscribe\/:token"/.test(app));
+  check("in both languages, because leaving is the wrong moment to meet English", /useLanguage\(/.test(screen));
+  check("and it offers the way back, since a mis-tap is the commonest reason to be there", /button-resubscribe/.test(screen));
+
+  // The letter points at the screen and the header points at the API, and they
+  // are deliberately different URLs.
+  // Bashir, not Alice: the section above set Alice's `news_opt_out`, and a
+  // check that quietly asserted nothing because the recipient had opted out
+  // would be the same silence this whole file is about.
+  const sent = provider();
+  await mail.send({ userId: BASHIR, to: "b@example.test", kind: "news", event: "newsletter", reference: "2026-10", letter }, sent.impl);
+  const body = sent.calls[0]?.body;
+  check("a news message went out", Boolean(body), JSON.stringify(sent.calls.length));
+  check(
+    "the link in the letter is the page, not the endpoint",
+    /\/unsubscribe\//.test(body?.text ?? "") && !/\/api\/mail\/unsubscribe\//.test(body?.text ?? ""),
+    body?.text?.slice(-160),
+  );
+  check(
+    "and the one-click header is the endpoint, because nobody is watching that one",
+    /\/api\/mail\/unsubscribe\//.test(body?.headers?.["List-Unsubscribe"] ?? ""),
+    JSON.stringify(body?.headers),
+  );
+  check(
+    "declared one-click, which is what Gmail and Yahoo ask of bulk senders",
+    body?.headers?.["List-Unsubscribe-Post"] === "List-Unsubscribe=One-Click",
+    JSON.stringify(body?.headers),
+  );
+
+  /*
+    And not on an account message. An unsubscribe header on a receipt tells the
+    client the message is marketing, which is the wrong answer for a letter
+    saying a payment failed — and the client may then file it accordingly.
+  */
+  const receiptCalls = provider();
+  await mail.send({ userId: BASHIR, to: "b@example.test", kind: "account", event: "payment-failed", reference: "evt-11", letter }, receiptCalls.impl);
+  check(
+    "a receipt carries no unsubscribe header",
+    receiptCalls.calls[0]?.body?.headers === undefined,
+    JSON.stringify(receiptCalls.calls[0]?.body?.headers),
+  );
+  check(
+    "and no unsubscribe line either",
+    !/unsubscribe|إيقاف رسائل/i.test(receiptCalls.calls[0]?.body?.text ?? ""),
+    receiptCalls.calls[0]?.body?.text?.slice(-120),
+  );
 }
 
 // ── Their language ──────────────────────────────────────────────────────────
@@ -410,7 +492,11 @@ section("And the deploy knows the worker sends mail now");
   const workflow = readFileSync(path.join(repoRoot, ".github/workflows/deploy-worker.yml"), "utf8");
   check("the mail key reaches the worker", /RESEND_API_KEY: \$\{\{ secrets\.RESEND_API_KEY \}\}/.test(workflow));
   check("and the sender address with it", /MAIL_FROM/.test(workflow));
-  check("and a change in the mail package redeploys it", /lib\/mail\/\*\*/.test(workflow));
+  // The paths filter moved out of the trigger and into a step when the deploy
+  // started waiting for Checks — `workflow_run` is the only trigger that waits
+  // for another workflow, and it cannot filter on paths. Same list, read from
+  // where it now lives.
+  check("and a change in the mail package redeploys it", /PATHS="[^"]*lib\/mail\//.test(workflow));
   const fly = readFileSync(path.join(repoRoot, "artifacts/worker/fly.toml"), "utf8");
   check("and the links point at the app", /APP_ORIGIN = "https:\/\/app\.editlyai\.io"/.test(fly));
 }

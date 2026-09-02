@@ -36,6 +36,13 @@ const Login = lazy(() => import("@/pages/login"));
   token in the fragment on the way.
 */
 const ResetPassword = lazy(() => import("@/pages/reset-password"));
+/*
+  Public for the same reason as the password reset, and one more: the person
+  following an unsubscribe link is in an email client with no session of ours,
+  possibly on a different device, and asking them to sign in to stop receiving
+  mail is how a legal requirement becomes a complaint.
+*/
+const Unsubscribe = lazy(() => import("@/pages/unsubscribe"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Onboarding = lazy(() => import("@/pages/onboarding"));
 const ProjectEditor = lazy(() => import("@/pages/project-editor"));
@@ -98,6 +105,7 @@ function Router() {
         {isLoading ? null : user ? <Redirect to="/dashboard" /> : <Login />}
       </Route>
       <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/unsubscribe/:token" component={Unsubscribe} />
       <Route path="/dashboard">
         <Protected component={Dashboard} />
       </Route>

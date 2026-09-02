@@ -293,6 +293,22 @@ export const LIMITS = {
     message: "That is a lot of connection attempts from one place. Give it a few minutes.",
   },
   /**
+   * The way off the mailing list, which is public because it has to be.
+   *
+   * The person pressing it is in an email client with no session of ours. It is
+   * generous on purpose: this is a door somebody is legally entitled to walk
+   * through, and a limiter that refuses the second attempt turns a requirement
+   * into a complaint. What it stops is a script walking the token space, which
+   * a thirty-two character random already makes pointless.
+   */
+  unsubscribe: {
+    name: "unsubscribe",
+    limit: 60,
+    windowMs: 10 * 60 * 1000,
+    perPerson: 12,
+    message: "That is a lot of attempts from one place. Give it a few minutes and use the link in your latest email.",
+  },
+  /**
    * The data export, which is the most expensive read in the product.
    *
    * A dozen table scans and a listing of every project folder in Storage,

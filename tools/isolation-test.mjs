@@ -1511,6 +1511,87 @@ console.log("\nCascade cleanup");
   );
 }
 
+console.log("\nThe way off the mailing list works without a session, and not by being looked at");
+{
+  /*
+    This is the endpoint a legal requirement rests on, and the two ways it can
+    be wrong both look like success.
+
+    It has to work with **no session**: the person following the link is in an
+    email client, possibly on another device, and asking them to sign in to
+    stop receiving mail is how a requirement becomes a complaint.
+
+    And the `GET` must **not** unsubscribe. A link in an email is followed by
+    corporate mail scanners, link previewers and antivirus proxies before it
+    ever reaches a person. A GET that acted would quietly unsubscribe people who
+    never opened the letter, and nothing would report it: the mail stops, and
+    they conclude the product forgot them.
+  */
+  const TOKEN = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+  spawnSync(
+    "psql",
+    [
+      process.env.DATABASE_URL,
+      "-c",
+      `insert into mail_settings (user_id, token) values ('${ALICE}', '${TOKEN}')
+       on conflict (user_id) do update set token = excluded.token, news_opt_out = false`,
+    ],
+    { encoding: "utf8" },
+  );
+
+  const open = (path, method = "GET", body) =>
+    fetch(BASE + path, {
+      method,
+      ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
+    }).then(async (res) => ({ status: res.status, json: await res.json().catch(() => null) }));
+
+  const read = await open(`/api/mail/unsubscribe/${TOKEN}`);
+  check("the link answers with no bearer token at all", read.status === 200, `got ${read.status}`);
+  check("and says they are on the list", read.json?.subscribed === true, JSON.stringify(read.json));
+
+  const stillOn = spawnSync(
+    "psql",
+    [process.env.DATABASE_URL, "-tAc", `select news_opt_out from mail_settings where token = '${TOKEN}'`],
+    { encoding: "utf8" },
+  ).stdout.trim();
+  check(
+    "and looking at it changed nothing, because scanners look",
+    stillOn === "f",
+    "a GET that unsubscribes unsubscribes everybody whose mail passes a scanner",
+  );
+
+  const off = await open(`/api/mail/unsubscribe/${TOKEN}`, "POST");
+  check("a bare POST is what one-click sends, and it unsubscribes", off.json?.subscribed === false, JSON.stringify(off.json));
+
+  const again = await open(`/api/mail/unsubscribe/${TOKEN}`, "POST");
+  check(
+    "pressing twice is the same answer, not a toggle back on",
+    again.json?.subscribed === false,
+    JSON.stringify(again.json),
+  );
+
+  const back = await open(`/api/mail/unsubscribe/${TOKEN}`, "POST", { resubscribe: true });
+  check("and there is a way back, for the mis-tap that is the commonest reason to be here", back.json?.subscribed === true, JSON.stringify(back.json));
+
+  /*
+    A wrong token and an unknown one get the same answer, so this cannot be
+    walked to find out whether a string is live.
+  */
+  const unknown = await open("/api/mail/unsubscribe/ffffffffffffffffffffffffffffffff");
+  const malformed = await open("/api/mail/unsubscribe/not-a-token");
+  check("an unknown token is a 404", unknown.status === 404, `got ${unknown.status}`);
+  check("a malformed one is the same 404", malformed.status === 404, `got ${malformed.status}`);
+  check(
+    "with the same sentence, so neither can be told from the other",
+    unknown.json?.message === malformed.json?.message && typeof unknown.json?.message === "string",
+    `${unknown.json?.message} / ${malformed.json?.message}`,
+  );
+
+  spawnSync("psql", [process.env.DATABASE_URL, "-c", `delete from mail_settings where token = '${TOKEN}'`], {
+    encoding: "utf8",
+  });
+}
+
 console.log("\nAsking what we hold answers, and never hands back a credential");
 {
   /*

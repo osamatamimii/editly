@@ -28,7 +28,7 @@ const LEGACY_KEY = "editly:landing-language";
  * Paths are matched by prefix so `/onboarding` covers nothing else and a future
  * `/account` would cover only itself.
  */
-export const BILINGUAL: readonly string[] = ["/", "/onboarding"];
+export const BILINGUAL: readonly string[] = ["/", "/onboarding", "/unsubscribe"];
 
 export function isBilingualRoute(pathname: string): boolean {
   if (pathname === "/") return true;

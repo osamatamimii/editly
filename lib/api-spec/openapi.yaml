@@ -743,6 +743,78 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /mail/unsubscribe/{token}:
+    get:
+      operationId: readMailPreference
+      tags: [account]
+      summary: Is this unsubscribe link live, and what does it currently say
+      description: >
+        Read only, and deliberately so. A link in an email is followed by mail
+        scanners, link previewers and antivirus proxies before the person ever
+        opens it, so a GET that unsubscribed would quietly unsubscribe people
+        who never read the letter, with nothing to report it. No session is
+        required: the token in the link is the whole authorisation, and it names
+        nobody.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: A live token, and the current setting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MailPreference"
+        "404":
+          description: >
+            Not a token we know. The same answer for malformed and unknown, so
+            this cannot be used to test whether a string is live.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MailPreference"
+    post:
+      operationId: setMailPreference
+      tags: [account]
+      summary: Stop the news, or start it again
+      description: >
+        Idempotent: pressing twice, or a mail client fetching the one-click URL
+        twice, gives the same answer rather than toggling somebody back onto a
+        list they just left. A bare POST with no body unsubscribes, which is
+        what `List-Unsubscribe-Post: List-Unsubscribe=One-Click` sends.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resubscribe:
+                  type: boolean
+                  description: True to go back on the list. Absent or false unsubscribes.
+      responses:
+        "200":
+          description: The setting after the change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MailPreference"
+        "404":
+          description: Not a token we know, and nothing was changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MailPreference"
+
   /projects/{id}/assets:
     get:
       operationId: listAssets
@@ -3786,6 +3858,20 @@ components:
         currentPlan:
           $ref: "#/components/schemas/SubscriptionPlan"
       required: [productId, publicKey, plans, currentPlan]
+
+    MailPreference:
+      type: object
+      required: [known]
+      properties:
+        known:
+          type: boolean
+          description: Whether this token is one we recognise.
+        subscribed:
+          type: boolean
+          description: Present when known. False means the news is switched off.
+        message:
+          type: string
+          description: Present when it is not known, saying what to do instead.
 
     AccountExport:
       type: object

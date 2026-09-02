@@ -150,7 +150,7 @@
           var path = location.pathname.replace(/\/+$/, "") || "/";
           // Duplicated from BILINGUAL in src/lib/language.tsx. There is no
           // module system here yet, and a check compares the two.
-          var bilingual = path === "/" || path === "/onboarding";
+          var bilingual = path === "/" || path === "/onboarding" || path.indexOf("/unsubscribe") === 0;
           var lang = "en";
           if (bilingual) {
             var kept = localStorage.getItem("editly:language") || localStorage.getItem("editly:landing-language");

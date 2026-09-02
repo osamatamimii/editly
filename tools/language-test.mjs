@@ -113,7 +113,11 @@ section("Every screen claimed as translated actually is");
     So each member is read for bare English: text between JSX tags, long enough
     not to be a symbol or a number.
   */
-  const FILES = { "/": "artifacts/editly/src/pages/home.tsx", "/onboarding": "artifacts/editly/src/pages/onboarding.tsx" };
+  const FILES = {
+    "/": "artifacts/editly/src/pages/home.tsx",
+    "/onboarding": "artifacts/editly/src/pages/onboarding.tsx",
+    "/unsubscribe": "artifacts/editly/src/pages/unsubscribe.tsx",
+  };
 
   for (const route of BILINGUAL) {
     const file = FILES[route];

@@ -151,19 +151,24 @@ export type SendOutcome =
 /**
  * Whether there is a door out of the marketing list yet.
  *
- * There is not. Every message this product sends today is an account message,
- * and the unsubscribe endpoint that a marketing message legally requires has
- * not been built — so rather than leaving that as a comment somebody will miss,
- * `send` refuses `news` outright until this is true.
+ * There is now. `artifacts/api-server/src/routes/mail.ts` serves the token,
+ * `artifacts/editly/src/pages/unsubscribe.tsx` is the screen it lands on, and
+ * this flag is what connects them to the sender.
  *
- * That refusal is the point. An unsubscribe link is not a nicety to add in the
- * week after the first newsletter; a newsletter without one is unlawful in most
- * of the places this product will be read, and "we will add it next sprint" is
- * the sentence that ends with a complaint. The split between the two kinds
- * exists here from the first day precisely so that this can be a flag rather
- * than a migration.
+ * It was `false` for the whole life of this module, and `send` refused `news`
+ * outright while it was — which is why this is a flag and not a comment. An
+ * unsubscribe link is not a nicety to add in the week after the first
+ * newsletter; a newsletter without one is unlawful in most of the places this
+ * product will be read, and "we will add it next sprint" is the sentence that
+ * ends with a complaint. The split between the two kinds existed here from the
+ * first day precisely so that turning it on could be one line.
+ *
+ * It stays a constant rather than becoming a check of something at runtime,
+ * because the property it names is "somebody built the way out", and that is
+ * decided by a commit. `tools/mail-test.mjs` asserts the route and the screen
+ * are both really there, so this cannot become true on its own.
  */
-export const UNSUBSCRIBE_ROUTE_EXISTS = false;
+export const UNSUBSCRIBE_ROUTE_EXISTS = true;
 
 export const mailConfigured = (): boolean => Boolean(process.env["RESEND_API_KEY"]?.trim());
 
@@ -223,9 +228,31 @@ async function unsubscribed(userId: string): Promise<boolean> {
  * link identifies the preference and not the person: it cannot be turned back
  * into an account id, an email or a session.
  */
+export function unsubscribeLink(token: string): string {
+  return `${appOrigin()}/unsubscribe/${token}`;
+}
+
+/**
+ * The address a mail client posts to for one-click, which is not the same URL.
+ *
+ * `List-Unsubscribe-Post` means the provider sends a POST with nobody watching,
+ * so it goes straight to the API rather than to a page that would have to run
+ * JavaScript to do anything.
+ */
+export function oneClickEndpoint(token: string): string {
+  return `${appOrigin()}/api/mail/unsubscribe/${token}`;
+}
+
+function appOrigin(): string {
+  return (process.env["APP_ORIGIN"] ?? "https://app.editlyai.io").replace(/\/+$/, "");
+}
+
 function withUnsubscribe(body: string, token: string | null, language: MailLanguage): string {
   if (!token) return body;
-  const link = `${(process.env["APP_ORIGIN"] ?? "https://app.editlyai.io").replace(/\/+$/, "")}/api/mail/unsubscribe/${token}`;
+  // The page, not the endpoint. A link in an email is followed by mail
+  // scanners, link previewers and antivirus proxies before the person ever
+  // sees it, so the URL a letter carries must not be one that acts.
+  const link = unsubscribeLink(token);
   return language === "ar"
     ? `${body}\n\n--\nلإيقاف رسائل الأخبار: ${link}\nرسائل الحساب ستبقى تصلك.`
     : `${body}\n\n--\nTo stop these updates: ${link}\nAccount messages will still reach you.`;
@@ -313,6 +340,29 @@ export async function send(message: Send, fetchImpl: typeof fetch = fetch): Prom
         to: [message.to],
         subject: letter.subject,
         text: withUnsubscribe(letter.body, token, language),
+        /*
+          The headers Gmail and Yahoo require of anybody sending bulk mail.
+
+          `List-Unsubscribe` puts a native "unsubscribe" control in the client's
+          own chrome, above the message, which is the one a person actually
+          finds. Without it the alternative they reach for is the spam button,
+          and enough of those costs the domain its deliverability — including
+          for the account mail, which is the half nobody can opt out of.
+
+          `One-Click` means the provider POSTs the URL itself with nobody
+          watching, so that one points at the API and not at the page. Only on
+          news: putting an unsubscribe header on a receipt tells a client the
+          message is marketing, which is the wrong answer for a letter saying a
+          payment failed.
+        */
+        ...(token
+          ? {
+              headers: {
+                "List-Unsubscribe": `<${oneClickEndpoint(token)}>`,
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+              },
+            }
+          : {}),
       }),
       signal: AbortSignal.timeout(20_000),
     });

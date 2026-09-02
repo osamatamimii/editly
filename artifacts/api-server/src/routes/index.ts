@@ -15,6 +15,7 @@ import adminRouter from "./admin";
 import waitlistRouter from "./waitlist";
 import socialRouter, { socialCallbackRouter } from "./social";
 import clientErrorsRouter from "./client-errors";
+import mailRouter from "./mail";
 import fontsRouter from "./fonts";
 import uploadsRouter from "./uploads";
 import { requireAuth } from "../middlewares/auth";
@@ -44,6 +45,16 @@ router.use(socialCallbackRouter);
 // crash reporter that needed one would be silent in exactly the case it exists
 // for. Rate limited by address, and it records nothing a token would identify.
 router.use(clientErrorsRouter);
+
+/*
+  Above `requireAuth`, and it has to be.
+
+  The person following an unsubscribe link is in an email client, on whatever
+  device the message reached, with no session of ours. Asking them to sign in to
+  stop receiving mail is how a legal requirement turns into a complaint. The
+  token in the link is the whole authorisation, and it names nobody.
+*/
+router.use(mailRouter);
 
 // Everything below this line is per-user data. `requireAuth` populates
 // `req.userId`, and each handler filters on it — mounting a data route outside
