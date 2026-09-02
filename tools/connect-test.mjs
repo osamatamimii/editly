@@ -27,7 +27,7 @@
  * Usage: node tools/connect-test.mjs
  * Requires: nothing. No keys, no network, no database.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -275,6 +275,307 @@ section("A platform with no credentials sends an empty id rather than another pl
     // never a value that belongs to somebody else.
     String(url.searchParams.get("client_id")),
   );
+}
+
+
+// ─── Meta, which needs three more answers before it can post ────────────────
+
+/*
+  Three faults in one place, and every one of them was written down in a comment
+  and in no list of work. That is the shape worth naming: a known bug with a
+  paragraph explaining it is indistinguishable, from outside, from a bug nobody
+  has found.
+
+  Each check below is one of them, and each one failed silently in a different
+  way — a post to the wrong Page, two Graph calls a post, and a connection that
+  works for sixty days and then does not.
+*/
+
+const identity = await import(bundle("artifacts/api-server/src/lib/social-identity.ts", "identity.mjs"));
+const {
+  metaExpiryFrom, chooseSinglePage, pageChoicesFrom, isMeta,
+  exchangeForLongLivedMetaToken, metaPagesFor, metaTargetsFor,
+} = identity;
+
+const jsonOf = (body, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+section("A Meta token has sixty days, and now something knows that");
+{
+  /*
+    Meta issues no refresh token. `expires_at` was null for these rows, which is
+    this column's way of saying "does not expire" — about the one credential
+    here that does. Nothing extended it and nothing watched it, so every Meta
+    connection was going to stop working about two months after it was made,
+    with no event in between and nothing in any log.
+  */
+  const at = new Date("2026-09-02T00:00:00Z");
+  const sixtyDays = metaExpiryFrom({ expires_in: 5_184_000 }, at);
+  check("an expiry is worked out from what Meta said", sixtyDays !== null, "");
+  check(
+    "and it is about two months out",
+    Math.round((sixtyDays.getTime() - at.getTime()) / 86_400_000) === 60,
+    String(sixtyDays),
+  );
+  /*
+    Absent stays absent. Meta documents some long-lived tokens as never
+    expiring, and inventing a date from a documented average would either
+    refresh a working token or, worse, let a dead one sit until a post failed.
+  */
+  check("no expiry means null, not a guess", metaExpiryFrom({}, at) === null, "");
+  check("and neither does a nonsense one", metaExpiryFrom({ expires_in: "soon" }, at) === null, "");
+  check("nor a negative one", metaExpiryFrom({ expires_in: -10 }, at) === null, "");
+}
+
+section("The short token is traded for a long one, and a failed trade is not silent");
+{
+  const env = { FACEBOOK_CLIENT_ID: "app-1", FACEBOOK_CLIENT_SECRET: "secret-1" };
+  let asked = null;
+  const traded = await exchangeForLongLivedMetaToken(
+    "facebook",
+    "short-lived",
+    env,
+    async (url) => {
+      asked = String(url);
+      return jsonOf({ access_token: "long-lived", expires_in: 5_184_000 });
+    },
+    new Date("2026-09-02T00:00:00Z"),
+  );
+  check("it is the exchange Meta documents", asked.includes("grant_type=fb_exchange_token"), asked ?? "");
+  check("it sends the token being traded", asked.includes("fb_exchange_token=short-lived"), "");
+  check("and this app's own credentials", asked.includes("client_id=app-1") && asked.includes("client_secret=secret-1"), "");
+  check("the long-lived token comes back", traded.accessToken === "long-lived", traded.accessToken);
+  check("with its expiry", traded.expiresAt !== null, "");
+
+  /*
+    A trade that answered without a token is not a working token, and storing
+    the short one instead would be the quiet failure this whole area is built
+    against: the connection looks made, the first post goes out, and the second
+    fails for a reason nobody can trace back to here. Sixty days and one hour
+    look identical in the row.
+  */
+  let empty = null;
+  try {
+    await exchangeForLongLivedMetaToken("facebook", "short", env, async () => jsonOf({}));
+  } catch (error) {
+    empty = error;
+  }
+  check("an exchange with no token in it fails the connection", empty !== null, "");
+
+  let refused = null;
+  try {
+    await exchangeForLongLivedMetaToken("facebook", "short", env, async () =>
+      jsonOf({ error: { message: "This authorization code has been used" } }, 400),
+    );
+  } catch (error) {
+    refused = error;
+  }
+  check("and Meta's own words are what comes back", refused?.message?.includes("has been used"), refused?.message ?? "");
+}
+
+section("The Page is chosen, not taken off the top of a list");
+{
+  const two = [
+    { id: "10", name: "Coffee Shop", token: "page-token-10", instagramUserId: "ig-1" },
+    { id: "20", name: "Side Project", token: "page-token-20", instagramUserId: null },
+  ];
+  /*
+    The bug this replaces. `pageFor` took `pages[0]`, and Meta's ordering is not
+    a promise — so somebody managing two Pages found their video on whichever
+    one Meta happened to list first. Nothing failed: a post went out, to a real
+    Page, and only its owner could tell.
+  */
+  check("two Pages is a question, not an answer", chooseSinglePage(two) === null, "");
+  check("one Page is the answer", chooseSinglePage([two[0]]).id === "10", "");
+  check("and none is a question too, which the caller turns into a sentence", chooseSinglePage([]) === null, "");
+
+  /*
+    What reaches the browser is names and ids. `page_access_token` is the
+    credential that actually posts, and a list of choices does not need
+    credentials in it.
+  */
+  const choices = pageChoicesFrom(two);
+  check("the choices carry the names", choices.map((c) => c.name).join(",") === "Coffee Shop,Side Project", "");
+  check("and no tokens at all", JSON.stringify(choices).includes("token") === false, JSON.stringify(choices));
+
+  check("Meta is the pair that goes through a Page", isMeta("facebook") && isMeta("instagram"), "");
+  check("and nothing else is", !isMeta("youtube") && !isMeta("tiktok") && !isMeta("x") && !isMeta("snapchat"), "");
+}
+
+section("And the Pages are read with their Instagram accounts attached");
+{
+  /*
+    One call rather than two: the Instagram business account was a second Graph
+    request per post, made after the Page was resolved by a first. Both are one
+    read at connection now, and `instagram_business_account` is a field on the
+    Page rather than a lookup after it.
+  */
+  let asked = null;
+  const pages = await metaPagesFor("long-lived", async (url) => {
+    asked = String(url);
+    return jsonOf({
+      data: [
+        { id: "10", name: "Coffee Shop", access_token: "t10", instagram_business_account: { id: "ig-1" } },
+        { id: "20", name: "Side Project", access_token: "t20" },
+      ],
+    });
+  });
+  check("it asks for the Instagram account in the same call", asked.includes("instagram_business_account"), asked ?? "");
+  check("both Pages come back", pages.length === 2, String(pages.length));
+  check("with their own tokens", pages[0].token === "t10" && pages[1].token === "t20", "");
+  check("the linked Instagram account is carried", pages[0].instagramUserId === "ig-1", "");
+  check("and a Page with none says so rather than guessing", pages[1].instagramUserId === null, "");
+
+  /*
+    A Page row without a token is not a Page this app can post to. Keeping it
+    would put a name on the screen that fails when it is chosen.
+  */
+  const partial = await metaPagesFor("t", async () =>
+    jsonOf({ data: [{ id: "30", name: "No Access" }, { id: "40", name: "Fine", access_token: "t40" }] }),
+  );
+  check("a Page we hold no token for is not offered", partial.length === 1 && partial[0].id === "40", JSON.stringify(partial));
+}
+
+section("Connecting resolves all of it at once");
+{
+  const env = { INSTAGRAM_CLIENT_ID: "app", INSTAGRAM_CLIENT_SECRET: "secret" };
+  const targets = await metaTargetsFor("instagram", "short", env, async (url) => {
+    if (String(url).includes("fb_exchange_token")) {
+      return jsonOf({ access_token: "long", expires_in: 5_184_000 });
+    }
+    return jsonOf({
+      data: [{ id: "10", name: "Only Page", access_token: "t10", instagram_business_account: { id: "ig-9" } }],
+    });
+  });
+  check("the stored token is the long-lived one", targets.accessToken === "long", targets.accessToken);
+  check("its expiry is known", targets.expiresAt !== null, "");
+  check("and the Page came with it", targets.pages[0].id === "10", "");
+
+  /*
+    Order matters: the Pages are read with the long-lived token, not the short
+    one. Reading them with the short token would work at connection and produce
+    Page tokens whose life is tied to a credential that is about to be replaced.
+  */
+  let usedShort = false;
+  await metaTargetsFor("instagram", "short", env, async (url) => {
+    const href = String(url);
+    if (href.includes("fb_exchange_token")) return jsonOf({ access_token: "long", expires_in: 100 });
+    if (href.includes("access_token=short")) usedShort = true;
+    return jsonOf({ data: [{ id: "1", name: "P", access_token: "t" }] });
+  });
+  check("the Pages are read with the long-lived token", !usedShort, "");
+}
+
+section("The worker extends it before the send, like every other platform");
+{
+  /*
+    The other four speak `refresh_token`, and Meta has none — so it used to fall
+    through to a guard that marked the account as needing to be reconnected. A
+    working connection, told to reconnect, because the code that refreshes
+    tokens did not know this one is refreshed differently.
+
+    Read out of the source rather than run, because running it needs a database:
+    what is being asserted is that Meta is handled *before* the refresh-token
+    guard, which is a property of the order of two blocks.
+  */
+  const token = await readFile(path.join(repoRoot, "artifacts/worker/src/social-token.ts"), "utf8");
+  const metaBranch = token.indexOf('platform === "facebook" || platform === "instagram"');
+  const refreshGuard = token.indexOf("if (!url || !credential.refreshToken)");
+  check("Meta has a branch of its own", metaBranch > 0, "");
+  check(
+    "and it is taken before the no-refresh-token guard",
+    metaBranch > 0 && refreshGuard > 0 && metaBranch < refreshGuard,
+    `meta at ${metaBranch}, guard at ${refreshGuard}`,
+  );
+  check("it uses the shared exchange rather than a second copy", token.includes("metaExchangeUrl"), "");
+  check("it writes the new token back", /update social_accounts[\s\S]{0,400}access_token = /.test(token), "");
+  check(
+    "and 190 is the code that means reconnect, rather than every failure",
+    token.includes("190"),
+    "",
+  );
+}
+
+section("The Page's token is never taken from a browser");
+{
+  /*
+    The endpoint takes an *id* and goes to Meta for the token belonging to it,
+    with the connection's own credential. Accepting a page token from a request
+    body would be this server taking a credential from outside, and the shape of
+    that mistake is the same one that makes an open redirect: trusting a value
+    because it arrived in the right field.
+  */
+  const routes = await readFile(path.join(repoRoot, "artifacts/api-server/src/routes/social.ts"), "utf8");
+  const patch = routes.slice(routes.indexOf('router.patch("/social/accounts/:id/page"'));
+  const body = patch.slice(0, patch.indexOf("router.delete("));
+  check("the endpoint exists", body.length > 0, "");
+  check("it reads only an id from the request", /req\.body\?\.pageId/.test(body), "");
+  check("and no token", !/req\.body\?\.(pageAccessToken|token)/.test(body), "");
+  check("it asks Meta for the Pages itself", body.includes("metaPagesFor"), "");
+  check(
+    "and refuses an id that is not one of them",
+    /not one this account manages/.test(body),
+    "",
+  );
+  check("the account is scoped to the person asking", /eq\(socialAccountsTable\.userId, userId\)/.test(body), "");
+
+  // And the list the browser reads carries no credentials either.
+  const columns = routes.slice(routes.indexOf("const ACCOUNT_COLUMNS"), routes.indexOf("router.get(\"/social/platforms\""));
+  check("the accounts list offers the Page name", columns.includes("pageName"), "");
+  check("and the choices", columns.includes("pageChoices"), "");
+  check("and no token of any kind", !columns.includes("accessToken") && !columns.includes("pageAccessToken"), "");
+}
+
+section("A connection that still needs a Page says so");
+{
+  /*
+    Connected and not usable are different states, and a working-looking account
+    that fails at nine in the evening is the failure this says out loud instead.
+    It goes on `status`, which the screen already reads for "reconnect me", so
+    somebody sees one outstanding thing in one place.
+  */
+  const routes = await readFile(path.join(repoRoot, "artifacts/api-server/src/routes/social.ts"), "utf8");
+  check("there is a state for it", routes.includes('"needs_page"'), "");
+  check("with a sentence rather than a code", /Choose which Page/.test(routes), "");
+  check(
+    "an account managing no Page is refused while connecting, not at nine in the evening",
+    /manages no Page/.test(routes),
+    "",
+  );
+
+  const screen = await readFile(
+    path.join(repoRoot, "artifacts/editly/src/components/social-connections.tsx"),
+    "utf8",
+  );
+  check("the screen asks the question", /Which one do posts go to/.test(screen), "");
+  check("only when there is more than one answer", /pageChoices\?\.length \?\? 0\) > 1/.test(screen), "");
+  check("and it shows where a settled connection posts", /Posts to \{account\.pageName\}/.test(screen), "");
+}
+
+section("And the renderer prefers the stored answer to asking again");
+{
+  /*
+    Two Graph calls per post, for a pair of values that never change between
+    posts. The fallback stays: a row connected before these columns existed has
+    to keep working, and the stored answer is an improvement on resolving rather
+    than a replacement for the ability to.
+  */
+  const meta = await readFile(path.join(repoRoot, "artifacts/worker/src/publish-meta.ts"), "utf8");
+  check(
+    "the stored Page is used when there is one",
+    /upload\.page \?\? \(await pageFor\(/.test(meta),
+    "",
+  );
+  check(
+    "and the stored Instagram account too",
+    /upload\.instagramUserId \?\? \(await instagramAccountFor\(/.test(meta),
+    "",
+  );
+  check("the resolution is still there for rows that predate the column", meta.includes("export async function pageFor"), "");
+
+  const publisher = await readFile(path.join(repoRoot, "artifacts/worker/src/publisher.ts"), "utf8");
+  check("the publisher reads the columns", publisher.includes("page_access_token"), "");
+  check("and hands them down", /page: credential\.page/.test(publisher), "");
 }
 
 await rm(buildDir, { recursive: true, force: true });

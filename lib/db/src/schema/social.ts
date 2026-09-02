@@ -81,6 +81,41 @@ export const socialAccountsTable = pgTable(
     status: text("status").notNull().default("ok"),
     statusDetail: text("status_detail"),
 
+    /**
+     * Which Facebook Page this connection posts to, and its own token.
+     *
+     * Both Meta destinations go through a Page: a Facebook video is posted with
+     * the *Page's* token rather than the user's, and an Instagram Reel goes to
+     * the business account attached to a Page. `identityFor` stores a Facebook
+     * *user*, which neither of them will accept, so these were resolved on
+     * every send — two Graph calls per post for a pair of values that do not
+     * change between posts.
+     *
+     * Worse than the cost: the resolution took the *first* Page Meta listed.
+     * Somebody managing two Pages got their video on whichever one Meta ordered
+     * first, and that ordering is not a promise. Nothing failed; only the owner
+     * could tell it was the wrong Page.
+     *
+     * Null on a row connected before this existed, and null while somebody who
+     * manages several Pages has not chosen one yet. The renderer falls back to
+     * resolving from the token in both cases, so nothing that worked stops.
+     */
+    pageId: text("page_id"),
+    pageName: text("page_name"),
+    pageAccessToken: text("page_access_token"),
+    /** The Instagram business account attached to that Page, if there is one. */
+    instagramUserId: text("instagram_user_id"),
+    /**
+     * The Pages this account manages, `{id, name}` only, so the connect screen
+     * can ask which one without a round trip to Meta with a token the browser
+     * must never see.
+     *
+     * Without the Page tokens on purpose. This is read to draw a list of
+     * choices, and a list of choices does not need credentials in it; the
+     * chosen Page's token is fetched from Meta at the moment of choosing.
+     */
+    pageChoices: jsonb("page_choices").$type<Array<{ id: string; name: string }>>(),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

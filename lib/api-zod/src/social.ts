@@ -70,6 +70,34 @@ export interface SocialPlatformSpec {
   needsReview: boolean;
 }
 
+/**
+ * Where Meta trades one token for a longer-lived one.
+ *
+ * Here rather than in either of the two files that call it, because both do:
+ * the API server makes the trade when somebody connects, and the worker makes
+ * the *same* trade to extend the token before it runs out. Meta issues no
+ * refresh token, so extension is this exchange again, and two copies of one URL
+ * in two packages is two things to edit the day Meta moves it and one of them
+ * to forget.
+ *
+ * A GET with the secrets in the query string, which is Meta's design and not a
+ * choice available here.
+ */
+export function metaExchangeUrl(options: {
+  clientId: string;
+  clientSecret: string;
+  token: string;
+  graph?: string;
+}): string {
+  const graph = options.graph ?? "https://graph.facebook.com/v21.0";
+  return (
+    `${graph}/oauth/access_token?grant_type=fb_exchange_token` +
+    `&client_id=${encodeURIComponent(options.clientId)}` +
+    `&client_secret=${encodeURIComponent(options.clientSecret)}` +
+    `&fb_exchange_token=${encodeURIComponent(options.token)}`
+  );
+}
+
 export const SOCIAL_SPEC: Record<SocialPlatform, SocialPlatformSpec> = {
   instagram: {
     clientIdVar: "INSTAGRAM_CLIENT_ID",

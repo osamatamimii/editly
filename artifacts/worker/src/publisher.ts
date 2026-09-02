@@ -314,6 +314,15 @@ interface UrlUpload {
   caption: string;
   hashtags: string[];
   accessToken: string;
+  /**
+   * The Page this account posts to, resolved once at connection.
+   *
+   * Optional because it is an improvement rather than a precondition: a
+   * connection made before the column existed carries null, and Meta's
+   * publisher falls back to asking the Graph API as it always has.
+   */
+  page?: { id: string; token: string; name: string } | null;
+  instagramUserId?: string | null;
 }
 
 const UPLOADERS: Partial<Record<SocialPlatform, Uploader>> = {
@@ -367,19 +376,43 @@ async function filePathFor(post: ClaimedPost): Promise<string | null> {
 /** The credential for this post's account, read at the moment it is needed. */
 async function credentialFor(accountId: string) {
   const found = await db.execute(sql`
-    select access_token, refresh_token, expires_at
+    select access_token, refresh_token, expires_at,
+           page_id, page_name, page_access_token, instagram_user_id
       from social_accounts
      where id = ${accountId}
      limit 1
   `);
   const row = found.rows[0] as
-    | { access_token: string; refresh_token: string | null; expires_at: string | null }
+    | {
+        access_token: string;
+        refresh_token: string | null;
+        expires_at: string | null;
+        page_id: string | null;
+        page_name: string | null;
+        page_access_token: string | null;
+        instagram_user_id: string | null;
+      }
     | undefined;
   if (!row) return null;
   return {
     accessToken: row.access_token,
     refreshToken: row.refresh_token,
     expiresAt: row.expires_at ? new Date(row.expires_at) : null,
+    /*
+      The Page this connection posts to, chosen once when it was made.
+
+      Read here rather than resolved in `publish-meta.ts` for the reason that
+      file's own comment gave: it is two Graph calls per post for a pair of
+      values that never change between posts. Null on a row connected before
+      the column existed, and on one whose owner manages several Pages and has
+      not said which — and in both cases the renderer resolves from the token
+      exactly as it always did.
+    */
+    page:
+      row.page_id && row.page_access_token
+        ? { id: row.page_id, token: row.page_access_token, name: row.page_name ?? "your Page" }
+        : null,
+    instagramUserId: row.instagram_user_id,
   };
 }
 
@@ -453,6 +486,11 @@ async function send(post: ClaimedPost): Promise<PostOutcome> {
         caption: post.caption,
         hashtags: post.hashtags,
         accessToken: token,
+        // Where it goes, when the connection already knows. Absent is not an
+        // error: the publisher resolves it from the token, which is what every
+        // Meta post did before this was stored.
+        page: credential.page,
+        instagramUserId: credential.instagramUserId,
       });
     } else {
       const file = path.join(work, "post.mp4");

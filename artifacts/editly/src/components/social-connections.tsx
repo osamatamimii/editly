@@ -36,6 +36,11 @@ export interface PlatformInfo {
   needsReview: boolean;
 }
 
+export interface PageChoice {
+  id: string;
+  name: string;
+}
+
 export interface ConnectedAccount {
   id: string;
   platform: string;
@@ -44,6 +49,15 @@ export interface ConnectedAccount {
   avatarUrl: string | null;
   status: string;
   statusDetail: string | null;
+  /**
+   * Which Page a Meta connection posts to, and the Pages it could.
+   *
+   * Absent for every other platform. `pageChoices` carries names and ids only:
+   * the Page's token is a credential and never leaves the server.
+   */
+  pageId?: string | null;
+  pageName?: string | null;
+  pageChoices?: PageChoice[] | null;
 }
 
 export function SocialConnections({
@@ -58,6 +72,44 @@ export function SocialConnections({
   const { toast } = useToast();
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [choosingPage, setChoosingPage] = useState<string | null>(null);
+
+  /*
+    Which Page this connection posts to.
+
+    Asked here because here is the only place it can honestly be asked. Both
+    Meta destinations go through a Page, and the publisher used to take
+    whichever one Meta listed first — so somebody managing two Pages found their
+    video on the wrong one, with nothing failing anywhere. One Page is answered
+    at connection and never reaches this screen; this is for the several.
+
+    The id goes to the server and the *token* does not: the server asks Meta for
+    the token belonging to the id it was given, with the connection's own
+    credential. A page token arriving from a browser would be a credential the
+    server took from outside.
+  */
+  const choosePage = async (account: ConnectedAccount, pageId: string, pageName: string) => {
+    setChoosingPage(account.id);
+    try {
+      const response = await apiFetch(`/api/social/accounts/${account.id}/page`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageId }),
+      });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not save that choice.");
+      toast({ title: `Posting to ${pageName}`, description: "Scheduled posts will go to this Page." });
+      onChanged();
+    } catch (error) {
+      toast({
+        title: "Could not set the Page",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setChoosingPage(null);
+    }
+  };
 
   /**
    * Send them to the platform to sign in.
@@ -222,8 +274,9 @@ export function SocialConnections({
                 {mine.map((account) => (
                   <li
                     key={account.id}
-                    className="flex items-center gap-3 rounded-lg bg-surface-1 border border-hairline-faint px-3 py-2"
+                    className="rounded-lg bg-surface-1 border border-hairline-faint px-3 py-2"
                   >
+                    <div className="flex items-center gap-3">
                     {account.avatarUrl ? (
                       <img
                         src={account.avatarUrl}
@@ -239,6 +292,18 @@ export function SocialConnections({
                         <div className="text-xs text-warning flex items-center gap-1">
                           <AlertTriangle className="w-3 h-3 flex-shrink-0" />
                           {account.statusDetail ?? "Needs reconnecting."}
+                        </div>
+                      ) : account.pageName ? (
+                        /*
+                          Where this actually posts, said on the row.
+
+                          A Facebook connection shows the *person* who signed in
+                          and posts to a *Page*, and those are different names.
+                          Somebody with two Pages had no way at all to tell
+                          which one they were about to publish to.
+                        */
+                        <div className="text-xs text-muted-foreground truncate">
+                          Posts to {account.pageName}
                         </div>
                       ) : account.displayName ? (
                         <div className="text-xs text-muted-foreground truncate">
@@ -260,6 +325,41 @@ export function SocialConnections({
                         <Link2Off className="w-4 h-4" />
                       )}
                     </button>
+                    </div>
+
+                    {/*
+                      The one question this screen has to ask.
+
+                      Only when there is something to ask: a connection managing
+                      one Page has it stored already and never gets here. Shown
+                      as the Pages themselves rather than a dropdown with a save
+                      button, because there is one decision and pressing the
+                      name of the Page is the whole of it.
+                    */}
+                    {!account.pageId && (account.pageChoices?.length ?? 0) > 1 ? (
+                      <div className="mt-2 pt-2 border-t border-hairline-faint" data-testid={`page-choice-${account.id}`}>
+                        <div className="text-xs text-muted-foreground mb-2">
+                          This account manages {account.pageChoices!.length} Pages. Which one do posts go to?
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {account.pageChoices!.map((page) => (
+                            <button
+                              key={page.id}
+                              type="button"
+                              onClick={() => void choosePage(account, page.id, page.name)}
+                              disabled={choosingPage !== null}
+                              className="h-11 md:h-8 px-3 rounded-full text-xs font-medium border border-hairline bg-surface-2 hover:border-primary/40 transition-colors disabled:opacity-40 flex items-center gap-1.5"
+                              data-testid={`button-page-${page.id}`}
+                            >
+                              {choosingPage === account.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : null}
+                              {page.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>

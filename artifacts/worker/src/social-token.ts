@@ -10,10 +10,26 @@
  * "Editly is broken", and is.
  *
  * So the token is refreshed before the send, not after a failure. Four of the
- * six platforms speak the ordinary `refresh_token` grant and are handled here.
- * Meta is not: Facebook and Instagram issue long-lived tokens that are extended
- * by a different exchange entirely, and pretending one function covers both
- * would be a function that silently does nothing for two platforms.
+ * six platforms speak the ordinary `refresh_token` grant. Meta does not, and
+ * for two months that meant Meta was not refreshed at all: Facebook and
+ * Instagram issue no refresh token, and a long-lived token is extended by
+ * trading it for another one through `fb_exchange_token`. Pretending one
+ * function covered both would have been a function that silently did nothing
+ * for two platforms, so it did nothing openly instead and said so here.
+ *
+ * ## The sixty-day cliff that has now been closed
+ *
+ * Saying so was not enough. A Meta token lasts about sixty days, and nothing
+ * extended it and nothing watched it — so every connection was going to stop
+ * working two months after it was made, and the first anybody would know is a
+ * post failing. Nothing throws until then. Nothing is logged before then. It is
+ * this repository's own definition of the worst kind of bug: it works, for a
+ * long time, and then it does not, with no event in between.
+ *
+ * Meta's path is now beside the other four rather than merged into them,
+ * because it is a genuinely different exchange: a GET, no refresh token, and
+ * the current access token as the input. What it shares with them is the part
+ * that matters — it happens *before* the send, and it writes the result back.
  *
  * ## Why it writes back
  *
@@ -24,7 +40,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { SOCIAL_SPEC, type SocialPlatform } from "@workspace/api-zod";
+import { SOCIAL_SPEC, metaExchangeUrl, type SocialPlatform } from "@workspace/api-zod";
 
 /**
  * How long before expiry a token counts as expired.
@@ -72,6 +88,17 @@ export async function usableToken(
   const expiresSoon =
     credential.expiresAt !== null && credential.expiresAt.getTime() - now.getTime() < EARLY_MS;
   if (!expiresSoon) return credential.accessToken;
+
+  /*
+    Meta first, because its rule is the opposite of the other four: there is no
+    refresh token to check for, and the input to the exchange is the token that
+    is about to expire. Falling through to the guard below would mark a
+    perfectly good Meta connection as needing to be reconnected, which is the
+    behaviour this replaces.
+  */
+  if (platform === "facebook" || platform === "instagram") {
+    return extendMetaToken(accountId, platform, credential, now, env);
+  }
 
   const url = REFRESH_URL[platform];
   if (!url || !credential.refreshToken) {
@@ -155,4 +182,78 @@ async function markNeedsReconnect(accountId: string, detail: string): Promise<vo
        set status = 'expired', status_detail = ${detail}, updated_at = now()
      where id = ${accountId}
   `);
+}
+
+
+/**
+ * Meta's version of a refresh: the same exchange that made the token, again.
+ *
+ * `fb_exchange_token` takes a valid long-lived token and returns another one
+ * with the clock reset. It is a GET with the secrets in the query string, which
+ * is Meta's design rather than a choice; the URL is built by
+ * `metaExchangeUrl` in the shared package because the API server makes exactly
+ * this call when somebody connects, and two copies of it in two packages is one
+ * of them to forget the day Meta moves it.
+ *
+ * The failure has to be told apart from the other platforms'. Meta answers with
+ * an `error` object and a subcode, and `190` is the family that means the token
+ * is gone for good — revoked, password changed, permissions withdrawn. That is
+ * the one worth marking the account on; everything else may be transient, and
+ * marking an account `expired` for a network blip would send somebody to
+ * reconnect a connection that was fine.
+ */
+async function extendMetaToken(
+  accountId: string,
+  platform: "facebook" | "instagram",
+  credential: Credential,
+  now: Date,
+  env: Record<string, string | undefined>,
+): Promise<string> {
+  const spec = SOCIAL_SPEC[platform];
+  const response = await fetch(
+    metaExchangeUrl({
+      clientId: env[spec.clientIdVar] ?? "",
+      clientSecret: env[spec.clientSecretVar] ?? "",
+      token: credential.accessToken,
+    }),
+    { headers: { Accept: "application/json" } },
+  );
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+  if (!response.ok) {
+    const error = (payload["error"] ?? {}) as { message?: string; code?: number; type?: string };
+    const gone = Number(error.code) === 190;
+    if (gone) {
+      await markNeedsReconnect(
+        accountId,
+        "Facebook access has run out or was withdrawn. Connect it again to keep posting.",
+      );
+    }
+    throw new TokenError(String(error.message ?? response.statusText).slice(0, 200));
+  }
+
+  const accessToken = String(payload["access_token"] ?? "");
+  /*
+    A trade that answered without a token is not a working token.
+
+    Returning the old one would be the quiet failure this whole file exists
+    against: the post goes out today on a credential with hours left, and the
+    next one fails for a reason nobody can trace back to here.
+  */
+  if (!accessToken) throw new TokenError("Meta extended the connection without returning a token");
+
+  const seconds = Number(payload["expires_in"]);
+  const expiresAt = Number.isFinite(seconds) && seconds > 0 ? new Date(now.getTime() + seconds * 1000) : null;
+
+  await db.execute(sql`
+    update social_accounts
+       set access_token = ${accessToken},
+           expires_at = ${expiresAt},
+           status = 'ok',
+           status_detail = null,
+           updated_at = now()
+     where id = ${accountId}
+  `);
+
+  return accessToken;
 }

@@ -19,18 +19,28 @@
  * user's. So both are resolved here, at send time, from the token in the row.
  *
  * It could have been stored at connection instead, and one day it should be —
- * it is one request per post that never changes. It is here because that is a
- * migration and a column, and this needed to be right before it needed to be
- * cheap.
+ * it is one request per post that never changes. That day came: the columns
+ * exist, the connection fills them, and the resolution below runs only when
+ * they are empty. Which is not the same as deleting it — a row connected
+ * before those columns existed still has to be able to post, so this stays as
+ * the fallback and the stored answer is preferred over it.
  *
- * ## And a token that cannot be refreshed
+ * ## And it used to pick the Page for you
  *
- * `social-token.ts` refreshes four of the six platforms and deliberately not
- * these two: Meta issues long-lived tokens extended by a different exchange
- * entirely, and one function pretending to cover both would be a function that
- * silently does nothing here. A Meta token that has run out therefore arrives
- * as a Graph error, which is passed through with its own words — the person
- * reconnects, and the sentence tells them to.
+ * `pageFor` took the first entry Meta returned. Somebody managing two Pages got
+ * their video on whichever one Meta ordered first, and that ordering is not a
+ * promise Meta makes. Nothing failed: a post went out, to a real Page, and only
+ * its owner could tell it was the wrong one. Choosing is now the connect
+ * screen's job, and this file only takes the answer.
+ *
+ * ## And a token that could not be refreshed
+ *
+ * `social-token.ts` used to refresh four of the six platforms and deliberately
+ * not these two, on the grounds that Meta's extension is a different exchange
+ * entirely. True, and the consequence was a sixty-day cliff: every Meta
+ * connection stopped working two months after it was made, with no event, no
+ * log line, and nothing to look at until a post failed. It now takes Meta's own
+ * exchange, before the send, like the rest.
  */
 import { PublishError, type Published } from "./publish-youtube";
 
@@ -55,8 +65,19 @@ export interface MetaUpload {
   videoUrl: string;
   caption: string;
   hashtags: string[];
-  /** The connected user's token. The Page token is resolved from it. */
+  /** The connected user's token. The Page token is resolved from it if needed. */
   accessToken: string;
+  /**
+   * The Page this connection posts to, decided when it was made.
+   *
+   * When it is here, nothing is asked of Meta before the post: this is two
+   * Graph calls per post that this replaces. When it is absent — a row from
+   * before the column, or an owner who has not chosen between several Pages —
+   * `pageFor` resolves it exactly as it always did.
+   */
+  page?: { id: string; token: string; name: string } | null;
+  /** The Instagram business account attached to that Page, when it is known. */
+  instagramUserId?: string | null;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -204,8 +225,8 @@ export async function publishToInstagram(upload: MetaUpload): Promise<Published>
   const sleep = upload.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = upload.now ?? (() => Date.now());
 
-  const page = await pageFor(upload.accessToken, doFetch);
-  const igUser = await instagramAccountFor(page, doFetch);
+  const page = upload.page ?? (await pageFor(upload.accessToken, doFetch));
+  const igUser = upload.instagramUserId ?? (await instagramAccountFor(page, doFetch));
 
   const container = await graph(doFetch, "POST", `/${igUser}/media`, {
     media_type: "REELS",
@@ -244,7 +265,7 @@ export async function publishToInstagram(upload: MetaUpload): Promise<Published>
 
 export async function publishToFacebook(upload: MetaUpload): Promise<Published> {
   const doFetch = upload.fetchImpl ?? fetch;
-  const page = await pageFor(upload.accessToken, doFetch);
+  const page = upload.page ?? (await pageFor(upload.accessToken, doFetch));
 
   const posted = await graph(doFetch, "POST", `/${page.id}/videos`, {
     file_url: upload.videoUrl,

@@ -881,6 +881,69 @@ paths:
                       $ref: "#/components/schemas/SocialAccount"
                 required: [accounts]
 
+  /social/accounts/{id}/page:
+    patch:
+      operationId: chooseSocialPage
+      tags: [social]
+      summary: Choose which Facebook Page this connection posts to
+      description: >
+        Both Meta destinations go through a Page: a Facebook video is posted
+        with the Page's own token, and an Instagram Reel goes to the business
+        account attached to a Page. One Page is stored when the account is
+        connected; several is a question, and this is the answer to it.
+
+        The request carries a Page id and never a token. The server asks Meta
+        for the token belonging to that id, using the connection's own
+        credential, and refuses an id that is not one of the Pages this account
+        currently manages.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pageId:
+                  type: string
+              required: [pageId]
+      responses:
+        "200":
+          description: The Page this connection now posts to
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pageId:
+                    type: string
+                  pageName:
+                    type: string
+                required: [pageId, pageName]
+        "400":
+          description: No Page named, not a Meta account, or a Page it no longer manages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not connected, or not this account's
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Meta could not be asked just now
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /social/accounts/{id}:
     delete:
       operationId: disconnectSocialAccount

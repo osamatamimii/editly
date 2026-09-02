@@ -53,7 +53,14 @@ import {
   ENDPOINTS,
   VERIFIER_COOKIE,
 } from "../lib/social-oauth";
-import { identityFor } from "../lib/social-identity";
+import {
+  identityFor,
+  isMeta,
+  metaTargetsFor,
+  chooseSinglePage,
+  pageChoicesFrom,
+  metaPagesFor,
+} from "../lib/social-identity";
 import { appOrigin } from "../lib/allowed-origins";
 
 const router: IRouter = Router();
@@ -95,6 +102,16 @@ const ACCOUNT_COLUMNS = {
   avatarUrl: socialAccountsTable.avatarUrl,
   status: socialAccountsTable.status,
   statusDetail: socialAccountsTable.statusDetail,
+  /*
+    Which Page a Meta connection posts to, and the Pages it could post to.
+
+    Named one at a time like everything else here, and the tokens are not among
+    them: `page_access_token` is a credential and this response is read by a
+    browser. What the screen needs is a name to show and a list to choose from.
+  */
+  pageId: socialAccountsTable.pageId,
+  pageName: socialAccountsTable.pageName,
+  pageChoices: socialAccountsTable.pageChoices,
   createdAt: socialAccountsTable.createdAt,
 } as const;
 
@@ -173,6 +190,83 @@ router.get("/social/accounts", async (req, res): Promise<void> => {
       createdAt: account.createdAt.toISOString(),
     })),
   });
+});
+
+/**
+ * Which Page this Meta connection posts to.
+ *
+ * The screen asks only when there is something to ask: one Page is the answer
+ * and is stored at connection. Several is a question, and this is where the
+ * answer lands.
+ *
+ * The Page's *token* is fetched from Meta here rather than taken from the
+ * request, and that is the whole security shape of this endpoint. The browser
+ * sends an id it was offered; the server goes to Meta with the connection's own
+ * credential and takes the token for the Page with that id, or refuses. A page
+ * token arriving from a browser would be a credential this server accepted from
+ * outside, which is not a thing that should ever be possible.
+ */
+router.patch("/social/accounts/:id/page", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  const id = String(req.params.id);
+  const pageId = typeof req.body?.pageId === "string" ? req.body.pageId : "";
+  if (!pageId) {
+    res.status(400).json({ error: "Which Page?" });
+    return;
+  }
+
+  const [account] = await db
+    .select({
+      id: socialAccountsTable.id,
+      platform: socialAccountsTable.platform,
+      accessToken: socialAccountsTable.accessToken,
+    })
+    .from(socialAccountsTable)
+    .where(and(eq(socialAccountsTable.id, id), eq(socialAccountsTable.userId, userId)))
+    .limit(1);
+
+  if (!account) {
+    res.status(404).json({ error: "That account is not connected." });
+    return;
+  }
+  if (!isSocialPlatform(account.platform) || !isMeta(account.platform)) {
+    res.status(400).json({ error: "Only Facebook and Instagram post through a Page." });
+    return;
+  }
+
+  try {
+    const pages = await metaPagesFor(account.accessToken);
+    const page = pages.find((candidate) => candidate.id === pageId);
+    if (!page) {
+      /*
+        Re-read rather than trusted, so an id that is no longer one of this
+        account's Pages is refused. Between connecting and choosing, somebody
+        can lose access to a Page — and writing the id anyway would give a
+        connection that looks settled and fails at the moment it is used.
+      */
+      res.status(400).json({ error: "That Page is not one this account manages any more." });
+      return;
+    }
+
+    await db
+      .update(socialAccountsTable)
+      .set({
+        pageId: page.id,
+        pageName: page.name,
+        pageAccessToken: page.token,
+        instagramUserId: page.instagramUserId,
+        status: "ok",
+        statusDetail: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(socialAccountsTable.id, id), eq(socialAccountsTable.userId, userId)));
+
+    res.json({ pageId: page.id, pageName: page.name });
+  } catch (error) {
+    // Meta's own words, like everywhere else here: "this token has expired" is
+    // something to act on and "could not save" is not.
+    res.status(502).json({ error: String((error as Error).message ?? "Meta could not be asked just now.") });
+  }
 });
 
 router.delete("/social/accounts/:id", async (req, res): Promise<void> => {
@@ -572,6 +666,62 @@ socialCallbackRouter.get("/social/callback/:platform", async (req, res): Promise
     // sends one clip twice to one feed.
     const who = await identityFor(platform, tokens.accessToken);
 
+    /*
+      Meta needs three more answers before this connection can post anything,
+      and all three are fixed at connection time.
+
+      The token the code exchange returned is short-lived and Meta issues no
+      refresh token, so it is traded here for the long-lived one and its expiry
+      is written down — the column existed and was null for these rows, which is
+      the database saying "this does not expire" about the one credential that
+      does.
+
+      And both Meta destinations go through a Page, which was previously
+      resolved on every send by taking the *first* one Meta listed. One Page is
+      the answer; several is a question, and the question is asked on the screen
+      rather than answered by whichever order Meta happened to use.
+    */
+    let meta: Awaited<ReturnType<typeof metaTargetsFor>> | null = null;
+    let chosen = null;
+    if (isMeta(platform)) {
+      meta = await metaTargetsFor(platform, tokens.accessToken);
+      if (meta.pages.length === 0) {
+        // Said while somebody is connecting rather than when a post is due,
+        // because it is a thing they can go and fix in Meta right now.
+        throw new Error(
+          "That Facebook account manages no Page, and both Instagram and Facebook posts go to a Page. " +
+            "Create one in Meta, then connect again.",
+        );
+      }
+      chosen = chooseSinglePage(meta.pages);
+    }
+
+    const shared = {
+      handle: who.handle,
+      displayName: who.displayName,
+      avatarUrl: who.avatarUrl,
+      accessToken: meta?.accessToken ?? tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresAt: meta ? meta.expiresAt : tokens.expiresAt,
+      pageId: chosen?.id ?? null,
+      pageName: chosen?.name ?? null,
+      pageAccessToken: chosen?.token ?? null,
+      instagramUserId: chosen?.instagramUserId ?? null,
+      pageChoices: meta ? pageChoicesFrom(meta.pages) : null,
+      /*
+        A connection that still needs a Page picked is connected and not usable,
+        and those are different states. `needs_page` says so on the same field
+        the screen already reads for "reconnect me", so a person sees one
+        outstanding thing in one place rather than a working-looking account
+        that fails at nine in the evening.
+      */
+      status: meta && !chosen ? "needs_page" : "ok",
+      statusDetail:
+        meta && !chosen
+          ? "Choose which Page this posts to. Your account manages more than one."
+          : null,
+    };
+
     await db
       .insert(socialAccountsTable)
       .values({
@@ -579,28 +729,11 @@ socialCallbackRouter.get("/social/callback/:platform", async (req, res): Promise
         userId: claims.userId,
         platform,
         externalId: who.externalId,
-        handle: who.handle,
-        displayName: who.displayName,
-        avatarUrl: who.avatarUrl,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresAt: tokens.expiresAt,
-        status: "ok",
-        statusDetail: null,
+        ...shared,
       })
       .onConflictDoUpdate({
         target: [socialAccountsTable.userId, socialAccountsTable.platform, socialAccountsTable.externalId],
-        set: {
-          handle: who.handle,
-          displayName: who.displayName,
-          avatarUrl: who.avatarUrl,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-          expiresAt: tokens.expiresAt,
-          status: "ok",
-          statusDetail: null,
-          updatedAt: new Date(),
-        },
+        set: { ...shared, updatedAt: new Date() },
       });
 
     back({ connected: "yes", platform, handle: who.handle });
