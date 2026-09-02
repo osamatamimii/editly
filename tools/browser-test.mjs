@@ -1495,6 +1495,94 @@ section("A sign-in that failed on the way back says what happened");
   );
 }
 
+section("Forgetting a password is not the same as losing the account");
+{
+  /*
+    The login screen offered sign-in, sign-up and two providers, and nothing
+    else. No way to ask for a reset, no route for a recovery link to land on,
+    no screen to set a new password. Supabase would have sent the mail; there
+    was nowhere for the link to go.
+
+    It is the failure with no error message anywhere. Nothing throws, nothing
+    is logged, and the only symptom is somebody who stops signing in, which for
+    a paid product is a cancellation nobody can attribute to a cause.
+
+    Three pieces have to exist together, and any one of them missing makes the
+    other two useless, which is why they are checked as a set.
+  */
+  const { readFileSync: readSource } = await import("node:fs");
+  const login = readSource(path.join(repoRoot, "artifacts/editly/src/pages/login.tsx"), "utf8");
+  const reset = readSource(path.join(repoRoot, "artifacts/editly/src/pages/reset-password.tsx"), "utf8");
+  const app = readSource(path.join(repoRoot, "artifacts/editly/src/App.tsx"), "utf8");
+
+  check("the sign-in screen offers a way out", /button-forgot-password/.test(login));
+  check("which asks Supabase to send the mail", /resetPasswordForEmail\(/.test(login));
+  check(
+    "pointed at a route this app actually declares",
+    /redirectTo:\s*`\$\{window\.location\.origin\}\/reset-password`/.test(login) &&
+      /path="\/reset-password"/.test(app),
+    "a recovery link to a route that does not exist is a 404 with a valid token on it",
+  );
+  check(
+    "and the landing screen is public, not behind the gate",
+    !/path="\/reset-password">[\s\S]{0,120}Protected/.test(app),
+    "Protected would bounce them to /login and drop the token in the fragment",
+  );
+  check("the landing screen can set a password", /updateUser\(\{ password \}\)/.test(reset));
+
+  /*
+    The two failures this screen can have that look like success.
+
+    It waits for the session rather than reading it once, because the SDK's
+    exchange of the fragment is asynchronous and can finish after this mounts.
+    Reading once tells somebody holding a perfectly good link that it expired,
+    and they give up on an account they could have had back.
+
+    And the notice on the login screen is the same sentence whether or not the
+    address has an account. "No account with that email" turns that box into a
+    way to test whether a person uses Editly, one address at a time.
+  */
+  check(
+    "it waits for the token exchange rather than reading the session once",
+    /onAuthStateChange\(/.test(reset),
+  );
+  check("and says so when the link really is dead", /state-reset-expired/.test(reset));
+  // Comments stripped first: the file explains this rule in prose right beside
+  // the code that follows it, and a check that reads the explanation as a
+  // violation is a check that punishes writing things down.
+  const loginCode = login.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  check(
+    "the reset notice does not reveal whether the address has an account",
+    /If that address has an account/.test(loginCode) && !/[Nn]o account with th(at|is)/.test(loginCode),
+  );
+}
+
+section("Nobody creates an account without being shown what they are agreeing to");
+{
+  /*
+    This screen did not contain the words terms, privacy, agree or consent
+    anywhere. Both documents existed and were linked from the marketing footer,
+    which is not where an account is created, so nobody who signed up had been
+    shown either one.
+
+    What rests on that: the liability cap in the terms, the refund terms, and
+    every processor named in the privacy policy. A paid contract nobody was
+    shown is a paid contract that is hard to rely on.
+  */
+  const { readFileSync: readSource } = await import("node:fs");
+  const login = readSource(path.join(repoRoot, "artifacts/editly/src/pages/login.tsx"), "utf8");
+
+  check("the sign-up form says what creating an account agrees to", /text-signup-terms/.test(login));
+  check("with both documents linked from the screen itself", /href="\/terms"/.test(login) && /href="\/privacy"/.test(login));
+  check(
+    "and only on the sign-up form, where the agreement is actually made",
+    /mode === "signup" && \([\s\S]{0,200}text-signup-terms/.test(login),
+  );
+  // The privacy policy says under-16s may not use the product. Saying it only
+  // there, and never where an account is made, is a rule nobody was told.
+  check("it states the age the policy already claims", /aged 16 and over/.test(login));
+}
+
 section("A 404 is an answer, and the screens that need to act on one can");
 {
   const verdicts = await run(() => ({

@@ -17,7 +17,7 @@ import {
   type OAuthProvider,
 } from "@/lib/oauth";
 
-type Mode = "signin" | "signup";
+type Mode = "signin" | "signup" | "reset";
 
 /**
  * Which form to show first.
@@ -30,7 +30,11 @@ type Mode = "signin" | "signup";
  */
 function initialMode(): Mode {
   if (typeof window === "undefined") return "signin";
-  return new URLSearchParams(window.location.search).get("mode") === "signup" ? "signup" : "signin";
+  const asked = new URLSearchParams(window.location.search).get("mode");
+  // `reset` is here so the expired-link screen can send somebody straight back
+  // to the form that mails a new one, rather than to a screen where they have
+  // to find the small link again.
+  return asked === "signup" || asked === "reset" ? asked : "signin";
 }
 
 export default function Login() {
@@ -95,6 +99,31 @@ export default function Login() {
     setIsSubmitting(true);
 
     try {
+      /*
+        Forgetting a password used to mean losing the account.
+
+        There was no way to ask for a reset and nowhere for a recovery link to
+        land, so the only route back in was a second account and the loss of
+        every project in the first. Nothing failed and nothing was logged: the
+        symptom is a person who simply stops signing in, which for a paid
+        product is a cancellation nobody can attribute.
+
+        The notice is the same sentence whether or not that address has an
+        account. Saying "no account with that email" here turns this box into a
+        way to test whether somebody uses Editly, one address at a time.
+      */
+      if (mode === "reset") {
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/reset-password`,
+        });
+        // A rate limit is worth saying out loud; anything else would leak
+        // whether the address is one of ours.
+        if (resetError && resetError.status === 429) throw resetError;
+        setNotice("If that address has an account, a link is on its way. It lasts an hour.");
+        setMode("signin");
+        return;
+      }
+
       if (mode === "signup") {
         const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
         if (signUpError) throw signUpError;
@@ -150,15 +179,21 @@ export default function Login() {
       <Card className="glass-panel border-hairline w-full max-w-md">
         <CardContent className="pt-8 pb-8">
           <h1 className="text-2xl font-bold mb-1 text-center">
-            {mode === "signin" ? "Welcome back" : "Create your account"}
+            {mode === "signin"
+              ? "Welcome back"
+              : mode === "signup"
+                ? "Create your account"
+                : "Reset your password"}
           </h1>
           <p className="text-sm text-muted-foreground mb-8 text-center">
             {mode === "signin"
               ? "Sign in to pick up where you left off."
-              : "Start turning raw footage into viral clips."}
+              : mode === "signup"
+                ? "Start turning raw footage into viral clips."
+                : "Tell us the address you signed up with and we will send a link."}
           </p>
 
-          {providers && providers.size > 0 && (
+          {mode !== "reset" && providers && providers.size > 0 && (
             <div className="space-y-3 mb-6">
               {providers.has("google") && (
                 <button
@@ -228,24 +263,46 @@ export default function Login() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
-                  className="pl-10 bg-surface-1 border-hairline"
-                  required
-                  minLength={6}
-                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                  data-testid="input-password"
-                />
+            {mode !== "reset" && (
+              <div className="space-y-2">
+                {/* The row keeps its height from the label, and the link keeps
+                    a thumb's width of its own: `min-h-11` with a matching
+                    negative margin, so it is tappable on a phone without
+                    pushing the field down. */}
+                <div className="flex items-center justify-between min-h-5">
+                  <Label htmlFor="password">Password</Label>
+                  {mode === "signin" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode("reset");
+                        setError(null);
+                        setNotice(null);
+                      }}
+                      className="text-xs text-primary hover:underline min-h-11 md:min-h-0 -my-3 md:my-0 px-2 -mx-2 inline-flex items-center"
+                      data-testid="button-forgot-password"
+                    >
+                      Forgot it?
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
+                    className="pl-10 bg-surface-1 border-hairline"
+                    required
+                    minLength={6}
+                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                    data-testid="input-password"
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             {error && (
               <p className="text-sm text-destructive" role="alert" data-testid="text-auth-error">
@@ -265,12 +322,42 @@ export default function Login() {
               data-testid="button-submit-auth"
             >
               {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {mode === "signin" ? "Sign in" : "Create account"}
+              {mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Send the link"}
             </Button>
+
+            {/*
+              The two documents, at the moment somebody agrees to them.
+
+              This screen did not contain the words terms, privacy, agree or
+              consent anywhere. Both pages existed and were linked from the
+              marketing footer, which is not where an account is created, so
+              nobody who signed up had been shown either. That leaves the
+              liability cap, the refund terms and every processor in the privacy
+              policy resting on a document the customer never met.
+
+              A line under the button rather than a checkbox, because a checkbox
+              that everyone ticks without reading is not more consent, it is one
+              more thing between a person and the product. What matters is that
+              the words are on the screen where the account is made, and that
+              both links open.
+            */}
+            {mode === "signup" && (
+              <p className="text-xs text-muted-foreground text-center" data-testid="text-signup-terms">
+                By creating an account you agree to our{" "}
+                <a href="/terms" className="text-primary hover:underline" data-testid="link-terms">
+                  Terms
+                </a>{" "}
+                and{" "}
+                <a href="/privacy" className="text-primary hover:underline" data-testid="link-privacy">
+                  Privacy Policy
+                </a>
+                . Editly is for people aged 16 and over.
+              </p>
+            )}
           </form>
 
           <p className="text-sm text-muted-foreground text-center mt-6">
-            {mode === "signin" ? "New to Editly?" : "Already have an account?"}{" "}
+            {mode === "signin" ? "New to Editly?" : mode === "signup" ? "Already have an account?" : "Remembered it?"}{" "}
             <button
               onClick={() => {
                 setMode(mode === "signin" ? "signup" : "signin");

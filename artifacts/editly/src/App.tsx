@@ -29,6 +29,12 @@ import Home from "@/pages/home";
  * already existed for the auth check.
  */
 const Login = lazy(() => import("@/pages/login"));
+/*
+  Public, like the login screen it belongs to: whoever opens a recovery link
+  has no session yet, and `Protected` would bounce them to /login and lose the
+  token in the fragment on the way.
+*/
+const ResetPassword = lazy(() => import("@/pages/reset-password"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Onboarding = lazy(() => import("@/pages/onboarding"));
 const ProjectEditor = lazy(() => import("@/pages/project-editor"));
@@ -90,6 +96,7 @@ function Router() {
       <Route path="/login">
         {isLoading ? null : user ? <Redirect to="/dashboard" /> : <Login />}
       </Route>
+      <Route path="/reset-password" component={ResetPassword} />
       <Route path="/dashboard">
         <Protected component={Dashboard} />
       </Route>
