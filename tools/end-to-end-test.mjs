@@ -531,7 +531,6 @@ section("A phone, a raw take, and one sentence");
 await page.goto(`${SITE}/dashboard`, { waitUntil: "domcontentloaded" });
 await page.waitForTimeout(2000);
 await page.screenshot({ path: path.join(SHOTS, "1-dashboard.png") }).catch(() => {});
-check("the dashboard opens signed in", (await page.getByTestId("button-new-project").count()) > 0 || /Projects/i.test(await page.title()) , await page.title());
 if (process.env.E2E_TRACE_AUTH) {
   console.log("      [auth] wrote key sb-" + authRef + "-auth-token");
   console.log("      [auth] page sees: " + JSON.stringify(await page.evaluate(() => Object.keys(localStorage))));

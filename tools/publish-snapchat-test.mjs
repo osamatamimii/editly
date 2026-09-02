@@ -124,7 +124,23 @@ section("The refusal is on the ordinary path, not a special case");
     platform nobody has looked at also gets — and the difference between "not
     built" and "cannot be built" is the whole content of this point.
   */
-  check("Snapchat has an uploader entry", /snapchat:\s*\{\s*takes:\s*"url",\s*send:\s*publishToSnapchat\s*\}/.test(publisher), "");
+  check(
+    "Snapchat has an uploader entry",
+    /snapchat:\s*\{\s*takes:\s*"url",\s*send:\s*publishToSnapchat[^}]*\}/.test(publisher),
+    "",
+  );
+  /*
+    And the entry says it does not send, which is the other half of the same
+    argument.
+
+    This file's whole point is that "not built" and "cannot be built" are
+    different facts and the product should say which. `refusal-test` reads the
+    same map to decide what the product may claim it can post to — and without
+    a flag here it read this entry as a working destination and required the
+    posting refusal to name Snapchat as one. Two commits, both right, demanding
+    that the product lie.
+  */
+  check("and says it is not a destination", /snapchat:[^}]*sends:\s*false/.test(publisher), "");
   check("the module is imported", /publishToSnapchat.*publish-snapchat/s.test(publisher), "");
   /*
     And it takes a link rather than the bytes, so the refusal arrives without a
