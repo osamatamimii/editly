@@ -52,10 +52,32 @@ section("Every variable the worker reads is one the deploy actually sets");
 {
   // Read out of the worker's own source rather than from a list here, because a
   // list here is the same forgetting one file further away.
-  const workerSource = readdirSync(path.join(repoRoot, "artifacts/worker/src"), { recursive: true })
-    .filter((f) => typeof f === "string" && f.endsWith(".ts"))
-    .map((f) => read(path.join("artifacts/worker/src", f)))
-    .join("\n");
+  /*
+    And out of the workspace packages it depends on, which is where this scan
+    had a hole.
+
+    `lib/mail` reads `RESEND_API_KEY`, `MAIL_FROM` and `APP_ORIGIN`, and the
+    worker calls it on every finished render. None of those names appears in
+    `artifacts/worker/src`, so a scan of the worker's own files says the deploy
+    needs nothing new and the worker silently sends no mail — the failure that
+    does not fail, one package away. The list of packages is read from the
+    worker's `dependencies` rather than written here, for the same reason the
+    source is read rather than listed.
+  */
+  const workerPackages = Object.keys(
+    JSON.parse(read("artifacts/worker/package.json")).dependencies ?? {},
+  )
+    .filter((name) => name.startsWith("@workspace/"))
+    .map((name) => `lib/${name.slice("@workspace/".length)}/src`)
+    .filter((dir) => existsSync(path.join(repoRoot, dir)));
+
+  const sourceIn = (dir) =>
+    readdirSync(path.join(repoRoot, dir), { recursive: true })
+      .filter((f) => typeof f === "string" && f.endsWith(".ts"))
+      .map((f) => read(path.join(dir, f)))
+      .join("\n");
+
+  const workerSource = ["artifacts/worker/src", ...workerPackages].map(sourceIn).join("\n");
 
   // The three ways this code actually reaches the environment. Matching only
   // `process.env["X"]` missed two of them — `requireEnv("SUPABASE_URL")` in
@@ -106,6 +128,11 @@ section("Every variable the worker reads is one the deploy actually sets");
     // suite measure the mix against the repository's copies without building
     // the worker. A path, like the ones above.
     "EDITLY_SFX_DIR",
+    // Where the links in the product's mail point. Set in `fly.toml` beside the
+    // machine size, because it is the app's public address and not a secret,
+    // and it has a default — so a machine that never sets it still sends a
+    // working link rather than one to nowhere.
+    "APP_ORIGIN",
   ]);
 
   const mustBeDeployed = [...referenced].filter((name) => !notSecrets.has(name)).sort();

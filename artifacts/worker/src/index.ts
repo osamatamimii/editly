@@ -29,6 +29,7 @@ import { comprehend, transcriptDigest, wordsOf, COMPREHENSION_VERSION } from "./
 import { resolveProviders } from "./providers";
 import { sayIn, type Language } from "./say";
 import { publishDuePosts, surfaceStrandedPosts } from "./publisher";
+import { mailLogsTo, tellThemItDidNotFinish, tellThemTheEditIsReady } from "./mail";
 import { prepareUploadedFaces, fetchUploadedFaces } from "./font-prepare";
 import { applyRemovals, chooseRemovals, retentionFrom, type SweepableClip, type SweepableProject } from "./sweep";
 import { objectStoreFrom } from "@workspace/object-store";
@@ -636,6 +637,24 @@ async function processJob(job: Job): Promise<void> {
       log.warn({ err: error }, "could not write the summary into the conversation");
     }
 
+    /*
+      And told to somebody who is not looking at the screen.
+
+      The mail nobody could send until now, and the one most obviously owed: a
+      render takes minutes, so whoever asked for it is somewhere else when it
+      lands. Awaited rather than fired off, because this process exits when it
+      is told to and an unawaited send is a message lost on a rolling deploy —
+      and it cannot throw, so nothing here can turn a finished render into a
+      retried one.
+    */
+    await tellThemTheEditIsReady({
+      userId: job.userId,
+      jobId: job.id,
+      projectId: job.projectId,
+      projectTitle: await titleOf(job.projectId, job.userId),
+      seconds: measured.seconds,
+    });
+
     log.info({ outputPath, outputSeconds: measured.seconds, how: measured.how, notes }, "render complete");
   } catch (error) {
     // ffmpeg's complaints are specific enough to be worth showing; anything
@@ -719,6 +738,17 @@ async function processJob(job: Job): Promise<void> {
       } catch (insertError) {
         log.warn({ err: insertError }, "could not write the failure into the conversation");
       }
+
+      // And the same answer to somebody who has closed the tab. Inside
+      // `if (!willRetry)` for the reason the message above is: an apology for a
+      // render that then succeeds is worse than no mail at all.
+      await tellThemItDidNotFinish({
+        userId: job.userId,
+        jobId: job.id,
+        projectId: job.projectId,
+        projectTitle: await titleOf(job.projectId, job.userId),
+        reason: message,
+      });
     }
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
@@ -1328,10 +1358,34 @@ async function sweepAgedFiles(): Promise<void> {
   }
 }
 
+/**
+ * The project's name, or null.
+ *
+ * Best-effort: a letter with no title still sends, and it says "your project".
+ * A render that finished must not be held up by the row that names it.
+ */
+async function titleOf(projectId: string, userId: string): Promise<string | null> {
+  try {
+    const rows = await db
+      .select({ title: projectsTable.title })
+      .from(projectsTable)
+      .where(and(eq(projectsTable.id, projectId), eq(projectsTable.userId, userId)))
+      .limit(1);
+    return rows[0]?.title ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function main(): Promise<void> {
   await db.execute(sql`select 1`);
   // Names of models, never keys. If captions are missing in production, this
   // line is the first place to look and it should answer the question outright.
+  // The mail package is silent until a process claims it. This one does the
+  // sending for renders, so it says so here rather than at import: a library
+  // that writes to stdout on its own appears in the logs of a process that
+  // never called it.
+  mailLogsTo(logger);
   logger.info(
     {
       pollIntervalMs: POLL_INTERVAL_MS,

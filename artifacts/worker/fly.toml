@@ -11,6 +11,10 @@ primary_region = "fra"  # same region as the Supabase project, so pulling and
 [env]
   NODE_ENV = "production"
   POLL_INTERVAL_MS = "5000"
+  # Where the links in the product's mail point. Not a secret, so it lives here
+  # rather than in the secret store, and named rather than left to a default,
+  # because a letter whose only link is wrong is worse than one with no link.
+  APP_ORIGIN = "https://app.editlyai.io"
 
 # No [http_service]: this process serves nothing. It polls the queue and exits
 # only when told to, so it must not be scaled to zero on inbound traffic.

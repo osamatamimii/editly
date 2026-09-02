@@ -32,6 +32,7 @@
  * Usage: DATABASE_URL=postgres://... node tools/mail-test.mjs
  * Requires: a Postgres carrying the schema (pnpm run migrate). No keys, no network.
  */
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -301,7 +302,6 @@ section("What actually goes to the provider");
 
 section("And the one place that sends today actually calls it");
 {
-  const { readFileSync } = await import("node:fs");
   const billing = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/billing.ts"), "utf8");
   check("a payment that changed a plan tells the person", /send\(\{/.test(billing) && /planChanged/.test(billing));
   check("and a declined card gets its own letter", /paymentFailed/.test(billing));
@@ -324,6 +324,95 @@ section("And the one place that sends today actually calls it");
     "and it is sent after the plan is applied, not instead of applying it",
     billing.indexOf("await setPlan(") < billing.lastIndexOf("planChanged("),
   );
+}
+
+
+// ── The one somebody is actually waiting for ────────────────────────────────
+
+section("A render finishes, and the person who asked for it is somewhere else");
+
+{
+  /*
+    This is the letter the mail layer was missing, and the reason it moved out
+    of the API server. A render takes minutes, so whoever asked for it is — by
+    design, not by accident — not looking when it lands. Until now the only way
+    to find out was to have left the tab open, which is the opposite of what a
+    queue is for.
+  */
+  const ready = mail.renderFinished("Thursday show", "p-1", 92);
+  check("it names the project, so a person with three knows which", ready.en.subject.includes("Thursday show") && ready.ar.subject.includes("Thursday show"));
+  check("and carries one link to it", ready.en.body.includes("/project/p-1") && ready.ar.body.includes("/project/p-1"));
+  check("and says how long the result is", /92/.test(ready.en.body) && /92/.test(ready.ar.body));
+  // Not the render notes: those are long, they are in the conversation, and an
+  // email that reproduces them is an email nobody finishes.
+  check("and does not try to be the conversation", ready.en.body.length < 420 && ready.ar.body.length < 420);
+  const unmeasured = mail.renderFinished("A raw take", "p-2", null);
+  check("a render whose length was never measured still sends", unmeasured.en.subject.length > 0);
+  check("without inventing one", !/\bnull\b|NaN|undefined/.test(unmeasured.en.body + unmeasured.ar.body));
+
+  const failed = mail.renderFailed("Thursday show", "p-1", "ffmpeg ran out of memory");
+  // The first question anybody has, answered before they ask it — this is the
+  // sentence that stops a support conversation being opened.
+  check("a failure says outright that nothing was charged", /not been charged/i.test(failed.en.body) && /لم يُحتسب/.test(failed.ar.body));
+  check("and that their video is untouched", /untouched/i.test(failed.en.body) && /كما هو/.test(failed.ar.body));
+  // Quoted rather than paraphrased: it comes from ffmpeg or from
+  // infrastructure, in English, and inventing an Arabic reason we did not write
+  // would be a different claim about what went wrong.
+  check("and quotes the reason it was given", failed.en.body.includes("ffmpeg ran out of memory") && failed.ar.body.includes("ffmpeg ran out of memory"));
+  check("both letters exist in both languages", [ready, failed, unmeasured].every((l) => l.en.subject && l.ar.subject && l.en.body && l.ar.body));
+  check("and the Arabic is Arabic", [ready, failed].every((l) => /[؀-ۿ]/.test(l.ar.subject) && /[؀-ۿ]/.test(l.ar.body)));
+}
+
+section("And the worker is what sends it, because it is what knows");
+
+{
+  const worker = readFileSync(path.join(repoRoot, "artifacts/worker/src/mail.ts"), "utf8");
+  const index = readFileSync(path.join(repoRoot, "artifacts/worker/src/index.ts"), "utf8");
+
+  // One deduplication table, one provider, one language rule. A second sender
+  // in the worker would be two copies of "have we already told them", which is
+  // the one question `mail_sends` exists to answer.
+  check("it sends through the shared package rather than its own copy", /from "@workspace\/mail"/.test(worker) && !/api\.resend\.com/.test(worker));
+  check("as an account message, not as news", /kind: "account"/.test(worker));
+  // Somebody who unsubscribed from updates has not asked to stop being told
+  // that the thing they paid for is finished.
+  check("so an unsubscribe cannot silence it", !/kind: "news"/.test(worker));
+  // The job id, so a worker that restarts mid-loop finds the claim taken.
+  check("keyed on the job, so a restart does not send it twice", /reference: string/.test(worker) && /jobId/.test(worker));
+
+  check("the finished render is reported", /tellThemTheEditIsReady\(\{/.test(index));
+  // Source order: the job is marked done before anybody is told, so a crash
+  // between the two loses the letter and not the render.
+  check("after the job is written, never before", index.indexOf('status: "done"') < index.indexOf("tellThemTheEditIsReady({"));
+  check("and a failure only once it is final", index.indexOf("if (!willRetry) {") < index.indexOf("tellThemItDidNotFinish({"));
+  // A mail provider having a bad minute must not turn a completed render into a
+  // retried one. Three other things on this same path are written under that
+  // rule already.
+  check("and neither can throw out of the render path", /catch \(error\) \{[\s\S]{0,200}could not tell them about a render/.test(worker));
+  check("the package is told where to log, once, at startup", /mailLogsTo\(logger\);/.test(index));
+
+  // The address, which is the thing the billing webhook never needed: Freemius
+  // hands the email over, and the worker has a user id and nothing else.
+  const migration = readFileSync(path.join(repoRoot, "lib/db/migrations/0042_a_way_to_reach_them.sql"), "utf8");
+  check("there is a way to turn a user id into an address", /create or replace function public\.email_for_user/.test(migration));
+  check("with its owner's rights and a fixed search path", /security definer[\s\S]{0,60}set search_path = ''/.test(migration));
+  // Supabase grants EXECUTE on every new public function to the PostgREST roles
+  // through ALTER DEFAULT PRIVILEGES, and that grant survives a revoke from
+  // PUBLIC. Without these two lines this is an email-address oracle behind the
+  // anon key.
+  check("revoked from the PostgREST roles by name", /from anon/.test(migration) && /from authenticated/.test(migration));
+  check("and granted only to the role the server connects as", /grant execute on function public\.email_for_user\(uuid\) to editly_app/.test(migration));
+}
+
+section("And the deploy knows the worker sends mail now");
+
+{
+  const workflow = readFileSync(path.join(repoRoot, ".github/workflows/deploy-worker.yml"), "utf8");
+  check("the mail key reaches the worker", /RESEND_API_KEY: \$\{\{ secrets\.RESEND_API_KEY \}\}/.test(workflow));
+  check("and the sender address with it", /MAIL_FROM/.test(workflow));
+  check("and a change in the mail package redeploys it", /lib\/mail\/\*\*/.test(workflow));
+  const fly = readFileSync(path.join(repoRoot, "artifacts/worker/fly.toml"), "utf8");
+  check("and the links point at the app", /APP_ORIGIN = "https:\/\/app\.editlyai\.io"/.test(fly));
 }
 
 await pool.end();

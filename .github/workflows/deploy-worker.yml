@@ -13,6 +13,7 @@ on:
       - "lib/db/**"
       - "lib/api-zod/**"
       - "lib/object-store/**"
+      - "lib/mail/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/deploy-worker.yml"
   workflow_dispatch:
@@ -87,6 +88,12 @@ jobs:
           [ -n "${DEEPGRAM_API_KEY:-}" ] && args+=(DEEPGRAM_API_KEY="$DEEPGRAM_API_KEY")
           [ -n "${ELEVENLABS_API_KEY:-}" ] && args+=(ELEVENLABS_API_KEY="$ELEVENLABS_API_KEY")
           [ -n "${GEMINI_API_KEY:-}" ] && args+=(GEMINI_API_KEY="$GEMINI_API_KEY")
+          # And the mail provider, optional for the same reason and with a
+          # quieter consequence: with neither of these set the sender says so
+          # once, at info, and every render still finishes. The worker started
+          # needing them the day it began telling people their edit was ready.
+          [ -n "${RESEND_API_KEY:-}" ] && args+=(RESEND_API_KEY="$RESEND_API_KEY")
+          [ -n "${MAIL_FROM:-}" ] && args+=(MAIL_FROM="$MAIL_FROM")
           flyctl secrets set "${args[@]}" --app editly-worker --stage
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -96,6 +103,8 @@ jobs:
           DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MAIL_FROM: ${{ vars.MAIL_FROM }}
 
       - name: Deploy
         run: flyctl deploy --config artifacts/worker/fly.toml --dockerfile artifacts/worker/Dockerfile --remote-only

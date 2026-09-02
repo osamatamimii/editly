@@ -172,6 +172,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/mail':
+        specifier: workspace:*
+        version: link:../../lib/mail
       '@workspace/object-store':
         specifier: workspace:*
         version: link:../../lib/object-store
@@ -428,6 +431,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/mail':
+        specifier: workspace:*
+        version: link:../../lib/mail
       '@workspace/object-store':
         specifier: workspace:*
         version: link:../../lib/object-store
@@ -491,6 +497,19 @@ importers:
       drizzle-kit:
         specifier: ^0.31.9
         version: 0.31.10
+
+  lib/mail:
+    dependencies:
+      '@workspace/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.45.2(@types/pg@8.20.4)(pg@8.22.0)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.5
 
   lib/object-store:
     devDependencies:

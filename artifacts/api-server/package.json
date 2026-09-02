@@ -12,6 +12,7 @@
   "dependencies": {
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
+    "@workspace/mail": "workspace:*",
     "@workspace/object-store": "workspace:*",
     "cookie-parser": "^1.4.7",
     "cors": "^2",
