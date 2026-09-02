@@ -26,7 +26,8 @@ export type ProcessorRole =
   | "understanding"
   | "publishing"
   | "payment"
-  | "library";
+  | "library"
+  | "sign-in";
 
 export interface Processor {
   /** What a person would recognise it as. */
@@ -206,6 +207,49 @@ export const PROCESSORS: readonly Processor[] = [
       ar: "توصّل رسائل الحساب التي يرسلها هذا المنتج: دفعة فشلت، أو خطّة تغيّرت، أو حدّ بلغته",
     },
     always: true,
+  },
+  /*
+    The two that were on the login screen and not on this page.
+
+    They are the entries the host scan could never have found, and that is
+    exactly why they were missing. Signing in with Google or Apple is a redirect
+    the *browser* makes, arranged by Supabase Auth; no request leaves our code
+    for either host, so `privacy-test` had nothing to catch. The privacy page
+    even mentioned them in a sentence about passwords. What it did not do was
+    list them where it lists everyone who receives something — and what Apple
+    receives when somebody presses that button is the fact that this person uses
+    Editly.
+
+    `always: false`, because signing in with an email and a password sends
+    neither of them anything, which is the difference the flag exists to carry.
+  */
+  {
+    name: "Google (sign-in)",
+    hosts: ["accounts.google.com"],
+    role: "sign-in",
+    sends: {
+      en: "your email address and name, and the fact that you signed in to Editly, if you choose to sign in with Google",
+      ar: "بريدك واسمك، وأنّك سجّلت الدخول إلى Editly، إن اخترت الدخول عبر Google",
+    },
+    because: {
+      en: "you chose Google to sign in with, and it is Google that confirms to us that the address is yours",
+      ar: "لأنك اخترت Google لتسجيل الدخول، وهي التي تؤكّد لنا أنّ البريد بريدك",
+    },
+    always: false,
+  },
+  {
+    name: "Apple (sign-in)",
+    hosts: ["appleid.apple.com"],
+    role: "sign-in",
+    sends: {
+      en: "your email address, or the relay address Apple gives you instead of it, and the fact that you signed in to Editly, if you choose to sign in with Apple",
+      ar: "بريدك، أو العنوان الوسيط الذي تمنحك إيّاه Apple بدلًا منه، وأنّك سجّلت الدخول إلى Editly، إن اخترت الدخول عبر Apple",
+    },
+    because: {
+      en: "you chose Apple to sign in with. Apple lets you hide your real address, and if you do, we only ever have the relay",
+      ar: "لأنك اخترت Apple لتسجيل الدخول. وتتيح لك Apple إخفاء بريدك الحقيقي، وحينها لا نملك سوى العنوان الوسيط",
+    },
+    always: false,
   },
 ];
 

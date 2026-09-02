@@ -20,7 +20,7 @@
  *
  * Usage: node tools/account-test.mjs
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -49,6 +49,27 @@ if (built.status !== 0) {
 
 const { deleteAccount, NOT_CONFIGURED_MESSAGE, LOGIN_SURVIVED_NOTE } = await import(
   pathToFileURL(outfile).href
+);
+
+/** The other half of leaving: what goes out with the person. */
+const exportFile = path.join(buildDir, "export.mjs");
+{
+  const madeExport = spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+    [
+      path.join(repoRoot, "artifacts/api-server/src/lib/account-export.ts"),
+      "--bundle", "--platform=node", "--format=esm", "--target=node22",
+      `--outfile=${exportFile}`, "--log-level=error",
+    ],
+    { stdio: "inherit" },
+  );
+  if (madeExport.status !== 0) {
+    console.error("could not bundle the export module");
+    process.exit(1);
+  }
+}
+const { redactRow, redactsColumn, REDACTED, NOT_INCLUDED, exportFilename } = await import(
+  pathToFileURL(exportFile).href
 );
 
 let checks = 0;
@@ -304,6 +325,118 @@ section("Every table this person owns is named");
     check(`${table} is deleted`, new RegExp(`delete\\(${table}\\)`).test(route), "");
   }
   check("and the mail rows with them", /delete from mail_sends/.test(route) && /delete from mail_settings/.test(route));
+}
+
+section("Leaving with a copy is the other half, and it cannot take a credential");
+{
+  /*
+    An export containing a live YouTube refresh token is a credential leak
+    wearing a compliance feature's clothes. The file gets emailed to a laptop,
+    attached to a support ticket, dropped in a shared drive — and it is a
+    working key to somebody's channel for as long as it lives there.
+
+    The guard is a rule about column *names* rather than a list of columns,
+    because a list is a thing somebody forgets to add to. So the check is the
+    rule against the real schema: every column in `lib/db/src/schema` whose name
+    says it holds a credential has to be one this module refuses to export.
+    A token column added next month is caught by the same line.
+  */
+  const schemaDir = path.join(repoRoot, "lib/db/src/schema");
+  const columns = new Set();
+  for (const file of readdirSync(schemaDir).filter((f) => f.endsWith(".ts"))) {
+    const source = readFileSync(path.join(schemaDir, file), "utf8");
+    for (const m of source.matchAll(/^\s*([A-Za-z][A-Za-z0-9]*):\s*(?:text|varchar|jsonb|uuid)\(/gm)) {
+      columns.add(m[1]);
+    }
+  }
+  check("the schema was read", columns.size > 20, String(columns.size));
+
+  const credentials = [...columns].filter((name) => /token|secret|password|key/i.test(name));
+  check(
+    "the schema has credential columns to protect",
+    credentials.length >= 2,
+    credentials.join(", "),
+  );
+  const leaking = credentials.filter((name) => !redactsColumn(name));
+  check(
+    "and every one of them is refused by name",
+    leaking.length === 0,
+    `${leaking.join(", ")} would go out in the export as written`,
+  );
+
+  // The two that are the reason this exists, named rather than trusted to the
+  // regex: a rename that made either of them stop matching would be silent.
+  check("a social access token is refused", redactsColumn("accessToken"));
+  check("and a refresh token", redactsColumn("refreshToken"));
+  check("and the Page token, which is a different account's key again", redactsColumn("pageAccessToken"));
+  check("and the unsubscribe token, which is a URL anybody holding it can act on", redactsColumn("token"));
+
+  // An ordinary column is not swept up. A rule broad enough to redact
+  // everything is a rule that produces an empty export nobody notices.
+  for (const ordinary of ["title", "status", "createdAt", "durationSeconds", "email"]) {
+    check(`${ordinary} still comes out`, !redactsColumn(ordinary));
+  }
+
+  /*
+    Replaced, not dropped.
+
+    "We hold a refresh token for your YouTube connection and are not putting it
+    in this file" is a true and useful sentence. Silently omitting the field
+    says we hold nothing, which is the same document telling a different lie.
+  */
+  const row = redactRow({ id: "a", accessToken: "ya29.real-token", title: "My video", refreshToken: null });
+  check("the field is still there", "accessToken" in row);
+  check("with a marker rather than the value", row.accessToken === REDACTED, String(row.accessToken));
+  check("and the marker says what it is", /credential/i.test(REDACTED), REDACTED);
+  check("an ordinary field passes through", row.title === "My video");
+  check("and a null credential stays null rather than becoming a marker", row.refreshToken === null);
+
+  check(
+    "what is left out is said out loud rather than left to be noticed",
+    NOT_INCLUDED.length >= 2 && NOT_INCLUDED.every((line) => line.length > 40),
+    JSON.stringify(NOT_INCLUDED.map((l) => l.length)),
+  );
+  check("the file has a name a browser will save", /^editly-data-\d{4}-\d{2}-\d{2}\.json$/.test(exportFilename()));
+}
+
+section("What deletion removes, the export has to have shown");
+{
+  /*
+    The two halves of the same fact, and the reason to check them against each
+    other rather than each against a list.
+
+    If a table is deleted when somebody leaves, we were holding their rows in
+    it. If we were holding their rows in it, an export that answers "what do you
+    have on me" has to include it. The failure this catches is the ordinary one:
+    a table added next month, wired into deletion because that is the obvious
+    half, and quietly missing from the export for a year.
+  */
+  const route = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/account.ts"), "utf8");
+  const deleted = [...route.matchAll(/delete\((\w+Table)\)/g)].map((m) => m[1]);
+  check("deletion names tables this check can read", deleted.length >= 8, deleted.join(", "));
+
+  const exported = [...route.matchAll(/\.from\((\w+Table)\)/g)].map((m) => m[1]);
+  check("and so does the export", exported.length >= 8, exported.join(", "));
+
+  const held = deleted.filter((table) => !exported.includes(table));
+  check(
+    "everything deleted is also exported",
+    held.length === 0,
+    `${held.join(", ")} — we hold it, we remove it, and we never told them it was there`,
+  );
+
+  // And every read in the export is the caller's own row. One predicate, the
+  // same one, every time: no join to a project and no `IN` over ids gathered
+  // somewhere else, which is how an export grows a path to a row that is not
+  // theirs.
+  const exportBlock = route.slice(route.indexOf("/account/export"), route.indexOf("router.delete"));
+  const reads = (exportBlock.match(/db\.select\(\)/g) ?? []).length;
+  const scoped = (exportBlock.match(/\.userId, userId\)/g) ?? []).length;
+  check(
+    "and every read in it is scoped to the caller",
+    reads > 0 && reads === scoped,
+    `${reads} reads, ${scoped} scoped to userId`,
+  );
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

@@ -715,6 +715,34 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /account/export:
+    get:
+      operationId: exportAccountData
+      tags: [account]
+      summary: Everything held about this account, as one file
+      description: >
+        The other half of deletion, and the one people actually exercise. Every
+        table is read by the caller's own id and nothing else, and any column
+        whose name says it is a credential is replaced by a marker rather than
+        omitted: an export carrying a live refresh token is a working key to
+        somebody's channel for as long as the file exists, and saying nothing
+        would claim we hold none. Videos are listed by name, not embedded.
+      responses:
+        "200":
+          description: The export, sent as an attachment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountExport"
+        "503":
+          description: >
+            Refused. The list of stored files could not be read, and an export
+            missing some of them would be worse than none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /projects/{id}/assets:
     get:
       operationId: listAssets
@@ -3758,6 +3786,34 @@ components:
         currentPlan:
           $ref: "#/components/schemas/SubscriptionPlan"
       required: [productId, publicKey, plans, currentPlan]
+
+    AccountExport:
+      type: object
+      required: [exportedAt, account, notIncluded, tables, files]
+      properties:
+        exportedAt: { type: string, format: date-time }
+        account:
+          type: object
+          required: [id, email]
+          properties:
+            id: { type: string, format: uuid }
+            email: { type: string, nullable: true }
+        notIncluded:
+          type: array
+          description: >
+            What is deliberately absent, said out loud. The two things missing
+            are the two a reader would otherwise assume we do not hold.
+          items: { type: string }
+        tables:
+          type: object
+          description: One entry per table, each a list of rows belonging to the caller.
+          additionalProperties:
+            type: array
+            items: { type: object, additionalProperties: true }
+        files:
+          type: array
+          description: Object keys in storage. Names, not links: a signed URL expires and an export is kept.
+          items: { type: string }
 
     AccountDeletion:
       type: object

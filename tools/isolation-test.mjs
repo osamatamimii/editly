@@ -302,7 +302,10 @@ async function call(user, path, method = "GET", body) {
   } catch {
     /* non-JSON error page */
   }
-  return { status: res.status, json, text };
+  // The headers come back too: `Content-Disposition` on the data export and
+  // `x-request-id` on everything are both properties worth asserting, and a
+  // helper that discards them makes them unassertable.
+  return { status: res.status, json, text, headers: res.headers };
 }
 
 console.log("\nToken enforcement");
@@ -1506,6 +1509,95 @@ console.log("\nCascade cleanup");
     Array.isArray(msgs.json) && msgs.json.length === 0,
     JSON.stringify(msgs.json),
   );
+}
+
+console.log("\nAsking what we hold answers, and never hands back a credential");
+{
+  /*
+    The export is the one endpoint whose whole job is to hand somebody a file
+    full of their own data, which makes it the one place a live credential can
+    walk out looking like a feature.
+
+    `social_accounts` holds access and refresh tokens for YouTube, Meta, TikTok
+    and X. A JSON file containing one is a working key to that channel for as
+    long as the file exists — and an export is a file people keep, forward, and
+    attach to support tickets. `account-test` proves the redaction rule against
+    the schema; this proves it against the running server, with a real row and
+    a token string nothing else in the response could produce.
+  */
+  const SECRET = "ya29-do-not-export-me-0af31c";
+  const seeded = spawnSync(
+    "psql",
+    [
+      process.env.DATABASE_URL,
+      "-c",
+      `insert into social_accounts (id, user_id, platform, external_id, handle, display_name, access_token, refresh_token, page_access_token, expires_at)
+       values ('export-leak-check', '${ALICE}', 'youtube', 'chan-1', '@alice', 'Alice on YouTube',
+               '${SECRET}', '${SECRET}-refresh', '${SECRET}-page', now() + interval '30 days')
+       on conflict (id) do update set access_token = excluded.access_token`,
+    ],
+    { encoding: "utf8" },
+  );
+
+  // Asserted, because a failed seed makes every check below pass against an
+  // empty table — which is the shape of a leak test that never tested anything.
+  check("a connection with live tokens exists to be exported", seeded.status === 0, seeded.stderr?.slice(0, 200));
+
+  const exported = await call(ALICE, "/api/account/export");
+  check("the export answers", exported.status === 200, `got ${exported.status}`);
+
+  const raw = JSON.stringify(exported.json ?? {});
+  check(
+    "and the token is not anywhere in it",
+    !raw.includes(SECRET),
+    "a live platform credential left in a file the customer keeps",
+  );
+
+  const account = exported.json?.tables?.socialAccounts?.[0];
+  check("the connection itself is in it", Boolean(account), JSON.stringify(exported.json?.tables?.socialAccounts));
+  check(
+    "with the field present rather than dropped, so it does not claim we hold nothing",
+    account !== undefined && "accessToken" in account,
+    JSON.stringify(account),
+  );
+  check(
+    "and a marker in its place that says what it is",
+    /credential/i.test(String(account?.accessToken ?? "")),
+    String(account?.accessToken),
+  );
+  check("the display name is untouched", account?.displayName === "Alice on YouTube", JSON.stringify(account));
+  // All three of them, because they are three different keys to three different
+  // things and a rule that catches two is a rule that leaks the third.
+  check("the refresh token is refused too", /credential/i.test(String(account?.refreshToken ?? "")), String(account?.refreshToken));
+  check("and the Page token, which opens somebody else's Page", /credential/i.test(String(account?.pageAccessToken ?? "")), String(account?.pageAccessToken));
+
+  /*
+    And it is theirs and only theirs. Every read in the route is by `userId`
+    with no join, which is the property that makes this true; this is the
+    assertion that it stayed true.
+  */
+  const bobExport = await call(BOB, "/api/account/export");
+  check("somebody else's export does not contain it", !JSON.stringify(bobExport.json ?? {}).includes(SECRET));
+  check(
+    "and does not contain their projects either",
+    (bobExport.json?.tables?.projects ?? []).every((project) => project.userId === BOB),
+    JSON.stringify((bobExport.json?.tables?.projects ?? []).map((p) => p.userId)),
+  );
+
+  check(
+    "it says what is deliberately not in it",
+    Array.isArray(exported.json?.notIncluded) && exported.json.notIncluded.length >= 2,
+    JSON.stringify(exported.json?.notIncluded),
+  );
+  check(
+    "and comes as a file rather than a page",
+    /attachment; filename="editly-data-/.test(exported.headers?.get?.("content-disposition") ?? ""),
+    exported.headers?.get?.("content-disposition"),
+  );
+
+  spawnSync("psql", [process.env.DATABASE_URL, "-c", "delete from social_accounts where id = 'export-leak-check'"], {
+    encoding: "utf8",
+  });
 }
 
 console.log("\nDeleting a project is never reported as done while the video is still here");

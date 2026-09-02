@@ -268,6 +268,41 @@ export async function deleteAccountObjects(userId: string): Promise<{ removed: b
 }
 
 /**
+ * Every object this person has, by name.
+ *
+ * For the data export, which has to say what files we hold without putting four
+ * hours of footage inside a JSON document. Names rather than links, because a
+ * signed URL expires in an hour and an export is a file somebody keeps.
+ *
+ * The project ids come from the caller rather than from the store, and that is
+ * the whole shape of this function. Supabase's listing is per folder, not per
+ * prefix: asking for `<user>/` returns the *folders* under it, which are
+ * skipped as having no id, and the files two levels down are never seen. A
+ * version of this that took only the user id would have returned an empty list
+ * against a full account, and reported it as a complete export.
+ *
+ * It throws rather than answering a short list when Storage stops answering.
+ * An inventory that is quietly truncated is a document claiming we hold less
+ * than we do, which is the one thing this feature must not do. Its caller turns
+ * that into a refusal.
+ */
+export async function listAccountObjects(
+  userId: string,
+  projectIds: readonly string[],
+): Promise<string[]> {
+  if (!store) return [];
+  const found: string[] = [];
+  // Every project's folder, and the account's own, which is where fonts live.
+  for (const prefix of [...projectIds.map((id) => `${userId}/${id}`), `${userId}/fonts`]) {
+    // No `limit`, so the seam drains its own pages: one page here would be a
+    // hundred objects and a silent cut for anybody with a busy project.
+    const page = await store.list(prefix);
+    for (const object of page) found.push(object.key);
+  }
+  return found;
+}
+
+/**
  * Fifty pages is five thousand objects — far past any project a person can
  * actually make. Reaching it means Storage keeps answering 200 while removing
  * nothing, and a sweep that spins forever against a lying backend helps nobody.

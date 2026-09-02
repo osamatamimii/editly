@@ -20,7 +20,7 @@ import {
 } from "@/components/social-connections";
 import { ScheduledPosts } from "@/components/scheduled-posts";
 import { apiJson } from "@/lib/api-fetch";
-import { Loader2, LogOut, Mail, KeyRound, Trash2 } from "lucide-react";
+import { Loader2, LogOut, Mail, KeyRound, Trash2, Download } from "lucide-react";
 
 /**
  * The account screen.
@@ -86,7 +86,7 @@ export default function AccountPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmText, setConfirmText] = useState("");
-  const [busy, setBusy] = useState<null | "email" | "password" | "delete">(null);
+  const [busy, setBusy] = useState<null | "email" | "password" | "delete" | "export">(null);
 
   const changeEmail = async () => {
     const next = email.trim();
@@ -126,6 +126,55 @@ export default function AccountPage() {
     }
     setPassword("");
     toast({ title: "Password changed", description: "You'll use the new one next time you sign in." });
+  };
+
+  /**
+   * Fetches the export and hands it to the browser as a file.
+   *
+   * Not a plain link, for two reasons that are both about this being an
+   * authenticated request. An `<a href="/api/account/export">` sends no bearer
+   * token, so it would 401; and the response can take a few seconds to
+   * assemble, which a link gives no way to say. So it is fetched, turned into a
+   * blob, and saved — and the refusal, when the server cannot list Storage, is
+   * shown as a sentence rather than as a downloaded file containing an error.
+   */
+  const downloadData = async () => {
+    setBusy("export");
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      const response = await fetch("/api/account/export", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) {
+        const said = await response.json().catch(() => null);
+        toast({
+          title: "Could not put that together",
+          description: said?.error ?? "Please try again in a few minutes.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `editly-data-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      // Freed on the next tick: revoking before the click has been handled
+      // cancels the download in some browsers.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      toast({
+        title: "Could not put that together",
+        description: "Check your connection and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(null);
+    }
   };
 
   const deleteAccount = async () => {
@@ -373,6 +422,38 @@ export default function AccountPage() {
                 Sign out
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* ── Taking it with you ─────────────────────────────────────────── */}
+        <Card className="glass-panel border-hairline">
+          <CardHeader>
+            <CardTitle>Your data</CardTitle>
+            <CardDescription>
+              Everything this product holds about you, as one file you can keep. Rows, not videos:
+              the videos are listed by name and downloaded from the project they belong to.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <p className="text-sm text-muted-foreground">
+              Access tokens for connected accounts are not in it. A copy of one in a file is a
+              working key to that account for as long as the file exists, so each appears with a
+              note in its place rather than being left out.
+            </p>
+            <Button
+              variant="outline"
+              className="self-start"
+              disabled={busy === "export"}
+              onClick={downloadData}
+              data-testid="button-export-data"
+            >
+              {busy === "export" ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 mr-2" />
+              )}
+              {busy === "export" ? "Putting it together…" : "Download my data"}
+            </Button>
           </CardContent>
         </Card>
 

@@ -2620,9 +2620,19 @@ section("A download saves the file rather than playing it");
     "download: is what turns inline into attachment",
   );
 
-  // Every place that sets `download` on an anchor has to have signed it that
-  // way. `window.open` is not in the trigger because this app also opens the
-  // billing portal and the checkout with it, and neither is a video.
+  /*
+    Every anchor that hands over a *stored* file has to have signed it that way.
+
+    Two things are deliberately out of scope. `window.open` is not a trigger,
+    because this app also opens the billing portal and the checkout with it and
+    neither is a video. And a download whose href comes from
+    `URL.createObjectURL` is a file this browser just made — the data export is
+    one — where there is no signature to ask for and `download` works, because
+    a blob URL is same-origin.
+
+    So the scope is each `link.download` whose href is not a blob, which is the
+    set of downloads that leave through Storage.
+  */
   const files = [];
   (function walk(dir) {
     for (const name of readdirSync(dir)) {
@@ -2633,13 +2643,20 @@ section("A download saves the file rather than playing it");
   })(srcDir);
 
   const handing = [];
+  let anchors = 0;
   for (const file of files) {
     if (file.endsWith("video-storage.ts")) continue;
     const source = readFileSync(file, "utf8");
     const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-    if (!/link\.download\s*=/.test(code)) continue;
-    if (!/downloadableVideoUrl\(/.test(code)) handing.push(path.relative(srcDir, file));
+    for (const match of code.matchAll(/link\.download\s*=/g)) {
+      // The lines around this one, which is where the href is set.
+      const around = code.slice(Math.max(0, match.index - 900), match.index + 300);
+      if (/URL\.createObjectURL/.test(around)) continue;
+      anchors += 1;
+      if (!/downloadableVideoUrl\(/.test(code)) handing.push(path.relative(srcDir, file));
+    }
   }
+  check("there are stored-file downloads to check", anchors >= 2, String(anchors));
   check(
     "and every screen that hands over a video uses it",
     handing.length === 0,

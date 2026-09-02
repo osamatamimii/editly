@@ -292,6 +292,25 @@ export const LIMITS = {
     perPerson: 8,
     message: "That is a lot of connection attempts from one place. Give it a few minutes.",
   },
+  /**
+   * The data export, which is the most expensive read in the product.
+   *
+   * A dozen table scans and a listing of every project folder in Storage,
+   * assembled in memory, on a serverless function. It is also a request a
+   * person makes about twice in their life, so the limit is small without ever
+   * being reached by somebody using it as intended.
+   *
+   * Tight rather than generous because of what it reads: a loop on this is a
+   * loop that reads everything we hold about the caller, which is the one
+   * request where "they can only hurt themselves" stops being reassuring.
+   */
+  dataExport: {
+    name: "data-export",
+    limit: 15,
+    windowMs: 60 * 60 * 1000,
+    perPerson: 3,
+    message: "You have asked for your data a few times in the last hour. The next one will go through shortly.",
+  },
   /** The one that had nothing at all, and the one that costs money per call. */
   chat: {
     name: "chat",
