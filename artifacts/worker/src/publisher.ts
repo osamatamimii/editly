@@ -42,6 +42,8 @@ import { usableToken, TokenError } from "./social-token.js";
 import { publishToYouTube, PublishError, type Published } from "./publish-youtube.js";
 import { publishToTikTok } from "./publish-tiktok.js";
 import { publishToInstagram, publishToFacebook } from "./publish-meta.js";
+import { publishToX } from "./publish-x.js";
+import { publishToSnapchat } from "./publish-snapchat.js";
 
 /**
  * How late is too late.
@@ -281,15 +283,20 @@ export async function surfaceStrandedPosts(staleMinutes = 15): Promise<number> {
 /**
  * The platforms that can actually be sent to, and how each one takes a file.
  *
- * Two shapes, and the difference is not cosmetic. YouTube and TikTok want the
- * **bytes**, so the worker downloads the finished render and streams it up.
+ * Two shapes, and the difference is not cosmetic. YouTube, TikTok and X want
+ * the **bytes**, so the worker downloads the finished render and sends it up.
  * Instagram and Facebook want a **link**, and fetch it themselves — so those
  * two never download anything, and what they need instead is a URL that
  * outlives Meta's own fetch.
  *
- * A platform with no entry falls through to a refusal that says so, rather than
- * to a branch that pretends. The two still missing — X and Snapchat — arrive
- * when their uploads are written.
+ * Snapchat is here and takes a link, and it refuses every time. It is not an
+ * oversight and not a stub: Snap has no API that posts to a personal account,
+ * and `publish-snapchat.ts` carries what was checked and the sentence somebody
+ * gets. It is in this table rather than left out of it so that the refusal is
+ * *named* — the fallback below says the same thing about a platform nobody has
+ * looked at yet, and those are different facts. The link shape costs nothing:
+ * signing a URL is one call and no download, so the refusal arrives without a
+ * finished render having been pulled down for it.
  */
 type Uploader =
   | { takes: "file"; send: (a: FileUpload) => Promise<Published> }
@@ -314,6 +321,8 @@ const UPLOADERS: Partial<Record<SocialPlatform, Uploader>> = {
   tiktok: { takes: "file", send: publishToTikTok },
   instagram: { takes: "url", send: publishToInstagram },
   facebook: { takes: "url", send: publishToFacebook },
+  x: { takes: "file", send: publishToX },
+  snapchat: { takes: "url", send: publishToSnapchat },
 };
 
 /**

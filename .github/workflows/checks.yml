@@ -181,6 +181,11 @@ jobs:
       # status code would mark published a post that never existed.
       - run: node tools/publish-tiktok-test.mjs
       - run: node tools/publish-meta-test.mjs
+      - run: node tools/publish-x-test.mjs
+      # Snapchat has no upload, and the refusal is what is checked: Snap's only
+      # public profile API is allowlist-only, needs a business organisation, and
+      # reads rather than posts. A decision with no test decays unnoticed.
+      - run: node tools/publish-snapchat-test.mjs
       - run: node tools/deadline-test.mjs
       - run: node tools/planner-test.mjs
       # Beside the planner, because the sentence is half of it: cutting a word

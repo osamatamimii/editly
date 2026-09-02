@@ -172,6 +172,13 @@ export const PROCESSORS: readonly Processor[] = [
       "www.tiktok.com",
       "api.twitter.com",
       "twitter.com",
+      // X's own name for itself. The token exchange still answers on
+      // `api.twitter.com` and the media upload and the post are on `api.x.com`,
+      // so both are reached and both are named. A host the code talks to and
+      // this list does not carry is a host the privacy page does not disclose,
+      // which `tools/privacy-test.mjs` refuses.
+      "api.x.com",
+      "x.com",
       "accounts.snapchat.com",
       "adsapi.snapchat.com",
     ],
