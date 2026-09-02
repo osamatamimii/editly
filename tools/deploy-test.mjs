@@ -600,6 +600,35 @@ section("CI has what the suites need");
   check("and it runs on pull requests, not only on main", /pull_request/.test(checksWorkflow));
 }
 
+section("No live credential is compiled into the bundle that ships");
+{
+  /*
+    A build-time `define` replaces `process.env.X` with a string literal, which
+    for a database password means the credential is *in* `api/_bundle.js`. Three
+    things follow and none of them announces itself: rotating the value on the
+    Vercel dashboard changes nothing until the next build, the old password
+    keeps working from the deployed bundle, and any machine that has ever run
+    `vercel:build` has a file on disk with a production Postgres URL in it.
+
+    `SUPABASE_URL` stays, because a project reference is not a secret and the
+    header of that file explains why it is baked. The test is on the shape:
+    anything with KEY, SECRET, TOKEN, PASSWORD or DATABASE_URL in its name is
+    read at runtime.
+  */
+  const build = readFileSync(path.join(repoRoot, "artifacts/api-server/build-vercel.mjs"), "utf8");
+  const code = build.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const defined = [...code.matchAll(/define\[`process\.env\.\$\{key\}`\]|for \(const key of \[([^\]]*)\]/g)]
+    .flatMap((m) => (m[1] ? m[1].split(",").map((s) => s.trim().replace(/["']/g, "")) : []))
+    .filter(Boolean);
+  const secretish = defined.filter((k) => /KEY|SECRET|TOKEN|PASSWORD|DATABASE_URL/.test(k));
+  check(
+    "nothing secret is baked in at build time",
+    secretish.length === 0,
+    secretish.join(", "),
+  );
+  check("and DATABASE_URL in particular is read at runtime", !defined.includes("DATABASE_URL"));
+}
+
 section("The waiting-list page can actually reach the API");
 {
   // This page is the one part of the product served from a different origin

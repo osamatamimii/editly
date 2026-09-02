@@ -56,14 +56,31 @@ export const VERIFIER_COOKIE = "editly_pkce";
 /**
  * The secret the state is signed with.
  *
- * The service role key, which this deployment already holds and which is
- * already the thing that must never leak. A separate variable would be one more
- * thing to set — and one more thing that, unset, would silently fall back to a
- * constant and make every state forgeable. This throws instead.
+ * `OAUTH_STATE_SECRET` where it is set, and the service role key where it is
+ * not — with the same throw as before when neither exists, because the failure
+ * this guards against is a fallback to a constant that makes every state
+ * forgeable.
+ *
+ * It used to be the service role key alone, and the reasoning was sound as far
+ * as it went: one secret rather than two, already held, already the thing that
+ * must never leak. What it also did was couple two blast radii that have
+ * nothing to do with each other. Rotating the database key — an ordinary,
+ * healthy thing to do — silently invalidates every connection a person has
+ * half-finished; and any log line, exception or crash dump that ever prints the
+ * signing secret prints the key that bypasses row-level security on the whole
+ * database.
+ *
+ * The fallback stays because removing it would break a running deployment on
+ * the day this ships, which is not a trade worth making for a variable somebody
+ * can set in a minute. It is a step, not a resting place.
  */
 function signingSecret(): string {
+  const dedicated = process.env["OAUTH_STATE_SECRET"]?.trim();
+  if (dedicated) return dedicated;
   const secret = process.env["SUPABASE_SERVICE_ROLE_KEY"]?.trim();
-  if (!secret) throw new Error("no signing secret: SUPABASE_SERVICE_ROLE_KEY is not set");
+  if (!secret) {
+    throw new Error("no signing secret: set OAUTH_STATE_SECRET (or SUPABASE_SERVICE_ROLE_KEY)");
+  }
   return secret;
 }
 

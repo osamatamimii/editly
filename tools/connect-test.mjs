@@ -117,6 +117,32 @@ section("The state says who, and cannot be written by anybody else");
   );
 }
 
+section("The signing secret can be its own, so a database key can be rotated");
+{
+  /*
+    Two blast radii that had been welded together.
+
+    The state was signed with `SUPABASE_SERVICE_ROLE_KEY`, and the reasoning was
+    sound as far as it went: one secret rather than two, already held, already
+    the thing that must never leak. What it also meant was that rotating the
+    database key silently invalidated every half-finished connection, and that
+    any log line or crash dump printing the signing secret printed the key that
+    bypasses row-level security on the whole database.
+
+    `OAUTH_STATE_SECRET` wins where it is set. The fallback stays because
+    removing it breaks a running deployment on the day it ships; what must not
+    come back is a fallback to a *constant*, which would make every state
+    forgeable by anybody who read this repository.
+  */
+  const source = await readFile(path.join(repoRoot, "artifacts/api-server/src/lib/social-oauth.ts"), "utf8");
+  check("a dedicated variable is preferred", /OAUTH_STATE_SECRET/.test(source));
+  check("the service role key is still accepted, so a deploy does not break", /SUPABASE_SERVICE_ROLE_KEY/.test(source));
+  check(
+    "and with neither it throws rather than falling back to a constant",
+    /if \(!secret\)[\s\S]{0,120}throw new Error/.test(source),
+  );
+}
+
 section("A state expires, so one left in a browser history is worthless");
 {
   const state = signState({ userId: ME, platform: "x", expiresAt: Date.now() + 1000 }, SECRET);

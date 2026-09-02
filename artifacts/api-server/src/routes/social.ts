@@ -34,7 +34,7 @@ import {
   jobsTable,
 } from "@workspace/db";
 import { currentUserId } from "../middlewares/auth";
-import { rateLimit, LIMITS } from "../lib/rate-limit";
+import { rateLimit, rateLimitByIp, LIMITS } from "../lib/rate-limit";
 import {
   SCHEDULED_POSTS_LIMIT,
   platformCatalogue,
@@ -616,7 +616,17 @@ router.delete("/social/posts/:id", async (req, res): Promise<void> => {
  * screen with a reason on the query string, because a person staring at a
  * blank page after signing in to Instagram has no idea whether it worked.
  */
-socialCallbackRouter.get("/social/callback/:platform", async (req, res): Promise<void> => {
+/*
+  Rate limited by address, and it is the only route in this file that has to be.
+
+  It is a plain GET anybody can cause, mounted above `requireAuth` because a
+  platform redirects a browser here with no token of ours — so "who is this"
+  comes from the signed state on the URL and there is nobody to count against.
+  Every hit costs a signature verification and, past that, a token exchange with
+  the platform, which is our rate budget at Google and Meta being spent from
+  outside.
+*/
+socialCallbackRouter.get("/social/callback/:platform", rateLimitByIp(LIMITS.socialCallback), async (req, res): Promise<void> => {
   const platform = req.params["platform"];
   const back = (params: Record<string, string>) =>
     res.redirect(`${appOrigin()}/scheduled?${new URLSearchParams(params).toString()}`);

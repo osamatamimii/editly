@@ -12,7 +12,7 @@
  */
 import { Router, type IRouter } from "express";
 import { Readable } from "node:stream";
-import { stockConfigured, searchStock, resolveStockFile, resolveStockPreview } from "../lib/stock";
+import { stockConfigured, searchStock, resolveStockFile, resolveStockPreview, assertAllowedHost } from "../lib/stock";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 import { logger } from "../lib/logger";
 
@@ -29,6 +29,14 @@ const RESULTS_PER_PAGE = 24;
  * single request could stream unbounded bytes through the function.
  */
 const MAX_FILE_BYTES = 200 * 1024 * 1024;
+
+/**
+ * How many redirects the proxy will follow.
+ *
+ * A CDN legitimately uses one or two. Past four it is a loop or somebody being
+ * clever, and every hop is a fresh chance for the chain to leave the allowlist.
+ */
+const MAX_REDIRECTS = 4;
 
 const NOT_CONFIGURED =
   "The stock library is not switched on for this deployment yet. Adding a Pexels key turns it on.";
@@ -95,9 +103,40 @@ async function streamStock(
     return;
   }
 
+  /*
+    Every hop is checked, not only the first.
+
+    `assertAllowedHost` validated the URL Pexels returned — exact host suffix,
+    HTTPS only — and then `fetch` followed redirects with its default setting.
+    So a `302` from an allowed pexels.com host to `http://169.254.169.254/…`,
+    or to anything else inside the network this function runs in, was obeyed and
+    its body streamed back to the caller. The file's own header says "even
+    Pexels' answer is checked", which was true of the URL and not of where it
+    led.
+
+    `redirect: "manual"` and a bounded walk fixes that: each `Location` goes
+    back through the same assertion, so the allowlist covers the whole chain
+    rather than its first link. Four hops, because a CDN legitimately uses one
+    or two and anything past that is a loop or somebody being clever.
+  */
   let upstream: Response;
   try {
-    upstream = await fetch(resolved.url, { signal: AbortSignal.timeout(60_000) });
+    let target: URL = resolved.url;
+    let hops = 0;
+    for (;;) {
+      upstream = await fetch(target, { redirect: "manual", signal: AbortSignal.timeout(60_000) });
+      if (upstream.status < 300 || upstream.status >= 400) break;
+      const location = upstream.headers.get("location");
+      if (!location) break;
+      if (++hops > MAX_REDIRECTS) {
+        res.status(502).json({ error: "The stock library sent us in circles." });
+        return;
+      }
+      // Relative locations are resolved against the hop that issued them, and
+      // then checked like any other — which is the point: a relative redirect
+      // cannot leave the host, and an absolute one has to earn its place.
+      target = assertAllowedHost(new URL(location, target).toString());
+    }
   } catch (error) {
     logger.warn({ err: String(error) }, "stock fetch failed");
     res.status(502).json({ error: "Could not fetch that file from the stock library." });

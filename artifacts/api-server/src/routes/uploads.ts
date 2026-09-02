@@ -68,7 +68,7 @@ import { MAX_FACES } from "./fonts";
 import {
   planUpload,
   worthResuming,
-  TICKET_TTL_SECONDS,
+  ticketTtlFor,
   type UploadQuota,
 } from "../lib/upload-policy";
 
@@ -216,7 +216,7 @@ router.post("/uploads", rateLimit(LIMITS.write), async (req, res): Promise<void>
       path: key,
       contentType,
       maxBytes,
-      expiresAt: new Date(Date.now() + TICKET_TTL_SECONDS * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + ticketTtlFor(purpose) * 1000).toISOString(),
       transfer: {
         mode: "resumable",
         url: `${base}/storage/v1/upload/resumable`,
@@ -235,7 +235,9 @@ router.post("/uploads", rateLimit(LIMITS.write), async (req, res): Promise<void>
   }
 
   const signed = await store.signedPut(key, {
-    expiresInSeconds: TICKET_TTL_SECONDS,
+    // Short for the small purposes. The declared ceiling is advice the storage
+    // provider does not enforce, so the window is what bounds a replay.
+    expiresInSeconds: ticketTtlFor(purpose),
     contentType,
     // An upload replaces what was there. A person re-recording their take and
     // finding the old one still playing would be the worse surprise.

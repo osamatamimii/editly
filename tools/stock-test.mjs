@@ -162,6 +162,27 @@ console.log("\nWhat gets downloaded is not the biggest thing available");
   );
   check("and the response is streamed, not buffered", route.includes("pipe(res)") && !route.includes("arrayBuffer()"));
 
+  /*
+    The allowlist covers the whole chain, not only its first link.
+
+    `assertAllowedHost` checked the URL Pexels returned, and then `fetch`
+    followed redirects on its own. A 302 from an allowed host to
+    `http://169.254.169.254/` was obeyed and its body streamed back to the
+    caller, which is a server-side request forgery reached through a route whose
+    own header says even the provider's answer is checked. Nothing failed: the
+    check passed, on the URL that was not the one fetched.
+  */
+  check(
+    "redirects are walked here rather than followed by fetch",
+    /redirect:\s*"manual"/.test(route),
+    "fetch's default follows a redirect off the allowlist without asking",
+  );
+  check(
+    "and every hop is put back through the host check",
+    /assertAllowedHost\(new URL\(location/.test(route),
+  );
+  check("with a bound, so a loop is not walked forever", /MAX_REDIRECTS/.test(route));
+
   const lib = await readFile(path.join(repoRoot, "artifacts/api-server/src/lib/stock.ts"), "utf8");
   check("a 4K clip is not chosen for a 1080p timeline", lib.includes("<= 1080"));
   check("the photographer's credit is carried into the label", /Pexels/.test(lib) && lib.includes("credit"));

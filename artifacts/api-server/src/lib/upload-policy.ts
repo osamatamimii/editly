@@ -86,8 +86,41 @@ export const MAX_POSTER_BYTES = 4 * 1024 * 1024;
  */
 export const RESUMABLE_ABOVE_BYTES = 6 * 1024 * 1024;
 
-/** How long a minted URL is good for. Long enough for a slow phone on a train. */
+/**
+ * How long a minted URL is good for.
+ *
+ * An hour for a source video: long enough for a slow phone on a train, which is
+ * the case it was chosen for.
+ *
+ * Not an hour for everything else, and that is the point of `ticketTtlFor`
+ * below. The ceiling this route computes is returned to the browser as advice —
+ * Supabase's signed upload URL carries no length constraint, so a ticket minted
+ * for a 4 MB poster frame can be replayed with a five-gigabyte body until it
+ * expires. The only wall underneath is the bucket's own `file_size_limit`,
+ * which knows nothing about `MAX_POSTER_BYTES` or `MAX_FONT_BYTES`.
+ *
+ * Signing the length is the real fix and it is a driver-level change: S3 can
+ * carry `Content-Length` in the signature, Supabase's endpoint cannot. Until
+ * both can, the honest mitigation is to make the window small where the file is
+ * small — a poster frame is written in seconds and has no business holding an
+ * upload URL for an hour.
+ */
 export const TICKET_TTL_SECONDS = 60 * 60;
+
+/**
+ * And the shorter window for the purposes that are not a video.
+ *
+ * Two minutes for a poster frame, five for a font or a reference clip. Each is
+ * generous against what it is: a canvas-encoded JPEG is a couple of hundred
+ * kilobytes, a face is under eight megabytes, and a reference is capped at
+ * twenty-five. What it takes away is fifty-eight minutes of replay window on a
+ * ticket whose declared ceiling nothing enforces.
+ */
+export function ticketTtlFor(purpose: UploadPurpose): number {
+  if (purpose === "thumbnail") return 2 * 60;
+  if (purpose === "font" || purpose === "reference") return 5 * 60;
+  return TICKET_TTL_SECONDS;
+}
 
 export interface UploadQuota {
   used: number;

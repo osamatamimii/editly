@@ -26,13 +26,23 @@ import {
   renderFollowupsTable,
 } from "@workspace/db";
 import { currentUserId } from "../middlewares/auth";
+import { rateLimit, LIMITS } from "../lib/rate-limit";
 import { deleteAccount } from "../lib/account-deletion";
 import { deleteAccountObjects, deleteProjectObjects, storageAdminConfigured, deleteAuthUser } from "../lib/storage";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-router.delete("/account", async (req, res): Promise<void> => {
+/*
+  Limited, which it was not.
+
+  One `DELETE` with no confirmation step, no re-authentication and no soft
+  delete window is already the most irreversible thing a person can do here.
+  Without a limiter beside it, it was also the cheapest to trigger in a loop —
+  and with no `X-Frame-Options` on the app until this week, one clickjack away
+  from being triggered by somebody else.
+*/
+router.delete("/account", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
   const userId = currentUserId(req);
 
   const result = await deleteAccount({

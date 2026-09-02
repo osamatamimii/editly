@@ -52,7 +52,14 @@ const define = {
 // months after the app moved to app.editlyai.io.
 //
 // An allowlist is a runtime decision. It stays a runtime decision.
-for (const key of ["DATABASE_URL", "SUPABASE_URL"]) {
+//
+// And `DATABASE_URL` is not in the list either, now, for a sharper version of
+// the same argument. Baking it in froze a live Postgres password into
+// `api/_bundle.js` as a string literal — so the credential could not be rotated
+// by changing a value on the dashboard, and a build artifact on any machine
+// that had ever run `vercel:build` locally carried it. It is read at runtime
+// like every other secret, which is what the header of this file recommends.
+for (const key of ["SUPABASE_URL"]) {
   if (process.env[key]) {
     define[`process.env.${key}`] = JSON.stringify(process.env[key]);
   }

@@ -271,6 +271,27 @@ export const LIMITS = {
     perPerson: 1,
     message: "That's a lot of sign-ups from one place. Give it a few minutes.",
   },
+  /**
+   * The OAuth callback, which is the third public door in this product.
+   *
+   * It is a plain `GET` that anybody on the internet can cause, it is mounted
+   * above `requireAuth` because a platform redirects a browser to it with no
+   * bearer token, and it had no limiter at all. Every hit costs a signature
+   * verification and, past that, a token exchange with the platform — so a loop
+   * on it is a way to spend our rate budget at Google and Meta from outside.
+   *
+   * Generous, because a person legitimately retries a connection that failed
+   * and the last thing this door should do is refuse the second honest attempt.
+   * What it stops is a script, not a person having a bad minute.
+   */
+  socialCallback: {
+    name: "social-callback",
+    limit: 40,
+    windowMs: 10 * 60 * 1000,
+    // Connecting six accounts in one sitting, with a couple of retries.
+    perPerson: 8,
+    message: "That is a lot of connection attempts from one place. Give it a few minutes.",
+  },
   /** The one that had nothing at all, and the one that costs money per call. */
   chat: {
     name: "chat",

@@ -1946,6 +1946,74 @@ console.log("\nOne person cannot spend everybody's money");
       `${unused.join(", ")} exists and guards nothing`,
     );
   }
+
+  /*
+    And the doors that open before anybody has proved who they are.
+
+    `routes/index.ts` mounts a handful of routers above `requireAuth`, because a
+    payment provider, a platform's OAuth redirect and an uptime monitor all
+    arrive with no token of ours. Above that line there is nobody to count
+    against, so a limiter here has to key on the address; below it, the ordinary
+    per-user limiter does the work.
+
+    The OAuth callback had nothing at all. It is a plain GET anybody can cause,
+    and every hit spends a signature verification and then a token exchange with
+    Google or Meta, which is our rate budget at those platforms being spent by
+    somebody else. Nothing failed while that was true; it simply had no floor.
+
+    Two are exempt on purpose and the reasons are written here rather than
+    remembered. `/billing/webhook` must never refuse a real payment event to
+    save a little work, and it verifies an HMAC before it touches anything.
+    `/healthz` reads only caches, which is why the two functions it calls say so
+    in their own comments.
+  */
+  {
+    const dir = path.join(process.cwd(), "artifacts/api-server/src/routes");
+    const index = readFileSync(path.join(dir, "index.ts"), "utf8");
+    const above = index.slice(0, index.indexOf("router.use(requireAuth)"));
+
+    /*
+      Which router in which file, read from the imports rather than listed here
+      so a new pre-auth router is covered the day somebody mounts one.
+
+      The distinction that matters is default versus named: `social.ts` exports
+      both `socialCallbackRouter`, which is mounted above the line, and a
+      default router mounted below it. Reading the whole file would report the
+      authenticated half as unlimited, which it is not.
+    */
+    const mounted = [...above.matchAll(/router\.use\((\w+)\)/g)].map((m) => m[1]);
+    const targets = [];
+    for (const name of mounted) {
+      const asDefault = index.match(new RegExp(`import\\s+${name}\\b[^;]*from\\s*"\\./([\\w-]+)"`));
+      if (asDefault) {
+        targets.push({ file: asDefault[1], identifier: "router" });
+        continue;
+      }
+      const asNamed = index.match(new RegExp(`import[^;]*\\{[^}]*\\b${name}\\b[^}]*\\}[^;]*from\\s*"\\./([\\w-]+)"`));
+      if (asNamed) targets.push({ file: asNamed[1], identifier: name });
+    }
+
+    check("the pre-auth routers were found", targets.length >= 5, JSON.stringify(targets));
+
+    /** Public by design, and each one says why above. */
+    const EXEMPT = [/\/billing\/webhook/, /\/healthz/];
+
+    const unlimited = [];
+    for (const { file, identifier } of targets) {
+      const source = readFileSync(path.join(dir, `${file}.ts`), "utf8");
+      const pattern = new RegExp(`\\b${identifier}\\.(get|post|put|patch|delete)\\(\\s*([\\s\\S]{0,200})`, "g");
+      for (const [, method, rest] of source.matchAll(pattern)) {
+        const routePath = rest.match(/"([^"]+)"/)?.[1] ?? "?";
+        if (EXEMPT.some((re) => re.test(routePath))) continue;
+        if (!/rateLimit(ByIp)?\(/.test(rest)) unlimited.push(`${method.toUpperCase()} ${routePath}`);
+      }
+    }
+    check(
+      "every route reachable without a token is rate limited, or exempt for a written reason",
+      unlimited.length === 0,
+      `${unlimited.join(", ")} is open to anybody with no floor under it`,
+    );
+  }
   await rmd(rlDir, { recursive: true, force: true });
 
   // And against the real app. The limit is lowered in the table rather than in
