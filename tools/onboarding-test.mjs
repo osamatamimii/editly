@@ -52,7 +52,7 @@ function build(source, name) {
 
 const { planFromText } = await import(build("artifacts/api-server/src/lib/plan-from-text.ts", "plan.mjs"));
 const firstRun = await import(build("artifacts/editly/src/lib/first-run.ts", "first-run.mjs"));
-const { SUGGESTIONS, preferredLanguage } = firstRun;
+const { SUGGESTIONS } = firstRun;
 
 const read = (file) => readFile(path.join(repoRoot, file), "utf8");
 
@@ -124,9 +124,34 @@ section("...and the two languages are written, not translated");
     SUGGESTIONS.every((s) => planFromText(s.sentence.ar, {}).operations.length >= 2),
   );
 
-  check("Arabic browsers get the Arabic set", preferredLanguage(["ar-JO", "en-US"]) === "ar");
-  check("and everyone else gets English", preferredLanguage(["en-GB"]) === "en");
-  check("with no language at all, English", preferredLanguage([]) === "en");
+  /*
+    The three checks that were here read `preferredLanguage`, which guessed the
+    language from `navigator.languages`. It is gone, and so are they.
+
+    The product has one answer to "which language is this person in" now, in
+    `lib/language.tsx`, and it deliberately does not ask the browser: phones in
+    this product's first market are very often set to English, so reading the
+    browser turns "Arabic first" into "English for nearly everyone". Two
+    functions answering that question differently is the drift this repository
+    keeps paying for.
+
+    What replaces them is the check below: this screen reads the shared
+    preference rather than keeping one of its own.
+  */
+  const screen = await readFile(path.join(repoRoot, "artifacts/editly/src/pages/onboarding.tsx"), "utf8");
+  // Comments stripped: the file explains the removal right where it happened,
+  // and a check that reads the explanation as the offence punishes writing it.
+  const screenCode = screen.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  check("the first-run screen reads the product's language", /useLanguage\(\)/.test(screenCode));
+  check(
+    "rather than guessing at it from the browser",
+    !/navigator\.languages/.test(screenCode),
+    "a guess here and a preference elsewhere is two answers to one question",
+  );
+  check(
+    "and its switch writes that preference, so it outlives the screen",
+    /const setLanguage = choose;/.test(screen),
+  );
 }
 
 // ── The screen ──────────────────────────────────────────────────────────────

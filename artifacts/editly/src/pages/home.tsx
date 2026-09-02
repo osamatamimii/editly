@@ -9,16 +9,15 @@ import { Logo } from "@/components/logo";
 import { RollingNumber } from "@/components/rolling-number";
 import { PLANS, SHARED_FEATURES, FREE_TIER } from "@/lib/pricing";
 import {
-  DEFAULT_LANGUAGE,
   LANDING,
   PRICING_AR,
   directionOf,
-  isLanguage,
   phrase,
   say,
   type Language,
   type Phrase,
 } from "@/lib/landing-copy";
+import { useLanguage } from "@/lib/language";
 
 /**
  * How long `.reveal`'s filter transition is given before the filter is dropped.
@@ -54,9 +53,6 @@ function usePhoneWidth(): boolean {
   return phone;
 }
 
-/** Where the choice is remembered. */
-const LANGUAGE_KEY = "editly:landing-language";
-
 /**
  * Which language this page is in, and how that is decided.
  *
@@ -68,46 +64,18 @@ const LANGUAGE_KEY = "editly:landing-language";
  * would have quietly turned "Arabic first" into "English for nearly everyone",
  * which is the decision this is not.
  *
- * Two things override it, in this order:
+ * Two things override it, in this order: `?lang=` on the URL, because a link is
+ * how this page gets handed to somebody; and what they chose last time, so the
+ * switch is worth pressing once.
  *
- *   1. **`?lang=` on the URL**, because a link is how this page gets handed to
- *      somebody. An English link sent to a reviewer should open in English, and
- *      it should still be English after they click something.
- *   2. **What they chose last time**, so the switch is worth pressing once.
+ * All of that now lives in `lib/language.tsx` and is shared with the rest of
+ * the product, which is the point: this page kept the choice under its own key,
+ * so somebody who read the marketing in English, signed up, and came back to
+ * the landing page was asked again. The preference belongs to the person, not
+ * to the page.
  */
-function readLanguage(): Language {
-  try {
-    const asked = new URLSearchParams(window.location.search).get("lang");
-    if (isLanguage(asked)) return asked;
-  } catch {
-    /* No URL to read. Nothing to recover; the default is a good answer. */
-  }
-  try {
-    const remembered = window.localStorage.getItem(LANGUAGE_KEY);
-    if (isLanguage(remembered)) return remembered;
-  } catch {
-    /*
-      `localStorage` *throws* in some privacy modes rather than answering null,
-      and this read happens on the paint path of the first screen anybody sees.
-      An unguarded read here is a blank page for the people most likely to be
-      cautious about a tool they have not used before.
-    */
-  }
-  return DEFAULT_LANGUAGE;
-}
-
 function useLandingLanguage(): [Language, (next: Language) => void] {
-  const [language, setLanguage] = useState<Language>(readLanguage);
-
-  const choose = (next: Language) => {
-    setLanguage(next);
-    try {
-      window.localStorage.setItem(LANGUAGE_KEY, next);
-    } catch {
-      /* Same privacy modes. The page still switches; it just forgets. */
-    }
-  };
-
+  const { language, choose } = useLanguage();
   return [language, choose];
 }
 

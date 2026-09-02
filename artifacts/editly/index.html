@@ -1,12 +1,21 @@
 <!DOCTYPE html>
 <!--
-  The document opens in Arabic, because the product does.
+  The document opens in Arabic, because the landing page is written in it - and
+  the script further down turns that off for the screens that are not.
 
-  `lang="ar" dir="rtl"` here rather than only on the landing page's own wrapper:
-  a crawler, a screen reader and a translation prompt all read the document, and
-  they were being told English on a product whose default language is Arabic.
-  The English half of the app sets `lang`/`dir` on its own wrapper as it always
-  has, which is what wins for the content inside it.
+  `lang="ar" dir="rtl"` was here alone, and the reasoning was right as far as
+  it went: a crawler, a screen reader and a translation prompt all read the
+  document, and they were being told English on a product whose default
+  language is Arabic. What it missed is that this is one document for every
+  route. The landing page sets its own wrapper and was always correct.
+  Everything behind the login screen is written in English and set nothing, so
+  it inherited `rtl` and rendered English right to left: a trailing full stop
+  moved to the front of every sentence, and the dollar sign to the wrong end of
+  every price. See src/lib/language.tsx for the measurements.
+
+  So the attributes here are the first frame of the landing page, and the
+  script below corrects them before paint for anything else. React maintains
+  them from mount onwards.
 -->
 <html lang="ar" dir="rtl">
   <head>
@@ -122,6 +131,38 @@
           // Storage blocked, or something older than we support. Dark is the
           // default anyway, and :root already carries it.
           document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+    <!--
+      The same argument as the theme above, for the same reason.
+
+      By the time React has parsed and mounted, the browser has painted; a
+      signed-in screen would show one frame of English laid out right to left
+      before the provider corrected it. So the decision is made here, and the
+      two halves are kept honest by `tools/language-test.mjs`, which reads the
+      route list out of src/lib/language.tsx and fails if this copy of it has
+      drifted.
+    -->
+    <script>
+      (function () {
+        try {
+          var path = location.pathname.replace(/\/+$/, "") || "/";
+          // Duplicated from BILINGUAL in src/lib/language.tsx. There is no
+          // module system here yet, and a check compares the two.
+          var bilingual = path === "/" || path === "/onboarding";
+          var lang = "en";
+          if (bilingual) {
+            var kept = localStorage.getItem("editly:language") || localStorage.getItem("editly:landing-language");
+            var asked = new URLSearchParams(location.search).get("lang");
+            var chosen = asked === "ar" || asked === "en" ? asked : kept;
+            lang = chosen === "en" ? "en" : "ar";
+          }
+          document.documentElement.lang = lang;
+          document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+        } catch (e) {
+          // Storage blocked, or a URL we cannot parse. The attributes on the
+          // element already carry the landing page's default.
         }
       })();
     </script>

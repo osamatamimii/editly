@@ -305,6 +305,13 @@ jobs:
       # layout that is right in one and broken in the other is invisible to
       # everyone on the team who only reads it in the direction they use.
       - run: node tools/landing-test.mjs
+      # And beside it, the question landing-test cannot ask, because it only
+      # ever opens the landing page: whether the *rest* of the product declares
+      # the language it is actually written in. `index.html` said Arabic for
+      # every route, so English screens laid out right to left and every
+      # sentence ended with a leading full stop. Nothing failed; it just looked
+      # like carelessness on the screen where somebody decides whether to pay.
+      - run: node tools/language-test.mjs
       - run: node tools/worker-test.mjs
       # Beside the worker because that is where it runs, and separate because
       # of what it is: the only thing in this product that deletes. Its checks

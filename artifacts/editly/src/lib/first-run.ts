@@ -104,20 +104,21 @@ export const SUGGESTIONS: readonly Suggestion[] = [
   },
 ];
 
-export type FirstRunLanguage = "en" | "ar";
+/*
+  `preferredLanguage` used to live here, and it read `navigator.languages` to
+  decide which language to offer the sentences in.
 
-/**
- * Which language to offer the sentences in.
- *
- * Read from the browser rather than asked, because a question before the first
- * screen is a cost paid by everybody to help some. It is only the *suggestions*
- * that change — the product answers in whichever language the sentence is
- * written in, so a person who switches is not switching the product, only the
- * examples in front of them.
- */
-export function preferredLanguage(languages: readonly string[]): FirstRunLanguage {
-  return languages.some((tag) => tag.toLowerCase().startsWith("ar")) ? "ar" : "en";
-}
+  It is gone because the product now has one answer to "which language is this
+  person in", and it is not that one. The landing page's argument, written out
+  in `lib/language.tsx`, is that phones in this product's first market are very
+  often set to English, so reading the browser would quietly turn "Arabic first"
+  into "English for nearly everyone". Two functions answering the same question
+  differently is the drift this repository keeps paying for; one of them had to
+  go, and it was the one nobody could see the answer of.
+
+  The type stayed, because the suggestions below are still pairs.
+*/
+export type FirstRunLanguage = "en" | "ar";
 
 const DISMISSED_KEY = "editly.first-run.dismissed";
 

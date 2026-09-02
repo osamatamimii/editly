@@ -42,12 +42,8 @@ import {
   formatBytes,
   uploadCeiling,
 } from "@/lib/video-storage";
-import {
-  SUGGESTIONS,
-  preferredLanguage,
-  skipFirstRun,
-  type FirstRunLanguage,
-} from "@/lib/first-run";
+import { SUGGESTIONS, skipFirstRun } from "@/lib/first-run";
+import { useLanguage } from "@/lib/language";
 
 export default function Onboarding() {
   const [, setLocation] = useLocation();
@@ -61,9 +57,23 @@ export default function Onboarding() {
   const [dragging, setDragging] = useState(false);
   const [chosen, setChosen] = useState<string | null>(null);
   const [written, setWritten] = useState("");
-  const [language, setLanguage] = useState<FirstRunLanguage>(() =>
-    preferredLanguage(typeof navigator === "undefined" ? [] : [navigator.language, ...(navigator.languages ?? [])]),
-  );
+  /*
+    The product's language, not this screen's guess at it.
+
+    This used to be its own `useState` seeded from `navigator.languages`, with
+    no memory and no connection to anything else. So somebody who read the
+    landing page in Arabic, pressed "Sign up free", and arrived here on a phone
+    set to English was asked in English — and the switch they pressed was
+    forgotten the moment they left. The preference now lives above the router
+    and is the same one the landing page writes.
+
+    The switch below stays, because the *suggestions* are the thing it changes
+    and somebody may well want the examples in the other language. It just
+    writes to the product's preference now instead of to a variable that died
+    with the screen.
+  */
+  const { language, choose } = useLanguage();
+  const setLanguage = choose;
 
   const rtl = language === "ar";
   const say = (en: string, ar: string) => (rtl ? ar : en);

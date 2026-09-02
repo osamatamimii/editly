@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
+import { LanguageProvider } from "@/lib/language";
 import NotFound from "@/pages/not-found";
 import { ErrorBoundary, watchForCrashes } from "@/components/error-boundary";
 
@@ -163,12 +164,22 @@ function App() {
       <ThemeProvider>
         <AuthProvider>
           <TooltipProvider>
+            {/*
+              Inside the router, because the language a screen is written in is
+              a property of the route: the document declares Arabic on the
+              screens that have Arabic on them and English everywhere else, and
+              only something that knows the current path can decide that. The
+              Toaster moved in with it — a refusal is copy like any other, and
+              it was the one thing on screen the provider could not reach.
+            */}
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <div className="min-h-screen bg-background text-foreground selection:bg-primary/30 transition-colors duration-300">
-                <Router />
-              </div>
+              <LanguageProvider>
+                <div className="min-h-screen bg-background text-foreground selection:bg-primary/30 transition-colors duration-300">
+                  <Router />
+                </div>
+                <Toaster />
+              </LanguageProvider>
             </WouterRouter>
-            <Toaster />
           </TooltipProvider>
         </AuthProvider>
       </ThemeProvider>
