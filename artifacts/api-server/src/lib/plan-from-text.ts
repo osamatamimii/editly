@@ -259,10 +259,18 @@ const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
     /*
       Asking for it to be posted.
 
-      The scheduling is built — accounts, captions per platform, a time, a
-      publisher that will not send the same post twice — and not one platform
-      has approved this app to post on somebody's behalf yet. So a sentence
-      that asks for it got silence: no operation, and nothing in the reply.
+      The scheduling is built: accounts, captions per platform, a time, and a
+      publisher that will not send the same post twice. So is the sending, now,
+      for four destinations. What is missing is that every platform reviews an
+      app before it will let one post on somebody's behalf, and not one of those
+      reviews has finished. So a sentence that asks for it got silence: no
+      operation, and nothing in the reply.
+
+      The label below has to keep saying which of those two walls it is, and
+      `refusal-test` holds it to that against `CAN_SEND` in the publisher: a
+      product that owns four working uploaders and tells somebody it cannot
+      send is describing itself as smaller than it is, which is the same lie as
+      promising what it cannot do, and much harder to notice.
 
       Silence is the worst of the three answers available. A refusal at least
       says the product heard you; silence looks like it worked.
@@ -280,8 +288,8 @@ const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
     patterns:
       /\b(post|publish|upload|share)\b[^.!?]{0,30}\b(instagram|insta|reels?|tiktok|facebook|snapchat|twitter|youtube|shorts?|on x)\b|\bschedule (it|this|them|the (post|clip|video))\b|\b(post|publish) (it|this|them) (for me|later|at|on|tomorrow|tonight)\b|(?:انشر|جدول)/i,
     label: say(
-      "post it to your accounts yet. The scheduling itself is built, so you can pick the accounts, write the caption once and choose the time. What is missing is that every platform has to approve this app before it will let one post for you, and none has yet",
-      "أنشرها على حساباتك بعد. الجدولة نفسها مبنيّة، فتختار الحسابات وتكتب الكابشن مرّة وتحدّد الوقت. الناقص أن كل منصّة يجب أن تعتمد هذا التطبيق قبل أن تسمح له بالنشر نيابةً عنك، ولم تعتمده أيٌّ منها بعد",
+      "post it to your accounts yet, and what is missing is approval rather than code. The scheduling is built, and so is the sending: YouTube, TikTok, Instagram Reels and Facebook Pages each have a working uploader here. Every one of those platforms reviews an app before it will let it post on somebody's behalf, and none of those reviews has finished",
+      "أنشرها على حساباتك بعد، والناقص اعتماد لا كود. الجدولة مبنيّة والإرسال كذلك: ليوتيوب وتيك توك وريلز إنستغرام وصفحات فيسبوك رافعٌ يعمل هنا. وكل واحدة من هذه المنصّات تراجع التطبيق قبل أن تسمح له بالنشر نيابةً عن أحد، ولم تنتهِ أيّ مراجعة منها بعد",
     ),
   },
 ];
