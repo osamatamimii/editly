@@ -193,6 +193,20 @@ export const PROCESSORS: readonly Processor[] = [
     },
     always: false,
   },
+  {
+    name: "Resend",
+    hosts: ["resend.com"],
+    role: "infrastructure",
+    sends: {
+      en: "your email address, and the message being sent to it",
+      ar: "بريدك، والرسالة المُرسَلة إليه",
+    },
+    because: {
+      en: "it delivers the account emails this product sends: a payment that failed, a plan that changed, a limit you reached",
+      ar: "توصّل رسائل الحساب التي يرسلها هذا المنتج: دفعة فشلت، أو خطّة تغيّرت، أو حدّ بلغته",
+    },
+    always: true,
+  },
 ];
 
 /** Everything that receives something on an ordinary render, with no choices made. */

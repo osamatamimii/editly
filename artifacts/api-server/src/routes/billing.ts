@@ -19,6 +19,7 @@ import { eq } from "drizzle-orm";
 import { db, subscriptionsTable } from "@workspace/db";
 import { currentUserId } from "../middlewares/auth";
 import { checkoutConfig, freemiusConfigured, planFromEvent, verifySignature } from "../lib/freemius";
+import { paymentFailed, planChanged, send } from "../lib/mail";
 import { planKeyFrom } from "../lib/plan-limits";
 import { decideApply, eventIdFor, eventTimeFrom } from "../lib/billing-ledger";
 import { createHash } from "node:crypto";
@@ -153,6 +154,33 @@ billingWebhookRouter.post(
 
     await setPlan(userId, decision.plan, licenseId, eventAt);
     await closeEvent(eventId, userId, "applied");
+
+    /*
+      And tell them, which nothing in this product could do until now.
+
+      Keyed on the event id rather than on the plan, so a redelivery — which
+      Freemius does, and which this handler is built to absorb — finds the row
+      already claimed and sends nothing. A second identical email about somebody
+      else's money is worse than the silence it replaces.
+
+      A declined card gets its own letter, because it is the only one of these
+      that is a thing the person has to *do* something about, and it is the one
+      the product loses a subscription to by staying quiet.
+
+      Awaited, and it cannot fail this request: `send` returns an outcome for
+      every path including a provider that is down. The payment has already been
+      applied above and a webhook that answered 500 because an email did not go
+      would be retried, and the retry would apply nothing and send nothing.
+    */
+    const letter = type === "payment.failed" ? paymentFailed() : planChanged(decision.plan);
+    await send({
+      userId,
+      to: email,
+      kind: "account",
+      event: type === "payment.failed" ? "payment-failed" : "plan-changed",
+      reference: eventId,
+      letter,
+    });
     req.log?.info({ userId, plan: decision.plan, reason: decision.reason, eventId }, "billing event applied");
     res.status(200).json({ ok: true });
   },

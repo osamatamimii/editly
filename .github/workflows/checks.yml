@@ -231,6 +231,11 @@ jobs:
       - run: node tools/comprehend-test.mjs
       - run: node tools/reference-test.mjs
       - run: node tools/billing-test.mjs
+      # Beside billing, because the webhook is the one place that sends today.
+      # Its real question is whether a message can go out twice: a redelivered
+      # event is the ordinary case for that endpoint, and an email cannot be
+      # taken back.
+      - run: node tools/mail-test.mjs
       - run: node tools/models-test.mjs
       - run: node tools/meter-test.mjs
       - run: node tools/style-test.mjs
