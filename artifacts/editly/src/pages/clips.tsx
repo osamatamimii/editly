@@ -18,7 +18,7 @@ import { BackButton } from "@/components/back-button";
 import { LoadFailed } from "@/components/load-failed";
 import { ProjectArt } from "@/components/project-art";
 import { apiJson } from "@/lib/api-fetch";
-import { usePlayableVideo, signedVideoUrl } from "@/lib/video-storage";
+import { usePlayableVideo, downloadableVideoUrl } from "@/lib/video-storage";
 
 interface LibraryClip {
   id: string;
@@ -51,11 +51,18 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
       // Signed here rather than held in state: a URL minted when the page
       // loaded has expired by the time somebody scrolls to the bottom of a
       // long library and presses it.
-      const signed = await signedVideoUrl(clip.outputPath);
+      //
+      // And signed *for saving*: `<a download>` is ignored across origins, and
+      // the file is on Supabase while the page is on ours. Without the name in
+      // the signature the browser played the clip in a tab instead of keeping
+      // it, which on a phone is a full-screen video and no way back to the
+      // library.
+      const filename = `${(clip.title ?? "clip").replace(/\s+/g, "-").toLowerCase()}.mp4`;
+      const signed = await downloadableVideoUrl(clip.outputPath, filename);
       if (!signed) return;
       const link = document.createElement("a");
       link.href = signed;
-      link.download = `${(clip.title ?? "clip").replace(/\s+/g, "-").toLowerCase()}.mp4`;
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

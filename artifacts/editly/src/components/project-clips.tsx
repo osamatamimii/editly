@@ -17,7 +17,7 @@ import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useListClips, getListClipsQueryKey, type Clip } from "@workspace/api-client-react";
 import { PROJECT_CLIPS_LIMIT } from "@workspace/api-zod/limits";
-import { usePlayableVideo, signedVideoUrl } from "@/lib/video-storage";
+import { usePlayableVideo, signedVideoUrl, downloadableVideoUrl } from "@/lib/video-storage";
 import { supabase } from "@/lib/supabase";
 
 export { getListClipsQueryKey };
@@ -67,8 +67,24 @@ function ClipRow({
   }, [clip.thumbnailPath]);
 
   async function download(): Promise<void> {
-    const signed = await signedVideoUrl(clip.outputPath);
-    if (signed) window.open(signed, "_blank");
+    /*
+      Signed to be saved, and opened as a link rather than a new window.
+
+      `window.open` on a video URL that Storage serves as `inline` is a tab
+      playing the clip, which on a phone is full screen with no filename and
+      no obvious way to keep it — and popup blockers eat it after an `await`,
+      because by then it is not a click any more. Asking Storage for
+      `attachment` at signing time makes the same press a saved file.
+    */
+    const filename = `clip-${clip.idx}.mp4`;
+    const signed = await downloadableVideoUrl(clip.outputPath, filename);
+    if (!signed) return;
+    const link = document.createElement("a");
+    link.href = signed;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   return (

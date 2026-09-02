@@ -164,6 +164,15 @@ const storage = {
    * the wrong reason.
    */
   dropChunks: 0,
+  /**
+   * Answer the next PATCH with this status instead of accepting it.
+   *
+   * Separate from `dropChunks` because the two are opposite cases for the
+   * retry loop: a dropped socket is worth another attempt, and a 400 is an
+   * answer. A retry loop that cannot tell them apart spends half a minute
+   * asking the same question.
+   */
+  failPatchWith: null,
   /** Hold each PATCH open this long before answering, so a cancel has a moment
    *  to land. Localhost is otherwise faster than any human. */
   chunkDelayMs: 0,
@@ -175,6 +184,7 @@ const storage = {
     this.forgetUploads = false;
     this.claimOffset = null;
     this.dropChunks = 0;
+    this.failPatchWith = null;
     this.chunkDelayMs = 0;
   },
 };
@@ -337,6 +347,12 @@ const server = http.createServer(async (req, res) => {
       if (storage.dropChunks > 0) {
         storage.dropChunks -= 1;
         return req.socket.destroy();
+      }
+      if (storage.failPatchWith) {
+        const status = storage.failPatchWith;
+        storage.failPatchWith = null;
+        await readBody(req);
+        return res.writeHead(status).end();
       }
       const { bytes: received, complete } = await readBody(req);
       if (!complete) return;
@@ -628,15 +644,122 @@ section("Cancelling stops the transfer and says so");
   check("the whole file did not go up anyway", patched < 12 * 1024 * 1024, String(patched));
 }
 
-section("A dropped connection is an error the person can act on");
+section("A dropped connection costs a chunk, not the upload");
 {
+  /*
+    This section used to assert the opposite, and it was right about the
+    product at the time.
+
+    The transfer loop was `while (offset < size) offset = await sendChunk(...)`
+    with no `try` anywhere near it. One `xhr.onerror` — a phone changing cell,
+    a lift, a laptop waking, Storage answering 503 for a second — rejected out
+    of the whole function into the caller's catch, which shows "Upload failed"
+    and offers nothing. On a two-hour podcast episode that is two hours.
+
+    What made it worse than an oversight is that everything needed to survive
+    it was already in this file and unused. The upload URL is in localStorage,
+    the server can be asked where it got to, and every byte already sent is
+    still there. All of it was consulted only if somebody thought to reload the
+    page and choose the same file again.
+
+    So the retry happens where the failure does, and the check is the plain
+    consequence: four dropped connections mid-transfer, and the file arrives.
+  */
   storage.reset();
   storage.dropChunks = 4;
   await run(() => localStorage.clear());
+
+  const result = await run(async () => {
+    try {
+      const path = await window.VS.uploadProjectVideo({
+        file: new File([new Uint8Array(7 * 1024 * 1024)], "flaky.mp4", { type: "video/mp4" }),
+        projectId: "p",
+        accessToken: "t",
+      }).done;
+      return { ok: true, path };
+    } catch (error) {
+      return { ok: false, message: String(error.message) };
+    }
+  });
+
+  check("the upload finishes anyway", result.ok === true, JSON.stringify(result));
+  check("and returns the key the ticket named", result.path === "u/p/source.mp4", String(result.path));
+
+  const upload = [...storage.uploads.values()][0];
+  check("every byte arrived", upload?.offset === 7 * 1024 * 1024, String(upload?.offset));
+
+  /*
+    And arrived once.
+
+    The offset is re-read from the server after a failure rather than assumed,
+    because a chunk can fail *after* it was written. Resending from the
+    client's own idea of where it was would either duplicate bytes or leave a
+    hole, and a file with either is a video that plays for a while and then
+    does not — which nothing here would have reported.
+  */
+  const sent = (upload?.patches ?? []).reduce((total, patch) => total + patch.bytes, 0);
+  check(
+    "and nothing was sent twice",
+    sent === 7 * 1024 * 1024,
+    `${sent} bytes across ${(upload?.patches ?? []).length} accepted patches`,
+  );
+
+  const left = await run(() => Object.keys(localStorage).filter((k) => k.startsWith("editly:upload:")));
+  check("with nothing left in the browser to resume", left.length === 0, JSON.stringify(left));
+}
+
+section("An answer is not a blip, and is not retried");
+{
+  /*
+    The other half of the same judgement, and the reason it is a judgement.
+
+    A dropped socket says nothing about whether the upload can finish. A 400
+    says it cannot, and asking again gets the same reply more slowly while
+    somebody watches a bar that has stopped. A retry loop that cannot tell them
+    apart is a loop that turns every real refusal into half a minute of false
+    hope.
+  */
+  storage.reset();
+  storage.failPatchWith = 400;
+  await run(() => localStorage.clear());
+
+  const started = Date.now();
   const result = await run(async () => {
     try {
       await window.VS.uploadProjectVideo({
-        file: new File([new Uint8Array(7 * 1024 * 1024)], "flaky.mp4", { type: "video/mp4" }),
+        file: new File([new Uint8Array(7 * 1024 * 1024)], "refused.mp4", { type: "video/mp4" }),
+        projectId: "p",
+        accessToken: "t",
+      }).done;
+      return { rejected: false };
+    } catch (error) {
+      return { rejected: true, message: String(error.message) };
+    }
+  });
+  const took = Date.now() - started;
+
+  check("it fails", result.rejected === true, JSON.stringify(result));
+  check("naming the status the server gave", /400/.test(result.message ?? ""), result.message);
+  check("and does not sit through a backoff first", took < 3000, `${took}ms`);
+  await run(() => localStorage.clear());
+}
+
+section("A network that never comes back is still reported, with the resume kept");
+{
+  /*
+    The budget has to end somewhere. Past it the person is told, in the same
+    words as before — and the upload URL stays in localStorage, so choosing the
+    same file again resumes from where the server got to rather than starting a
+    two-hour transfer over.
+  */
+  storage.reset();
+  storage.dropChunks = 40;
+  await run(() => localStorage.clear());
+
+  const result = await run(async () => {
+    try {
+      await window.VS.uploadProjectVideo({
+        file: new File([new Uint8Array(7 * 1024 * 1024)], "gone.mp4", { type: "video/mp4" }),
         projectId: "p",
         accessToken: "t",
       }).done;
@@ -2462,6 +2585,96 @@ section("Every field that carries the person's words declares its direction");
 // the page does not exist. A typo in a string is not a type error and no test
 // that renders one page can see it, so the check is the whole set at once:
 // every internal path the app navigates to, against every path App.tsx routes.
+
+section("A download saves the file rather than playing it");
+{
+  /*
+    `<a download="name.mp4">` is ignored when the href is cross-origin, and
+    every video URL in this product is cross-origin: the file is on
+    `<project>.supabase.co` and the page is on `app.editlyai.io`. So the
+    attribute was decoration. The browser followed the link, Storage answered
+    `Content-Disposition: inline`, and the tab played the video — on a phone,
+    full screen, with the filename gone and no obvious way to keep it.
+
+    Nothing failed. The button worked, the file was correct, and the person was
+    looking at their finished video wondering where it had been saved. On a
+    product whose entire output is a file somebody takes elsewhere, that is the
+    last step of every successful session.
+
+    Storage sends `attachment` and a name if it is asked at signing time, which
+    is the only moment it can be asked, because the disposition is inside the
+    signature. So the rule is: anything that hands a person a video signs it
+    for saving, and nothing reaches for the playable URL to do it.
+  */
+  const { readFileSync, readdirSync, statSync } = await import("node:fs");
+  const srcDir = path.join(repoRoot, "artifacts/editly/src");
+  const storageLib = readFileSync(path.join(srcDir, "lib/video-storage.ts"), "utf8");
+
+  check(
+    "there is a way to sign a URL for saving",
+    /export async function downloadableVideoUrl/.test(storageLib),
+  );
+  check(
+    "which asks Storage for the disposition, since the browser's attribute cannot",
+    /createSignedUrl\(path, expiresInSeconds, \{ download: filename \}\)/.test(storageLib),
+    "download: is what turns inline into attachment",
+  );
+
+  // Every place that sets `download` on an anchor has to have signed it that
+  // way. `window.open` is not in the trigger because this app also opens the
+  // billing portal and the checkout with it, and neither is a video.
+  const files = [];
+  (function walk(dir) {
+    for (const name of readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(name)) files.push(full);
+    }
+  })(srcDir);
+
+  const handing = [];
+  for (const file of files) {
+    if (file.endsWith("video-storage.ts")) continue;
+    const source = readFileSync(file, "utf8");
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    if (!/link\.download\s*=/.test(code)) continue;
+    if (!/downloadableVideoUrl\(/.test(code)) handing.push(path.relative(srcDir, file));
+  }
+  check(
+    "and every screen that hands over a video uses it",
+    handing.length === 0,
+    `${handing.join(", ")} builds a download from a URL signed for playing`,
+  );
+
+  /*
+    And nothing opens a signed video in a tab instead.
+
+    `window.open(signed)` after an `await` fails twice over: popup blockers
+    treat it as unsolicited because the click is over by then, and when it does
+    open it is a tab playing the file rather than a saved copy. The clip row in
+    the editor did exactly that.
+  */
+  const tabbed = [];
+  for (const file of files) {
+    const code = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    if (/window\.open\(\s*signed/.test(code)) tabbed.push(path.relative(srcDir, file));
+  }
+  check("and none of them opens the video in a tab instead", tabbed.length === 0, tabbed.join(", "));
+
+  // The export screen is the one that matters most, and it is the one where
+  // the fallback has to be right: a video that opens in a tab is worse than
+  // one that saves and much better than a button that does nothing.
+  const exportPage = readFileSync(path.join(srcDir, "pages/export.tsx"), "utf8");
+  check(
+    "the export screen falls back to the playable URL rather than to nothing",
+    /link\.href = signed \?\? exportedUrl;/.test(exportPage),
+  );
+  check(
+    "and says it is working while the signature is fetched",
+    /isPreparingDownload/.test(exportPage),
+    "a button that does nothing for a second reads as a button that does nothing",
+  );
+}
 
 section("Every internal link lands on a route this app declares");
 {

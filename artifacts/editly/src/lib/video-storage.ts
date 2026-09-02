@@ -82,6 +82,48 @@ export function uploadCeiling(subscription?: { maxUploadBytes?: number } | null)
  */
 const CHUNK_BYTES = 6 * 1024 * 1024;
 
+/**
+ * How many times one position in the file may fail before the upload gives up.
+ *
+ * Per offset rather than per upload. Five failures at the same byte is a wall
+ * worth reporting; five spread over a four-hour upload from a train is an
+ * ordinary journey, and counting them together would end the second one for
+ * the sins of the first.
+ */
+const CHUNK_ATTEMPTS = 5;
+
+/** First wait between attempts, doubling from here. */
+const RETRY_BASE_MS = 800;
+
+/** And the ceiling, so the fifth attempt is not four minutes away. */
+const RETRY_CAP_MS = 8_000;
+
+/**
+ * Which failures are worth another attempt.
+ *
+ * 408, 429 and anything 5xx are the server or the road between; 409 and 460 are
+ * tus saying our offset disagrees with its own, which is precisely what
+ * re-reading the offset fixes. A 400 or a 413 is an answer, and asking again
+ * gets the same one more slowly while somebody watches a bar that is not
+ * moving.
+ *
+ * Status 0 is the interesting one: XHR reports it for a request that never got
+ * an answer at all, which is the dropped connection this whole loop exists for.
+ */
+function worthAnotherGo(status: number): boolean {
+  if (status === 0) return true;
+  if (status === 408 || status === 409 || status === 429 || status === 460) return true;
+  return status >= 500;
+}
+
+/** Doubling, capped, with a little jitter so a thousand phones do not return together. */
+function backoffMs(attempt: number): number {
+  const doubled = Math.min(RETRY_CAP_MS, RETRY_BASE_MS * 2 ** (attempt - 1));
+  return doubled / 2 + Math.random() * (doubled / 2);
+}
+
+const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 export const ACCEPTED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
 
 /*
@@ -102,7 +144,22 @@ function extensionFor(file: File): string {
   return "mp4";
 }
 
-export class UploadError extends Error {}
+export class UploadError extends Error {
+  /**
+   * Whether trying the same thing again could plausibly work.
+   *
+   * A dropped connection, a 500 from Storage, a rate limit: all worth another
+   * attempt. A cancellation, a 400, a 413: trying again produces the same
+   * answer, more slowly, while the person watches. Undefined means "nobody has
+   * decided", which the retry loop treats as "do not".
+   */
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable = false) {
+    super(message);
+    this.retryable = retryable;
+  }
+}
 
 /**
  * The name we tell the server, which always carries an extension.
@@ -668,11 +725,15 @@ function sendResumably(options: TransferOptions, how: ResumableTransfer): Promis
           const next = Number(xhr.getResponseHeader("upload-offset"));
           resolve(Number.isFinite(next) ? next : offset + chunk.size);
         } else {
-          reject(new UploadError(`Upload failed (${xhr.status})`));
+          reject(new UploadError(`Upload failed (${xhr.status})`, worthAnotherGo(xhr.status)));
         }
       };
-      xhr.onerror = () => reject(new UploadError("Network error during upload."));
-      xhr.onabort = () => reject(new UploadError("Upload cancelled."));
+      // A dropped connection is the case this whole retry exists for: it is
+      // what a phone does when it changes cell, and it says nothing about
+      // whether the upload can finish.
+      xhr.onerror = () => reject(new UploadError("Network error during upload.", true));
+      // Cancellation is a decision, not a fault. Retrying it would be arguing.
+      xhr.onabort = () => reject(new UploadError("Upload cancelled.", false));
       xhr.send(chunk);
     });
   }
@@ -700,9 +761,50 @@ function sendResumably(options: TransferOptions, how: ResumableTransfer): Promis
 
     report(offset);
 
+    /*
+      A lost packet no longer costs a two-hour upload.
+
+      This loop had no `try`. One `xhr.onerror` — a phone changing cell, a lift,
+      a laptop waking up, Storage answering 503 for a second — rejected out of
+      the whole function and into the caller's catch, which shows "Upload
+      failed" and offers nothing. And the machinery to survive exactly that was
+      already right here and unused: the upload URL is in localStorage, the
+      server can be asked where it got to, and every byte already sent is still
+      on the server. It was only ever consulted when somebody thought to reload
+      the page and start the same file again.
+
+      So the retry happens where the failure does. The offset is re-read from
+      the server rather than assumed, because a chunk can fail after it was
+      written, and resending from our own idea of the offset would either
+      duplicate bytes or leave a hole.
+
+      The budget is per position, not per upload: five failures at the same
+      offset is a wall, but five spread across a four-hour upload on a train is
+      an ordinary journey, and the second one must not be counted against the
+      first.
+    */
+    let attempts = 0;
     while (offset < body.size) {
       if (isCancelled?.()) throw new UploadError("Upload cancelled.");
-      offset = await sendChunk(url, offset);
+      try {
+        offset = await sendChunk(url, offset);
+        attempts = 0;
+      } catch (error) {
+        const retryable = error instanceof UploadError && error.retryable;
+        if (!retryable || ++attempts > CHUNK_ATTEMPTS) throw error;
+        if (isCancelled?.()) throw new UploadError("Upload cancelled.");
+
+        await pause(backoffMs(attempts));
+        if (isCancelled?.()) throw new UploadError("Upload cancelled.");
+
+        // Where the server actually got to, which is not always where we
+        // thought. A null means it has forgotten the upload entirely, and
+        // there is nothing left to resume onto.
+        const server = await offsetOf(url);
+        if (server === null) throw error;
+        offset = server;
+        report(offset);
+      }
     }
 
     localStorage.removeItem(memory);
@@ -736,6 +838,36 @@ export async function signedVideoUrl(path: string, expiresInSeconds = 3600): Pro
   const { data, error } = await supabase.storage
     .from(VIDEOS_BUCKET)
     .createSignedUrl(path, expiresInSeconds);
+  if (error) return null;
+  return data?.signedUrl ?? null;
+}
+
+/**
+ * The same object, signed so the browser saves it instead of playing it.
+ *
+ * `<a download="name.mp4">` is ignored for a cross-origin href, and every URL
+ * this product hands a browser is cross-origin: the file is on
+ * `<project>.supabase.co`, the page is on `app.editlyai.io`. So the attribute
+ * was decoration. The browser followed the link, Storage answered
+ * `Content-Disposition: inline`, and the tab played the video — on a phone,
+ * full screen, with no obvious way to keep it and the filename gone.
+ *
+ * Nothing failed. The button worked, the file was correct, and the person was
+ * looking at their finished video wondering where it had been saved.
+ *
+ * Storage will send `attachment` and a filename if it is asked at signing
+ * time, which is the only place that decision can be made, because it is baked
+ * into the signature. So the download is signed separately from the one the
+ * player uses, at the moment somebody presses the button.
+ */
+export async function downloadableVideoUrl(
+  path: string,
+  filename: string,
+  expiresInSeconds = 3600,
+): Promise<string | null> {
+  const { data, error } = await supabase.storage
+    .from(VIDEOS_BUCKET)
+    .createSignedUrl(path, expiresInSeconds, { download: filename });
   if (error) return null;
   return data?.signedUrl ?? null;
 }

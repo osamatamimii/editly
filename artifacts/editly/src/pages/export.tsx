@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronLeft, Download, Smartphone, PlaySquare, CheckCircle2, Loader2, AlertCircle, VideoOff } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { useToast } from "@/hooks/use-toast";
-import { usePlayableVideo } from "@/lib/video-storage";
+import { usePlayableVideo, downloadableVideoUrl } from "@/lib/video-storage";
 import { loadState, isNotFound } from "@/lib/load-state";
 import { LoadFailed } from "@/components/load-failed";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -117,6 +117,11 @@ export default function ExportPage() {
   // preview fell through to `videoPath`: the original upload, offered for
   // download under a card saying the edit was ready.
   const { url: exportedUrl, previewUrl: exportedPreviewUrl, isResolving: exportedResolving } = usePlayableVideo(exportStatus?.outputPath ?? null);
+
+  /* The download is signed on the press rather than kept alongside the playable
+     one, because the two are different signatures and only one of them is used.
+     It is a round trip, so the button says it is doing something. */
+  const [isPreparingDownload, setIsPreparingDownload] = useState(false);
 
   /**
    * The pair actually on screen. The download button below deliberately keeps
@@ -526,12 +531,40 @@ export default function ExportPage() {
                   // back under a button marked "Download Video" is worse than
                   // a button that is briefly unavailable, because they will not
                   // find out until they have posted it.
-                  disabled={!exportedUrl}
-                  onClick={() => {
+                  disabled={!exportedUrl || isPreparingDownload}
+                  onClick={async () => {
                     if (!exportedUrl) return;
+                    const filename = `${project.title.replace(/\s+/g, '-').toLowerCase()}-${platform}.mp4`;
+
+                    /*
+                      Signed for saving, not for playing.
+
+                      `<a download>` is ignored for a cross-origin href, and
+                      every URL here is cross-origin: the file is on Supabase,
+                      the page is on our own domain. So the attribute was
+                      decoration. The browser followed the link, Storage
+                      answered `Content-Disposition: inline`, and the tab played
+                      the video — on a phone, full screen, with the filename
+                      gone and no obvious way to keep it. Nothing failed: the
+                      button worked, the file was right, and the person was
+                      looking at their finished video wondering where it had
+                      been saved.
+
+                      Storage will send `attachment` and the name if it is asked
+                      at signing time, which is the only moment that choice can
+                      be made, because it is inside the signature.
+                    */
+                    setIsPreparingDownload(true);
+                    const key = exportStatus?.outputPath;
+                    const signed = key ? await downloadableVideoUrl(key, filename) : null;
+                    setIsPreparingDownload(false);
+
                     const link = document.createElement('a');
-                    link.href = exportedUrl;
-                    link.download = `${project.title.replace(/\s+/g, '-').toLowerCase()}-${platform}.mp4`;
+                    // The playable URL is the fallback rather than nothing: a
+                    // video that opens in a tab is worse than one that saves,
+                    // and much better than a button that does not work.
+                    link.href = signed ?? exportedUrl;
+                    link.download = filename;
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
@@ -544,7 +577,11 @@ export default function ExportPage() {
                   data-testid="button-download"
                 >
                   <Download className="w-5 h-5 mr-3" />
-                  {exportedUrl ? "Download Video" : "Preparing your file…"}
+                  {!exportedUrl
+                    ? "Preparing your file…"
+                    : isPreparingDownload
+                      ? "Getting it ready…"
+                      : "Download Video"}
                 </Button>
 
                 {(exportStatus?.notes?.length ?? 0) > 0 && (
