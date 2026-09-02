@@ -15,7 +15,7 @@
     "@workspace/mail": "workspace:*",
     "@workspace/object-store": "workspace:*",
     "drizzle-orm": "catalog:",
-    "pino": "^9",
+    "pino": "^10",
     "playwright-core": "^1.62.1"
   },
   "devDependencies": {
