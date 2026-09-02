@@ -573,6 +573,56 @@ export default function Home() {
     };
   }, []);
 
+  /*
+    A hash in the URL has to be honoured by us, because the browser cannot.
+
+    Every upgrade path in the product points at `/#pricing`: the toast when a
+    render is refused for minutes, the badge on the dashboard, the plan row on
+    the account screen, the footer. All of them worked. None of them arrived.
+
+    The reason is that the browser looks for `#pricing` while the document is
+    still the empty shell Vite serves, before React has rendered a single
+    section, so there is nothing to scroll to and the attempt is not retried.
+    Then the app mounts and the person is at the top of a page whose pricing
+    section begins 6,179 pixels down, with no error anywhere and nothing to
+    suggest the link did not simply mean "the home page".
+
+    Two passes, and both are needed. The first is as soon as the section exists.
+    The second is half a second later, because the sections above it reveal on
+    scroll and the hero art loads late, so the first landing is against a
+    document that is still growing underneath it.
+
+    `scrollIntoView` rather than a computed offset: the section is the thing
+    somebody asked for, and letting the browser place it survives a header
+    changing height. Instantly when the person has asked for less motion.
+  */
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (!id) return;
+
+    const quiet = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const behavior: ScrollBehavior = quiet ? "auto" : "smooth";
+
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    const land = () => {
+      const target = document.getElementById(id);
+      if (!target) return false;
+      target.scrollIntoView({ behavior, block: "start" });
+      return true;
+    };
+
+    // A frame, so the first paint has happened and the section has a height.
+    const first = requestAnimationFrame(() => {
+      if (!land()) return;
+      settle = setTimeout(land, 500);
+    });
+
+    return () => {
+      cancelAnimationFrame(first);
+      if (settle) clearTimeout(settle);
+    };
+  }, []);
+
   return (
     /*
      * The landing page is light, whatever the app is set to.

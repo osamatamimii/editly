@@ -391,6 +391,47 @@ section("The page opens in Arabic, and it opens the right way round");
   await context.close();
 }
 
+section("Every upgrade link in the product lands on the plans, not at the top");
+{
+  /*
+    `/#pricing` is where the whole product sends anybody who hits a wall: the
+    toast when a render is refused for minutes, the dashboard's free-plan band,
+    the plan row on the account screen, the footer. Every one of those links
+    worked, and none of them arrived.
+
+    The browser looks for `#pricing` while the document is still the empty
+    shell Vite serves, before React has rendered a section, finds nothing, and
+    does not try again. The app then mounts and the person is at the top of a
+    page whose plans begin six thousand pixels down, with nothing anywhere
+    saying the link did not simply mean "the home page".
+
+    So the check is the only one that matters: after opening that URL, is the
+    pricing section on the screen.
+  */
+  const { context, page, errors } = await open("/#pricing");
+  check("it renders without throwing", errors.length === 0, errors.slice(0, 3).join(" | "));
+
+  const where = await page.evaluate(() => {
+    const el = document.getElementById("pricing");
+    return el ? { top: Math.round(el.getBoundingClientRect().top), height: window.innerHeight } : null;
+  });
+  check("the pricing section exists to be linked to", where !== null);
+  check(
+    "and opening the link puts it on the screen",
+    where !== null && where.top < where.height && where.top > -where.height,
+    `${where?.top}px from the top of a ${where?.height}px viewport`,
+  );
+
+  // And the plain page is unchanged: nobody who opened the home page normally
+  // gets thrown down it.
+  const plain = await open("/");
+  const scrolled = await plain.page.evaluate(() => window.scrollY);
+  check("while the home page with no hash still opens at the top", scrolled === 0, String(scrolled));
+
+  await context.close();
+  await plain.context.close();
+}
+
 section("A link can ask for English, and the page stays in it");
 {
   const { context, page, errors } = await open("/?lang=en");

@@ -313,9 +313,23 @@ export const LANDING = {
     switching: p("نحوّل…", "Switching…"),
     switchTo: p("انتقل إلى", "Switch to"),
     get: p("اشترك في", "Get"),
+    /*
+      Under the paid cards, so it says what a paid card actually does.
+
+      It used to read "no credit card required" here, three centimetres above
+      three buttons that open a Freemius checkout with `trial=paid` on the URL,
+      which in their vocabulary means seven days with a card taken up front.
+      `lib/checkout.ts` says so in its own comment. So somebody read "no card",
+      pressed "Get Pro", and was asked for a card on the next screen. Nothing in
+      this product failed. The sentence was simply about the free plan and
+      printed under the paid ones.
+
+      The free plan genuinely needs no card, and that half is kept and put where
+      it is true. The paid half now says the thing a person is about to meet.
+    */
     footnote: p(
-      "بلا بطاقة · ألغِ متى شئت · كل الخطط فيها 7 أيام تجربة مجانية",
-      "No credit card required · Cancel anytime · All plans include a 7-day free trial",
+      "المجاني بلا بطاقة · المدفوع: 7 أيام تجربة والبطاقة مطلوبة · ألغِ متى شئت",
+      "Free needs no card · Paid plans: 7-day trial, card required · Cancel anytime",
     ),
   },
 

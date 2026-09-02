@@ -49,7 +49,7 @@ import {
   captureFrameFrom,
   uploadThumbnail,
 } from "@/lib/video-storage";
-import { ToastAction } from "@/components/ui/toast";
+import { refusalToast } from "@/lib/refusal";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ProjectLibrary } from "@/components/project-library";
 import { ProjectClips, getListClipsQueryKey } from "@/components/project-clips";
@@ -815,24 +815,8 @@ export default function ProjectEditor() {
         description: "Your next render will be edited to match it.",
       });
     } catch (error: unknown) {
-      const status = (error as { status?: number })?.status;
-      toast({
-        // 402 is the plan speaking, and it has already written the sentence.
-        title: status === 402 ? "That's a paid feature" : "Could not attach that reference",
-        description:
-          (error as { data?: { error?: string } })?.data?.error ??
-          (error instanceof Error ? error.message : undefined),
-        variant: "destructive",
-        ...(status === 402
-          ? {
-              action: (
-                <ToastAction altText="See plans" onClick={() => { window.location.href = "/#pricing"; }}>
-                  See plans
-                </ToastAction>
-              ),
-            }
-          : {}),
-      });
+      // 402 is the plan speaking, and it has already written the sentence.
+      toast(refusalToast(error, "Could not attach that reference"));
     } finally {
       setIsAttachingReference(false);
     }
@@ -859,35 +843,11 @@ export default function ProjectEditor() {
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
       toast({ title: "Render queued", description: "You can leave this page. We'll keep working." });
     } catch (error: unknown) {
-      const status = (error as { status?: number })?.status;
-      const said = (error as { data?: { error?: string } })?.data?.error;
       // 429 and 413 are policy, not failure: the server has already written a
       // sentence naming the minutes or the length and what to do about it, so
-      // it is shown as-is rather than replaced with a generic apology. This is
-      // also the one place an upgrade button belongs — it used to sit on a
-      // dead branch for a limit that does not exist.
-      const isPolicy = status === 429 || status === 413;
-      toast({
-        title:
-          status === 409
-            ? "Already rendering"
-            : status === 429
-              ? "Not enough minutes left"
-              : status === 413
-                ? "That file is too long for this plan"
-                : "Could not start the render",
-        description: status === 409 ? "This project has a render in progress." : said,
-        variant: "destructive",
-        ...(isPolicy
-          ? {
-              action: (
-                <ToastAction altText="See plans" onClick={() => { window.location.href = "/#pricing"; }}>
-                  See plans
-                </ToastAction>
-              ),
-            }
-          : {}),
-      });
+      // it is shown as-is rather than replaced with a generic apology, and it
+      // gets the button that leads somewhere.
+      toast(refusalToast(error, "Could not start the render"));
     }
   };
 
@@ -915,15 +875,45 @@ export default function ProjectEditor() {
         description: "You can leave this page. We'll keep working."
       });
     } catch (error: unknown) {
-      const status = (error as { status?: number })?.status;
-      toast({
-        title: status === 409 ? "Already rendering" : "Could not start the render",
-        description:
-          status === 409
-            ? "This project has a render in progress."
-            : (error as { data?: { error?: string } })?.data?.error,
-        variant: "destructive"
-      });
+      /*
+        The same refusal as every other start, which it was not.
+
+        This is the large button in the middle of the editor, and it knew only
+        409. So a render refused for minutes answered "Could not start the
+        render" above the server's own sentence about the plan, with no way up:
+        a paywall dressed as an outage, on the button most people press.
+      */
+      toast(refusalToast(error, "Could not start the render"));
+    }
+  };
+
+  /**
+   * Run the render that failed, again, exactly as it was.
+   *
+   * A failed render was a dead end: "That render didn't finish", the worker's
+   * sentence underneath, and nothing to press. The next move was to work out
+   * for yourself that the main button would do it again, which is a thing a
+   * person who has just lost twenty minutes should not have to deduce.
+   *
+   * `renderJob.plan` is the plan the worker was actually given, with a template
+   * already resolved into it by the server, so this repeats *that* render and
+   * not whatever the editor happens to be showing now. Pressing it after
+   * changing the conversation would otherwise quietly run something else.
+   *
+   * Most render failures are worth retrying: a worker that was restarted
+   * mid-job, a transient read from storage, an ffmpeg that ran out of memory on
+   * a machine that has since been replaced. The ones that are not will fail the
+   * same way and say the same thing, which is information too.
+   */
+  const handleRetryRender = async () => {
+    const plan = renderJob?.plan;
+    if (!plan) return;
+    try {
+      await startRender.mutateAsync({ id, plan });
+      queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
+      toast({ title: "Render queued", description: "You can leave this page. We'll keep working." });
+    } catch (error: unknown) {
+      toast(refusalToast(error, "Could not start the render"));
     }
   };
 
@@ -2050,6 +2040,18 @@ export default function ProjectEditor() {
                           <p className="text-xs text-muted-foreground" data-testid="text-render-error">
                             {renderJob.error ?? "Something went wrong on our side."}
                           </p>
+                          {/* The way out. Without it this panel is a full stop:
+                              the sentence, and nothing to press. */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-3"
+                            data-testid="button-retry-render"
+                            disabled={startRender.isPending}
+                            onClick={handleRetryRender}
+                          >
+                            {startRender.isPending ? "Starting…" : "Try that render again"}
+                          </Button>
                         </>
                       ) : (
                         <>

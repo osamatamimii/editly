@@ -1844,6 +1844,64 @@ section("A render that finished is a project that changed");
   );
 }
 
+section("A wall is a wall on every button, and a failure is not a dead end");
+{
+  /*
+    Three places in the editor start work the plan can refuse, and they had
+    three copies of the same `catch` that had drifted apart.
+
+    The two side paths — attaching a reference, applying a template — knew that
+    402, 413 and 429 are the plan speaking, and put a "See plans" button on the
+    toast. The main button in the middle of the screen, the one most people
+    press, knew only 409. So the server answered "you have 3 minutes left and
+    this edit needs 11", already translated, and the editor printed "Could not
+    start the render" over it with nothing to press: a paywall dressed as an
+    outage, on the busiest button in the product.
+
+    All three go through one function now, so a status that grows a button
+    grows it everywhere at once.
+  */
+  const editor = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/project-editor.tsx"), "utf8");
+  const refusal = readFileSync(path.join(repoRoot, "artifacts/editly/src/lib/refusal.tsx"), "utf8");
+
+  check("there is one place that turns a refusal into a toast", /export function refusalToast/.test(refusal));
+  check(
+    "and it knows every status that means the plan rather than a fault",
+    /402/.test(refusal) && /413/.test(refusal) && /429/.test(refusal),
+  );
+  check("each of which offers the way up", /See plans/.test(refusal) && /#pricing/.test(refusal));
+
+  const uses = (editor.match(/refusalToast\(/g) ?? []).length;
+  check("all three start paths use it", uses >= 3, `${uses} of 3`);
+  check(
+    "and none of them hand-rolls the branch any more",
+    !/status === 429[\s\S]{0,200}ToastAction/.test(editor) && !editor.includes('<ToastAction'),
+    "a second copy of the branch is how the first one drifted",
+  );
+
+  /*
+    And a render that failed is no longer a full stop.
+
+    "That render didn't finish", the worker's sentence, and nothing to press.
+    The next move was to work out that the main button would do it again, which
+    is a deduction to ask of somebody who has just lost twenty minutes.
+
+    It replays `renderJob.plan` — the plan the worker was actually handed, with
+    any template already resolved into it — rather than whatever the editor is
+    showing now, so pressing it after the conversation moved on cannot quietly
+    run a different render.
+  */
+  check("a failed render offers to run again", /button-retry-render/.test(editor));
+  check(
+    "and it repeats the plan that failed, not the one on screen now",
+    /const plan = renderJob\?\.plan;/.test(editor) && /startRender\.mutateAsync\(\{ id, plan \}\)/.test(editor),
+  );
+  check(
+    "with the refusal path of every other start",
+    /handleRetryRender[\s\S]{0,900}?refusalToast\(/.test(editor),
+  );
+}
+
 section("An export nobody on this tab started is still an export");
 {
   // `isExporting` is a local boolean that resets on every mount, and it gated

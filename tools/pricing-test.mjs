@@ -341,6 +341,62 @@ console.log("\nThe free plan is legible from inside the product");
   check("it offers a way up without demanding one", dashboard.includes("button-see-plans"));
 }
 
+// --- The sentence under the buttons ---------------------------------------
+//
+// The footnote sits below the paid cards and above nothing, which makes it the
+// last thing read before a button is pressed. It said "no credit card
+// required" while every one of those buttons opened a checkout with
+// `trial=paid` on the URL, which is Freemius for "seven days, card taken up
+// front". Nothing in the product failed. A person read a true sentence about
+// the free plan, printed under the paid ones, and met a card form.
+//
+// So the two are compared: if the checkout asks for a card, the sentence under
+// the buttons that open it may not say no card is needed.
+//
+// Each Arabic pattern carries an English gloss above it, because a right-to-left
+// literal inside a left-to-right expression reorders on screen and the next
+// person to read this file cannot otherwise tell what it matches.
+console.log("\nThe sentence under the paid buttons matches the checkout it opens");
+{
+  /** "no card", at the start of the sentence. */
+  const NO_CARD_AR = /^بلا بطاقة/;
+  /** "the free one". */
+  const FREE_AR = /المجاني/;
+  /** "card required". */
+  const CARD_REQUIRED_AR = /البطاقة مطلوبة/;
+
+  const checkout = await readFile(path.join(repoRoot, "artifacts/editly/src/lib/checkout.ts"), "utf8");
+  const copy = await readFile(path.join(repoRoot, "artifacts/editly/src/lib/landing-copy.ts"), "utf8");
+  const footnote = copy.match(/footnote:\s*p\(\s*"([^"]*)",\s*"([^"]*)"/);
+
+  check("there is a footnote to check", footnote !== null);
+  const arabic = footnote?.[1] ?? "";
+  const english = footnote?.[2] ?? "";
+
+  const cardRequired = /set\("trial",\s*"paid"\)/.test(checkout);
+  check("the checkout's trial mode is readable from the code", cardRequired, "trial=paid means a card is taken");
+
+  if (cardRequired) {
+    check(
+      "it does not open by saying a card is unnecessary, under buttons that ask for one",
+      !/^No credit card required/.test(english) && !NO_CARD_AR.test(arabic),
+      english,
+    );
+    check("it names the plan that promise belongs to", /free/i.test(english) && FREE_AR.test(arabic), english);
+    check(
+      "and it says what the paid buttons will actually ask for",
+      /card required/i.test(english) && CARD_REQUIRED_AR.test(arabic),
+      english,
+    );
+  }
+
+  // And the trial length is one number, not two. Seven on one side and
+  // fourteen on the other is a promise nobody here could keep.
+  const days = english.match(/(\d+)-day/)?.[1];
+  check("the trial length on the page is a number", Boolean(days), english);
+  check("and the Arabic says the same number", arabic.includes(days ?? " "), arabic);
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
