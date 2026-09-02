@@ -235,6 +235,14 @@ jobs:
       - run: node tools/meter-test.mjs
       - run: node tools/style-test.mjs
       - run: node tools/schema-test.mjs
+      # Beside the schema suite because it needs the same database, and after it
+      # because it is the question that one cannot ask: not "is the schema what
+      # the files say", but "if this database were gone, is what comes back one
+      # the product can read". It dumps, restores onto a scratch server, and
+      # then damages two restores on purpose so that the verifier is known to
+      # fail when it should. Skips itself with a sentence where there is no
+      # Postgres; never touches anything it did not create.
+      - run: node tools/restore-drill.mjs
       - run: node tools/queue-test.mjs
       # The wait a queued render reports. Runs its arithmetic everywhere and its
       # SQL where there is a database — a predicate that is subtly wrong passes

@@ -493,6 +493,22 @@ section("Every suite in tools/ is one CI actually runs");
     suiteSteps === suites.length,
     `${suiteSteps} steps for ${suites.length} suites`,
   );
+
+  /*
+    And the one thing in here that is not a suite and is easiest of all to lose.
+
+    `restore-drill.mjs` does not end in `-test.mjs`, so every rule above is
+    blind to it: it could be deleted from the workflow and nothing would say so.
+    Named explicitly rather than by widening the pattern, because widening it
+    would quietly turn "every suite runs" into "everything in tools/ runs" —
+    and `migrate.mjs`, `demo-capture.mjs` and `orb-view.mjs` are not things CI
+    should be running.
+  */
+  check(
+    "and the restore drill runs too, though it is not a suite",
+    /node tools\/restore-drill\.mjs/.test(checksWorkflow),
+    "a backup nobody has restored is a file, not a plan — and a drill nobody runs is neither",
+  );
 }
 
 section("CI has what the suites need");
