@@ -308,7 +308,7 @@ export async function applyRemovals(
     // alone cannot be reviewed — "1,412 objects" is not something anybody can
     // agree to, and twenty keys are.
     deps.log?.(
-      { ...result, sample: removals.slice(0, 20).map((r) => `${r.kind} ${r.key} — ${r.why}`) },
+      { ...result, sample: removals.slice(0, 20).map((r) => `${r.kind} ${r.key}: ${r.why}`) },
       "retention sweep, dry: nothing was deleted",
     );
     return result;

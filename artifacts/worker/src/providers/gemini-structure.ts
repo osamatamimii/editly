@@ -142,7 +142,7 @@ const INSTRUCTION = [
   "- chapters: where one part of the material ends and the next begins, covering the whole video in order, with a short title for each. Split on subject, not on pauses.",
   "- claims: statements the speaker asserted as true. Only real assertions, not asides.",
   "- questions: questions that were asked out loud, with answeredAtSeconds where an answer follows.",
-  "- peaks: the stretches somebody would stop scrolling for — a surprise, a punchline, a number, a reversal, the moment a point lands. strength is 0 to 1.",
+  "- peaks: the stretches somebody would stop scrolling for: a surprise, a punchline, a number, a reversal, the moment a point lands. strength is 0 to 1.",
   "- hook: the single line in this video that would make a stranger keep watching if it were first.",
   "",
   "Every quote must be copied from the transcript exactly, word for word, in the language it was spoken in.",

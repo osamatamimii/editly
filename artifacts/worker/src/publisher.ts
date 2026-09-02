@@ -298,9 +298,10 @@ export async function surfaceStrandedPosts(staleMinutes = 15): Promise<number> {
  * signing a URL is one call and no download, so the refusal arrives without a
  * finished render having been pulled down for it.
  */
-type Uploader =
+type Uploader = { sends?: boolean } & (
   | { takes: "file"; send: (a: FileUpload) => Promise<Published> }
-  | { takes: "url"; send: (a: UrlUpload) => Promise<Published> };
+  | { takes: "url"; send: (a: UrlUpload) => Promise<Published> }
+);
 
 interface FileUpload {
   file: string;
@@ -331,7 +332,19 @@ const UPLOADERS: Partial<Record<SocialPlatform, Uploader>> = {
   instagram: { takes: "url", send: publishToInstagram },
   facebook: { takes: "url", send: publishToFacebook },
   x: { takes: "file", send: publishToX },
-  snapchat: { takes: "url", send: publishToSnapchat },
+  /*
+    In the table, and not a sender.
+
+    `publishToSnapchat` refuses with the reason written in its own file: there
+    is no API in the shape the other five have, and the nearest one is
+    allowlist-only, needs an Organization, and reads rather than posts. It sits
+    here so the refusal can be *named*, which is the whole argument that file
+    makes — but it is not a destination this product can post to, and anything
+    counting what this product can post to has to be able to tell the
+    difference. `refusal-test` reads this flag; without it, the sentence the
+    product uses to decline posting is required to claim Snapchat as working.
+  */
+  snapchat: { takes: "url", send: publishToSnapchat, sends: false },
 };
 
 /**

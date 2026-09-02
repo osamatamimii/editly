@@ -288,8 +288,8 @@ const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
     patterns:
       /\b(post|publish|upload|share)\b[^.!?]{0,30}\b(instagram|insta|reels?|tiktok|facebook|snapchat|twitter|youtube|shorts?|on x)\b|\bschedule (it|this|them|the (post|clip|video))\b|\b(post|publish) (it|this|them) (for me|later|at|on|tomorrow|tonight)\b|(?:انشر|جدول)/i,
     label: say(
-      "post it to your accounts yet, and what is missing is approval rather than code. The scheduling is built, and so is the sending: YouTube, TikTok, Instagram Reels and Facebook Pages each have a working uploader here. Every one of those platforms reviews an app before it will let it post on somebody's behalf, and none of those reviews has finished",
-      "أنشرها على حساباتك بعد، والناقص اعتماد لا كود. الجدولة مبنيّة والإرسال كذلك: ليوتيوب وتيك توك وريلز إنستغرام وصفحات فيسبوك رافعٌ يعمل هنا. وكل واحدة من هذه المنصّات تراجع التطبيق قبل أن تسمح له بالنشر نيابةً عن أحد، ولم تنتهِ أيّ مراجعة منها بعد",
+      "post it to your accounts yet, and what is missing is approval rather than code. The scheduling is built, and so is the sending: YouTube, TikTok, Instagram Reels, Facebook Pages and X each have a working uploader here. Every one of those platforms reviews an app before it will let it post on somebody's behalf, and none of those reviews has finished",
+      "أنشرها على حساباتك بعد، والناقص اعتماد لا كود. الجدولة مبنيّة والإرسال كذلك: ليوتيوب وتيك توك وريلز إنستغرام وصفحات فيسبوك و‏X رافعٌ يعمل هنا. وكل واحدة من هذه المنصّات تراجع التطبيق قبل أن تسمح له بالنشر نيابةً عن أحد، ولم تنتهِ أيّ مراجعة منها بعد",
     ),
   },
 ];

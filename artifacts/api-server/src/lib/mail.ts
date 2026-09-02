@@ -188,8 +188,8 @@ function withUnsubscribe(body: string, token: string | null, language: MailLangu
   if (!token) return body;
   const link = `${(process.env["APP_ORIGIN"] ?? "https://app.editlyai.io").replace(/\/+$/, "")}/api/mail/unsubscribe/${token}`;
   return language === "ar"
-    ? `${body}\n\n—\nلإيقاف رسائل الأخبار: ${link}\nرسائل الحساب ستبقى تصلك.`
-    : `${body}\n\n—\nTo stop these updates: ${link}\nAccount messages will still reach you.`;
+    ? `${body}\n\n--\nلإيقاف رسائل الأخبار: ${link}\nرسائل الحساب ستبقى تصلك.`
+    : `${body}\n\n--\nTo stop these updates: ${link}\nAccount messages will still reach you.`;
 }
 
 /**

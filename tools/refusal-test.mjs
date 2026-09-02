@@ -266,7 +266,21 @@ const contractSource = readFileSync(path.join(repoRoot, "lib/api-zod/src/index.t
   reports zero, and zero looks like an answer.
 */
 const uploaderBlock = publisherSource.match(/UPLOADERS[^=]*=\s*\{([\s\S]*?)\n\};/)?.[1] ?? "";
-const canSendTo = [...uploaderBlock.matchAll(/^\s{2}([a-z]+):/gm)].map((m) => m[1]);
+const canSendTo = [...uploaderBlock.matchAll(/^\s{2}([a-z]+): \{([^}]*)\}/gm)]
+  /*
+    Minus the entries that are in the table to *name a refusal* rather than to
+    send. Snapchat is one: there is no API in the shape the other five have, so
+    `publishToSnapchat` refuses with the reason, and it sits in the map only so
+    that the refusal is specific rather than the generic "cannot send to this
+    yet" a platform nobody has looked at would get.
+
+    Without this distinction the two commits that landed together disagreed:
+    one added a named refusal to the map, the other required the product's own
+    posting sentence to claim every key in it as working. That is the check
+    demanding the product lie.
+  */
+  .filter((m) => !/sends:\s*false/.test(m[2]))
+  .map((m) => m[1]);
 
 const builtOperations = [...contractSource.matchAll(/type:\s*z\.literal\("([a-zA-Z]+)"\)/g)].map((m) => m[1]);
 const namedLooks = (contractSource.match(/GradeLook\s*=\s*z\.enum\(\[([^\]]*)\]\)/)?.[1] ?? "")
