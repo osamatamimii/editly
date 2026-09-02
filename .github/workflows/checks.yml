@@ -280,6 +280,13 @@ jobs:
       # everyone on the team who only reads it in the direction they use.
       - run: node tools/landing-test.mjs
       - run: node tools/worker-test.mjs
+      # Beside the worker because that is where it runs, and separate because
+      # of what it is: the only thing in this product that deletes. Its checks
+      # are asymmetric on purpose — that a cold preview goes is ordinary; that
+      # the master never can, that nothing ages from before the day the column
+      # started being written, and that the object is deleted before the row
+      # that names it, are the ones the thresholds were chosen for.
+      - run: node tools/retention-test.mjs
       - run: node tools/sfx-test.mjs
       # Last, because it is the whole product and the slowest thing here: a
       # phone-sized browser, a real take, one sentence, and a real render by the

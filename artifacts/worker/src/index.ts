@@ -30,6 +30,8 @@ import { resolveProviders } from "./providers";
 import { sayIn, type Language } from "./say";
 import { publishDuePosts, surfaceStrandedPosts } from "./publisher";
 import { prepareUploadedFaces, fetchUploadedFaces } from "./font-prepare";
+import { applyRemovals, chooseRemovals, retentionFrom, type SweepableClip, type SweepableProject } from "./sweep";
+import { objectStoreFrom } from "@workspace/object-store";
 
 const WORKER_ID = `${hostname()}-${randomUUID().slice(0, 8)}`;
 const POLL_INTERVAL_MS = Number(process.env["POLL_INTERVAL_MS"] ?? 5000);
@@ -1235,6 +1237,97 @@ async function prepareFonts(): Promise<void> {
   }
 }
 
+/*
+  How often the retention sweep looks, and why it is once an hour.
+
+  Nothing it removes is urgent. The windows are measured in weeks, so a file
+  that becomes eligible at 03:12 and goes at 04:00 is exactly as swept as one
+  that goes at 03:12 — and the cost of asking is a full scan of `projects` with
+  a join per project. Once an hour is the cheapest cadence that still finishes
+  the work of a day inside a day.
+*/
+const RETENTION_SWEEP_EVERY_MS = 60 * 60_000;
+let lastRetentionSweep = 0;
+const retention = retentionFrom();
+
+/**
+ * Files nobody has come back for, aged out.
+ *
+ * Wrapped like the post and font sweeps, for the same reason and one more: this
+ * is the only thing in the worker that *deletes*, and the only acceptable
+ * failure mode for it is doing nothing. So a query that will not run, a store
+ * that will not answer, a database that has gone away — all of them end here,
+ * in a log line, with the renders continuing.
+ *
+ * The floor is the point of the first query. `chooseRemovals` ages from the
+ * latest of `last_opened_at`, `updated_at` and the moment migration 0040 was
+ * applied — and if the ledger has no row for that file, this returns without
+ * choosing anything at all. A sweep that guessed a date instead would, on its
+ * first run against a database migrated some other way, decide that every
+ * project in it had been cold since its creation.
+ */
+async function sweepAgedFiles(): Promise<void> {
+  const now = Date.now();
+  if (retention.mode === "off") return;
+  if (now - lastRetentionSweep < RETENTION_SWEEP_EVERY_MS) return;
+  lastRetentionSweep = now;
+
+  try {
+    const { rows: floorRows } = await pool.query<{ applied_at: Date }>(
+      "SELECT applied_at FROM schema_migrations WHERE filename = '0040_last_opened.sql'",
+    );
+    const floor = floorRows[0]?.applied_at;
+    if (!floor) {
+      logger.warn(
+        "the retention sweep found no ledger row for migration 0040, so it has no floor to age from and did nothing",
+      );
+      return;
+    }
+
+    const { rows: projects } = await pool.query<SweepableProject & Record<string, unknown>>(
+      `SELECT p.id,
+              p.user_id                                    AS "userId",
+              p.edited_video_path                          AS "editedVideoPath",
+              p.video_path                                 AS "videoPath",
+              p.thumbnail_path                             AS "thumbnailPath",
+              p.last_opened_at                             AS "lastOpenedAt",
+              p.updated_at                                 AS "updatedAt",
+              (SELECT count(*)::int FROM jobs j WHERE j.project_id = p.id) AS renders
+         FROM projects p`,
+    );
+    const { rows: clips } = await pool.query<SweepableClip & Record<string, unknown>>(
+      `SELECT c.id, c.project_id AS "projectId", c.output_path AS "outputPath", c.thumbnail_path AS "thumbnailPath"
+         FROM clips c`,
+    );
+
+    const removals = chooseRemovals({
+      projects: projects as SweepableProject[],
+      clips: clips as SweepableClip[],
+      now: new Date(now),
+      floor,
+      config: retention,
+    });
+    if (removals.length === 0) return;
+
+    // Through the seam, never through an address built here. This is the first
+    // caller in the product that deletes, which makes it the first real test of
+    // whether `lib/object-store` is a seam or a decoration.
+    const store = objectStoreFrom();
+    await applyRemovals(removals, retention, {
+      remove: (keys) => store.remove(keys),
+      clearColumn: async (table, id, column) => {
+        // The identifiers here are the module's own literals, never anything
+        // that came out of a row — see `Removal.clear`, whose type admits two
+        // tables and two columns and nothing else.
+        await pool.query(`UPDATE ${table} SET ${column} = NULL WHERE id = $1`, [id]);
+      },
+      log: (fields, message) => logger.info(fields, message),
+    });
+  } catch (error) {
+    logger.error({ err: error }, "the retention sweep failed; renders continue");
+  }
+}
+
 async function main(): Promise<void> {
   await db.execute(sql`select 1`);
   // Names of models, never keys. If captions are missing in production, this
@@ -1244,6 +1337,11 @@ async function main(): Promise<void> {
       pollIntervalMs: POLL_INTERVAL_MS,
       transcription: providers.transcriber?.name ?? "unavailable",
       vision: providers.sceneReader?.name ?? "unavailable",
+      // Which mode the thing that deletes is in, on the line anybody reads
+      // first. `dry` is the default and the only safe one to ship with; a
+      // worker that is quietly in `on` is the thing this line exists to stop
+      // being a surprise.
+      retention: `${retention.mode} (previews ${retention.previewDays}d, unused sources ${retention.unusedSourceDays}d, thumbnails ${retention.thumbnailDays === 0 ? "never" : `${retention.thumbnailDays}d`})`,
       // Named here for the same reason as the other two: when the chapters on
       // a project look like a list of pauses rather than a list of subjects,
       // this line is the first place to look and it answers outright.
@@ -1275,6 +1373,11 @@ async function main(): Promise<void> {
       // render it would be twenty minutes, and they would have concluded it
       // was broken and uploaded it again.
       await prepareFonts();
+
+      // After the two sweeps people are waiting on and before claiming a
+      // render, because it is the opposite of both: nothing it does is urgent,
+      // and the one thing it must never do is delay something that is.
+      await sweepAgedFiles();
 
       const job = await claimJob();
       if (!job) {

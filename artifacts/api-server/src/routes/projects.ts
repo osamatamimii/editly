@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { eq, desc, gte, count, and, inArray } from "drizzle-orm";
+import { eq, desc, gte, count, and, inArray, sql } from "drizzle-orm";
 import { db, projectsTable, subscriptionsTable, jobsTable, messagesTable, exportsTable } from "@workspace/db";
 import {
   CreateProjectBody,
@@ -137,6 +137,27 @@ router.get("/projects/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Project not found" });
     return;
   }
+
+  /*
+    When they last opened it, which is the clock the retention sweep ages from.
+
+    This request *is* "somebody opened a project" — it is what the editor makes
+    when the page loads — so it is the only honest place to stamp it. Written
+    with raw SQL rather than through the query builder on purpose: the builder
+    would also move `updated_at`, and the whole reason `last_opened_at` exists
+    is that `updated_at` answers a different question. A project the worker
+    wrote a thumbnail onto last night has been touched; it has not been opened.
+
+    Not awaited. This is a read path a person is waiting on, and the stamp is
+    housekeeping — a slow write here would show up as a slow editor, and a
+    failed one must not turn a project someone can see into a 500. Losing a
+    stamp costs nothing: the sweep ages from the latest of this, `updated_at`
+    and the migration's own timestamp, so a missed write leaves a project
+    looking colder by one visit, and colder still means it waits.
+  */
+  void db
+    .execute(sql`update projects set last_opened_at = now() where id = ${project.id} and user_id = ${userId}`)
+    .catch(() => {});
 
   const stalled = await stalledProjectIds(userId, [project.id]);
   res.json(

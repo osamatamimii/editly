@@ -49,6 +49,17 @@ export const projectsTable = pgTable(
     editedWidth: integer("edited_width"),
     editedHeight: integer("edited_height"),
     platform: text("platform"),
+    /**
+     * When the person last opened this project.
+     *
+     * Deliberately not `updatedAt`, which moves whenever the *product* writes —
+     * a render finishing, a thumbnail being measured — and so answers a
+     * question about us. Ageing files out of storage needs the other question:
+     * when did they last care. Written by `GET /projects/:id`; read by the
+     * worker's retention sweep, which never trusts it alone. See migration
+     * 0040.
+     */
+    lastOpenedAt: timestamp("last_opened_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
   },

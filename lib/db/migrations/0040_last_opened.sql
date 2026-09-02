@@ -1,0 +1,51 @@
+-- When a project was last opened, which is the only honest clock for ageing.
+--
+-- Nothing in this product has ever aged out of storage. Files are deleted when
+-- a project, a clip or an account is deleted, and never otherwise: every
+-- master, every browser-playable preview, every poster frame, and every file
+-- somebody uploaded once and forgot, stays forever.
+--
+-- That quietly invalidates the arithmetic a large decision was made on. The
+-- storage-and-egress analysis that put "move to R2" at the top of the list
+-- assumed ageing would exist. Without it the curve is not "flat storage plus
+-- egress" — it is storage accumulating without a ceiling, and at a thousand
+-- active users the difference between the two providers is *larger* than the
+-- estimate, not smaller.
+--
+-- ## Why a column and not `updated_at`
+--
+-- `updated_at` moves when the product writes to a row — a render finishing, a
+-- title changing, a thumbnail being measured. It answers "when did we last
+-- touch this", which is a question about us. Ageing needs the other one: when
+-- did the person last care. A project nobody has opened in six months and a
+-- project whose worker updated a column last night look identical through
+-- `updated_at`, and only one of them is cold.
+--
+-- ## The column is written before anything reads it, deliberately
+--
+-- This is the whole risk in a retention sweep and it is worth being explicit
+-- about. A sweep that reads a column nobody fills sees `NULL` everywhere,
+-- treats it as "never opened", and deletes the entire estate on the first day
+-- its window elapses. So:
+--
+--   * the writer ships in the same change as the column — `GET /projects/:id`
+--     stamps it, which is the request the editor makes when a person opens a
+--     project;
+--   * the sweep never reads this column alone. It ages from
+--     `max(last_opened_at, updated_at, the moment this migration was applied)`,
+--     so every row that already existed gets a full window starting *now*
+--     rather than one starting at a `created_at` in the past;
+--   * and that floor is read from `schema_migrations.applied_at` for this
+--     file. If the row is missing the sweep refuses to run rather than
+--     assuming a date — the safe direction for a thing that deletes.
+--
+-- No index. The sweep reads the whole table by design at this size, and an
+-- index on a column that every candidate query wraps in `coalesce` would be an
+-- index nothing uses. When `projects` is large enough for that to matter the
+-- right shape is an expression index on the coalesce itself, added then,
+-- against a real plan.
+
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS last_opened_at timestamptz;
+
+COMMENT ON COLUMN projects.last_opened_at IS
+  'When the person last opened this project. Written by GET /projects/:id, read by the retention sweep. Distinct from updated_at, which moves when the product writes and answers a question about us rather than about them.';
