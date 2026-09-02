@@ -1270,9 +1270,33 @@ export const EditOperation = z.discriminatedUnion("type", [
 ]);
 export type EditOperation = z.infer<typeof EditOperation>;
 
+/**
+ * The most operations one plan may carry.
+ *
+ * It was twelve, and it lived in five places: this schema, the OpenAPI file,
+ * and a `const MAX_OPERATIONS = 12` in each of `render-policy.ts`,
+ * `planner.ts` and `routes/exports.ts` — with a sixth copy in `policy-test`.
+ * Six copies of one number is five chances to raise it somewhere and not
+ * everywhere, and the symptom of that is a plan the server builds and the
+ * schema refuses: a 500 on a request that looked fine.
+ *
+ * Twenty now, and the number moved because `direct.ts` exists: the product
+ * builds a whole edit without being asked, which is ten or twelve operations
+ * before the person has typed a word, and their sentence is an amendment on top
+ * of it. Twelve was a ceiling on what a *person* could ask for; it became a
+ * ceiling on what the product could decide.
+ *
+ * Twenty is safe for the renderer for a reason worth writing down: the cost
+ * that actually bounds a render is *separate decodes of the source*, capped at
+ * four by `MAX_SEPARATE_DECODES` against a machine with one gigabyte — and
+ * almost everything in a direction is a filter on one decode. Ten filters cost
+ * what one filter costs, plus arithmetic.
+ */
+export const MAX_PLAN_OPERATIONS = 20;
+
 export const EditPlan = z.object({
   version: z.literal(1),
-  operations: z.array(EditOperation).min(1).max(12),
+  operations: z.array(EditOperation).min(1).max(MAX_PLAN_OPERATIONS),
 });
 export type EditPlan = z.infer<typeof EditPlan>;
 

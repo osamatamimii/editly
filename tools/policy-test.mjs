@@ -47,6 +47,31 @@ if (built.status !== 0) {
 
 const { decideRender, smallestPlanFor, FREE_WATERMARK } = await import(pathToFileURL(outfile).href);
 
+/*
+  The ceiling, read from the schema that enforces it rather than typed here.
+
+  It was twelve, in five places. This file held a sixth copy, and the day the
+  direction raised the real one this check went on asserting the old number —
+  which is the whole reason the constant is now exported and imported instead of
+  written down.
+*/
+const zodOut = path.join(buildDir, "zod.mjs");
+if (
+  spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+    [
+      path.join(repoRoot, "lib/api-zod/src/index.ts"),
+      "--bundle", "--platform=node", "--format=esm", "--target=node22",
+      `--outfile=${zodOut}`, "--log-level=error",
+    ],
+    { stdio: "inherit" },
+  ).status !== 0
+) {
+  console.error("could not bundle the contract");
+  process.exit(1);
+}
+const { MAX_PLAN_OPERATIONS } = await import(pathToFileURL(zodOut).href);
+
 let checks = 0;
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -102,10 +127,14 @@ console.log("\nTaking the mark off");
   const full = decideRender({
     plan: "free",
     usage: usage(0, 5),
-    operations: Array.from({ length: 12 }, () => ({ ...SILENCE })),
+    operations: Array.from({ length: MAX_PLAN_OPERATIONS }, () => ({ ...SILENCE })),
   });
-  check("twelve operations cannot crowd the mark out", marks(full).length === 1, "");
-  check("and the result still fits the plan schema", full.operations.length <= 12, `${full.operations.length} operations`);
+  check("a full plan cannot crowd the mark out", marks(full).length === 1, "");
+  check(
+    "and the result still fits the plan schema",
+    full.operations.length <= MAX_PLAN_OPERATIONS,
+    `${full.operations.length} operations against a cap of ${MAX_PLAN_OPERATIONS}`,
+  );
 }
 
 console.log("\nPaying for it, and keeping your own mark");

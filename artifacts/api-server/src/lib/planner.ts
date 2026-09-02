@@ -24,7 +24,7 @@
  * validate, we fall back to the keyword matcher. It is worse, and it is honest,
  * and it means a missing key degrades the product instead of breaking it.
  */
-import { EditOperation, TransitionStyle, type Platform } from "@workspace/api-zod";
+import { EditOperation, TransitionStyle, type Platform, MAX_PLAN_OPERATIONS } from "@workspace/api-zod";
 import { languageOf, momentsNotHonoured, planFromText, replyFor, type ParsedIntent, type Phrase } from "./plan-from-text";
 
 const ENDPOINT = "https://api.openai.com/v1/chat/completions";
@@ -858,7 +858,7 @@ export function pairBeatWithMusic(
 }
 
 /** What `EditPlan` allows. A thirteenth operation fails the plan, not the operation. */
-const MAX_OPERATIONS = 12;
+const MAX_OPERATIONS = MAX_PLAN_OPERATIONS;
 
 /** The two placement vocabularies, kept apart because the model conflates them. */
 const OVERLAY_PLACEMENTS = new Set([

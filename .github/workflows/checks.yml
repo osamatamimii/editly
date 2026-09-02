@@ -304,4 +304,5 @@ jobs:
       # that answers "does the tool work". It rebuilds the front end against its
       # own storage stub, so it must come after the suites that measure the
       # deployed `dist/`.
+      - run: node tools/direct-test.mjs
       - run: node tools/end-to-end-test.mjs

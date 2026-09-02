@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { eq, asc, and } from "drizzle-orm";
-import { db, messagesTable, projectsTable, renderFollowupsTable } from "@workspace/db";
+import { db, messagesTable, projectsTable, renderFollowupsTable, comprehensionsTable } from "@workspace/db";
 import {
   SendMessageBody,
   SendMessageParams,
@@ -14,6 +14,8 @@ import { replyFor } from "../lib/plan-from-text";
 import { createPlanner } from "../lib/planner";
 import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
 import { applyHabits, habitsFor } from "../lib/habits";
+import { direct, withDirection, type Reading } from "../lib/direct";
+import { asksForAnEdit, saysOnlyThis } from "../lib/plan-from-text";
 import { plannerAssets } from "../lib/planner-assets";
 import { startRenderForProject } from "../lib/start-render";
 import { ALREADY_RENDERING } from "../lib/one-active-job";
@@ -137,6 +139,60 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     changes what somebody gets is the failure this codebase is written
     against, and it does not stop being that because the guess was right.
   */
+  /*
+    And the edit this material wants, underneath whatever they typed.
+
+    This is the half the product never had. The planner is a translator: every
+    line of its instructions says "choose this when they ask for it", and not
+    one says "this is what a good edit of this material looks like". So the
+    ceiling on the output was the customer's vocabulary — somebody who knew to
+    type four operations got four, and somebody who typed "make this good" got
+    nothing at all and was told so politely.
+
+    `direct` reads what the material is — how long, what shape, whether anybody
+    speaks, where the reading says attention is held — and builds the plan a
+    competent editor would apply unasked. What they typed sits on top of it and
+    always wins: `direct` skips every subject the sentence spoke about, and
+    `withDirection` enforces it again.
+
+    Before `applyHabits`, so a habit can still fill in the style of a caption
+    the direction added. And every decision it makes is pushed into `willDo`,
+    because a twelve-operation edit that arrives unannounced is a product doing
+    things to somebody's video for reasons they cannot see.
+  */
+  /*
+    And the gate on it, because the direction starts a render.
+
+    The old planner produced nothing for a sentence it did not recognise, so a
+    message that was not a request cost nothing. A direction that runs on every
+    message would spend somebody's minutes because they said hello. So it runs
+    when the sentence produced an operation — they asked for something and this
+    is the rest of the edit around it — or when it asked for an edit without
+    naming one, which is the sentence the old planner could not hear at all.
+  */
+  const wantsAnEdit = intent.operations.length > 0 || asksForAnEdit(parsed.data.content);
+  const reading = wantsAnEdit ? await readingFor(params.data.id, userId) : null;
+  const decided = wantsAnEdit
+    ? direct({
+        platform: (project.platform as never) ?? null,
+        sourceSeconds: project.duration ?? null,
+        // Speech is what captions, silence and tightening all rest on. A
+        // reading exists only where there was a transcript, so it is the honest
+        // answer; without one this stands down rather than guessing from a shape.
+        hasSpeech: reading !== null,
+        reading,
+        assets: assets as never,
+        habits: await habitsFor(userId),
+        spokenTypes: new Set(intent.operations.map((op) => op.type)),
+        spoke: intent.spoke,
+        onlyWhatWasAsked: saysOnlyThis(parsed.data.content),
+      })
+    : { operations: [], willDo: [] };
+  if (decided.operations.length > 0) {
+    intent.operations = withDirection(intent.operations, decided.operations);
+    for (const said of decided.willDo) intent.willDo.push(said);
+  }
+
   if (intent.operations.length > 0) {
     const { operations, applied } = applyHabits(
       intent.operations,
@@ -221,3 +277,43 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
 });
 
 export default router;
+
+/**
+ * The project's reading of its own material, narrowed to the timings.
+ *
+ * Only the shapes `direct` is allowed to decide from — the peaks and the hook —
+ * and deliberately not the chapter titles or the claims: a decision made from a
+ * model's prose is a different and much less defensible thing to build an edit
+ * out of than a decision made from where attention was measured.
+ *
+ * Null on every failure, including a missing table. The comprehension step is
+ * best-effort in the worker and this is the same position on the other side: a
+ * project with no reading gets a smaller direction, not an error. That is not
+ * hypothetical — migration 0038 was written before it was applied, and for a
+ * while the table did not exist in production at all.
+ */
+async function readingFor(projectId: string, userId: string): Promise<Reading | null> {
+  try {
+    const [row] = await db
+      .select({
+        how: comprehensionsTable.how,
+        peaks: comprehensionsTable.peaks,
+        hook: comprehensionsTable.hook,
+        chapters: comprehensionsTable.chapters,
+      })
+      .from(comprehensionsTable)
+      .where(and(eq(comprehensionsTable.projectId, projectId), eq(comprehensionsTable.userId, userId)))
+      .limit(1);
+    if (!row) return null;
+    return {
+      peaks: (row.peaks ?? [])
+        .filter((p) => typeof p?.start === "number" && typeof p?.strength === "number")
+        .map((p) => ({ start: p.start, strength: p.strength })),
+      hook: row.hook && typeof row.hook.at === "number" ? { at: row.hook.at } : null,
+      chapters: (row.chapters ?? []).length,
+      how: row.how === "model" ? "model" : "structure",
+    };
+  } catch {
+    return null;
+  }
+}

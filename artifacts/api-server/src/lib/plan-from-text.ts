@@ -421,6 +421,72 @@ const WHOLE_TREATMENT_WORDS = /\btighten|snapp|\bmake it tight|شدّه|اشدّ
 const NO_TIGHTEN_WORDS =
   /\bkeep the (?:ums?|uhs?|hesitations?|stumbles?)|don'?t (?:cut|remove) (?:the )?(?:ums?|uhs?|hesitations?)|\bleave the (?:ums?|hesitations?)|خلّي الترددات|خلي الترددات|لا تشيل الترددات|بدون حذف الترددات/i;
 
+/**
+ * Somebody asking for an edit without naming one.
+ *
+ * "Make this good." "Edit it." "Do your thing." «سوّه حلو». Until `direct.ts`
+ * existed these produced nothing at all and were answered politely, which is
+ * the single most damning thing about the old planner: the most natural way to
+ * ask for the product is the one sentence it could not hear.
+ *
+ * It is also the gate on the direction, and that is why the pattern is narrow
+ * rather than generous. The direction builds a whole edit and the edit starts a
+ * render, so a matcher that fires on "hello" spends somebody's minutes on a
+ * message that was not a request. Something has to be *asked for*: a verb about
+ * this video, or a judgement about how it should come out.
+ *
+ * And no `\b` on the Arabic: word boundaries in JavaScript are defined against
+ * `\w`, which is ASCII, so `\bعدّله\b` matches nothing. The trap that once made
+ * «ومضة» invisible to the transition matcher.
+ */
+const EDIT_THIS_WORDS =
+  /\b(?:edit|tidy|polish|fix|work on|do your thing)\b|\bclean (?:it |this )?up\b|\bsort (?:it |this )?out\b|\bmake (?:it|this) (?:good|better|nice|punchy|watchable)\b|\bgo ahead\b|\bwhatever you think\b|\byou decide\b|عدّله|عدله|عدّلي|رتّبه|رتبه|نظّفه|نظفه|سوّه|سوه|اعمل اللازم|اعملها|شوف الأفضل|زي ما تشوف|خلّيه حلو|خليه حلو|اشتغل عليه/i;
+
+/**
+ * Whether this sentence is asking for an edit at all.
+ *
+ * Exported for the same reason `saysOnlyThis` is: one place decides what a
+ * phrase means, and the direction is downstream of that decision rather than
+ * holding a second copy of it.
+ */
+export function asksForAnEdit(text: string): boolean {
+  return EDIT_THIS_WORDS.test(text);
+}
+
+/**
+ * "Only", and everything it is spelt as.
+ *
+ * The one sentence that has to switch the direction off. `direct.ts` builds a
+ * whole edit without being asked, and the person's words amend it — which is
+ * right almost always and exactly wrong when they say *only*. Somebody who
+ * types "just cut the silences, nothing else" and receives captions, punch-ins
+ * and a fade has been ignored, and it does not stop being that because the
+ * extra work was good.
+ *
+ * Narrow on purpose. "just" is in "I just want" and "just now", so it counts
+ * only when it sits beside a verb the plan can act on, or when the sentence
+ * closes the door outright ("nothing else", «وبس»). A pattern that is generous
+ * here turns the product's own judgement off on sentences that never asked it
+ * to, which is the failure in the other direction and much harder to see.
+ *
+ * And no `\b` on the Arabic: a word boundary in JavaScript is defined against
+ * `\w`, which is ASCII, so `\bفقط\b` matches nothing at all. The same trap
+ * that once made «ومضة» invisible to the transition matcher.
+ */
+const ONLY_WORDS =
+  /\bonly\b|\bnothing else\b|\band nothing more\b|\bjust (?:cut|remove|trim|add|put|do|the)\b|\bdon'?t do anything else\b|فقط لا غير|لا شيء غير|ولا شي غير|وبس|و بس|^بس |\bبس هيك|لا تعمل شي غير|لا تضيف شي/i;
+
+/**
+ * Whether this sentence is the whole plan.
+ *
+ * Exported because the direction has to read it and it belongs beside the
+ * pattern rather than beside the consumer, for the reason every other matcher
+ * in this file is here: one place decides what a phrase means.
+ */
+export function saysOnlyThis(text: string): boolean {
+  return ONLY_WORDS.test(text);
+}
+
 const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b|عمودي|عامودي|طولي/i;
 
 /*

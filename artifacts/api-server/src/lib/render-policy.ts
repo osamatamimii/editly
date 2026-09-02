@@ -18,6 +18,7 @@
  * plan allows.** A request may ask for less than it is entitled to; it may
  * never ask for more.
  */
+import { MAX_PLAN_OPERATIONS } from "@workspace/api-zod";
 import type { EditOperation } from "@workspace/api-zod";
 import { exhaustedMessage, minutesFrom, PLAN_LIMITS, type PlanKey } from "./plan-limits";
 // Type-only: this module must not pull the database driver into a decision that
@@ -25,7 +26,7 @@ import { exhaustedMessage, minutesFrom, PLAN_LIMITS, type PlanKey } from "./plan
 import type { Usage } from "./usage";
 
 /** Mirrors the cap in `EditPlan`. A plan longer than this fails in the worker. */
-const MAX_OPERATIONS = 12;
+const MAX_OPERATIONS = MAX_PLAN_OPERATIONS;
 
 /** The mark a free render carries. Fixed here so the browser cannot restyle it. */
 export const FREE_WATERMARK = {

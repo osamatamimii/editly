@@ -9,8 +9,7 @@ import {
   GetExportStatusResponse,
   EditPlan,
   type EditOperation,
-  type Platform,
-} from "@workspace/api-zod";
+  type Platform, MAX_PLAN_OPERATIONS } from "@workspace/api-zod";
 import { serializeExport } from "../lib/transformers";
 import { planKeyFrom } from "../lib/plan-limits";
 import { usageFor } from "../lib/usage";
@@ -72,7 +71,7 @@ function carryForward(previous: EditOperation[] | null, platform: Platform): Edi
 }
 
 /** `EditPlan` allows twelve. The worker parses with it and refuses a thirteenth. */
-const MAX_OPERATIONS = 12;
+const MAX_OPERATIONS = MAX_PLAN_OPERATIONS;
 
 
 /**

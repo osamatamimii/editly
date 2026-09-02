@@ -3651,9 +3651,16 @@ components:
           type: integer
           enum: [1]
         operations:
+          description: >
+            Up to twenty. It was twelve, and twelve was a ceiling on what a
+            person could ask for - which became a ceiling on what the product
+            could decide the day it started building a whole edit without being
+            asked. The renderer's real bound is separate decodes of the source,
+            capped at four against a machine with one gigabyte, and almost
+            everything in a directed edit is a filter on one decode.
           type: array
           minItems: 1
-          maxItems: 12
+          maxItems: 20
           items:
             $ref: "#/components/schemas/EditOperation"
       required: [version, operations]
