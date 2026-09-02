@@ -16,8 +16,41 @@ primary_region = "fra"  # same region as the Supabase project, so pulling and
   # because a letter whose only link is wrong is worse than one with no link.
   APP_ORIGIN = "https://app.editlyai.io"
 
-# No [http_service]: this process serves nothing. It polls the queue and exits
-# only when told to, so it must not be scaled to zero on inbound traffic.
+# No [http_service]: this process serves nothing a customer reaches, and it must
+# not be scaled to zero on inbound traffic, because there is none. It polls the
+# queue and exits only when told to.
+#
+# It does answer one thing, on the private network only, and the check below is
+# the reason. `[deploy]` further down says a deploy that cannot pass its health
+# window is rolled back — and until this existed there was no window and nothing
+# to pass, so Fly promoted whatever the image did as long as the process had not
+# exited yet. A worker that started, could not reach the database, and sat in
+# its retry loop was a successful deploy, and the queue stopped silently. That
+# is the shape of the 12 August outage.
+#
+# The heartbeat row is the wrong signal for this and `watch.yml` is the right
+# place for it: during a rolling deploy the old machine is still writing that
+# row, so it says yes while the new one is failing to start. A deploy check has
+# to be answered by the process being checked. See src/health.ts.
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  # No `ports` block: nothing is published to the internet. This service exists
+  # so Fly's own checks have somewhere to knock.
+  auto_stop_machines = false
+  auto_start_machines = false
+
+  [[services.http_checks]]
+    path = "/healthz"
+    method = "get"
+    # Ten seconds, which is long for a `select 1` and short enough that a
+    # machine failing to start is caught inside a deploy rather than after it.
+    interval = "10s"
+    timeout = "2s"
+    # The first render can begin before this elapses; what it buys is room for
+    # the database handshake on a cold machine.
+    grace_period = "15s"
+
 # One render per machine, and that is a measurement rather than a preference.
 #
 # An edit that plays out of order gives each piece its own decode of the source,

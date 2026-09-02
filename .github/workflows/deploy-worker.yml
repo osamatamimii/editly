@@ -5,17 +5,29 @@
 # corresponds to a commit on main.
 name: Deploy worker
 
+# Behind Checks, not beside it.
+#
+# This used to be `on: push` with a paths filter, which meant the deploy and the
+# checks raced: both started on the same commit, and the deploy finished first
+# because it does less. A commit that failed every suite in tools/ shipped to
+# the machine that renders customers' video, and the red X arrived afterwards,
+# on a run whose result changed nothing.
+#
+# Nothing ever caught that, because it does not look like a failure. Checks goes
+# red, somebody sees it, somebody pushes a fix — and in between, production ran
+# the bad build. The 12 August outage was two days long for the same shape of
+# reason: the thing that would have noticed was a person choosing to look.
+#
+# `workflow_run` is the only trigger GitHub offers that waits for another
+# workflow, and it comes with two costs paid below. It cannot filter on paths,
+# so the job decides for itself whether anything the worker is built from
+# actually changed. And it always runs against the default branch's copy of this
+# file, which is what we want here and is worth knowing.
 on:
-  push:
+  workflow_run:
+    workflows: ["Checks"]
+    types: [completed]
     branches: [main]
-    paths:
-      - "artifacts/worker/**"
-      - "lib/db/**"
-      - "lib/api-zod/**"
-      - "lib/object-store/**"
-      - "lib/mail/**"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/deploy-worker.yml"
   workflow_dispatch:
 
 concurrency:
@@ -25,10 +37,58 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # A manual run is somebody deciding; a triggered one only proceeds if the
+    # checks it waited for actually passed. `workflow_run` fires on *completed*,
+    # which includes failed, cancelled and timed out.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
+      # The commit Checks ran against, not whatever main points at now. Two
+      # pushes in a minute would otherwise deploy the second from a run that
+      # only ever tested the first.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+          fetch-depth: 2
+
+      # The paths filter `workflow_run` cannot have.
+      #
+      # Without it every green run of Checks would redeploy the worker, which is
+      # a Fly build and a rolling restart for a commit that changed a landing
+      # page. The list is the same one the trigger used to carry, and
+      # `deploy-test` compares it against what the worker is actually built
+      # from, so a new workspace package cannot go missing from it in silence.
+      - name: Decide whether the worker changed
+        id: changed
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "manual run: deploying regardless"
+            echo "worker=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # PATHS is the list this workflow watches. Keep it beside the one in
+          # the comment above; deploy-test reads this block.
+          PATHS="artifacts/worker/ lib/db/ lib/api-zod/ lib/object-store/ lib/mail/ pnpm-lock.yaml .github/workflows/deploy-worker.yml"
+          touched="$(git diff --name-only HEAD^ HEAD || true)"
+          if [ -z "$touched" ]; then
+            echo "no parent to compare against: deploying to be safe"
+            echo "worker=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for prefix in $PATHS; do
+            if echo "$touched" | grep -q "^$prefix"; then
+              echo "changed: $prefix"
+              echo "worker=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "nothing the worker is built from changed"
+          echo "worker=false" >> "$GITHUB_OUTPUT"
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: steps.changed.outputs.worker == 'true'
 
       # Ask about the app directly instead of pattern-matching a table meant for
       # humans. `flyctl apps list | grep '^editly-worker'` anchored on the app
@@ -37,6 +97,7 @@ jobs:
       # failed with "Name has already been taken" — which is why every run of
       # this workflow had failed since the app first existed.
       - name: Create the app if it does not exist yet
+        if: steps.changed.outputs.worker == 'true'
         run: |
           if flyctl status --app editly-worker > /dev/null 2>&1; then
             echo "editly-worker already exists"
@@ -55,6 +116,7 @@ jobs:
       # and the worker dies on the next deploy looking configured. A missing
       # secret must look missing.
       - name: Refuse to deploy with a secret missing
+        if: steps.changed.outputs.worker == 'true'
         run: |
           set -euo pipefail
           missing=()
@@ -74,6 +136,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.WORKER_SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Push runtime secrets
+        if: steps.changed.outputs.worker == 'true'
         run: |
           set -euo pipefail
           # The three the worker cannot run without.
@@ -107,6 +170,7 @@ jobs:
           MAIL_FROM: ${{ vars.MAIL_FROM }}
 
       - name: Deploy
+        if: steps.changed.outputs.worker == 'true'
         run: flyctl deploy --config artifacts/worker/fly.toml --dockerfile artifacts/worker/Dockerfile --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -124,6 +188,7 @@ jobs:
       # change up on its own, dividing its wait estimate by however many
       # machines are actually beating.
       - name: Scale to the declared number of machines
+        if: steps.changed.outputs.worker == 'true'
         run: |
           set -euo pipefail
           count="${WORKER_COUNT:-1}"

@@ -133,6 +133,11 @@ section("Every variable the worker reads is one the deploy actually sets");
     // and it has a default — so a machine that never sets it still sends a
     // working link rather than one to nowhere.
     "APP_ORIGIN",
+    // Which port the health listener binds. Not a secret and not deployed: it
+    // is declared in `fly.toml` as `internal_port`, and the override exists so
+    // `worker-test` can run a copy without colliding with anything else on the
+    // machine. `worker-test` asserts the two numbers agree.
+    "HEALTH_PORT",
   ]);
 
   const mustBeDeployed = [...referenced].filter((name) => !notSecrets.has(name)).sort();
@@ -447,9 +452,19 @@ section("The caption faces are files, and everything that draws with them uses t
 
 section("A change that affects the worker triggers a deploy");
 {
-  // A path filter that misses a dependency is a worker running last month's
-  // code with this month's database — and nothing says so.
-  const paths = [...workflow.matchAll(/^\s+- "([^"]+)"$/gm)].map((m) => m[1]);
+  /*
+    A path filter that misses a dependency is a worker running last month's
+    code with this month's database, and nothing says so.
+
+    The list moved out of the trigger and into a step, because the trigger did
+    too: the deploy now waits for Checks via `workflow_run`, which is the only
+    trigger GitHub offers that waits for another workflow and cannot filter on
+    paths. So the filter is a shell variable the job reads, and this check reads
+    the same variable. The thing being guarded has not changed — every package
+    the worker is built from must be in the list.
+  */
+  const declared = workflow.match(/PATHS="([^"]+)"/)?.[1] ?? "";
+  const paths = declared.split(/\s+/).filter(Boolean);
   check("the workflow filters on paths at all", paths.length > 0, JSON.stringify(paths));
 
   const covered = (dep) => paths.some((p) => dep.startsWith(p.replace(/\/\*\*$/, "")));
@@ -471,6 +486,40 @@ section("A change that affects the worker triggers a deploy");
   check(
     "it can also be run by hand, which is how the first deploy happens",
     /workflow_dispatch/.test(workflow),
+  );
+
+  /*
+    And it does not ship a build the checks have not passed.
+
+    This used to be `on: push`, which meant the deploy and the checks raced on
+    the same commit and the deploy won, because it does less. A commit that
+    failed every suite in tools/ reached the machine that renders customers'
+    video, and the red X arrived afterwards on a run whose result changed
+    nothing. It never looked like a failure: Checks goes red, somebody sees it,
+    somebody pushes a fix, and in between production ran the bad build.
+  */
+  check(
+    "the deploy waits for Checks rather than racing it",
+    /workflow_run:/.test(workflow) && /workflows: \["Checks"\]/.test(workflow),
+    "on: push means the deploy and the checks start together, and the deploy is quicker",
+  );
+  check(
+    "and only proceeds when they passed",
+    /workflow_run\.conclusion == 'success'/.test(workflow),
+    "workflow_run fires on completed, which includes failed and cancelled",
+  );
+  check(
+    "against the commit they actually tested",
+    /ref: \$\{\{ github\.event\.workflow_run\.head_sha/.test(workflow),
+    "two pushes in a minute would otherwise deploy the second from a run that tested the first",
+  );
+  // And the workflow it waits for is really called that. A rename here is a
+  // trigger that silently never fires again.
+  const checksName = checksWorkflow.match(/^name: (.+)$/m)?.[1]?.trim();
+  check(
+    "and the name it waits for is the name Checks has",
+    checksName === "Checks",
+    `checks.yml is called ${JSON.stringify(checksName)}`,
   );
   check(
     "and two deploys never race",
@@ -627,6 +676,77 @@ section("No live credential is compiled into the bundle that ships");
     secretish.join(", "),
   );
   check("and DATABASE_URL in particular is read at runtime", !defined.includes("DATABASE_URL"));
+}
+
+section("The runbook names things that exist");
+{
+  /*
+    A document is the one artefact in this repository nothing has ever checked,
+    and it is the one somebody reads under pressure.
+
+    `RUNBOOK.md` tells whoever is awake at 3am to `curl /healthz` and branch on
+    fields in the answer, to look for a log line the worker prints at startup,
+    and to run a migration command with a particular flag. Every one of those is
+    a name that can be renamed by a commit that has nothing to do with an
+    outage — and the failure mode is not a wrong answer, it is somebody
+    searching for a field the endpoint stopped returning while renders queue.
+
+    So the runbook is read like source: the names it uses have to be names that
+    are still in the product.
+  */
+  const runbook = read("RUNBOOK.md");
+  check("there is a runbook", runbook.length > 500);
+
+  // The fields it tells you to read, against the schema the endpoint answers.
+  const health = read("lib/api-zod/src/index.ts");
+  for (const field of ["missingColumns", "reachable", "lastSeenAgoSeconds"]) {
+    check(
+      `/healthz still answers with ${field}, which the runbook says to read`,
+      !runbook.includes(field) || health.includes(field),
+      "the runbook sends somebody looking for a field that is gone",
+    );
+  }
+  check(
+    "and `behind` is still the word the endpoint uses for a stale schema",
+    !runbook.includes('"status": "behind"') || /\bbehind\b/.test(read("artifacts/api-server/src/routes/health.ts")),
+  );
+
+  // The commands.
+  check(
+    "the migration flag it names exists",
+    !runbook.includes("migrate.mjs --check") || read("tools/migrate.mjs").includes('"--check"'),
+  );
+  check(
+    "the Fly app it names is the one fly.toml deploys",
+    runbook.includes("editly-worker") && read("artifacts/worker/fly.toml").includes('app = "editly-worker"'),
+  );
+  check(
+    "the startup line it says to look for is the one the worker prints",
+    !runbook.includes("`worker ready`") || read("artifacts/worker/src/index.ts").includes('"worker ready"'),
+  );
+  check(
+    "the stale-lock variable it names is the one the worker reads",
+    !runbook.includes("STALE_LOCK_MINUTES") || read("artifacts/worker/src/index.ts").includes("STALE_LOCK_MINUTES"),
+  );
+  check(
+    "and the header it tells support to search on is the one the API sends",
+    !runbook.includes("x-request-id") || read("artifacts/api-server/src/lib/request-id.ts").includes("x-request-id"),
+  );
+
+  // And it covers all three things that can be broken, because "which one is
+  // it" is the question that took two days last time.
+  for (const subject of ["Vercel", "Fly", "Supabase"]) {
+    check(`it covers ${subject}`, runbook.includes(subject));
+  }
+  check(
+    "and it says what a rollback does not undo",
+    /does not undo/i.test(runbook) && /[Mm]igration/.test(runbook),
+    "rolling back code onto a migrated database is the same outage in the other direction",
+  );
+
+  // The README points at it, because a runbook nobody can find is a runbook
+  // nobody reads.
+  check("the README points at it", read("README.md").includes("RUNBOOK.md"));
 }
 
 section("The waiting-list page can actually reach the API");

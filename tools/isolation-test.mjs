@@ -1826,6 +1826,68 @@ console.log("\nA failure on our side is a sentence, not a stack");
     JSON.stringify(parsed),
   );
 
+  /*
+    And it is a *different* id each time, which it was not.
+
+    Nothing set one, so it was pino-http's default: an integer starting at 1
+    and incrementing per process. On Vercel every invocation is a fresh
+    process, so essentially every request in production was request number 1 —
+    including the one in the 500 body this file just checked for. The field was
+    populated, the shape was right, and support asking for it got "1" and a
+    month of logs that all say 1.
+
+    The shape check above passes either way, which is precisely why it needed
+    this one beside it.
+  */
+  const again = await fetch(`${BASE}/api/projects`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${tokens[ALICE]}`, "Content-Type": "application/json" },
+    body: "{also not json",
+  });
+  const secondId = JSON.parse(await again.text())?.requestId;
+  check(
+    "and two failures do not share one",
+    typeof secondId === "string" && secondId !== parsed?.requestId,
+    `${parsed?.requestId} then ${secondId}`,
+  );
+  check(
+    "it is long enough to be worth searching for",
+    String(parsed?.requestId ?? "").length >= 8,
+    String(parsed?.requestId),
+  );
+
+  /*
+    It is on every response, not only the ones that failed.
+
+    A person reporting "it was slow" or "it showed me the wrong thing" has no
+    error body to read an id out of. The browser's network tab has this header.
+  */
+  const fine = await fetch(`${BASE}/api/projects`, {
+    headers: { Authorization: `Bearer ${tokens[ALICE]}` },
+  });
+  const header = fine.headers.get("x-request-id");
+  check("a successful response carries the id too", typeof header === "string" && header.length >= 8, String(header));
+
+  /*
+    And a caller's own id is honoured, so a report from another system joins up
+    — but only if it is a string that is safe in a log line and in a header.
+    Newlines forge log entries; a colon and a space forge a header.
+  */
+  const traced = await fetch(`${BASE}/api/projects`, {
+    headers: { Authorization: `Bearer ${tokens[ALICE]}`, "x-request-id": "trace-abc123" },
+  });
+  check("a caller's own id is kept", traced.headers.get("x-request-id") === "trace-abc123", String(traced.headers.get("x-request-id")));
+
+  const forged = await fetch(`${BASE}/api/projects`, {
+    headers: { Authorization: `Bearer ${tokens[ALICE]}`, "x-request-id": "ok id with spaces" },
+  });
+  const forgedBack = forged.headers.get("x-request-id");
+  check(
+    "and one that is not is replaced rather than echoed",
+    forgedBack !== "ok id with spaces" && String(forgedBack).length >= 8,
+    String(forgedBack),
+  );
+
   // A disallowed origin is a refusal, not an outage. It used to be a 500,
   // which makes an ordinary configuration mistake look like the product is
   // down.

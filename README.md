@@ -234,8 +234,12 @@ pnpm run vercel:build   # build the exact artifacts Vercel deploys (dist/ + api/
 
 ## Live
 
-- **App**: https://editly-eta.vercel.app
-- Every push to `main` deploys automatically.
+- **App**: https://app.editlyai.io — the generated `editly-eta.vercel.app` name
+  was here long after the domain moved, which is the kind of line that sends
+  somebody to check a deployment that is not the one serving customers.
+- **Waiting list**: https://editlyai.io
+- **Worker**: `editly-worker` on Fly.io, in `fra`, beside the database.
+- Every push to `main` deploys the app; the worker waits for `Checks` first.
 
 ## Database
 
@@ -253,6 +257,19 @@ Connect through Supabase's **transaction pooler** (`aws-0-<region>.pooler.supaba
 
 - `pnpm run vercel:build` builds the frontend into `dist/` and bundles the Express app into `api/_bundle.js` (loaded by the committed function stub `api/index.js`).
 - `/api/*` is rewritten to the serverless function; everything else falls back to the SPA's `index.html`.
-- Set `DATABASE_URL` as an environment variable in the Vercel project (Settings → Environment Variables). When it is present at build time it is inlined into the bundle; otherwise the function reads it at runtime.
+- Set `DATABASE_URL` as an environment variable in the Vercel project (Settings → Environment Variables). It is read at runtime, never compiled in: it used to be inlined into `api/_bundle.js` when present at build time, which froze a live Postgres password into a build artifact and meant rotating it on the dashboard changed nothing until the next build. Only `SUPABASE_URL` is still baked, because a project reference is not a secret.
 
 To link this repo for automatic deploys: Vercel dashboard → Add New Project → Import this GitHub repository (the settings above are picked up from `vercel.json`).
+
+The worker deploys separately, from `.github/workflows/deploy-worker.yml`, and
+**waits for `Checks` to pass first**. That used to be `on: push`, which meant
+the deploy and the checks raced on the same commit and the deploy won, because
+it does less — so a commit that failed every suite reached the machine that
+renders customers' video, and the red X arrived afterwards on a run whose result
+changed nothing.
+
+## When it breaks
+
+`RUNBOOK.md`. One `curl` decides which of the three things is broken, and each
+one has its rollback written out with the commands. Read it once before you need
+it.

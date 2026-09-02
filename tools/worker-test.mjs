@@ -249,6 +249,9 @@ await reset();
 await clearHeartbeats();
 
 const workerLog = [];
+/** Where this run's worker answers its health check. */
+const HEALTH_PORT = 8421;
+
 const worker = spawn("node", [path.join(repoRoot, "artifacts/worker/dist/index.mjs")], {
   cwd: repoRoot,
   env: {
@@ -257,6 +260,9 @@ const worker = spawn("node", [path.join(repoRoot, "artifacts/worker/dist/index.m
     SUPABASE_URL: ORIGIN,
     SUPABASE_SERVICE_ROLE_KEY: "service-role-key-for-tests",
     POLL_INTERVAL_MS: "300",
+    // A port of its own, so this suite can knock on the health endpoint
+    // without colliding with anything else on the machine running CI.
+    HEALTH_PORT: String(HEALTH_PORT),
     // Production logging, because pino-pretty is a dev dependency and the
     // deployed image does not have it — running the worker the way the image
     // does is the point of this file.
@@ -1114,6 +1120,57 @@ section("The output is streamed to storage, not read into memory twice");
 }
 
 // ─── Stopping ────────────────────────────────────────────────────────────────
+
+section("A deploy can tell a working copy from a started one");
+{
+  /*
+    `fly.toml` said "a deploy that cannot pass its health window is rolled
+    back", and there was no health check anywhere, so there was no window and
+    nothing to pass. Fly promoted whatever the image did as long as the process
+    had not exited. A worker that started, could not reach the database, and
+    sat in its own retry loop was a successful deploy — and the queue stopped,
+    silently, which is the shape of the 12 August outage.
+
+    The heartbeat row cannot do this job, and that is the part worth writing
+    down: during a rolling deploy the *old* machine is still writing it, so it
+    says yes while the new one is failing to start. A deploy check has to be
+    answered by the process being checked, which is why this is a socket.
+  */
+  const ask = async (path = "/healthz") => {
+    const response = await fetch(`http://127.0.0.1:${HEALTH_PORT}${path}`);
+    return { status: response.status, body: await response.text() };
+  };
+
+  const healthy = await ask();
+  check("the worker answers a health check at all", healthy.status === 200, JSON.stringify(healthy));
+  check("and says it is ready", /"ready":true/.test(healthy.body), healthy.body);
+
+  const other = await ask("/");
+  check("and serves nothing else", other.status === 404, JSON.stringify(other));
+
+  /*
+    And the port the image listens on is the port Fly knocks on.
+
+    Two numbers that must agree, in two files, in two languages. They were
+    never going to be compared by anyone reading either one, and a mismatch is
+    not a crash: the worker runs, the check times out, and every deploy is
+    rolled back for a reason that looks like the worker being broken.
+  */
+  const fly = readFileSync(path.join(repoRoot, "artifacts/worker/fly.toml"), "utf8");
+  const declared = Number(fly.match(/internal_port\s*=\s*(\d+)/)?.[1]);
+  const source = readFileSync(path.join(repoRoot, "artifacts/worker/src/health.ts"), "utf8");
+  const fallback = Number(source.match(/HEALTH_PORT"\]\s*\?\?\s*(\d+)/)?.[1]);
+  check("fly.toml names an internal port", Number.isFinite(declared), String(declared));
+  check(
+    "and the worker listens on it",
+    declared === fallback,
+    `fly.toml says ${declared}, health.ts defaults to ${fallback}`,
+  );
+  check(
+    "fly.toml checks the path the worker actually serves",
+    /path\s*=\s*"\/healthz"/.test(fly),
+  );
+}
 
 section("It finishes what it is doing before it exits");
 {

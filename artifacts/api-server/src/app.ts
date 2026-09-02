@@ -6,12 +6,31 @@ import { bodyParsers } from "./lib/body-parsers";
 import { logger } from "./lib/logger";
 import { errorHandler } from "./lib/error-handler";
 import { isAllowedOrigin } from "./lib/allowed-origins";
+import { requestIdFrom, REQUEST_ID_HEADER } from "./lib/request-id";
 
 const app: Express = express();
 
 app.use(
   pinoHttp({
     logger,
+    /*
+      An id that is actually different per request, and that leaves the building.
+
+      pino-http's default is an integer that starts at 1 and increments per
+      *process*. On Vercel every invocation is a fresh process, so essentially
+      every request in production was request number 1 — including the one in
+      the 500 body that `error-handler.ts` tells support to search for. See
+      lib/request-id.ts for where the value comes from and why the caller's own
+      header is honoured first.
+    */
+    genReqId(req, res) {
+      const id = requestIdFrom(req.headers);
+      // Echoed on every response, not only on failures: a customer reporting
+      // "it was slow" or "it showed the wrong thing" has no error body to read
+      // an id out of, and the browser's network tab has this.
+      res.setHeader(REQUEST_ID_HEADER, id);
+      return id;
+    },
     serializers: {
       req(req) {
         return {

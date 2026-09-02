@@ -33,6 +33,7 @@ import { mailLogsTo, tellThemItDidNotFinish, tellThemTheEditIsReady } from "./ma
 import { prepareUploadedFaces, fetchUploadedFaces } from "./font-prepare";
 import { applyRemovals, chooseRemovals, retentionFrom, type SweepableClip, type SweepableProject } from "./sweep";
 import { objectStoreFrom } from "@workspace/object-store";
+import { serveHealth, HEALTH_PORT } from "./health";
 
 const WORKER_ID = `${hostname()}-${randomUUID().slice(0, 8)}`;
 const POLL_INTERVAL_MS = Number(process.env["POLL_INTERVAL_MS"] ?? 5000);
@@ -1377,6 +1378,19 @@ async function titleOf(projectId: string, userId: string): Promise<string | null
   }
 }
 
+/*
+  Answered by this process, so a deploy can tell a working copy from a started
+  one.
+
+  Set up before the first database call and marked ready after it: Fly's check
+  has to be able to *fail*, and a listener that only exists once everything
+  already worked can only ever say yes. See health.ts for why the heartbeat row
+  is the wrong signal here.
+*/
+const health = serveHealth(HEALTH_PORT, (error) =>
+  logger.error({ err: String(error), port: HEALTH_PORT }, "health listener could not start"),
+);
+
 async function main(): Promise<void> {
   await db.execute(sql`select 1`);
   // Names of models, never keys. If captions are missing in production, this
@@ -1403,6 +1417,11 @@ async function main(): Promise<void> {
     },
     "worker ready",
   );
+
+  // After the log line and not before it: everything above this point can
+  // throw, and a machine that fails here should fail its check rather than be
+  // promoted and then die.
+  health.ready();
 
   while (!shuttingDown) {
     try {
@@ -1461,6 +1480,9 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     if (shuttingDown) process.exit(1);
     logger.info({ signal }, "finishing the current job before exiting");
     shuttingDown = true;
+    // Said out loud, so a rolling deploy stops routing checks at this copy
+    // while it finishes the render it is holding.
+    health.leaving();
   });
 }
 
