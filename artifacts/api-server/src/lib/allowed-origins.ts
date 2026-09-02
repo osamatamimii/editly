@@ -35,6 +35,25 @@ const CONSTANT_ORIGINS = new Set([
   "https://app.editlyai.io",
 ]);
 
+/**
+ * A preview deployment of this app, and only on a deployment that *is* one.
+ *
+ * `editly-<anything>.vercel.app` is not a name only we can hold. Anybody can
+ * create a Vercel project called `editly-something` and own that hostname —
+ * which put a stranger-controlled origin permanently inside the API's trust
+ * boundary, with `credentials: true` set beside it.
+ *
+ * What limits the damage today is that the session is a bearer token from
+ * `localStorage` rather than a cookie, so an attacker origin still cannot read
+ * it. That is a property of how auth happens to work right now, not a decision
+ * anybody made about this list, and it stops being true the day anything moves
+ * to cookies.
+ *
+ * So the pattern is kept — previews are genuinely useful and this is what makes
+ * them work — and gated on `VERCEL_ENV`, which only Vercel sets and only on a
+ * deployment that is not production. Production answers the constant list and
+ * `APP_ORIGIN` and nothing else.
+ */
 const VERCEL_PREVIEW = /^https:\/\/editly-[a-z0-9-]+\.vercel\.app$/;
 
 /**
@@ -57,7 +76,10 @@ export function isAllowedOrigin(origin: string): boolean {
   const configured = env["APP_ORIGIN"];
   if (configured && origin === configured) return true;
 
-  return VERCEL_PREVIEW.test(origin);
+  // Only on a preview deployment. See the pattern's own note.
+  if (env["VERCEL_ENV"] === "preview") return VERCEL_PREVIEW.test(origin);
+
+  return false;
 }
 
 /**

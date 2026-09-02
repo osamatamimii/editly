@@ -1,0 +1,18 @@
+# The app. Everything behind a sign-in is uncrawlable anyway — it is a single
+# page that renders nothing without a session — but saying so costs nothing and
+# keeps a crawler out of routes that answer 404 to it.
+User-agent: *
+Allow: /$
+Allow: /privacy
+Allow: /terms
+Disallow: /dashboard
+Disallow: /project/
+Disallow: /export/
+Disallow: /clips
+Disallow: /scheduled
+Disallow: /account
+Disallow: /admin
+Disallow: /onboarding
+Disallow: /api/
+
+Sitemap: https://app.editlyai.io/sitemap.xml

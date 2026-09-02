@@ -32,7 +32,27 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { Pool } = require(require.resolve("pg", { paths: ["lib/db"] }));
 
-const dryRun = process.argv.includes("--dry-run");
+const dryRun = process.argv.includes("--dry-run") || process.argv.includes("--check");
+
+/**
+ * `--check`: say what is pending, change nothing, and **fail** if anything is.
+ *
+ * `--dry-run` prints and exits 0, which is right for a person looking. It is
+ * exactly wrong for a machine: a workflow that runs it and reads the exit code
+ * is told everything is fine while five migrations are missing.
+ *
+ * That is not hypothetical. On 2 September production sat at 0037 while `main`
+ * needed 0042, and a commit had added `projects.last_opened_at` to the Drizzle
+ * schema — which Drizzle writes into the column list of every `select()`, so
+ * every project read in the product answered 500. Nothing failed loudly: Vercel
+ * reported zero errors for twenty-four hours, because nobody opened the app.
+ *
+ * Nothing in this repository could have caught that. CI migrates an ephemeral
+ * database and passes; the deploy never looks at production. This flag is what
+ * a scheduled job runs so that "the code needs a migration nobody applied"
+ * becomes a red build instead of a discovery.
+ */
+const checkOnly = process.argv.includes("--check");
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
   console.error("DATABASE_URL is not set. Nothing to migrate against.");
@@ -89,6 +109,22 @@ try {
   const pending = files.filter((f) => !applied.has(f));
   if (pending.length === 0) {
     console.log(`up to date — ${files.length} migration(s), none pending`);
+  }
+
+  if (checkOnly) {
+    for (const filename of pending) console.log(`would apply ${filename}`);
+    if (pending.length > 0) {
+      console.error(
+        `\nthis database is ${pending.length} migration(s) behind the repository.\n` +
+          `The deployed code expects them. Apply with: node tools/migrate.mjs`,
+      );
+      client.release();
+      await pool.end();
+      process.exit(1);
+    }
+    client.release();
+    await pool.end();
+    process.exit(0);
   }
 
   for (const filename of pending) {

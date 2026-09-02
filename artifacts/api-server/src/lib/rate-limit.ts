@@ -189,9 +189,36 @@ export function rateLimit(options: LimitOptions): RequestHandler {
  */
 export function rateLimitByIp(options: LimitOptions): RequestHandler {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const forwarded = req.headers["x-forwarded-for"];
-    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-    const address = (first ?? "").split(",")[0]?.trim() || req.ip || "unknown";
+    /*
+      `x-vercel-forwarded-for` first, and that is not a preference.
+
+      `x-forwarded-for` is a header the *client* can send, and this took its
+      first entry — so anybody who set their own `X-Forwarded-For` got a fresh
+      bucket on every request and walked past both public limiters. Express's
+      `trust proxy` is never set here, so nothing was pinning it to the edge
+      either.
+
+      Vercel writes `x-vercel-forwarded-for` itself and strips any copy that
+      arrives from outside, which makes it the one value on this request that a
+      caller cannot choose. The fallback chain is deliberate and ordered by how
+      much each can be trusted: the platform's header, then the forwarded chain,
+      then the socket. `req.ip` is last rather than second on purpose — behind
+      Vercel it is the *edge node*, and keying on it would put every request in
+      the world into one bucket, which is a denial of service against the whole
+      product rather than a stricter limit.
+
+      In production the first branch always answers, so the second is unreachable
+      there; it is what keeps this working against a local server and in the
+      isolation suite, where nothing is forwarding anything.
+    */
+    const one = (value: string | string[] | undefined): string =>
+      (Array.isArray(value) ? value[0] : value ?? "").split(",")[0]?.trim() ?? "";
+
+    const address =
+      one(req.headers["x-vercel-forwarded-for"]) ||
+      one(req.headers["x-forwarded-for"]) ||
+      req.ip ||
+      "unknown";
 
     let verdict: Verdict;
     try {

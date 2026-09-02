@@ -1,8 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<!--
+  The document opens in Arabic, because the product does.
+
+  `lang="ar" dir="rtl"` here rather than only on the landing page's own wrapper:
+  a crawler, a screen reader and a translation prompt all read the document, and
+  they were being told English on a product whose default language is Arabic.
+  The English half of the app sets `lang`/`dir` on its own wrapper as it always
+  has, which is what wins for the content inside it.
+-->
+<html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <!--
+      No `maximum-scale`. It was there, and it disabled pinch-zoom: a WCAG 1.4.4
+      failure and a standard flag in an app-store or accessibility review. What
+      it was bought for - a phone not zooming on an input focus - is already
+      handled by the type scale, and it is not worth taking magnification away
+      from somebody who needs it.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Editly — Stop editing. Start describing.</title>
     <meta name="description" content="Upload a raw take, say what you want in plain language, and get back something ready to post. Priced by the minutes you publish, not the hours you record." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -14,9 +30,24 @@
 
     <meta property="og:title" content="Editly — Stop editing. Start describing." />
     <meta property="og:description" content="Upload a raw take, say what you want, and get back something ready to post." />
-    <meta property="og:image" content="/og-image.png" />
+    <!--
+      Absolute, and that is the whole point of this line.
+
+      It was `/og-image.png`. Facebook, LinkedIn, WhatsApp, Slack and X all
+      require an absolute URL for a card image and silently show nothing for a
+      relative one - so the 105 KB card in `public/` had never appeared
+      anywhere a link was shared. The waiting-list page got this right; the
+      product did not.
+    -->
+    <meta property="og:image" content="https://app.editlyai.io/og-image.png" />
+    <meta property="og:url" content="https://app.editlyai.io/" />
+    <meta property="og:site_name" content="Editly" />
+    <meta property="og:locale" content="ar_AR" />
+    <meta property="og:locale:alternate" content="en_US" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://app.editlyai.io/og-image.png" />
+    <link rel="canonical" href="https://app.editlyai.io/" />
     <!--
       Three faces, and each one earns its request.
 
@@ -97,6 +128,23 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      What a person sees when the script does not run.
+
+      An empty `<div id="root">` was the answer to JavaScript being off, a chunk
+      failing to load, or an extension breaking the bundle - a blank white page
+      with nothing on it and no way to tell it from an outage. This is also the
+      only thing a crawler that does not execute scripts has ever been able to
+      read about this product.
+    -->
+    <noscript>
+      <div style="max-width:34rem;margin:12vh auto;padding:0 1.5rem;font-family:system-ui,sans-serif;line-height:1.6;text-align:center">
+        <h1 style="font-size:1.5rem;margin:0 0 .75rem">Editly</h1>
+        <p style="margin:0 0 .5rem">Upload a raw take, say what you want in plain language, and get back something ready to post.</p>
+        <p style="margin:0 0 1.5rem" dir="rtl" lang="ar">ارفع لقطة خامًا، وقل ما تريد بكلماتك، واستلم شيئًا جاهزًا للنشر.</p>
+        <p style="margin:0"><strong>This page needs JavaScript.</strong> · <strong dir="rtl" lang="ar">هذه الصفحة تحتاج جافاسكربت.</strong></p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

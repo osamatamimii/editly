@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Three pages, because three pages are all a stranger can read.
+
+  Everything else in this product is behind a session and renders nothing
+  without one. A sitemap that listed them would be asking a crawler to index
+  a sign-in redirect.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>https://app.editlyai.io/</loc>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://app.editlyai.io/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://app.editlyai.io/?lang=en"/>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://app.editlyai.io/privacy</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://app.editlyai.io/terms</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+  </url>
+</urlset>

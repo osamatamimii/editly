@@ -58,7 +58,11 @@ on:
 
 concurrency:
   group: watch
-  cancel-in-progress: true
+  # Not cancelled in progress. A push-triggered run used to cancel an in-flight
+  # scheduled one, and a cancelled run notifies nobody — so the hour the product
+  # was most likely to be broken was the hour this check was most likely to be
+  # thrown away.
+  cancel-in-progress: false
 
 jobs:
   watch:
@@ -81,12 +85,65 @@ jobs:
             age=$(printf '%s' "$body" | jq -r '.worker.lastSeenAgoSeconds // "never"')
 
             echo "attempt $attempt: HTTP $code, status $status, worker online $online, last beat ${age}s ago"
-            if [ "$code" = "200" ] && [ "$status" = "ok" ] && [ "$online" = "true" ]; then
+            storage=$(printf '%s' "$body" | jq -r '.capabilities.storageCheck // "unknown"')
+            echo "  storage: $storage"
+
+            # Storage is asserted as well as read. `/healthz` has always
+            # computed it — it distinguishes `unauthorized` from `unreachable` —
+            # and this check ignored the answer. Supabase Storage returning 403
+            # gave `status: ok`, no alert, and every upload and every download
+            # failing.
+            if [ "$code" = "200" ] && [ "$status" = "ok" ] && [ "$online" = "true" ] && [ "$storage" != "unauthorized" ] && [ "$storage" != "unreachable" ]; then
               echo "The API is up and a render machine is listening."
               exit 0
             fi
             [ "$attempt" = "1" ] && sleep 30
           done
 
-          echo "::error::Editly is not healthy — HTTP $code, status $status, worker online $online, last beat ${age}s ago. $(printf '%s' "$body" | jq -c '{database, capabilities}' 2>/dev/null)"
+          echo "::error::Editly is not healthy — HTTP $code, status $status, worker online $online, storage $storage, last beat ${age}s ago. $(printf '%s' "$body" | jq -c '{database, capabilities}' 2>/dev/null)"
           exit 1
+
+  # ── Is production running the schema the code needs? ────────────────────────
+  #
+  # On 2 September production sat at migration 0037 while `main` needed 0042,
+  # and one of those commits had added `projects.last_opened_at` to the Drizzle
+  # schema. Drizzle writes the column list into every `select()`, so every
+  # project read in the product answered 500 — the dashboard and every project
+  # page — from the moment the deploy went out.
+  #
+  # Nothing caught it. CI migrates an ephemeral database and passes; the deploy
+  # never looks at production; and Vercel reported **zero** runtime errors for
+  # twenty-four hours, because nobody opened the app. An error count of zero on
+  # a product with no traffic is not evidence of health, and this job exists
+  # because reading it as evidence is exactly how a fortnight goes by.
+  #
+  # It reads and never writes: `--check` lists what is pending and exits 1.
+  # Applying is still a person's decision.
+  schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Skipped rather than failed where the secret is absent — a fork, or a
+    # repository that has not been given a read-only connection string. A job
+    # that goes red for a missing secret is a job somebody turns off.
+    if: github.repository == 'osamatamimii/editly'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Is production behind the repository?
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -uo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "PRODUCTION_DATABASE_URL is not set, so this cannot be checked."
+            echo "::warning::Set PRODUCTION_DATABASE_URL to have migration drift caught before a customer finds it."
+            exit 0
+          fi
+          node tools/migrate.mjs --check

@@ -20,6 +20,7 @@
  *
  * Usage: node tools/account-test.mjs
  */
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -77,6 +78,10 @@ function recorder(over = {}) {
         log.push(`objects:${id}`);
         return true;
       },
+      removeAccountObjects: async () => {
+        log.push("account-objects");
+        return true;
+      },
       removeRows: async () => {
         log.push("rows");
       },
@@ -121,8 +126,9 @@ section("The bytes go before the rows");
 
   check("it completes", result.deleted === true);
   check(
-    "the sequence is list, objects, rows, login",
-    JSON.stringify(log) === JSON.stringify(["list", "objects:p1", "objects:p2", "objects:p3", "rows", "login"]),
+    "the sequence is list, objects, the account's own objects, rows, login",
+    JSON.stringify(log) ===
+      JSON.stringify(["list", "objects:p1", "objects:p2", "objects:p3", "account-objects", "rows", "login"]),
     JSON.stringify(log),
   );
   check("every project's storage is visited", log.filter((s) => s.startsWith("objects")).length === 3);
@@ -232,6 +238,72 @@ console.log("\nStorage that answers but will not delete is a refusal too");
     !log.includes("objects:p3"),
     JSON.stringify(log),
   );
+}
+
+
+// ─── What is not inside a project ───────────────────────────────────────────
+
+section("The files that belong to the person rather than to a project");
+{
+  /*
+    Uploaded caption faces live at `${userId}/fonts/…`, outside every project,
+    and the sweep walks projects. So a font outlived the account that uploaded
+    it — which made three sentences false at once: the privacy page, the account
+    screen's "there is no copy kept", and this module's own first rule.
+  */
+  const { log, steps } = recorder();
+  await deleteAccount(steps);
+  check("the account's own objects are swept", log.includes("account-objects"));
+  // Bytes before rows, the same order every other step here follows: reversing
+  // them turns a deletion into an orphaning.
+  check(
+    "before any row is removed",
+    log.indexOf("account-objects") < log.indexOf("rows"),
+    log.join(" -> "),
+  );
+  check(
+    "and after the projects, so the cheap sweep is not what fails first",
+    log.indexOf("objects:p3") < log.indexOf("account-objects"),
+    log.join(" -> "),
+  );
+}
+{
+  const { log, steps } = recorder({ removeAccountObjects: async () => { log.push("account-objects"); return false; } });
+  const result = await deleteAccount(steps);
+  check("a sweep that will not go stops the deletion", result.deleted === false);
+  check("with the same 503 the project sweep gives", result.status === 503, String(result.status));
+  // The whole argument of this module: no row is touched when any byte could
+  // not be. A half-deleted account reported as deleted is the failure it exists
+  // to refuse.
+  check("and nothing was removed", !log.includes("rows") && !log.includes("login"), log.join(" -> "));
+}
+
+section("Every table this person owns is named");
+{
+  /*
+    None of these has a foreign key — ownership is denormalised onto every row
+    so no query needs a join — so nothing cascades and every child has to be
+    listed. Five were missing, and the one that matters is `social_accounts`:
+    it holds live access and refresh tokens for YouTube, Meta, TikTok, X and
+    Snapchat. Keeping a platform credential after somebody deleted their account
+    breaks every one of those platforms' developer terms, and it is what an app
+    review looks for.
+  */
+  const route = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/account.ts"), "utf8");
+  for (const table of [
+    "jobsTable",
+    "exportsTable",
+    "messagesTable",
+    "projectsTable",
+    "subscriptionsTable",
+    "scheduledPostsTable",
+    "socialAccountsTable",
+    "captionFacesTable",
+    "renderFollowupsTable",
+  ]) {
+    check(`${table} is deleted`, new RegExp(`delete\\(${table}\\)`).test(route), "");
+  }
+  check("and the mail rows with them", /delete from mail_sends/.test(route) && /delete from mail_settings/.test(route));
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

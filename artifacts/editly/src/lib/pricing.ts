@@ -46,7 +46,25 @@ export const PLANS = [
     yearlyPerMonth: "$63.2/month billed yearly",
     minutes: 1000,
     forWho: "Teams and agencies",
-    upload: "3 seats, brand kit, API",
+    /*
+      Three of these do not exist, and the line now says so.
+
+      "3 seats, brand kit, API" sat here alone, at $79 a month. `seats` is a
+      number nobody reads — five lines in `plan-limits.ts` and nothing else —
+      and there is no invite endpoint, no team table, no brand kit and no public
+      API anywhere in the repository. Sold like that it is a misrepresentation,
+      and it is the first thing a consumer-protection complaint would name.
+
+      Deleting it is not the fix either: the rule in this product is that what
+      is on the page and not yet built stays, and gets built towards — and
+      `pricing-test` enforces that rule by failing when a promise is removed
+      rather than delivered.
+
+      So the enforced things are said first, and the promised ones are labelled
+      as promises. Ten-hour uploads, 4K and queue priority are all real in
+      `PLAN_LIMITS.studio`, and the suite ties this line to them.
+    */
+    upload: "10-hour uploads, 4K, priority queue. Coming: 3 seats, brand kit, API",
     color: "fuchsia",
   },
 ] as const;

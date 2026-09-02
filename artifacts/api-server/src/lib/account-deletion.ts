@@ -40,6 +40,15 @@ export interface DeletionSteps {
    * the response said "deleted".
    */
   removeObjects: (projectId: string) => Promise<boolean>;
+  /**
+   * Remove every stored object this person owns that is not inside a project.
+   *
+   * Uploaded caption faces live at `${userId}/fonts/…`, outside every project,
+   * and the sweep above walks projects — so they survived the account that
+   * uploaded them. Same contract as `removeObjects` and for the same reason:
+   * false stops the deletion before a row is touched.
+   */
+  removeAccountObjects: () => Promise<boolean>;
   /** Remove every database row this user owns. */
   removeRows: () => Promise<void>;
   /** Remove the login. Returns false when it could not be done. */
@@ -89,6 +98,12 @@ export async function deleteAccount(steps: DeletionSteps): Promise<DeletionResul
     // the fact that some projects were removed first does not make it less of
     // one — it makes the account harder to finish deleting later.
     if (!removed) return { deleted: false, status: 503, error: STORAGE_FAILED_MESSAGE };
+  }
+
+  // And what is not inside any project. Same order and the same refusal: bytes
+  // before rows, and a sweep that would not go stops everything.
+  if (!(await steps.removeAccountObjects())) {
+    return { deleted: false, status: 503, error: STORAGE_FAILED_MESSAGE };
   }
 
   await steps.removeRows();

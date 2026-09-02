@@ -2572,6 +2572,28 @@ console.log("\nThe waiting list takes anyone, and is the only thing that does");
     JSON.stringify(limited?.json),
   );
   const bucket = psqlGlobalRead(`select bucket from rate_limits where bucket like 'ip:203.0.113.7:%'`);
+  /*
+    And the platform's own header wins over the client's.
+
+    `x-forwarded-for` is a header the caller can send, and this used to take its
+    first entry — so anybody who set their own got a fresh bucket per request
+    and walked past both public limiters. Vercel writes
+    `x-vercel-forwarded-for` itself and strips any copy arriving from outside,
+    which makes it the one address on the request a caller cannot choose.
+  */
+  psqlGlobal(`delete from rate_limits where bucket like 'ip:%'`);
+  await join(
+    { email: "spoof@iso-test.invalid" },
+    { "x-vercel-forwarded-for": "198.51.100.9", "x-forwarded-for": "203.0.113.99" },
+  );
+  const trusted = psqlGlobalRead(`select bucket from rate_limits where bucket like 'ip:198.51.100.9:%'`);
+  const spoofed = psqlGlobalRead(`select bucket from rate_limits where bucket like 'ip:203.0.113.99:%'`);
+  check(
+    "the platform's address is the one counted",
+    Boolean(trusted) && !spoofed,
+    `trusted=${trusted ?? "none"} spoofed=${spoofed ?? "none"}`,
+  );
+  psqlGlobal(`delete from rate_limits where bucket like 'ip:%'`);
   check(
     "keyed on the client address, not on the edge node that forwarded it",
     bucket.includes("203.0.113.7") && !bucket.includes("70.41.3.18"),

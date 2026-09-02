@@ -175,7 +175,35 @@ check("the app's own domain, which is named rather than configured", isAllowedOr
 check("the waiting-list page, on its own domain", isAllowedOrigin("https://editlyai.io"));
 check("and with the www that half the links use", isAllowedOrigin("https://www.editlyai.io"));
 check("the dev server", isAllowedOrigin("http://localhost:5173"));
-check("a Vercel preview deployment", isAllowedOrigin("https://editly-abc123-osama.vercel.app"));
+/*
+  A preview deployment, and only on a deployment that is one.
+
+  `editly-<anything>.vercel.app` is not a name only we can hold: anybody can
+  create a Vercel project called `editly-something` and own that hostname. With
+  `credentials: true` set beside it, that put a stranger-controlled origin
+  permanently inside the API's trust boundary — bounded today only by the
+  session being a bearer token rather than a cookie, which is a property of how
+  auth happens to work and not a decision anybody made about this list.
+
+  So the pattern is gated on `VERCEL_ENV`, which only Vercel sets and only on a
+  deployment that is not production. Both halves are checked, because a gate
+  that never opens is a broken preview and a gate that never closes is the bug.
+*/
+const wasVercelEnv = process.env["VERCEL_ENV"];
+process.env["VERCEL_ENV"] = "preview";
+check("a Vercel preview deployment, on a preview", isAllowedOrigin("https://editly-abc123-osama.vercel.app"));
+delete process.env["VERCEL_ENV"];
+check(
+  "and not in production, where anybody could register that name",
+  !isAllowedOrigin("https://editly-abc123-osama.vercel.app"),
+);
+process.env["VERCEL_ENV"] = "production";
+check(
+  "nor when Vercel says production outright",
+  !isAllowedOrigin("https://editly-abc123-osama.vercel.app"),
+);
+if (wasVercelEnv === undefined) delete process.env["VERCEL_ENV"];
+else process.env["VERCEL_ENV"] = wasVercelEnv;
 
 check("someone else's site is not", !isAllowedOrigin("https://evil.example"));
 check(

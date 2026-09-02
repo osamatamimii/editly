@@ -230,6 +230,44 @@ export async function verifyStorageAdmin(now: number = Date.now()): Promise<Stor
  * actually use, and it was the one that lied.
  */
 /**
+ * Everything this person put in the bucket that is not inside a project.
+ *
+ * Uploaded caption faces, which live at `${userId}/fonts/…` rather than under
+ * a project because a face belongs to the person and is offered on every video
+ * they make. The deletion path walked projects and only projects, so a font
+ * outlived the account that uploaded it — which made three sentences false at
+ * once: the privacy page ("deleting your account deletes the account, its
+ * projects, and its files"), the account screen ("there is no copy kept"), and
+ * this module's own first rule, that a deletion is never partial and reported
+ * as complete.
+ *
+ * Same contract as the per-project sweep and for the same reason: it returns
+ * false rather than throwing, and a false stops the deletion before any row is
+ * removed. An orphaned file with nothing left pointing at it is worse than a
+ * refusal somebody can act on.
+ */
+export async function deleteAccountObjects(userId: string): Promise<{ removed: boolean }> {
+  if (!store) return { removed: false };
+  try {
+    let removedCount = 0;
+    for (let pass = 0; pass < MAX_SWEEP_PASSES; pass++) {
+      const keys = await listUnderPrefix(store, `${userId}/fonts`);
+      if (keys.length === 0) {
+        if (removedCount > 0) logger.info({ userId, removed: removedCount }, "reclaimed account storage");
+        return { removed: true };
+      }
+      await store.remove(keys);
+      removedCount += keys.length;
+    }
+    logger.warn({ userId }, "account storage sweep did not finish in the passes allowed");
+    return { removed: false };
+  } catch (error) {
+    logger.error({ err: error, userId }, "could not reclaim account storage");
+    return { removed: false };
+  }
+}
+
+/**
  * Fifty pages is five thousand objects — far past any project a person can
  * actually make. Reaching it means Storage keeps answering 200 while removing
  * nothing, and a sweep that spins forever against a lying backend helps nobody.
