@@ -51,7 +51,7 @@ const { parseElevenLabs, createElevenLabsTranscriber } = await import(
 const { createCrossCheckedTranscriber } = await import(
   bundle("artifacts/worker/src/providers/cross-check.ts", "cross-check.mjs")
 );
-const { createDeepgramTranscriber } = await import(
+const { createDeepgramTranscriber, parseDeepgram } = await import(
   bundle("artifacts/worker/src/providers/deepgram.ts", "deepgram-provider.mjs")
 );
 const { resolveProviders, missingCapabilityNotes } = await import(
@@ -900,6 +900,36 @@ section("Which models are configured decides which pipeline runs");
   });
   check("no key is carried back out of the resolver", SECRETS.every((s) => !exposed.includes(s)), exposed);
   check("nor is one reachable as a property", SECRETS.every((s) => !Object.values(resolved.transcriber ?? {}).includes(s)));
+}
+
+section("No word is dropped in the gap between Deepgram's sentences");
+{
+  // Deepgram's paragraph model does not cover every millisecond: a word can
+  // fall between two sentence spans. Five words, with sentences that hold only
+  // the first and the last — the middle three sit in the gap.
+  const payload = {
+    results: {
+      channels: [{
+        detected_language: "en",
+        alternatives: [{
+          words: [
+            { word: "keep", start: 0.0, end: 0.4, confidence: 0.9 },
+            { word: "every", start: 0.5, end: 0.9, confidence: 0.9 },
+            { word: "single", start: 1.0, end: 1.4, confidence: 0.9 },
+            { word: "word", start: 1.5, end: 1.9, confidence: 0.9 },
+            { word: "please", start: 2.0, end: 2.4, confidence: 0.9 },
+          ],
+          paragraphs: {
+            paragraphs: [{ sentences: [{ start: 0.0, end: 0.45 }, { start: 1.95, end: 2.45 }] }],
+          },
+        }],
+      }],
+    },
+  };
+  const parsed = parseDeepgram(payload, "deepgram/nova-3");
+  const words = flat(parsed).map((w) => w.text);
+  check("every word survives the grouping", words.length === 5, JSON.stringify(words));
+  check("and in order, none lost between the sentences", words.join(" ") === "keep every single word please", words.join(" "));
 }
 
 await rm(buildDir, { recursive: true, force: true });

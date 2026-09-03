@@ -220,19 +220,38 @@ function groupByBoundaries(
   boundaries: Array<{ startMs: number; endMs: number }>,
   speakerOf: Map<number, number>,
 ): TranscriptSegment[] {
-  return boundaries
-    .map((b) => {
-      const indices: number[] = [];
-      words.forEach((w, i) => {
-        // Midpoint membership, so a word straddling a boundary lands in exactly
-        // one sentence instead of both or neither.
-        const mid = (w.startMs + w.endMs) / 2;
-        if (mid >= b.startMs && mid <= b.endMs) indices.push(i);
-      });
-      const inside = indices.map((i) => words[i]);
+  if (boundaries.length === 0) return [];
+  // Every word lands in exactly one boundary. Its midpoint decides which — the
+  // sentence whose span holds it, so a word straddling a break falls in one and
+  // not both or neither. But the paragraph model does not cover every
+  // millisecond: a word can fall in the gap *between* two sentences, and the
+  // earlier version, which built each segment by scanning for the words inside
+  // it, then simply dropped that word — measured at five words in and two out,
+  // with nothing said. So a word in no sentence's span is attached to the
+  // nearest one in time instead of vanishing from the caption.
+  const buckets: number[][] = boundaries.map(() => []);
+  words.forEach((w, i) => {
+    const mid = (w.startMs + w.endMs) / 2;
+    let best = 0;
+    let bestDistance = Infinity;
+    for (let b = 0; b < boundaries.length; b += 1) {
+      const { startMs, endMs } = boundaries[b]!;
+      const distance = mid < startMs ? startMs - mid : mid > endMs ? mid - endMs : 0;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = b;
+        if (distance === 0) break; // inside a sentence's own span: nothing beats it
+      }
+    }
+    buckets[best]!.push(i);
+  });
+
+  return buckets
+    .map((indices) => {
+      const inside = indices.map((i) => words[i]!);
       return {
-        startMs: inside[0]?.startMs ?? b.startMs,
-        endMs: inside[inside.length - 1]?.endMs ?? b.endMs,
+        startMs: inside[0]?.startMs ?? 0,
+        endMs: inside[inside.length - 1]?.endMs ?? 0,
         text: inside.map((w) => w.text).join(" ").trim(),
         words: inside,
         speaker: speakerOf.get(indices[0] ?? -1),
