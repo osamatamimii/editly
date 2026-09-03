@@ -351,6 +351,19 @@ check("a project with no reading gets a smaller direction, not an error", /async
 // much less defensible thing to build an edit out of.
 check("and only the timings are read from it", !/claims|chapters: comprehensionsTable\.chapters[\s\S]{0,80}title/.test(route.slice(route.indexOf("async function readingFor"))));
 
+section("An elongated Arabic hesitation is heard, not lost to an ASCII word boundary");
+{
+  // `\bآآ` matched nothing — `\b` needs an ASCII word character before it, and
+  // Arabic is not one — so "cut the aaah" produced no edit at all.
+  const typesOf = (asked) => planFromText(asked, {}).operations.map((op) => op.type);
+  check("'شيل الآآآ' is heard as a hesitation cut", typesOf("شيل الآآآ").includes("tighten"), typesOf("شيل الآآآ").join(","));
+  check("and 'احذف الآآ' too", typesOf("احذف الآآ").includes("tighten"), typesOf("احذف الآآ").join(","));
+  // The English hesitation words it always caught still work — no regression.
+  check("'cut the ums' still lands", typesOf("cut the ums and uhs").includes("tighten"));
+  // And a single madda-alef inside an ordinary word is not a hesitation.
+  check("an ordinary word with one madda-alef is not read as a hesitation", !typesOf("اقرأ القرآن").includes("tighten"), typesOf("اقرأ القرآن").join(","));
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

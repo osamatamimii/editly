@@ -415,8 +415,15 @@ const SILENCE_WORDS =
  * "tighten it up" is a person asking for the whole treatment, and that is
  * silences *and* hesitations, which is why the generic word stayed above.
  */
+// `آآ` carries no ASCII word boundary before it — `\bآآ` matched *nothing*,
+// because `\b` needs a word character on the ASCII side and Arabic is not one,
+// so "شيل الآآآ" ("cut the aaah") produced no result at all. It is the fourth
+// time this exact trap — an ASCII `\b` in front of an Arabic run — has been
+// found and fixed in this file. The run of two-or-more madda-alef is what an
+// elongated hesitation looks like written down, and it does not appear inside
+// ordinary words, so no anchor is needed.
 const HESITATION_WORDS =
-  /\bum+s?\b|\buh+s?\b|\bfiller|hesitat|stumbl|stutter|false start|\bmumbl|\bآآ|ترددات|التردد|تلعثم|يتلعثم|كلمات? الحشو|بدايات? مكرّرة|بدايات? مكررة|يعيد الجملة|كرّر الجملة/i;
+  /\bum+s?\b|\buh+s?\b|\bfiller|hesitat|stumbl|stutter|false start|\bmumbl|آآ|ترددات|التردد|تلعثم|يتلعثم|كلمات? الحشو|بدايات? مكرّرة|بدايات? مكررة|يعيد الجملة|كرّر الجملة/i;
 
 /**
  * Refusals, in the same file as the thing they refuse.
