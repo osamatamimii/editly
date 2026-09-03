@@ -148,6 +148,23 @@ const FIXTURES = {
       { eventId: "evt_2", type: "subscription.cancelled", email: "another.person.with.a.long.address@example.com", plan: "pro", receivedAt: "2026-08-23T21:12:00.000Z", applied: false, outcome: "no account for that email" },
     ],
     minutesRenderedThisMonth: 412.6,
+    /*
+      A fortnight of every number the cards show one of.
+
+      Present here because the chart on the first screen is drawn from it, and
+      a fixture without it exercises only the empty state - which is how a
+      chart ships having never once been rendered with a line in it. The
+      figures are deliberately uneven: a flat series hides a scaling bug, and
+      a series with a zero day in the middle is the shape that breaks a naive
+      path builder.
+    */
+    trends: {
+      renders: { daily: [12, 18, 9, 24, 31, 0, 14, 22, 27, 19, 33, 28, 41, 34], thisWeek: 204, lastWeek: 130 },
+      minutes: { daily: [31.5, 44, 22, 61, 78.5, 0, 35, 52, 66, 48, 81, 70, 99, 96], thisWeek: 512, lastWeek: 272 },
+      failures: { daily: [0, 1, 0, 0, 2, 0, 1, 0, 0, 3, 1, 0, 0, 1], thisWeek: 5, lastWeek: 3 },
+      signups: { daily: [2, 4, 1, 3, 6, 0, 2, 5, 3, 4, 2, 1, 3, 1], thisWeek: 19, lastWeek: 18 },
+    },
+
     // The quiet fault: posts past their time that nothing has claimed. The
     // console must say this in the verdict at the top, not only as a number on
     // a card — it is the one failure on this screen that nobody complains
@@ -311,6 +328,32 @@ function fixtureFor(pathname) {
     the server and the counts are not, and the page has to say so rather than
     show twenty-five and look calm.
   */
+  /*
+    The deployment audit, which the console's System screen is mostly made of.
+
+    Without it that screen drew one card and a great deal of nothing, and the
+    audit rendering - three verdicts, two of which are coloured, plus the
+    storage and egress figures - had never been drawn by anything. One finding
+    of each verdict, because `ok` is the one that is easy to get wrong: it is
+    listed here and its consequence line is deliberately not.
+  */
+  if (pathname === "/api/admin/deployment") {
+    return {
+      findings: [
+        { id: "bucket-mime-types", verdict: "wrong", expected: "image/png and audio/mpeg allowed", actual: "video/mp4 only", consequence: "Every image and every music file a customer picks is refused by Storage, and the browser talks to Storage directly so nothing here ever sees it." },
+        { id: "bucket-size-limit", verdict: "unknown", expected: "512 MB", actual: "the bucket did not answer", consequence: "The extra-files panel promises a size nobody has checked." },
+        { id: "cors-origin", verdict: "ok", expected: "the app origin", actual: "the app origin", consequence: "" },
+      ],
+      summary: { wrong: 1, unknown: 1, ok: 1 },
+      usage: {
+        storedBytes: 412 * 1024 * 1024 * 1024,
+        objects: 18402,
+        egressBytes: 806 * 1024 * 1024 * 1024,
+        measuredRenders: 291,
+        unmeasuredRenders: 44,
+      },
+    };
+  }
   if (pathname === "/api/admin/attention") {
     return {
       counts: {
@@ -1178,6 +1221,53 @@ const PAGES = [
   },
   {
     /*
+      The three list screens, drawn rather than asserted.
+
+      No claim here beyond "it renders": the assertions about what these tables
+      contain live where the data does. What this adds is that the layout rules
+      at the top of this file - no sideways scroll, no collapsed control, no
+      tap target under a thumb, no text under 12px - run against them, on a
+      phone and mirrored, which is the whole reason this suite exists.
+    */
+    url: "/admin/accounts",
+    name: "the accounts screen",
+    signedIn: true,
+    then: async (page, check) => {
+      check(
+        "the plan summary is a summary and not a filter",
+        (await page.getByTestId("admin-plan-summary").count()) === 1,
+        "",
+      );
+    },
+  },
+  {
+    /*
+      The console in the dark theme, which is the one it will actually be read
+      in at the hour it gets opened.
+
+      Every colour on it comes from a token, so this cannot go wrong by a hex
+      being wrong; what it can go wrong by is a surface that was only ever
+      looked at against white - a hairline that vanishes, a chart fill that
+      turns to mud, a badge whose text and ground land on the same value. The
+      layout rules at the top of this file run against it either way.
+    */
+    url: "/admin",
+    name: "the admin console in the dark",
+    signedIn: true,
+    initScript: () => {
+      try {
+        localStorage.setItem("editly:theme", "dark");
+      } catch {
+        /* a browser with storage blocked keeps the default, which is fine */
+      }
+    },
+  },
+  { url: "/admin/renders", name: "the renders screen", signedIn: true },
+  { url: "/admin/money", name: "the money screen", signedIn: true },
+  { url: "/admin/system", name: "the system screen", signedIn: true },
+  { url: "/admin/log", name: "the log screen", signedIn: true },
+  {
+    /*
       Posting, on its own screen.
 
       It shares a worker with the render queue and nothing else. A render
@@ -1618,7 +1708,19 @@ for (const viewport of VIEWPORTS) {
 */
 const RTL = { name: "a phone in Arabic", size: PHONE, mobile: true, phoneRules: false, hooks: false, language: "ar" };
 
-for (const spec of PAGES.filter((p) => ["the dashboard", "the project editor", "the account page"].includes(p.name))) {
+/*
+  And the same screens mirrored, with the console among them now.
+
+  It was not on this list, which was an omission rather than a decision: the
+  operations console is the screen most likely to be read in Arabic at two in
+  the morning, and it is now the screen with the most layout in it - a rail, a
+  chart, seven tables and a row of pills. Every one of those is a place where a
+  logical property was written as a physical one and nobody noticed until the
+  page was mirrored.
+*/
+for (const spec of PAGES.filter((p) =>
+  ["the dashboard", "the project editor", "the account page", "the admin console", "the work queue"].includes(p.name),
+)) {
   section(`${spec.name} on ${RTL.name}, ${RTL.size.width}×${RTL.size.height}`);
   const { ctx, page, consoleErrors } = await open(spec.url, {
     signedIn: spec.signedIn,

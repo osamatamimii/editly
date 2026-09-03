@@ -40,6 +40,18 @@ export function formatMoment(at: Date | string | number, language: Language): st
   return format(new Date(at), language === "ar" ? "d MMMM yyyy، HH:mm" : "MMM d, yyyy, HH:mm", localeFor(language));
 }
 
+/**
+ * A day without its year, for an axis: "24 Aug" / «24 أغسطس».
+ *
+ * The full day is right on a card, where it is read once, and wrong along the
+ * foot of a chart, where fourteen of them have to fit across a phone. The year
+ * is the part that carries no information there: every point on a fortnight is
+ * in the same one.
+ */
+export function formatShortDay(at: Date | string | number, language: Language): string {
+  return format(new Date(at), language === "ar" ? "d MMM" : "d MMM", localeFor(language));
+}
+
 /** Just the clock, for something happening today. */
 export function formatClock(at: Date | string | number, language: Language): string {
   return format(new Date(at), "HH:mm", localeFor(language));
@@ -58,5 +70,6 @@ export function useDates() {
     day: (at: Date | string | number) => formatDay(at, language),
     moment: (at: Date | string | number) => formatMoment(at, language),
     clock: (at: Date | string | number) => formatClock(at, language),
+    shortDay: (at: Date | string | number) => formatShortDay(at, language),
   };
 }

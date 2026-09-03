@@ -16,7 +16,28 @@ import {
   getListAdminActionsQueryKey,
 } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, ArrowLeft, Search } from "lucide-react";
+import {
+  Loader2,
+  ArrowLeft,
+  Search,
+  Gauge,
+  AlertTriangle,
+  Users,
+  Film,
+  Send,
+  CreditCard,
+  Server,
+  ScrollText,
+  Inbox,
+  CircleAlert,
+  Clock,
+  Activity,
+  Wallet,
+  CheckCircle2,
+  ChevronRight,
+  type LucideIcon,
+} from "lucide-react";
+import { TrendChart, type Series } from "@/components/trend-chart";
 import NotFound from "@/pages/not-found";
 import { apiFetch } from "@/lib/api-fetch";
 import { Sparkline, weekOnWeek } from "@/components/sparkline";
@@ -124,16 +145,19 @@ const SECTIONS: ReadonlyArray<{
   id: Section;
   href: string;
   label: Phrase;
+  /** What the screen is for, which a heading naming a table does not say. */
+  lead: Phrase;
+  Icon: LucideIcon;
   group: "overview" | "platform";
 }> = [
-  { id: "insights", href: "/admin", label: ADMIN.navInsights, group: "overview" },
-  { id: "attention", href: "/admin/attention", label: ADMIN.navAttention, group: "overview" },
-  { id: "accounts", href: "/admin/accounts", label: ADMIN.navAccounts, group: "platform" },
-  { id: "renders", href: "/admin/renders", label: ADMIN.navRenders, group: "platform" },
-  { id: "posting", href: "/admin/posting", label: ADMIN.navPosting, group: "platform" },
-  { id: "money", href: "/admin/money", label: ADMIN.navMoney, group: "platform" },
-  { id: "system", href: "/admin/system", label: ADMIN.navSystem, group: "platform" },
-  { id: "log", href: "/admin/log", label: ADMIN.navLog, group: "platform" },
+  { id: "insights", href: "/admin", label: ADMIN.navInsights, lead: ADMIN.leadInsights, Icon: Gauge, group: "overview" },
+  { id: "attention", href: "/admin/attention", label: ADMIN.navAttention, lead: ADMIN.leadAttention, Icon: AlertTriangle, group: "overview" },
+  { id: "accounts", href: "/admin/accounts", label: ADMIN.navAccounts, lead: ADMIN.leadAccounts, Icon: Users, group: "platform" },
+  { id: "renders", href: "/admin/renders", label: ADMIN.navRenders, lead: ADMIN.leadRenders, Icon: Film, group: "platform" },
+  { id: "posting", href: "/admin/posting", label: ADMIN.navPosting, lead: ADMIN.leadPosting, Icon: Send, group: "platform" },
+  { id: "money", href: "/admin/money", label: ADMIN.navMoney, lead: ADMIN.leadMoney, Icon: CreditCard, group: "platform" },
+  { id: "system", href: "/admin/system", label: ADMIN.navSystem, lead: ADMIN.leadSystem, Icon: Server, group: "platform" },
+  { id: "log", href: "/admin/log", label: ADMIN.navLog, lead: ADMIN.leadLog, Icon: ScrollText, group: "platform" },
 ];
 
 /** The screens that can do something, and therefore need a reason first. */
@@ -314,11 +338,16 @@ export default function AdminPage() {
       unmeasuredRenders: number;
     };
   } | null>(null);
+  const [deploymentAnswered, setDeploymentAnswered] = useState(false);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       const response = await apiFetch("/api/admin/deployment");
-      if (!response.ok || cancelled) return;
+      if (cancelled) return;
+      if (!response.ok) {
+        setDeploymentAnswered(true);
+        return;
+      }
       const body = (await response.json().catch(() => null)) as unknown;
       /*
         Checked before it is trusted, and this caught a real white screen.
@@ -337,6 +366,10 @@ export default function AdminPage() {
         typeof (body as { summary?: unknown }).summary === "object" &&
         (body as { summary: unknown }).summary !== null;
       if (ok) setDeployment(body as typeof deployment);
+      // Answered, whatever it answered. Without this the System screen could
+      // not tell "still asking" from "this deployment has no audit endpoint",
+      // and drew the same nothing for both.
+      if (!cancelled) setDeploymentAnswered(true);
     })();
     return () => {
       cancelled = true;
@@ -514,6 +547,7 @@ export default function AdminPage() {
     <Card
       language={language}
       label={t(ADMIN.worker)}
+      Icon={Server}
       value={
         claimsOnlineButIsStale
           ? t(ADMIN.workerUnclear)
@@ -546,25 +580,63 @@ export default function AdminPage() {
       A field demanding a justification on a screen with no buttons is a screen
       teaching people to fill it in before they know what for.
     */
-    <section className="rounded-xl border border-border bg-card p-4 space-y-2">
-      <label className="text-sm font-medium" htmlFor="admin-reason">
-        {t(ADMIN.reasonLabel)}
-      </label>
-      <input
-        id="admin-reason"
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-        placeholder={t(ADMIN.reasonPlaceholder)}
-        data-testid="admin-reason"
-        className="w-full px-3 min-h-11 md:min-h-0 md:py-2 rounded-lg bg-background border border-border text-base md:text-sm"
-      />
+    <section className="rounded-xl border border-border bg-card px-4 py-3">
+      {/*
+        One line, not a panel.
+
+        It was a boxed section with a heading and a full-width field, three
+        screens deep, and on the queue it pushed the first row of actual work
+        below the fold on a laptop. The rule it enforces has not changed; the
+        room it takes to enforce it has.
+      */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+        <label
+          className="text-sm font-medium text-muted-foreground shrink-0 sm:w-44 leading-snug"
+          htmlFor="admin-reason"
+        >
+          {t(ADMIN.reasonLabel)}
+        </label>
+        <input
+          id="admin-reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder={t(ADMIN.reasonPlaceholder)}
+          data-testid="admin-reason"
+          className="flex-1 min-w-0 px-3 min-h-11 sm:min-h-0 sm:py-2 rounded-lg bg-background border border-border text-base sm:text-sm"
+        />
+      </div>
       {actionError ? (
-        <p className="text-sm text-destructive" data-testid="admin-action-error">
+        <p className="text-sm text-destructive mt-2" data-testid="admin-action-error">
           {actionError}
         </p>
       ) : null}
     </section>
   );
+
+  /*
+    The fortnight, as four series over one axis rather than four thumbnails.
+
+    The days are computed here rather than sent: `trends.daily` is fourteen
+    entries oldest first, including the empty ones, so the nth entry is n days
+    before today and there is nothing on the wire to disagree with. Formatting
+    is the page's job in any case, because the labels are in the reader's
+    language.
+  */
+  const fortnight = data.trends
+    ? Array.from({ length: data.trends.renders.daily.length }, (_, i) =>
+        dates.shortDay(
+          new Date(Date.now() - (data.trends!.renders.daily.length - 1 - i) * 24 * 60 * 60 * 1000),
+        ),
+      )
+    : [];
+  const series: Series[] = data.trends
+    ? [
+        { id: "renders", label: t(ADMIN.seriesRenders), values: data.trends.renders.daily, total: String(sum(data.trends.renders.daily)), tone: "text-primary" },
+        { id: "minutes", label: t(ADMIN.seriesMinutes), values: data.trends.minutes.daily, total: String(Math.round(sum(data.trends.minutes.daily))), tone: "text-success" },
+        { id: "failures", label: t(ADMIN.seriesFailures), values: data.trends.failures.daily, total: String(sum(data.trends.failures.daily)), tone: "text-destructive" },
+        { id: "signups", label: t(ADMIN.seriesSignups), values: data.trends.signups.daily, total: String(sum(data.trends.signups.daily)), tone: "text-warning" },
+      ]
+    : [];
 
   const insights = (
     <div className="space-y-8" data-testid="admin-panel-insights">
@@ -604,35 +676,73 @@ export default function AdminPage() {
           cancellation as a loss and a redelivered create as a gain is a number
           that is wrong in both directions on the same screen. What is shown
           instead is the count, and the queue names the events. */}
-      <section className="space-y-3" data-testid="admin-money">
-        <h2 className="text-xl font-semibold">{t(ADMIN.subscriptions)}</h2>
-        <div className="flex flex-wrap gap-3">
-          <div className="px-4 py-2 rounded-lg border border-primary/40 bg-primary/10 text-sm font-medium">
-            {fmt(ADMIN.monthlyRecurring, data.revenue.monthlyRecurringUsd)}
-          </div>
-          <div className="px-4 py-2 rounded-lg border border-border bg-card text-sm text-muted-foreground">
-            {fmt(ADMIN.paying, paidAccounts, data.accounts.total)}
-          </div>
-          {countOf("billing-unapplied") > 0 ? (
-            <Link
-              href="/admin/attention"
-              className="px-4 py-2 rounded-lg border border-destructive/50 bg-destructive/10 text-sm text-destructive"
-              data-testid="admin-money-at-risk"
-            >
-              {fmt(ADMIN.billingProblem, countOf("billing-unapplied"))}
-            </Link>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {data.revenue.byPlan.map((row) => (
-            <div
-              key={row.plan}
-              className="px-3 py-1.5 rounded-lg border border-border bg-card text-sm"
-            >
-              <span className="font-medium capitalize">{row.plan}</span>{" "}
-              <span className="text-muted-foreground">× {row.count}</span>
+      {/* ── Money, first ─────────────────────────────────────────────────
+          First because it is the only number on this console that is about
+          whether the product survives, and because it is the one an operator
+          cannot get anywhere else: the queue is visible from the dashboard and
+          the failures arrive as support mail.
+
+          There is no dollar figure for what is at risk, and that is on purpose.
+          A billing event carries a plan and a type, not an amount, so "revenue
+          at risk" would have to be inferred, and an inference that counts a
+          cancellation as a loss and a redelivered create as a gain is a number
+          that is wrong in both directions on the same screen. What is shown
+          instead is the count, and the queue names the events. */}
+      <section
+        data-testid="admin-money"
+        className="rounded-xl border border-border bg-card overflow-hidden"
+      >
+        <div className="grid sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x rtl:sm:divide-x-reverse divide-border">
+          <div className="p-5">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span
+                aria-hidden="true"
+                className="w-6 h-6 rounded-md bg-primary/15 text-primary grid place-items-center shrink-0"
+              >
+                <Wallet className="w-3.5 h-3.5" />
+              </span>
+              <span>{t(ADMIN.subscriptions)}</span>
             </div>
-          ))}
+            <div className="mt-2 text-3xl font-bold tabular-nums leading-none">
+              {fmt(ADMIN.monthlyRecurring, data.revenue.monthlyRecurringUsd)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              {fmt(ADMIN.paying, paidAccounts, data.accounts.total)}
+            </div>
+          </div>
+
+          <div className="p-5">
+            <div className="text-sm text-muted-foreground">{t(ADMIN.perPlan)}</div>
+            <div className="mt-3 space-y-1.5">
+              {data.revenue.byPlan.map((row) => (
+                <div key={row.plan} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="capitalize truncate">{row.plan}</span>
+                  <span className="text-muted-foreground tabular-nums shrink-0">{row.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-5">
+            <div className="text-sm text-muted-foreground">{t(ADMIN.paymentsTitle)}</div>
+            {countOf("billing-unapplied") > 0 ? (
+              <Link
+                href="/admin/attention"
+                data-testid="admin-money-at-risk"
+                className="mt-3 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm text-destructive hover:bg-destructive/15 transition-colors"
+              >
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+                <span className="leading-snug">
+                  {fmt(ADMIN.billingProblem, countOf("billing-unapplied"))}
+                </span>
+              </Link>
+            ) : (
+              <div className="mt-3 flex items-center gap-2 text-sm text-success">
+                <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>{t(ADMIN.allApplied)}</span>
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -648,6 +758,7 @@ export default function AdminPage() {
           <Card
             language={language}
             label={t(ADMIN.unattended)}
+            Icon={AlertTriangle}
             value={data.queue.unattended}
             hint={t(ADMIN.unattendedHint)}
             alarming={data.queue.unattended > 0}
@@ -655,27 +766,31 @@ export default function AdminPage() {
           <Card
             language={language}
             label={t(ADMIN.failedDay)}
+            Icon={CircleAlert}
             value={data.queue.failedLastDay}
             alarming={data.queue.failedLastDay > 0}
             trend={data.trends?.failures}
             upIsGood={false}
           />
-          <Card language={language} label={t(ADMIN.renderingNow)} value={data.queue.processing} />
+          <Card language={language} label={t(ADMIN.renderingNow)} value={data.queue.processing} Icon={Activity} />
           <Card
             language={language}
             label={t(ADMIN.waitingInQueue)}
+            Icon={Inbox}
             value={data.queue.waiting}
             hint={t(ADMIN.behindLiveMachine)}
           />
           <Card
             language={language}
             label={t(ADMIN.doneDay)}
+            Icon={Film}
             value={data.queue.doneLastDay}
             trend={data.trends?.renders}
           />
           <Card
             language={language}
             label={t(ADMIN.minutesThisMonth)}
+            Icon={Clock}
             value={data.minutesRenderedThisMonth}
             trend={data.trends?.minutes}
           />
@@ -683,11 +798,23 @@ export default function AdminPage() {
             language={language}
             label={t(ADMIN.accounts)}
             value={data.accounts.total}
+            Icon={Users}
             hint={fmt(ADMIN.newThisWeek, data.accounts.newLastWeek)}
             trend={data.trends?.signups}
           />
         </div>
       </section>
+
+      <Panel
+        title={t(ADMIN.fortnightTitle)}
+        testId="admin-fortnight"
+        aside={<span className="text-xs text-muted-foreground">{t(ADMIN.thisMonth)}</span>}
+      >
+        <p className="text-xs text-muted-foreground mb-4 leading-snug max-w-2xl">
+          {t(ADMIN.fortnightLead)}
+        </p>
+        <TrendChart series={series} days={fortnight} emptyLabel={t(ADMIN.fortnightEmpty)} />
+      </Panel>
 
       {/*
         Who is at their ceiling, in one line.
@@ -702,33 +829,62 @@ export default function AdminPage() {
       {countOf("minutes-spent") + countOf("minutes-nearly-spent") > 0 ? (
         <Link
           href="/admin/attention"
-          className="block rounded-xl border border-border bg-card px-4 py-3 text-sm hover:border-primary/50 transition-colors"
+          className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3.5 hover:border-primary/50 transition-colors"
           data-testid="admin-caps"
         >
-          {fmt(ADMIN.capLine, countOf("minutes-spent"), countOf("minutes-nearly-spent"))}
+          <span
+            aria-hidden="true"
+            className="w-8 h-8 rounded-lg bg-warning/15 text-warning grid place-items-center shrink-0"
+          >
+            <Clock className="w-4 h-4" />
+          </span>
+          <span className="flex-1 min-w-0 text-sm leading-snug">
+            {fmt(ADMIN.capLine, countOf("minutes-spent"), countOf("minutes-nearly-spent"))}
+          </span>
+          <span className="hidden sm:inline text-xs text-muted-foreground whitespace-nowrap">
+            {t(ADMIN.capLineOpen)}
+          </span>
+          <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 rtl:rotate-180" aria-hidden="true" />
         </Link>
       ) : null}
     </div>
   );
 
   const queueRows = (queue?.items ?? []).map((item) => [
-    <span
+    <Badge
       key="what"
-      className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs whitespace-nowrap border ${
-        item.severity === "critical"
-          ? "border-destructive/50 bg-destructive/10 text-destructive"
-          : "border-warning/40 bg-warning/10 text-foreground"
-      }`}
-      data-testid={`queue-kind-${item.kind}`}
+      tone={item.severity === "critical" ? "bad" : "warn"}
+      testId={`queue-kind-${item.kind}`}
     >
       {t(KIND_LABEL[item.kind])}
-    </span>,
-    item.at
-      ? dates.moment(item.at)
-      : item.kind === "worker-gone"
-        ? t(ADMIN.neverBeat)
-        : EMPTY,
-    item.email ?? (item.userId ? item.userId.slice(0, 8) : EMPTY),
+    </Badge>,
+    /*
+      How long, not when.
+
+      Every other table on this console is a record and prints a timestamp;
+      this is a queue, and the question a queue row raises is "how long has
+      this been sitting there". "Aug 24, 2026, 07:40" makes the reader do the
+      subtraction, once per row, against a clock they have to remember.
+    */
+    item.at ? (
+      <span key="since" className="whitespace-nowrap" title={dates.moment(item.at)}>
+        {fmt(ADMIN.ago, elapsed(Math.max(0, Math.round((Date.now() - new Date(item.at).getTime()) / 1000)), language))}
+      </span>
+    ) : item.kind === "worker-gone" ? (
+      t(ADMIN.neverBeat)
+    ) : (
+      EMPTY
+    ),
+    item.email || item.userId ? (
+      <span key="whose" className="flex items-center gap-2.5 min-w-0">
+        <Initials of={item.email} />
+        <span className="truncate" dir="ltr">
+          {item.email ?? (item.userId as string).slice(0, 8)}
+        </span>
+      </span>
+    ) : (
+      EMPTY
+    ),
     // What the failing system said, in its own words. The minutes rows have no
     // sentence to quote and are the two numbers instead; a connected account
     // leads with the handle, because "which account" is the whole question.
@@ -779,11 +935,6 @@ export default function AdminPage() {
 
   const attentionPanel = (
     <div className="space-y-6" data-testid="admin-panel-attention">
-      <div>
-        <h2 className="text-xl font-semibold">{t(ADMIN.queueTitle)}</h2>
-        <p className="text-sm text-muted-foreground mt-1">{t(ADMIN.queueLead)}</p>
-      </div>
-
       {/* The counts, per kind, above the rows. Nashra's header line and the
           reason it works: the numbers are the whole table and the rows below
           are a sample of it, so the two must be shown as two things. */}
@@ -908,9 +1059,26 @@ export default function AdminPage() {
               "",
             ]}
             rows={(accounts.data?.accounts ?? []).map((account) => [
-              account.email ?? account.userId,
-              account.plan,
-              `${account.minutesUsedThisMonth} / ${account.minutesIncluded}`,
+              <span key="who" className="flex items-center gap-2.5 min-w-0">
+                <Initials of={account.email} />
+                <span className="truncate" dir="ltr">{account.email ?? account.userId}</span>
+              </span>,
+              <Badge key="plan" tone={account.plan === "free" ? "neutral" : "good"}>
+                {account.plan}
+              </Badge>,
+              /*
+                The allowance as a bar. It was "22.5 / 60", which is a division
+                the reader does in their head fifty times down a page, and the
+                one row that matters is the one where the answer is close to
+                one. The numbers stay under it, because a bar alone cannot say
+                which plan it belongs to.
+              */
+              <span key="minutes" className="block min-w-28">
+                <Meter used={account.minutesUsedThisMonth} of={account.minutesIncluded} />
+                <span className="text-xs tabular-nums">
+                  {account.minutesUsedThisMonth} / {account.minutesIncluded}
+                </span>
+              </span>,
               String(account.projectCount),
               dates.day(account.createdAt),
               account.lastSignInAt ? dates.day(account.lastSignInAt) : t(ADMIN.never),
@@ -1024,8 +1192,10 @@ export default function AdminPage() {
               "",
             ]}
             rows={(jobs.data?.jobs ?? []).map((job) => [
-              job.unattended ? fmt(ADMIN.unattendedSuffix, job.status) : job.status,
-              job.projectId.slice(0, 8),
+              <Badge key="status" tone={job.unattended ? "bad" : toneOfStatus(job.status)}>
+                {job.unattended ? fmt(ADMIN.unattendedSuffix, job.status) : job.status}
+              </Badge>,
+              <span key="project" className="font-mono text-xs">{job.projectId.slice(0, 8)}</span>,
               job.billedSeconds === null ? EMPTY : `${Math.round(job.billedSeconds)}s`,
               dates.moment(job.createdAt),
               job.finishedAt ? dates.moment(job.finishedAt) : EMPTY,
@@ -1215,7 +1385,9 @@ export default function AdminPage() {
             event.email ?? EMPTY,
             event.plan ?? EMPTY,
             dates.moment(event.receivedAt),
-            event.applied ? t(ADMIN.yes) : t(ADMIN.no),
+            <Badge key="applied" tone={event.applied ? "good" : "bad"}>
+              {event.applied ? t(ADMIN.yes) : t(ADMIN.no)}
+            </Badge>,
             event.outcome ?? EMPTY,
           ])}
           empty={t(ADMIN.nothingFromFreemius)}
@@ -1227,6 +1399,18 @@ export default function AdminPage() {
   const systemPanel = (
     <div className="space-y-8" data-testid="admin-panel-system">
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">{workerCard}</section>
+
+      {/*
+        Nothing to show, and which kind of nothing.
+
+        Two thirds of this screen comes from one hand-fetched endpoint, and
+        when it does not answer the screen drew a single card and a great deal
+        of white. Silence and "everything is fine" look identical, which is the
+        one confusion this whole console exists to prevent.
+      */}
+      {deployment === null ? (
+        <Empty>{deploymentAnswered ? t(ADMIN.deploymentSilent) : t(ADMIN.loading)}</Empty>
+      ) : null}
 
       {/* ── What we are storing, and what it costs to move ───────────
           The largest line on the bill of a video product is neither compute
@@ -1392,71 +1576,166 @@ export default function AdminPage() {
     log: logPanel,
   };
 
-  return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-7xl md:flex md:gap-8 px-4 md:px-6 py-6 md:py-10">
-        {/*
-          The rail.
+  /*
+    When the numbers on the screen were last true.
 
-          A column on a desktop and a strip across the top on a phone, from one
-          list. Two lists would be two things to keep in step, and the phone
-          copy is the one that would fall behind: this console is opened from a
-          phone at the moment a render is failing, which is the moment nobody
-          is checking whether the navigation matches.
-        */}
-        <nav
-          className="md:w-52 md:shrink-0 mb-6 md:mb-0"
-          data-testid="admin-rail"
-          aria-label={t(ADMIN.title)}
-        >
-          <div className="mb-4">
-            <Link
-              href="/dashboard"
-              className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4 rtl:rotate-180" /> {t(COMMON.dashboard)}
-            </Link>
-            <h1 className="text-xl font-bold mt-2">{t(ADMIN.title)}</h1>
+    Read off the query rather than ticked by a timer: the overview refetches
+    every thirty seconds, so this label changes when the data does. A clock
+    counting up beside stale numbers would be the console's own version of the
+    progress bar that moves while nothing is happening.
+  */
+  const readAgo = Math.round((Date.now() - (overview.dataUpdatedAt || Date.now())) / 1000);
+
+  return (
+    <div className="min-h-screen bg-background text-foreground md:flex">
+      {/*
+        The rail, and it is one element rather than two.
+
+        A sticky column on a desktop and a band across the top of a phone, from
+        the same markup and the same list. Two of them would be two things to
+        keep in step, and the phone copy is the one that would fall behind:
+        this console is opened from a phone at the moment a render is failing,
+        which is the moment nobody is checking whether the navigation matches.
+
+        It sits on the design system's own sidebar tokens, which existed and
+        had never been used by anything. That is what makes this read as a tool
+        rather than as another page of the product: the chrome is a different
+        surface from the content, in both themes, without a hex anywhere.
+      */}
+      <nav
+        data-testid="admin-rail"
+        aria-label={t(ADMIN.title)}
+        className="bg-sidebar text-sidebar-foreground border-b md:border-b-0 md:border-e border-sidebar-border md:w-60 md:shrink-0 md:h-screen md:sticky md:top-0 md:flex md:flex-col"
+      >
+        <div className="flex items-center gap-2.5 px-4 py-3.5 md:py-5 md:border-b border-sidebar-border">
+          <span
+            aria-hidden="true"
+            className="w-9 h-9 rounded-xl bg-sidebar-primary text-sidebar-primary-foreground grid place-items-center shrink-0"
+          >
+            <Gauge className="w-5 h-5" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold leading-tight truncate">{t(ADMIN.title)}</div>
+            <div className="text-[11px] uppercase tracking-[0.14em] opacity-60 leading-tight">
+              {t(ADMIN.consoleTag)}
+            </div>
           </div>
-          <div className="flex md:block gap-2 overflow-x-auto md:overflow-visible -mx-4 px-4 md:mx-0 md:px-0 md:space-y-6">
+        </div>
+
+        <div className="md:flex-1 md:overflow-y-auto px-3 pb-3 md:py-4">
+          <div className="flex md:block gap-2 overflow-x-auto md:overflow-visible md:space-y-5 -mx-3 px-3 md:mx-0 md:px-0">
             {(["overview", "platform"] as const).map((group) => (
-              <div key={group} className="flex md:block gap-2 md:space-y-1">
-                <div className="hidden md:block text-[11px] uppercase tracking-wider text-muted-foreground px-3 pb-1">
+              <div key={group} className="flex md:block gap-2 md:space-y-0.5">
+                <div className="hidden md:block text-[11px] uppercase tracking-[0.14em] opacity-50 px-3 pb-1.5">
                   {t(group === "overview" ? ADMIN.navOverview : ADMIN.navPlatform)}
                 </div>
-                {SECTIONS.filter((entry) => entry.group === group).map((entry) => (
-                  <Link
-                    key={entry.id}
-                    href={entry.href}
-                    data-testid={`admin-nav-${entry.id}`}
-                    className={`flex items-center justify-between gap-2 whitespace-nowrap rounded-lg px-3 min-h-11 md:min-h-0 md:py-2 text-sm border md:border-0 transition-colors ${
-                      entry.id === section
-                        ? "border-primary/60 bg-primary/15 text-foreground font-medium"
-                        : "border-border text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <span>{t(entry.label)}</span>
-                    {/*
-                      One badge, on one entry, and only when it is not zero. A
-                      count beside every heading is decoration; a count that
-                      appears only when somebody is needed is a signal.
-                    */}
-                    {entry.id === "attention" && urgent > 0 ? (
-                      <span
-                        data-testid="admin-nav-urgent"
-                        className="inline-flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[11px] font-semibold min-w-5 px-1.5 tabular-nums"
-                      >
-                        {urgent}
-                      </span>
-                    ) : null}
-                  </Link>
-                ))}
+                {SECTIONS.filter((entry) => entry.group === group).map((entry) => {
+                  const on = entry.id === section;
+                  return (
+                    <Link
+                      key={entry.id}
+                      href={entry.href}
+                      data-testid={`admin-nav-${entry.id}`}
+                      aria-current={on ? "page" : undefined}
+                      className={`flex items-center gap-2.5 whitespace-nowrap rounded-lg px-3 min-h-11 md:min-h-0 md:py-2 text-sm transition-colors ${
+                        on
+                          ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
+                          : "opacity-70 hover:opacity-100 hover:bg-sidebar-accent"
+                      }`}
+                    >
+                      <entry.Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      <span className="md:flex-1">{t(entry.label)}</span>
+                      {/*
+                        One badge, on one entry, and only when it is not zero. A
+                        count beside every heading is decoration; a count that
+                        appears only when somebody is needed is a signal.
+                      */}
+                      {entry.id === "attention" && urgent > 0 ? (
+                        <span
+                          data-testid="admin-nav-urgent"
+                          className={`inline-flex items-center justify-center rounded-full text-[11px] font-semibold min-w-5 px-1.5 tabular-nums ${
+                            on
+                              ? "bg-sidebar-primary-foreground text-sidebar-primary"
+                              : "bg-destructive text-destructive-foreground"
+                          }`}
+                        >
+                          {urgent}
+                        </span>
+                      ) : null}
+                    </Link>
+                  );
+                })}
               </div>
             ))}
           </div>
-        </nav>
+        </div>
 
-        <main className="flex-1 min-w-0">{panels[section]}</main>
+        {/*
+          The foot of the rail, on a desktop only.
+
+          The worker's state is here as well as on two screens because it is the
+          one fact that changes what every other number on this console means,
+          and the rail is the only thing visible from all eight of them. On a
+          phone the band is already three lines tall and this would be a fourth
+          before any content.
+        */}
+        <div className="hidden md:block px-3 py-3 border-t border-sidebar-border space-y-1">
+          <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
+            <span
+              aria-hidden="true"
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                claimsOnlineButIsStale
+                  ? "bg-warning"
+                  : worker.online
+                    ? "bg-success"
+                    : "bg-destructive"
+              }`}
+            />
+            <span className="opacity-70 truncate">
+              {claimsOnlineButIsStale
+                ? t(ADMIN.workerUnclear)
+                : worker.online
+                  ? t(ADMIN.workerOnline)
+                  : t(ADMIN.workerOffline)}
+            </span>
+          </div>
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm opacity-70 hover:opacity-100 hover:bg-sidebar-accent transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4 rtl:rotate-180 shrink-0" aria-hidden="true" />
+            <span>{t(ADMIN.navBack)}</span>
+          </Link>
+        </div>
+      </nav>
+
+      <div className="flex-1 min-w-0">
+        {/*
+          The screen's own header, and it says what the screen is for.
+
+          A heading names a table. It does not say what a bad number in it would
+          mean, and the person reading this at two in the morning is the one
+          least able to reconstruct that from the column titles.
+        */}
+        <header className="sticky top-0 z-20 bg-background/85 backdrop-blur border-b border-border">
+          <div className="px-4 md:px-8 py-4 md:py-5 flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="text-xl md:text-2xl font-bold leading-tight">{t(here?.label ?? ADMIN.title)}</h1>
+              <p className="text-sm text-muted-foreground mt-1">{t(here?.lead ?? ADMIN.lead)}</p>
+            </div>
+            <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground shrink-0 pt-1">
+              <span
+                aria-hidden="true"
+                className="w-1.5 h-1.5 rounded-full bg-success animate-pulse shrink-0"
+              />
+              <span className="tabular-nums">
+                {readAgo < 5 ? t(ADMIN.readJustNow) : fmt(ADMIN.readAt, elapsed(readAgo, language))}
+              </span>
+            </div>
+          </div>
+        </header>
+
+        <main className="px-4 md:px-8 py-6 md:py-8 pb-20">{panels[section]}</main>
       </div>
     </div>
   );
@@ -1599,13 +1878,22 @@ function Attention({
       className="rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-3"
       data-testid="admin-attention"
     >
-      <div className="text-sm font-semibold text-destructive mb-1">
+      <div className="flex items-center gap-2 text-sm font-semibold text-destructive mb-2">
+        <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
         {shaped(ADMIN.thingsNeedYou, problems.length)}
       </div>
-      <ul className="space-y-1">
+      {/*
+        One row each, separated, rather than five sentences in a block.
+
+        Five paragraphs of prose in a red box is a wall, and a wall gets read
+        as one thing that is wrong instead of as five. The rule between them is
+        what makes the count at the top countable by eye.
+      */}
+      <ul className="divide-y divide-destructive/20 border-y border-destructive/20">
         {problems.map((problem) => (
-          <li key={problem} className="text-sm text-foreground leading-snug">
-            {problem}
+          <li key={problem} className="flex gap-2.5 py-2 text-sm text-foreground leading-snug">
+            <span aria-hidden="true" className="mt-1.5 w-1.5 h-1.5 rounded-full bg-destructive shrink-0" />
+            <span>{problem}</span>
           </li>
         ))}
       </ul>
@@ -1634,17 +1922,21 @@ function Card({
   value,
   hint,
   alarming = false,
+  Icon,
   trend,
   /** Which way is good. Failures going up is not the same news as signups. */
   upIsGood = true,
+  testId,
 }: {
   language?: Language;
   label: string;
   value: string | number;
   hint?: string;
   alarming?: boolean;
+  Icon?: LucideIcon;
   trend?: AdminTrend;
   upIsGood?: boolean;
+  testId?: string;
 }) {
   const change = trend ? weekOnWeek(trend.thisWeek, trend.lastWeek, language) : null;
   const good = change && change.direction !== "flat" && (change.direction === "up") === upIsGood;
@@ -1652,44 +1944,227 @@ function Card({
 
   return (
     <div
-      className={`rounded-xl border p-4 ${
-        alarming ? "border-destructive/50 bg-destructive/10" : "border-border bg-card"
+      data-testid={testId}
+      /*
+        A card that can be alarming, and a card that is alarming, drawn as two
+        different things rather than as one thing in two colours.
+
+        A whole tile filled red is loud enough that a screen with three of them
+        has no order left in it, and this console can legitimately have three.
+        The fill is kept faint and the weight moved to a bar down the leading
+        edge: at a glance the eye counts bars, and the numbers stay readable.
+      */
+      className={`relative overflow-hidden rounded-xl border p-4 transition-colors ${
+        alarming
+          ? "border-destructive/40 bg-destructive/[0.06]"
+          : "border-border bg-card hover:border-border/80"
       }`}
     >
-      <div className="text-sm text-muted-foreground">{label}</div>
-      <div className="flex items-end justify-between gap-3 mt-1">
-        <div className="text-2xl font-bold tabular-nums">{value}</div>
-        {trend ? (
-          /*
-             The line takes the card's colour, not its own, when the card is
-             already alarming. A green sparkline inside a red card is two
-             signals disagreeing on one object — and the one that is wrong is
-             the small one, because the card went red for a reason the
-             fortnight does not know about.
-          */
-          <Sparkline
-            values={trend.daily}
-            className={
-              alarming
-                ? "text-destructive"
-                : good
-                  ? "text-success"
-                  : bad
-                    ? "text-warning"
-                    : "text-muted-foreground"
-            }
-          />
+      {alarming ? (
+        <span aria-hidden="true" className="absolute inset-y-0 start-0 w-1 bg-destructive" />
+      ) : null}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        {Icon ? (
+          <span
+            aria-hidden="true"
+            className={`w-6 h-6 rounded-md grid place-items-center shrink-0 ${
+              alarming ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+          </span>
         ) : null}
+        {/*
+          Wrapping, not truncating. At 390px "Minutes this month" became
+          "Minutes this ..." and "Waiting in queue" became "Waiting in q...",
+          which is a label that has had the informative half removed. Two lines
+          costs eleven pixels.
+        */}
+        <span className="leading-snug">{label}</span>
       </div>
+      <div className="mt-2 text-2xl font-bold tabular-nums leading-none">{value}</div>
       {change ? (
-        <div
-          className={`text-xs mt-1 ${good ? "text-success" : bad ? "text-warning" : "text-muted-foreground"}`}
-        >
-          {change.text}
+        <div className="mt-2">
+          <span
+            /*
+              12px and not 11. `tools/viewport-test.mjs` holds a floor under
+              every run of body text longer than a dozen characters, and "up
+              67% on last week" is one: a delta nobody can read on a phone is a
+              delta that may as well not be drawn.
+            */
+            className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-medium ${
+              good
+                ? "bg-success/15 text-success"
+                : bad
+                  ? "bg-warning/15 text-warning"
+                  : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {change.text}
+          </span>
         </div>
       ) : null}
-      {hint ? <div className="text-xs text-muted-foreground mt-1">{hint}</div> : null}
+      {hint ? <div className="text-xs text-muted-foreground mt-2 leading-snug">{hint}</div> : null}
+      {trend ? (
+        /*
+           The line takes the card's colour, not its own, when the card is
+           already alarming. A green sparkline inside a red card is two signals
+           disagreeing about one object, and the one that is wrong is the small
+           one: the card went red for a reason the fortnight does not know
+           about.
+
+           Full width along the foot rather than tucked beside the figure. It
+           was 96px wide in a card three times that, which is the size at which
+           a fortnight is a texture rather than a shape.
+        */
+        <Sparkline
+          values={trend.daily}
+          width={240}
+          height={32}
+          className={`mt-3 w-full ${
+            alarming ? "text-destructive" : good ? "text-success" : bad ? "text-warning" : "text-muted-foreground"
+          }`}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * A word about a row, drawn as a word about a row.
+ *
+ * Job states, event types and plan names arrived here as bare text in a cell
+ * and read as data that had been forgotten about. They are a closed vocabulary
+ * and the screen is scanned rather than read, so they get a shape: a pill, in
+ * one of four tones, and the tone is a fact rather than decoration.
+ */
+function Badge({
+  children,
+  tone = "neutral",
+  testId,
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "bad" | "warn" | "good";
+  testId?: string;
+}) {
+  const skin = {
+    neutral: "border-border bg-muted/60 text-muted-foreground",
+    bad: "border-destructive/40 bg-destructive/10 text-destructive",
+    warn: "border-warning/40 bg-warning/10 text-foreground",
+    good: "border-success/40 bg-success/10 text-success",
+  }[tone];
+  return (
+    <span
+      data-testid={testId}
+      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs whitespace-nowrap ${skin}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Which tone a render state gets.
+ *
+ * Read off the vocabulary the queue actually writes (`lib/db/src/schema/jobs.ts`:
+ * queued to running to done or failed) rather than off a guess, and anything
+ * unrecognised stays neutral. A default that guessed would eventually paint a
+ * new state green.
+ */
+/**
+ * How much of an allowance is gone, drawn.
+ *
+ * It turns amber before it turns red, because the row worth acting on is the
+ * one that is *about* to be refused a render rather than the one that already
+ * has been. The bar is capped at full: an account over its plan through a
+ * grant is at its ceiling, not at a hundred and forty per cent of a bar.
+ */
+function Meter({ used, of }: { used: number; of: number }) {
+  if (of <= 0) return null;
+  const share = Math.min(1, used / of);
+  return (
+    <span
+      aria-hidden="true"
+      className="block h-1.5 w-full rounded-full bg-muted overflow-hidden mb-1"
+    >
+      <span
+        className={`block h-full rounded-full ${
+          share >= 1 ? "bg-destructive" : share >= 0.8 ? "bg-warning" : "bg-primary"
+        }`}
+        style={{ width: `${Math.max(2, share * 100)}%` }}
+      />
+    </span>
+  );
+}
+
+/** A fortnight added up, for the number on a legend chip. */
+function sum(values: number[]): number {
+  return values.reduce((total, one) => total + one, 0);
+}
+
+function toneOfStatus(status: string): "neutral" | "bad" | "warn" | "good" {
+  if (status.startsWith("failed")) return "bad";
+  if (status.startsWith("done")) return "good";
+  if (status.startsWith("running")) return "warn";
+  return "neutral";
+}
+
+/**
+ * Two letters standing for an address, and nothing standing for the absence of
+ * one.
+ *
+ * Rows of raw email in a first column are hard to tell apart at a glance, and
+ * this is a screen somebody scans for the row they were looking for. Derived
+ * from the address rather than stored, so there is nothing new to keep true.
+ */
+function Initials({ of }: { of: string | null }) {
+  const letters = (of ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase();
+  return (
+    <span
+      aria-hidden="true"
+      className="w-7 h-7 rounded-full bg-primary/15 text-primary grid place-items-center text-[11px] font-semibold shrink-0"
+    >
+      {letters || "?"}
+    </span>
+  );
+}
+
+/**
+ * An empty table that says what would be in it.
+ *
+ * "Nobody yet." in grey eight-point type is indistinguishable from a table
+ * that failed to load, which is the one distinction this console exists to
+ * make. An icon, the sentence, and enough space to look deliberate.
+ */
+function Empty({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-dashed border-border py-10 px-6 text-center">
+      <Inbox className="w-6 h-6 mx-auto text-muted-foreground/60" aria-hidden="true" />
+      <p className="text-sm text-muted-foreground mt-2">{children}</p>
+    </div>
+  );
+}
+
+/** A titled box, so a screen is a set of things rather than a scroll. */
+function Panel({
+  title,
+  aside,
+  children,
+  testId,
+}: {
+  title: string;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+  testId?: string;
+}) {
+  return (
+    <section data-testid={testId} className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-3 border-b border-border bg-muted/30">
+        <h2 className="text-sm font-semibold">{title}</h2>
+        {aside}
+      </div>
+      <div className="p-4">{children}</div>
+    </section>
   );
 }
 
@@ -1702,9 +2177,7 @@ function Table({
   rows: React.ReactNode[][];
   empty: string;
 }) {
-  if (rows.length === 0) {
-    return <div className="text-sm text-muted-foreground py-6">{empty}</div>;
-  }
+  if (rows.length === 0) return <Empty>{empty}</Empty>;
   return (
     // `min-w-0` and `max-w-full`, or `overflow-x-auto` does nothing.
     // A flex or grid child's `min-width` defaults to `auto` — the width of its
@@ -1713,11 +2186,20 @@ function Table({
     // device somebody opens it on: the moment a render is failing and they are
     // not at a desk.
     <div className="w-full min-w-0 max-w-full overflow-x-auto rounded-xl border border-border">
-      <table className="w-full text-sm">
-        <thead className="bg-muted/40">
-          <tr>
-            {head.map((cell) => (
-              <th key={cell} className="text-start font-medium px-4 py-2.5 whitespace-nowrap">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="bg-muted/50">
+            {head.map((cell, i) => (
+              <th
+                key={cell || `blank-${i}`}
+                /*
+                  Uppercase, small and quiet, which is the difference between a
+                  header row and a first row of data. These were the same size
+                  and weight as the cells under them, so every table on this
+                  console began with a row that looked like a record.
+                */
+                className="text-start text-[11px] font-medium uppercase tracking-wider text-muted-foreground px-4 py-2.5 whitespace-nowrap border-b border-border"
+              >
                 {cell}
               </th>
             ))}
@@ -1725,11 +2207,11 @@ function Table({
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-t border-border/60">
+            <tr key={i} className="border-t border-border/50 hover:bg-muted/30 transition-colors">
               {row.map((cell, j) => (
                 <td
                   key={j}
-                  className="px-4 py-2.5 align-top max-w-md break-words text-muted-foreground first:text-foreground"
+                  className="px-4 py-3 align-top max-w-md break-words text-muted-foreground first:text-foreground"
                 >
                   {cell}
                 </td>

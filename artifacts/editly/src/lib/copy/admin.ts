@@ -113,6 +113,7 @@ export const ADMIN = {
 
   subscriptions: p("الاشتراكات", "Subscriptions"),
   monthlyRecurring: f<[number]>((usd) => `$${usd} / شهريًا`, (usd) => `$${usd} / month`),
+  paymentsTitle: p("المدفوعات", "Payments"),
   lastBillingEvents: p("آخر أحداث الفوترة", "Last billing events"),
   headType: p("النوع", "Type"),
   headEmail: p("البريد", "Email"),
@@ -270,6 +271,7 @@ export const ADMIN = {
   headWhat: p("ما هو", "What"),
   headSince: p("منذ", "Since"),
   headWhose: p("لِمن", "Whose"),
+  ago: f<[string]>((duration) => `منذ ${duration}`, (duration) => `${duration} ago`),
 
   /*
     One label per kind, and the vocabulary is closed.
@@ -305,16 +307,88 @@ export const ADMIN = {
   ),
   capLine: f<[number, number]>(
     (over, near) =>
-      `${over} حسابًا نفدت دقائقه هذا الشهر، و${near} يقترب من حدّه`,
-    (over, near) => `${over} accounts have spent their minutes this month, ${near} are close to their limit`,
+      `${over === 1 ? "حساب واحد نفدت دقائقه" : `${over} حسابات نفدت دقائقها`} هذا الشهر، و${near === 1 ? "واحد يقترب من حدّه" : `${near} تقترب من حدّها`}`,
+    (over, near) =>
+      `${over} ${over === 1 ? "account has" : "accounts have"} spent their minutes this month, and ${near} ${near === 1 ? "is" : "are"} close to the limit`,
   ),
+  capLineOpen: p("انظر من هم", "See who they are"),
   seeTheQueue: p("افتح الطابور", "Open the queue"),
   systemTitle: p("النظام", "System"),
+  deploymentSilent: p(
+    "لم تُجب هذه النشرة عن فحص النشر بعد.",
+    "This deployment has not answered the audit yet.",
+  ),
   deploymentAllWell: p(
     "كل ما فُحص يطابق ما تفترضه الشيفرة.",
     "Everything checked matches what the code assumes.",
   ),
   perPlan: p("لكل خطّة", "Per plan"),
+
+  /*
+    A line under each screen's name, and the reason every screen has one.
+
+    The console used to carry one sentence at the top of one page, and eight
+    headings under it. A heading names a table; it does not say what the table
+    is for or what a bad number in it would mean, and the person reading this
+    at two in the morning is the person least able to reconstruct that. One
+    line each, and each one says what the screen is *for* rather than what is
+    on it.
+  */
+  leadInsights: p(
+    "هل المنصّة بخير الآن، وإلى أين تتّجه خلال أسبوعين.",
+    "Whether the platform is well right now, and where it is heading over a fortnight.",
+  ),
+  leadAttention: p(
+    "كل شيء يحتاج إلى إنسان، سطرًا سطرًا، والأسوأ أوّلًا.",
+    "Everything that needs a person, one row at a time, worst first.",
+  ),
+  leadAccounts: p(
+    "من عندنا، وماذا أنفق، ومن ينتظر على الباب.",
+    "Who is here, what they have spent, and who is waiting at the door.",
+  ),
+  leadRenders: p(
+    "كل تنفيذ وما قاله المصيّر عن نفسه حين نجح وحين فشل.",
+    "Every render, and what the renderer said about itself when it worked and when it did not.",
+  ),
+  leadPosting: p(
+    "الطابور الآخر: ما وُعد به جمهورٌ وهل خرج فعلًا.",
+    "The other queue: what an audience was promised, and whether it actually went out.",
+  ),
+  leadMoney: p(
+    "ما يدخل كل شهر، ومن أين، وأي دفعة وصلت ولم تُطبَّق.",
+    "What comes in each month, from where, and which payment arrived and did not apply.",
+  ),
+  leadSystem: p(
+    "العامل، وأين تخالف هذه النشرة الشيفرة التي تعمل عليها، وما نخزّنه.",
+    "The worker, where this deployment disagrees with the code on it, and what we are storing.",
+  ),
+  leadLog: p(
+    "كل فعل نُفِّذ من هنا، ومن نفّذه ولماذا.",
+    "Every act performed from here, by whom, and why.",
+  ),
+
+  consoleTag: p("تشغيل", "console"),
+  readAt: f<[string]>((ago) => `قُرئت قبل ${ago}`, (ago) => `read ${ago} ago`),
+  readJustNow: p("قُرئت للتوّ", "read just now"),
+
+  /* The fortnight, as a chart rather than as four thumbnails. */
+  fortnightTitle: p("أربعة عشر يومًا", "The last fourteen days"),
+  fortnightLead: p(
+    "سلسلة واحدة في المرّة: الدقائق والإخفاقات لا يشتركان في مقياس، وجمعهما على محور واحد يجعل الإخفاقات خطًّا مسطّحًا عند القاع.",
+    "One series at a time: minutes and failures share no scale, and putting them on one axis flattens the failures along the bottom.",
+  ),
+  fortnightEmpty: p(
+    "لم تصل بعدُ أربعة عشر يومًا من الأرقام من هذه النشرة.",
+    "This deployment has not answered with a fortnight of numbers yet.",
+  ),
+  seriesRenders: p("تنفيذات", "Renders"),
+  seriesMinutes: p("دقائق", "Minutes"),
+  seriesFailures: p("إخفاقات", "Failures"),
+  seriesSignups: p("تسجيلات", "Signups"),
+
+  /* Empty states, which used to be one word each. */
+  nothingHereYet: p("لا شيء هنا بعد", "Nothing here yet"),
+  allApplied: p("كل ما وصل طُبِّق.", "Everything that arrived applied."),
 
   thisWeekNoneLast: f<[number]>(
     (count) => `${count} هذا الأسبوع، ولا شيء قبله`,
