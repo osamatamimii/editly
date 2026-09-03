@@ -228,6 +228,32 @@ section("Where they differ, the accurate reader's word rides the timing authorit
   check("and the disagreement is reported", notes.some((n) => /disagreed/.test(n)), notes.join(" | "));
 }
 
+section("A word the primary is far surer of is not overwritten by the secondary");
+{
+  // The reported case: a name the primary heard at 0.99, the secondary at 0.50.
+  // Taking the secondary blindly burns the wrong word onto the video.
+  const primary = asTranscript([speech(["from", "Riyadh", "today"], { confidence: 0.99 })], "deepgram/nova-3");
+  const secondary = asTranscript([speech(["from", "Rihanna", "today"], { confidence: 0.5, each: 400 })], "elevenlabs/scribe_v1");
+  const { transcript, stats } = mergeTranscripts(primary, secondary);
+  const merged = flat(transcript);
+  check("the disagreement is still counted", stats.contested === 1, JSON.stringify(stats));
+  check("the primary's confident word survives", merged[1].text === "Riyadh", merged[1].text);
+  check("and it is still trusted less than an agreed word", merged[1].confidence < merged[0].confidence, `${merged[1].confidence}`);
+
+  // And the half that quietly deletes: a real word the primary was sure of, that
+  // the secondary heard as a filler. Taking the secondary's filler read drops it.
+  const p2 = asTranscript([speech(["I", "meant", "that"], { confidence: 0.95 })], "deepgram/nova-3");
+  const s2 = asTranscript([speech(["I", "um", "that"], { confidence: 0.45, each: 400 })], "elevenlabs/scribe_v1");
+  const merged2 = flat(mergeTranscripts(p2, s2).transcript);
+  check("a real word the primary was sure of is not turned into filler", merged2[1].text === "meant" && merged2[1].filler === false, JSON.stringify(merged2[1]));
+
+  // The guard is a margin, not a reversal: a close disagreement still goes to
+  // the more accurate reader (this is the existing 0.9-vs-0.88 case).
+  const pClose = asTranscript([speech(["We", "shipped", "it"], { confidence: 0.9 })], "deepgram/nova-3");
+  const sClose = asTranscript([speech(["We", "ship", "it"], { confidence: 0.88, each: 400 })], "elevenlabs/scribe_v1");
+  check("a close call still goes to the secondary", flat(mergeTranscripts(pClose, sClose).transcript)[1].text === "ship", "");
+}
+
 section("Two unsure readers disagreeing is not a word, and is not guessed at");
 {
   const primary = asTranscript([speech(["the", "Kubernetes", "thing"], { confidence: 0.45 })], "dg");

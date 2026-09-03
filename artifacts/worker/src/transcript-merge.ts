@@ -71,6 +71,21 @@ const CONTESTED_TRUST = 0.8;
 /** Heard by one reader and not the other: kept, but no longer unimpeachable. */
 const UNCORROBORATED_TRUST = 0.9;
 
+/**
+ * How far ahead the primary has to be, in confidence, to keep its own word on a
+ * contested one.
+ *
+ * The secondary is the more accurate reader on average, so a close call goes to
+ * it. But "more accurate on average" is not "more accurate on this word": when
+ * the primary heard a name at 0.99 and the secondary guessed at 0.50, taking the
+ * secondary blindly burns the wrong word onto the video — and if that guess is a
+ * filler, the real word is dropped entirely. So a clear gap in the primary's
+ * favour keeps the primary's word. 0.25 sits well above the ordinary spread
+ * between two readers that heard the same thing (the 0.9-vs-0.88 kind of
+ * disagreement still goes to the secondary) and well below a genuine mishearing.
+ */
+const CONTEST_MARGIN = 0.25;
+
 /** Below this there is no room to place a word the primary never heard. */
 const MIN_INSERT_ROOM_MS = 40;
 
@@ -317,14 +332,28 @@ function agree(primary: Placed, secondary: TranscriptWord, stats: MergeResult["s
   };
 }
 
-/** They heard different words. The better reader's word, the timing authority's clock. */
+/**
+ * They heard different words. The better reader's word, the timing authority's
+ * clock — unless the primary is far more sure of its own.
+ *
+ * The secondary is the more accurate reader, so its word normally wins. But when
+ * the primary is ahead by more than `CONTEST_MARGIN`, keeping the secondary's
+ * word would replace a word the primary was sure of with one it was not — the
+ * `Riyadh`-becomes-`Rihanna` case, burned onto the video at the threshold — and
+ * would take the secondary's filler judgement with it, dropping a real word. So
+ * a clear gap keeps the primary's word and the primary's own filler read; a
+ * close call still trusts the reader that is usually right.
+ */
 function contest(primary: Placed, secondary: TranscriptWord, stats: MergeResult["stats"]): Placed {
   stats.contested += 1;
+  const p = clamp(primary.confidence);
+  const s = clamp(secondary.confidence);
+  const primaryWins = p - s >= CONTEST_MARGIN;
   return {
     ...primary,
-    text: carryPunctuation(primary.text, secondary.text),
-    filler: isFiller(secondary.text),
-    confidence: round(Math.min(clamp(primary.confidence), clamp(secondary.confidence)) * CONTESTED_TRUST),
+    text: primaryWins ? primary.text : carryPunctuation(primary.text, secondary.text),
+    filler: isFiller(primaryWins ? primary.text : secondary.text),
+    confidence: round(Math.min(p, s) * CONTESTED_TRUST),
   };
 }
 
