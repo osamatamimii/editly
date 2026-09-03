@@ -23,6 +23,33 @@ import { applyReferenceStyle } from "./reference-style";
 import type { Transcript } from "./providers/types";
 import { sayIn, type Language } from "./say";
 
+/**
+ * How wide one caption line may be, as a single budget for a whole transcript.
+ *
+ * The grouping is one number; the wrap re-measures per cue in that cue's own
+ * face and, where the two disagree, truncates rather than spills. So the budget
+ * is taken against the **wider** of the font's two faces — its Latin and its
+ * Arabic, either of which may be the default this font does not itself cover.
+ * Against the Latin face alone, an Arabic line grouped to fit Latin overflowed
+ * the wrap whenever the Arabic face ran wider, and lost its last words to an
+ * ellipsis: measured at a third to three-quarters of Arabic captions. The wider
+ * face makes the group fit whichever face draws it — a Latin line then has a
+ * little room to spare, which the wrap fills, and nothing is truncated.
+ *
+ * Exported because it is the piece with the decision in it, and the only way to
+ * be sure grouping and wrapping agree is to measure a real cue through both.
+ */
+export function captionLineBudget(
+  layout: { usableWidth: number; capHeight: number },
+  font: string | undefined,
+): number {
+  return (
+    layout.usableWidth /
+    layout.capHeight /
+    Math.max(faceById(font, "latin").widthScale, faceById(font, "arabic").widthScale)
+  );
+}
+
 export interface EnrichResult {
   plan: EditPlan;
   notes: string[];
@@ -248,13 +275,11 @@ export async function enrichPlan(
           leaves a third of every line empty, and grouping against Anton's while
           drawing in Archivo Black overflows the safe area. Neither fails.
 
-          The Latin face, because this budget is one number for a whole
-          transcript while the wrap re-measures per cue in that cue's own face.
-          Where the two disagree the wrap is the stricter, which truncates
-          rather than spills — and says so in a note.
+          The *wider* of the two faces — see `captionLineBudget`. Budgeting
+          against the Latin face alone truncated a third to three-quarters of
+          Arabic captions.
         */
-        lineWidthInCaps:
-          layout.usableWidth / layout.capHeight / faceById(operation.font, "latin").widthScale,
+        lineWidthInCaps: captionLineBudget(layout, operation.font),
         maxLines: layout.maxLines,
       });
       if (cues.length === 0) {

@@ -294,6 +294,71 @@ console.log("\nGrouping words and wrapping them agree about what fits");
   }
 }
 
+console.log("\nAn Arabic caption is budgeted against the face that draws it, not the Latin one");
+{
+  /*
+    The reported defect, measured. The line-width budget was taken against the
+    Latin face while an Arabic cue is wrapped in the Arabic face — and when the
+    Arabic face runs wider (Tajawal is 1.25 of the reference, against a 1.0 Latin
+    default), a group that fit the Latin budget overflowed the wrap and lost its
+    last words to an ellipsis. `captionLineBudget` now takes the wider of the two
+    faces, so the group fits whichever face draws it.
+  */
+  const layout = captionLayout({ width: 1080, height: 1920 }, "tiktok");
+  const { faceById } = await import(bundle("lib/api-zod/src/fonts.ts", "fonts.mjs"));
+  const montserrat = faceById("montserrat-black", "latin");
+  const tajawal = faceById("tajawal-black", "arabic");
+  const faces = { latin: montserrat, arabic: tajawal };
+
+  const arabicLine =
+    "لا أحد يخبرك بهذا لكنه يغير تماما الطريقة التي تحرر بها كل فيديو تصنعه على الإطلاق في حياتك كلها";
+  const speak = (line) => ({
+    segments: [{
+      startMs: 0,
+      endMs: line.split(" ").length * 320,
+      text: line,
+      words: line.split(" ").map((text, i) => ({ text, startMs: i * 320, endMs: i * 320 + 300, confidence: 0.95, filler: false })),
+    }],
+    language: "ar",
+    source: "fixture",
+  });
+  const wrapFor = (budget) => {
+    const cues = captionsMod.buildCaptionCues(speak(arabicLine), {
+      dropFillers: false,
+      maxCharsPerLine: layout.maxCharsPerLine,
+      lineWidthInCaps: budget,
+      maxLines: layout.maxLines,
+    });
+    return wrapToLayout(cues, layout, faces);
+  };
+
+  // The old budget: the Latin face only (the default, 1.0, since Tajawal is not
+  // a Latin face). The new budget: the wider of the two, which is Tajawal.
+  const latinOnly = layout.usableWidth / layout.capHeight / montserrat.widthScale;
+  const wider = enrichMod.captionLineBudget(layout, "tajawal-black");
+
+  check("budgeting by the wider face is stricter than by the Latin one", wider < latinOnly - 1e-9, `${wider} vs ${latinOnly}`);
+  check("and it is the Arabic face's own width that set it", Math.abs(wider - latinOnly / tajawal.widthScale) < 1e-6, `${wider}`);
+
+  const oldWrapped = wrapFor(latinOnly);
+  const newWrapped = wrapFor(wider);
+  check(
+    "the Latin-only budget truncates this Arabic caption (the reported bug)",
+    oldWrapped.some((c) => c.text.includes("…")),
+    JSON.stringify(oldWrapped.map((c) => c.text)),
+  );
+  check(
+    "and the wider-face budget does not — nothing is lost to an ellipsis",
+    newWrapped.every((c) => !c.text.includes("…")),
+    JSON.stringify(newWrapped.map((c) => c.text)),
+  );
+  check(
+    "no wrapped Arabic line runs over the usable width in the face that draws it",
+    newWrapped.every((c) => c.text.split("\n").every((line) => widthInCaps(line, tajawal.widthScale) <= layout.usableWidth / layout.capHeight + 1e-6)),
+    JSON.stringify(newWrapped.map((c) => c.text)),
+  );
+}
+
 console.log("\nThe caption is drawn in the face it was sized for");
 {
   const frame = { width: 1080, height: 1920 };
