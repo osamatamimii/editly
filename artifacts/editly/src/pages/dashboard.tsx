@@ -38,6 +38,7 @@ import {
   formatBytes,
 } from "@/lib/video-storage";
 import { stashPendingUpload, titleFromFilename } from "@/lib/pending-upload";
+import { videoRejection } from "@/lib/start-from-video";
 import { hasSkippedFirstRun } from "@/lib/first-run";
 import { loadState } from "@/lib/load-state";
 import { FREE_TIER } from "@/lib/pricing";
@@ -287,7 +288,15 @@ export default function Dashboard() {
    * named after a spreadsheet.
    */
   const handleStartFromVideo = (file: File) => {
-    if (!ACCEPTED_VIDEO_TYPES.includes(file.type) && !file.name.match(/\.(mp4|mov|webm)$/i)) {
+    // The ceiling Storage will actually enforce, not the one this bundle was
+    // built with. They are the same number today and stop being the same the
+    // morning the storage plan changes.
+    const ceiling = uploadCeiling(subscription);
+    // The rule is shared with the clip-extraction screen, which starts a
+    // project the same way; the words are not, because the sentence somebody
+    // reads here and the one they read holding a two-hour episode differ.
+    const rejection = videoRejection(file, { accepted: ACCEPTED_VIDEO_TYPES, ceilingBytes: ceiling });
+    if (rejection === "type") {
       toast({
         title: t(DASHBOARD.badFileType),
         description: t(DASHBOARD.badFileTypeDetail),
@@ -295,11 +304,7 @@ export default function Dashboard() {
       });
       return;
     }
-    // The ceiling Storage will actually enforce, not the one this bundle was
-    // built with. They are the same number today and stop being the same the
-    // morning the storage plan changes.
-    const ceiling = uploadCeiling(subscription);
-    if (file.size > ceiling) {
+    if (rejection === "size") {
       toast({
         title: t(DASHBOARD.fileTooLarge),
         description: fmt(DASHBOARD.fileTooLargeDetail, formatBytes(file.size), formatBytes(ceiling)),

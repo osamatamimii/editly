@@ -31,22 +31,41 @@ import { phrase as p, template as f } from "@/lib/landing-copy";
 export const CLIPS = {
   title: p("استخراج المقاطع", "Clip extraction"),
   lead: p(
-    "قسم واحد بعمل واحد: تختار تسجيلًا طويلًا، ويعود بمقاطع قصيرة جاهزة للنشر. ليس تعديلًا للحلقة نفسها.",
-    "One section, one job: point it at a long recording and it hands back short posts. It is not where the episode itself gets edited.",
+    "أضف حلقة بودكاست هنا، وتعود بمقاطع قصيرة جاهزة للنشر. قسم واحد بعمل واحد: ليس تعديلًا للحلقة نفسها.",
+    "Add a podcast episode here and it hands back short posts. One section, one job: it is not where the episode itself gets edited.",
   ),
 
-  /** The action, which is what makes this a section rather than a shelf. */
-  startTitle: p("اقصص مقاطع من تسجيل", "Cut clips from a recording"),
+  /*
+    The door, which is what makes this a section rather than a shelf.
+
+    "Add a podcast" and not "upload a file", because the second names what the
+    browser does and the first names what the person came to do. The sentence
+    under it says what happens next, in full, so that nobody has to press it to
+    find out.
+  */
+  addTitle: p("أضف حلقة بودكاست", "Add a podcast episode"),
+  addHint: p(
+    "أفلت الملفّ هنا. يُرفَع، ويُكتب لك طلب القصّ في المحرّر، وترسله أنت.",
+    "Drop the file here. It uploads, the request for clips is written into the editor, and you press send.",
+  ),
+  addButton: p("اختر ملفًّا", "Choose a file"),
+  addDrop: p("أفلت الحلقة هنا", "Drop the episode here"),
+
+  /** And the recordings already here, which is the shorter road for a returning show. */
+  startTitle: p("أو خذ مقاطع من تسجيل موجود", "Or take clips from one already here"),
   startHint: p(
     "اختر تسجيلًا وتُكتَب لك الجملة في المحرّر. اقرأها قبل أن ترسلها.",
     "Pick one and the sentence is written into the editor for you. Read it before you send it.",
   ),
-  startNoneTitle: p("لا تسجيل طويل بعد", "No long recording yet"),
-  startNone: p(
-    "ارفع تسجيلًا أطول من ثماني دقائق، ثم عد إلى هنا لتأخذ منه مقاطع.",
-    "Upload a recording longer than eight minutes, then come back here to take clips out of it.",
+  badType: p("هذا ليس ملفّ فيديو", "That is not a video file"),
+  badTypeDetail: p("MP4 أو MOV أو WebM.", "MP4, MOV or WebM."),
+  tooLarge: p("الملفّ أكبر من حدّ خطّتك", "That file is over your plan's limit"),
+  tooLargeDetail: f<[string, string]>(
+    (size, ceiling) => `هذا الملفّ ${size}، والحدّ ${ceiling}.`,
+    (size, ceiling) => `This one is ${size} and the limit is ${ceiling}.`,
   ),
-  startUpload: p("ارفع تسجيلًا", "Upload a recording"),
+  createFailed: p("تعذّر إنشاء المشروع", "The project could not be created"),
+  tryLater: p("جرّب بعد قليل.", "Try again in a moment."),
 
   /** Each recording keeps its own shelf, because that is what came out of it. */
   fromRecording: f<[number]>(

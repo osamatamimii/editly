@@ -60,6 +60,7 @@ function build(source, name, from = "artifacts/api-server") {
 }
 
 const S = await import(build("artifacts/editly/src/lib/clip-shelves.ts", "shelves.mjs"));
+const G = await import(build("artifacts/editly/src/lib/start-from-video.ts", "gate.mjs"));
 const planner = await import(build("artifacts/api-server/src/lib/plan-from-text.ts", "planner.mjs"));
 
 let checks = 0;
@@ -106,6 +107,71 @@ section("The request the screen writes for somebody has to be one the product un
     "the first-run suggestion uses that same constant rather than repeating it",
     /id: "clips",[\s\S]{0,120}?sentence: CLIPS_REQUEST/.test(source),
     "a second copy is a copy that can stop parsing on its own",
+  );
+}
+
+/* ── The door: adding an episode ──────────────────────────────────────────── */
+
+section("A file is refused before a project row is made for it");
+{
+  const accepted = ["video/mp4", "video/quicktime", "video/webm"];
+  const gate = (file, ceilingBytes = 100 * 1024 * 1024) => G.videoRejection(file, { accepted, ceilingBytes });
+
+  check("an mp4 goes through", gate({ type: "video/mp4", name: "ep14.mp4", size: 10 }) === null);
+  check("a spreadsheet does not", gate({ type: "text/csv", name: "budget.csv", size: 10 }) === "type");
+  check(
+    "a .mov the browser could not name goes through on its extension, which is the normal case for it",
+    gate({ type: "", name: "Episode 14.MOV", size: 10 }) === null,
+  );
+  check("a file over the plan's ceiling is refused", gate({ type: "video/mp4", name: "ep.mp4", size: 200 * 1024 * 1024 }) === "size");
+  check(
+    "and a ceiling that has not loaded yet refuses nothing, rather than everything for a second",
+    gate({ type: "video/mp4", name: "ep.mp4", size: 200 * 1024 * 1024 }, 0) === null,
+    "the subscription query answers late on a cold screen",
+  );
+
+  // The rule is one function and the words are two. Both screens have to let
+  // the same files through; neither has to say no in the same sentence.
+  const dashboard = read("artifacts/editly/src/pages/dashboard.tsx");
+  const page = read("artifacts/editly/src/pages/clips.tsx");
+  check("both screens gate through it", /videoRejection\(file, \{/.test(dashboard) && /videoRejection\(file, \{/.test(page));
+  check(
+    "and neither keeps a second copy of the rule",
+    !/ACCEPTED_VIDEO_TYPES\.includes\(file\.type\)/.test(dashboard) && !/ACCEPTED_VIDEO_TYPES\.includes\(file\.type\)/.test(page),
+    "a rule in two places is a rule that will disagree with itself",
+  );
+}
+
+section("Adding an episode is the first thing on the screen");
+{
+  const page = read("artifacts/editly/src/pages/clips.tsx");
+  const copy = read("artifacts/editly/src/lib/copy/clips.ts");
+
+  check("the lead says what you add and what comes back", /أضف حلقة بودكاست هنا/.test(copy) && /Add a podcast episode here/.test(copy));
+  check(
+    "the door is named for what the person came to do, not for what the browser does",
+    /addTitle: p\("أضف حلقة بودكاست", "Add a podcast episode"\)/.test(copy),
+    "\"upload a file\" names the mechanism",
+  );
+  check("it takes a dropped file", /onDrop=\{\(e\) => \{/.test(page) && /dataTransfer\.files/.test(page));
+  check("and a chosen one", /data-testid="clips-add-input"/.test(page));
+  check(
+    "the project is created before the file is stashed against it",
+    page.indexOf("createProject.mutateAsync") < page.indexOf("stashPendingUpload(project.id, file)"),
+    "a failed create must not leave a file waiting for a project that was never made",
+  );
+  check(
+    "and the request for clips is written into that project at the same moment",
+    /stashPendingMessage\(project\.id, CLIPS_REQUEST\[said\]\)/.test(page),
+    "the whole promise of the screen is that the episode and the request arrive together",
+  );
+  check(
+    "the file input clears itself, so choosing the same file after a refusal fires again",
+    /e\.target\.value = ""/.test(page),
+  );
+  check(
+    "the recordings already here are offered second, and hidden when there are none",
+    page.indexOf("clips-add-episode") < page.indexOf("CLIPS.startTitle") && /recordings\.length > 0 \? \(/.test(page),
   );
 }
 
@@ -202,9 +268,9 @@ section("The screen says which job it does");
     /ليس تعديلًا للحلقة/.test(copy) && /not where the episode itself gets edited/.test(copy),
   );
   for (const [name, key] of [
-    ["the action", "startTitle"],
-    ["what pressing it does", "startHint"],
-    ["what to do with no recording yet", "startNone"],
+    ["the door", "addTitle"],
+    ["what happens after you drop a file", "addHint"],
+    ["the shorter road for a recording already here", "startTitle"],
   ]) {
     const pair = copy.match(new RegExp(`${key}: p\\(\\s*"([^"]+)",\\s*"([^"]+)"`, "s")) ?? copy.match(new RegExp(`${key}: p\\("([^"]+)", "([^"]+)"\\)`));
     check(`${name} is written in both languages`, pair !== null && pair[1].length > 3 && pair[2].length > 3, key);
@@ -218,7 +284,7 @@ section("The screen says which job it does");
 
   check(
     "the screen carries the action, so it is a section rather than a shelf",
-    /data-testid="clips-start"/.test(page) && /stashPendingMessage\(projectId, CLIPS_REQUEST\[language\]\)/.test(page),
+    /data-testid="clips-start"/.test(page) && /stashPendingMessage\(projectId, CLIPS_REQUEST\[said\]\)/.test(page),
   );
   check(
     "the sentence is written into the editor and not sent for them",

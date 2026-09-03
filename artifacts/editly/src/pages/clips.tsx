@@ -28,15 +28,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Scissors, Download, SquareArrowOutUpRight, Loader2, Mic, UploadCloud } from "lucide-react";
-import { useListProjects } from "@workspace/api-client-react";
-import { stashPendingMessage } from "@/lib/pending-upload";
+import {
+  useListProjects,
+  useCreateProject,
+  useGetSubscription,
+  getListProjectsQueryKey,
+  getGetDashboardStatsQueryKey,
+  getGetSubscriptionQueryKey,
+} from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { stashPendingMessage, stashPendingUpload, titleFromFilename } from "@/lib/pending-upload";
+import { videoRejection } from "@/lib/start-from-video";
+import { useToast } from "@/hooks/use-toast";
 import { CLIPS_REQUEST } from "@/lib/first-run";
 import { clippableRecordings, shelvesFrom } from "@/lib/clip-shelves";
 import { BackButton } from "@/components/back-button";
 import { LoadFailed } from "@/components/load-failed";
 import { ProjectArt } from "@/components/project-art";
 import { apiJson } from "@/lib/api-fetch";
-import { usePlayableVideo, downloadableVideoUrl } from "@/lib/video-storage";
+import { usePlayableVideo, downloadableVideoUrl, ACCEPTED_VIDEO_TYPES, uploadCeiling, formatBytes } from "@/lib/video-storage";
 import { useLanguage } from "@/lib/language";
 import { CLIPS } from "@/lib/copy/clips";
 import { COMMON, LOAD } from "@/lib/copy/common";
@@ -174,13 +184,69 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
   );
 }
 
-/** The recordings this section can take clips out of, and the door into doing it. */
+/**
+ * The door: add an episode, and the request for clips is waiting in the editor
+ * when it opens.
+ *
+ * This is the part that makes the section mean what its heading says. A screen
+ * that lists recordings you already have answers "which of these", and the
+ * question somebody arrives with is "where do I put my episode". So the file
+ * comes first and the list of what is already here comes second.
+ *
+ * The upload itself belongs to the editor, which owns the pipeline — progress,
+ * poster capture, dimension probing. What happens here is the two things that
+ * have to happen *before* it: the row is created, and the sentence is written.
+ */
 function StartRow() {
-  const { t } = useLanguage();
+  const { t, fmt, language } = useLanguage();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data: projects } = useListProjects();
+  const { data: subscription } = useGetSubscription();
+  const createProject = useCreateProject();
+  const [over, setOver] = useState(false);
 
   const recordings = useMemo(() => clippableRecordings(projects), [projects]);
+  const said = language === "ar" ? "ar" : "en";
+
+  /*
+    Refused before the project row exists.
+
+    The rule is `videoRejection`, shared with the dashboard, because both
+    screens have to let the same files through; the words are this screen's,
+    because somebody standing here is holding an episode and the dashboard's
+    sentence is written for anything.
+  */
+  const addEpisode = async (file: File) => {
+    const ceiling = uploadCeiling(subscription);
+    const rejection = videoRejection(file, { accepted: ACCEPTED_VIDEO_TYPES, ceilingBytes: ceiling });
+    if (rejection === "type") {
+      toast({ title: t(CLIPS.badType), description: t(CLIPS.badTypeDetail), variant: "destructive" });
+      return;
+    }
+    if (rejection === "size") {
+      toast({
+        title: t(CLIPS.tooLarge),
+        description: fmt(CLIPS.tooLargeDetail, formatBytes(file.size), formatBytes(ceiling)),
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      const project = await createProject.mutateAsync({ data: { title: titleFromFilename(file.name) } });
+      queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() });
+      // Only after the row exists: a failed create must not leave a file
+      // waiting for a project that was never made.
+      stashPendingUpload(project.id, file);
+      stashPendingMessage(project.id, CLIPS_REQUEST[said]);
+      setLocation(`/project/${project.id}`);
+    } catch {
+      toast({ title: t(CLIPS.createFailed), description: t(CLIPS.tryLater), variant: "destructive" });
+    }
+  };
 
   /*
     Written into the editor, not sent.
@@ -190,42 +256,69 @@ function StartRow() {
     a sentence they never read. It is also why this is one click and not two —
     the second click is theirs, in the editor, on send.
   */
-  const cutFrom = (projectId: string, language: "en" | "ar") => {
-    stashPendingMessage(projectId, CLIPS_REQUEST[language]);
+  const cutFrom = (projectId: string) => {
+    stashPendingMessage(projectId, CLIPS_REQUEST[said]);
     setLocation(`/project/${projectId}`);
   };
 
   return (
-    <div
-      className="rounded-2xl glass-panel border border-hairline-faint p-5 mb-10"
-      data-testid="clips-start"
-    >
-      <div className="flex items-baseline gap-3 flex-wrap">
-        <h2 className="text-base font-semibold flex items-center gap-2">
-          <Mic className="w-4 h-4 text-secondary flex-shrink-0" />
-          {t(recordings.length > 0 ? CLIPS.startTitle : CLIPS.startNoneTitle)}
-        </h2>
-        <span className="text-xs text-muted-foreground">
-          {t(recordings.length > 0 ? CLIPS.startHint : CLIPS.startNone)}
-        </span>
-      </div>
-
-      {recordings.length > 0 ? (
-        <div className="flex flex-wrap gap-2 mt-4">
-          {recordings.map((recording) => (
-            <ClipFromButton key={recording.id} recording={recording} onPick={cutFrom} />
-          ))}
+    <div className="mb-10 space-y-4" data-testid="clips-start">
+      <label
+        onDragOver={(e) => {
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) void addEpisode(file);
+        }}
+        className={`block rounded-2xl border border-dashed p-6 text-center cursor-pointer transition-colors ${
+          over ? "border-primary bg-primary/5" : "border-hairline glass-panel"
+        }`}
+        data-testid="clips-add-episode"
+      >
+        <div className="w-12 h-12 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-3">
+          <Mic className="w-6 h-6 text-primary" />
         </div>
-      ) : (
-        <Link
-          href="/dashboard"
-          className="aura-chip no-default-hover-elevate rounded-full min-h-11 md:min-h-9 px-4 text-xs font-medium inline-flex items-center gap-2 mt-4"
-          data-testid="button-clips-upload"
-        >
-          <UploadCloud className="w-3.5 h-3.5" />
-          {t(CLIPS.startUpload)}
-        </Link>
-      )}
+        <div className="text-base font-semibold">{t(over ? CLIPS.addDrop : CLIPS.addTitle)}</div>
+        <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">{t(CLIPS.addHint)}</p>
+        <span className="aura-chip no-default-hover-elevate rounded-full min-h-11 md:min-h-9 px-4 text-xs font-medium inline-flex items-center gap-2 mt-4">
+          {createProject.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UploadCloud className="w-3.5 h-3.5" />}
+          {t(CLIPS.addButton)}
+        </span>
+        <input
+          type="file"
+          accept={ACCEPTED_VIDEO_TYPES.join(",")}
+          className="hidden"
+          data-testid="clips-add-input"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            // Cleared so that choosing the same file twice fires again, which
+            // is what somebody does after a refusal they have just fixed.
+            e.target.value = "";
+            if (file) void addEpisode(file);
+          }}
+        />
+      </label>
+
+      {/* And the shorter road for a show that is already here. Hidden when
+          there is nothing to offer, rather than drawn empty. */}
+      {recordings.length > 0 ? (
+        <div className="rounded-2xl glass-panel border border-hairline-faint p-5">
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <h2 className="text-sm font-semibold">{t(CLIPS.startTitle)}</h2>
+            <span className="text-xs text-muted-foreground">{t(CLIPS.startHint)}</span>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-4">
+            {recordings.map((recording) => (
+              <ClipFromButton key={recording.id} recording={recording} onPick={cutFrom} />
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -235,13 +328,12 @@ function ClipFromButton({
   onPick,
 }: {
   recording: { id: string; title: string; duration?: number | null };
-  onPick: (projectId: string, language: "en" | "ar") => void;
+  onPick: (projectId: string) => void;
 }) {
-  const { language } = useLanguage();
   return (
     <button
       type="button"
-      onClick={() => onPick(recording.id, language === "ar" ? "ar" : "en")}
+      onClick={() => onPick(recording.id)}
       className="aura-chip no-default-hover-elevate rounded-full min-h-11 md:min-h-9 px-4 text-xs font-medium inline-flex items-center gap-2 max-w-full"
       data-testid={`button-cut-from-${recording.id}`}
     >
