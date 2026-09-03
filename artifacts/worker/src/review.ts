@@ -82,6 +82,18 @@ export interface ReviewContext {
    * predates the field means.
    */
   expectedAudio?: boolean;
+  /**
+   * Whether the render actually levelled the audio — put `loudnorm` in the
+   * graph — as opposed to merely carrying a `normalizeLoudness` op in the plan.
+   *
+   * They are different facts. A silent source that gains its whole soundtrack
+   * from effects mixed in is never levelled, yet the op sits in the plan; a
+   * reviewer that measured that effects-only mix and "corrected" it to the
+   * target boosted four whooshes ~18 dB into a clipped master. So the level is
+   * measured and corrected only when this says the render set one. Absent means
+   * fall back to the plan, which is what every caller predating the field means.
+   */
+  levelled?: boolean;
   /** Seconds the cut map said the edit should run, or null when unknown. */
   expectedSeconds: number | null;
   workDir: string;
@@ -523,8 +535,14 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
   }
 
   // ── The level actually reached ────────────────────────────────────────────
+  // Only what the render actually levelled. A `normalizeLoudness` op in the
+  // plan is not proof the graph applied it: an effects-only mix carries the op
+  // but was never levelled, and measuring it against the target and "correcting"
+  // it would boost a handful of effects into a clipped master. `levelled` is the
+  // render's own word for it; absent, we fall back to the plan as before.
+  const renderLevelled = ctx.levelled ?? true;
   const loudness = ctx.operations.find((op) => op.type === "normalizeLoudness");
-  if (loudness && loudness.type === "normalizeLoudness" && expectedAudio && probe.hasAudio) {
+  if (renderLevelled && loudness && loudness.type === "normalizeLoudness" && expectedAudio && probe.hasAudio) {
     const target = loudness.targetLufs;
     const measured = await measureLoudness(file, target);
     if (!measured) {

@@ -1342,6 +1342,19 @@ export interface RenderResult {
    * missing its target. One decision, made once, carried forward.
    */
   hasAudioOut: boolean;
+  /**
+   * Whether this render actually put `loudnorm` in the graph.
+   *
+   * Not the same as "the plan asked for it". A `normalizeLoudness` op is applied
+   * only when the render already has sound at the point the audio graph is
+   * built — a silent source that gains a soundtrack later, from sound effects
+   * mixed in, is never levelled. The reviewer used to re-derive this from the
+   * plan and, seeing the op, measure an effects-only mix at -32 LUFS and "fix"
+   * it to -14 — boosting four whooshes ~18 dB into a clipped master the render
+   * had deliberately left alone. So the one place that knows says so, and the
+   * reviewer levels only what was levelled.
+   */
+  levelled: boolean;
 }
 
 type Op<T extends EditOperation["type"]> = Extract<EditOperation, { type: T }>;
@@ -1427,6 +1440,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
    * is a note and no audio stream at all.
    */
   let hasAudioOut = source.hasAudio || musicUsable;
+  /** Set true only where `loudnorm` is actually added to the graph. See RenderResult. */
+  let levelled = false;
 
   ctx.onProgress?.(0.02, "Looking at your footage");
 
@@ -2578,6 +2593,9 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     // -14 LUFS is what every one of these platforms normalises to. Arriving at
     // the right level means they leave the audio alone.
     audioParts.push(`loudnorm=I=${loudness.targetLufs}:TP=-1.5:LRA=11`);
+    // The render levelled. The reviewer measures and corrects only what this
+    // says it did, so an effects-only mix the render left alone is not "fixed".
+    levelled = true;
     notes.push(
       loudness.voice
         ? t(
@@ -3164,7 +3182,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
   if (notes.length === 0) notes.push(t("re-encoded with no changes requested", "أُعيد الترميز بلا أي تغيير مطلوب"));
   ctx.onProgress?.(1, "finishing");
-  return { output, notes, sourceSeconds: source.duration, estimatedSeconds: effectiveDuration, hasAudioOut };
+  return { output, notes, sourceSeconds: source.duration, estimatedSeconds: effectiveDuration, hasAudioOut, levelled };
 }
 
 /**

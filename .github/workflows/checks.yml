@@ -244,6 +244,11 @@ jobs:
       # frames. Its one dangerous path is a vision model's prose reaching a
       # customer, and that is what most of the suite is about.
       - run: node tools/review-test.mjs
+      # The reviewer measures and corrects only the level the render actually
+      # set. A `normalizeLoudness` op in the plan is not proof it was applied —
+      # an effects-only mix carries the op but was never levelled — and
+      # "correcting" it boosts a few effects into a clipped master. Real files.
+      - run: node tools/review-levelled-test.mjs
       - run: node tools/transcript-test.mjs
       # After the transcript, because it is the step that reads one: chapters,
       # claims, questions, peaks and a hook. Its checks are asymmetric on
