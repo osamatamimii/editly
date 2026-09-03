@@ -84,6 +84,15 @@ export const DASHBOARD = {
 
   podcastsTitle: p("البودكاست والتسجيلات الطويلة", "Podcasts and long recordings"),
   podcastsHint: p("افتح واحدًا لتقصّ منه مقاطع", "open one to cut clips out of it"),
+  /*
+    Where the cutting happens, said on the section that holds the recordings.
+
+    The two screens were reachable from each other only by accident: this one
+    lists the episodes, the other one extracts from them, and nothing on either
+    pointed at the other. Somebody with an episode in front of them had to
+    already know that "Clips" was a verb.
+  */
+  podcastsToClips: p("قسم استخراج المقاطع", "Clip extraction"),
   everythingElse: p("ما تبقّى", "Everything else"),
   recentProjects: p("أحدث المشاريع", "Recent Projects"),
 

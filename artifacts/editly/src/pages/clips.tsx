@@ -1,19 +1,37 @@
 /**
- * Every clip, across every project.
+ * Taking short posts out of a long recording. That is the whole of this
+ * section, and saying so is most of what this file is now for.
  *
- * The clips panel inside a project answers "what came out of this take". This
- * answers the other question, which is the one somebody who records a weekly
- * show actually has: **what have I got to post.** Their clips live in eleven
- * projects, and the output of the thing they use this product for was
- * scattered across the screens they used to make it.
+ * It used to be a wall: every clip from every project, newest first. That was
+ * a useful shelf and it was read as something it is not. A section called
+ * "clips", reached from a screen full of podcasts, showing nothing but
+ * outputs, is read as *where podcasts are edited* — and this is not that. An
+ * episode is edited in its own project like anything else. This screen does
+ * one job on one kind of input: point it at a recording, get posts back.
  *
- * So: one wall, newest first, each clip named by what is said in it and
- * carrying the recording it came out of. Play it here, take it, or open the
- * project it belongs to and keep editing.
+ * Two changes make the screen mean that rather than merely say it.
+ *
+ * **It carries the action.** A section that only displays results is an
+ * archive whatever its heading claims, so the recordings a person could cut
+ * from are at the top of it, and choosing one writes the request into that
+ * project's editor. Written, not sent: the same rule the first-run screen
+ * follows, because a sentence that fires on arrival is a sentence nobody read,
+ * and the second time they will want to type their own.
+ *
+ * **It is filed by recording.** "What came out of this episode" is the
+ * question somebody who publishes weekly is actually asking, and a flat wall
+ * cannot answer it. The per-tile line naming the project is gone with the
+ * grouping: it existed because a wall of clips with no way to tell which take
+ * each belongs to is a pile, and a heading answers that better than a
+ * repeated label under every tile.
  */
-import { useCallback, useEffect, useState } from "react";
-import { Link } from "wouter";
-import { Scissors, Download, SquareArrowOutUpRight, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "wouter";
+import { Scissors, Download, SquareArrowOutUpRight, Loader2, Mic, UploadCloud } from "lucide-react";
+import { useListProjects } from "@workspace/api-client-react";
+import { stashPendingMessage } from "@/lib/pending-upload";
+import { CLIPS_REQUEST } from "@/lib/first-run";
+import { clippableRecordings, shelvesFrom } from "@/lib/clip-shelves";
 import { BackButton } from "@/components/back-button";
 import { LoadFailed } from "@/components/load-failed";
 import { ProjectArt } from "@/components/project-art";
@@ -129,25 +147,15 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
         <div dir="auto" className="text-sm font-semibold leading-snug line-clamp-2">
           {clip.title ?? t(CLIPS.untitled)}
         </div>
-        {/* Which recording this came out of. A wall of clips titled by what was
-            said in them, with no way to tell which take each belongs to, is a
-            pile rather than a library. */}
         {/*
-          `flex` with a `min-w-0` label, not a fixed `max-w`.
+          The recording this came out of used to be named here, on every tile.
 
-          It was `max-w-[14rem]`, which is wider than a tile in a two-column
-          phone grid — so the title ran to the edge and stopped there, cut off
-          with no ellipsis to say so, and the little "opens elsewhere" arrow was
-          pushed off the card entirely. A flex child will not shrink below its
-          content unless it is told it may.
+          It existed because a flat wall of clips titled by what is said in them
+          is a pile: nothing said which take each belonged to. The clips are
+          filed under their recording now, so the heading answers that once for
+          a whole shelf instead of repeating it under every card, and the space
+          goes back to the thing the tile is about.
         */}
-        <Link
-          href={`/project/${clip.projectId}`}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 mt-1 max-w-full"
-        >
-          <span dir="auto" className="truncate min-w-0">{clip.projectTitle}</span>
-          <SquareArrowOutUpRight className="w-3 h-3 flex-shrink-0" />
-        </Link>
       </div>
 
       <div className="px-2 pb-2 flex items-center gap-2">
@@ -163,6 +171,111 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/** The recordings this section can take clips out of, and the door into doing it. */
+function StartRow() {
+  const { t } = useLanguage();
+  const [, setLocation] = useLocation();
+  const { data: projects } = useListProjects();
+
+  const recordings = useMemo(() => clippableRecordings(projects), [projects]);
+
+  /*
+    Written into the editor, not sent.
+
+    The same rule the first-run screen follows: somebody has to *see* what a
+    request to this product looks like, and a sentence that fires on arrival is
+    a sentence they never read. It is also why this is one click and not two —
+    the second click is theirs, in the editor, on send.
+  */
+  const cutFrom = (projectId: string, language: "en" | "ar") => {
+    stashPendingMessage(projectId, CLIPS_REQUEST[language]);
+    setLocation(`/project/${projectId}`);
+  };
+
+  return (
+    <div
+      className="rounded-2xl glass-panel border border-hairline-faint p-5 mb-10"
+      data-testid="clips-start"
+    >
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <h2 className="text-base font-semibold flex items-center gap-2">
+          <Mic className="w-4 h-4 text-secondary flex-shrink-0" />
+          {t(recordings.length > 0 ? CLIPS.startTitle : CLIPS.startNoneTitle)}
+        </h2>
+        <span className="text-xs text-muted-foreground">
+          {t(recordings.length > 0 ? CLIPS.startHint : CLIPS.startNone)}
+        </span>
+      </div>
+
+      {recordings.length > 0 ? (
+        <div className="flex flex-wrap gap-2 mt-4">
+          {recordings.map((recording) => (
+            <ClipFromButton key={recording.id} recording={recording} onPick={cutFrom} />
+          ))}
+        </div>
+      ) : (
+        <Link
+          href="/dashboard"
+          className="aura-chip no-default-hover-elevate rounded-full min-h-11 md:min-h-9 px-4 text-xs font-medium inline-flex items-center gap-2 mt-4"
+          data-testid="button-clips-upload"
+        >
+          <UploadCloud className="w-3.5 h-3.5" />
+          {t(CLIPS.startUpload)}
+        </Link>
+      )}
+    </div>
+  );
+}
+
+function ClipFromButton({
+  recording,
+  onPick,
+}: {
+  recording: { id: string; title: string; duration?: number | null };
+  onPick: (projectId: string, language: "en" | "ar") => void;
+}) {
+  const { language } = useLanguage();
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(recording.id, language === "ar" ? "ar" : "en")}
+      className="aura-chip no-default-hover-elevate rounded-full min-h-11 md:min-h-9 px-4 text-xs font-medium inline-flex items-center gap-2 max-w-full"
+      data-testid={`button-cut-from-${recording.id}`}
+    >
+      <Scissors className="w-3.5 h-3.5 flex-shrink-0" />
+      <span dir="auto" className="truncate min-w-0">{recording.title}</span>
+      <span dir="ltr" className="text-muted-foreground flex-shrink-0">
+        {clock(recording.duration ?? 0)}
+      </span>
+    </button>
+  );
+}
+
+/** One recording's shelf. The order inside it is `shelvesFrom`'s, and its reasons are there. */
+function RecordingShelf({ title, projectId, clips }: { title: string; projectId: string; clips: LibraryClip[] }) {
+  const { t, fmt } = useLanguage();
+  return (
+    <section className="mb-10" data-testid={`clips-of-${projectId}`}>
+      <div className="flex items-baseline gap-3 flex-wrap mb-4">
+        <h2 dir="auto" className="text-lg font-semibold min-w-0 truncate max-w-full">{title}</h2>
+        <span className="text-xs text-muted-foreground flex-shrink-0">{fmt(CLIPS.fromRecording, clips.length)}</span>
+        <Link
+          href={`/project/${projectId}`}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1 flex-shrink-0"
+        >
+          {t(CLIPS.openRecording)}
+          <SquareArrowOutUpRight className="w-3 h-3" />
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        {clips.map((clip) => (
+          <ClipCard key={clip.id} clip={clip} />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -191,11 +304,32 @@ export default function ClipsPage() {
     void load();
   }, [load]);
 
+  /*
+    One shelf per recording, in the order the recordings last produced
+    something.
+
+    Built from the clips themselves rather than from the project list, because
+    the two can disagree: the library is capped, and a recording whose clips all
+    fell outside the cap has no shelf here — which is correct, and a shelf built
+    from projects would have drawn it empty and claimed the recording produced
+    nothing.
+  */
+  const shelves = useMemo(() => shelvesFrom(clips), [clips]);
+
   return (
     <div className="w-full max-w-7xl mx-auto px-6 py-12">
       <BackButton fallback="/dashboard" label={t(COMMON.dashboard)} className="mb-6 -ms-4" />
       <h1 className="text-3xl font-bold tracking-tight mb-2">{t(CLIPS.title)}</h1>
       <p className="text-muted-foreground text-sm mb-8">{t(CLIPS.lead)}</p>
+
+      {/*
+        Above the results, and above the failure state too.
+
+        A person who came here to cut clips and met a network error should still
+        be able to do the thing the section is for. The wall below can fail; the
+        door should not go with it.
+      */}
+      <StartRow />
 
       {state === "loading" ? (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -222,9 +356,21 @@ export default function ClipsPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4" data-testid="clips-grid">
-            {clips.map((clip) => (
-              <ClipCard key={clip.id} clip={clip} />
+          {/*
+            Filed under the recording each came out of, newest recording first.
+
+            `clips-grid` still wraps the lot because it is what says "the
+            library drew, and it is not the empty state" — that question is
+            about the screen, not about the shape inside it.
+          */}
+          <div data-testid="clips-grid">
+            {shelves.map((shelf) => (
+              <RecordingShelf
+                key={shelf.projectId}
+                projectId={shelf.projectId}
+                title={shelf.title}
+                clips={shelf.clips}
+              />
             ))}
           </div>
           {/* Where the list stops, said out loud.

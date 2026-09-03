@@ -53,6 +53,20 @@ export interface Suggestion {
  * enough that reading them is not itself a task. The fastest way to make a
  * choice feel like work is to offer forty.
  */
+/**
+ * The sentence that turns a long recording into a set of posts.
+ *
+ * Written once and read twice: the first-run screen offers it as a suggestion,
+ * and the clip-extraction screen writes it into the editor when somebody picks
+ * a recording there. Two copies of a sentence that has to *parse* would be two
+ * copies that can disagree, and only one of them would be under the check that
+ * runs every suggestion through the real keyword planner.
+ */
+export const CLIPS_REQUEST = {
+  en: "Cut it into 3 clips for Reels",
+  ar: "قسّمه إلى 3 مقاطع لريلز",
+} as const;
+
 export const SUGGESTIONS: readonly Suggestion[] = [
   {
     id: "silence-captions-tiktok",
@@ -73,10 +87,7 @@ export const SUGGESTIONS: readonly Suggestion[] = [
   {
     id: "clips",
     label: { en: "Three clips", ar: "ثلاثة مقاطع" },
-    sentence: {
-      en: "Cut it into 3 clips for Reels",
-      ar: "قسّمه إلى 3 مقاطع لريلز",
-    },
+    sentence: CLIPS_REQUEST,
   },
   {
     id: "tighten-hook",

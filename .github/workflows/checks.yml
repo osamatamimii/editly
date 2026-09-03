@@ -339,6 +339,13 @@ jobs:
       # layout that is right in one and broken in the other is invisible to
       # everyone on the team who only reads it in the direction they use.
       - run: node tools/landing-test.mjs
+      # The screen that takes clips out of a recording, held to the thing it
+      # now claims: that it is a clip-extraction section and not where a
+      # podcast gets edited. Half the suite is the words and half is the screen
+      # being able to do what they say, because a heading promising an action
+      # the page cannot perform is the same lie as a filter that reads
+      # correctly and does nothing.
+      - run: node tools/clip-section-test.mjs
       # And beside it, the question landing-test cannot ask, because it only
       # ever opens the landing page: whether the *rest* of the product declares
       # the language it is actually written in. `index.html` said Arabic for

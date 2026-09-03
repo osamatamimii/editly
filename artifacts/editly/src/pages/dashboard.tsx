@@ -883,6 +883,17 @@ export default function Dashboard() {
             <span className="text-xs text-muted-foreground">
               {t(DASHBOARD.podcastsHint)}
             </span>
+            {/* And the door to the screen that does it. Listing the episodes
+                here while the extraction lives elsewhere, with no link between
+                them, made "Clips" a noun somebody had to guess was a verb. */}
+            <Link
+              href="/clips"
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
+              data-testid="link-clip-extraction"
+            >
+              <Scissors className="w-3 h-3" />
+              {t(DASHBOARD.podcastsToClips)}
+            </Link>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="grid-podcasts">
             {podcasts.map(projectCard)}

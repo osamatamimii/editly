@@ -14,17 +14,51 @@
  */
 import { phrase as p, template as f } from "@/lib/landing-copy";
 
-  /** The clip library: what came out of every recording, in one wall. */
+  /**
+   * The clip-extraction screen.
+   *
+   * The words here changed for one reason: this section was being read as
+   * "podcast editing", and it is not. It does one job, on one kind of input,
+   * and the copy now says which. You point it at a long recording and it hands
+   * back short posts. It does not edit an episode, it does not publish one, and
+   * it is not where a two-hour take goes to be tidied.
+   *
+   * The title says the job rather than the artefact for the same reason. "Clips"
+   * names what is on the screen; "take clips out of a recording" names what the
+   * screen is for, and only one of those tells somebody standing in front of a
+   * ninety-minute episode whether they are in the right place.
+   */
 export const CLIPS = {
-  title: p("المقاطع", "Clips"),
+  title: p("استخراج المقاطع", "Clip extraction"),
   lead: p(
-    "كل مقطع قُصّ من كل تسجيل، الأحدث أوّلًا. شغّل واحدًا، أو احفظه، أو افتح التسجيل الذي جاء منه.",
-    "Every clip cut out of every recording, newest first. Play one, save it, or open the take it came from.",
+    "قسم واحد بعمل واحد: تختار تسجيلًا طويلًا، ويعود بمقاطع قصيرة جاهزة للنشر. ليس تعديلًا للحلقة نفسها.",
+    "One section, one job: point it at a long recording and it hands back short posts. It is not where the episode itself gets edited.",
   ),
+
+  /** The action, which is what makes this a section rather than a shelf. */
+  startTitle: p("اقصص مقاطع من تسجيل", "Cut clips from a recording"),
+  startHint: p(
+    "اختر تسجيلًا وتُكتَب لك الجملة في المحرّر. اقرأها قبل أن ترسلها.",
+    "Pick one and the sentence is written into the editor for you. Read it before you send it.",
+  ),
+  startNoneTitle: p("لا تسجيل طويل بعد", "No long recording yet"),
+  startNone: p(
+    "ارفع تسجيلًا أطول من ثماني دقائق، ثم عد إلى هنا لتأخذ منه مقاطع.",
+    "Upload a recording longer than eight minutes, then come back here to take clips out of it.",
+  ),
+  startUpload: p("ارفع تسجيلًا", "Upload a recording"),
+
+  /** Each recording keeps its own shelf, because that is what came out of it. */
+  fromRecording: f<[number]>(
+    (n) => (n === 1 ? "مقطع واحد" : `${n} مقاطع`),
+    (n) => (n === 1 ? "1 clip" : `${n} clips`),
+  ),
+  openRecording: p("افتح التسجيل", "Open the recording"),
+
   untitled: p("مقطع بلا عنوان", "Untitled clip"),
   save: p("احفظ", "Save"),
   emptyTitle: p("لم يُقصّ شيء بعد", "Nothing cut yet"),
-  emptyLeadStart: p("افتح تسجيلًا طويلًا واطلب مقاطع، أو اضغط ", "Open a long recording and ask for clips, or press "),
+  emptyLeadStart: p("اختر تسجيلًا أعلاه، أو افتح واحدًا واطلب ", "Pick a recording above, or open one and ask for "),
   emptyLeadAction: p("ثلاثة مقاطع", "Three clips"),
   emptyLeadEnd: p(
     " في صفّ اللمسات. كل لحظة تعود منشورًا قائمًا بذاته، بعنوان ممّا قيل فيها.",
