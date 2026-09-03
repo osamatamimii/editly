@@ -9,6 +9,9 @@
  * one that explains itself.
  */
 import { supabase } from "./supabase";
+import { fill, say } from "./landing-copy";
+import { storedLanguage } from "./language-routes";
+import { TRANSFER } from "./copy/transfer";
 
 export type OAuthProvider = "google" | "apple";
 
@@ -19,7 +22,7 @@ export const PROVIDER_LABEL: Record<OAuthProvider, string> = {
 
 export class ProviderNotEnabledError extends Error {
   constructor(public provider: OAuthProvider) {
-    super(`${PROVIDER_LABEL[provider]} sign-in is not switched on for this project yet.`);
+    super(fill(TRANSFER.providerOff, storedLanguage(), PROVIDER_LABEL[provider]));
   }
 }
 
@@ -108,11 +111,13 @@ function messageFrom(params: URLSearchParams): string | null {
   if (!code) return null;
   // Cancelling is not a failure, and an alarming red line about a decision the
   // person made on purpose is worse than saying nothing at all.
-  if (code === "access_denied") return "Sign-in was cancelled.";
+  if (code === "access_denied") return say(TRANSFER.signInCancelled, storedLanguage());
   // `error_description` is the provider's own words and is written for people;
   // the code is a slug. Prefer the sentence, fall back to the slug.
   const described = params.get("error_description")?.trim();
-  return described && described.length > 0 ? described : `Sign-in failed (${code}).`;
+  return described && described.length > 0
+    ? described
+    : fill(TRANSFER.signInFailed, storedLanguage(), code);
 }
 
 export function captureOAuthError(): string | null {

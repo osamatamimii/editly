@@ -43,10 +43,28 @@
  */
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { directionOf, say, type Language, type Phrase } from "@/lib/landing-copy";
+import { setLanguageGetter } from "@workspace/api-client-react";
+import { directionOf, fill, say, type Language, type Phrase, type Template } from "@/lib/landing-copy";
 import { LANGUAGE_KEY, isBilingualRoute, storedLanguage } from "@/lib/language-routes";
 
 export { BILINGUAL, LANGUAGE_KEY, isBilingualRoute, storedLanguage } from "@/lib/language-routes";
+
+/*
+  Tell the API which language to answer in.
+
+  A few routes write a sentence rather than a number — the named looks carry
+  a description, a font refusal explains itself — and those have both halves on
+  the server, chosen by `Accept-Language`. The browser sets that header from the
+  operating system, which is the wrong answer here for the reason this whole
+  file exists: a phone set to English is not a statement about what its owner
+  reads, and in this product's first market that combination is ordinary.
+
+  Registered at module scope beside the auth token, in the same shape and for
+  the same reason: every request should carry it, and no component should have
+  to remember to. Read on each request rather than captured, so switching the
+  language changes the next answer rather than the one after a reload.
+*/
+setLanguageGetter(() => storedLanguage());
 
 interface LanguageValue {
   /** What the person reads, wherever they are in the product. */
@@ -56,6 +74,15 @@ interface LanguageValue {
   choose: (next: Language) => void;
   /** The half of a pair this person reads. */
   t: (phrase: Phrase) => string;
+  /**
+   * The same, for a sentence with a number or a name in it.
+   *
+   * Separate from `t` rather than overloaded onto it because the two are
+   * different shapes and a caller that confuses them should not compile: `t`
+   * takes a pair of strings, `fmt` takes a pair of sentence-writers and the
+   * values they need.
+   */
+  fmt: <A extends unknown[]>(template: Template<A>, ...args: A) => string;
 }
 
 const Context = createContext<LanguageValue | null>(null);
@@ -93,6 +120,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         }
       },
       t: (phrase: Phrase) => say(phrase, language),
+      fmt: <A extends unknown[]>(pattern: Template<A>, ...args: A) => fill(pattern, language, ...args),
     }),
     [language, screenLanguage],
   );

@@ -8,6 +8,21 @@ export type BodyType<T> = T;
 
 export type AuthTokenGetter = () => Promise<string | null> | string | null;
 
+/**
+ * Which language the answers should come back in.
+ *
+ * Some routes write a sentence rather than a number — a named look's
+ * description, a refusal that names a limit — and those have both halves on
+ * the server. `Accept-Language` is how the server is told which to send.
+ *
+ * The browser sets its own `Accept-Language` from the operating system, and
+ * that is the wrong answer for this product: its first market very often runs
+ * an English phone in Arabic, so reading the OS would quietly hand Arabic
+ * readers English copy. So the app registers a getter that returns the language
+ * the *person chose*, and it overrides what the browser would have sent.
+ */
+export type LanguageGetter = () => string | null;
+
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
@@ -17,6 +32,7 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _languageGetter: LanguageGetter | null = null;
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -42,6 +58,17 @@ export function setBaseUrl(url: string | null): void {
  */
 export function setAuthTokenGetter(getter: AuthTokenGetter | null): void {
   _authTokenGetter = getter;
+}
+
+/**
+ * Register a getter that supplies the language answers should come back in.
+ *
+ * Called on every request rather than once, because the person can change the
+ * language while the app is open and the next answer should follow. Pass `null`
+ * to clear it, after which the browser's own header stands.
+ */
+export function setLanguageGetter(getter: LanguageGetter | null): void {
+  _languageGetter = getter;
 }
 
 function isRequest(input: RequestInfo | URL): input is Request {
@@ -351,6 +378,12 @@ export async function customFetch<T = unknown>(
 
   if (responseType === "json" && !headers.has("accept")) {
     headers.set("accept", DEFAULT_JSON_ACCEPT);
+  }
+
+  // Say which language, when the app has told us and the caller has not.
+  if (_languageGetter && !headers.has("accept-language")) {
+    const language = _languageGetter();
+    if (language) headers.set("accept-language", language);
   }
 
   // Attach bearer token when an auth getter is configured and no

@@ -37,13 +37,37 @@ const repoRoot = process.cwd();
 const buildDir = await mkdtemp(path.join(tmpdir(), "editly-checkout-test-"));
 const modulePath = path.join(buildDir, "checkout.mjs");
 
-// The module imports the Supabase client for the session token. esbuild will
-// not alias a relative specifier, so the stand-in is written where the real one
-// resolves from — a copy of the source tree is not needed for two functions.
+/*
+  The module imports the Supabase client for the session token. esbuild will
+  not alias a relative specifier, so the stand-in is written where the real one
+  resolves from — a copy of the source tree is not needed for two functions.
+
+  Its neighbours are copied rather than stubbed. `checkout.ts` says two
+  sentences now, and it says them in whichever language the person reads, so it
+  imports the copy table and the stored preference the way every module that
+  speaks does. Stubbing those would mean this suite asserting on sentences it
+  wrote itself.
+*/
 const srcDir = path.join(buildDir, "src");
 const fs = await import("node:fs/promises");
-await fs.mkdir(srcDir, { recursive: true });
-await fs.copyFile(path.join(repoRoot, "artifacts/editly/src/lib/checkout.ts"), path.join(srcDir, "checkout.ts"));
+await fs.mkdir(path.join(srcDir, "copy"), { recursive: true });
+const lib = path.join(repoRoot, "artifacts/editly/src/lib");
+for (const file of ["checkout.ts", "landing-copy.ts", "language-routes.ts", "copy/transfer.ts"]) {
+  await fs.copyFile(path.join(lib, file), path.join(srcDir, file));
+}
+// `copy/transfer.ts` reaches its neighbours through the `@/` alias, which only
+// resolves against the app's tsconfig. Two lines of rewrite here beats copying
+// a tsconfig into a temp directory to bundle one module.
+{
+  const transfer = path.join(srcDir, "copy/transfer.ts");
+  const source = await fs.readFile(transfer, "utf8");
+  await fs.writeFile(transfer, source.replace(/"@\/lib\//g, '"../'));
+}
+{
+  const routes = path.join(srcDir, "language-routes.ts");
+  const source = await fs.readFile(routes, "utf8");
+  await fs.writeFile(routes, source.replace(/"@\/lib\//g, '"./'));
+}
 await fs.writeFile(
   path.join(srcDir, "supabase.ts"),
   "export const supabase = { auth: { getSession: async () => ({ data: { session: null } }) } } as any;\n",

@@ -21,7 +21,13 @@ import NotFound from "@/pages/not-found";
 import { apiFetch } from "@/lib/api-fetch";
 import { Sparkline, weekOnWeek } from "@/components/sparkline";
 import type { AdminTrend } from "@workspace/api-client-react";
-import { loadState, isNotFound, COULD_NOT_LOAD } from "@/lib/load-state";
+import { loadState, isNotFound } from "@/lib/load-state";
+import { useLanguage } from "@/lib/language";
+import { useDates } from "@/lib/dates";
+import { ADMIN } from "@/lib/copy/admin";
+import { COMMON, LOAD } from "@/lib/copy/common";
+import { type Phrase, type Template } from "@/lib/app-copy";
+import { fill, say, type Language } from "@/lib/landing-copy";
 
 /**
  * What an empty cell says.
@@ -71,7 +77,7 @@ function gigabytes(bytes: number): string {
  * once a year, and a console that showed nothing until a pricing API answered
  * would show nothing.
  */
-function egressCost(bytes: number): string {
+function egressCost(bytes: number, language: Language = "en"): string {
   const gb = bytes / (1024 * 1024 * 1024);
   const billable = Math.max(0, gb - 250);
   if (billable === 0) return "nothing yet";
@@ -79,6 +85,8 @@ function egressCost(bytes: number): string {
 }
 
 export default function AdminPage() {
+  const { t, fmt, language } = useLanguage();
+  const dates = useDates();
   // `retry: false` throughout, because the expected failure here is a 404 that
   // means "you are not an admin" — retrying it three times is three more
   // requests and the same answer.
@@ -195,7 +203,7 @@ export default function AdminPage() {
   };
   const onFailure = (error: unknown) => {
     const message = (error as { message?: string } | undefined)?.message;
-    setActionError(message && message.length < 300 ? message : "That did not work.");
+    setActionError(message && message.length < 300 ? message : t(ADMIN.didNotWork));
   };
   const requeue = useRequeueJob({ mutation: { onSuccess: refreshEverything, onError: onFailure } });
   const grant = useGrantMinutes({ mutation: { onSuccess: refreshEverything, onError: onFailure } });
@@ -225,8 +233,8 @@ export default function AdminPage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
         <div className="max-w-md text-center space-y-2">
-          <h1 className="text-xl font-semibold">Operations</h1>
-          <p className="text-muted-foreground text-sm">{COULD_NOT_LOAD}</p>
+          <h1 className="text-xl font-semibold">{t(ADMIN.title)}</h1>
+          <p className="text-muted-foreground text-sm">{t(LOAD.couldNotLoad)}</p>
         </div>
       </div>
     );
@@ -276,13 +284,10 @@ export default function AdminPage() {
               href="/dashboard"
               className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              <ArrowLeft className="w-4 h-4" /> Dashboard
+              <ArrowLeft className="w-4 h-4 rtl:rotate-180" /> {t(COMMON.dashboard)}
             </Link>
-            <h1 className="text-3xl font-bold mt-2">Operations</h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              Read-only. Every number here comes from the same modules the product bills and
-              schedules with.
-            </p>
+            <h1 className="text-3xl font-bold mt-2">{t(ADMIN.title)}</h1>
+            <p className="text-muted-foreground text-sm mt-1">{t(ADMIN.lead)}</p>
           </div>
         </div>
 
@@ -300,6 +305,7 @@ export default function AdminPage() {
           always present is a banner nobody reads.
         */}
         <Attention
+          language={language}
           worker={{ online: worker.online, unclear: claimsOnlineButIsStale }}
           unattended={data.queue.unattended}
           failedLastDay={data.queue.failedLastDay}
@@ -318,13 +324,13 @@ export default function AdminPage() {
         */}
         <section className="rounded-xl border border-border bg-card p-4 space-y-2">
           <label className="text-sm font-medium" htmlFor="admin-reason">
-            Reason (required before anything below can be done)
+            {t(ADMIN.reasonLabel)}
           </label>
           <input
             id="admin-reason"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Why are you doing this? It goes in the log with your name."
+            placeholder={t(ADMIN.reasonPlaceholder)}
             data-testid="admin-reason"
             className="w-full px-3 min-h-11 md:min-h-0 md:py-2 rounded-lg bg-background border border-border text-base md:text-sm"
           />
@@ -349,28 +355,40 @@ export default function AdminPage() {
         {deployment?.usage ? (
           <section className="rounded-xl border border-border bg-card p-4 space-y-3" data-testid="admin-usage">
             <div className="flex items-baseline justify-between gap-3 flex-wrap">
-              <h2 className="text-sm font-semibold">Storage, and what moving it costs</h2>
-              <span className="text-xs text-muted-foreground">this month</span>
+              <h2 className="text-sm font-semibold">{t(ADMIN.usageTitle)}</h2>
+              <span className="text-xs text-muted-foreground">{t(ADMIN.thisMonth)}</span>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <Card
-                label="Stored"
-                value={deployment.usage.storedBytes === null ? "not known" : gigabytes(deployment.usage.storedBytes)}
-                hint={deployment.usage.objects === null ? "storage did not answer" : `${deployment.usage.objects} objects`}
-              />
-              <Card
-                label="Pulled by renders"
-                value={gigabytes(deployment.usage.egressBytes)}
+                label={t(ADMIN.stored)}
+                value={
+                  deployment.usage.storedBytes === null
+                    ? t(ADMIN.notKnown)
+                    : gigabytes(deployment.usage.storedBytes)
+                }
                 hint={
-                  deployment.usage.unmeasuredRenders > 0
-                    ? `${deployment.usage.measuredRenders} counted, ${deployment.usage.unmeasuredRenders} before counting began`
-                    : `${deployment.usage.measuredRenders} renders`
+                  deployment.usage.objects === null
+                    ? t(ADMIN.storageSilent)
+                    : fmt(ADMIN.objects, deployment.usage.objects)
                 }
               />
               <Card
-                label="That egress costs"
-                value={egressCost(deployment.usage.egressBytes)}
-                hint="on R2 it is $0, at any volume"
+                label={t(ADMIN.pulledByRenders)}
+                value={gigabytes(deployment.usage.egressBytes)}
+                hint={
+                  deployment.usage.unmeasuredRenders > 0
+                    ? fmt(
+                        ADMIN.countedAndBefore,
+                        deployment.usage.measuredRenders,
+                        deployment.usage.unmeasuredRenders,
+                      )
+                    : fmt(ADMIN.countedRenders, deployment.usage.measuredRenders)
+                }
+              />
+              <Card
+                label={t(ADMIN.egressCost)}
+                value={egressCost(deployment.usage.egressBytes, language)}
+                hint={t(ADMIN.egressOnR2)}
               />
             </div>
             {deployment.usage.unmeasuredRenders > 0 ? (
@@ -378,8 +396,7 @@ export default function AdminPage() {
                 {/* Null is not zero. A render from before the column existed
                     moved bytes nobody counted, and saying so keeps the total
                     from reading as smaller than it was. */}
-                Renders from before this was measured are not in the total, so the real figure is
-                higher.
+                {t(ADMIN.unmeasured)}
               </p>
             ) : null}
           </section>
@@ -397,10 +414,14 @@ export default function AdminPage() {
             data-testid="admin-deployment"
           >
             <div className="flex items-baseline justify-between gap-3 flex-wrap">
-              <h2 className="text-sm font-semibold">This deployment against the code</h2>
+              <h2 className="text-sm font-semibold">{t(ADMIN.deploymentTitle)}</h2>
               <span className="text-xs text-muted-foreground">
-                {deployment.summary.wrong} wrong · {deployment.summary.unknown} unknown ·{" "}
-                {deployment.summary.ok} fine
+                {fmt(
+                  ADMIN.deploymentSummary,
+                  deployment.summary.wrong,
+                  deployment.summary.unknown,
+                  deployment.summary.ok,
+                )}
               </span>
             </div>
             <ul className="space-y-2">
@@ -420,10 +441,10 @@ export default function AdminPage() {
                     {/* Both halves, always. "Mismatch" is a line somebody
                         scrolls past; the pair is a line somebody fixes. */}
                     <div className="mt-1">
-                      <span className="text-muted-foreground">expects</span> {f.expected}
+                      <span className="text-muted-foreground">{t(ADMIN.expects)}</span> {f.expected}
                     </div>
                     <div>
-                      <span className="text-muted-foreground">actually</span> {f.actual}
+                      <span className="text-muted-foreground">{t(ADMIN.actually)}</span> {f.actual}
                     </div>
                     {f.consequence ? (
                       <div className="mt-1 text-muted-foreground">{f.consequence}</div>
@@ -436,16 +457,23 @@ export default function AdminPage() {
 
         {/* ── Health ───────────────────────────────────────────────────── */}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="admin-health">
-          <Card label="Rendering now" value={data.queue.processing} />
-          <Card label="Waiting in queue" value={data.queue.waiting} hint="behind a live machine" />
+          <Card language={language} label={t(ADMIN.renderingNow)} value={data.queue.processing} />
           <Card
-            label="Unattended"
+            language={language}
+            label={t(ADMIN.waitingInQueue)}
+            value={data.queue.waiting}
+            hint={t(ADMIN.behindLiveMachine)}
+          />
+          <Card
+            language={language}
+            label={t(ADMIN.unattended)}
             value={data.queue.unattended}
-            hint="queued with nothing listening"
+            hint={t(ADMIN.unattendedHint)}
             alarming={data.queue.unattended > 0}
           />
           <Card
-            label="Failed (24h)"
+            language={language}
+            label={t(ADMIN.failedDay)}
             value={data.queue.failedLastDay}
             alarming={data.queue.failedLastDay > 0}
             trend={data.trends?.failures}
@@ -455,27 +483,41 @@ export default function AdminPage() {
 
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card
-            label="Worker"
-            value={claimsOnlineButIsStale ? "unclear" : worker.online ? "online" : "offline"}
+            language={language}
+            label={t(ADMIN.worker)}
+            value={
+              claimsOnlineButIsStale
+                ? t(ADMIN.workerUnclear)
+                : worker.online
+                  ? t(ADMIN.workerOnline)
+                  : t(ADMIN.workerOffline)
+            }
             hint={
               claimsOnlineButIsStale
-                ? `the server says online, but the last beat was ${elapsed(seenAgo as number)} ago. Both cannot be true.`
+                ? fmt(ADMIN.workerContradiction, elapsed(seenAgo as number, language))
                 : seenAgo === null
-                  ? "never seen"
-                  : `last beat ${elapsed(seenAgo)} ago`
+                  ? t(ADMIN.neverSeen)
+                  : fmt(ADMIN.lastBeat, elapsed(seenAgo, language))
             }
             alarming={!worker.online || claimsOnlineButIsStale}
           />
-          <Card label="Done (24h)" value={data.queue.doneLastDay} trend={data.trends?.renders} />
           <Card
-            label="Minutes this month"
+            language={language}
+            label={t(ADMIN.doneDay)}
+            value={data.queue.doneLastDay}
+            trend={data.trends?.renders}
+          />
+          <Card
+            language={language}
+            label={t(ADMIN.minutesThisMonth)}
             value={data.minutesRenderedThisMonth}
             trend={data.trends?.minutes}
           />
           <Card
-            label="Accounts"
+            language={language}
+            label={t(ADMIN.accounts)}
             value={data.accounts.total}
-            hint={`${data.accounts.newLastWeek} new this week`}
+            hint={fmt(ADMIN.newThisWeek, data.accounts.newLastWeek)}
             trend={data.trends?.signups}
           />
         </section>
@@ -494,27 +536,30 @@ export default function AdminPage() {
         */}
         {data.posting ? (
           <section data-testid="admin-posting">
-            <h2 className="text-xl font-semibold mb-3">Posting</h2>
+            <h2 className="text-xl font-semibold mb-3">{t(ADMIN.postingTitle)}</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Card
-                label="Overdue"
+                language={language}
+                label={t(ADMIN.overdue)}
                 value={data.posting.overdue}
-                hint="past their time, unclaimed"
+                hint={t(ADMIN.overdueHint)}
                 alarming={data.posting.overdue > 0}
               />
               <Card
-                label="Mid-send"
+                language={language}
+                label={t(ADMIN.midSend)}
                 value={data.posting.stranded}
-                hint="a publisher stopped holding these"
+                hint={t(ADMIN.midSendHint)}
                 alarming={data.posting.stranded > 0}
               />
-              <Card label="Due within the hour" value={data.posting.dueSoon} />
+              <Card language={language} label={t(ADMIN.dueWithinHour)} value={data.posting.dueSoon} />
               <Card
-                label="Posted (24h)"
+                language={language}
+                label={t(ADMIN.postedDay)}
                 value={data.posting.publishedLastDay}
                 hint={
                   data.posting.missedLastDay > 0
-                    ? `${data.posting.missedLastDay} too late to send`
+                    ? fmt(ADMIN.tooLateToSend, data.posting.missedLastDay)
                     : undefined
                 }
               />
@@ -524,7 +569,7 @@ export default function AdminPage() {
 
         {/* ── Money ────────────────────────────────────────────────────── */}
         <section>
-          <h2 className="text-xl font-semibold mb-3">Subscriptions</h2>
+          <h2 className="text-xl font-semibold mb-3">{t(ADMIN.subscriptions)}</h2>
           <div className="flex flex-wrap gap-3 mb-4">
             {data.revenue.byPlan.map((row) => (
               <div
@@ -536,24 +581,31 @@ export default function AdminPage() {
               </div>
             ))}
             <div className="px-4 py-2 rounded-lg border border-primary/40 bg-primary/10 text-sm font-medium">
-              ${data.revenue.monthlyRecurringUsd} / month
+              {fmt(ADMIN.monthlyRecurring, data.revenue.monthlyRecurringUsd)}
             </div>
           </div>
 
           <h3 className="text-sm font-semibold text-muted-foreground mb-2">
-            Last billing events
+            {t(ADMIN.lastBillingEvents)}
           </h3>
           <Table
-            head={["Type", "Email", "Plan", "Received", "Applied", "Outcome"]}
+            head={[
+              t(ADMIN.headType),
+              t(ADMIN.headEmail),
+              t(ADMIN.headPlan),
+              t(ADMIN.headReceived),
+              t(ADMIN.headApplied),
+              t(ADMIN.headOutcome),
+            ]}
             rows={data.billing.map((event) => [
               event.type,
               event.email ?? EMPTY,
               event.plan ?? EMPTY,
-              new Date(event.receivedAt).toLocaleString(),
-              event.applied ? "yes" : "no",
+              dates.moment(event.receivedAt),
+              event.applied ? t(ADMIN.yes) : t(ADMIN.no),
               event.outcome ?? EMPTY,
             ])}
-            empty="Nothing from Freemius yet."
+            empty={t(ADMIN.nothingFromFreemius)}
           />
         </section>
 
@@ -561,34 +613,42 @@ export default function AdminPage() {
         <section>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
             <h2 className="text-xl font-semibold">
-              Accounts{" "}
+              {t(ADMIN.accounts)}{" "}
               <span className="text-muted-foreground text-base font-normal">
                 ({accounts.data?.total ?? 0})
               </span>
             </h2>
             <div className="relative w-full sm:w-auto">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Search className="w-4 h-4 absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by email"
+                placeholder={t(ADMIN.searchByEmail)}
                 data-testid="admin-account-search"
-                className="pl-9 pr-3 min-h-11 md:min-h-0 md:py-2 rounded-lg bg-card border border-border text-base md:text-sm w-full sm:w-64"
+                className="ps-9 pe-3 min-h-11 md:min-h-0 md:py-2 rounded-lg bg-card border border-border text-base md:text-sm w-full sm:w-64"
               />
             </div>
           </div>
           {accountsState === "failed" ? (
-            <Problem>{COULD_NOT_LOAD}</Problem>
+            <Problem>{t(LOAD.couldNotLoad)}</Problem>
           ) : (
             <Table
-              head={["Email", "Plan", "Minutes", "Projects", "Joined", "Last seen", ""]}
+              head={[
+                t(ADMIN.headEmail),
+                t(ADMIN.headPlan),
+                t(ADMIN.headMinutes),
+                t(ADMIN.headProjects),
+                t(ADMIN.headJoined),
+                t(ADMIN.headLastSeen),
+                "",
+              ]}
               rows={(accounts.data?.accounts ?? []).map((account) => [
                 account.email ?? account.userId,
                 account.plan,
                 `${account.minutesUsedThisMonth} / ${account.minutesIncluded}`,
                 String(account.projectCount),
-                new Date(account.createdAt).toLocaleDateString(),
-                account.lastSignInAt ? new Date(account.lastSignInAt).toLocaleDateString() : "never",
+                dates.day(account.createdAt),
+                account.lastSignInAt ? dates.day(account.lastSignInAt) : t(ADMIN.never),
                 <span key="act" className="flex gap-2 whitespace-nowrap">
                   <RowButton
                     disabled={!canAct || grant.isPending}
@@ -598,9 +658,10 @@ export default function AdminPage() {
                         data: { minutes: 30, reason: reason.trim() },
                       })
                     }
+                    language={language}
                     testId={`admin-grant-${account.userId}`}
                   >
-                    +30 min
+                    {t(ADMIN.grantMinutes)}
                   </RowButton>
                   <RowButton
                     disabled={!canAct || suspend.isPending}
@@ -610,13 +671,14 @@ export default function AdminPage() {
                         data: { suspended: true, reason: reason.trim() },
                       })
                     }
+                    language={language}
                     testId={`admin-suspend-${account.userId}`}
                   >
-                    Suspend
+                    {t(ADMIN.suspend)}
                   </RowButton>
                 </span>,
               ])}
-              empty={accountsState === "loading" ? "Loading…" : "Nobody yet."}
+              empty={accountsState === "loading" ? t(ADMIN.loading) : t(ADMIN.nobodyYet)}
             />
           )}
         </section>
@@ -624,9 +686,9 @@ export default function AdminPage() {
         {/* ── The waiting list ─────────────────────────────────────────── */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xl font-semibold">Waiting list</h2>
+            <h2 className="text-xl font-semibold">{t(ADMIN.waitlistTitle)}</h2>
             <span className="text-sm text-muted-foreground">
-              {waitlist.data ? `${waitlist.data.total} waiting` : ""}
+              {waitlist.data ? fmt(ADMIN.waiting, waitlist.data.total) : ""}
             </span>
           </div>
           {/*
@@ -636,17 +698,17 @@ export default function AdminPage() {
             the only place a difference between them will appear.
           */}
           {loadState(waitlist) === "loading" ? (
-            <div className="text-sm text-muted-foreground py-6">Loading…</div>
+            <div className="text-sm text-muted-foreground py-6">{t(ADMIN.loading)}</div>
           ) : loadState(waitlist) === "failed" ? (
-            <Problem>{COULD_NOT_LOAD}</Problem>
+            <Problem>{t(LOAD.couldNotLoad)}</Problem>
           ) : (
             <Table
-              head={["Email", "From", "Joined"]}
-              empty="Nobody has asked yet."
+              head={[t(ADMIN.headEmail), t(ADMIN.headFrom), t(ADMIN.headJoined)]}
+              empty={t(ADMIN.nobodyAsked)}
               rows={(waitlist.data?.entries ?? []).map((entry) => [
                 entry.email,
                 entry.source ?? EMPTY,
-                new Date(entry.createdAt).toLocaleString(),
+                dates.moment(entry.createdAt),
               ])}
             />
           )}
@@ -658,7 +720,7 @@ export default function AdminPage() {
               row that does not wrap does not shrink either — it just leaves the
               screen, and takes the page's scroll width with it. */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-            <h2 className="text-xl font-semibold">Recent renders</h2>
+            <h2 className="text-xl font-semibold">{t(ADMIN.recentRenders)}</h2>
             <div className="flex flex-wrap gap-2">
               {["", "failed", "queued", "processing", "done"].map((status) => (
                 <button
@@ -671,22 +733,31 @@ export default function AdminPage() {
                       : "border-border text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {status || "all"}
+                  {status || t(ADMIN.all)}
                 </button>
               ))}
             </div>
           </div>
           {jobsState === "failed" ? (
-            <Problem>{COULD_NOT_LOAD}</Problem>
+            <Problem>{t(LOAD.couldNotLoad)}</Problem>
           ) : (
             <Table
-              head={["Status", "Project", "Billed", "Created", "Finished", "What they were told, and what happened", "What it did", ""]}
+              head={[
+                t(ADMIN.headStatus),
+                t(ADMIN.headProject),
+                t(ADMIN.headBilled),
+                t(ADMIN.headCreated),
+                t(ADMIN.headFinished),
+                t(ADMIN.headWhatTheyWereTold),
+                t(ADMIN.headWhatItDid),
+                "",
+              ]}
               rows={(jobs.data?.jobs ?? []).map((job) => [
-                job.unattended ? `${job.status} · unattended` : job.status,
+                job.unattended ? fmt(ADMIN.unattendedSuffix, job.status) : job.status,
                 job.projectId.slice(0, 8),
                 job.billedSeconds === null ? EMPTY : `${Math.round(job.billedSeconds)}s`,
-                new Date(job.createdAt).toLocaleString(),
-                job.finishedAt ? new Date(job.finishedAt).toLocaleString() : EMPTY,
+                dates.moment(job.createdAt),
+                job.finishedAt ? dates.moment(job.finishedAt) : EMPTY,
                 /*
                   Two sentences, because they answer different questions and
                   this column had only ever carried the first.
@@ -749,35 +820,40 @@ export default function AdminPage() {
                     key="requeue"
                     disabled={!canAct || requeue.isPending}
                     onClick={() => requeue.mutate({ jobId: job.id, data: { reason: reason.trim() } })}
+                    language={language}
                     testId={`admin-requeue-${job.id}`}
                   >
-                    Requeue
+                    {t(ADMIN.requeue)}
                   </RowButton>
                 ),
               ])}
-              empty={jobsState === "loading" ? "Loading…" : "No renders yet."}
+              empty={jobsState === "loading" ? t(ADMIN.loading) : t(ADMIN.noRendersYet)}
             />
           )}
         </section>
         {/* ── The log ──────────────────────────────────────────────────── */}
         <section>
-          <h2 className="text-xl font-semibold mb-1">What has been done here</h2>
-          <p className="text-sm text-muted-foreground mb-3">
-            Every action above writes a row. Nothing removes one.
-          </p>
+          <h2 className="text-xl font-semibold mb-1">{t(ADMIN.logTitle)}</h2>
+          <p className="text-sm text-muted-foreground mb-3">{t(ADMIN.logLead)}</p>
           {actionsState === "failed" ? (
-            <Problem>{COULD_NOT_LOAD}</Problem>
+            <Problem>{t(LOAD.couldNotLoad)}</Problem>
           ) : (
             <Table
-              head={["When", "Action", "Subject", "Reason", "Detail"]}
+              head={[
+                t(ADMIN.headWhen),
+                t(ADMIN.headAction),
+                t(ADMIN.headSubject),
+                t(ADMIN.headReason),
+                t(ADMIN.headDetail),
+              ]}
               rows={(actions.data?.actions ?? []).map((entry) => [
-                new Date(entry.createdAt).toLocaleString(),
+                dates.moment(entry.createdAt),
                 entry.action,
                 entry.subjectUserId ?? entry.subjectJobId ?? EMPTY,
                 entry.reason,
                 entry.detail ? JSON.stringify(entry.detail) : EMPTY,
               ])}
-              empty={actionsState === "loading" ? "Loading…" : "Nothing has been done here yet."}
+              empty={actionsState === "loading" ? t(ADMIN.loading) : t(ADMIN.nothingDoneYet)}
             />
           )}
         </section>
@@ -791,18 +867,20 @@ function RowButton({
   onClick,
   disabled,
   testId,
+  language = "en",
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled: boolean;
   testId: string;
+  language?: Language;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
-      title={disabled ? "Type a reason first" : undefined}
+      title={disabled ? say(ADMIN.typeReasonFirst, language) : undefined}
       // These are the buttons that grant minutes, suspend an account and
       // requeue a job — the console's only irreversible acts — and they were
       // 26px tall. A thumb hitting "Suspend" when it meant "+30 min" is the
@@ -825,12 +903,14 @@ function RowButton({
  * comes back" is the thing you needed to know.
  */
 function Attention({
+  language,
   worker,
   unattended,
   failedLastDay,
   unappliedBilling,
   posting,
 }: {
+  language: Language;
   worker: { online: boolean; unclear: boolean };
   unattended: number;
   failedLastDay: number;
@@ -841,21 +921,26 @@ function Attention({
     accountsNeedingReconnect: number;
   };
 }) {
+  /*
+    Resolved here rather than by a hook, because this is a plain function that
+    builds a list of sentences and the language is the only thing it needs from
+    the screen. Passed in for the same reason `waitInWords` takes one: it keeps
+    the sentence-building a pure function of its inputs.
+  */
+  const said = (phrase: Phrase) => say(phrase, language);
+  const shaped = <A extends unknown[]>(pattern: Template<A>, ...args: A) => fill(pattern, language, ...args);
+
   const problems: string[] = [];
   if (worker.unclear) {
-    problems.push("The worker reports online with a stale heartbeat. Both cannot be true.");
+    problems.push(said(ADMIN.workerContradicts));
   } else if (!worker.online) {
-    problems.push("No machine is listening. Nothing will render until one comes back.");
+    problems.push(said(ADMIN.nobodyListening));
   }
   if (unattended > 0) {
-    problems.push(
-      `${unattended} ${unattended === 1 ? "render is" : "renders are"} queued with nothing to pick ${unattended === 1 ? "it" : "them"} up.`,
-    );
+    problems.push(shaped(ADMIN.unattendedProblem, unattended));
   }
   if (failedLastDay > 0) {
-    problems.push(
-      `${failedLastDay} ${failedLastDay === 1 ? "render" : "renders"} failed in the last day. The reason is on each row below.`,
-    );
+    problems.push(shaped(ADMIN.failedProblem, failedLastDay));
   }
   /*
     The quietest fault on this screen.
@@ -872,25 +957,17 @@ function Attention({
     something the payer will mention.
   */
   if (posting && posting.overdue > 0) {
-    problems.push(
-      `${posting.overdue} scheduled ${posting.overdue === 1 ? "post is" : "posts are"} past their time and unclaimed. The publisher is not sweeping, and nobody will be told.`,
-    );
+    problems.push(shaped(ADMIN.overdueProblem, posting.overdue));
   }
   if (posting && posting.stranded > 0) {
-    problems.push(
-      `${posting.stranded} ${posting.stranded === 1 ? "post was" : "posts were"} mid-send when a publisher stopped. It is not known whether ${posting.stranded === 1 ? "it" : "they"} went out.`,
-    );
+    problems.push(shaped(ADMIN.strandedProblem, posting.stranded));
   }
   if (posting && posting.accountsNeedingReconnect > 0) {
-    problems.push(
-      `${posting.accountsNeedingReconnect} connected ${posting.accountsNeedingReconnect === 1 ? "account has" : "accounts have"} a token the platform no longer accepts. Every post scheduled to ${posting.accountsNeedingReconnect === 1 ? "it" : "them"} will fail as it comes due.`,
-    );
+    problems.push(shaped(ADMIN.reconnectProblem, posting.accountsNeedingReconnect));
   }
 
   if (unappliedBilling > 0) {
-    problems.push(
-      `${unappliedBilling} billing ${unappliedBilling === 1 ? "event" : "events"} arrived and did not apply. Somebody has paid for something they do not have.`,
-    );
+    problems.push(shaped(ADMIN.billingProblem, unappliedBilling));
   }
 
   if (problems.length === 0) {
@@ -899,11 +976,8 @@ function Attention({
         className="rounded-xl border border-success/40 bg-success/10 px-4 py-3 text-sm"
         data-testid="admin-attention-clear"
       >
-        <span className="font-medium text-success">Nothing needs you.</span>{" "}
-        <span className="text-muted-foreground">
-          A machine is listening, the queue is moving, and every payment that arrived has been
-          applied.
-        </span>
+        <span className="font-medium text-success">{said(ADMIN.nothingNeedsYou)}</span>{" "}
+        <span className="text-muted-foreground">{said(ADMIN.allClear)}</span>
       </section>
     );
   }
@@ -914,7 +988,7 @@ function Attention({
       data-testid="admin-attention"
     >
       <div className="text-sm font-semibold text-destructive mb-1">
-        {problems.length === 1 ? "One thing needs you" : `${problems.length} things need you`}
+        {shaped(ADMIN.thingsNeedYou, problems.length)}
       </div>
       <ul className="space-y-1">
         {problems.map((problem) => (
@@ -928,6 +1002,7 @@ function Attention({
 }
 
 function Card({
+  language = "en",
   label,
   value,
   hint,
@@ -936,6 +1011,7 @@ function Card({
   /** Which way is good. Failures going up is not the same news as signups. */
   upIsGood = true,
 }: {
+  language?: Language;
   label: string;
   value: string | number;
   hint?: string;
@@ -943,7 +1019,7 @@ function Card({
   trend?: AdminTrend;
   upIsGood?: boolean;
 }) {
-  const change = trend ? weekOnWeek(trend.thisWeek, trend.lastWeek) : null;
+  const change = trend ? weekOnWeek(trend.thisWeek, trend.lastWeek, language) : null;
   const good = change && change.direction !== "flat" && (change.direction === "up") === upIsGood;
   const bad = change && change.direction !== "flat" && !good;
 
@@ -1014,7 +1090,7 @@ function Table({
         <thead className="bg-muted/40">
           <tr>
             {head.map((cell) => (
-              <th key={cell} className="text-left font-medium px-4 py-2.5 whitespace-nowrap">
+              <th key={cell} className="text-start font-medium px-4 py-2.5 whitespace-nowrap">
                 {cell}
               </th>
             ))}
@@ -1057,15 +1133,20 @@ function Problem({ children }: { children: React.ReactNode }) {
  * seconds up to a minute, because under a minute is the only range where the
  * exact number is what matters.
  */
-function elapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+function elapsed(seconds: number, language: Language = "en"): string {
+  // One letter a unit, in both languages: ث س د و ي against s m h d. A
+  // duration on a card is read at a glance beside a number, and a spelled-out
+  // Arabic word there is wider than the card and slower to read than the
+  // figure it qualifies.
+  const [sec, min, hour, day] = language === "ar" ? ["ث", "د", "س", "ي"] : ["s", "m", "h", "d"];
+  if (seconds < 60) return `${seconds}${sec}`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}${min}`;
   if (seconds < 86400) {
     const h = Math.floor(seconds / 3600);
     const m = Math.round((seconds % 3600) / 60);
-    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    return m > 0 ? `${h}${hour} ${m}${min}` : `${h}${hour}`;
   }
   const d = Math.floor(seconds / 86400);
   const h = Math.round((seconds % 86400) / 3600);
-  return h > 0 ? `${d}d ${h}h` : `${d}d`;
+  return h > 0 ? `${d}${day} ${h}${hour}` : `${d}${day}`;
 }

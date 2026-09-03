@@ -381,6 +381,27 @@ async function open(url, { signedIn = false, override = null, initScript = null,
     return route.fulfill({ json: fx });
   });
 
+  /*
+    English, unless a scenario asks otherwise.
+
+    The product is written in both languages now, and this suite's copy
+    assertions quote English sentences: "waiting for a machine", "too late to
+    send", the worker card's contradiction. Without a stored preference the app
+    opens in Arabic — it is the default, because it is what this product's first
+    audience reads — and those assertions would be reading translated copy and
+    calling it a layout failure.
+
+    So the language is stated rather than inherited. The Arabic layout is not
+    left unchecked: `rtlRules` below renders the same screens right to left and
+    holds them to the rules that can actually break when a layout is mirrored.
+  */
+  await ctx.addInitScript(
+    (language) => {
+      try { window.localStorage.setItem("editly:language", language); } catch { /* private mode */ }
+    },
+    viewport.language ?? "en",
+  );
+
   // Anything a page needs to exist in the browser before it loads.
   if (initScript) await ctx.addInitScript(initScript);
 
@@ -1361,6 +1382,61 @@ for (const viewport of VIEWPORTS) {
     if (spec.then && viewport.hooks) await spec.then(page, check, viewport);
     await ctx.close();
   }
+}
+
+/*
+  ── And the same screens, mirrored ────────────────────────────────────────
+
+  The product is written in both languages now, and a right-to-left layout is
+  not a translation of a left-to-right one: it is the same boxes with `left`
+  and `right` swapped by the browser, and every place the source said `ml-`,
+  `pr-` or `right-` instead of `ms-`, `pe-` or `end-` stays where it was while
+  everything around it moves. What that produces is not an error. It is an icon
+  overlapping the text beside it, a chevron pointing away from where it goes,
+  or a row that is one padding wider than the screen — none of which throws,
+  and all of which a person sees immediately.
+
+  Only the rules that mirroring can actually break, and only at phone width,
+  because that is where a few pixels of drift becomes a sideways scroll. The
+  copy checks stay in the English pass above: this one is about geometry.
+
+  Three screens rather than all nine, chosen for what they are made of: the
+  dashboard is cards and a header row of controls, the editor is the frame, the
+  transport and the panel rail, and the account screen is five panels of prose
+  and form fields. Between them they cover every layout idiom in the product.
+*/
+const RTL = { name: "a phone in Arabic", size: PHONE, mobile: true, phoneRules: false, hooks: false, language: "ar" };
+
+for (const spec of PAGES.filter((p) => ["the dashboard", "the project editor", "the account page"].includes(p.name))) {
+  section(`${spec.name} on ${RTL.name}, ${RTL.size.width}×${RTL.size.height}`);
+  const { ctx, page, consoleErrors } = await open(spec.url, {
+    signedIn: spec.signedIn,
+    override: spec.override,
+    initScript: spec.initScript,
+    viewport: RTL,
+  });
+  const m = await measure(page);
+  await page.screenshot({
+    path: path.join(SHOTS, `${spec.name.replace(/[^a-z]+/gi, "-")}-rtl.png`),
+    fullPage: true,
+  });
+
+  check("it renders without throwing", consoleErrors.length === 0, consoleErrors[0] ?? "");
+  // The document has to say so, or nothing below is actually mirrored and this
+  // whole section is the English pass again under a different heading.
+  const said = await page.evaluate(() => ({
+    dir: document.documentElement.dir,
+    lang: document.documentElement.lang,
+  }));
+  check("the document is laid out right to left", said.dir === "rtl" && said.lang === "ar", JSON.stringify(said));
+  check(
+    "the page does not scroll sideways",
+    m.scrollWidth <= m.clientWidth + 1,
+    `${m.scrollWidth} > ${m.clientWidth}: ${(m.widest ?? []).join(" | ") || m.overflowing.join(" | ")}`,
+  );
+  check("nothing wider than the screen escapes its container", m.overflowing.length === 0, m.overflowing.join(" | "));
+  check("no control has collapsed to nothing", m.collapsed.length === 0, m.collapsed.join(" | "));
+  await ctx.close();
 }
 
 await browser.close();

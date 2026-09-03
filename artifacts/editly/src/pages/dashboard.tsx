@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
 import { Link, useLocation, Redirect } from "wouter";
-import { format } from "date-fns";
 import { 
   useListProjects, 
   useGetDashboardStats, 
@@ -42,6 +41,12 @@ import { stashPendingUpload, titleFromFilename } from "@/lib/pending-upload";
 import { hasSkippedFirstRun } from "@/lib/first-run";
 import { loadState } from "@/lib/load-state";
 import { FREE_TIER } from "@/lib/pricing";
+import { useLanguage } from "@/lib/language";
+import { useDates } from "@/lib/dates";
+import { ACCOUNT } from "@/lib/copy/account";
+import { COMMON, LOAD } from "@/lib/copy/common";
+import { DASHBOARD } from "@/lib/copy/dashboard";
+import { PRICING_AR, phrase } from "@/lib/landing-copy";
 import { LoadFailed } from "@/components/load-failed";
 import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
@@ -180,6 +185,8 @@ function hasPoster(project: {
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
+  const { t, fmt } = useLanguage();
+  const dates = useDates();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -245,20 +252,24 @@ export default function Dashboard() {
       const status = (error as { response?: { status?: number } })?.response?.status;
       if (status === 429) {
         toast({
-          title: "Video limit reached",
-          description: `You've used all ${subscription?.minutesIncluded ?? ""} exported minutes on your ${subscription?.plan ?? ""} plan this month.`,
+          title: t(DASHBOARD.limitReached),
+          description: fmt(
+            DASHBOARD.limitReachedDetail,
+            String(subscription?.minutesIncluded ?? ""),
+            String(subscription?.plan ?? ""),
+          ),
           variant: "destructive",
           action: (
-            <ToastAction altText="Upgrade plan" onClick={() => window.location.href = "/#pricing"}>
-              Upgrade
+            <ToastAction altText={t(COMMON.upgrade)} onClick={() => window.location.href = "/#pricing"}>
+              {t(COMMON.upgrade)}
             </ToastAction>
           ),
         });
         setIsCreateOpen(false);
       } else {
         toast({
-          title: "Failed to create project",
-          description: "Please try again later.",
+          title: t(DASHBOARD.createFailed),
+          description: t(DASHBOARD.tryLater),
           variant: "destructive"
         });
       }
@@ -278,8 +289,8 @@ export default function Dashboard() {
   const handleStartFromVideo = (file: File) => {
     if (!ACCEPTED_VIDEO_TYPES.includes(file.type) && !file.name.match(/\.(mp4|mov|webm)$/i)) {
       toast({
-        title: "Invalid file type",
-        description: "Please upload an mp4, mov, or webm file.",
+        title: t(DASHBOARD.badFileType),
+        description: t(DASHBOARD.badFileTypeDetail),
         variant: "destructive",
       });
       return;
@@ -290,8 +301,8 @@ export default function Dashboard() {
     const ceiling = uploadCeiling(subscription);
     if (file.size > ceiling) {
       toast({
-        title: "File too large",
-        description: `That file is ${formatBytes(file.size)}. The current limit is ${formatBytes(ceiling)} per video.`,
+        title: t(DASHBOARD.fileTooLarge),
+        description: fmt(DASHBOARD.fileTooLargeDetail, formatBytes(file.size), formatBytes(ceiling)),
         variant: "destructive",
       });
       return;
@@ -310,13 +321,13 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
       toast({
-        title: "Project deleted",
-        description: "The project has been removed."
+        title: t(DASHBOARD.projectDeleted),
+        description: t(DASHBOARD.projectDeletedDetail)
       });
     } catch (error) {
       toast({
-        title: "Failed to delete project",
-        description: "Please try again later.",
+        title: t(DASHBOARD.deleteFailed),
+        description: t(DASHBOARD.tryLater),
         variant: "destructive"
       });
     }
@@ -351,24 +362,24 @@ export default function Dashboard() {
         <Badge
           variant="outline"
           className={ON_ART}
-          title="The render is queued, but no machine has picked it up."
+          title={t(DASHBOARD.statusStalledTitle)}
           data-testid="badge-render-stalled"
         >
-          <Clock className="w-3 h-3 mr-1" /> Waiting for a machine
+          <Clock className="w-3 h-3 me-1" /> {t(DASHBOARD.statusStalled)}
         </Badge>
       );
     }
     switch (status) {
       case 'uploading':
-        return <Badge variant="outline" className={ON_ART}><Loader2 className="w-3 h-3 mr-1 animate-spin text-blue-300" /> Uploading</Badge>;
+        return <Badge variant="outline" className={ON_ART}><Loader2 className="w-3 h-3 me-1 animate-spin text-blue-300" /> {t(DASHBOARD.statusUploading)}</Badge>;
       case 'ready':
-        return <Badge variant="outline" className={ON_ART}><PlayCircle className="w-3 h-3 mr-1 text-violet-300" /> Ready</Badge>;
+        return <Badge variant="outline" className={ON_ART}><PlayCircle className="w-3 h-3 me-1 text-violet-300" /> {t(DASHBOARD.statusReady)}</Badge>;
       case 'processing':
-        return <Badge variant="outline" className={ON_ART}><Sparkles className="w-3 h-3 mr-1 animate-pulse text-violet-200" /> Processing</Badge>;
+        return <Badge variant="outline" className={ON_ART}><Sparkles className="w-3 h-3 me-1 animate-pulse text-violet-200" /> {t(DASHBOARD.statusProcessing)}</Badge>;
       case 'done':
-        return <Badge variant="outline" className={ON_ART}><CheckCircle2 className="w-3 h-3 mr-1 text-green-400" /> Done</Badge>;
+        return <Badge variant="outline" className={ON_ART}><CheckCircle2 className="w-3 h-3 me-1 text-green-400" /> {t(DASHBOARD.statusDone)}</Badge>;
       case 'failed':
-        return <Badge variant="outline" className={ON_ART}><AlertCircle className="w-3 h-3 mr-1 text-red-400" /> Failed</Badge>;
+        return <Badge variant="outline" className={ON_ART}><AlertCircle className="w-3 h-3 me-1 text-red-400" /> {t(DASHBOARD.statusFailed)}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -450,7 +461,7 @@ export default function Dashboard() {
                       </div>
                     </>
                   )}
-                  <div className="absolute top-3 right-3">
+                  <div className="absolute top-3 end-3">
                     {getStatusBadge(project.status, project.renderStalled)}
                   </div>
                 </div>
@@ -469,8 +480,8 @@ export default function Dashboard() {
                       {project.title}
                     </CardTitle>
                     <div className="flex items-center text-xs text-muted-foreground">
-                      <Clock className="w-3 h-3 mr-1 flex-shrink-0" />
-                      {format(new Date(project.updatedAt), 'MMM d, yyyy')}
+                      <Clock className="w-3 h-3 me-1 flex-shrink-0" />
+                      {dates.day(project.updatedAt)}
                     </div>
                   </div>
                   <Button
@@ -478,7 +489,7 @@ export default function Dashboard() {
                     size="icon"
                     className="h-11 w-11 md:h-8 md:w-8 flex-shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                     onClick={(e) => handleDelete(project.id, e)}
-                    aria-label={`Delete ${project.title}`}
+                    aria-label={fmt(DASHBOARD.deleteProject, project.title)}
                     data-testid={`button-delete-${project.id}`}
                   >
                     <Trash2 className="w-4 h-4" />
@@ -519,18 +530,18 @@ export default function Dashboard() {
     <div className="w-full max-w-7xl mx-auto px-6 py-12">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-12 gap-4">
         <div className="flex items-start gap-2">
-          <BackButton fallback="/" className="-ml-3 mt-1" />
+          <BackButton fallback="/" className="-ms-3 mt-1" />
           <div>
           {/* No `glow-text`. A 60px purple halo behind a heading is a landing-page
               effect: it works once, over a hero, on a page somebody is being
               sold to. On the screen you open every day it is a smudge behind
               the word, and it was one of the things making this page feel
               cheap. The landing page keeps it. */}
-          <h1 className="text-3xl font-bold tracking-tight mb-2">Projects</h1>
+          <h1 className="text-3xl font-bold tracking-tight mb-2">{t(DASHBOARD.title)}</h1>
           {/* Not a slogan bolted on: on this screen it is the instruction —
               you are about to open a project and type what you want. */}
           <p className="text-muted-foreground" data-testid="text-signature-dashboard">
-            Stop editing. Start describing.
+            {t(DASHBOARD.signature)}
           </p>
           </div>
         </div>
@@ -563,11 +574,11 @@ export default function Dashboard() {
               variant="outline"
               className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
               onClick={() => setLocation("/admin")}
-              aria-label="Operations"
+              aria-label={t(DASHBOARD.operations)}
               data-testid="button-admin"
             >
-              <Gauge className="w-4 h-4 sm:mr-2" />
-              <span className="hidden sm:inline">Operations</span>
+              <Gauge className="w-4 h-4 sm:me-2" />
+              <span className="hidden sm:inline">{t(DASHBOARD.operations)}</span>
             </Button>
           ) : null}
           {/* Clips are the output of the thing half this product's users come
@@ -577,11 +588,11 @@ export default function Dashboard() {
             variant="outline"
             className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
             onClick={() => setLocation("/clips")}
-            aria-label="Clips"
+            aria-label={t(DASHBOARD.clips)}
             data-testid="button-clips"
           >
-            <Scissors className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">Clips</span>
+            <Scissors className="w-4 h-4 sm:me-2" />
+            <span className="hidden sm:inline">{t(DASHBOARD.clips)}</span>
           </Button>
           {/* Scheduling had no door.
 
@@ -595,21 +606,21 @@ export default function Dashboard() {
             variant="outline"
             className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
             onClick={() => setLocation("/scheduled")}
-            aria-label="Scheduled"
+            aria-label={t(DASHBOARD.scheduled)}
             data-testid="button-scheduled"
           >
-            <CalendarClock className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">Scheduled</span>
+            <CalendarClock className="w-4 h-4 sm:me-2" />
+            <span className="hidden sm:inline">{t(DASHBOARD.scheduled)}</span>
           </Button>
           <Button
             variant="outline"
             className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
             onClick={() => setLocation("/account")}
-            aria-label="Account"
+            aria-label={t(COMMON.account)}
             data-testid="button-account"
           >
-            <UserRound className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">Account</span>
+            <UserRound className="w-4 h-4 sm:me-2" />
+            <span className="hidden sm:inline">{t(COMMON.account)}</span>
           </Button>
           <Button
             onClick={() => setIsCreateOpen(true)}
@@ -619,8 +630,8 @@ export default function Dashboard() {
             className="rounded-full px-5 sm:px-6 h-12 flex-1 sm:flex-none"
             data-testid="button-new-project"
           >
-            <Plus className="w-5 h-5 mr-2" />
-            New Project
+            <Plus className="w-5 h-5 me-2" />
+            {t(DASHBOARD.newProject)}
           </Button>
         </div>
       </div>
@@ -644,8 +655,8 @@ export default function Dashboard() {
         <Card className="glass-panel border-hairline-faint">
           <CardHeader className="flex flex-row items-start md:items-center justify-between gap-1 p-3 pb-0.5 md:p-6 md:pb-2">
             <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground leading-snug">
-              <span className="md:hidden">Projects</span>
-              <span className="hidden md:inline">Total Projects</span>
+              <span className="md:hidden">{t(DASHBOARD.statProjectsShort)}</span>
+              <span className="hidden md:inline">{t(DASHBOARD.statProjects)}</span>
             </CardTitle>
             <Video className="w-4 h-4 text-primary flex-shrink-0" />
           </CardHeader>
@@ -657,7 +668,7 @@ export default function Dashboard() {
                  read failed we do not know the number, and "0" is the one
                  answer guaranteed to be wrong for anybody who has ever used
                  the product. */
-              <LoadFailed what="this" compact onRetry={() => statsQuery.refetch()} testId="stats-failed-total" />
+              <LoadFailed what={DASHBOARD.thisNumber} compact onRetry={() => statsQuery.refetch()} testId="stats-failed-total" />
             ) : (
               <div className="text-2xl md:text-3xl font-bold">{stats?.totalProjects || 0}</div>
             )}
@@ -666,8 +677,8 @@ export default function Dashboard() {
         <Card className="glass-panel border-hairline-faint">
           <CardHeader className="flex flex-row items-start md:items-center justify-between gap-1 p-3 pb-0.5 md:p-6 md:pb-2">
             <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground leading-snug">
-              <span className="md:hidden">Working</span>
-              <span className="hidden md:inline">Currently Processing</span>
+              <span className="md:hidden">{t(DASHBOARD.statWorkingShort)}</span>
+              <span className="hidden md:inline">{t(DASHBOARD.statWorking)}</span>
             </CardTitle>
             <Activity className="w-4 h-4 text-secondary flex-shrink-0" />
           </CardHeader>
@@ -675,7 +686,7 @@ export default function Dashboard() {
             {statsState === "loading" ? (
               <Skeleton className="h-7 w-10 md:h-8 md:w-16" />
             ) : statsState === "failed" ? (
-              <LoadFailed what="this" compact onRetry={() => statsQuery.refetch()} testId="stats-failed-processing" />
+              <LoadFailed what={DASHBOARD.thisNumber} compact onRetry={() => statsQuery.refetch()} testId="stats-failed-processing" />
             ) : (
               <>
                 <div className="text-2xl md:text-3xl font-bold" data-testid="text-processing-count">
@@ -692,7 +703,9 @@ export default function Dashboard() {
                 {(stats?.stalledCount ?? 0) > 0 && (
                   <div className="text-xs text-warning mt-1" data-testid="text-stalled-count">
                     {stats?.stalledCount}{" "}
-                    {stats?.worker?.online ? "waiting their turn" : "waiting for a machine"}
+                    {stats?.worker?.online
+                      ? t(DASHBOARD.waitingTheirTurn)
+                      : t(DASHBOARD.waitingForMachine)}
                   </div>
                 )}
               </>
@@ -702,8 +715,8 @@ export default function Dashboard() {
         <Card className="glass-panel border-hairline-faint">
           <CardHeader className="flex flex-row items-start md:items-center justify-between gap-1 p-3 pb-0.5 md:p-6 md:pb-2">
             <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground leading-snug">
-              <span className="md:hidden">Done</span>
-              <span className="hidden md:inline">Completed Edits</span>
+              <span className="md:hidden">{t(DASHBOARD.statDoneShort)}</span>
+              <span className="hidden md:inline">{t(DASHBOARD.statDone)}</span>
             </CardTitle>
             <CheckCircle2 className="w-4 h-4 text-success flex-shrink-0" />
           </CardHeader>
@@ -711,7 +724,7 @@ export default function Dashboard() {
             {statsState === "loading" ? (
               <Skeleton className="h-7 w-10 md:h-8 md:w-16" />
             ) : statsState === "failed" ? (
-              <LoadFailed what="this" compact onRetry={() => statsQuery.refetch()} testId="stats-failed-done" />
+              <LoadFailed what={DASHBOARD.thisNumber} compact onRetry={() => statsQuery.refetch()} testId="stats-failed-done" />
             ) : (
               <div className="text-2xl md:text-3xl font-bold">{stats?.doneCount || 0}</div>
             )}
@@ -723,7 +736,7 @@ export default function Dashboard() {
       {subscriptionState === "failed" && (
         <div className="mb-8 rounded-2xl border border-warning/40 px-6 py-4 glass-panel">
           <LoadFailed
-            what="your plan and usage"
+            what={ACCOUNT.planFailed}
             compact
             onRetry={() => subscriptionQuery.refetch()}
             testId="subscription-failed"
@@ -750,13 +763,18 @@ export default function Dashboard() {
           className="mb-4 rounded-2xl border border-primary/25 bg-primary/5 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-panel"
         >
           <div className="min-w-0">
+            {/*
+              The headline is paired at render time rather than copied into the
+              copy table: its English half already lives in `lib/pricing.ts`,
+              beside the numbers the server enforces, and `landing-test` refuses
+              a second copy of a pricing line anywhere else. The Arabic half is
+              the one the landing page already shows.
+            */}
             <div className="text-sm font-semibold">
-              {FREE_TIER.headline}
+              {t(phrase(PRICING_AR.free.headline, FREE_TIER.headline))}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
-              {FREE_TIER.minutes} minutes of finished video a month, uploads up to{" "}
-              {FREE_TIER.uploadMinutes} minutes, and every editing feature. No card, no
-              expiry. It simply keeps working.
+              {fmt(DASHBOARD.freeBandDetail, FREE_TIER.minutes, FREE_TIER.uploadMinutes)}
             </div>
           </div>
           <Link href="/#pricing">
@@ -766,7 +784,7 @@ export default function Dashboard() {
               data-testid="button-see-plans"
               className="rounded-full text-xs h-8 px-4 border-primary/30"
             >
-              See plans
+              {t(COMMON.seePlans)}
             </Button>
           </Link>
         </div>
@@ -798,8 +816,10 @@ export default function Dashboard() {
             </div>
             <div>
               <div className="text-sm font-medium">
-                <span className="font-bold">{subscription.minutesUsedThisMonth} / {subscription.minutesIncluded}</span>
-                {" "}minutes of finished video this month
+                <span className="font-bold" dir="ltr">
+                  {subscription.minutesUsedThisMonth} / {subscription.minutesIncluded}
+                </span>
+                {" "}{t(DASHBOARD.usageBand)}
               </div>
               <div className="mt-1.5 w-48 h-1.5 rounded-full bg-surface-2 overflow-hidden">
                 <div
@@ -817,7 +837,7 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-3">
             <Badge variant="outline" className="capitalize border-hairline bg-surface-1 text-xs font-semibold">
-              {subscription.plan} plan
+              {fmt(DASHBOARD.planBadge, subscription.plan)}
             </Badge>
             {subscription.minutesUsedThisMonth / subscription.minutesIncluded >= 0.8 && (
               <Link href="/#pricing">
@@ -826,7 +846,7 @@ export default function Dashboard() {
                     Two rules changing the same background on hover is one of
                     them silently winning. */}
                 <Button size="sm" className="rounded-full text-xs h-8 px-4">
-                  Upgrade
+                  {t(COMMON.upgrade)}
                 </Button>
               </Link>
             )}
@@ -858,10 +878,10 @@ export default function Dashboard() {
           <div className="flex items-baseline gap-3">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Mic className="w-5 h-5 text-secondary flex-shrink-0" />
-              Podcasts and long recordings
+              {t(DASHBOARD.podcastsTitle)}
             </h2>
             <span className="text-xs text-muted-foreground">
-              open one to cut clips out of it
+              {t(DASHBOARD.podcastsHint)}
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="grid-podcasts">
@@ -873,7 +893,7 @@ export default function Dashboard() {
       {/* Projects Grid */}
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">
-          {podcasts.length > 0 ? "Everything else" : "Recent Projects"}
+          {podcasts.length > 0 ? t(DASHBOARD.everythingElse) : t(DASHBOARD.recentProjects)}
         </h2>
         
         {projectsState === "loading" ? (
@@ -893,7 +913,7 @@ export default function Dashboard() {
              empty state below — "Nothing here yet", over a library that was
              entirely intact. */
           <LoadFailed
-            what="your projects"
+            what={LOAD.yourProjects}
             onRetry={() => projectsQuery.refetch()}
             testId="projects-failed"
           />
@@ -902,13 +922,10 @@ export default function Dashboard() {
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 border border-primary/20">
               <Video className="w-8 h-8 text-primary" />
             </div>
-            <h3 className="text-xl font-bold mb-2">Nothing here yet</h3>
-            <p className="text-muted-foreground max-w-sm mb-6">
-              Upload a raw take and tell Editly what you want done with it. Stop
-              editing, start describing.
-            </p>
+            <h3 className="text-xl font-bold mb-2">{t(DASHBOARD.emptyTitle)}</h3>
+            <p className="text-muted-foreground max-w-sm mb-6">{t(DASHBOARD.emptyLead)}</p>
             <Button onClick={() => setIsCreateOpen(true)} variant="outline" className="rounded-full">
-              Create Project
+              {t(DASHBOARD.createProject)}
             </Button>
           </div>
         ) : (
@@ -921,10 +938,8 @@ export default function Dashboard() {
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent className="glass-panel border-hairline sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Create New Project</DialogTitle>
-            <DialogDescription>
-              Start from your video, or just give the project a name.
-            </DialogDescription>
+            <DialogTitle>{t(DASHBOARD.createTitle)}</DialogTitle>
+            <DialogDescription>{t(DASHBOARD.createLead)}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             {/* The short road: the file is the project. It gets its name from
@@ -968,10 +983,8 @@ export default function Dashboard() {
                   }`}
                 />
               )}
-              <div className="text-sm font-medium">Drop your video here</div>
-              <div className="text-xs text-muted-foreground mt-1">
-                The project names itself and the upload starts right away
-              </div>
+              <div className="text-sm font-medium">{t(DASHBOARD.dropHere)}</div>
+              <div className="text-xs text-muted-foreground mt-1">{t(DASHBOARD.dropHint)}</div>
               <input
                 ref={createFileRef}
                 type="file"
@@ -988,18 +1001,18 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <div className="h-px flex-1 bg-hairline" />
-              or name it first
+              {t(DASHBOARD.orNameFirst)}
               <div className="h-px flex-1 bg-hairline" />
             </div>
             <div className="flex flex-col gap-3">
-              <Label htmlFor="name" className="text-left">
-                Project Name
+              <Label htmlFor="name" className="text-start">
+                {t(DASHBOARD.projectName)}
               </Label>
               <Input
                 id="name"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="e.g. My Viral Short"
+                placeholder={t(DASHBOARD.projectNameHint)}
                 className="col-span-3 bg-surface-1 border-hairline focus-visible:ring-primary"
                 autoFocus
                 onKeyDown={(e) => {
@@ -1009,7 +1022,7 @@ export default function Dashboard() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setIsCreateOpen(false)}>{t(COMMON.cancel)}</Button>
             <Button 
               onClick={handleCreate} 
               disabled={!newTitle.trim() || createProject.isPending}
@@ -1018,8 +1031,8 @@ export default function Dashboard() {
               className=""
               data-testid="button-submit-project"
             >
-              {createProject.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Create Project
+              {createProject.isPending ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
+              {t(DASHBOARD.createProject)}
             </Button>
           </DialogFooter>
         </DialogContent>

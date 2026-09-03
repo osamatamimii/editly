@@ -135,6 +135,19 @@ export const ACCEPTED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm
 */
 export { formatBytes } from "@workspace/api-zod/uploads";
 import { formatBytes } from "@workspace/api-zod/uploads";
+import { fill, say, type Phrase, type Template } from "./landing-copy";
+import { storedLanguage } from "./language-routes";
+import { TRANSFER } from "./copy/transfer";
+
+/*
+  This module throws; it does not render. So it resolves its sentences against
+  the stored preference rather than the provider, exactly as the crash screen
+  does and for a related reason: an upload can fail from four different screens
+  and there is no component here to hold a hook.
+*/
+const said = (phrase: Phrase): string => say(phrase, storedLanguage());
+const shaped = <A extends unknown[]>(pattern: Template<A>, ...args: A): string =>
+  fill(pattern, storedLanguage(), ...args);
 
 function extensionFor(file: File): string {
   const fromName = file.name.match(/\.([a-z0-9]{2,5})$/i)?.[1]?.toLowerCase();
@@ -201,11 +214,11 @@ async function requestTicket(request: {
     });
   } catch {
     // Before a byte moved, so there is nothing half-sent to explain.
-    throw new UploadError("We could not reach Editly to start this upload. Check your connection and try again.");
+    throw new UploadError(said(TRANSFER.couldNotReach));
   }
   if (!response.ok) {
     const failure = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new UploadError(failure.error ?? `This upload could not be started (${response.status}).`);
+    throw new UploadError(failure.error ?? shaped(TRANSFER.couldNotStart, response.status));
   }
   return (await response.json()) as UploadTicket;
 }
@@ -261,7 +274,7 @@ function sendInOneRequest(options: TransferOptions, how: SignedTransfer): Promis
         resolve(ticket.path);
         return;
       }
-      let message = `Upload failed (${xhr.status})`;
+      let message = shaped(TRANSFER.failed, xhr.status);
       try {
         const failure = JSON.parse(xhr.responseText);
         if (failure?.message) message = failure.message;
@@ -274,13 +287,13 @@ function sendInOneRequest(options: TransferOptions, how: SignedTransfer): Promis
       // says "your 12MB file is over the 50MB limit" is worse than one that
       // says less. The size is ours to state; the limit, at this point, is not.
       if (xhr.status === 413) {
-        message = `Storage refused this file as too large at ${formatBytes(body.size)}.`;
+        message = shaped(TRANSFER.tooLarge, formatBytes(body.size));
       }
       reject(new UploadError(message));
     };
 
-    xhr.onerror = () => reject(new UploadError("Network error during upload."));
-    xhr.onabort = () => reject(new UploadError("Upload cancelled."));
+    xhr.onerror = () => reject(new UploadError(said(TRANSFER.networkError)));
+    xhr.onabort = () => reject(new UploadError(said(TRANSFER.cancelled)));
 
     xhr.send(body);
   });
@@ -547,7 +560,7 @@ export async function uploadReferenceVideo(options: {
   const { file, projectId, accessToken } = options;
   if (file.size > MAX_REFERENCE_BYTES) {
     throw new UploadError(
-      `That reference is ${formatBytes(file.size)}. We only read the first couple of minutes of one, so keep it under ${formatBytes(MAX_REFERENCE_BYTES)}. A short clip in the style you want is plenty.`,
+      shaped(TRANSFER.referenceTooBig, formatBytes(file.size), formatBytes(MAX_REFERENCE_BYTES)),
     );
   }
 
@@ -614,7 +627,7 @@ export function uploadProjectVideo(options: {
       projectId,
       accessToken,
     });
-    if (cancelled) throw new UploadError("Upload cancelled.");
+    if (cancelled) throw new UploadError(said(TRANSFER.cancelled));
     return transfer({
       ticket,
       body: file,
@@ -694,7 +707,7 @@ function sendResumably(options: TransferOptions, how: ResumableTransfer): Promis
     if (!response.ok) throw new UploadError(await uploadErrorText(response, body.size));
 
     const location = response.headers.get("location");
-    if (!location) throw new UploadError("Storage did not return somewhere to upload to.");
+    if (!location) throw new UploadError(said(TRANSFER.noDestination));
     return location;
   }
 
@@ -725,15 +738,15 @@ function sendResumably(options: TransferOptions, how: ResumableTransfer): Promis
           const next = Number(xhr.getResponseHeader("upload-offset"));
           resolve(Number.isFinite(next) ? next : offset + chunk.size);
         } else {
-          reject(new UploadError(`Upload failed (${xhr.status})`, worthAnotherGo(xhr.status)));
+          reject(new UploadError(shaped(TRANSFER.failed, xhr.status), worthAnotherGo(xhr.status)));
         }
       };
       // A dropped connection is the case this whole retry exists for: it is
       // what a phone does when it changes cell, and it says nothing about
       // whether the upload can finish.
-      xhr.onerror = () => reject(new UploadError("Network error during upload.", true));
+      xhr.onerror = () => reject(new UploadError(said(TRANSFER.networkError), true));
       // Cancellation is a decision, not a fault. Retrying it would be arguing.
-      xhr.onabort = () => reject(new UploadError("Upload cancelled.", false));
+      xhr.onabort = () => reject(new UploadError(said(TRANSFER.cancelled), false));
       xhr.send(chunk);
     });
   }
@@ -785,17 +798,17 @@ function sendResumably(options: TransferOptions, how: ResumableTransfer): Promis
     */
     let attempts = 0;
     while (offset < body.size) {
-      if (isCancelled?.()) throw new UploadError("Upload cancelled.");
+      if (isCancelled?.()) throw new UploadError(said(TRANSFER.cancelled));
       try {
         offset = await sendChunk(url, offset);
         attempts = 0;
       } catch (error) {
         const retryable = error instanceof UploadError && error.retryable;
         if (!retryable || ++attempts > CHUNK_ATTEMPTS) throw error;
-        if (isCancelled?.()) throw new UploadError("Upload cancelled.");
+        if (isCancelled?.()) throw new UploadError(said(TRANSFER.cancelled));
 
         await pause(backoffMs(attempts));
-        if (isCancelled?.()) throw new UploadError("Upload cancelled.");
+        if (isCancelled?.()) throw new UploadError(said(TRANSFER.cancelled));
 
         // Where the server actually got to, which is not always where we
         // thought. A null means it has forgotten the upload entirely, and
@@ -819,14 +832,14 @@ async function uploadErrorText(response: Response, size?: number): Promise<strin
   // stating a number we can see is wrong.
   if (response.status === 413) {
     return size
-      ? `Storage refused this file as too large at ${formatBytes(size)}.`
+      ? shaped(TRANSFER.tooLarge, formatBytes(size))
       : "Storage refused this file as too large.";
   }
   try {
     const body = await response.json();
-    return body?.message ?? body?.error ?? `Upload failed (${response.status})`;
+    return body?.message ?? body?.error ?? shaped(TRANSFER.failed, response.status);
   } catch {
-    return `Upload failed (${response.status})`;
+    return shaped(TRANSFER.failed, response.status);
   }
 }
 
@@ -1018,13 +1031,11 @@ export async function uploadProjectAsset(options: {
   const { file, projectId, accessToken, ceiling } = options;
   const kind = assetKindOf(file);
   if (!kind) {
-    throw new UploadError(
-      `We can use video, images and audio. "${file.name}" is none of those, so there is nothing we could do with it in an edit.`,
-    );
+    throw new UploadError(shaped(TRANSFER.notMedia, file.name));
   }
   if (file.size > ceiling) {
     throw new UploadError(
-      `"${file.name}" is ${formatBytes(file.size)}. Keep each extra file under ${formatBytes(ceiling)}.`,
+      shaped(TRANSFER.assetTooBig, file.name, formatBytes(file.size), formatBytes(ceiling)),
     );
   }
 

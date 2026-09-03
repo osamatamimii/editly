@@ -154,7 +154,7 @@ export default function Unsubscribe() {
                 onClick={() => set(false)}
                 data-testid="button-unsubscribe"
               >
-                {busy && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {busy && <Loader2 className="w-4 h-4 me-2 animate-spin" />}
                 {busy ? t(COPY.stopping) : t(COPY.stop)}
               </Button>
             </div>
@@ -173,7 +173,7 @@ export default function Unsubscribe() {
                 onClick={() => set(true)}
                 data-testid="button-resubscribe"
               >
-                {busy && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {busy && <Loader2 className="w-4 h-4 me-2 animate-spin" />}
                 {busy ? t(COPY.undoing) : t(COPY.undo)}
               </Button>
             </div>

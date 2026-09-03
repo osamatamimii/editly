@@ -67,6 +67,33 @@ export function say(phrase: Phrase, language: Language): string {
   return phrase[language];
 }
 
+/**
+ * A phrase with a hole in it.
+ *
+ * A sentence carrying a number or a name cannot be a pair of strings, because
+ * the two languages do not put the hole in the same place, and half of them do
+ * not put it in the same clause. So the pair holds two functions and each
+ * language writes its own sentence around the value, which is the only way an
+ * Arabic sentence gets to be an Arabic sentence rather than English word order
+ * with the words changed.
+ *
+ * It lives here beside `Phrase` because it is the same primitive; the product's
+ * own table is `lib/app-copy.ts`.
+ */
+export interface Template<A extends unknown[]> {
+  ar: (...args: A) => string;
+  en: (...args: A) => string;
+}
+
+export const template = <A extends unknown[]>(
+  ar: (...args: A) => string,
+  en: (...args: A) => string,
+): Template<A> => ({ ar, en });
+
+export function fill<A extends unknown[]>(t: Template<A>, language: Language, ...args: A): string {
+  return t[language](...args);
+}
+
 const p = (ar: string, en: string): Phrase => ({ ar, en });
 
 /**

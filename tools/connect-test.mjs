@@ -573,9 +573,21 @@ section("A connection that still needs a Page says so");
     path.join(repoRoot, "artifacts/editly/src/components/social-connections.tsx"),
     "utf8",
   );
-  check("the screen asks the question", /Which one do posts go to/.test(screen), "");
+  /*
+    The two sentences moved into the copy table when the product learned to
+    speak Arabic, so they are read from there rather than from the markup —
+    which is a better question than the one this used to ask: it holds both
+    halves of each pair rather than the English one, and a screen that renders
+    a sentence typed straight into its JSX now fails `tools/language-test.mjs`
+    instead.
+  */
+  const copy = await readFile(path.join(repoRoot, "artifacts/editly/src/lib/copy/scheduled.ts"), "utf8");
+  check("the screen asks the question", /Which one do posts go to/.test(copy), "");
+  check("in both languages, like everything else it says", /إلى أيّها تذهب المنشورات/.test(copy), "");
+  check("and the screen is the thing that asks it", /fmt\(CONNECTIONS\.whichPage/.test(screen), "");
   check("only when there is more than one answer", /pageChoices\?\.length \?\? 0\) > 1/.test(screen), "");
-  check("and it shows where a settled connection posts", /Posts to \{account\.pageName\}/.test(screen), "");
+  check("and it shows where a settled connection posts", /fmt\(CONNECTIONS\.postsTo, account\.pageName\)/.test(screen), "");
+  check("with that sentence written in both too", /ينشر على/.test(copy) && /Posts to/.test(copy), "");
 }
 
 section("And the renderer prefers the stored answer to asking again");

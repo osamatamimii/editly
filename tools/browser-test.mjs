@@ -423,7 +423,26 @@ const browser = await chromium.launch({
 const browserPage = await browser.newPage();
 const consoleErrors = [];
 browserPage.on("pageerror", (error) => consoleErrors.push(String(error)));
-await browserPage.goto(ORIGIN, { waitUntil: "load" });
+/*
+  `?lang=en`, and it is a statement rather than a convenience.
+
+  The modules under test throw sentences, and since the product learned to
+  speak Arabic those sentences come out in whichever language the person is
+  reading — resolved from `storedLanguage()`, which defaults to Arabic because
+  that is this product's first audience. This harness is a bare page with no
+  stored preference, so it would get the default, and every assertion below
+  that reads an error message quotes the English half.
+
+  On the URL rather than in storage, and that is the whole reason it is here
+  rather than a `localStorage.setItem`: six sections below call
+  `localStorage.clear()` to test what a browser remembers about a half-finished
+  upload, and a preference kept in storage is wiped by the first of them. The
+  query survives, and `storedLanguage()` reads it first.
+
+  The Arabic halves are held to their own rule in `tools/language-test.mjs`,
+  which is the suite that owns the seam.
+*/
+await browserPage.goto(`${ORIGIN}/?lang=en`, { waitUntil: "load" });
 await browserPage.waitForFunction("window.VS !== undefined", null, { timeout: 15_000 });
 
 const run = (fn, arg) => browserPage.evaluate(fn, arg);
@@ -1287,10 +1306,18 @@ section("No screen can render an empty state without handling a failed one");
     String(dashboard.match(/statsState === "failed"/g)?.length),
   );
 
-  // Matched on the rendered text rather than the phrase anywhere in the file:
-  // the first version of this check was satisfied by a code comment explaining
-  // the rule, which is a test that passes because someone wrote about it.
-  const rendered = />Project not found</;
+  /*
+    Matched on the rendered element rather than on the phrase anywhere in the
+    file: the first version of this check was satisfied by a code comment
+    explaining the rule, which is a test that passes because somebody wrote
+    about it.
+
+    The sentence itself is `EDITOR.notFound` / `EXPORT.notFound` now, because
+    the product is written in both languages — so what is matched is the line
+    that renders it. The order is still the whole point: a failed read must be
+    answered before "this is not here".
+  */
+  const rendered = /\{t\((EDITOR|EXPORT)\.notFound\)\}/;
   for (const file of ["project-editor.tsx", "export.tsx"]) {
     const source = readFileSync(path.join(pagesDir, file), "utf8");
     check(
@@ -1441,13 +1468,16 @@ section("The spinner names the thing it is actually waiting for");
     finishingAt < factsAt,
     `${finishingAt} / ${factsAt}`,
   );
+  const editorCopy = readFileSync(path.join(repoRoot, "artifacts/editly/src/lib/copy/editor.ts"), "utf8");
   check(
     "the heading stops claiming an upload is running",
-    /uploadPhase === "finishing" \? "Finishing up/.test(editor),
+    /uploadPhase === "finishing" \? t\(EDITOR\.finishing\)/.test(editor),
   );
   check(
     "and says the video is stored, since that is the fact the person wants",
-    /Your video is stored\./.test(editor),
+    // The sentence lives in the copy table now, in both languages. Read from
+    // there, so this asks about the words rather than about where they sit.
+    /Your video is stored\./.test(editorCopy) && /فيديوك محفوظ\./.test(editorCopy),
   );
   check(
     "the transfer can no longer be cancelled once it has landed",
@@ -1519,12 +1549,29 @@ section("A read that failed does not hide a sign-in button");
  */
 section("A sign-in that failed on the way back says what happened");
 {
+  /*
+    `lang=en` on the ones that carry an error, for the reason the first
+    navigation carries it: those are the calls that produce a sentence, and
+    these assertions quote the English half. Added before the fragment, because
+    half of these are fragment URLs — Supabase's implicit flow answers there —
+    and `#error=…?lang=en` is a query inside a fragment, which is not a query.
+
+    The URLs with no error on them are left exactly as written: one of these
+    checks is that a plain `/#pricing` anchor is not touched at all, and a
+    parameter this file added would be the thing it found.
+  */
   const at = (url) =>
     run((u) => {
       window.history.replaceState(null, "", u);
       const captured = window.OA.captureOAuthError();
       return { captured, url: window.location.href, taken: window.OA.takeOAuthError(), again: window.OA.takeOAuthError() };
-    }, url);
+    }, url.includes("error") ? withEnglish(url) : url);
+
+  const withEnglish = (url) => {
+    const [path, fragment] = url.split("#");
+    const withQuery = path.includes("?") ? `${path}&lang=en` : `${path}?lang=en`;
+    return fragment === undefined ? withQuery : `${withQuery}#${fragment}`;
+  };
 
   const q = await at("/?error=server_error&error_description=Database+error+saving+new+user");
   check(
@@ -1674,9 +1721,20 @@ section("Forgetting a password is not the same as losing the account");
   // the code that follows it, and a check that reads the explanation as a
   // violation is a check that punishes writing things down.
   const loginCode = login.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const loginCopy = readFileSync(path.join(repoRoot, "artifacts/editly/src/lib/copy/login.ts"), "utf8");
+  check(
+    "the sign-in screen shows the reset notice the copy table holds",
+    /setNotice\(LOGIN\.resetSent\)/.test(loginCode),
+  );
   check(
     "the reset notice does not reveal whether the address has an account",
-    /If that address has an account/.test(loginCode) && !/[Nn]o account with th(at|is)/.test(loginCode),
+    // The sentence moved into the copy table, in both languages. Both halves
+    // have to keep the property: an Arabic sentence that names the account is
+    // the same leak said in Arabic.
+    /If that address has an account/.test(loginCopy) &&
+      /إن كان لهذا العنوان حساب/.test(loginCopy) &&
+      !/[Nn]o account with th(at|is)/.test(loginCopy) &&
+      !/لا حساب بهذا/.test(loginCopy),
   );
 }
 
@@ -1703,7 +1761,13 @@ section("Nobody creates an account without being shown what they are agreeing to
   );
   // The privacy policy says under-16s may not use the product. Saying it only
   // there, and never where an account is made, is a rule nobody was told.
-  check("it states the age the policy already claims", /aged 16 and over/.test(login));
+  {
+    // In both languages, because it is a term of use rather than a nicety and
+    // an Arabic sign-up screen that omits it has omitted it.
+    const copy = readSource(path.join(repoRoot, "artifacts/editly/src/lib/copy/login.ts"), "utf8");
+    check("it states the age the policy already claims", /aged 16 and over/.test(copy));
+    check("and says so in Arabic too", /أعمارهم 16 فأكثر/.test(copy));
+  }
 }
 
 section("A 404 is an answer, and the screens that need to act on one can");
@@ -2122,6 +2186,7 @@ section("An export nobody on this tab started is still an export");
   // clicking it hit the server's 409, which this screen had no branch for, so
   // they were told the export failed to start while it was being rendered.
   const exportPage = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/export.tsx"), "utf8");
+  const exportCopy = readFileSync(path.join(repoRoot, "artifacts/editly/src/lib/copy/export.ts"), "utf8");
 
   check(
     "the status is asked for on every visit, not only when this tab started one",
@@ -2141,7 +2206,7 @@ section("An export nobody on this tab started is still an export");
   );
   check(
     "a 409 says 'already rendering' rather than 'could not start'",
-    /status === 409[\s\S]{0,300}?Already rendering/.test(exportPage),
+    /status === 409[\s\S]{0,300}?REFUSAL\.alreadyRendering/.test(exportPage),
   );
   check(
     "and keeps the running state instead of resetting it",
@@ -2149,7 +2214,8 @@ section("An export nobody on this tab started is still an export");
   );
   check(
     "the policy refusals are shown in the server's own words, as the editor does",
-    /Not enough minutes left/.test(exportPage) && /too long for this plan/.test(exportPage),
+    /status === 429[\s\S]{0,120}?REFUSAL\.notEnoughMinutes/.test(exportPage) &&
+      /status === 413[\s\S]{0,120}?REFUSAL\.tooLongForPlan/.test(exportPage),
   );
   check(
     "a URL still being signed is not reported as a missing video",
@@ -2157,7 +2223,13 @@ section("An export nobody on this tab started is still an export");
   );
   check(
     "and a preview that failed says the video is safe rather than that there is none",
-    /could not load the preview/i.test(exportPage) && /stored safely/.test(exportPage),
+    // Read from the copy table, in both languages, for the reason every check
+    // in this file that used to quote prose now does: the sentence has two
+    // halves and a reassurance that exists in only one of them is not a
+    // reassurance for half the people who need it.
+    /could not load the preview/i.test(exportCopy) &&
+      /stored safely/.test(exportCopy) &&
+      /محفوظ بأمان/.test(exportCopy),
   );
 }
 

@@ -16,6 +16,8 @@ import { Loader2, Search, ImageIcon, Film, X, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { uploadProjectAsset } from "@/lib/video-storage";
 import { playbackVerdict, PREVIEW_CEILING_MS, PLAYBACK_POLL_MS } from "@/lib/playability";
+import { useLanguage } from "@/lib/language";
+import { LIBRARY, STOCK } from "@/lib/copy/editor";
 
 export interface StockItem {
   id: string;
@@ -71,6 +73,7 @@ export function StockSearch({
    */
   ceiling: number;
 }) {
+  const { t } = useLanguage();
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<"image" | "video">("video");
   const [items, setItems] = useState<StockItem[]>([]);
@@ -177,16 +180,16 @@ export function StockSearch({
       });
       const body = (await res.json().catch(() => ({}))) as { items?: StockItem[]; error?: string };
       if (res.status === 503) {
-        setUnavailable(body.error ?? "The stock library is not switched on yet.");
+        setUnavailable(body.error ?? t(STOCK.notSwitchedOn));
         setItems([]);
         return;
       }
-      if (!res.ok) throw new Error(body.error ?? "That search did not work.");
+      if (!res.ok) throw new Error(body.error ?? t(STOCK.searchFailed));
       setUnavailable(null);
       setPreviewing(null);
       setItems(body.items ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "That search did not work.");
+      setError(e instanceof Error ? e.message : t(STOCK.searchFailed));
     } finally {
       setSearching(false);
       setSearched(true);
@@ -202,7 +205,7 @@ export function StockSearch({
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Could not fetch that file.");
+        throw new Error(body.error ?? t(STOCK.couldNotFetch));
       }
       const blob = await res.blob();
       const contentType = res.headers.get("content-type") ?? blob.type;
@@ -221,7 +224,7 @@ export function StockSearch({
 
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
-      if (!token) throw new Error("Your session expired. Sign in again.");
+      if (!token) throw new Error(t(LIBRARY.sessionExpired));
 
       const { path, kind: storedKind } = await uploadProjectAsset({
         file,
@@ -244,12 +247,12 @@ export function StockSearch({
       });
       if (!registered.ok) {
         const body = (await registered.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Could not add that to the project.");
+        throw new Error(body.error ?? t(STOCK.couldNotAdd));
       }
       await onAdded();
       setPreviewing(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not add that to the project.");
+      setError(e instanceof Error ? e.message : t(STOCK.couldNotAdd));
     } finally {
       setAdding(null);
     }
@@ -257,14 +260,12 @@ export function StockSearch({
 
   return (
     <div className="mt-4 border-t border-hairline-faint pt-4" data-testid="stock-search">
-      <div className="text-sm font-medium">Or find something</div>
-      <div className="text-xs text-muted-foreground">
-        Free stock clips and photos, added to this project like any other file.
-      </div>
+      <div className="text-sm font-medium">{t(STOCK.title)}</div>
+      <div className="text-xs text-muted-foreground">{t(STOCK.lead)}</div>
 
       <div className="mt-3 flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+          <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             type="search"
             value={query}
@@ -272,9 +273,9 @@ export function StockSearch({
             onKeyDown={(e) => {
               if (e.key === "Enter") void search();
             }}
-            placeholder="city at night, coffee, desk…"
+            placeholder={t(STOCK.placeholder)}
             data-testid="input-stock-query"
-            className="w-full h-11 md:h-auto rounded-lg border border-hairline bg-surface-1 pl-8 pr-3 md:py-2 text-base md:text-xs outline-none focus:border-primary/40"
+            className="w-full h-11 md:h-auto rounded-lg border border-hairline bg-surface-1 ps-8 pe-3 md:py-2 text-base md:text-xs outline-none focus:border-primary/40"
           />
         </div>
         <div className="flex rounded-lg border border-hairline overflow-hidden">
@@ -300,7 +301,7 @@ export function StockSearch({
           data-testid="button-stock-search"
           className="rounded-lg border border-hairline bg-surface-1 px-3 min-h-11 md:min-h-0 md:py-2 text-xs font-medium transition-all hover:border-primary/40 disabled:opacity-50"
         >
-          {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Search"}
+          {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : t(STOCK.search)}
         </button>
       </div>
 
@@ -400,7 +401,7 @@ export function StockSearch({
                 type="button"
                 onClick={() => setPreviewing(null)}
                 data-testid="button-stock-close-preview"
-                aria-label="Close the preview"
+                aria-label={t(STOCK.closePreview)}
                 className="rounded-lg border border-hairline bg-surface-2 p-2 text-muted-foreground hover:text-foreground transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
@@ -422,7 +423,7 @@ export function StockSearch({
                 ) : (
                   <Plus className="w-3.5 h-3.5" />
                 )}
-                {adding === previewing.id ? "Adding…" : "Add to this project"}
+                {adding === previewing.id ? t(STOCK.adding) : t(STOCK.add)}
               </button>
             </div>
           </div>
@@ -455,7 +456,7 @@ export function StockSearch({
                   </span>
                 )}
                 {item.durationSeconds !== null && (
-                  <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] text-white">
+                  <span dir="ltr" className="absolute bottom-1 end-1 rounded bg-black/60 px-1 text-[10px] text-white">
                     {Math.round(item.durationSeconds)}s
                   </span>
                 )}
@@ -466,10 +467,7 @@ export function StockSearch({
       )}
 
       {searched && !searching && !unavailable && !error && items.length === 0 && (
-        <div className="mt-3 text-xs text-muted-foreground">
-          Nothing came back for that. Try a plainer word. Stock libraries index objects and places
-          better than they index moods.
-        </div>
+        <div className="mt-3 text-xs text-muted-foreground">{t(STOCK.nothingBack)}</div>
       )}
     </div>
   );

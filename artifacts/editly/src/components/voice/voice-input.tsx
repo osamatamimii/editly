@@ -18,6 +18,8 @@ import { useEffect, useRef } from "react";
 import { VoiceOrb } from "./orb";
 import { useVoiceInput, voiceErrorMessage } from "./use-voice-input";
 import { SPEECH_TAGS, type SpeechLanguage } from "./speech-language";
+import { useLanguage } from "@/lib/language";
+import { VOICE } from "@/lib/copy/editor";
 
 export function VoiceInput({
   onTranscript,
@@ -40,7 +42,16 @@ export function VoiceInput({
    *  the case where every guess is wrong: they are switching languages. */
   onLanguageChange: (language: SpeechLanguage) => void;
 }) {
-  const arabic = language === "ar";
+  /*
+    Two different languages, kept apart.
+
+    `language` is what the microphone listens for. `screenLanguage` is what the
+    person reads, and it is what the labels below are written in: a person using
+    an Arabic product who has the microphone set to English should be told, in
+    Arabic, that it is listening in English.
+  */
+  const { t, screenLanguage } = useLanguage();
+  const arabic = screenLanguage === "ar";
   const voice = useVoiceInput({ lang: SPEECH_TAGS[language] });
 
   // The text before this turn started, so a second dictation adds to the
@@ -84,10 +95,10 @@ export function VoiceInput({
         void voice.start();
       }}
       disabled={disabled}
-      aria-label={arabic ? (voice.listening ? "أوقف الاستماع" : "تكلّم بدل الكتابة") : voice.listening ? "Stop listening" : "Speak instead of typing"}
+      aria-label={voice.listening ? t(VOICE.stopListening) : t(VOICE.speak)}
       aria-pressed={voice.listening}
-      title={arabic ? "تكلّم بدل الكتابة" : "Speak instead of typing"}
-      className={`absolute right-12 top-1 h-10 w-10 rounded-full flex items-center justify-center
+      title={t(VOICE.speak)}
+      className={`absolute end-12 top-1 h-10 w-10 rounded-full flex items-center justify-center
         transition-transform duration-200 disabled:opacity-40 disabled:pointer-events-none
         ${voice.listening ? "" : "hover:scale-105"}`}
       data-testid="button-voice"
@@ -126,6 +137,7 @@ export function SpeechLanguageToggle({
   onChange: (language: SpeechLanguage) => void;
   disabled?: boolean;
 }) {
+  const { t } = useLanguage();
   return (
     <button
       type="button"
@@ -134,13 +146,9 @@ export function SpeechLanguageToggle({
         onChange(language === "ar" ? "en" : "ar");
       }}
       disabled={disabled}
-      aria-label={
-        language === "ar"
-          ? "يستمع بالعربية. اضغط للإنجليزية."
-          : "Listening in English. Press to switch to Arabic."
-      }
-      title={language === "ar" ? "يستمع بالعربية" : "Listening in English"}
-      className="absolute right-[5.5rem] top-1 h-10 px-2 rounded-full text-[11px] font-semibold
+      aria-label={language === "ar" ? t(VOICE.switchToEnglish) : t(VOICE.switchToArabic)}
+      title={language === "ar" ? t(VOICE.listeningArabic) : t(VOICE.listeningEnglish)}
+      className="absolute end-[5.5rem] top-1 h-10 px-2 rounded-full text-[11px] font-semibold
                  text-muted-foreground hover:text-foreground transition-colors
                  disabled:opacity-40 disabled:pointer-events-none"
       data-testid="button-voice-language"

@@ -39,6 +39,9 @@
  * matters here, and the only thing it costs is a modal.
  */
 import { supabase } from "./supabase";
+import { say } from "./landing-copy";
+import { storedLanguage } from "./language-routes";
+import { CHECKOUT } from "./copy/transfer";
 
 export interface CheckoutConfig {
   productId: string;
@@ -96,10 +99,10 @@ export async function fetchCheckoutConfig(): Promise<CheckoutConfig> {
   });
 
   if (response.status === 503) {
-    throw new Error("Checkout is not switched on for this deployment yet.");
+    throw new Error(say(CHECKOUT.notSwitchedOn, storedLanguage()));
   }
   if (!response.ok) {
-    throw new Error("Could not start checkout. Try again in a moment.");
+    throw new Error(say(CHECKOUT.couldNotStart, storedLanguage()));
   }
   return (await response.json()) as CheckoutConfig;
 }

@@ -14,15 +14,20 @@
 import { Moon, Sun, MonitorSmartphone } from "lucide-react";
 import { useTheme, type ThemePreference } from "@/lib/theme";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useLanguage } from "@/lib/language";
+import { THEME } from "@/lib/copy/chrome";
+import { type Phrase } from "@/lib/app-copy";
 
-const LABELS: Record<ThemePreference, string> = {
-  light: "Light",
-  dark: "Dark",
-  system: "Following your system",
+const LABELS: Record<ThemePreference, Phrase> = {
+  light: THEME.light,
+  dark: THEME.dark,
+  system: THEME.system,
 };
 
 export function ThemeToggle({ className = "" }: { className?: string }) {
   const { preference, theme, cycle } = useTheme();
+  const { t, fmt } = useLanguage();
+  const label = t(LABELS[preference]);
 
   const Icon = preference === "system" ? MonitorSmartphone : preference === "light" ? Sun : Moon;
 
@@ -35,17 +40,17 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
           data-testid="button-theme-toggle"
           // The accessible name carries the state, because the icon alone is
           // not a name and a screen reader user gets nothing from "button".
-          aria-label={`Theme: ${LABELS[preference]}. Click to change.`}
+          aria-label={fmt(THEME.aria, label)}
           className={`w-11 h-11 sm:w-9 sm:h-9 rounded-full flex items-center justify-center border border-hairline bg-surface-1 text-muted-foreground transition-all duration-300 hover:text-foreground hover:bg-surface-2 hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${className}`}
         >
           <Icon className="w-4 h-4" />
           <span className="sr-only">
-            {LABELS[preference]}
-            {preference === "system" ? ` (currently ${theme})` : ""}
+            {label}
+            {preference === "system" ? fmt(THEME.currently, t(LABELS[theme])) : ""}
           </span>
         </button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{LABELS[preference]}</TooltipContent>
+      <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
   );
 }

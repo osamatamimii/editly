@@ -34,6 +34,10 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api-fetch";
 import { PlatformMark, BRAND } from "@/components/platform-mark";
 import type { PlatformInfo, ConnectedAccount } from "@/components/social-connections";
+import { useLanguage } from "@/lib/language";
+import { useDates } from "@/lib/dates";
+import { COMPOSER } from "@/lib/copy/scheduled";
+import { type Phrase } from "@/lib/app-copy";
 
 interface Props {
   projectId: string;
@@ -64,7 +68,7 @@ function toLocalInput(date: Date): string {
  * anybody schedules — which means the common case is one tap and the picker is
  * there for the rest.
  */
-function quickTimes(now: Date): Array<{ label: string; at: Date }> {
+function quickTimes(now: Date): Array<{ id: string; label: Phrase; at: Date }> {
   const soon = new Date(now.getTime() + 60 * 60 * 1000);
 
   const tonight = new Date(now);
@@ -79,9 +83,15 @@ function quickTimes(now: Date): Array<{ label: string; at: Date }> {
   morning.setHours(9, 0, 0, 0);
 
   return [
-    { label: "In an hour", at: soon },
-    { label: tonight.getDate() === now.getDate() ? "Tonight, 7pm" : "Tomorrow, 7pm", at: tonight },
-    { label: "Tomorrow, 9am", at: morning },
+    { id: "in-an-hour", label: COMPOSER.inAnHour, at: soon },
+    {
+      // The same slot has two names depending on whether seven has already
+      // gone, so the test id is the slot rather than the words on it.
+      id: "evening-7pm",
+      label: tonight.getDate() === now.getDate() ? COMPOSER.tonight : COMPOSER.tomorrowEvening,
+      at: tonight,
+    },
+    { id: "tomorrow-9am", label: COMPOSER.tomorrowMorning, at: morning },
   ];
 }
 
@@ -104,6 +114,8 @@ export function ScheduleComposer({
   onScheduled,
 }: Props) {
   const { toast } = useToast();
+  const { t, fmt, language } = useLanguage();
+  const dates = useDates();
   const [selected, setSelected] = useState<string[]>([]);
   const [caption, setCaption] = useState("");
   const [tagText, setTagText] = useState("");
@@ -127,16 +139,19 @@ export function ScheduleComposer({
       chosen.flatMap((account) => {
         const platform = account.platform as SocialPlatform;
         const text = overrides[account.platform] ?? caption;
-        return refusalsFor({
-          platform,
-          caption: text,
-          hashtags,
-          durationSeconds,
-          width,
-          height,
-        }).map((r) => ({ ...r, handle: account.handle, platform: account.platform }));
+        return refusalsFor(
+          {
+            platform,
+            caption: text,
+            hashtags,
+            durationSeconds,
+            width,
+            height,
+          },
+          language,
+        ).map((r) => ({ ...r, handle: account.handle, platform: account.platform }));
       }),
-    [chosen, overrides, caption, hashtags, durationSeconds, width, height],
+    [chosen, overrides, caption, hashtags, durationSeconds, width, height, language],
   );
 
   /**
@@ -159,16 +174,19 @@ export function ScheduleComposer({
   const needsOwn = useMemo(
     () =>
       [...new Set(chosen.map((a) => a.platform))].filter((platform) =>
-        refusalsFor({
-          platform: platform as SocialPlatform,
-          caption,
-          hashtags,
-          durationSeconds,
-          width,
-          height,
-        }).some((r) => r.field === "caption"),
+        refusalsFor(
+          {
+            platform: platform as SocialPlatform,
+            caption,
+            hashtags,
+            durationSeconds,
+            width,
+            height,
+          },
+          language,
+        ).some((r) => r.field === "caption"),
       ),
-    [chosen, caption, hashtags, durationSeconds, width, height],
+    [chosen, caption, hashtags, durationSeconds, width, height, language],
   );
 
   const schedule = async () => {
@@ -197,19 +215,19 @@ export function ScheduleComposer({
         throw new Error(
           body.refusals?.length
             ? body.refusals.map((r) => `${r.handle}: ${r.message}`).join(" ")
-            : (body.error ?? "That could not be scheduled."),
+            : (body.error ?? t(COMPOSER.couldNotSchedule)),
         );
       }
       setDone(true);
       onScheduled?.();
       toast({
-        title: `Scheduled to ${selected.length} ${selected.length === 1 ? "account" : "accounts"}`,
-        description: `Going out ${new Date(when).toLocaleString()}.`,
+        title: fmt(COMPOSER.scheduledTo, selected.length),
+        description: fmt(COMPOSER.goingOut, dates.moment(new Date(when))),
       });
     } catch (error) {
       toast({
-        title: "Not scheduled",
-        description: error instanceof Error ? error.message : "Please try again.",
+        title: t(COMPOSER.notScheduled),
+        description: error instanceof Error ? error.message : t(COMPOSER.tryAgain),
         variant: "destructive",
       });
     } finally {
@@ -233,21 +251,18 @@ export function ScheduleComposer({
       >
         <div className="flex items-center gap-2 text-sm font-semibold">
           <CalendarClock className="w-4 h-4 text-muted-foreground" />
-          Post it for you
+          {t(COMPOSER.title)}
         </div>
         <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-          Once an account is connected, this edit can go out on a schedule with the caption
-          written here, to several accounts at once.{" "}
-          {waiting > 0
-            ? `${waiting} of the platforms review every app before it may post on your behalf, which is the part that is waiting on them.`
-            : "No platform is switched on for this deployment yet."}
+          {t(COMPOSER.noAccountsLead)}
+          {waiting > 0 ? fmt(COMPOSER.someWaiting, waiting) : t(COMPOSER.nonePlatforms)}
         </p>
         <Link
           href="/account"
           className="text-sm text-primary hover:underline inline-block mt-3"
           data-testid="link-connections"
         >
-          See connections
+          {t(COMPOSER.seeConnections)}
         </Link>
       </div>
     );
@@ -261,10 +276,9 @@ export function ScheduleComposer({
       >
         <Check className="w-5 h-5 text-success flex-shrink-0 mt-0.5" />
         <div>
-          <div className="text-sm font-semibold">Scheduled</div>
+          <div className="text-sm font-semibold">{t(COMPOSER.scheduled)}</div>
           <p className="text-sm text-muted-foreground mt-1">
-            Going out {new Date(when).toLocaleString()}. You can call it back from the project until
-            it goes.
+            {fmt(COMPOSER.scheduledDetail, dates.moment(new Date(when)))}
           </p>
         </div>
       </div>
@@ -277,7 +291,7 @@ export function ScheduleComposer({
     <div className="rounded-xl border border-hairline bg-surface-1 p-4 space-y-4" data-testid="schedule-composer">
       <div className="flex items-center gap-2 text-sm font-semibold">
         <CalendarClock className="w-4 h-4 text-muted-foreground" />
-        Post it for you
+        {t(COMPOSER.title)}
       </div>
 
       {/* Where. Tap targets are 44px on a phone, which is why these are not chips. */}
@@ -307,7 +321,7 @@ export function ScheduleComposer({
                 platform={account.platform}
                 className={`w-4 h-4 flex-shrink-0 ${on ? (BRAND[account.platform] ?? "") : ""}`}
               />
-              <span className="truncate max-w-[9rem]">{account.handle}</span>
+              <span dir="auto" className="truncate max-w-[9rem]">{account.handle}</span>
             </button>
           );
         })}
@@ -319,7 +333,7 @@ export function ScheduleComposer({
           onChange={(e) => setCaption(e.target.value)}
           dir="auto"
           rows={3}
-          placeholder="What is this clip about?"
+          placeholder={t(COMPOSER.captionPlaceholder)}
           className="w-full rounded-lg bg-background border border-hairline px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary/40"
           data-testid="input-caption"
         />
@@ -327,7 +341,7 @@ export function ScheduleComposer({
           <input
             value={tagText}
             onChange={(e) => setTagText(e.target.value)}
-            placeholder="#hashtags"
+            placeholder={t(COMPOSER.hashtagsPlaceholder)}
             dir="auto"
             className="flex-1 min-w-0 rounded-lg bg-background border border-hairline px-3 min-h-11 md:min-h-9 text-sm text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
             data-testid="input-hashtags"
@@ -335,6 +349,7 @@ export function ScheduleComposer({
           {tightest !== null ? (
             <span
               className={`text-xs tabular-nums flex-shrink-0 ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}
+              dir="ltr"
               data-testid="caption-count"
             >
               {used} / {tightest}
@@ -356,7 +371,7 @@ export function ScheduleComposer({
         return (
           <div key={platform} data-testid={`override-${platform}`}>
             <label className="text-xs text-muted-foreground">
-              {label} takes {limit.toLocaleString()} characters. Write a shorter one for it:
+              {fmt(COMPOSER.shorterFor, label, limit.toLocaleString("en-US"))}
             </label>
             <textarea
               value={text}
@@ -366,7 +381,7 @@ export function ScheduleComposer({
               className="w-full mt-1 rounded-lg bg-background border border-hairline px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary/40"
               data-testid={`input-caption-${platform}`}
             />
-            <div className="text-right text-xs tabular-nums text-muted-foreground mt-0.5">
+            <div dir="ltr" className="text-end text-xs tabular-nums text-muted-foreground mt-0.5">
               {captionLength(text, hashtags)} / {limit}
             </div>
           </div>
@@ -377,13 +392,13 @@ export function ScheduleComposer({
         <div className="flex flex-wrap gap-2 mb-2">
           {quickTimes(new Date()).map((slot) => (
             <button
-              key={slot.label}
+              key={slot.id}
               type="button"
               onClick={() => setWhen(toLocalInput(slot.at))}
               className="aura-chip no-default-hover-elevate rounded-full min-h-11 md:min-h-8 px-3 text-xs"
-              data-testid={`quick-time-${slot.label.replace(/\W+/g, "-").toLowerCase()}`}
+              data-testid={`quick-time-${slot.id}`}
             >
-              {slot.label}
+              {t(slot.label)}
             </button>
           ))}
         </div>
@@ -403,7 +418,7 @@ export function ScheduleComposer({
             <li key={i} className="flex items-start gap-2 text-xs text-warning leading-snug">
               <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>
-                <span className="font-medium">{refusal.handle}</span>: {refusal.message}
+                <span dir="auto" className="font-medium">{refusal.handle}</span>: {refusal.message}
               </span>
             </li>
           ))}
@@ -417,15 +432,15 @@ export function ScheduleComposer({
         data-testid="button-schedule"
       >
         {sending ? (
-          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          <Loader2 className="w-4 h-4 me-2 animate-spin" />
         ) : (
-          <Send className="w-4 h-4 mr-2" />
+          <Send className="w-4 h-4 me-2" />
         )}
         {selected.length === 0
-          ? "Pick where it goes"
+          ? t(COMPOSER.pickWhere)
           : refusals.length > 0
-            ? `${refusals.length} thing${refusals.length === 1 ? "" : "s"} to fix first`
-            : `Schedule to ${selected.length} ${selected.length === 1 ? "account" : "accounts"}`}
+            ? fmt(COMPOSER.thingsToFix, refusals.length)
+            : fmt(COMPOSER.scheduleTo, selected.length)}
       </Button>
     </div>
   );

@@ -25,9 +25,14 @@ import { SocialConnections, type PlatformInfo, type ConnectedAccount } from "@/c
 import { ScheduledPosts } from "@/components/scheduled-posts";
 import { apiJson } from "@/lib/api-fetch";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/lib/language";
+import { ACCOUNT } from "@/lib/copy/account";
+import { LOAD } from "@/lib/copy/common";
+import { SCHEDULED } from "@/lib/copy/scheduled";
 
 export default function Scheduled() {
   const { toast } = useToast();
+  const { t, fmt } = useLanguage();
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [platforms, setPlatforms] = useState<PlatformInfo[]>([]);
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
@@ -71,24 +76,24 @@ export default function Scheduled() {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
     if (!connected) return;
-    const platform = params.get("platform") ?? "That account";
+    const platform = params.get("platform") ?? t(SCHEDULED.thatAccount);
     if (connected === "yes") {
       toast({
-        title: `${params.get("handle") ?? platform} connected`,
-        description: "It can be scheduled to from any finished edit.",
+        title: fmt(SCHEDULED.connected, params.get("handle") ?? platform),
+        description: t(SCHEDULED.connectedDetail),
       });
       void load();
     } else {
       toast({
-        title: `${platform} was not connected`,
+        title: fmt(SCHEDULED.notConnected, platform),
         // The platform's own words. "redirect_uri mismatch" is something
         // somebody can act on; "could not connect" is not.
-        description: params.get("why") ?? "The platform refused the connection.",
+        description: params.get("why") ?? t(SCHEDULED.refusedByPlatform),
         variant: "destructive",
       });
     }
     window.history.replaceState({}, "", window.location.pathname);
-  }, [toast, load]);
+  }, [toast, load, t, fmt]);
 
   return (
     <div className="min-h-screen px-4 sm:px-6 py-6 sm:py-10 max-w-4xl mx-auto flex flex-col gap-8">
@@ -96,29 +101,26 @@ export default function Scheduled() {
         <BackButton fallback="/dashboard" />
         <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-3">
           <CalendarClock className="w-6 h-6 text-secondary flex-shrink-0" />
-          Scheduled
+          {t(SCHEDULED.title)}
         </h1>
-        <p className="text-sm text-muted-foreground max-w-prose">
-          Connect the accounts you post to, then send a finished edit to as many of them as you like
-          at a time you choose. You can call a post back until it leaves.
-        </p>
+        <p className="text-sm text-muted-foreground max-w-prose">{t(SCHEDULED.lead)}</p>
       </div>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold text-muted-foreground">Your accounts</h2>
+        <h2 className="text-sm font-semibold text-muted-foreground">{t(SCHEDULED.yourAccounts)}</h2>
         {state === "loading" ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="w-4 h-4 animate-spin" /> Reading your connections…
+            <Loader2 className="w-4 h-4 animate-spin" /> {t(ACCOUNT.socialReading)}
           </div>
         ) : state === "failed" ? (
-          <LoadFailed what="your connected accounts" compact onRetry={load} testId="social-failed" />
+          <LoadFailed what={LOAD.yourAccounts} compact onRetry={load} testId="social-failed" />
         ) : (
           <SocialConnections platforms={platforms} accounts={accounts} onChanged={load} />
         )}
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold text-muted-foreground">What is going out</h2>
+        <h2 className="text-sm font-semibold text-muted-foreground">{t(SCHEDULED.whatIsGoingOut)}</h2>
         <ScheduledPosts />
       </section>
     </div>

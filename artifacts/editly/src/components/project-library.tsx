@@ -12,6 +12,8 @@ import { Loader2, Trash2, ImageIcon, Film, Music, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { uploadProjectAsset, formatBytes, assetKindOf } from "@/lib/video-storage";
 import { StockSearch } from "./stock-search";
+import { useLanguage } from "@/lib/language";
+import { LIBRARY } from "@/lib/copy/editor";
 
 export interface ProjectAsset {
   id: string;
@@ -42,6 +44,7 @@ export function ProjectLibrary({
    */
   ceiling: number;
 }) {
+  const { t, fmt } = useLanguage();
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,10 +84,10 @@ export function ProjectLibrary({
     const failures: string[] = [];
     for (const [index, file] of list.entries()) {
       try {
-        if (!assetKindOf(file)) throw new Error(`"${file.name}" is not a video, image or audio file.`);
+        if (!assetKindOf(file)) throw new Error(fmt(LIBRARY.notMedia, file.name));
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
-        if (!token) throw new Error("Your session expired. Sign in again.");
+        if (!token) throw new Error(t(LIBRARY.sessionExpired));
 
         const { path, kind } = await uploadProjectAsset({ file, projectId, accessToken: token, ceiling });
         const res = await fetch(`/api/projects/${projectId}/assets`, {
@@ -94,10 +97,10 @@ export function ProjectLibrary({
         });
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? `Could not add "${file.name}".`);
+          throw new Error(body.error ?? fmt(LIBRARY.couldNotAdd, file.name));
         }
       } catch (e) {
-        failures.push(e instanceof Error ? e.message : `Could not add "${file.name}".`);
+        failures.push(e instanceof Error ? e.message : fmt(LIBRARY.couldNotAdd, file.name));
       }
       setProgress({ done: index + 1, total: list.length });
     }
@@ -119,10 +122,8 @@ export function ProjectLibrary({
     <div className="rounded-xl glass-panel border border-hairline px-4 py-4" data-testid="project-library">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
-          <div className="text-sm font-medium">Files in this project</div>
-          <div className="text-xs text-muted-foreground">
-            B-roll, screenshots, a logo. And music, which goes under the edit rather than on it.
-          </div>
+          <div className="text-sm font-medium">{t(LIBRARY.title)}</div>
+          <div className="text-xs text-muted-foreground">{t(LIBRARY.lead)}</div>
         </div>
         <button
           type="button"
@@ -132,7 +133,7 @@ export function ProjectLibrary({
           className="inline-flex flex-shrink-0 whitespace-nowrap items-center gap-1.5 rounded-lg border border-hairline bg-surface-1 px-3 min-h-11 md:min-h-0 md:py-2 text-xs font-medium transition-all hover:border-primary/40 disabled:opacity-50"
         >
           {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-          {busy && progress ? `Adding ${progress.done}/${progress.total}…` : "Add files"}
+          {busy && progress ? fmt(LIBRARY.adding, progress.done, progress.total) : t(LIBRARY.addFiles)}
         </button>
         <input
           ref={inputRef}
@@ -156,8 +157,7 @@ export function ProjectLibrary({
 
       {assets.length === 0 ? (
         <div className="text-xs text-muted-foreground">
-          Nothing yet. Files you add here can be cut in as b-roll, laid over the frame, or, if it is
-          a track you have the rights to, played under the whole edit. Up to {formatBytes(ceiling)} each.
+          {fmt(LIBRARY.empty, formatBytes(ceiling))}
         </div>
       ) : (
         <ul className="flex flex-col gap-1.5">
@@ -170,14 +170,14 @@ export function ProjectLibrary({
                 data-testid={`asset-${asset.id}`}
               >
                 <Icon className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
-                <span className="text-xs truncate flex-1" title={asset.label ?? asset.id}>
+                <span dir="auto" className="text-xs truncate flex-1" title={asset.label ?? asset.id}>
                   {asset.label ?? asset.id}
                 </span>
                 <span className="text-[10px] text-muted-foreground flex-shrink-0">{formatBytes(asset.bytes)}</span>
                 <button
                   type="button"
                   onClick={() => void remove(asset.id)}
-                  aria-label={`Remove ${asset.label ?? "this file"}`}
+                  aria-label={fmt(LIBRARY.removeFile, asset.label ?? t(LIBRARY.thisFile))}
                   className="text-muted-foreground hover:text-destructive transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />

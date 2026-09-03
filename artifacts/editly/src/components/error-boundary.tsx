@@ -46,6 +46,9 @@
  * with it, a sentence in a chat window finds one line in a log.
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { directionOf, say } from "@/lib/landing-copy";
+import { storedLanguage } from "@/lib/language-routes";
+import { CRASH } from "@/lib/copy/chrome";
 
 /** Where the report goes. Same origin, so no CORS and no third party. */
 const ENDPOINT = "/api/client-errors";
@@ -191,7 +194,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, BoundarySt
 
   static getDerivedStateFromError(error: unknown): BoundaryState {
     const message = error instanceof Error ? error.message : String(error);
-    return { message: message || "The page stopped unexpectedly", reference: reference() };
+    return { message: message || say(CRASH.stopped, storedLanguage()), reference: reference() };
   }
 
   override componentDidCatch(error: unknown, info: ErrorInfo): void {
@@ -207,16 +210,26 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, BoundarySt
   override render(): ReactNode {
     if (this.state.message === null) return this.props.children;
 
+    /*
+      Read here rather than taken from the provider, and the reason is
+      structural: this boundary is mounted *above* `LanguageProvider` in
+      `App.tsx`, because a boundary inside the tree it is catching cannot
+      render when that tree is what threw. So it reads the stored preference,
+      which is the same key the provider reads and the same one the script in
+      `index.html` reads before the first paint.
+    */
+    const language = storedLanguage();
+
     return (
       <div
         className="min-h-screen flex items-center justify-center p-6 bg-background text-foreground"
+        lang={language}
+        dir={directionOf(language)}
         data-testid="crash-screen"
       >
         <div className="max-w-md w-full text-center space-y-4">
-          <h1 className="text-2xl font-bold">This screen stopped working</h1>
-          <p className="text-muted-foreground">
-            Nothing you made has been lost. Your projects and your videos are where they were.
-          </p>
+          <h1 className="text-2xl font-bold">{say(CRASH.title, language)}</h1>
+          <p className="text-muted-foreground">{say(CRASH.lead, language)}</p>
           {/* The actual message. Small, monospaced, and present: a person who
               can read it learns it is not their file and not their connection. */}
           <p
@@ -231,11 +244,11 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, BoundarySt
             onClick={() => window.location.reload()}
             data-testid="crash-reload"
           >
-            Reload the page
+            {say(CRASH.reload, language)}
           </button>
           <p className="text-xs text-muted-foreground">
-            If it keeps happening, quote this:{" "}
-            <span className="font-mono" data-testid="crash-reference">
+            {say(CRASH.quoteThis, language)}
+            <span className="font-mono" dir="ltr" data-testid="crash-reference">
               {this.state.reference}
             </span>
           </p>

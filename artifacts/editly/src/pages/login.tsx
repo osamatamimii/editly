@@ -8,6 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
+import { useLanguage } from "@/lib/language";
+import { COMMON } from "@/lib/copy/common";
+import { LOGIN } from "@/lib/copy/login";
+import { type Phrase } from "@/lib/app-copy";
 import {
   enabledProviders,
   signInWithProvider,
@@ -39,11 +43,23 @@ function initialMode(): Mode {
 
 export default function Login() {
   const [, setLocation] = useLocation();
+  const { t, fmt } = useLanguage();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  /*
+    Two kinds of sentence end up in these, and only one of them is ours.
+
+    A phrase is something this screen says and this file has in both languages.
+    A bare string is Supabase's own message, arriving in whatever language it
+    was written in, which is English. Translating it here would mean keeping a
+    table of somebody else's error strings and getting it wrong the week they
+    reword one; showing it as it came is worse in Arabic and honest, and the
+    line above it is ours.
+  */
+  const [error, setError] = useState<Phrase | string | null>(null);
+  const [notice, setNotice] = useState<Phrase | string | null>(null);
+  const read = (said: Phrase | string | null) => (typeof said === "string" ? said : said ? t(said) : null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [busyProvider, setBusyProvider] = useState<OAuthProvider | null>(null);
   const [providers, setProviders] = useState<Set<OAuthProvider> | null>(null);
@@ -83,10 +99,10 @@ export default function Login() {
     } catch (err) {
       setError(
         err instanceof ProviderNotEnabledError
-          ? `${PROVIDER_LABEL[provider]} sign-in isn't switched on yet. Use your email for now.`
+          ? fmt(LOGIN.providerOff, PROVIDER_LABEL[provider])
           : err instanceof Error
             ? err.message
-            : "Could not start sign-in. Please try again.",
+            : LOGIN.couldNotStart,
       );
       setBusyProvider(null);
     }
@@ -119,7 +135,7 @@ export default function Login() {
         // A rate limit is worth saying out loud; anything else would leak
         // whether the address is one of ours.
         if (resetError && resetError.status === 429) throw resetError;
-        setNotice("If that address has an account, a link is on its way. It lasts an hour.");
+        setNotice(LOGIN.resetSent);
         setMode("signin");
         return;
       }
@@ -133,7 +149,7 @@ export default function Login() {
         // used. Confirmation is currently off, so this is the path that runs
         // again the moment it is turned back on.
         if (!data.session) {
-          setNotice("Check your inbox to confirm your email, then sign in.");
+          setNotice(LOGIN.confirmEmail);
           setMode("signin");
           return;
         }
@@ -144,7 +160,7 @@ export default function Login() {
 
       setLocation("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      setError(err instanceof Error ? err.message : LOGIN.somethingWrong);
     } finally {
       setIsSubmitting(false);
     }
@@ -163,7 +179,7 @@ export default function Login() {
         />
       </div>
 
-      <BackButton fallback="/" label="Back" className="mb-8 -ml-4" testId="link-back-home" />
+      <BackButton fallback="/" label={t(COMMON.back)} className="mb-8 -ms-4" testId="link-back-home" />
 
       <div className="flex items-center gap-2.5 mb-8">
         <Logo className="w-8 h-8 text-brand-mark" />
@@ -173,24 +189,24 @@ export default function Login() {
       {/* The line the product is named after, at the moment someone decides
           whether to sign up: it is the whole proposition in four words. */}
       <p className="text-sm text-muted-foreground mb-8 -mt-6" data-testid="text-signature-login">
-        Stop editing. Start describing.
+        {t(LOGIN.signature)}
       </p>
 
       <Card className="glass-panel border-hairline w-full max-w-md">
         <CardContent className="pt-8 pb-8">
           <h1 className="text-2xl font-bold mb-1 text-center">
             {mode === "signin"
-              ? "Welcome back"
+              ? t(LOGIN.signinTitle)
               : mode === "signup"
-                ? "Create your account"
-                : "Reset your password"}
+                ? t(LOGIN.signupTitle)
+                : t(LOGIN.resetTitle)}
           </h1>
           <p className="text-sm text-muted-foreground mb-8 text-center">
             {mode === "signin"
-              ? "Sign in to pick up where you left off."
+              ? t(LOGIN.signinLead)
               : mode === "signup"
-                ? "Start turning raw footage into viral clips."
-                : "Tell us the address you signed up with and we will send a link."}
+                ? t(LOGIN.signupLead)
+                : t(LOGIN.resetLead)}
           </p>
 
           {mode !== "reset" && providers && providers.size > 0 && (
@@ -213,7 +229,7 @@ export default function Login() {
                       <path fill="#EA4335" d="M12 4.75c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.47 14.97.5 12 .5A11 11 0 0 0 2.18 7.05l3.66 2.84c.87-2.6 3.3-4.14 6.16-4.14Z" />
                     </svg>
                   )}
-                  Continue with Google
+                  {t(LOGIN.withGoogle)}
                 </button>
               )}
 
@@ -232,13 +248,13 @@ export default function Login() {
                       <path d="M17.05 12.54c-.02-2.2 1.8-3.26 1.88-3.31-1.02-1.5-2.61-1.7-3.18-1.72-1.35-.14-2.64.79-3.33.79-.68 0-1.74-.77-2.86-.75-1.47.02-2.83.85-3.59 2.17-1.53 2.65-.39 6.58 1.1 8.73.73 1.05 1.6 2.23 2.74 2.19 1.1-.04 1.52-.71 2.85-.71 1.33 0 1.7.71 2.86.69 1.18-.02 1.93-1.07 2.65-2.13.84-1.22 1.18-2.4 1.2-2.46-.03-.01-2.3-.88-2.32-3.49ZM14.88 5.6c.6-.73 1.01-1.75.9-2.76-.87.04-1.92.58-2.55 1.31-.56.65-1.05 1.68-.92 2.67.97.08 1.96-.49 2.57-1.22Z" />
                     </svg>
                   )}
-                  Continue with Apple
+                  {t(LOGIN.withApple)}
                 </button>
               )}
 
               <div className="flex items-center gap-3 pt-1">
                 <div className="h-px flex-1 bg-surface-2" />
-                <span className="text-xs text-muted-foreground">or with email</span>
+                <span className="text-xs text-muted-foreground">{t(LOGIN.orWithEmail)}</span>
                 <div className="h-px flex-1 bg-surface-2" />
               </div>
             </div>
@@ -246,16 +262,16 @@ export default function Login() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t(LOGIN.email)}</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <Mail className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                 <Input
                   id="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className="pl-10 bg-surface-1 border-hairline"
+                  className="ps-10 bg-surface-1 border-hairline"
                   required
                   autoComplete="email"
                   data-testid="input-email"
@@ -270,7 +286,7 @@ export default function Login() {
                     negative margin, so it is tappable on a phone without
                     pushing the field down. */}
                 <div className="flex items-center justify-between min-h-5">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">{t(LOGIN.password)}</Label>
                   {mode === "signin" && (
                     <button
                       type="button"
@@ -282,19 +298,19 @@ export default function Login() {
                       className="text-xs text-primary hover:underline min-h-11 md:min-h-0 -my-3 md:my-0 px-2 -mx-2 inline-flex items-center"
                       data-testid="button-forgot-password"
                     >
-                      Forgot it?
+                      {t(LOGIN.forgot)}
                     </button>
                   )}
                 </div>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                  <Lock className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                   <Input
                     id="password"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder={mode === "signup" ? "At least 6 characters" : "Your password"}
-                    className="pl-10 bg-surface-1 border-hairline"
+                    placeholder={mode === "signup" ? t(LOGIN.passwordHintNew) : t(LOGIN.passwordHint)}
+                    className="ps-10 bg-surface-1 border-hairline"
                     required
                     minLength={6}
                     autoComplete={mode === "signup" ? "new-password" : "current-password"}
@@ -306,12 +322,12 @@ export default function Login() {
 
             {error && (
               <p className="text-sm text-destructive" role="alert" data-testid="text-auth-error">
-                {error}
+                {read(error)}
               </p>
             )}
             {notice && (
               <p className="text-sm text-primary" role="status" data-testid="text-auth-notice">
-                {notice}
+                {read(notice)}
               </p>
             )}
 
@@ -321,8 +337,12 @@ export default function Login() {
               className="w-full h-12 rounded-xl btn-gradient-cta text-white font-semibold"
               data-testid="button-submit-auth"
             >
-              {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Send the link"}
+              {isSubmitting && <Loader2 className="w-4 h-4 me-2 animate-spin" />}
+              {mode === "signin"
+                ? t(LOGIN.submitSignin)
+                : mode === "signup"
+                  ? t(LOGIN.submitSignup)
+                  : t(LOGIN.submitReset)}
             </Button>
 
             {/*
@@ -343,21 +363,25 @@ export default function Login() {
             */}
             {mode === "signup" && (
               <p className="text-xs text-muted-foreground text-center" data-testid="text-signup-terms">
-                By creating an account you agree to our{" "}
+                {t(LOGIN.agreeLead)}
                 <a href="/terms" className="text-primary hover:underline" data-testid="link-terms">
-                  Terms
-                </a>{" "}
-                and{" "}
-                <a href="/privacy" className="text-primary hover:underline" data-testid="link-privacy">
-                  Privacy Policy
+                  {t(LOGIN.agreeTerms)}
                 </a>
-                . Editly is for people aged 16 and over.
+                {t(LOGIN.agreeAnd)}
+                <a href="/privacy" className="text-primary hover:underline" data-testid="link-privacy">
+                  {t(LOGIN.agreePrivacy)}
+                </a>
+                {t(LOGIN.agreeTail)}
               </p>
             )}
           </form>
 
           <p className="text-sm text-muted-foreground text-center mt-6">
-            {mode === "signin" ? "New to Editly?" : mode === "signup" ? "Already have an account?" : "Remembered it?"}{" "}
+            {mode === "signin"
+              ? t(LOGIN.switchFromSignin)
+              : mode === "signup"
+                ? t(LOGIN.switchFromSignup)
+                : t(LOGIN.switchFromReset)}{" "}
             <button
               onClick={() => {
                 setMode(mode === "signin" ? "signup" : "signin");
@@ -367,7 +391,7 @@ export default function Login() {
               className="text-primary hover:underline font-medium"
               data-testid="button-toggle-auth-mode"
             >
-              {mode === "signin" ? "Create an account" : "Sign in"}
+              {mode === "signin" ? t(LOGIN.switchToSignup) : t(LOGIN.switchToSignin)}
             </button>
           </p>
         </CardContent>

@@ -25,6 +25,9 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api-fetch";
 import { uploadCaptionFont, UploadError } from "@/lib/video-storage";
 import type { FaceScript } from "@workspace/api-zod/fonts";
+import { useLanguage } from "@/lib/language";
+import { FONTS } from "@/lib/copy/editor";
+import { type Phrase } from "@/lib/app-copy";
 
 export interface UploadedFace {
   id: string;
@@ -41,11 +44,11 @@ export interface UploadedFace {
 }
 
 /** What the person is told a font is doing, by status. */
-const SAYING: Record<UploadedFace["status"], string> = {
-  pending: "Waiting to be measured",
-  preparing: "Measuring it, a few seconds",
-  ready: "Ready",
-  refused: "Cannot be used",
+const SAYING: Record<UploadedFace["status"], Phrase> = {
+  pending: FONTS.statusPending,
+  preparing: FONTS.statusPreparing,
+  ready: FONTS.statusReady,
+  refused: FONTS.statusRefused,
 };
 
 export function FontUpload({
@@ -63,6 +66,7 @@ export function FontUpload({
 }) {
   const { toast } = useToast();
   const input = useRef<HTMLInputElement>(null);
+  const { t, fmt } = useLanguage();
   const [busy, setBusy] = useState(false);
   const mine = faces.filter((face) => face.script === script);
 
@@ -83,7 +87,7 @@ export function FontUpload({
 
   async function choose(file: File) {
     if (!accessToken) {
-      toast({ title: "Sign in again to add a font.", variant: "destructive" });
+      toast({ title: t(FONTS.signInAgain), variant: "destructive" });
       return;
     }
     setBusy(true);
@@ -113,13 +117,13 @@ export function FontUpload({
       });
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { error?: string };
-        toast({ title: body.error ?? "That font could not be added.", variant: "destructive" });
+        toast({ title: body.error ?? t(FONTS.couldNotAdd), variant: "destructive" });
         return;
       }
       onChanged();
     } catch (error) {
       toast({
-        title: error instanceof UploadError ? error.message : "That font could not be uploaded.",
+        title: error instanceof UploadError ? error.message : t(FONTS.couldNotUpload),
         variant: "destructive",
       });
     } finally {
@@ -131,7 +135,7 @@ export function FontUpload({
   async function remove(id: string) {
     const response = await apiFetch(`/api/fonts/${id}`, { method: "DELETE" });
     if (!response.ok && response.status !== 404) {
-      toast({ title: "Could not remove that font.", variant: "destructive" });
+      toast({ title: t(FONTS.couldNotRemove), variant: "destructive" });
       return;
     }
     onChanged();
@@ -162,7 +166,7 @@ export function FontUpload({
                   shape, so Arabic sentences would have empty boxes in them" is
                   a thing somebody can act on.
                 */}
-                {face.refusal ?? (face.declared && face.status === "ready" ? face.declared : SAYING[face.status])}
+                {face.refusal ?? (face.declared && face.status === "ready" ? face.declared : t(SAYING[face.status]))}
               </span>
             </span>
           </span>
@@ -170,7 +174,7 @@ export function FontUpload({
             type="button"
             onClick={() => void remove(face.id)}
             className="text-muted-foreground hover:text-foreground p-1 -m-1 flex-shrink-0"
-            aria-label={`Remove ${face.label}`}
+            aria-label={fmt(FONTS.removeFace, face.label)}
             data-testid={`button-remove-face-${face.id}`}
           >
             <X className="w-3.5 h-3.5" />
@@ -197,7 +201,7 @@ export function FontUpload({
         data-testid={`button-add-font-${script}`}
       >
         {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-        Add your own font
+        {t(FONTS.addYourOwn)}
       </button>
       {/*
         Said once, above the control, and not as a checkbox that blocks the
@@ -208,11 +212,7 @@ export function FontUpload({
         customers' videos are where this font ends up, which is a wider use than
         the licence on most fonts covers — and record that they were told.
       */}
-      <p className="text-[11px] text-muted-foreground leading-snug">
-        Use fonts you have the right to. Captions are burned into videos you and
-        your clients publish, which most font licences treat differently from
-        using a font on your own machine.
-      </p>
+      <p className="text-[11px] text-muted-foreground leading-snug">{t(FONTS.rights)}</p>
     </div>
   );
 }

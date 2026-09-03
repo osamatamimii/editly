@@ -417,16 +417,39 @@ async function open(pathname) {
         blocked: event.blockedURI,
       });
     });
+    /*
+      The state before React exists, which is the only place these two scripts
+      can be seen doing their job.
+
+      Both of them set attributes that `ThemeProvider` and `LanguageProvider`
+      also set on mount, so reading the document after the app has started
+      cannot tell "the head script ran" from "React put it back" — and the
+      whole point of the head scripts is that they run *before the first
+      paint*, which is a claim about time rather than about a value.
+
+      `readystatechange` to "interactive" is the hook: it fires when the
+      document has finished parsing and before deferred module scripts execute,
+      so it is after the two blocking head scripts and before the bundle. A
+      snapshot taken there is theirs alone.
+    */
+    document.addEventListener("readystatechange", () => {
+      if (document.readyState !== "interactive" || window.__beforeReact) return;
+      window.__beforeReact = {
+        classes: [...document.documentElement.classList],
+        colorScheme: document.documentElement.style.colorScheme,
+        lang: document.documentElement.lang,
+        dir: document.documentElement.dir,
+      };
+    });
   });
   await page.goto(`${ORIGIN}${pathname}`, { waitUntil: "load" });
   // The report is sent out of band; give it a moment to arrive before asking.
   await page.waitForTimeout(600);
   const state = await page.evaluate(() => ({
     violations: window.__cspViolations ?? [],
-    classes: [...document.documentElement.classList],
-    colorScheme: document.documentElement.style.colorScheme,
-    lang: document.documentElement.lang,
-    dir: document.documentElement.dir,
+    // Everything the head scripts had done before the bundle ran. Empty when
+    // they were blocked, which is the case this suite exists for.
+    before: window.__beforeReact ?? { classes: [], colorScheme: "", lang: "", dir: "" },
     /*
       Which files the browser actually went and got.
 
@@ -460,11 +483,14 @@ section("The app comes up under the policy it will actually be served under");
   */
   check(
     "the theme was decided before the first paint",
-    home.classes.includes("dark") || home.classes.includes("light"),
-    JSON.stringify(home.classes),
+    home.before.classes.includes("dark") || home.before.classes.includes("light"),
+    JSON.stringify(home.before),
   );
-  check("and written where the stylesheet reads it", home.colorScheme === "dark" || home.colorScheme === "light", home.colorScheme);
-  check("the landing page is still Arabic", home.lang === "ar" && home.dir === "rtl", `${home.lang}/${home.dir}`);
+  check(
+    "and written where the stylesheet reads it",
+    home.before.colorScheme === "dark" || home.before.colorScheme === "light",
+    home.before.colorScheme,
+  );
   const entry = readFileSync(path.join(dist, "index.html"), "utf8").match(/<script[^>]*\bsrc="(\/assets\/[^"]+)"/)?.[1];
   check("the built page loads an entry chunk at all", Boolean(entry), String(entry));
   check(
@@ -475,11 +501,22 @@ section("The app comes up under the policy it will actually be served under");
   check("no violation was reported, because there was none", posted.length === 0, JSON.stringify(posted.slice(0, 1)));
 
   posted.length = 0;
-  const inside = await open("/dashboard");
+  const inside = await open("/privacy");
   check("nothing behind the login screen is blocked either", inside.violations.length === 0, JSON.stringify(inside.violations));
-  // The second before-paint script, and the same argument: the only proof it
-  // ran is that an English screen is no longer laid out right to left.
-  check("the language was decided before the first paint", inside.lang === "en" && inside.dir === "ltr", `${inside.lang}/${inside.dir}`);
+  /*
+    The second before-paint script, on the one route that proves it ran.
+
+    The document opens `lang="ar" dir="rtl"` — the landing page's first frame —
+    and this script's whole job is to correct that for a screen written in
+    something else. The privacy policy is such a screen and is deliberately not
+    on `BILINGUAL`, so "English, left to right" here is a value only that script
+    could have produced by the time the document finished parsing.
+  */
+  check(
+    "the language was decided before the first paint",
+    inside.before.lang === "en" && inside.before.dir === "ltr",
+    JSON.stringify(inside.before),
+  );
 }
 
 // ── and the proof that all of that can go red ────────────────────────────────
@@ -496,8 +533,23 @@ section("With the hashes taken out, every check above fails");
     broken.violations.every((v) => (v.directive ?? "").startsWith("script-src")),
     JSON.stringify(broken.violations.map((v) => v.directive)),
   );
-  check("the theme is not decided", !broken.classes.includes("dark") && !broken.classes.includes("light"), JSON.stringify(broken.classes));
-  check("which is a white page and not an error anywhere", broken.violations.length > 0 && !broken.classes.includes("light"));
+  check(
+    "the theme is not decided before the paint",
+    !broken.before.classes.includes("dark") && !broken.before.classes.includes("light"),
+    JSON.stringify(broken.before),
+  );
+  /*
+    Which is the failure, said plainly: the app still mounts, React still sets
+    the class a moment later, and what the person gets is a frame of the wrong
+    theme with nothing logged anywhere on our side. That is the whole reason
+    this suite measures the document *before* the bundle runs — after it, a
+    blocked head script and a working one look identical.
+  */
+  check(
+    "and nothing threw, which is why this was worth measuring",
+    broken.violations.length > 0,
+    JSON.stringify(broken.violations.map((v) => v.directive)),
+  );
 
   // The endpoint, end to end, against a body a browser wrote rather than one
   // written here from the specification.

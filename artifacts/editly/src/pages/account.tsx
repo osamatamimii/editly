@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BackButton } from "@/components/back-button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageToggle } from "@/components/language-toggle";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
@@ -20,6 +21,9 @@ import {
 } from "@/components/social-connections";
 import { ScheduledPosts } from "@/components/scheduled-posts";
 import { apiJson } from "@/lib/api-fetch";
+import { useLanguage } from "@/lib/language";
+import { ACCOUNT } from "@/lib/copy/account";
+import { COMMON, LOAD } from "@/lib/copy/common";
 import { Loader2, LogOut, Mail, KeyRound, Trash2, Download } from "lucide-react";
 
 /**
@@ -39,6 +43,7 @@ import { Loader2, LogOut, Mail, KeyRound, Trash2, Download } from "lucide-react"
 export default function AccountPage() {
   const [, setLocation] = useLocation();
   const { user, signOut } = useAuth();
+  const { t, fmt } = useLanguage();
   const { toast } = useToast();
   const subscriptionQuery = useGetSubscription();
   const { data: subscription } = subscriptionQuery;
@@ -95,7 +100,7 @@ export default function AccountPage() {
     const { error } = await supabase.auth.updateUser({ email: next });
     setBusy(null);
     if (error) {
-      toast({ title: "Could not change your email", description: error.message, variant: "destructive" });
+      toast({ title: t(ACCOUNT.emailFailed), description: error.message, variant: "destructive" });
       return;
     }
     setEmail("");
@@ -103,16 +108,16 @@ export default function AccountPage() {
     // and the new one to prove it exists — and a person who only checks one of
     // them will otherwise think nothing happened.
     toast({
-      title: "Check both inboxes",
-      description: `We've sent a confirmation to ${next} and to your current address. The change takes effect once both are confirmed.`,
+      title: t(ACCOUNT.checkBothInboxes),
+      description: fmt(ACCOUNT.checkBothDetail, next),
     });
   };
 
   const changePassword = async () => {
     if (password.length < 8) {
       toast({
-        title: "That password is too short",
-        description: "Eight characters is the minimum. Longer is better than complicated.",
+        title: t(ACCOUNT.passwordTooShort),
+        description: t(ACCOUNT.passwordTooShortDetail),
         variant: "destructive",
       });
       return;
@@ -121,11 +126,11 @@ export default function AccountPage() {
     const { error } = await supabase.auth.updateUser({ password });
     setBusy(null);
     if (error) {
-      toast({ title: "Could not change your password", description: error.message, variant: "destructive" });
+      toast({ title: t(ACCOUNT.passwordFailed), description: error.message, variant: "destructive" });
       return;
     }
     setPassword("");
-    toast({ title: "Password changed", description: "You'll use the new one next time you sign in." });
+    toast({ title: t(ACCOUNT.passwordChanged), description: t(ACCOUNT.passwordChangedDetail) });
   };
 
   /**
@@ -149,8 +154,8 @@ export default function AccountPage() {
       if (!response.ok) {
         const said = await response.json().catch(() => null);
         toast({
-          title: "Could not put that together",
-          description: said?.error ?? "Please try again in a few minutes.",
+          title: t(ACCOUNT.exportFailed),
+          description: said?.error ?? t(ACCOUNT.exportFailedDetail),
           variant: "destructive",
         });
         return;
@@ -168,8 +173,8 @@ export default function AccountPage() {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch {
       toast({
-        title: "Could not put that together",
-        description: "Check your connection and try again.",
+        title: t(ACCOUNT.exportFailed),
+        description: t(ACCOUNT.exportOffline),
         variant: "destructive",
       });
     } finally {
@@ -191,57 +196,74 @@ export default function AccountPage() {
       if (!response.ok) {
         setBusy(null);
         toast({
-          title: "Nothing was deleted",
-          description: body.error ?? "Something went wrong on our side. Your account is untouched.",
+          title: t(ACCOUNT.deleteRefused),
+          description: body.error ?? t(ACCOUNT.deleteRefusedDetail),
           variant: "destructive",
         });
         return;
       }
 
       toast({
-        title: "Your account is gone",
-        description: body.note ?? "Everything you uploaded has been removed. Thanks for trying it.",
+        title: t(ACCOUNT.deleted),
+        description: body.note ?? t(ACCOUNT.deletedDetail),
       });
       await signOut();
       setLocation("/");
     } catch {
       setBusy(null);
       toast({
-        title: "Nothing was deleted",
-        description: "We couldn't reach the server. Your account is untouched.",
+        title: t(ACCOUNT.deleteRefused),
+        description: t(ACCOUNT.deleteOffline),
         variant: "destructive",
       });
     }
   };
 
-  const canDelete = confirmText.trim().toLowerCase() === "delete my account";
+  /*
+    Either spelling is accepted, and the label in front of the person is the one
+    in their language. A confirmation the screen does not ask for is a form
+    somebody is trapped in — which is precisely the moment they were trying to
+    leave.
+  */
+  const confirmations = [ACCOUNT.deleteConfirmPhrase.ar, ACCOUNT.deleteConfirmPhrase.en];
+  const canDelete = confirmations.includes(confirmText.trim().toLowerCase());
 
   return (
     <div className="w-full max-w-3xl mx-auto px-6 py-12">
       <div className="flex items-start justify-between gap-4 mb-10">
         <div className="flex items-start gap-2">
-          <BackButton fallback="/dashboard" className="-ml-3 mt-1" />
+          <BackButton fallback="/dashboard" className="-ms-3 mt-1" />
           <div>
-            <h1 className="text-3xl font-bold tracking-tight mb-2">Account</h1>
-            <p className="text-muted-foreground" data-testid="text-account-email">
-              {user?.email ?? "Signed in"}
+            <h1 className="text-3xl font-bold tracking-tight mb-2">{t(ACCOUNT.title)}</h1>
+            {/*
+              An address is an address in any language, and the bidi algorithm
+              would otherwise move the "@" and the dot to the wrong end of it on
+              an Arabic screen. Same reason the prices carry `dir="ltr"`.
+            */}
+            <p className="text-muted-foreground" dir="ltr" data-testid="text-account-email">
+              {user?.email ?? t(ACCOUNT.signedIn)}
             </p>
           </div>
         </div>
-        <ThemeToggle />
+        {/* The two settings that are about how the product looks and reads,
+            side by side, on the one screen a person goes to to change it. */}
+        <div className="flex items-center gap-2">
+          <LanguageToggle />
+          <ThemeToggle />
+        </div>
       </div>
 
       <div className="flex flex-col gap-6">
         {/* ── What you're on ─────────────────────────────────────────────── */}
         <Card className="glass-panel border-hairline">
           <CardHeader>
-            <CardTitle>Your plan</CardTitle>
-            <CardDescription>Minutes of finished video, not videos. Uploading doesn't spend them.</CardDescription>
+            <CardTitle>{t(ACCOUNT.planTitle)}</CardTitle>
+            <CardDescription>{t(ACCOUNT.planLead)}</CardDescription>
           </CardHeader>
           <CardContent>
             {subscriptionState === "failed" ? (
               <LoadFailed
-                what="your plan and usage"
+                what={ACCOUNT.planFailed}
                 compact
                 onRetry={() => subscriptionQuery.refetch()}
                 testId="account-subscription-failed"
@@ -254,8 +276,10 @@ export default function AccountPage() {
                   <span className="text-2xl font-bold capitalize" data-testid="text-plan-name">
                     {subscription.plan}
                   </span>
-                  <span className="text-muted-foreground">
-                    {subscription.pricePerMonth === 0 ? "Free" : `$${subscription.pricePerMonth}/month`}
+                  <span className="text-muted-foreground" dir={subscription.pricePerMonth === 0 ? undefined : "ltr"}>
+                    {subscription.pricePerMonth === 0
+                      ? t(ACCOUNT.free)
+                      : fmt(ACCOUNT.perMonth, subscription.pricePerMonth)}
                   </span>
                 </div>
 
@@ -269,10 +293,10 @@ export default function AccountPage() {
                   />
                 </div>
                 <p className="text-sm text-muted-foreground mb-6">
-                  {subscription.minutesUsedThisMonth} of {subscription.minutesIncluded} minutes this month
+                  {fmt(ACCOUNT.usage, subscription.minutesUsedThisMonth, subscription.minutesIncluded)}
                   {" · "}
-                  up to {subscription.maxUploadMinutes} minutes in a single upload
-                  {subscription.watermark ? " · renders carry the Editly mark" : ""}
+                  {fmt(ACCOUNT.maxUpload, subscription.maxUploadMinutes)}
+                  {subscription.watermark ? t(ACCOUNT.watermark) : ""}
                 </p>
 
                 <div className="flex flex-wrap gap-3">
@@ -282,7 +306,7 @@ export default function AccountPage() {
                     onClick={() => { window.location.href = "/#pricing"; }}
                     data-testid="button-change-plan"
                   >
-                    Change plan
+                    {t(ACCOUNT.changePlan)}
                   </Button>
                   {/* Billing lives at Freemius: they took the payment, they hold
                       the invoices, and they are the only ones who can cancel a
@@ -295,7 +319,7 @@ export default function AccountPage() {
                     onClick={() => window.open("https://users.freemius.com/", "_blank", "noopener")}
                     data-testid="button-billing"
                   >
-                    Invoices and cancellation
+                    {t(ACCOUNT.invoices)}
                   </Button>
                 </div>
               </>
@@ -306,21 +330,17 @@ export default function AccountPage() {
         {/* ── Where your edits go ────────────────────────────────────────── */}
         <Card className="glass-panel border-hairline">
           <CardHeader>
-            <CardTitle>Where your edits go</CardTitle>
-            <CardDescription>
-              Connect the accounts you post to and a finished edit can be scheduled straight from
-              the project, with the caption written once. Several accounts per platform, because
-              most people run more than one.
-            </CardDescription>
+            <CardTitle>{t(ACCOUNT.socialTitle)}</CardTitle>
+            <CardDescription>{t(ACCOUNT.socialLead)}</CardDescription>
           </CardHeader>
           <CardContent>
             {social.state === "loading" ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="w-4 h-4 animate-spin" /> Reading your connections…
+                <Loader2 className="w-4 h-4 animate-spin" /> {t(ACCOUNT.socialReading)}
               </div>
             ) : social.state === "failed" ? (
               <LoadFailed
-                what="your connected accounts"
+                what={LOAD.yourAccounts}
                 compact
                 onRetry={loadSocial}
                 testId="social-failed"
@@ -338,11 +358,8 @@ export default function AccountPage() {
         {/* ── What is going out ──────────────────────────────────────────── */}
         <Card className="glass-panel border-hairline">
           <CardHeader>
-            <CardTitle>Scheduled posts</CardTitle>
-            <CardDescription>
-              Everything queued to go out, and everything that has. You can call one back until it
-              leaves.
-            </CardDescription>
+            <CardTitle>{t(ACCOUNT.scheduledTitle)}</CardTitle>
+            <CardDescription>{t(ACCOUNT.scheduledLead)}</CardDescription>
           </CardHeader>
           <CardContent>
             <ScheduledPosts />
@@ -352,13 +369,13 @@ export default function AccountPage() {
         {/* ── How you sign in ────────────────────────────────────────────── */}
         <Card className="glass-panel border-hairline">
           <CardHeader>
-            <CardTitle>Signing in</CardTitle>
-            <CardDescription>Change the address or the password on this account.</CardDescription>
+            <CardTitle>{t(ACCOUNT.signinTitle)}</CardTitle>
+            <CardDescription>{t(ACCOUNT.signinLead)}</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-6">
             <div className="flex flex-col gap-2">
               <Label htmlFor="account-email" className="flex items-center gap-2 text-sm">
-                <Mail className="w-3.5 h-3.5" /> New email address
+                <Mail className="w-3.5 h-3.5" /> {t(ACCOUNT.newEmail)}
               </Label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <Input
@@ -377,21 +394,21 @@ export default function AccountPage() {
                   onClick={changeEmail}
                   data-testid="button-change-email"
                 >
-                  {busy === "email" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send confirmation"}
+                  {busy === "email" ? <Loader2 className="w-4 h-4 animate-spin" /> : t(ACCOUNT.sendConfirmation)}
                 </Button>
               </div>
             </div>
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="account-password" className="flex items-center gap-2 text-sm">
-                <KeyRound className="w-3.5 h-3.5" /> New password
+                <KeyRound className="w-3.5 h-3.5" /> {t(ACCOUNT.newPassword)}
               </Label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <Input
                   id="account-password"
                   type="password"
                   autoComplete="new-password"
-                  placeholder="At least 8 characters"
+                  placeholder={t(ACCOUNT.passwordHint)}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   data-testid="input-new-password"
@@ -403,7 +420,7 @@ export default function AccountPage() {
                   onClick={changePassword}
                   data-testid="button-change-password"
                 >
-                  {busy === "password" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Change password"}
+                  {busy === "password" ? <Loader2 className="w-4 h-4 animate-spin" /> : t(ACCOUNT.changePassword)}
                 </Button>
               </div>
             </div>
@@ -418,8 +435,8 @@ export default function AccountPage() {
                 }}
                 data-testid="button-sign-out"
               >
-                <LogOut className="w-4 h-4 mr-2" />
-                Sign out
+                <LogOut className="w-4 h-4 me-2" />
+                {t(COMMON.signOut)}
               </Button>
             </div>
           </CardContent>
@@ -428,18 +445,11 @@ export default function AccountPage() {
         {/* ── Taking it with you ─────────────────────────────────────────── */}
         <Card className="glass-panel border-hairline">
           <CardHeader>
-            <CardTitle>Your data</CardTitle>
-            <CardDescription>
-              Everything this product holds about you, as one file you can keep. Rows, not videos:
-              the videos are listed by name and downloaded from the project they belong to.
-            </CardDescription>
+            <CardTitle>{t(ACCOUNT.dataTitle)}</CardTitle>
+            <CardDescription>{t(ACCOUNT.dataLead)}</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <p className="text-sm text-muted-foreground">
-              Access tokens for connected accounts are not in it. A copy of one in a file is a
-              working key to that account for as long as the file exists, so each appears with a
-              note in its place rather than being left out.
-            </p>
+            <p className="text-sm text-muted-foreground">{t(ACCOUNT.dataTokens)}</p>
             <Button
               variant="outline"
               className="self-start"
@@ -448,11 +458,11 @@ export default function AccountPage() {
               data-testid="button-export-data"
             >
               {busy === "export" ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <Loader2 className="w-4 h-4 me-2 animate-spin" />
               ) : (
-                <Download className="w-4 h-4 mr-2" />
+                <Download className="w-4 h-4 me-2" />
               )}
-              {busy === "export" ? "Putting it together…" : "Download my data"}
+              {busy === "export" ? t(ACCOUNT.puttingTogether) : t(ACCOUNT.downloadData)}
             </Button>
           </CardContent>
         </Card>
@@ -460,34 +470,32 @@ export default function AccountPage() {
         {/* ── Leaving ────────────────────────────────────────────────────── */}
         <Card className="glass-panel border-destructive/30">
           <CardHeader>
-            <CardTitle className="text-destructive">Delete this account</CardTitle>
-            <CardDescription>
-              Every project, every upload and every render, removed for good. This cannot be undone and
-              there is no copy kept.
-            </CardDescription>
+            <CardTitle className="text-destructive">{t(ACCOUNT.deleteTitle)}</CardTitle>
+            <CardDescription>{t(ACCOUNT.deleteLead)}</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground">
-              If you pay for a plan, cancel it first at{" "}
+              {t(ACCOUNT.deleteBillingLead)}
               <button
                 className="underline underline-offset-2 hover:text-foreground"
                 onClick={() => window.open("https://users.freemius.com/", "_blank", "noopener")}
               >
-                your billing page
+                {t(ACCOUNT.deleteBillingLink)}
               </button>
-              . Deleting here removes your videos; it does not stop a subscription somebody else is
-              holding the card details for.
+              {t(ACCOUNT.deleteBillingTail)}
             </p>
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="confirm-delete" className="text-sm">
-                Type <span className="font-mono text-foreground">delete my account</span> to confirm
+                {t(ACCOUNT.deleteConfirmLead)}
+                <span className="font-mono text-foreground">{t(ACCOUNT.deleteConfirmPhrase)}</span>
+                {t(ACCOUNT.deleteConfirmTail)}
               </Label>
               <Input
                 id="confirm-delete"
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
-                placeholder="delete my account"
+                placeholder={t(ACCOUNT.deleteConfirmPhrase)}
                 data-testid="input-confirm-delete"
               />
             </div>
@@ -501,13 +509,13 @@ export default function AccountPage() {
               >
                 {busy === "delete" ? (
                   <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Deleting everything…
+                    <Loader2 className="w-4 h-4 me-2 animate-spin" />
+                    {t(ACCOUNT.deleting)}
                   </>
                 ) : (
                   <>
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete my account
+                    <Trash2 className="w-4 h-4 me-2" />
+                    {t(ACCOUNT.deleteButton)}
                   </>
                 )}
               </Button>

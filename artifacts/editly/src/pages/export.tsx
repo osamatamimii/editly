@@ -22,12 +22,16 @@ import { Label } from "@/components/ui/label";
 import { playbackVerdict, PLAYBACK_POLL_MS } from "@/lib/playability";
 import { ScheduleComposer } from "@/components/schedule-composer";
 import { apiJson } from "@/lib/api-fetch";
+import { useLanguage } from "@/lib/language";
+import { COMMON, LOAD, REFUSAL } from "@/lib/copy/common";
+import { EXPORT } from "@/lib/copy/export";
 import type { PlatformInfo, ConnectedAccount } from "@/components/social-connections";
 
 export default function ExportPage() {
   const params = useParams();
   const id = params.id as string;
   const [, setLocation] = useLocation();
+  const { t, fmt } = useLanguage();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -180,14 +184,14 @@ export default function ExportPage() {
         // and the preview keep showing the previous cut.
         queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
         toast({
-          title: "Export Complete!",
-          description: "Your video is ready to download."
+          title: t(EXPORT.complete),
+          description: t(EXPORT.completeDetail)
         });
       } else if (exportStatus.status === 'failed') {
         setIsExporting(false);
         toast({
-          title: "Export Failed",
-          description: "Something went wrong. Please try again.",
+          title: t(EXPORT.failed),
+          description: t(EXPORT.failedDetail),
           variant: "destructive"
         });
       }
@@ -215,7 +219,10 @@ export default function ExportPage() {
       if (status === 409) {
         setIsExporting(true);
         queryClient.invalidateQueries({ queryKey: getGetExportStatusQueryKey(id) });
-        toast({ title: "Already rendering", description: "This project has a render in progress." });
+        toast({
+          title: t(REFUSAL.alreadyRendering),
+          description: t(REFUSAL.renderInProgress),
+        });
         return;
       }
 
@@ -226,10 +233,10 @@ export default function ExportPage() {
       toast({
         title:
           status === 429
-            ? "Not enough minutes left"
+            ? t(REFUSAL.notEnoughMinutes)
             : status === 413
-              ? "That file is too long for this plan"
-              : "Could not start export",
+              ? t(REFUSAL.tooLongForPlan)
+              : t(EXPORT.couldNotStart),
         description: said,
         variant: "destructive"
       });
@@ -254,12 +261,14 @@ export default function ExportPage() {
   if (projectState === "failed") {
     return (
       <div className="w-full max-w-3xl mx-auto px-6 py-24">
-        <LoadFailed what="this project" onRetry={() => projectQuery.refetch()} testId="project-failed" />
+        <LoadFailed what={LOAD.thisProject} onRetry={() => projectQuery.refetch()} testId="project-failed" />
       </div>
     );
   }
 
-  if (projectState === "missing" || !project) return <div className="p-12 text-center">Project not found</div>;
+  if (projectState === "missing" || !project) {
+    return <div className="p-12 text-center">{t(EXPORT.notFound)}</div>;
+  }
 
   // Four states, not two. "We have not asked" and "we asked and could not
   // read it" are no longer collapsed into "idle", which is what made a running
@@ -277,8 +286,8 @@ export default function ExportPage() {
     <div className="w-full max-w-6xl mx-auto px-6 py-12 min-h-screen">
       <BackButton
         fallback={`/project/${project.id}`}
-        label="Back"
-        className="mb-8 -ml-4"
+        label={t(COMMON.back)}
+        className="mb-8 -ms-4"
         testId="button-back-export"
       />
 
@@ -322,20 +331,18 @@ export default function ExportPage() {
               // upload was lost, on every single visit.
               <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground p-6 text-center">
                 <Loader2 className="w-8 h-8 mb-2 animate-spin" />
-                <p>Loading your video…</p>
+                <p>{t(EXPORT.loadingVideo)}</p>
               </div>
             ) : hasVideo ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground p-6 text-center">
                 <AlertCircle className="w-8 h-8 mb-2" />
-                <p>We could not load the preview</p>
-                <p className="text-xs mt-1 opacity-70">
-                  Your video is stored safely. This is a problem on our side, and exporting still works.
-                </p>
+                <p>{t(EXPORT.previewFailed)}</p>
+                <p className="text-xs mt-1 opacity-70">{t(EXPORT.previewFailedDetail)}</p>
               </div>
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground p-6 text-center">
                 <AlertCircle className="w-8 h-8 mb-2" />
-                <p>No video available to export</p>
+                <p>{t(EXPORT.noVideo)}</p>
               </div>
             )}
             
@@ -347,11 +354,9 @@ export default function ExportPage() {
             {previewFailed && (
               <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 bg-black/85 px-4 text-center">
                 <VideoOff className="w-5 h-5 text-muted-foreground flex-shrink-0" />
-                <p className="text-sm font-semibold leading-snug">
-                  This file will not preview here
-                </p>
+                <p className="text-sm font-semibold leading-snug">{t(EXPORT.wontPreview)}</p>
                 <p className="text-xs text-muted-foreground leading-snug">
-                  It downloaded fine and it posts fine. This browser cannot draw it.
+                  {t(EXPORT.wontPreviewDetail)}
                 </p>
               </div>
             )}
@@ -368,12 +373,12 @@ export default function ExportPage() {
 
                 `aria-hidden`: it is a drawing of somebody else's app. */}
             <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
-              <div className="absolute right-3 bottom-28 flex flex-col gap-3">
+              <div className="absolute end-3 bottom-28 flex flex-col gap-3">
                 {[0, 1, 2].map((i) => (
                   <div key={i} className="w-9 h-9 rounded-full border border-dashed border-white/25" />
                 ))}
               </div>
-              <div className="absolute bottom-16 left-3 right-14">
+              <div className="absolute bottom-16 start-3 end-14">
                 <div className="h-10 rounded-lg border border-dashed border-white/25" />
               </div>
             </div>
@@ -383,7 +388,7 @@ export default function ExportPage() {
         {/* Export Controls */}
         <div className="order-1 lg:order-2 lg:col-span-7 flex flex-col gap-8">
           <div>
-            <h1 className="text-4xl font-bold tracking-tight mb-2">Export Project</h1>
+            <h1 className="text-4xl font-bold tracking-tight mb-2">{t(EXPORT.title)}</h1>
             <p dir="auto" className="text-xl text-muted-foreground">{project.title}</p>
           </div>
 
@@ -392,12 +397,9 @@ export default function ExportPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-3">
                   <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                  Checking for a render in progress
+                  {t(EXPORT.checkingTitle)}
                 </CardTitle>
-                <CardDescription>
-                  One moment. Offering to start an export while one is already running is how you
-                  end up being told it failed.
-                </CardDescription>
+                <CardDescription>{t(EXPORT.checkingLead)}</CardDescription>
               </CardHeader>
             </Card>
           )}
@@ -406,10 +408,8 @@ export default function ExportPage() {
             <>
               <Card className="glass-panel border-hairline">
                 <CardHeader>
-                  <CardTitle>Select Platform Format</CardTitle>
-                  <CardDescription>
-                    AI will optimize the framing and resolution for your chosen platform.
-                  </CardDescription>
+                  <CardTitle>{t(EXPORT.pickTitle)}</CardTitle>
+                  <CardDescription>{t(EXPORT.pickLead)}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <RadioGroup value={platform} onValueChange={(v) => setPlatform(v as "tiktok" | "reels" | "shorts" | "youtube" | "square")} className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -421,7 +421,7 @@ export default function ExportPage() {
                       >
                         <Smartphone className="mb-3 h-8 w-8 text-[#00f2fe]" />
                         <span className="font-semibold text-lg">TikTok</span>
-                        <span className="text-xs text-muted-foreground mt-1">9:16 Vertical</span>
+                        <span className="text-xs text-muted-foreground mt-1">{t(EXPORT.vertical)}</span>
                       </Label>
                     </div>
                     <div>
@@ -432,7 +432,7 @@ export default function ExportPage() {
                       >
                         <PlaySquare className="mb-3 h-8 w-8 text-[#E1306C]" />
                         <span className="font-semibold text-lg">Reels</span>
-                        <span className="text-xs text-muted-foreground mt-1">9:16 Vertical</span>
+                        <span className="text-xs text-muted-foreground mt-1">{t(EXPORT.vertical)}</span>
                       </Label>
                     </div>
                     <div>
@@ -443,7 +443,7 @@ export default function ExportPage() {
                       >
                         <PlaySquare className="mb-3 h-8 w-8 text-red-500" />
                         <span className="font-semibold text-lg">Shorts</span>
-                        <span className="text-xs text-muted-foreground mt-1">9:16 Vertical</span>
+                        <span className="text-xs text-muted-foreground mt-1">{t(EXPORT.vertical)}</span>
                       </Label>
                     </div>
                   </RadioGroup>
@@ -463,21 +463,21 @@ export default function ExportPage() {
                 disabled={!hasVideo}
                 data-testid="button-start-export"
               >
-                Render & Export
+                {t(EXPORT.renderAndExport)}
               </Button>
             </>
           )}
 
           {currentStatus === 'pending' && (
             <Card className="glass-panel border-primary/30 shadow-[0_0_30px_rgba(108,59,255,0.15)] relative overflow-hidden">
-              <div className="absolute top-0 left-0 h-1 bg-primary animate-pulse w-full"></div>
+              <div className="absolute top-0 start-0 h-1 bg-primary animate-pulse w-full"></div>
               <CardHeader>
                 <CardTitle className="flex items-center gap-3">
                   <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                  Rendering Video
+                  {t(EXPORT.renderingTitle)}
                 </CardTitle>
                 <CardDescription>
-                  Applying final AI touches and formatting for {exportStatus?.platform ?? platform}.
+                  {fmt(EXPORT.renderingLead, exportStatus?.platform ?? platform)}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -490,7 +490,7 @@ export default function ExportPage() {
                     ) : (
                       <div className="w-6 h-6 rounded-full border-2 border-hairline-strong flex-shrink-0" />
                     )}
-                    <span className={`text-lg ${
+                    <span dir="auto" className={`text-lg ${
                       step.status === 'active' ? 'text-foreground font-medium' : 
                       step.status === 'done' ? 'text-muted-foreground' : 'text-foreground/30'
                     }`}>
@@ -508,9 +508,9 @@ export default function ExportPage() {
                 <div className="mx-auto w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mb-4">
                   <CheckCircle2 className="w-8 h-8 text-success" />
                 </div>
-                <CardTitle className="text-2xl text-success">Ready to Share</CardTitle>
+                <CardTitle className="text-2xl text-success">{t(EXPORT.readyTitle)}</CardTitle>
                 <CardDescription>
-                  Your video has been successfully optimized for {exportStatus?.platform || platform}.
+                  {fmt(EXPORT.readyLead, exportStatus?.platform || platform)}
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-6">
@@ -570,23 +570,23 @@ export default function ExportPage() {
                     document.body.removeChild(link);
 
                     toast({
-                      title: "Download started",
-                      description: "Your video is downloading."
+                      title: t(EXPORT.downloadStarted),
+                      description: t(EXPORT.downloadStartedDetail)
                     });
                   }}
                   data-testid="button-download"
                 >
-                  <Download className="w-5 h-5 mr-3" />
+                  <Download className="w-5 h-5 me-3" />
                   {!exportedUrl
-                    ? "Preparing your file…"
+                    ? t(EXPORT.preparingFile)
                     : isPreparingDownload
-                      ? "Getting it ready…"
-                      : "Download Video"}
+                      ? t(EXPORT.gettingReady)
+                      : t(EXPORT.downloadVideo)}
                 </Button>
 
                 {(exportStatus?.notes?.length ?? 0) > 0 && (
                   <div className="mt-6 rounded-xl border border-hairline bg-surface-1 p-4" data-testid="render-notes">
-                    <p className="text-sm font-semibold mb-2">What we did</p>
+                    <p className="text-sm font-semibold mb-2">{t(EXPORT.whatWeDid)}</p>
                     <ul className="space-y-1.5">
                       {exportStatus?.notes?.map((note, i) => (
                         <li key={i} dir="auto" className="text-sm text-muted-foreground leading-relaxed">
@@ -627,7 +627,7 @@ export default function ExportPage() {
                     setIsExporting(false); // Reset to start another export
                     queryClient.invalidateQueries({ queryKey: getGetExportStatusQueryKey(id) });
                   }}>
-                    Export Another Format
+                    {t(EXPORT.anotherFormat)}
                   </Button>
                 </div>
               </CardContent>

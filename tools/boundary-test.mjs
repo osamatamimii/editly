@@ -318,7 +318,21 @@ section("A component that throws does not leave a white page");
       const browser = await chromium.launch({ ...(exe ? { executablePath: exe } : {}), args: ["--no-sandbox"] });
       const page = await browser.newPage();
       // A query string, because that is where a secret would be.
-      await page.goto("http://127.0.0.1:4320/project/abc?code=SECRET-CODE", { waitUntil: "domcontentloaded" });
+      /*
+        `lang=en`, because the crash screen is written in both languages now
+        and the assertions below quote the English half. The crash screen is
+        the one screen that cannot read the language provider — it is mounted
+        above it, since a boundary inside the tree it is catching cannot render
+        when that tree is what threw — so it reads `storedLanguage()`, which
+        looks at this query first.
+
+        The `code=SECRET-CODE` beside it is the point of this whole navigation
+        and is unchanged: the check further down is that the query never leaves
+        the browser in a crash report.
+      */
+      await page.goto("http://127.0.0.1:4320/project/abc?code=SECRET-CODE&lang=en", {
+        waitUntil: "domcontentloaded",
+      });
       await page.waitForSelector('[data-testid="alive"]');
 
       // ── The rejection first: it must report and must not blank the app ────

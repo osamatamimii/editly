@@ -14,7 +14,9 @@
  */
 import { AlertTriangle, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { COULD_NOT_LOAD } from "@/lib/load-state";
+import { useLanguage } from "@/lib/language";
+import { COMMON, LOAD } from "@/lib/copy/common";
+import { type Phrase } from "@/lib/app-copy";
 
 export function LoadFailed({
   what,
@@ -23,17 +25,19 @@ export function LoadFailed({
   testId = "load-failed",
 }: {
   /** What could not be read, in the person's words: "your projects". */
-  what: string;
+  what: Phrase;
   onRetry?: () => void;
   /** For a stat tile or a banner, where a full panel would be absurd. */
   compact?: boolean;
   testId?: string;
 }) {
+  const { t, fmt } = useLanguage();
+
   if (compact) {
     return (
       <div className="flex items-center gap-2 text-sm text-warning" role="status" data-testid={testId}>
         <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-        <span>Couldn&apos;t load {what}</span>
+        <span>{fmt(LOAD.failedCompact, t(what))}</span>
         {onRetry && (
           <button
             type="button"
@@ -41,7 +45,7 @@ export function LoadFailed({
             className="underline underline-offset-2 hover:no-underline"
             data-testid={`${testId}-retry`}
           >
-            Retry
+            {t(COMMON.retry)}
           </button>
         )}
       </div>
@@ -57,12 +61,12 @@ export function LoadFailed({
       <div className="w-16 h-16 rounded-full bg-warning/10 flex items-center justify-center mb-4 border border-warning/20">
         <AlertTriangle className="w-8 h-8 text-warning" />
       </div>
-      <h3 className="text-xl font-bold mb-2">We couldn&apos;t load {what}</h3>
-      <p className="text-muted-foreground max-w-sm mb-6">{COULD_NOT_LOAD}</p>
+      <h3 className="text-xl font-bold mb-2">{fmt(LOAD.failedTitle, t(what))}</h3>
+      <p className="text-muted-foreground max-w-sm mb-6">{t(LOAD.couldNotLoad)}</p>
       {onRetry && (
         <Button onClick={onRetry} variant="outline" className="rounded-full" data-testid={`${testId}-retry`}>
-          <RotateCw className="w-4 h-4 mr-2" />
-          Try again
+          <RotateCw className="w-4 h-4 me-2" />
+          {t(COMMON.tryAgain)}
         </Button>
       )}
     </div>

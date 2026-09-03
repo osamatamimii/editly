@@ -8,8 +8,9 @@
  * **A mark is not a new kind of instruction.** It is a timecode and a phrase,
  * and when the edit is generated they are folded into the same sentence typing
  * produces: "At 0:12 punch in. At 0:45 punch in." Both heads of the planner
- * read that — the keyword matcher parses `at m:ss` and the model is told to use
- * the numbers exactly — so nothing new is transported, no endpoint is added,
+ * read that — the keyword matcher parses `at m:ss`, and «عند m:ss» in Arabic,
+ * and the model is told to use the numbers exactly — so nothing new is
+ * transported, no endpoint is added,
  * and every existing behaviour applies unchanged: the refusals, the language,
  * the rate limit, the reply that says what it will do before it does it.
  *
@@ -21,6 +22,9 @@ import { useState } from "react";
 import { MapPin, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useLanguage } from "@/lib/language";
+import { fill, type Language } from "@/lib/landing-copy";
+import { MARKS } from "@/lib/copy/editor";
 
 export interface Mark {
   /** Seconds on the source clock, where the playhead was. */
@@ -42,12 +46,12 @@ export function clock(seconds: number): string {
  * they will be read in and the order the edit happens in. Each is its own
  * sentence so that one mark's words cannot run into the next one's.
  */
-export function marksToSentence(marks: Mark[]): string {
+export function marksToSentence(marks: Mark[], language: Language = "en"): string {
   return [...marks]
     .sort((a, b) => a.at - b.at)
     .map((m) => {
       const said = m.say.trim().replace(/[.،,]+$/, "");
-      return `At ${clock(m.at)} ${said}.`;
+      return fill(MARKS.atMoment, language, clock(m.at), said);
     })
     .join(" ");
 }
@@ -71,6 +75,7 @@ export function MomentMarks({
   disabled?: boolean;
   spaced?: boolean;
 }) {
+  const { t, fmt } = useLanguage();
   const [drafting, setDrafting] = useState(false);
   const [draft, setDraft] = useState("");
   // Frozen when the form opens. Without this the mark would land wherever the
@@ -102,14 +107,12 @@ export function MomentMarks({
           data-testid="button-add-mark"
         >
           <MapPin className="w-3.5 h-3.5" />
-          Note this moment
+          {t(MARKS.noteThis)}
           <span className="tabular-nums text-muted-foreground">{clock(currentTime)}</span>
         </Button>
 
         {marks.length > 0 && (
-          <span className="text-xs text-muted-foreground">
-            {marks.length} {marks.length === 1 ? "moment" : "moments"} noted
-          </span>
+          <span className="text-xs text-muted-foreground">{fmt(MARKS.noted, marks.length)}</span>
         )}
       </div>
 
@@ -138,12 +141,12 @@ export function MomentMarks({
                 setDraft("");
               }
             }}
-            placeholder="what should happen here?"
+            placeholder={t(MARKS.placeholder)}
             className="h-11 md:h-9 rounded-full"
             data-testid="input-mark"
           />
           <Button type="submit" size="sm" className="rounded-full flex-shrink-0 min-h-11 md:min-h-9" data-testid="button-save-mark">
-            Add
+            {t(MARKS.add)}
           </Button>
         </form>
       )}
@@ -164,8 +167,8 @@ export function MomentMarks({
                 <button
                   type="button"
                   onClick={() => onChange(marks.filter((x) => !(x.at === m.at && x.say === m.say)))}
-                  aria-label={`Remove the note at ${clock(m.at)}`}
-                  className="ml-auto flex-shrink-0 h-11 w-11 md:h-8 md:w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground"
+                  aria-label={fmt(MARKS.removeAt, clock(m.at))}
+                  className="ms-auto flex-shrink-0 h-11 w-11 md:h-8 md:w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground"
                   data-testid="button-remove-mark"
                 >
                   <X className="w-3.5 h-3.5" />

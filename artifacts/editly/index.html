@@ -148,9 +148,13 @@
       (function () {
         try {
           var path = location.pathname.replace(/\/+$/, "") || "/";
-          // Duplicated from BILINGUAL in src/lib/language.tsx. There is no
-          // module system here yet, and a check compares the two.
-          var bilingual = path === "/" || path === "/onboarding" || path.indexOf("/unsubscribe") === 0;
+          // Duplicated from BILINGUAL in src/lib/language-routes.ts. There is
+          // no module system here yet, and tools/language-test.mjs compares the
+          // two lists in both directions.
+          var routes = ["/", "/login", "/reset-password", "/unsubscribe", "/onboarding", "/dashboard", "/project", "/export", "/clips", "/scheduled", "/account", "/admin"];
+          var bilingual = path === "/" || routes.some(function (route) {
+            return route !== "/" && (path === route || path.indexOf(route + "/") === 0);
+          });
           var lang = "en";
           if (bilingual) {
             var kept = localStorage.getItem("editly:language") || localStorage.getItem("editly:landing-language");

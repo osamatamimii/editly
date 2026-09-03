@@ -230,14 +230,28 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
   );
 });
 
-/** The named looks. Public shape, no per-user data — but still behind auth. */
-router.get("/templates", async (_req, res): Promise<void> => {
+/**
+ * The named looks. Public shape, no per-user data — but still behind auth.
+ *
+ * One side of each pair, chosen by the header, so the shape on the wire is
+ * unchanged and the OpenAPI file still describes three strings. Storing both
+ * and choosing in the browser would put a second language into a response
+ * every client then has to know about, for the one screen that shows them.
+ *
+ * `Accept-Language` is what the app sends: `lib/api-client-react` attaches the
+ * *product's* chosen language rather than the operating system's, because a
+ * phone set to English is not an answer about what somebody reads. Anything
+ * that does not ask for Arabic gets English, which is what every other client
+ * of this route already got.
+ */
+router.get("/templates", async (req, res): Promise<void> => {
+  const arabic = /(^|,)\s*ar\b/i.test(String(req.headers["accept-language"] ?? ""));
   res.json(
-    TEMPLATES.map(({ id, name, description, bestFor, needs }) => ({
+    TEMPLATES.map(({ id, name, nameAr, description, descriptionAr, bestFor, bestForAr, needs }) => ({
       id,
-      name,
-      description,
-      bestFor,
+      name: arabic ? nameAr : name,
+      description: arabic ? descriptionAr : description,
+      bestFor: arabic ? bestForAr : bestFor,
       needs: needs ?? null,
     })),
   );

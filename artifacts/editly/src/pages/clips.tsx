@@ -19,6 +19,9 @@ import { LoadFailed } from "@/components/load-failed";
 import { ProjectArt } from "@/components/project-art";
 import { apiJson } from "@/lib/api-fetch";
 import { usePlayableVideo, downloadableVideoUrl } from "@/lib/video-storage";
+import { useLanguage } from "@/lib/language";
+import { CLIPS } from "@/lib/copy/clips";
+import { COMMON, LOAD } from "@/lib/copy/common";
 
 interface LibraryClip {
   id: string;
@@ -40,6 +43,7 @@ function clock(seconds: number): string {
 }
 
 function ClipCard({ clip }: { clip: LibraryClip }) {
+  const { t } = useLanguage();
   const { url, previewUrl } = usePlayableVideo(clip.outputPath);
   const [taking, setTaking] = useState(false);
   const [painted, setPainted] = useState(false);
@@ -116,14 +120,14 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
             ) : null}
           </video>
         ) : null}
-        <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-black/70 text-white text-[11px] font-medium backdrop-blur-md">
+        <div dir="ltr" className="absolute bottom-2 end-2 px-2 py-0.5 rounded-full bg-black/70 text-white text-[11px] font-medium backdrop-blur-md">
           {clock(clip.outputSeconds ?? clip.endSeconds - clip.startSeconds)}
         </div>
       </div>
 
       <div className="px-2 pt-3 pb-1 flex-1">
         <div dir="auto" className="text-sm font-semibold leading-snug line-clamp-2">
-          {clip.title ?? "Untitled clip"}
+          {clip.title ?? t(CLIPS.untitled)}
         </div>
         {/* Which recording this came out of. A wall of clips titled by what was
             said in them, with no way to tell which take each belongs to, is a
@@ -155,7 +159,7 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
           data-testid={`button-take-clip-${clip.id}`}
         >
           {taking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-          Save
+          {t(CLIPS.save)}
         </button>
       </div>
     </div>
@@ -163,6 +167,7 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
 }
 
 export default function ClipsPage() {
+  const { t, fmt } = useLanguage();
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [clips, setClips] = useState<LibraryClip[]>([]);
   const [total, setTotal] = useState(0);
@@ -188,12 +193,9 @@ export default function ClipsPage() {
 
   return (
     <div className="w-full max-w-7xl mx-auto px-6 py-12">
-      <BackButton fallback="/dashboard" label="Dashboard" className="mb-6 -ml-4" />
-      <h1 className="text-3xl font-bold tracking-tight mb-2">Clips</h1>
-      <p className="text-muted-foreground text-sm mb-8">
-        Every clip cut out of every recording, newest first. Play one, save it, or open the take it
-        came from.
-      </p>
+      <BackButton fallback="/dashboard" label={t(COMMON.dashboard)} className="mb-6 -ms-4" />
+      <h1 className="text-3xl font-bold tracking-tight mb-2">{t(CLIPS.title)}</h1>
+      <p className="text-muted-foreground text-sm mb-8">{t(CLIPS.lead)}</p>
 
       {state === "loading" ? (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -205,16 +207,17 @@ export default function ClipsPage() {
           ))}
         </div>
       ) : state === "failed" ? (
-        <LoadFailed what="your clips" onRetry={load} testId="clips-failed" />
+        <LoadFailed what={LOAD.yourClips} onRetry={load} testId="clips-failed" />
       ) : clips.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center glass-panel rounded-2xl border-hairline-faint border-dashed">
           <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 border border-primary/20">
             <Scissors className="w-8 h-8 text-primary" />
           </div>
-          <h2 className="text-xl font-bold mb-2">Nothing cut yet</h2>
+          <h2 className="text-xl font-bold mb-2">{t(CLIPS.emptyTitle)}</h2>
           <p className="text-muted-foreground max-w-md">
-            Open a long recording and ask for clips, or press <strong>Three clips</strong> in the
-            looks row. Each moment comes back as its own post, titled by what is said in it.
+            {t(CLIPS.emptyLeadStart)}
+            <strong>{t(CLIPS.emptyLeadAction)}</strong>
+            {t(CLIPS.emptyLeadEnd)}
           </p>
         </div>
       ) : (
@@ -231,8 +234,7 @@ export default function ClipsPage() {
               hundred and nothing to say the rest were still there. */}
           {total > clips.length ? (
             <p className="text-sm text-muted-foreground mt-6" data-testid="clips-capped">
-              Showing the newest {clips.length} of {total}. The rest are in the recordings they came
-              from.
+              {fmt(CLIPS.capped, clips.length, total)}
             </p>
           ) : null}
         </>

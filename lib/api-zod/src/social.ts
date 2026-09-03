@@ -224,6 +224,20 @@ export interface PostRefusal {
   field: "caption" | "duration" | "shape";
 }
 
+/**
+ * Which language a refusal is written in.
+ *
+ * These sentences are the ones somebody edits against — a caption is shortened
+ * because this line named a number — so they belong in the language the person
+ * is working in, like every other sentence in the product. The composer passes
+ * the screen's language; the API's own call still takes the default, and its
+ * copy of a refusal is the one nobody normally reads, because this same
+ * function has already refused in the browser with the button disabled. Wiring
+ * the request's language through `routes/social.ts` is the other half and it
+ * belongs with the work that owns that file.
+ */
+export type RefusalLanguage = "en" | "ar";
+
 export interface PostCandidate {
   platform: SocialPlatform;
   caption: string;
@@ -250,18 +264,22 @@ export function captionLength(caption: string, hashtags: string[]): number {
 }
 
 /** Every reason this will not post, or an empty list. */
-export function refusalsFor(candidate: PostCandidate): PostRefusal[] {
+export function refusalsFor(candidate: PostCandidate, language: RefusalLanguage = "en"): PostRefusal[] {
   const spec = SOCIAL_SPEC[candidate.platform];
   const name = SOCIAL_LABEL[candidate.platform];
+  const arabic = language === "ar";
   const refusals: PostRefusal[] = [];
 
   const length = captionLength(candidate.caption, candidate.hashtags);
   if (length > spec.captionLimit) {
+    const withTags = candidate.hashtags.length > 0;
     refusals.push({
       field: "caption",
-      message: `${name} stops at ${spec.captionLimit} characters and this is ${length}${
-        candidate.hashtags.length > 0 ? " with the hashtags" : ""
-      }.`,
+      message: arabic
+        ? `${name} يقف عند ${spec.captionLimit} حرفًا، وهذا ${length}${withTags ? " مع الوسوم" : ""}.`
+        : `${name} stops at ${spec.captionLimit} characters and this is ${length}${
+            withTags ? " with the hashtags" : ""
+          }.`,
     });
   }
 
@@ -275,7 +293,9 @@ export function refusalsFor(candidate: PostCandidate): PostRefusal[] {
     // A number in a refusal is the number somebody will edit against.
     refusals.push({
       field: "duration",
-      message: `${name} stops at ${formatDuration(spec.maxDurationSeconds)} and this edit is ${formatDuration(candidate.durationSeconds)}.`,
+      message: arabic
+        ? `${name} يقف عند ${formatDuration(spec.maxDurationSeconds, language)}، وهذا التعديل ${formatDuration(candidate.durationSeconds, language)}.`
+        : `${name} stops at ${formatDuration(spec.maxDurationSeconds)} and this edit is ${formatDuration(candidate.durationSeconds)}.`,
     });
   }
 
@@ -287,17 +307,28 @@ export function refusalsFor(candidate: PostCandidate): PostRefusal[] {
   ) {
     refusals.push({
       field: "shape",
-      message: `${name} only takes vertical video, and this edit is ${candidate.width}x${candidate.height}. Ask for it vertical and render again.`,
+      message: arabic
+        ? `${name} لا يقبل إلا الفيديو العمودي، وهذا التعديل ${candidate.width}x${candidate.height}. اطلبه عموديًّا ونفّذ من جديد.`
+        : `${name} only takes vertical video, and this edit is ${candidate.width}x${candidate.height}. Ask for it vertical and render again.`,
     });
   }
 
   return refusals;
 }
 
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)} seconds`;
+function formatDuration(seconds: number, language: RefusalLanguage = "en"): string {
+  const whole = Math.round(seconds);
   const minutes = Math.floor(seconds / 60);
   const rest = Math.round(seconds % 60);
+  if (language === "ar") {
+    // Arabic counts in threes: one, two, a few, many. Writing these out is
+    // shorter than any rule that would generate them, and a number that reads
+    // wrong in a refusal is a number somebody stops trusting.
+    if (seconds < 60) return whole === 1 ? "ثانية واحدة" : whole === 2 ? "ثانيتين" : `${whole} ثانية`;
+    const asMinutes = minutes === 1 ? "دقيقة واحدة" : minutes === 2 ? "دقيقتين" : `${minutes} دقيقة`;
+    return rest === 0 ? asMinutes : `${minutes}د ${rest}ث`;
+  }
+  if (seconds < 60) return `${whole} seconds`;
   return rest === 0 ? `${minutes} minutes` : `${minutes}m ${rest}s`;
 }
 

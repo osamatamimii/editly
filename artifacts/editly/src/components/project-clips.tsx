@@ -19,6 +19,8 @@ import { useListClips, getListClipsQueryKey, type Clip } from "@workspace/api-cl
 import { PROJECT_CLIPS_LIMIT } from "@workspace/api-zod/limits";
 import { usePlayableVideo, signedVideoUrl, downloadableVideoUrl } from "@/lib/video-storage";
 import { supabase } from "@/lib/supabase";
+import { useLanguage } from "@/lib/language";
+import { PROJECT_CLIPS } from "@/lib/copy/editor";
 
 export { getListClipsQueryKey };
 
@@ -44,6 +46,7 @@ function ClipRow({
   onOpen: (clip: Clip) => void;
   opening: boolean;
 }) {
+  const { t, fmt } = useLanguage();
   // The preview.webm mirror is tried first, exactly as the main player does —
   // a browser that cannot decode H.264 should not lose the clips too.
   const { url, previewUrl } = usePlayableVideo(clip.outputPath);
@@ -94,13 +97,13 @@ function ClipRow({
     >
       <div className="flex items-center justify-between gap-2 mb-1.5">
         <span className="text-xs font-medium truncate min-w-0">
-          Clip {clip.idx} · {clock(clip.startSeconds)}–{clock(clip.endSeconds)}
+          {fmt(PROJECT_CLIPS.clip, clip.idx, clock(clip.startSeconds), clock(clip.endSeconds))}
           {clip.outputSeconds != null ? ` · ${clip.outputSeconds.toFixed(0)}s` : ""}
         </span>
         <span className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={() => void download()}
-            title="Open this clip in a new tab to save it"
+            title={t(PROJECT_CLIPS.saveIt)}
             className="text-muted-foreground hover:text-foreground transition-colors"
             data-testid={`clip-download-${clip.idx}`}
           >
@@ -111,7 +114,7 @@ function ClipRow({
           <button
             onClick={() => onOpen(clip)}
             disabled={opening}
-            title="Open this clip as its own project"
+            title={t(PROJECT_CLIPS.openAsProject)}
             className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
             data-testid={`clip-open-${clip.idx}`}
           >
@@ -119,7 +122,7 @@ function ClipRow({
           </button>
           <button
             onClick={() => onDelete(clip)}
-            title="Delete this clip"
+            title={t(PROJECT_CLIPS.deleteClip)}
             className="text-muted-foreground hover:text-destructive transition-colors"
             data-testid={`clip-delete-${clip.idx}`}
           >
@@ -155,6 +158,7 @@ function ClipRow({
 }
 
 export function ProjectClips({ projectId }: { projectId: string }) {
+  const { t, fmt } = useLanguage();
   const { data: clips } = useListClips(projectId);
   const queryClient = useQueryClient();
   const [showEarlier, setShowEarlier] = useState(false);
@@ -209,7 +213,7 @@ export function ProjectClips({ projectId }: { projectId: string }) {
       <div className="flex items-center gap-2">
         <Scissors className="w-4 h-4 text-secondary flex-shrink-0" />
         <span className="text-sm font-medium text-muted-foreground">
-          Your clips ({latest.length})
+          {fmt(PROJECT_CLIPS.yourClips, latest.length)}
         </span>
       </div>
       {latest.map((clip) => (
@@ -230,8 +234,7 @@ export function ProjectClips({ projectId }: { projectId: string }) {
           the library either way, and the library knows its own total. */}
       {clips.length >= PROJECT_CLIPS_LIMIT && (
         <p className="text-xs text-muted-foreground" data-testid="project-clips-capped">
-          The newest {PROJECT_CLIPS_LIMIT} clips from this recording. Anything earlier is on your
-          Clips page.
+          {fmt(PROJECT_CLIPS.capped, PROJECT_CLIPS_LIMIT)}
         </p>
       )}
       {earlier.length > 0 && (
@@ -242,7 +245,7 @@ export function ProjectClips({ projectId }: { projectId: string }) {
             data-testid="button-earlier-clips"
           >
             {showEarlier ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            Earlier sets ({earlier.length})
+            {fmt(PROJECT_CLIPS.earlierSets, earlier.length)}
           </button>
           {showEarlier &&
             earlier.map((clip) => (

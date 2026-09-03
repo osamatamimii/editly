@@ -18,6 +18,8 @@
  * empty answer and no answer look identical once the data is gone.
  */
 
+import { LOAD } from "@/lib/copy/common";
+
 export type LoadState = "loading" | "failed" | "missing" | "empty" | "ready";
 
 export interface Loadable<T> {
@@ -80,5 +82,11 @@ export const isNotFound = (error: unknown): boolean => statusOf(error) === 404;
  * Deliberately not "Something went wrong": the person needs to know their work
  * is not gone, and that the thing to do is wait a moment rather than start
  * again from scratch.
+ *
+ * The sentence itself moved to `lib/app-copy.ts` when the product learned to
+ * speak Arabic, and this constant is the English half of that same pair rather
+ * than a second copy of the words. It stays because it is what this module
+ * promises and what `tools/browser-test.mjs` reads, and because deriving it is
+ * the one arrangement in which the two can never disagree.
  */
-export const COULD_NOT_LOAD = "We couldn't load this. Your work is safe. This is on our side.";
+export const COULD_NOT_LOAD = LOAD.couldNotLoad.en;

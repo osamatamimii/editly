@@ -1,6 +1,9 @@
 import { useLocation } from "wouter";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/lib/language";
+import { COMMON } from "@/lib/copy/common";
+import { directionOf } from "@/lib/landing-copy";
 
 /**
  * Go back one page.
@@ -28,6 +31,16 @@ export function BackButton({
   testId?: string;
 }) {
   const [, setLocation] = useLocation();
+  const { t, screenLanguage } = useLanguage();
+  /*
+    The arrow points at where it goes, which is not the same side in both
+    languages. This is the bug `lib/language.tsx` measured: on an Arabic screen
+    a left chevron sits on the right of the button and points away from the
+    page it returns to. Chosen here rather than mirrored in CSS because it is
+    one arrow and a transform on an icon is a thing somebody has to notice
+    later when they change the icon.
+  */
+  const Chevron = directionOf(screenLanguage) === "rtl" ? ChevronRight : ChevronLeft;
 
   const goBack = () => {
     // history.length counts the whole tab's session, so it can be greater than
@@ -47,11 +60,11 @@ export function BackButton({
         variant={variant}
         size="icon"
         onClick={goBack}
-        aria-label="Back"
+        aria-label={t(COMMON.back)}
         className={`text-muted-foreground hover:text-foreground ${className}`}
         data-testid={testId}
       >
-        <ChevronLeft className="w-5 h-5" />
+        <Chevron className="w-5 h-5" />
       </Button>
     );
   }
@@ -63,7 +76,7 @@ export function BackButton({
       className={`text-muted-foreground hover:text-foreground ${className}`}
       data-testid={testId}
     >
-      <ChevronLeft className="w-4 h-4 mr-2" />
+      <Chevron className="w-4 h-4 me-2" />
       {label}
     </Button>
   );

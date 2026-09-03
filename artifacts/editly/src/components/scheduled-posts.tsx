@@ -27,6 +27,11 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { LoadFailed } from "@/components/load-failed";
 import { PlatformMark, BRAND } from "@/components/platform-mark";
+import { useLanguage } from "@/lib/language";
+import { useDates } from "@/lib/dates";
+import { LOAD } from "@/lib/copy/common";
+import { POSTS } from "@/lib/copy/scheduled";
+import { type Phrase } from "@/lib/app-copy";
 
 interface ScheduledPost {
   id: string;
@@ -44,35 +49,36 @@ interface ScheduledPost {
 /** Each ending, said in the words that fit it. */
 const ENDING: Record<
   string,
-  { label: string; tone: string; Icon: typeof Clock }
+  { label: Phrase; tone: string; Icon: typeof Clock }
 > = {
-  scheduled: { label: "Going out", tone: "text-muted-foreground", Icon: Clock },
-  publishing: { label: "Sending", tone: "text-primary", Icon: Loader2 },
-  published: { label: "Posted", tone: "text-success", Icon: CircleCheck },
-  failed: { label: "Did not go", tone: "text-destructive", Icon: CircleAlert },
+  scheduled: { label: POSTS.endingScheduled, tone: "text-muted-foreground", Icon: Clock },
+  publishing: { label: POSTS.endingPublishing, tone: "text-primary", Icon: Loader2 },
+  published: { label: POSTS.endingPublished, tone: "text-success", Icon: CircleCheck },
+  failed: { label: POSTS.endingFailed, tone: "text-destructive", Icon: CircleAlert },
   // Not a failure. Nothing went wrong; it was simply too late to be worth
   // sending, and what it needs is a new time rather than a fix.
-  missed: { label: "Not sent, too late", tone: "text-warning", Icon: CircleAlert },
-  cancelled: { label: "Called back", tone: "text-muted-foreground", Icon: CircleSlash },
+  missed: { label: POSTS.endingMissed, tone: "text-warning", Icon: CircleAlert },
+  cancelled: { label: POSTS.endingCancelled, tone: "text-muted-foreground", Icon: CircleSlash },
 };
-
-function when(iso: string): string {
-  const date = new Date(iso);
-  const now = new Date();
-  const sameDay = date.toDateString() === now.toDateString();
-  return sameDay
-    ? `today, ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-    : date.toLocaleString([], {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        hour: "numeric",
-        minute: "2-digit",
-      });
-}
 
 export function ScheduledPosts({ projectId }: { projectId?: string }) {
   const { toast } = useToast();
+  const { t, fmt } = useLanguage();
+  const dates = useDates();
+  /*
+    A time, in the screen's language rather than the browser's.
+
+    It was `toLocaleString([])`, which follows the operating system — so an
+    Arabic queue could be labelled with English weekdays, or French ones, and
+    the only person who ever sees that pair is the customer. `useDates` writes
+    Arabic month names with Latin digits; see lib/dates.ts for why the digits
+    stay Latin.
+  */
+  const when = (iso: string): string => {
+    const date = new Date(iso);
+    const sameDay = date.toDateString() === new Date().toDateString();
+    return sameDay ? fmt(POSTS.today, dates.clock(date)) : dates.moment(date);
+  };
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [total, setTotal] = useState(0);
@@ -105,14 +111,14 @@ export function ScheduledPosts({ projectId }: { projectId?: string }) {
       const response = await apiFetch(`/api/social/posts/${post.id}`, { method: "DELETE" });
       if (!response.ok) {
         const body = (await response.json()) as { error?: string };
-        throw new Error(body.error ?? "That could not be called back.");
+        throw new Error(body.error ?? t(POSTS.couldNotCallBack));
       }
-      toast({ title: "Called back", description: "It will not go out." });
+      toast({ title: t(POSTS.calledBack), description: t(POSTS.calledBackDetail) });
       await load();
     } catch (error) {
       toast({
-        title: "Still scheduled",
-        description: error instanceof Error ? error.message : "Please try again.",
+        title: t(POSTS.stillScheduled),
+        description: error instanceof Error ? error.message : t(POSTS.tryAgain),
         variant: "destructive",
       });
     } finally {
@@ -123,18 +129,17 @@ export function ScheduledPosts({ projectId }: { projectId?: string }) {
   if (state === "loading") {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin" /> Reading what is scheduled…
+        <Loader2 className="w-4 h-4 animate-spin" /> {t(POSTS.reading)}
       </div>
     );
   }
   if (state === "failed") {
-    return <LoadFailed what="your scheduled posts" compact onRetry={load} testId="posts-failed" />;
+    return <LoadFailed what={LOAD.yourPosts} compact onRetry={load} testId="posts-failed" />;
   }
   if (posts.length === 0) {
     return (
       <p className="text-sm text-muted-foreground" data-testid="no-scheduled-posts">
-        Nothing scheduled. From a finished export you can send an edit to several accounts at a time
-        you choose.
+        {t(POSTS.empty)}
       </p>
     );
   }
@@ -157,14 +162,14 @@ export function ScheduledPosts({ projectId }: { projectId?: string }) {
             />
             <div className="min-w-0 flex-1">
               <div dir="auto" className="text-sm truncate">
-                {post.caption || "No caption"}
+                {post.caption || t(POSTS.noCaption)}
               </div>
               <div className={`text-xs flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 ${ending.tone}`}>
                 <span className="inline-flex items-center gap-1.5">
                   <Icon
                     className={`w-3 h-3 flex-shrink-0 ${post.status === "publishing" ? "animate-spin" : ""}`}
                   />
-                  {ending.label} {when(post.scheduledFor)}
+                  {t(ending.label)} {when(post.scheduledFor)}
                 </span>
                 {post.externalUrl ? (
                   <a
@@ -173,7 +178,7 @@ export function ScheduledPosts({ projectId }: { projectId?: string }) {
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 hover:underline whitespace-nowrap"
                   >
-                    See it <ExternalLink className="w-3 h-3" />
+                    {t(POSTS.seeIt)} <ExternalLink className="w-3 h-3" />
                   </a>
                 ) : null}
               </div>
@@ -193,7 +198,7 @@ export function ScheduledPosts({ projectId }: { projectId?: string }) {
                 onClick={() => callBack(post)}
                 disabled={cancelling === post.id}
                 className="flex-shrink-0 h-11 w-11 md:h-8 md:w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
-                aria-label="Call this post back"
+                aria-label={t(POSTS.callBack)}
                 data-testid={`button-cancel-${post.id}`}
               >
                 {cancelling === post.id ? (
@@ -212,8 +217,7 @@ export function ScheduledPosts({ projectId }: { projectId?: string }) {
         soonest-first, and only fills the rest of the room with history. */}
     {total > posts.length ? (
       <p className="text-xs text-muted-foreground mt-2" data-testid="posts-capped">
-        Showing {posts.length} of {total}. Everything still to go out is here; older posts are
-        further back.
+        {fmt(POSTS.capped, posts.length, total)}
       </p>
     ) : null}
     </>

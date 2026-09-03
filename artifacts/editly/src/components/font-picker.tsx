@@ -26,6 +26,8 @@ import { Check } from "lucide-react";
 import { FontUpload, type UploadedFace } from "@/components/font-upload";
 import { signedVideoUrl } from "@/lib/video-storage";
 import { useEffect } from "react";
+import { useLanguage } from "@/lib/language";
+import { FONTS } from "@/lib/copy/editor";
 
 export interface ChosenFonts {
   latin: string;
@@ -96,7 +98,7 @@ function FaceList({
             disabled={disabled}
             onClick={() => onChoose(face.id)}
             aria-pressed={picked}
-            className={`w-full text-left rounded-xl px-3 py-2.5 border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+            className={`w-full text-start rounded-xl px-3 py-2.5 border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
               picked
                 ? "border-primary/60 bg-primary/10"
                 : "border-hairline bg-surface-1 hover:border-primary/30 hover:bg-white/[0.05]"
@@ -198,16 +200,14 @@ export function FontPicker({
   accessToken?: string | null;
   onFontsChanged?: () => void;
 }) {
+  const { t } = useLanguage();
   useUploadedFaceFiles(uploaded);
   return (
     <div className="flex flex-col gap-4" data-testid="font-picker">
-      <p className="text-xs text-muted-foreground leading-snug">
-        What captions are drawn in. The next render uses it; the ones already made keep the face they
-        were made with.
-      </p>
+      <p className="text-xs text-muted-foreground leading-snug">{t(FONTS.lead)}</p>
 
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-semibold text-muted-foreground">English and Latin</span>
+        <span className="text-xs font-semibold text-muted-foreground">{t(FONTS.latinHeading)}</span>
         <FaceList
           script="latin"
           chosen={value.latin}
@@ -227,7 +227,7 @@ export function FontPicker({
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-semibold text-muted-foreground">العربية</span>
+        <span lang="ar" className="text-xs font-semibold text-muted-foreground">{t(FONTS.arabicHeading)}</span>
         {/*
           Both lists, always, rather than one chosen from the project's
           language. A person who records in Arabic and drops an English product

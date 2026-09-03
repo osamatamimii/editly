@@ -86,20 +86,51 @@ const outfile = path.join(buildDir, "language.mjs");
 }
 const { BILINGUAL, isBilingualRoute, LANGUAGE_KEY } = await import(pathToFileURL(outfile).href);
 
-section("The list of translated screens is short, and says what it means");
+section("The list of translated screens says what it means");
 {
   check("there is a list at all", Array.isArray(BILINGUAL) && BILINGUAL.length > 0, JSON.stringify(BILINGUAL));
   check("the landing page is on it", isBilingualRoute("/"));
   check("the first-run screen is on it", isBilingualRoute("/onboarding"));
 
   /*
-    And nothing else is, until it is translated. The point of this check is not
-    that these five screens are special — it is that adding a route to the list
-    without translating it is the exact mistake that produced the bug this file
-    is about, and it would otherwise pass everything.
+    The product is on it now, which is what changed. When this file was written
+    the list was three routes and the interesting check was everything that was
+    *not* on it; the app is written in both languages now, so the interesting
+    check is that the screens somebody spends their day on are.
+
+    The prefixed ones are the reason `isBilingualRoute` exists at all: a project
+    and an export are one screen each at a hundred addresses.
   */
-  for (const route of ["/dashboard", "/account", "/export/x", "/project/x", "/clips"]) {
+  for (const route of ["/login", "/dashboard", "/account", "/clips", "/scheduled", "/admin"]) {
+    check(`${route} is claimed as translated`, isBilingualRoute(route));
+  }
+  check("and a project under its id", isBilingualRoute("/project/8f2c-1"));
+  check("and an export under its id", isBilingualRoute("/export/8f2c-1"));
+
+  /*
+    And the two that are not, which is the whole reason this stayed a list of
+    what *is* translated rather than a list of exceptions. A privacy policy
+    translated by whoever was translating the buttons is a liability with a
+    language toggle on it; these declare English until a lawyer has written the
+    Arabic.
+  */
+  for (const route of ["/privacy", "/terms"]) {
     check(`${route} is not claimed as translated`, !isBilingualRoute(route));
+  }
+  /*
+    Nor is an address nobody wrote a screen for. The 404 answers there and it
+    *is* translated — it sets `lang` and `dir` on its own wrapper, because it
+    has no path this list could name. Claiming the path instead would claim
+    every mistyped URL in the product.
+  */
+  check("nor is a path with no screen behind it", !isBilingualRoute("/nothing-here"));
+  {
+    const notFound = read("artifacts/editly/src/pages/not-found.tsx");
+    check(
+      "and the 404 declares its own language instead",
+      /lang=\{language\}/.test(notFound) && /dir=\{directionOf\(language\)\}/.test(notFound),
+      "not-found.tsx must set lang and dir on its own wrapper",
+    );
   }
 }
 
@@ -115,8 +146,17 @@ section("Every screen claimed as translated actually is");
   */
   const FILES = {
     "/": "artifacts/editly/src/pages/home.tsx",
-    "/onboarding": "artifacts/editly/src/pages/onboarding.tsx",
+    "/login": "artifacts/editly/src/pages/login.tsx",
+    "/reset-password": "artifacts/editly/src/pages/reset-password.tsx",
     "/unsubscribe": "artifacts/editly/src/pages/unsubscribe.tsx",
+    "/onboarding": "artifacts/editly/src/pages/onboarding.tsx",
+    "/dashboard": "artifacts/editly/src/pages/dashboard.tsx",
+    "/project": "artifacts/editly/src/pages/project-editor.tsx",
+    "/export": "artifacts/editly/src/pages/export.tsx",
+    "/clips": "artifacts/editly/src/pages/clips.tsx",
+    "/scheduled": "artifacts/editly/src/pages/scheduled.tsx",
+    "/account": "artifacts/editly/src/pages/account.tsx",
+    "/admin": "artifacts/editly/src/pages/admin.tsx",
   };
 
   for (const route of BILINGUAL) {
@@ -139,6 +179,37 @@ section("Every screen claimed as translated actually is");
       "no language-aware string selection in the file",
     );
   }
+
+  /*
+    And the components those screens are built from, which is where most of the
+    sentences actually live. A page can pass the check above with every word it
+    renders coming out of a panel that is still English: the account screen is
+    four components and a heading.
+
+    Read from the folder rather than from a list here, so a component added next
+    month is held to the same rule without anybody remembering to add it. The
+    exceptions are named and each is a decision: a wordmark, a generated
+    picture, five brand paths, a sparkline, a rolling number. Nothing in any of
+    them is a sentence.
+  */
+  const componentDir = path.join(repoRoot, "artifacts/editly/src/components");
+  const DRAWS_RATHER_THAN_SAYS = new Set([
+    "logo.tsx", "project-art.tsx", "platform-mark.tsx", "sparkline.tsx",
+    "rolling-number.tsx", "pending-detail.tsx",
+  ]);
+  const speaking = readdirSync(componentDir)
+    .filter((name) => name.endsWith(".tsx") && !DRAWS_RATHER_THAN_SAYS.has(name));
+
+  check("there are components to check", speaking.length > 10, String(speaking.length));
+  for (const name of speaking) {
+    const source = read(`artifacts/editly/src/components/${name}`);
+    const rendered = [...source.matchAll(/>\s*([A-Za-z][A-Za-z ,.'’!?:%-]{14,})\s*</g)].map((m) => m[1].trim());
+    check(
+      `components/${name} renders no bare English`,
+      rendered.length === 0,
+      rendered.slice(0, 3).join(" | "),
+    );
+  }
 }
 
 section("The pre-paint copy of the list has not drifted from the real one");
@@ -151,8 +222,19 @@ section("The pre-paint copy of the list has not drifted from the real one");
     exactly as long as something compares the two.
   */
   const html = read("artifacts/editly/index.html");
-  const inline = html.match(/var bilingual = ([^;]+);/)?.[1] ?? "";
-  check("the inline script decides the language", inline.length > 0, "no `var bilingual =` in index.html");
+  check(
+    "the inline script decides the language",
+    /var bilingual = /.test(html),
+    "no `var bilingual =` in index.html",
+  );
+  /*
+    The list itself, read as an array rather than out of the middle of an
+    expression. It was three routes and one boolean when this check was
+    written; it is a dozen routes and a `.some` now, and a regex that stops at
+    the first semicolon was reading the first half of a loop body.
+  */
+  const inline = html.match(/var routes = (\[[^\]]*\])/)?.[1] ?? "";
+  check("and reads its route list from an array", inline.length > 0, "no `var routes = [...]` in index.html");
 
   for (const route of BILINGUAL) {
     check(`${route} appears in the pre-paint copy`, inline.includes(`"${route}"`), inline);
@@ -163,6 +245,11 @@ section("The pre-paint copy of the list has not drifted from the real one");
     "and the pre-paint copy claims nothing the module does not",
     named.every((route) => BILINGUAL.includes(route)),
     `${named.filter((r) => !BILINGUAL.includes(r)).join(", ")} is in index.html only`,
+  );
+  check(
+    "and neither list has an entry the other lacks",
+    named.length === BILINGUAL.length,
+    `${named.length} in index.html, ${BILINGUAL.length} in the module`,
   );
 
   check("both halves read the same storage key", html.includes(LANGUAGE_KEY), LANGUAGE_KEY);
@@ -272,7 +359,19 @@ const declared = (page) =>
 section("An English screen is laid out left to right, whatever the landing page is in");
 {
   check("the built bundle names a Supabase project, so a session can be planted", PROJECT_REF !== null);
-  const { ctx, page } = await open("/account", { signedIn: true });
+  /*
+    The privacy policy, and it is the right screen for this now.
+
+    This used to be `/account`, because the account screen was English and this
+    check is about English text under an Arabic document. The account screen is
+    written in both languages now; the legal pages are the two that are not, and
+    they are the two where being wrong about the words is a legal matter rather
+    than a typographic one. So the bidi assertion moved to them, unchanged.
+
+    Public, so no session has to be planted for it, which is one fewer thing
+    between this check and the thing it is checking.
+  */
+  const { ctx, page } = await open("/privacy", { signedIn: false });
   const said = await declared(page);
   check("the document says English", said.lang === "en", JSON.stringify(said));
   check("and lays out left to right", said.dir === "ltr" && said.computed === "ltr", JSON.stringify(said));
@@ -337,15 +436,37 @@ section("A choice made on the landing page is the same choice inside the product
   const arabic = await declared(page);
   check("switching switches it", arabic.lang === "ar" && arabic.dir === "rtl", JSON.stringify(arabic));
 
-  // And the untranslated part of the product does not follow, because it has
-  // nothing to follow with.
+  /*
+    And the product follows, which it did not when this suite was written.
+
+    This check used to assert the opposite: `/account` kept saying English
+    because English was what was on it, and declaring Arabic over English copy
+    is the bug this whole file is about. The account screen is written in both
+    languages now, so the honest assertion is the other one — and it is the same
+    rule, applied to a screen that has since been translated.
+  */
   await page.goto(`${ORIGIN}/account`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1000);
   const account = await declared(page);
   check(
-    "while a screen with no Arabic keeps saying English",
-    account.lang === "en",
-    "declaring Arabic over English copy is the bug this file exists for",
+    "and the account screen follows it now that it is written in both",
+    account.lang === "ar" && account.dir === "rtl",
+    JSON.stringify(account),
+  );
+
+  /*
+    The two that still do not, and must not. A privacy policy that declares
+    Arabic while being written in English is the original bug on the one screen
+    where being wrong about the words is a legal matter rather than a
+    typographic one.
+  */
+  await page.goto(`${ORIGIN}/privacy`, { waitUntil: "networkidle" });
+  await page.waitForTimeout(1000);
+  const privacy = await declared(page);
+  check(
+    "while the privacy policy keeps saying English, because it is",
+    privacy.lang === "en",
+    "these need a lawyer, not a copy table",
   );
   await ctx.close();
 }

@@ -19,6 +19,9 @@
  * text next to it; a screen reader announcing fourteen numbers is noise, and
  * announcing "chart" is worse — it promises something that is not there.
  */
+import { fill, say, type Language } from "@/lib/landing-copy";
+import { ADMIN } from "@/lib/copy/admin";
+
 
 export function Sparkline({
   values,
@@ -79,18 +82,27 @@ export function Sparkline({
  * information, and a console that says it teaches you to ignore the ones that
  * mean something.
  */
-export function weekOnWeek(thisWeek: number, lastWeek: number): {
+export function weekOnWeek(
+  thisWeek: number,
+  lastWeek: number,
+  language: Language = "en",
+): {
   text: string;
   direction: "up" | "down" | "flat";
 } | null {
   if (lastWeek === 0) {
     if (thisWeek === 0) return null;
-    return { text: `${thisWeek} this week, none last`, direction: "up" };
+    return { text: fill(ADMIN.thisWeekNoneLast, language, thisWeek), direction: "up" };
   }
   const change = Math.round(((thisWeek - lastWeek) / lastWeek) * 100);
-  if (change === 0) return { text: "level with last week", direction: "flat" };
+  if (change === 0) return { text: say(ADMIN.levelWithLastWeek, language), direction: "flat" };
   return {
-    text: `${change > 0 ? "up" : "down"} ${Math.abs(change)}% on last week`,
+    text: fill(
+      ADMIN.changeOnLastWeek,
+      language,
+      say(change > 0 ? ADMIN.up : ADMIN.down, language),
+      Math.abs(change),
+    ),
     direction: change > 0 ? "up" : "down",
   };
 }

@@ -25,6 +25,8 @@ import { Loader2, Link2Off, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api-fetch";
 import { PlatformMark, BRAND } from "@/components/platform-mark";
+import { useLanguage } from "@/lib/language";
+import { CONNECTIONS } from "@/lib/copy/scheduled";
 
 export interface PlatformInfo {
   platform: string;
@@ -70,6 +72,7 @@ export function SocialConnections({
   onChanged: () => void;
 }) {
   const { toast } = useToast();
+  const { t, fmt } = useLanguage();
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [choosingPage, setChoosingPage] = useState<string | null>(null);
@@ -97,13 +100,16 @@ export function SocialConnections({
         body: JSON.stringify({ pageId }),
       });
       const body = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(body.error ?? "Could not save that choice.");
-      toast({ title: `Posting to ${pageName}`, description: "Scheduled posts will go to this Page." });
+      if (!response.ok) throw new Error(body.error ?? t(CONNECTIONS.couldNotSaveChoice));
+      toast({
+        title: fmt(CONNECTIONS.postingTo, pageName),
+        description: t(CONNECTIONS.postingToDetail),
+      });
       onChanged();
     } catch (error) {
       toast({
-        title: "Could not set the Page",
-        description: error instanceof Error ? error.message : "Please try again.",
+        title: t(CONNECTIONS.couldNotSetPage),
+        description: error instanceof Error ? error.message : t(CONNECTIONS.tryAgain),
         variant: "destructive",
       });
     } finally {
@@ -129,13 +135,15 @@ export function SocialConnections({
     try {
       const response = await apiFetch(`/api/social/connect/${platform}`, { method: "POST" });
       const body = (await response.json()) as { url?: string; error?: string };
-      if (!response.ok || !body.url) throw new Error(body.error ?? `Could not start connecting ${label}.`);
+      if (!response.ok || !body.url) {
+        throw new Error(body.error ?? fmt(CONNECTIONS.couldNotStartConnect, label));
+      }
       window.location.href = body.url;
     } catch (error) {
       setConnecting(null);
       toast({
-        title: `Could not connect ${label}`,
-        description: error instanceof Error ? error.message : "Please try again.",
+        title: fmt(CONNECTIONS.couldNotConnect, label),
+        description: error instanceof Error ? error.message : t(CONNECTIONS.tryAgain),
         variant: "destructive",
       });
     }
@@ -146,22 +154,22 @@ export function SocialConnections({
     try {
       const response = await apiFetch(`/api/social/accounts/${account.id}`, { method: "DELETE" });
       const body = (await response.json()) as { cancelledPosts?: number; error?: string };
-      if (!response.ok) throw new Error(body.error ?? "Could not disconnect that account.");
+      if (!response.ok) throw new Error(body.error ?? t(CONNECTIONS.couldNotDisconnectDetail));
       toast({
-        title: `${account.handle} disconnected`,
+        title: fmt(CONNECTIONS.disconnected, account.handle),
         // The number matters. Somebody who set up a week of posts and then
         // disconnected an account has lost that week, and finding out from a
         // post that never appeared is finding out too late.
         description:
           body.cancelledPosts && body.cancelledPosts > 0
-            ? `${body.cancelledPosts} scheduled ${body.cancelledPosts === 1 ? "post was" : "posts were"} cancelled with it.`
-            : "Nothing was scheduled to it.",
+            ? fmt(CONNECTIONS.cancelledWithIt, body.cancelledPosts)
+            : t(CONNECTIONS.nothingScheduledToIt),
       });
       onChanged();
     } catch (error) {
       toast({
-        title: "Could not disconnect",
-        description: error instanceof Error ? error.message : "Please try again.",
+        title: t(CONNECTIONS.couldNotDisconnect),
+        description: error instanceof Error ? error.message : t(CONNECTIONS.tryAgain),
         variant: "destructive",
       });
     } finally {
@@ -188,18 +196,13 @@ export function SocialConnections({
       */}
       {waiting.length > 0 || missing.length > 0 ? (
         <p className="text-xs text-muted-foreground leading-relaxed" data-testid="social-why">
-          {waiting.length > 0 ? (
-            <>
-              {waiting.map((p) => p.label).join(", ")}{" "}
-              {waiting.length === 1 ? "reviews" : "review"} every app before letting one post on
-              your behalf. The editing and the scheduling are built; that review is the part
-              waiting on them.
-            </>
-          ) : null}
+          {waiting.length > 0
+            ? fmt(CONNECTIONS.reviews, waiting.map((p) => p.label).join(", "), waiting.length)
+            : null}
           {waiting.length > 0 && missing.length > 0 ? " " : null}
-          {missing.length > 0 ? (
-            <>This deployment does not have {missing.map((p) => p.label).join(" or ")} credentials yet.</>
-          ) : null}
+          {missing.length > 0
+            ? fmt(CONNECTIONS.noCredentials, missing.map((p) => p.label).join(t(CONNECTIONS.or)))
+            : null}
         </p>
       ) : null}
 
@@ -219,8 +222,8 @@ export function SocialConnections({
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-sm">{platform.label}</div>
                 <div className="text-xs text-muted-foreground">
-                  {platform.captionLimit.toLocaleString()} characters
-                  {platform.shape === "vertical" ? " · vertical only" : ""}
+                  {fmt(CONNECTIONS.characters, platform.captionLimit.toLocaleString("en-US"))}
+                  {platform.shape === "vertical" ? t(CONNECTIONS.verticalOnly) : ""}
                 </div>
               </div>
               {/*
@@ -253,7 +256,7 @@ export function SocialConnections({
                   {connecting === platform.platform ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : null}
-                  {mine.length > 0 ? "Add another" : "Connect"}
+                  {mine.length > 0 ? t(CONNECTIONS.addAnother) : t(CONNECTIONS.connect)}
                 </button>
               ) : (
                 <span
@@ -261,10 +264,10 @@ export function SocialConnections({
                   data-testid={`social-state-${platform.platform}`}
                 >
                   {mine.length > 0
-                    ? `${mine.length} connected`
+                    ? fmt(CONNECTIONS.countConnected, mine.length)
                     : platform.needsReview
-                      ? "Waiting on review"
-                      : "Not set up yet"}
+                      ? t(CONNECTIONS.waitingReview)
+                      : t(CONNECTIONS.notSetUp)}
                 </span>
               )}
             </div>
@@ -287,11 +290,11 @@ export function SocialConnections({
                       <div className="w-7 h-7 rounded-full bg-surface-2 flex-shrink-0" />
                     )}
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium truncate">{account.handle}</div>
+                      <div dir="auto" className="text-sm font-medium truncate">{account.handle}</div>
                       {account.status !== "ok" ? (
                         <div className="text-xs text-warning flex items-center gap-1">
                           <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-                          {account.statusDetail ?? "Needs reconnecting."}
+                          {account.statusDetail ?? t(CONNECTIONS.needsReconnecting)}
                         </div>
                       ) : account.pageName ? (
                         /*
@@ -302,11 +305,11 @@ export function SocialConnections({
                           Somebody with two Pages had no way at all to tell
                           which one they were about to publish to.
                         */
-                        <div className="text-xs text-muted-foreground truncate">
-                          Posts to {account.pageName}
+                        <div dir="auto" className="text-xs text-muted-foreground truncate">
+                          {fmt(CONNECTIONS.postsTo, account.pageName)}
                         </div>
                       ) : account.displayName ? (
-                        <div className="text-xs text-muted-foreground truncate">
+                        <div dir="auto" className="text-xs text-muted-foreground truncate">
                           {account.displayName}
                         </div>
                       ) : null}
@@ -316,7 +319,7 @@ export function SocialConnections({
                       onClick={() => disconnect(account)}
                       disabled={disconnecting === account.id}
                       className="flex-shrink-0 h-11 w-11 md:h-8 md:w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
-                      aria-label={`Disconnect ${account.handle}`}
+                      aria-label={fmt(CONNECTIONS.disconnect, account.handle)}
                       data-testid={`button-disconnect-${account.id}`}
                     >
                       {disconnecting === account.id ? (
@@ -339,7 +342,7 @@ export function SocialConnections({
                     {!account.pageId && (account.pageChoices?.length ?? 0) > 1 ? (
                       <div className="mt-2 pt-2 border-t border-hairline-faint" data-testid={`page-choice-${account.id}`}>
                         <div className="text-xs text-muted-foreground mb-2">
-                          This account manages {account.pageChoices!.length} Pages. Which one do posts go to?
+                          {fmt(CONNECTIONS.whichPage, account.pageChoices!.length)}
                         </div>
                         <div className="flex flex-wrap gap-1.5">
                           {account.pageChoices!.map((page) => (

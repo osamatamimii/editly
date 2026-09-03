@@ -27,6 +27,8 @@
  */
 import { ToastAction } from "@/components/ui/toast";
 import type { ToastActionElement } from "@/components/ui/toast";
+import { COMMON, REFUSAL } from "@/lib/copy/common";
+import { type Phrase } from "@/lib/app-copy";
 
 /**
  * The statuses that mean "your plan", not "our fault".
@@ -48,11 +50,11 @@ export function saidBy(error: unknown): string | undefined {
   return error instanceof Error ? error.message : undefined;
 }
 
-const TITLES: Record<number, string> = {
-  402: "That's a paid feature",
-  409: "Already rendering",
-  413: "That file is too long for this plan",
-  429: "Not enough minutes left",
+const TITLES: Record<number, Phrase> = {
+  402: REFUSAL.paidFeature,
+  409: REFUSAL.alreadyRendering,
+  413: REFUSAL.tooLongForPlan,
+  429: REFUSAL.notEnoughMinutes,
 };
 
 export interface Refusal {
@@ -68,21 +70,31 @@ export interface Refusal {
  * `whenNothingElse` is the title for a status nobody has a category for, and
  * it is the caller's because "Could not attach that reference" and "Could not
  * start the render" are different things to have failed.
+ *
+ * `t` is passed in rather than read from a hook because this is a function and
+ * not a component: it is called from inside a mutation's `onError`, where there
+ * is no render in progress to hold a hook. The screen that calls it has the
+ * hook already.
  */
-export function refusalToast(error: unknown, whenNothingElse: string): Refusal {
+export function refusalToast(
+  error: unknown,
+  whenNothingElse: Phrase,
+  t: (phrase: Phrase) => string,
+): Refusal {
   const status = (error as { status?: number })?.status;
 
   const refusal: Refusal = {
-    title: TITLES[status ?? 0] ?? whenNothingElse,
+    title: t(TITLES[status ?? 0] ?? whenNothingElse),
     description:
-      status === 409 ? "This project has a render in progress." : saidBy(error),
+      status === 409 ? t(REFUSAL.renderInProgress) : saidBy(error),
     variant: "destructive",
   };
 
   if (isPlanWall(status)) {
+    const seePlans = t(COMMON.seePlans);
     refusal.action = (
-      <ToastAction altText="See plans" onClick={() => { window.location.href = "/#pricing"; }}>
-        See plans
+      <ToastAction altText={seePlans} onClick={() => { window.location.href = "/#pricing"; }}>
+        {seePlans}
       </ToastAction>
     );
   }

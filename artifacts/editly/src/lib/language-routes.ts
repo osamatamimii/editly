@@ -23,12 +23,42 @@ const LEGACY_KEY = "editly:landing-language";
 /**
  * The screens whose copy exists in both languages.
  *
- * This list is the seam, and it is deliberately short and boring: a route is
- * added by the commit that translates it, not by the commit that intends to.
- * Paths are matched by prefix so `/onboarding` covers nothing else and a future
- * `/account` would cover only itself.
+ * This list is the seam, and it stays a list of what *is* translated rather
+ * than a list of exceptions. It was three routes; it is now the product,
+ * because the product is written in both languages. The temptation at that
+ * point is to invert it — "everything except the legal pages" — and that would
+ * throw away the only property this file has: a route joins on the commit that
+ * translates it, and `tools/language-test.mjs` refuses a member with bare
+ * English left in it. Inverted, a screen added next month would claim Arabic it
+ * does not have, which is the exact bug `lib/language.tsx` was written about.
+ *
+ * Paths are matched by prefix, so `/project` covers `/project/:id` and
+ * `/export` covers `/export/:id`.
+ *
+ * `/privacy` and `/terms` are deliberately absent. They are the two screens in
+ * this product whose words are a commitment rather than a description, and an
+ * Arabic privacy policy written by whoever was translating the buttons is a
+ * liability with a language toggle on it. They keep declaring English until a
+ * lawyer has written the Arabic.
+ *
+ * The 404 is absent for a different reason: it has no path of its own. It
+ * answers at whatever address was mistyped, so it cannot be listed here, and it
+ * sets `lang` and `dir` on its own wrapper the way the landing page does.
  */
-export const BILINGUAL: readonly string[] = ["/", "/onboarding", "/unsubscribe"];
+export const BILINGUAL: readonly string[] = [
+  "/",
+  "/login",
+  "/reset-password",
+  "/unsubscribe",
+  "/onboarding",
+  "/dashboard",
+  "/project",
+  "/export",
+  "/clips",
+  "/scheduled",
+  "/account",
+  "/admin",
+];
 
 export function isBilingualRoute(pathname: string): boolean {
   if (pathname === "/") return true;

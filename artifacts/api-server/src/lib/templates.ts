@@ -19,6 +19,24 @@ export interface Template {
   description: string;
   /** Best suited to this kind of footage. */
   bestFor: string;
+  /*
+    The same three, in Arabic.
+
+    Required rather than optional, for the reason every pair in this repository
+    is required: a template that *can* be added without its Arabic is one that
+    *will* be, on the day somebody adds an eighth look in a hurry, and the
+    symptom is one English card in a column of Arabic ones. `GET /templates`
+    picks a side per request; nothing downstream knows there were two.
+
+    The English keeps the plain field names because it is what
+    `tools/combination-test.mjs` reads when it checks that a look which says it
+    captions actually carries a caption operation. That check is about the words
+    on the button matching the plan behind it, and it does that job in one
+    language.
+  */
+  nameAr: string;
+  descriptionAr: string;
+  bestForAr: string;
   /**
    * A file this look cannot be built without.
    *
@@ -112,8 +130,11 @@ export const TEMPLATES: Template[] = [
   {
     id: "tight-talking-head",
     name: "Tight talking head",
+    nameAr: "لقطة مشدودة للوجه",
     description: "Cuts every pause, pushes in slowly, captions it, levels the audio.",
+    descriptionAr: "يقصّ كل وقفة، ويقرّب ببطء، ويضيف الكابشن، ويعاير الصوت.",
     bestFor: "One person to camera",
+    bestForAr: "شخص واحد أمام الكاميرا",
     build: (context) =>
       withWatermark(
         [
@@ -131,8 +152,11 @@ export const TEMPLATES: Template[] = [
   {
     id: "high-energy",
     name: "High energy",
+    nameAr: "إيقاع عالٍ",
     description: "Aggressive silence cuts, punch-in zooms and loud captions throughout.",
+    descriptionAr: "قصّ حادّ للصمت، وتقريب مفاجئ، وكابشن عريض طوال المقطع.",
     bestFor: "Rants, reactions, anything fast",
+    bestForAr: "الحماس والردود وكل ما هو سريع",
     build: (context) =>
       withWatermark(
         [
@@ -162,8 +186,11 @@ export const TEMPLATES: Template[] = [
   {
     id: "clean-cut",
     name: "Clean cut",
+    nameAr: "قصّ نظيف",
     description: "Silence removed and reframed. Nothing else touched.",
+    descriptionAr: "إزالة الصمت وإعادة التأطير. ولا شيء غير ذلك.",
     bestFor: "Footage that already looks how you want",
+    bestForAr: "لقطات تبدو كما تريدها أصلًا",
     build: (context) =>
       withWatermark(
         [
@@ -181,12 +208,15 @@ export const TEMPLATES: Template[] = [
   {
     id: "the-look",
     name: "The look",
+    nameAr: "المظهر",
     // The captions were always here — the comment in the build below has
     // referred to them since it was written — and the sentence a person reads
     // did not mention them. An omission rather than a lie, and still a look
     // that does something to somebody's video without saying it would.
     description: "Cuts the pauses, dissolves between them, captions it, and grades it cinematic.",
+    descriptionAr: "يقصّ الوقفات، ويذوّب بينها، ويضيف الكابشن، ويمنحه تدرّجًا سينمائيًّا.",
     bestFor: "A take you want to look produced rather than recorded",
+    bestForAr: "تسجيل تريده أن يبدو منتَجًا لا مصوَّرًا",
     build: (context) =>
       withWatermark(
         [
@@ -214,8 +244,11 @@ export const TEMPLATES: Template[] = [
   {
     id: "the-highlight",
     name: "The highlight",
+    nameAr: "أقوى جزء",
     description: "Keeps only the strongest 30 seconds, reframed and captioned.",
+    descriptionAr: "يبقي أقوى 30 ثانية وحدها، مؤطَّرة ومع كابشن.",
     bestFor: "Long takes you want one clip from",
+    bestForAr: "تسجيلات طويلة تريد منها مقطعًا واحدًا",
     build: (context) =>
       withWatermark(
         [
@@ -236,8 +269,11 @@ export const TEMPLATES: Template[] = [
   {
     id: "three-clips",
     name: "Three clips",
+    nameAr: "ثلاثة مقاطع",
     description: "Cuts the take into three posts, each captioned and titled by what is said in it.",
+    descriptionAr: "يقسّم التسجيل إلى ثلاثة منشورات، لكل واحد كابشن وعنوان ممّا قيل فيه.",
     bestFor: "One long recording, a week of posting",
+    bestForAr: "تسجيل طويل واحد، وأسبوع من النشر",
     build: (context) =>
       withWatermark(
         [
@@ -263,8 +299,11 @@ export const TEMPLATES: Template[] = [
   {
     id: "on-the-beat",
     name: "On the beat",
+    nameAr: "على الإيقاع",
     description: "Lays your track under the cut and punches in on the bar.",
+    descriptionAr: "يضع مقطوعتك تحت التعديل ويقرّب على المازورة.",
     bestFor: "B-roll, montages, anything with music",
+    bestForAr: "اللقطات الإضافية والمونتاج وكل ما فيه موسيقى",
     needs: "music",
     build: (context) =>
       withWatermark(
@@ -318,8 +357,11 @@ export const TEMPLATES: Template[] = [
   {
     id: "podcast-clip",
     name: "Podcast clip",
+    nameAr: "مقطع بودكاست",
     description: "Finds the best 45 seconds of the conversation, captions it in a box, evens the levels.",
+    descriptionAr: "يجد أفضل 45 ثانية من الحوار، ويضع الكابشن في صندوق، ويسوّي المستويات.",
     bestFor: "Two people talking, longer takes",
+    bestForAr: "شخصان يتحاوران، وتسجيلات أطول",
     build: (context) =>
       withWatermark(
         [

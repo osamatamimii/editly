@@ -58,6 +58,10 @@ import { waitInWords } from "@/lib/wait-in-words";
 import { VoiceInput, SpeechLanguageToggle } from "@/components/voice/voice-input";
 import { guessSpeechLanguage, type SpeechLanguage } from "@/components/voice/speech-language";
 import { MomentMarks, marksToSentence, type Mark } from "@/components/moment-marks";
+import { useLanguage } from "@/lib/language";
+import { COMMON, LOAD } from "@/lib/copy/common";
+import { DASHBOARD } from "@/lib/copy/dashboard";
+import { EDITOR } from "@/lib/copy/editor";
 
 /** m:ss — anything longer than an hour is not what this product is for. */
 function formatTimecode(seconds: number): string {
@@ -77,6 +81,7 @@ function formatTimecode(seconds: number): string {
 const USABLE_TRANSPORT_WIDTH = 280;
 
 export default function ProjectEditor() {
+  const { t, fmt, language } = useLanguage();
   const params = useParams();
   const id = params.id as string;
   const [, setLocation] = useLocation();
@@ -566,8 +571,8 @@ export default function ProjectEditor() {
   const validateAndUpload = async (file: File) => {
     if (!ACCEPTED_VIDEO_TYPES.includes(file.type) && !file.name.match(/\.(mp4|mov|webm)$/i)) {
       toast({
-        title: "Invalid file type",
-        description: "Please upload an mp4, mov, or webm file.",
+        title: t(DASHBOARD.badFileType),
+        description: t(DASHBOARD.badFileTypeDetail),
         variant: "destructive"
       });
       return;
@@ -577,8 +582,8 @@ export default function ProjectEditor() {
     const ceiling = uploadCeiling(subscription);
     if (file.size > ceiling) {
       toast({
-        title: "File too large",
-        description: `That file is ${formatBytes(file.size)}. The current limit is ${formatBytes(ceiling)} per video.`,
+        title: t(DASHBOARD.fileTooLarge),
+        description: fmt(DASHBOARD.fileTooLargeDetail, formatBytes(file.size), formatBytes(ceiling)),
         variant: "destructive"
       });
       return;
@@ -589,7 +594,7 @@ export default function ProjectEditor() {
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token;
     if (!user || !accessToken) {
-      toast({ title: "Please sign in again", variant: "destructive" });
+      toast({ title: t(EDITOR.signInAgain), variant: "destructive" });
       return;
     }
 
@@ -652,12 +657,12 @@ export default function ProjectEditor() {
       });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
       toast({
-        title: "Video uploaded",
-        description: "Your video is stored and ready for editing."
+        title: t(EDITOR.uploaded),
+        description: t(EDITOR.uploadedDetail)
       });
     } catch (error) {
       toast({
-        title: "Upload failed",
+        title: t(EDITOR.uploadFailed),
         description: error instanceof Error ? error.message : undefined,
         variant: "destructive"
       });
@@ -742,7 +747,7 @@ export default function ProjectEditor() {
      * Sending with marks and no sentence is legitimate: pointing at three
      * moments *is* the instruction.
      */
-    const spoken = marksToSentence(marks);
+    const spoken = marksToSentence(marks, language);
     const content = [spoken, chatInput.trim()].filter(Boolean).join(" ");
     if (!content || !id) return;
 
@@ -777,7 +782,7 @@ export default function ProjectEditor() {
       // is built around, so a toast implying otherwise was both dead and wrong.
       {
         toast({
-          title: "Failed to send message",
+          title: t(EDITOR.sendFailed),
           variant: "destructive"
         });
         setChatInput(content); // restore input
@@ -811,12 +816,12 @@ export default function ProjectEditor() {
       await updateProject.mutateAsync({ id: project.id, data: { referenceVideoPath } });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
       toast({
-        title: "Reference attached",
-        description: "Your next render will be edited to match it.",
+        title: t(EDITOR.referenceAttached),
+        description: t(EDITOR.referenceAttachedDetail),
       });
     } catch (error: unknown) {
       // 402 is the plan speaking, and it has already written the sentence.
-      toast(refusalToast(error, "Could not attach that reference"));
+      toast(refusalToast(error, EDITOR.couldNotAttach, t));
     } finally {
       setIsAttachingReference(false);
     }
@@ -828,7 +833,7 @@ export default function ProjectEditor() {
       await updateProject.mutateAsync({ id: project.id, data: { referenceVideoPath: null } });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
     } catch {
-      toast({ title: "Could not remove the reference", variant: "destructive" });
+      toast({ title: t(EDITOR.couldNotRemoveReference), variant: "destructive" });
     }
   };
 
@@ -841,13 +846,13 @@ export default function ProjectEditor() {
     try {
       await startRender.mutateAsync({ id, templateId, fonts });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
-      toast({ title: "Render queued", description: "You can leave this page. We'll keep working." });
+      toast({ title: t(EDITOR.renderQueued), description: t(EDITOR.renderQueuedDetail) });
     } catch (error: unknown) {
       // 429 and 413 are policy, not failure: the server has already written a
       // sentence naming the minutes or the length and what to do about it, so
       // it is shown as-is rather than replaced with a generic apology, and it
       // gets the button that leads somewhere.
-      toast(refusalToast(error, "Could not start the render"));
+      toast(refusalToast(error, EDITOR.couldNotStartRender, t));
     }
   };
 
@@ -871,8 +876,8 @@ export default function ProjectEditor() {
       await startRender.mutateAsync({ id, plan: { version: 1, operations } });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
       toast({
-        title: "Render queued",
-        description: "You can leave this page. We'll keep working."
+        title: t(EDITOR.renderQueued),
+        description: t(EDITOR.renderQueuedDetail)
       });
     } catch (error: unknown) {
       /*
@@ -883,7 +888,7 @@ export default function ProjectEditor() {
         render" above the server's own sentence about the plan, with no way up:
         a paywall dressed as an outage, on the button most people press.
       */
-      toast(refusalToast(error, "Could not start the render"));
+      toast(refusalToast(error, EDITOR.couldNotStartRender, t));
     }
   };
 
@@ -911,9 +916,9 @@ export default function ProjectEditor() {
     try {
       await startRender.mutateAsync({ id, plan });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
-      toast({ title: "Render queued", description: "You can leave this page. We'll keep working." });
+      toast({ title: t(EDITOR.renderQueued), description: t(EDITOR.renderQueuedDetail) });
     } catch (error: unknown) {
-      toast(refusalToast(error, "Could not start the render"));
+      toast(refusalToast(error, EDITOR.couldNotStartRender, t));
     }
   };
 
@@ -932,7 +937,7 @@ export default function ProjectEditor() {
     return (
       <div className="w-full h-screen flex flex-col">
         <div className="h-16 border-b border-hairline-faint flex items-center px-6">
-          <Skeleton className="h-8 w-8 mr-4" />
+          <Skeleton className="h-8 w-8 me-4" />
           <Skeleton className="h-6 w-48" />
         </div>
         {/* The skeleton has to be the shape of the thing it stands in for.
@@ -955,13 +960,13 @@ export default function ProjectEditor() {
   if (projectState === "failed") {
     return (
       <div className="w-full max-w-3xl mx-auto px-6 py-24">
-        <LoadFailed what="this project" onRetry={() => projectQuery.refetch()} testId="project-failed" />
+        <LoadFailed what={LOAD.thisProject} onRetry={() => projectQuery.refetch()} testId="project-failed" />
       </div>
     );
   }
 
   if (projectState === "missing" || !project) {
-    return <div className="p-12 text-center">Project not found</div>;
+    return <div className="p-12 text-center">{t(EDITOR.notFound)}</div>;
   }
 
   /**
@@ -1029,7 +1034,7 @@ export default function ProjectEditor() {
               ? "bg-black/55 text-white backdrop-blur-md border border-white/20"
               : "bg-surface-2 hover:bg-surface-2"
           }`}
-          aria-label={isPlaying ? "Pause" : "Play"}
+          aria-label={isPlaying ? t(EDITOR.pause) : t(EDITOR.play)}
           data-testid="button-scrub-play"
         >
           {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
@@ -1088,7 +1093,7 @@ export default function ProjectEditor() {
                   if (videoRef.current) videoRef.current.currentTime = m.at;
                 }}
                 title={`${formatTimecode(m.at)}: ${m.say}`}
-                aria-label={`Go to the note at ${formatTimecode(m.at)}: ${m.say}`}
+                aria-label={fmt(EDITOR.goToNote, formatTimecode(m.at), m.say)}
                 style={{ left: `${left}%` }}
                 className="pointer-events-auto absolute top-1/2 -translate-x-1/2 -translate-y-1/2
                            h-11 w-6 md:h-6 md:w-4 flex items-center justify-center group"
@@ -1122,16 +1127,32 @@ export default function ProjectEditor() {
             ? "bg-black/55 text-white backdrop-blur-md border border-white/20"
             : "bg-surface-2 text-muted-foreground hover:text-foreground"
         }`}
-        aria-label={isFullscreen ? "Leave full screen" : "Fill the screen"}
+        aria-label={isFullscreen ? t(EDITOR.leaveFullscreen) : t(EDITOR.fillScreen)}
         data-testid="button-fullscreen"
       >
         {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
       </button>
     );
 
+    /*
+      `dir="ltr"`, in both languages, and it is the one place in this product
+      that pins a direction rather than following the screen.
+
+      A video's time runs left to right in every player ever made, in every
+      language, and three things here are built on that: the pins are positioned
+      by `left: %` computed from a timecode, the native range input puts zero at
+      whichever edge the direction says, and the timecode reads "0:12 / 3:40"
+      with the smaller number first. Let the row mirror and the playhead starts
+      on the right while the pins stay on the left, which is not a translated
+      player, it is a broken one.
+
+      The words inside it are still the screen's: the labels come from the copy
+      table like everything else, and `dir` only decides which way the strip
+      runs.
+    */
     if (onPicture) {
       return (
-        <div className="flex flex-col gap-0.5">
+        <div dir="ltr" className="flex flex-col gap-0.5">
           {scrubber}
           <div className="flex items-center gap-3">
             {playButton}
@@ -1143,7 +1164,7 @@ export default function ProjectEditor() {
     }
 
     return (
-      <div className="flex items-center gap-3">
+      <div dir="ltr" className="flex items-center gap-3">
         {playButton}
         {scrubber}
         {timecode}
@@ -1212,30 +1233,25 @@ export default function ProjectEditor() {
       <div className="flex items-center gap-2 mb-1">
         <Sparkles className={`text-secondary flex-shrink-0 ${sideBySide ? "w-4 h-4" : "w-3.5 h-3.5"}`} />
         <span className={`font-medium text-muted-foreground ${sideBySide ? "text-sm" : "text-xs"}`}>
-          Match another video
+          {t(EDITOR.matchTitle)}
         </span>
       </div>
 
       {project.referenceVideoPath ? (
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-muted-foreground leading-snug">
-            Your next render is edited to match the clip you attached: its pace, how much
-            silence it keeps, its level and its colour.
-          </span>
+          <span className="text-xs text-muted-foreground leading-snug">{t(EDITOR.matchAttached)}</span>
           <button
             onClick={handleClearReference}
             className="flex-shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
             data-testid="button-clear-reference"
           >
-            Remove
+            {t(COMMON.remove)}
           </button>
         </div>
       ) : (
         <>
           <p className="text-xs leading-snug text-muted-foreground mb-2">
-            Upload a short clip in the style you want and we read it: how often it cuts, how
-            much silence it leaves, how loud and how graded it ends up. Under{" "}
-            {formatBytes(MAX_REFERENCE_BYTES)}, and we only look at the first two minutes.
+            {fmt(EDITOR.matchLead, formatBytes(MAX_REFERENCE_BYTES))}
           </p>
           <label
             className={`inline-flex items-center justify-center gap-2 rounded-xl border border-hairline bg-surface-1 px-4 py-2.5 text-xs font-medium cursor-pointer transition-all hover:border-primary/40 hover:bg-white/[0.06] ${
@@ -1246,10 +1262,10 @@ export default function ProjectEditor() {
             {isAttachingReference ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Uploading…
+                {t(EDITOR.uploadingShort)}
               </>
             ) : (
-              "Choose a reference clip"
+              t(EDITOR.chooseReference)
             )}
             <input
               type="file"
@@ -1291,7 +1307,7 @@ export default function ProjectEditor() {
       <div className={`flex items-center gap-2 flex-shrink-0 ${sideBySide ? "mb-1" : ""}`}>
         <Wand2 className={`text-secondary flex-shrink-0 ${sideBySide ? "w-4 h-4" : "w-3.5 h-3.5"}`} />
         <span className={`font-medium text-muted-foreground ${sideBySide ? "text-sm" : "text-xs"}`}>
-          {sideBySide ? "One-click looks" : "Looks"}
+          {sideBySide ? t(EDITOR.looksLong) : t(EDITOR.looksShort)}
         </span>
       </div>
       {templates.map((template) => (
@@ -1300,10 +1316,10 @@ export default function ProjectEditor() {
           onClick={() => handleApplyTemplate(template.id)}
           disabled={isProcessingEdit || startRender.isPending}
           title={`${template.description}. ${template.bestFor}${
-            template.needs === "music" ? ". Needs a music file in this project" : ""
+            template.needs === "music" ? t(EDITOR.needsMusicSuffix) : ""
           }`}
           className={`flex-shrink-0 border border-hairline bg-surface-1 font-medium transition-all hover:border-primary/40 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed ${
-            sideBySide ? "rounded-xl px-4 py-3 text-left" : "rounded-full px-3 min-h-11 md:min-h-0 md:py-1.5 text-xs"
+            sideBySide ? "rounded-xl px-4 py-3 text-start" : "rounded-full px-3 min-h-11 md:min-h-0 md:py-1.5 text-xs"
           }`}
           data-testid={`button-template-${template.id}`}
         >
@@ -1321,7 +1337,7 @@ export default function ProjectEditor() {
               */}
               {template.needs === "music" ? (
                 <span className="block text-xs leading-snug text-secondary/80 mt-0.5">
-                  Needs a music file in this project
+                  {t(EDITOR.needsMusic)}
                 </span>
               ) : null}
             </>
@@ -1337,7 +1353,7 @@ export default function ProjectEditor() {
     <div className="rounded-xl glass-panel border border-hairline flex flex-col gap-3 px-4 py-4 mt-3">
       <div className="flex items-center gap-2">
         <Type className="w-4 h-4 text-secondary flex-shrink-0" />
-        <span className="text-sm font-medium text-muted-foreground">Caption type</span>
+        <span className="text-sm font-medium text-muted-foreground">{t(EDITOR.captionType)}</span>
       </div>
       <FontPicker
         value={fonts}
@@ -1370,13 +1386,13 @@ export default function ProjectEditor() {
    * is watching the video.
    */
   const PANELS = [
-    { key: "looks" as const, icon: Wand2, label: "Looks", available: Boolean(templates && templates.length > 0) },
+    { key: "looks" as const, icon: Wand2, label: t(EDITOR.panelLooks), available: Boolean(templates && templates.length > 0) },
     // Always available: a project with no video still has captions in its
     // future, and there is nothing here that depends on the file.
-    { key: "type" as const, icon: Type, label: "Type", available: true },
-    { key: "clips" as const, icon: Scissors, label: "Clips", available: true },
-    { key: "files" as const, icon: FolderOpen, label: "Files", available: Boolean(project && user?.id) },
-    { key: "reference" as const, icon: Sparkles, label: "Match", available: Boolean(project) },
+    { key: "type" as const, icon: Type, label: t(EDITOR.panelType), available: true },
+    { key: "clips" as const, icon: Scissors, label: t(EDITOR.panelClips), available: true },
+    { key: "files" as const, icon: FolderOpen, label: t(EDITOR.panelFiles), available: Boolean(project && user?.id) },
+    { key: "reference" as const, icon: Sparkles, label: t(EDITOR.panelMatch), available: Boolean(project) },
   ].filter((p) => p.available);
 
   const panelRail = PANELS.length > 0 && (
@@ -1392,7 +1408,7 @@ export default function ProjectEditor() {
            elegant and it is honest. */
         className="flex flex-wrap gap-2"
         role="tablist"
-        aria-label="Editing panels"
+        aria-label={t(EDITOR.panelRail)}
       >
         {PANELS.map(({ key, icon: Icon, label }) => {
           const open = openPanel === key;
@@ -1459,8 +1475,8 @@ export default function ProjectEditor() {
             onClick={() => setLocation(`/export/${project.id}`)}
             data-testid="button-export"
           >
-            <Download className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">Export</span>
+            <Download className="w-4 h-4 sm:me-2" />
+            <span className="hidden sm:inline">{t(EDITOR.export)}</span>
           </Button>
           <Button
             /* The default variant, which is `.aura-btn`. It was `glow-btn
@@ -1472,8 +1488,8 @@ export default function ProjectEditor() {
             onClick={handleGenerateEdit}
             data-testid="button-generate-edit"
           >
-            <Wand2 className="w-4 h-4 sm:mr-2" />
-            <span className="hidden sm:inline">Generate Edit</span>
+            <Wand2 className="w-4 h-4 sm:me-2" />
+            <span className="hidden sm:inline">{t(EDITOR.generateEdit)}</span>
           </Button>
         </div>
       </header>
@@ -1516,18 +1532,20 @@ export default function ProjectEditor() {
                   <div className="flex flex-col items-center w-full max-w-sm">
                     <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
                     <h3 className="text-xl font-semibold mb-2" data-testid="text-upload-heading">
-                      {uploadPhase === "finishing" ? "Finishing up..." : "Uploading Video..."}
+                      {uploadPhase === "finishing" ? t(EDITOR.finishing) : t(EDITOR.uploading)}
                     </h3>
                     <div className="w-full h-2 bg-surface-2 rounded-full overflow-hidden mb-2">
                       <div className="h-full bg-primary transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
                     </div>
                     {uploadPhase === "finishing" ? (
                       <p className="text-sm text-muted-foreground" data-testid="text-upload-progress">
-                        Your video is stored. Reading its length and taking a poster frame.
+                        {t(EDITOR.finishingDetail)}
                       </p>
                     ) : (
                       <p className="text-sm text-muted-foreground" data-testid="text-upload-progress">
-                        {uploadProgress}%{totalBytes > 0 && ` · ${formatBytes(uploadedBytes)} of ${formatBytes(totalBytes)}`}
+                        {uploadProgress}%
+                        {totalBytes > 0 &&
+                          fmt(EDITOR.uploadedOf, formatBytes(uploadedBytes), formatBytes(totalBytes))}
                       </p>
                     )}
                   </div>
@@ -1542,11 +1560,13 @@ export default function ProjectEditor() {
                     <div className="w-16 h-16 rounded-full bg-surface-1 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                       <UploadCloud className={`w-8 h-8 transition-colors ${isDragOver ? 'text-primary' : 'text-muted-foreground group-hover:text-primary'}`} />
                     </div>
-                    <h3 className="text-xl font-semibold mb-2">Upload Raw Footage</h3>
-                    <p className="text-muted-foreground mb-2">Drag and drop or click to browse</p>
-                    <p className="text-xs text-muted-foreground/60 mb-6">MP4, MOV or WebM &bull; up to {formatBytes(uploadCeiling(subscription))}</p>
+                    <h3 className="text-xl font-semibold mb-2">{t(EDITOR.uploadTitle)}</h3>
+                    <p className="text-muted-foreground mb-2">{t(EDITOR.uploadHint)}</p>
+                    <p className="text-xs text-muted-foreground/60 mb-6">
+                      {fmt(EDITOR.uploadFormats, formatBytes(uploadCeiling(subscription)))}
+                    </p>
                     <Button variant="secondary" className="rounded-full pointer-events-none">
-                      Select Video
+                      {t(EDITOR.selectVideo)}
                     </Button>
                     <input 
                       type="file" 
@@ -1741,7 +1761,7 @@ export default function ProjectEditor() {
                       <div className="absolute inset-0 z-20 flex flex-col items-center justify-start sm:justify-center gap-1.5 overflow-y-auto bg-black/85 px-4 pt-4 sm:pt-6 pb-24 text-center">
                         <VideoOff className="w-5 h-5 text-muted-foreground flex-shrink-0" />
                         <p className="text-sm sm:text-base font-semibold leading-snug">
-                          This file will not preview here
+                          {t(EDITOR.wontPreview)}
                         </p>
                         {/*
                           The reassurance only where there is room for it.
@@ -1756,7 +1776,7 @@ export default function ProjectEditor() {
                           wider screen.
                         */}
                         <p className="hidden sm:block text-xs sm:text-sm text-muted-foreground leading-snug max-w-md">
-                          It is stored safely, and it still edits and exports normally.
+                          {t(EDITOR.wontPreviewDetail)}
                         </p>
                       </div>
                     )}
@@ -1783,9 +1803,9 @@ export default function ProjectEditor() {
                       than information: the tick.
                     */}
                     {project.status === 'done' && (
-                      <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-black/70 text-white border border-white/15 text-xs font-medium flex items-center backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.4)]">
-                        <CheckCircle2 className="w-3 h-3 mr-1.5 text-green-400" />
-                        AI Edited
+                      <div className="absolute top-3 start-3 px-2.5 py-1 rounded-full bg-black/70 text-white border border-white/15 text-xs font-medium flex items-center backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.4)]">
+                        <CheckCircle2 className="w-3 h-3 me-1.5 text-green-400" />
+                        {t(EDITOR.aiEdited)}
                       </div>
                     )}
 
@@ -1883,7 +1903,7 @@ export default function ProjectEditor() {
             onClick={() => { setChatOpen((open) => !open); setUnreadFromNoah(false); }}
             aria-expanded={chatOpen}
             aria-controls="noah-conversation"
-            className="p-4 border-b border-hairline flex items-center gap-3 text-left w-full lg:pointer-events-none no-default-hover-elevate"
+            className="p-4 border-b border-hairline flex items-center gap-3 text-start w-full lg:pointer-events-none no-default-hover-elevate"
             data-testid="button-toggle-chat"
           >
             <div className="relative flex-shrink-0">
@@ -1892,24 +1912,24 @@ export default function ProjectEditor() {
                 alt="Noah"
                 className="w-10 h-10 rounded-full object-cover shadow-[0_0_12px_rgba(108,59,255,0.5)] ring-2 ring-primary/30"
               />
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-green-400 border-2 border-background shadow-[0_0_6px_rgba(74,222,128,0.8)]" />
+              <span className="absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full bg-green-400 border-2 border-background shadow-[0_0_6px_rgba(74,222,128,0.8)]" />
             </div>
             <div className="min-w-0">
               <h2 className="font-semibold text-sm leading-tight">Noah</h2>
               <p className="text-xs text-muted-foreground truncate">
                 {chatOpen
-                  ? "Your AI editor"
+                  ? t(EDITOR.noahRole)
                   : unreadFromNoah
-                    ? "Tap to read what I did"
-                    : "Tap to read the conversation"}
+                    ? t(EDITOR.noahTapWhatIDid)
+                    : t(EDITOR.noahTapConversation)}
               </p>
             </div>
-            <span className="ml-auto lg:hidden flex items-center gap-2 flex-shrink-0">
+            <span className="ms-auto lg:hidden flex items-center gap-2 flex-shrink-0">
               {unreadFromNoah && !chatOpen && (
                 <span
                   className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(108,59,255,0.8)]"
                   data-testid="chat-unread"
-                  aria-label="Noah has something new to say"
+                  aria-label={t(EDITOR.noahSomethingNew)}
                 />
               )}
               <span className="text-muted-foreground" aria-hidden>
@@ -1934,8 +1954,11 @@ export default function ProjectEditor() {
                 />
                 <div className="flex flex-col gap-1 min-w-0">
                   <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
-                  <div className="bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed">
-                    Hey, I'm Noah 👋<br />Your AI video editor.<br /><br />Upload your video and tell me the vibe, and I'll turn it into a viral clip.
+                  <div
+                    dir="auto"
+                    className="bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed whitespace-pre-line"
+                  >
+                    {t(EDITOR.noahWelcome)}
                   </div>
                 </div>
               </div>
@@ -1944,7 +1967,7 @@ export default function ProjectEditor() {
               {/* Messages */}
               {messagesState === "failed" ? (
                 <LoadFailed
-                  what="this conversation"
+                  what={LOAD.theConversation}
                   compact
                   onRetry={() => messagesQuery.refetch()}
                   testId="messages-failed"
@@ -2036,9 +2059,9 @@ export default function ProjectEditor() {
                     >
                       {renderJob?.status === "failed" ? (
                         <>
-                          <p className="font-semibold text-destructive mb-1">That render didn't finish.</p>
-                          <p className="text-xs text-muted-foreground" data-testid="text-render-error">
-                            {renderJob.error ?? "Something went wrong on our side."}
+                          <p className="font-semibold text-destructive mb-1">{t(EDITOR.renderDidNotFinish)}</p>
+                          <p dir="auto" className="text-xs text-muted-foreground" data-testid="text-render-error">
+                            {renderJob.error ?? t(EDITOR.somethingOnOurSide)}
                           </p>
                           {/* The way out. Without it this panel is a full stop:
                               the sentence, and nothing to press. */}
@@ -2050,7 +2073,7 @@ export default function ProjectEditor() {
                             disabled={startRender.isPending}
                             onClick={handleRetryRender}
                           >
-                            {startRender.isPending ? "Starting…" : "Try that render again"}
+                            {startRender.isPending ? t(EDITOR.starting) : t(EDITOR.tryRenderAgain)}
                           </Button>
                         </>
                       ) : (
@@ -2068,8 +2091,8 @@ export default function ProjectEditor() {
                               case where nothing has picked the job up at all.
                             */}
                             {renderJob?.status === "queued"
-                              ? (renderJob.stage ?? waitInWords(renderJob.waitSeconds))
-                              : (renderJob?.stage ?? "Working on it…")}
+                              ? (renderJob.stage ?? waitInWords(renderJob.waitSeconds, language))
+                              : (renderJob?.stage ?? t(EDITOR.workingOnIt))}
                           </p>
                           <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
                             <div
@@ -2079,7 +2102,7 @@ export default function ProjectEditor() {
                             />
                           </div>
                           <p className="text-xs text-muted-foreground mt-2">
-                            {renderJob?.progress ?? 0}% · you can close this page, it keeps going
+                            {fmt(EDITOR.keepsGoing, renderJob?.progress ?? 0)}
                           </p>
                         </>
                       )}
@@ -2104,12 +2127,12 @@ export default function ProjectEditor() {
                 dir="auto"
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
-                placeholder="Describe your edit..."
+                placeholder={t(EDITOR.describeYourEdit)}
                 /* `md:h-12` because the Input component sets `md:h-9` for form fields and
                    twMerge keeps both — different breakpoints, no conflict to resolve — so
                    the chat bar quietly became 36px tall on a desktop while the buttons
                    inside it stayed 40px and bulged out of it. */
-                className="input-chat-glow pr-32 bg-surface-1 border-hairline rounded-full h-12 md:h-12"
+                className="input-chat-glow pe-32 bg-surface-1 border-hairline rounded-full h-12 md:h-12"
                 disabled={!hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 data-testid="input-chat"
               />
@@ -2136,7 +2159,7 @@ export default function ProjectEditor() {
                 disabled={(!chatInput.trim() && marks.length === 0) || !hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 /* `.aura-btn` rather than a flat disc with a hover glow: the
                    ring is there at rest, which is the only state a phone has. */
-                className="aura-btn no-default-hover-elevate absolute right-1 top-1 h-10 w-10 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary"
+                className="aura-btn no-default-hover-elevate absolute end-1 top-1 h-10 w-10 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary"
                 data-testid="button-send-message"
               >
                 <Send className="w-4 h-4" />
