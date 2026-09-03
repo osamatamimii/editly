@@ -624,6 +624,38 @@ section("The rules the schema itself enforces");
 
   check("there are tables to check at all", tables.length >= 5, JSON.stringify(tables.map((t) => t.name)));
 
+  /*
+    And every table the code believes in is one the migrations actually build.
+
+    The column comparison further up already fails when a table is missing —
+    as seven absent columns, which is the same fact stated in the least useful
+    way there is. A person reading "shopify_shops.access_token,
+    shopify_shops.installed_at, …" has to work out for themselves that the
+    table is not there and that the cause is a migration nobody wrote. This
+    says it in one line, before that one runs.
+
+    It matters because of what the failure means in production rather than
+    here: a deploy that lands ahead of its migration answers 500 on every route
+    touching the table, and the deploy itself succeeds.
+
+    Read out of the schema definitions rather than from a list kept beside
+    them, for the same reason every other list in these tools is derived: a
+    hand-written copy is right on the day it is written.
+  */
+  const declared = readdirSync(path.join(repoRoot, "lib/db/src/schema"))
+    .filter((f) => f.endsWith(".ts") && f !== "index.ts")
+    .flatMap((f) => [
+      ...readFileSync(path.join(repoRoot, "lib/db/src/schema", f), "utf8").matchAll(/pgTable\(\s*"([a-z_]+)"/g),
+    ])
+    .map((m) => m[1]);
+  check("the schema declares tables at all", declared.length >= 10, `${declared.length}`);
+  const absent = declared.filter((name) => !tables.some((t) => t.name === name));
+  check(
+    "every table the schema declares is actually in the database",
+    absent.length === 0,
+    `${absent.join(", ")} — a migration has not been applied, and every route that touches one answers 500`,
+  );
+
   const unprotected = tables.filter((t) => !t.rls).map((t) => t.name);
   check(
     "every table in the public schema has row-level security enabled",

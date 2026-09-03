@@ -16,8 +16,21 @@
  */
 import express, { type RequestHandler } from "express";
 
-/** Paths that must reach their handler with the request stream untouched. */
-export const RAW_BODY_PATHS: readonly string[] = ["/api/billing/webhook"];
+/**
+ * Paths that must reach their handler with the request stream untouched.
+ *
+ * Freemius signs the bytes it sent, and so does Shopify. The Shopify four are
+ * the mandatory compliance webhooks plus the uninstall: the same rule, a second
+ * platform, and a failure mode that is worse there — a redaction request whose
+ * signature cannot be checked is an endpoint that erases a shop on demand.
+ */
+export const RAW_BODY_PATHS: readonly string[] = [
+  "/api/billing/webhook",
+  "/api/shopify/webhooks/customers/data_request",
+  "/api/shopify/webhooks/customers/redact",
+  "/api/shopify/webhooks/shop/redact",
+  "/api/shopify/webhooks/app/uninstalled",
+];
 
 export function needsRawBody(path: string): boolean {
   return RAW_BODY_PATHS.includes(path);

@@ -17,6 +17,7 @@ import socialRouter, { socialCallbackRouter } from "./social";
 import clientErrorsRouter from "./client-errors";
 import cspReportRouter from "./csp-report";
 import mailRouter from "./mail";
+import shopifyRouter, { shopifyWebhookRouter } from "./shopify";
 import fontsRouter from "./fonts";
 import uploadsRouter from "./uploads";
 import { requireAuth } from "../middlewares/auth";
@@ -30,6 +31,23 @@ router.use(healthRouter);
 // with no session. Its authentication is the signature over the raw body, not a
 // bearer token — see routes/billing.ts. It must stay above requireAuth.
 router.use(billingWebhookRouter);
+
+// The Shopify webhooks, public for the same reason the billing one is: Shopify
+// calls them from the open internet with no session, and their authentication
+// is the signature over the raw bytes. Three of the four are the mandatory
+// compliance webhooks, which must answer 401 to a bad signature rather than
+// ignore it — so they must stay above requireAuth, where a 401 would be about
+// the wrong thing.
+router.use(shopifyWebhookRouter);
+
+// The embedded app's own surface, and it must be above `requireAuth` rather
+// than below it — which is where it was first written, and where every request
+// from a correctly working Shopify app was answered 401 by the Supabase door
+// before its own door ever ran. It is not unauthenticated: `requireShop`
+// inside it demands the ID token App Bridge mints and refuses everything else,
+// including a valid Supabase token. Two doors, one account id, and no request
+// part way through both.
+router.use(shopifyRouter);
 
 // Also public, and the only public *write* in the product: somebody joining the
 // waiting list has no account yet, which is the whole point of a waiting list.

@@ -660,6 +660,139 @@ paths:
               schema:
                 $ref: "#/components/schemas/CheckoutConfig"
 
+  /shopify/ads:
+    post:
+      operationId: shopifyProductAd
+      tags: [shopify]
+      summary: Make a video of a product
+      description: >
+        The whole merchant-facing surface of the Shopify app. A product id from
+        the resource picker goes in; a queued render comes out. The photographs
+        are fetched from Shopify's CDN into this project's own storage, a plan
+        is built from them, and it goes through the same policy every other
+        render goes through - the month's allowance, the free-plan watermark and
+        the one-render-at-a-time rule all apply here exactly as they do to a
+        person pressing a button.
+
+
+        Authenticated by the ID token App Bridge mints, and by nothing else. A
+        Supabase bearer token is refused here, and this token is refused
+        everywhere else.
+      security:
+        - shopifySessionToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                productId:
+                  description: A Shopify global id, `gid://shopify/Product/123`.
+                  type: string
+                platform:
+                  $ref: "#/components/schemas/Platform"
+              required: [productId]
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projectId: { type: string }
+                  jobId: { type: string }
+                  photos:
+                    description: How many of the product's photographs were used.
+                    type: number
+                  videosNotUsed:
+                    description: >
+                      Videos the product has that this does not use yet. Said in
+                      the answer rather than only in a log, because a merchant
+                      whose product has a supplier clip and who gets a slideshow
+                      of the stills has been given something worse than their
+                      page already had.
+                    type: number
+                required: [projectId, jobId, photos, videosNotUsed]
+        "400":
+          description: That is not a product id
+        "401":
+          description: No valid session token
+        "422":
+          description: That product has no photographs yet
+        "502":
+          description: The store or its CDN could not be reached
+
+  /shopify/webhooks/customers/data_request:
+    post:
+      operationId: shopifyCustomersDataRequest
+      tags: [shopify]
+      summary: A merchant asked what customer data this app holds
+      description: >
+        One of the three mandatory compliance webhooks every app on the Shopify
+        App Store must answer, whether or not it holds customer data. This one
+        holds none: the app reads products, never asks for `read_customers`, and
+        has opted out of protected customer data. Authenticated by an
+        HMAC-SHA256 signature over the raw body; an invalid signature is
+        answered 401, which Shopify requires in as many words.
+      responses:
+        "200":
+          description: Acknowledged; nothing is held
+        "401":
+          description: The signature did not verify
+
+  /shopify/webhooks/customers/redact:
+    post:
+      operationId: shopifyCustomersRedact
+      tags: [shopify]
+      summary: Erase a shopper's data
+      description: >
+        The second mandatory compliance webhook. Nothing held is nothing to
+        erase; see the data request above. Same signature rule, same 401.
+      responses:
+        "200":
+          description: Acknowledged; nothing is held
+        "401":
+          description: The signature did not verify
+
+  /shopify/webhooks/shop/redact:
+    post:
+      operationId: shopifyShopRedact
+      tags: [shopify]
+      summary: Erase everything held for a shop
+      description: >
+        The third mandatory compliance webhook, sent 48 hours after an
+        uninstall, and the one with real work behind it: the same erasure a
+        person deleting their account gets, in the same order, refusing when
+        storage cannot be reached. A storage outage is answered 500 on purpose
+        so Shopify retries - answering 200 while the merchant's videos are
+        still on our disks would close a thirty-day legal obligation with the
+        files still here.
+      responses:
+        "200":
+          description: Erased
+        "401":
+          description: The signature did not verify
+        "500":
+          description: Storage could not be reached, so nothing was deleted
+
+  /shopify/webhooks/app/uninstalled:
+    post:
+      operationId: shopifyAppUninstalled
+      tags: [shopify]
+      summary: The app was removed from a store
+      description: >
+        Clears the access token, which is dead the moment this arrives, and
+        marks the shop. The row itself is kept: `shop/redact` is 48 hours away
+        and is what removes the data, and in between a merchant who reinstalls
+        gets their projects back rather than an empty account.
+      responses:
+        "200":
+          description: Recorded
+        "401":
+          description: The signature did not verify
+
   /billing/webhook:
     post:
       operationId: billingWebhook

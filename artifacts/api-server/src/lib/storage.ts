@@ -116,6 +116,22 @@ export function isOwnedFontPath(path: string, userId: string): boolean {
   return segments[0] === userId && segments[1] === "fonts";
 }
 
+/**
+ * The same whitelist as the two above, asking the smaller question: is this a
+ * key this server may write, at all.
+ *
+ * Ownership is the caller's to check — `putObject`'s callers build the key from
+ * an account id they have already established. What this refuses is the shape:
+ * a leading slash, an empty segment, a dot segment however it is spelled, and
+ * the percent sign that is the entire mechanism behind an encoded traversal.
+ */
+function isSafeObjectKey(key: string): boolean {
+  if (!key || key.startsWith("/") || key.endsWith("/")) return false;
+  const segments = key.split("/");
+  if (segments.length < 3) return false;
+  return segments.every((segment) => SAFE_SEGMENT.test(segment));
+}
+
 /*
   Supabase's auth admin API, which is not the object store.
 
@@ -351,6 +367,51 @@ export async function deleteProjectObjects(
  * what it removed — and the caller decides what honesty about failure means
  * for its route, exactly as deleteProjectObjects's callers do.
  */
+/**
+ * Writes bytes into the bucket from this server.
+ *
+ * The one upload the browser does not do, and it exists because of Shopify: a
+ * merchant's product photographs live on Shopify's CDN, and nobody is sitting
+ * at a browser to fetch them. Everything else in this product is uploaded by
+ * the person who owns it, with their own token, confined by row-level security
+ * to their own folder — which is why this is the only place in the API that
+ * writes an object rather than deleting one.
+ *
+ * The key is checked against the same rule every other path here is. This
+ * function holds the service role key and therefore bypasses row-level
+ * security, so "which folder may this write to" has no second line of defence:
+ * the guard *is* the defence.
+ *
+ * Returns whether it worked rather than throwing, so the caller can decide
+ * whether a missing photograph is a shorter advertisement or a failed request.
+ */
+export async function putObject(
+  key: string,
+  body: Uint8Array,
+  contentType: string,
+): Promise<{ stored: boolean; reason?: "not-configured" | "unsafe-key" | "failed" }> {
+  if (!storageAdminConfigured) return { stored: false, reason: "not-configured" };
+  if (!isSafeObjectKey(key)) return { stored: false, reason: "unsafe-key" };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${VIDEOS_BUCKET}/${key}`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_ROLE_KEY as string,
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        "Content-Type": contentType,
+        // A retried ingest must not fail on a key it wrote itself a moment ago.
+        "x-upsert": "true",
+      },
+      body,
+    });
+    if (!res.ok) throw new Error(`upload failed: ${res.status} ${await res.text()}`);
+    return { stored: true };
+  } catch (error) {
+    logger.error({ err: error, key }, "could not store an object");
+    return { stored: false, reason: "failed" };
+  }
+}
+
 export async function deleteObjects(
   keys: string[],
 ): Promise<{ removed: boolean; reason?: "not-configured" | "failed" }> {

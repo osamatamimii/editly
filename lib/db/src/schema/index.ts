@@ -14,3 +14,4 @@ export * from "./admin-actions";
 export * from "./social";
 export * from "./caption-faces";
 export * from "./comprehensions";
+export * from "./shopify";

@@ -237,6 +237,7 @@ const AREA_PURPOSE = {
   "health.ts": "‏/healthz: هل هذه النشرة تعرف ما تحتاجه",
   "client-errors.ts": "انهيار في المتصفّح: السطر الوحيد عندنا عن شاشة بيضاء عند غيرنا",
   "csp-report.ts": "ما منعته سياسة المحتوى: كانت تُبلِغ لا أحد، فصار لها عنوان",
+  "shopify.ts": "متجر Shopify: منتج يصير فيديو، وويبهوكس الامتثال الثلاثة",
 };
 
 /*
@@ -257,7 +258,7 @@ const areas = [];
 for (const file of routeFiles) {
   const source = await read(`artifacts/api-server/src/routes/${file}`);
   const endpoints = [
-    ...source.matchAll(/\b(?:router|billingWebhookRouter|socialCallbackRouter)\s*\.\s*(get|post|patch|put|delete)\s*\(\s*"([^"]+)"/g),
+    ...source.matchAll(/\b(?:router|billingWebhookRouter|socialCallbackRouter|shopifyWebhookRouter)\s*\.\s*(get|post|patch|put|delete)\s*\(\s*"([^"]+)"/g),
   ].map((m) => `${m[1].toUpperCase()} ${m[2]}`);
   const stem = file.replace(/\.ts$/, "");
   /*

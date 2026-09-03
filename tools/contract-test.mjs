@@ -81,7 +81,13 @@ for (const file of readdirSync(routesDir).filter((f) => f.endsWith(".ts") && f !
     check said the spec was complete. A route that no reader of the spec knows
     exists is the failure this file is for.
   */
-  const pattern = /\b(?:router|billingWebhookRouter|socialCallbackRouter)\s*\.\s*(get|post|patch|put|delete)\s*\(\s*"([^"]+)"/g;
+  /*
+    Every router name a route file exports, not just the default one. A webhook
+    router named anything else is a set of public endpoints this checker cannot
+    see — which is the opposite of what it is for, and was true of Shopify's
+    four compliance webhooks until this name was added.
+  */
+  const pattern = /\b(?:router|billingWebhookRouter|socialCallbackRouter|shopifyWebhookRouter)\s*\.\s*(get|post|patch|put|delete)\s*\(\s*"([^"]+)"/g;
   let match;
   while ((match = pattern.exec(source)) !== null) {
     routes.push({ method: match[1], path: match[2], file });
