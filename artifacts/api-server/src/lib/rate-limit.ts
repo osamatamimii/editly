@@ -441,4 +441,21 @@ export const LIMITS = {
     perPerson: 4,
     message: "That is a lot of crash reports from one place. Nothing else is affected.",
   },
+  /**
+   * Content policy violations, which the browser sends without being asked.
+   *
+   * Its own budget rather than the crash reporter's, because the shape is not
+   * the same: a crash is one event and a person reloading into it a few times,
+   * while a single page with one blocked resource on it emits one report per
+   * *load* — and an extension injecting a script into somebody's browser makes
+   * every page they open a report. The number is set for that, and against the
+   * only thing worth stopping, which is a loop.
+   */
+  cspReport: {
+    name: "csp-report",
+    limit: 60,
+    windowMs: 10 * 60 * 1000,
+    perPerson: 12,
+    message: "That is a lot of policy reports from one place. Nothing else is affected.",
+  },
 } as const satisfies Record<string, LimitOptions>;

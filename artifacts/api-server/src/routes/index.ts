@@ -15,6 +15,7 @@ import adminRouter from "./admin";
 import waitlistRouter from "./waitlist";
 import socialRouter, { socialCallbackRouter } from "./social";
 import clientErrorsRouter from "./client-errors";
+import cspReportRouter from "./csp-report";
 import mailRouter from "./mail";
 import fontsRouter from "./fonts";
 import uploadsRouter from "./uploads";
@@ -45,6 +46,18 @@ router.use(socialCallbackRouter);
 // crash reporter that needed one would be silent in exactly the case it exists
 // for. Rate limited by address, and it records nothing a token would identify.
 router.use(clientErrorsRouter);
+
+/*
+  Public for the same reason, and a stronger one: a violation report is often
+  sent *because* our own scripts were blocked, so there is no bundle left to
+  attach a token with. The browser sends it with no credentials of ours and
+  cannot be asked to do otherwise.
+
+  It exists at all because the policy was `Report-Only` with nowhere to report
+  to, for as long as it has existed. Now the policy blocks, and the thing it
+  blocks arrives here instead of in a stranger's console.
+*/
+router.use(cspReportRouter);
 
 /*
   Above `requireAuth`, and it has to be.

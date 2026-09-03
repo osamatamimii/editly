@@ -291,6 +291,16 @@ jobs:
       # component in a real browser and reads what is on the screen afterwards.
       - run: node tools/boundary-test.mjs
       - run: node tools/browser-test.mjs
+      # Also the built `dist/`, and the only suite that asks whether the app is
+      # allowed to run at all. The Content Security Policy was Report-Only with
+      # no report-uri and no report-to: it blocked nothing by design and told
+      # nobody either, for its whole life. It enforces now, and that is the kind
+      # of change whose failure is a white page rather than an error - a
+      # before-paint script blocked by one missing hash throws nothing, logs
+      # nothing, and fails no other check here. So this one serves `dist/` with
+      # the exact headers vercel.json ships, opens it in a browser, and asks
+      # whether anything was blocked and whether those scripts actually ran.
+      - run: node tools/csp-test.mjs
       # Needs the built `dist/` from the vercel:build step above — it measures
       # the shipped bundle, because a class Tailwind purged is a class that is
       # not there however good it looks in the source.

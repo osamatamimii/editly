@@ -1983,6 +1983,77 @@ paths:
         "429":
           description: Too many reports from one address
 
+  /csp-report:
+    post:
+      operationId: reportPolicyViolation
+      tags: [health]
+      summary: A browser saying it blocked something
+      description: >
+        Where the Content Security Policy sends what it refused to load. The
+        policy shipped as Report-Only with no report-uri and no report-to for
+        as long as it existed, which is a header shaped like a control that
+        neither blocked anything nor told anybody: violations went to the
+        console of whoever had devtools open, which is nobody. The policy
+        enforces now, and this is the other half of that change.
+        Open with no token, and it could not be otherwise: the browser sends a
+        violation report with no credentials of ours, often because our own
+        scripts were the thing blocked, so there is no bundle left to attach
+        one with. Rate limited by client address. Three fields are kept and the
+        rest are dropped here rather than trusted from the sender: the
+        directive that fired, the blocked URL reduced to an origin, and the
+        page reduced to its pathname, because a violation on an OAuth callback
+        would otherwise put an authorization code in a log line. The
+        script-sample is never recorded; it is eighty characters of somebody's
+        page. It answers 204 to everything, including a report it discarded, so
+        that it cannot be used as a probe.
+      requestBody:
+        required: true
+        description: >
+          Sent by the browser, in whichever of its own shapes: the original
+          report-uri body wrapping the fields under csp-report, the Reporting
+          API array of type and body pairs, or the fields on a bare object.
+          All three are read, because reading only one would work today and
+          stop silently the day a browser moves, and no reports arriving looks
+          exactly like no violations.
+        content:
+          application/csp-report:
+            schema:
+              type: object
+              properties:
+                csp-report:
+                  type: object
+                  properties:
+                    effective-directive:
+                      type: string
+                      maxLength: 60
+                      description: The directive that fired. A report without one is discarded.
+                    violated-directive:
+                      type: string
+                      maxLength: 60
+                      description: The older spelling. Read when effective-directive is absent.
+                    blocked-uri:
+                      type: string
+                      description: Reduced to an origin before it is recorded. The browser's own placeholders (inline, eval, data, blob) are kept as they are.
+                    document-uri:
+                      type: string
+                      description: Reduced to a pathname before it is recorded. The query string is dropped.
+          application/reports+json:
+            schema:
+              type: array
+              description: The Reporting API shape. Each entry carries the same fields under body.
+              items:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  body:
+                    type: object
+      responses:
+        "204":
+          description: Taken, or discarded. Deliberately the same answer.
+        "429":
+          description: Too many reports from one address
+
 
 components:
   parameters:

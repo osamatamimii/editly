@@ -33,9 +33,29 @@ export function needsRawBody(path: string): boolean {
 export function bodyParsers(): RequestHandler[] {
   const json = express.json();
   const form = express.urlencoded({ extended: true });
+  /*
+    A violation report is JSON that does not say it is JSON.
+
+    Browsers send `report-uri` bodies as `application/csp-report` and Reporting
+    API bodies as `application/reports+json`, and `express.json()` matches on
+    `application/json` alone — so every report would have arrived with an empty
+    body and been discarded as "no directive". Nothing would have failed: the
+    endpoint would have answered 204 to everything, exactly as it does for a
+    report it throws away, and the log would have stayed empty. Which is
+    indistinguishable from a policy that never fires, and is what this whole
+    round is about.
+
+    Capped well below express's default, because these come from the open
+    internet and a report is a few hundred bytes.
+  */
+  const reports = express.json({
+    type: ["application/csp-report", "application/reports+json"],
+    limit: "16kb",
+  });
 
   return [
     (req, res, next) => (needsRawBody(req.path) ? next() : json(req, res, next)),
+    (req, res, next) => (needsRawBody(req.path) ? next() : reports(req, res, next)),
     (req, res, next) => (needsRawBody(req.path) ? next() : form(req, res, next)),
   ];
 }
