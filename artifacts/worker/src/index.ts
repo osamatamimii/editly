@@ -18,7 +18,7 @@ import pino from "pino";
 import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, comprehensionsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
 import { EditPlan, type EditOperation } from "@workspace/api-zod";
 import { downloadObject, uploadObject, bytesPulled, StorageTransferError } from "./storage";
-import { renderPlan, probeDuration, probeSource, grabPosterFrame, FfmpegError } from "./ffmpeg";
+import { renderPlan, probeDuration, probeSource, grabPosterFrame, shapeFor, frameFor, defaultHeightFor, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
 import { reviewOutput } from "./review";
 import { chooseClips } from "./highlight";
@@ -35,6 +35,7 @@ import { prepareUploadedFaces, fetchUploadedFaces } from "./font-prepare";
 import { applyRemovals, chooseRemovals, retentionFrom, type SweepableClip, type SweepableProject } from "./sweep";
 import { objectStoreFrom } from "@workspace/object-store";
 import { serveHealth, HEALTH_PORT } from "./health";
+import { buildStillsReel, imageSize } from "./stills";
 
 const WORKER_ID = `${hostname()}-${randomUUID().slice(0, 8)}`;
 const POLL_INTERVAL_MS = Number(process.env["POLL_INTERVAL_MS"] ?? 5000);
@@ -284,9 +285,39 @@ async function processJob(job: Job): Promise<void> {
 
     log.info({ operations: plan.operations.map((o) => o.type) }, "claimed job");
 
-    await reportProgress(job.id, 5, "Fetching your video");
-    const inputFile = path.join(workDir, "input.mp4");
-    await downloadObject(job.inputPath, inputFile);
+    // ── The source, which may not exist yet ───────────────────────────────
+    //
+    // A `stillsReel` plan is a project with no video in it: photographs, and a
+    // shop owner who does not own a camera. The reel is assembled here, before
+    // anything else has run, and from the next line down this job is an
+    // ordinary render of an ordinary clip — measured, ceilinged, enriched,
+    // reframed, scored, reviewed and billed by exactly the paths that already
+    // exist. That is the whole reason it is built at this end rather than
+    // taught to the renderer as a second kind of input.
+    //
+    // `let`, and this reassignment is the entire integration. Nothing below
+    // knows where the file came from.
+    let inputFile = path.join(workDir, "input.mp4");
+    /*
+      Said first in the finished list, because they are about the material
+      rather than about the edit: how many photographs went in, how many there
+      was no room for, which ones had to sit inside the frame instead of
+      filling it. A person reading "12 of your 20 photos" wants that before
+      they read what the grade did.
+    */
+    const reelNotes: string[] = [];
+    const reelOp = plan.operations.find((op) => op.type === "stillsReel");
+    if (reelOp && reelOp.type === "stillsReel") {
+      await reportProgress(job.id, 5, "Building a video from your photos");
+      inputFile = await assembleReel(job, reelOp, plan, workDir, log, say, reelNotes);
+    } else {
+      await reportProgress(job.id, 5, "Fetching your video");
+      // Only when there is one to fetch. A reel job's `input_path` names the
+      // first photograph, because the column means "the object this render
+      // starts from" and for a reel that is exactly what it is — but opening
+      // it here would download a file the assembly is about to fetch again.
+      await downloadObject(job.inputPath, inputFile);
+    }
 
     // The first honest measurement of this file anyone has made. Everything
     // before now — the ceiling check in the API, the punch placement in a
@@ -515,7 +546,7 @@ async function processJob(job: Job): Promise<void> {
         void reportProgress(job.id, 10 + fraction * 80, stage).catch(() => {});
       },
     });
-    const notes = [...enriched.notes, ...renderNotes];
+    const notes = [...reelNotes, ...enriched.notes, ...renderNotes];
 
     // The look at what actually came out, before anyone else sees it.
     //
@@ -1489,6 +1520,143 @@ async function titleOf(projectId: string, userId: string): Promise<string | null
 const health = serveHealth(HEALTH_PORT, (error) =>
   logger.error({ err: String(error), port: HEALTH_PORT }, "health listener could not start"),
 );
+
+/**
+ * A video from photographs, for a project that has none.
+ *
+ * The whole of the stills feature's integration, and it is deliberately one
+ * function with one caller: everything it does happens before the first probe,
+ * so from the renderer's point of view this job is indistinguishable from
+ * somebody's phone upload. `stills.ts` owns how a reel is made; this owns
+ * which files go into one and what the person is told about it.
+ *
+ * The photographs are resolved by id against this project's own library, the
+ * same rule b-roll and music follow, and for the same reason: an id that is
+ * not in the project resolves to nothing, where a path would have been opened.
+ */
+async function assembleReel(
+  job: Job,
+  reelOp: Extract<EditOperation, { type: "stillsReel" }>,
+  plan: EditPlan,
+  workDir: string,
+  log: pino.Logger,
+  say: (en: string, ar: string) => string,
+  notes: string[],
+): Promise<string> {
+  const rows = await db
+    .select()
+    .from(assetsTable)
+    .where(and(eq(assetsTable.projectId, job.projectId), eq(assetsTable.userId, job.userId)));
+  const byId = new Map(rows.map((row) => [row.id, row]));
+
+  const stills: { file: string; width: number; height: number }[] = [];
+  let missing = 0;
+  for (const id of reelOp.assetIds) {
+    const row = byId.get(id);
+    // Not an image is the same answer as not in this project: the kind is
+    // re-derived from the bytes at upload, so a video here is a plan asking to
+    // hold a moving picture still, not a mislabelled file.
+    if (!row || row.kind !== "image") {
+      missing += 1;
+      log.warn({ assetId: id, kind: row?.kind ?? null }, "the reel named something that is not a photograph in this project");
+      continue;
+    }
+    const file = path.join(workDir, `still-src-${stills.length}`);
+    try {
+      await downloadObject(row.path, file);
+    } catch (error) {
+      missing += 1;
+      log.warn({ err: error, assetId: id }, "could not fetch a photograph for the reel");
+      continue;
+    }
+    /*
+      Measured from the file, not read from the row. `assets.width`/`height`
+      are written by the browser and are nullable, and they decide whether a
+      photograph fills the frame or sits inside it — a decision made from a
+      missing number is a soft, over-cropped advertisement that nothing
+      anywhere reports as wrong.
+    */
+    const size = await imageSize(file);
+    stills.push({ file, width: size.width, height: size.height });
+  }
+
+  if (stills.length === 0) {
+    // Final rather than retried: the same ids will resolve to the same nothing
+    // next time, and the sentence is the customer's to act on.
+    throw new PlanEmptiedError(
+      say(
+        "None of the photographs in that request are in this project, so there was nothing to build a video from.",
+        "لا شيء من الصور في ذلك الطلب موجود في هذا المشروع، فلم يكن هناك ما أبني منه فيديو.",
+      ),
+    );
+  }
+
+  /*
+    The reel is built at the shape the edit is going to be, not at some neutral
+    size that gets cropped again afterwards. Two crops of the same photograph
+    is the difference between a product with its edges and a product without
+    them, and the second crop would be invisible to everything that measures
+    this pipeline.
+  */
+  const reframe = plan.operations.find((op) => op.type === "formatForPlatform");
+  const shape = shapeFor(reframe?.type === "formatForPlatform" ? reframe.platform : null);
+  const frame = frameFor(defaultHeightFor(shape), shape);
+
+  const reel = await buildStillsReel(stills, {
+    width: frame.w,
+    height: frame.h,
+    // A decision, not a measurement: there is no camera here to have chosen a
+    // rate. 30 is what every feed re-encodes to, so it is the rate that costs
+    // the picture nothing on the way out.
+    fps: 30,
+    targetSeconds: reelOp.targetSeconds,
+    motion: reelOp.motion,
+    workDir,
+    onProgress: (fraction) => {
+      void reportProgress(job.id, 1 + fraction * 4, "Building a video from your photos").catch(() => {});
+    },
+  });
+
+  notes.push(
+    say(
+      `built a ${reel.seconds.toFixed(0)}s video from ${reel.used} of your photos`,
+      `بنيت فيديو ${reel.seconds.toFixed(0)} ثانية من ${reel.used} من صورك`,
+    ),
+  );
+  /*
+    Every reduction is said. A merchant who uploaded twenty photographs and got
+    twelve of them has not been cheated, but they have been *edited* — and a
+    tool that silently drops eight of somebody's product shots and reports
+    success is the exact failure this repository is written against.
+  */
+  if (reel.dropped > 0) {
+    notes.push(
+      say(
+        `there was no room for ${reel.dropped} more at this length: a photo held under 1.2s is a flash rather than a shot`,
+        `لا متّسع لـ${reel.dropped} أخرى بهذا الطول: صورة تبقى أقلّ من 1.2 ثانية ومضة لا لقطة`,
+      ),
+    );
+  }
+  if (reel.padded > 0) {
+    notes.push(
+      say(
+        `${reel.padded} of them sit inside the frame on a blurred copy of themselves, because filling it would have cropped the product or enlarged it past sharpness`,
+        `${reel.padded} منها تجلس داخل الكادر فوق نسخة مموّهة من نفسها، لأن ملء الكادر كان سيقصّ المنتج أو يكبّره حتى تذهب حدّته`,
+      ),
+    );
+  }
+  if (missing > 0) {
+    notes.push(
+      say(
+        `${missing} of the photos in that request are not in this project, so they were left out`,
+        `${missing} من الصور في ذلك الطلب ليست في هذا المشروع، فتُركت`,
+      ),
+    );
+  }
+
+  log.info({ used: reel.used, dropped: reel.dropped, padded: reel.padded, seconds: reel.seconds }, "reel assembled");
+  return reel.file;
+}
 
 async function main(): Promise<void> {
   await db.execute(sql`select 1`);

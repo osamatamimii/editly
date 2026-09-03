@@ -3228,5 +3228,10 @@ export function describe(op: EditOperation): string {
     case "motionTitle": return "Animating your titles";
     case "soundEffects": return "Laying the sound effects in";
     case "alternateFraming": return "Cutting between two shot sizes";
+    // Handled in index.ts before the renderer is called at all: by the time
+    // a graph is being written the reel *is* the source. Named here so the
+    // switch stays exhaustive and a path that skips the assembly fails to
+    // compile rather than silently rendering the first photograph.
+    case "stillsReel": return "Building a video from your photos";
   }
 }

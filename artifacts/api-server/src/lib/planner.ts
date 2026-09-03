@@ -100,6 +100,10 @@ function buildSchema(assets: PlannerAsset[]) {
     "grade",
     ...(clips.length > 0 ? ["insertBRoll"] : []),
     ...(stills.length > 0 ? ["overlayImage"] : []),
+    // Conditional on the same list as overlays, and necessarily so: a reel is
+    // made *of* photographs, so with none in the project there is nothing for
+    // this operation to be about.
+    ...(stills.length > 0 ? ["stillsReel"] : []),
     // No catalogue: without a track of their own there is nothing to lay under
     // the edit, so the operation is not in the model's vocabulary at all.
     ...(tracks.length > 0 ? ["addMusic"] : []),
@@ -148,6 +152,7 @@ function buildSchema(assets: PlannerAsset[]) {
             "gainDb",
             "duck",
             "sfxPalette",
+            "assetIds",
           ],
           properties: {
             type: { type: "string", enum: types },
@@ -262,6 +267,19 @@ function buildSchema(assets: PlannerAsset[]) {
              * would get a layer they did not choose with nothing saying so.
              */
             sfxPalette: { type: ["string", "null"], enum: ["clean", "punchy", "quiet", null] },
+            /**
+             * For stillsReel: several files rather than one, which is why it
+             * cannot reuse `assetId`.
+             *
+             * Enumerated against this project's ids for the same reason the
+             * single one is: an id the model was not given is not a file, and a
+             * reel is the one operation where inventing one would not fail —
+             * it would quietly make a shorter video and report success.
+             */
+            assetIds:
+              assetIds.length > 0
+                ? { type: ["array", "null"], items: { type: "string", enum: assetIds } }
+                : { type: ["array", "null"], items: { type: "string" } },
             /** For grade: the named look. Nothing else is a look we have. */
             look: { type: ["string", "null"], enum: ["warm", "cool", "cinematic", "mono", "punch", null] },
             /** Where on the frame. Titles use top/center/bottom; overlays use the corners. */
@@ -373,6 +391,15 @@ function instructionFor(assets: PlannerAsset[]): string {
     );
     if (clips.length > 0) lines.push("insertBRoll cuts away to one of their clips and keeps the speaker's audio under it.");
     if (stills.length > 0) lines.push("overlayImage holds one of their images over the frame.");
+    if (stills.length > 0) {
+      lines.push(
+        "stillsReel builds the video itself out of their photographs, for a project that has no video at all -",
+        "a shop with product images and no footage. assetIds is the images in the order they should appear;",
+        "leave it null to use all of them. targetSeconds is how long the finished video should run (default 15).",
+        "Choose it when they ask for a video, an ad or a reel made from their photos or their product images.",
+        "Never choose it alongside operations that need speech - there is nobody talking in a reel.",
+      );
+    }
     if (tracks.length > 0) {
       lines.push(
         "addMusic lays one of their audio files under the whole edit. It has no atSeconds: a bed runs the",
@@ -763,6 +790,34 @@ function toOperation(
           onOpen: true,
         };
       }
+      case "stillsReel": {
+        // Their order, and only their files. An id the model returned that is
+        // not an image in this project is dropped here rather than at the
+        // worker, so the plan that gets stored is one the renderer can keep.
+        const named = Array.isArray(raw["assetIds"])
+          ? (raw["assetIds"] as unknown[]).filter(
+              (id): id is string =>
+                typeof id === "string" && assets.some((a) => a.id === id && a.kind === "image"),
+            )
+          : [];
+        /*
+          Naming none means all of them.
+
+          A model that chose this operation and listed nothing has asked for a
+          video of this product, and every photograph in the project is the
+          honest reading of that. Returning null instead would drop the one
+          operation the request was about and leave a plan that edits a video
+          which does not exist.
+        */
+        const chosen = named.length > 0 ? named : assets.filter((a) => a.kind === "image").map((a) => a.id);
+        if (chosen.length === 0) return null;
+        return {
+          type,
+          assetIds: chosen.slice(0, 20),
+          targetSeconds: Math.min(60, Math.max(3, numberOr(raw["targetSeconds"], 15))),
+          motion: 0.12,
+        };
+      }
       case "overlayImage": {
         const assetId = assetOfKind("image");
         if (!assetId) return null;
@@ -1050,6 +1105,16 @@ function describeAll(operations: EditOperation[]): Phrase[] {
           : op.onPunches
             ? { en: "put sound effects under the punch-ins", ar: "أضع مؤثّرات صوتية تحت التقريبات" }
             : { en: "put sound effects on the cuts", ar: "أضع مؤثّرات صوتية على القصّات" };
+      // Said by the count, because that is the number they can check. The
+      // length is deliberately not promised here: the reel comes out shorter
+      // than asked when the photographs would have to be held too long, and
+      // the render notes are where that is reported, from the file rather than
+      // from the plan.
+      case "stillsReel":
+        return {
+          en: `build the video out of ${op.assetIds.length} of your photos`,
+          ar: `أبني الفيديو من ${op.assetIds.length} من صورك`,
+        };
     }
   });
 }

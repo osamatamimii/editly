@@ -1244,6 +1244,51 @@ export const AlternateFramingOperation = z.object({
   amount: z.number().min(0.05).max(0.3).default(0.15),
 });
 
+/**
+ * Build the video out of photographs, because there is no video.
+ *
+ * Every other operation in this contract edits a recording. That is the whole
+ * product for somebody who filmed themselves, and it is nothing at all to a
+ * shop owner: they do not own a camera, they do not appear on screen, and what
+ * they have is six photographs of a product and a price. Until this existed
+ * the honest answer to them was that this tool had nothing to offer.
+ *
+ * It names photographs already in the project's library, by id, for the same
+ * reason b-roll and music do: an id is checked against the project, a path is
+ * a request to open whatever the caller can spell.
+ *
+ * It has no `at`, and it is the only operation that runs *before* the renderer
+ * rather than inside it. The worker assembles the reel, and from that moment
+ * the job is an ordinary render of an ordinary clip — reframed, graded, scored,
+ * captioned, levelled and reviewed by exactly the paths that already exist and
+ * are already tested. Which is the reason it was built as an ingest step and
+ * not as a second kind of renderer.
+ */
+export const StillsReelOperation = z.object({
+  type: z.literal("stillsReel"),
+  /**
+   * The photographs, in the order they should appear.
+   *
+   * Their order, not ours. A merchant arranged their product images already,
+   * and nothing here knows more about which one should open than they did.
+   */
+  assetIds: z.array(z.string().min(1)).min(1).max(20),
+  /**
+   * How long the reel should run before anything else cuts it.
+   *
+   * An advertisement is a length before it is anything else. The reel is
+   * allowed to come out *shorter* than this — a photograph held longer than
+   * four seconds has stopped being an ad — and the render notes say when it
+   * did, and how many photographs there was no room for.
+   */
+  targetSeconds: z.number().min(3).max(60).default(15),
+  /**
+   * How far each photograph travels while it is on screen. 0 is a slideshow,
+   * which is the one thing every tool in this category is accused of being.
+   */
+  motion: z.number().min(0).max(0.3).default(0.12),
+});
+
 export const EditOperation = z.discriminatedUnion("type", [
   RemoveSilenceOperation,
   TightenOperation,
@@ -1267,6 +1312,7 @@ export const EditOperation = z.discriminatedUnion("type", [
   MotionTitleOperation,
   SoundEffectsOperation,
   AlternateFramingOperation,
+  StillsReelOperation,
 ]);
 export type EditOperation = z.infer<typeof EditOperation>;
 

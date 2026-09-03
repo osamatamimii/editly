@@ -222,6 +222,24 @@ const NO_SFX_WORDS =
  */
 const SFX_QUIET_WORDS = /\bsubtle\b|\bminimal\b|\bgentle\b|\blight touch\b|خفيفة|خفيف|بسيطة|هادئة/i;
 const SFX_PUNCHY_WORDS = /\bpunchy\b|\baggressive\b|\bhard[- ]hitting\b|\bheavy\b|قوية|عنيفة|ثقيلة/i;
+/**
+ * Asking for the video to be *made* rather than edited.
+ *
+ * Every other pattern in this file is about changing a recording. This one is
+ * for the person who has no recording — a shop with product photographs and no
+ * camera — and it is the only request in the product where the answer is a
+ * video that did not exist a minute ago.
+ *
+ * Written with its refusal beside it in the same commit, which is this file's
+ * rule: a generous pattern with no negative is how «no captions» came to add
+ * captions. And no `\b` on the Arabic, because a word boundary in JavaScript is
+ * defined against `\w` and matches nothing next to an Arabic letter.
+ */
+const REEL_WORDS =
+  /\bvideo (?:from|out of) (?:my |the |these )?(?:photos?|images?|pictures?|product (?:photos?|images?))\b|\b(?:photo|image|slideshow|product) video\b|\b(?:make|create|build) (?:an? )?(?:ad|reel|video|clip) (?:from|out of) (?:my |the |these )?(?:photos?|images?|pictures?)\b|\bturn (?:my |the |these )?(?:photos?|images?|pictures?) into (?:an? )?(?:video|ad|reel)\b|فيديو من الصور|فيديو من صور|فيديو من صوري|من صور المنتج|حوّل الصور|حول الصور|اعمل فيديو من|سوّي فيديو من|سوي فيديو من/i;
+
+const NO_REEL_WORDS =
+  /\bwithout (?:my |the )?(?:photos?|images?|pictures?)\b|\bno slideshow\b|\bdon'?t use (?:my |the )?(?:photos?|images?|pictures?)\b|بدون الصور|بدون صور|بلا صور|لا تستخدم الصور/i;
 
 const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?) )?to (the )?(beat|music|rhythm|drop)\b|على الإيقاع|مع الإيقاع/i;
 
@@ -1390,6 +1408,42 @@ export function planFromText(
               "أضع مؤثّرات صوتية خفيفة على القصّات، قصيرة لا تزاحم الكلام",
             ),
     );
+  }
+
+  /*
+    A video built from the photographs, rather than an edit of one.
+
+    Placed here because this is where the library is known, like music and
+    b-roll above it — and, like them, the honest answer with an empty library
+    names the fix rather than the limitation. Somebody who asks for a video of
+    their product and is told "I cannot" will leave; told "add the photos and I
+    will build it", they add the photos.
+  */
+  if (REEL_WORDS.test(text) && !NO_REEL_WORDS.test(text)) {
+    if (stills.length === 0) {
+      cannotYet.push(
+        say(
+          "build a video from your photos yet, because this project has none. Add the product images and I will cut them into one",
+          "أبني فيديو من صورك بعد، لأن هذا المشروع لا صور فيه، أضف صور المنتج وأقصّها في فيديو",
+        ),
+      );
+    } else {
+      const chosen = stills.slice(0, 20);
+      operations.push({
+        type: "stillsReel",
+        // Their order. It is a decision somebody already made about which
+        // photograph should open, and nothing here knows better than they did.
+        assetIds: chosen.map((a) => a.id),
+        targetSeconds: 15,
+        motion: 0.12,
+      });
+      willDo.push(
+        say(
+          `build the video out of ${chosen.length} of your photos`,
+          `أبني الفيديو من ${chosen.length} من صورك`,
+        ),
+      );
+    }
   }
 
   if (OVERLAY_WORDS.test(text)) {

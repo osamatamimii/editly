@@ -109,6 +109,10 @@ const OWED = {
   // with nothing to accent and a build with no sound files both come out as a
   // note, never as a failure, because a flourish must not fail paid work.
   soundEffects: /laid \d+ sound effect|left the sound effects out|could not find the sound effect files/,
+  // The reel is built before the renderer is called, so what it owes is a
+  // note about the material rather than about the edit: how many photographs
+  // went in, and how many there was no room for.
+  stillsReel: /built a \d+s video from \d+ of your photos/,
 };
 
 /**

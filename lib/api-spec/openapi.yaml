@@ -2656,6 +2656,7 @@ components:
         - $ref: "#/components/schemas/MotionTitleOperation"
         - $ref: "#/components/schemas/SoundEffectsOperation"
         - $ref: "#/components/schemas/AlternateFramingOperation"
+        - $ref: "#/components/schemas/StillsReelOperation"
       discriminator:
         propertyName: type
 
@@ -4155,3 +4156,52 @@ components:
           maximum: 0.3
           default: 0.15
       required: [type]
+
+    StillsReelOperation:
+      description: >
+        Build the source video out of photographs, for a project that has none.
+        Every other operation in this API edits a recording; this one is for the
+        shop owner who does not own a camera and whose product has six images
+        and a price. The photographs are named by id from the project's own
+        library, in the order the owner arranged them.
+
+
+        It is the only operation that runs before the renderer rather than
+        inside it: the worker assembles the reel, and from that point the job is
+        an ordinary render of an ordinary clip, reframed and graded and scored
+        by the paths that already exist.
+
+
+        The reel may come out shorter than `targetSeconds` - a photograph held
+        longer than four seconds has stopped being an advertisement - and the
+        render notes say when it did and how many photographs there was no room
+        for.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [stillsReel]
+        assetIds:
+          description: >
+            Image assets in this project, in the order they should appear. Their
+            order, not ours.
+          type: array
+          items:
+            type: string
+          minItems: 1
+          maxItems: 20
+        targetSeconds:
+          description: How long the reel should run before anything else cuts it.
+          type: number
+          minimum: 3
+          maximum: 60
+          default: 15
+        motion:
+          description: >
+            How far each photograph travels while it is on screen. 0 is a
+            slideshow.
+          type: number
+          minimum: 0
+          maximum: 0.3
+          default: 0.12
+      required: [type, assetIds]

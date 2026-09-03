@@ -265,6 +265,17 @@ const PAIRS = [
     ar: "ضيف مؤثرات صوتية",
     expect: ["soundEffects"],
   },
+  {
+    // The one refusal in this list that is about a project having no video at
+    // all rather than no extra file, which is the whole reason the operation
+    // exists. An Arabic-speaking shop owner who is told the fix only in English
+    // has not been told the fix.
+    what: "a video from photos, with no photos uploaded",
+    en: "make a video from my product photos",
+    ar: "اعمل فيديو من صور المنتج",
+    expect: [],
+    refuses: "add the product images",
+  },
 ];
 
 console.log("\nthe same ask, in both languages");
@@ -324,7 +335,7 @@ for (const pair of PAIRS) {
 console.log("\nnothing gets built in English only");
 const text = await readFile(path.join(repoRoot, source), "utf8");
 const emitted = new Set([...text.matchAll(/operations\.push\(\{\s*\n?\s*type: "(\w+)"/g)].map((m) => m[1]));
-const NEEDS_A_FILE = new Set(["insertBRoll", "overlayImage", "addMusic", "motionTitle"]);
+const NEEDS_A_FILE = new Set(["insertBRoll", "overlayImage", "addMusic", "motionTitle", "stillsReel"]);
 const covered = new Set(PAIRS.flatMap((p) => p.expect));
 
 check("the matcher's operations were found in the source at all", emitted.size >= 8, `${emitted.size} found`);
