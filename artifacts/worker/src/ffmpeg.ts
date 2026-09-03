@@ -1166,10 +1166,6 @@ const STYLE_IN_WORDS: Record<TransitionStyle, string> = {
  */
 const FASTSTART = ["-movflags", "+faststart"];
 
-function escapeForFilter(text: string): string {
-  return text.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'").replace(/%/g, "\\%");
-}
-
 /**
  * The export frame, from its height.
  *
@@ -2463,9 +2459,37 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   }
 
   if (watermark) {
+    /*
+      The watermark text goes in a file, and that is a security boundary, not a
+      convenience.
+
+      It used to be interpolated straight into the filtergraph —
+      `drawtext=text='<escaped>'` — behind a helper that escaped `\ : ' %` and
+      nothing else. That is not enough. Inside an ffmpeg filtergraph a `\'`
+      does not escape a quote, it *ends* the quoted run, and once the quote is
+      closed an un-escaped `,` starts a brand-new filter. So a watermark of
+      `',drawtext=textfile=/proc/self/environ,drawtext=text='` — 54 characters,
+      inside the 60 the schema allows — parsed as three chained filters, the
+      middle one drawing this worker's own environment (its keys, its database
+      URL) onto the frame the person then downloads. `render-policy.ts` only
+      replaces a client watermark on the free plan, so any paid account reached
+      this. Measured against a real ffmpeg: the injected `textfile=` opened the
+      named file.
+
+      The text is not graph syntax, so it must not travel in the graph string.
+      It is written to a file the server names, and `textfile=` reads it as the
+      literal bytes it is. `expansion=none` stops drawtext interpreting its own
+      `%{…}` sequences in that content. The only thing left in the graph is the
+      filename, which is ours, escaped the way every other path in this file is.
+      A payload like the one above now draws as its own absurd text and opens
+      nothing — see tools/watermark-test.mjs, which measures both.
+    */
+    const watermarkPath = path.join(ctx.workDir, "watermark.txt");
+    await writeFile(watermarkPath, watermark.text, "utf8");
     videoParts.push(
       [
-        `drawtext=text='${escapeForFilter(watermark.text)}'`,
+        `drawtext=textfile='${watermarkPath.replace(/[\\:']/g, "\\$&")}'`,
+        "expansion=none",
         "fontcolor=white@0.85",
         "fontsize=h/32",
         "box=1",
