@@ -629,6 +629,42 @@ section("The audio decides which language it is in");
     lastUrl,
   );
 
+  // ── The transcript carries the language even when detection was off ────────
+  //
+  // When we name the language, Deepgram does not detect, and its reply has no
+  // `detected_language` at all. The transcript still has to say what language it
+  // is — the cross-check guard and the chapter reader both read it — so the
+  // language we asked for is the answer. It came back null before, for the one
+  // case we were surest about: a language we had explicitly named.
+  const undetected = createDeepgramTranscriber({
+    apiKey: "not-a-real-key",
+    model: "nova-3",
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ results: { channels: [{ alternatives: [{ words: [] }] }] } }),
+    }),
+  });
+  const namedResult = await undetected.transcribe(silence, { language: "ar" });
+  check(
+    "a named language is carried on the transcript though the reply names none",
+    namedResult.language === "ar",
+    String(namedResult.language),
+  );
+  const believedResult = await undetected.transcribe(silence, { expected: "ar" });
+  check(
+    "a believed language the detector cannot name is carried too",
+    believedResult.language === "ar",
+    String(believedResult.language),
+  );
+  // And detection still wins when the reply does name a language: the fake here
+  // answers "ar" no matter what, so a request for "en" must not override it.
+  const conflicting = await deepgram.transcribe(silence, { language: "en" });
+  check(
+    "a language the reply actually names wins over the request",
+    conflicting.language === "ar",
+    String(conflicting.language),
+  );
+
   // Filler words are documented English-only. This is the one request option
   // in this file that is a *feature ask* rather than a setting, and asking for
   // it on a language the provider says cannot have it is at best noise.

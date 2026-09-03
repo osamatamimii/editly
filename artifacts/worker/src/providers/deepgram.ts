@@ -140,7 +140,13 @@ export function createDeepgramTranscriber(options: DeepgramOptions): Transcriber
         if (!response.ok) {
           throw new Error(`deepgram ${response.status}: ${await safeBody(response)}`);
         }
-        return parseDeepgram(await response.json(), `deepgram/${model}`);
+        // `named` is passed so the transcript carries the language even when we
+        // told Deepgram what it was: detection is off in that case, so the
+        // response has no `detected_language`, and without this the transcript
+        // came back `language: null` for the one case we were *most* sure about
+        // — a named language — leaving the cross-check guard dead and the
+        // chapter reader with no language to work in.
+        return parseDeepgram(await response.json(), `deepgram/${model}`, named);
       } finally {
         await rm(path.dirname(audio), { recursive: true, force: true });
       }
@@ -153,7 +159,7 @@ export function createDeepgramTranscriber(options: DeepgramOptions): Transcriber
  * rather than producing an empty transcript that reads as "this video has no
  * speech in it".
  */
-export function parseDeepgram(payload: unknown, source: string): Transcript {
+export function parseDeepgram(payload: unknown, source: string, requestedLanguage?: string): Transcript {
   const root = payload as {
     results?: {
       channels?: Array<{
@@ -210,7 +216,11 @@ export function parseDeepgram(payload: unknown, source: string): Transcript {
 
   return {
     segments,
-    language: channel?.detected_language ?? null,
+    // Detection names the language when we let it detect; when we named the
+    // language instead, detection is off and the response is silent about it —
+    // so the language we asked for is the answer. Either way the transcript
+    // knows what it is, which every downstream reader depends on.
+    language: channel?.detected_language ?? requestedLanguage ?? null,
     source,
   };
 }
