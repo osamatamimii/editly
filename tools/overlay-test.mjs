@@ -146,6 +146,57 @@ console.log("\nB-roll cut in over the source");
   await rm(ctx.workDir, { recursive: true, force: true });
 }
 
+console.log("\nA photograph cut in as b-roll");
+{
+  /*
+    The case a shop owner's advertisement is made of.
+
+    A dropshipper has supplier clips and product photographs, and the
+    photographs belong in the ad as cutaways over the footage. That is a legal
+    plan — `insertBRoll` names an asset id and the contract has never said the
+    asset must be a video — and it used to render as nothing at all.
+
+    `-i <still>` gives an input of exactly one frame. `trim` took that frame,
+    `setpts` moved it to the top of the window, and `overlay` with
+    `eof_action=pass` let the base through from there on. So the picture never
+    changed for a single sample inside the window, ffmpeg exited zero, and the
+    note said "cut to b-roll at 2.0s".
+
+    This is the shape of failure this whole file exists for, arriving through
+    the one door it had not been pointed at: the video b-roll check above
+    passed the entire time.
+  */
+  const ctx = {
+    workDir: await mkdtemp(path.join(tmpdir(), "editly-brimg-run-")),
+    assets: new Map([["asset-photo", { file: image, kind: "image" }]]),
+  };
+  const plan = {
+    version: 1,
+    operations: [
+      { type: "insertBRoll", assetId: "asset-photo", at: 2, durationSeconds: 2, fit: "cover", keepSourceAudio: true },
+    ],
+  };
+  const result = await renderPlan(source, plan, ctx);
+
+  // Three samples inside, not one. A still that appears for a frame and a
+  // still that holds for two seconds are different pictures, and one sample in
+  // the middle cannot tell them apart.
+  const early = averageColourAt(result.output, 2.2);
+  const middle = averageColourAt(result.output, 3);
+  const late = averageColourAt(result.output, 3.8);
+  const after = averageColourAt(result.output, 6);
+  // Filling the frame, so the average *is* the colour rather than a fraction
+  // of it: magenta is red and blue high with green low.
+  const magentaish = (c) => c && c[0] > 90 && c[2] > 90 && c[1] < c[0] * 0.5;
+
+  check("the photograph is on the frame as the cutaway opens", magentaish(early), early ? `rgb(${early})` : "no frame");
+  check("still there in the middle of it", magentaish(middle), middle ? `rgb(${middle})` : "no frame");
+  check("and still there at its end, rather than one frame and gone", magentaish(late), late ? `rgb(${late})` : "no frame");
+  check("the source is back afterwards", !magentaish(after), after ? `rgb(${after})` : "no frame");
+  check("and it is reported as a cutaway", result.notes.some((n) => n.includes("cut to b-roll")), result.notes.join("; "));
+  await rm(ctx.workDir, { recursive: true, force: true });
+}
+
 console.log("\nAn asset the project does not have");
 {
   const ctx = { workDir: await mkdtemp(path.join(tmpdir(), "editly-miss-run-")), assets: new Map() };

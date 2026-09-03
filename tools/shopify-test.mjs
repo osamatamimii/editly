@@ -325,7 +325,16 @@ section("The advertisement a merchant gets without saying anything");
 {
   const ad = product.readProduct(productNode());
   const ids = ["a1", "a2"];
-  const plan = productAd.planForProductAd(ad, ids, { platform: "tiktok", targetSeconds: 15 });
+  /*
+    Photographs and no clips, because that is what this door has.
+
+    A Shopify product's videos are counted and reported and not yet
+    downloaded, so the catalogue path hands the plan builder no footage and
+    gets the stills reel. The signed-in door, which does have clips, is checked
+    against the footage shape in `product-ads-test`.
+  */
+  const material = { clipIds: [], photoIds: ids, sourceSeconds: null };
+  const plan = productAd.planForProductAd(ad, material, { platform: "tiktok", targetSeconds: 15 });
   const types = plan.map((op) => op.type);
 
   check("it is built from the photographs", types.includes("stillsReel"));
@@ -341,10 +350,10 @@ section("The advertisement a merchant gets without saying anything");
   const price = plan.filter((o) => o.type === "motionTitle")[1];
   check("and closing on the price", price.text === "34.00 USD" && price.at > 10, JSON.stringify(price));
 
-  const noPrice = productAd.planForProductAd({ ...ad, price: null }, ids, { platform: "reels", targetSeconds: 15 });
+  const noPrice = productAd.planForProductAd({ ...ad, price: null }, material, { platform: "reels", targetSeconds: 15 });
   check("a product with no price gets no price card", noPrice.filter((o) => o.type === "motionTitle").length === 1);
 
-  const short = productAd.planForProductAd(ad, ids, { platform: "tiktok", targetSeconds: 6 });
+  const short = productAd.planForProductAd(ad, material, { platform: "tiktok", targetSeconds: 6 });
   check("on a short reel the price does not land on top of the title", short.filter((o) => o.type === "motionTitle")[1].at >= 3.2);
 
   /*

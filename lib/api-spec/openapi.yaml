@@ -664,20 +664,31 @@ paths:
     post:
       operationId: createProductAd
       tags: [projects]
-      summary: Turn a project's photographs into a product ad
+      summary: Turn a project's clips and photos into a product ad
       description: >
         The signed-in door to the same place `/shopify/ads` reaches. A project
-        that already holds photographs, uploaded through the ordinary assets
-        route, is given a name, an optional price and a shape, and comes back
-        as a queued render. The photographs are used in the order they were
-        uploaded, because that order is the only instruction the person gave
-        about their own product.
+        that already holds clips and photographs, uploaded through the ordinary
+        assets route, is given a name, an optional price, a shape and a
+        sentence, and comes back as a queued render. The files are used in the
+        order they were uploaded, because that order is the only instruction
+        the person gave about their own product.
 
 
-        Both doors end at one plan builder, so a merchant who signs in here and
-        a merchant inside Shopify's admin get the same video out of the same
-        pictures. The month's allowance, the free-plan watermark and the
-        one-render-at-a-time rule apply exactly as they do to any other render.
+        At least one clip is required. The first clip is the advertisement, the
+        rest are cut in over it, and the photographs are cutaways between them
+        - a product ad made of stills alone is the weaker of the two and is
+        what `/shopify/ads` falls back to for a catalogue product that has no
+        video at all.
+
+
+        `description` is what actually decides the ad: it goes through the same
+        planner a chat message does, and any operation it asks for wins over
+        this route's own defaults.
+
+
+        Both doors end at one plan builder. The month's allowance, the
+        free-plan watermark and the one-render-at-a-time rule apply exactly as
+        they do to any other render.
       requestBody:
         required: true
         content:
@@ -703,6 +714,12 @@ paths:
                   type: number
                   minimum: 3
                   maximum: 60
+                description:
+                  description: >
+                    What the ad should be like, in their own words, English or
+                    Arabic. Whatever it asks for wins over the defaults.
+                  type: string
+                  maxLength: 600
               required: [id]
       responses:
         "202":
@@ -714,10 +731,15 @@ paths:
                 properties:
                   projectId: { type: string }
                   jobId: { type: string }
-                  photos:
-                    description: How many of the project's photographs the ad is made of.
+                  clips:
+                    description: >
+                      How many clips went in. The first is the advertisement;
+                      the rest are cut over it.
                     type: number
-                required: [projectId, jobId, photos]
+                  photos:
+                    description: How many photographs are cut in as cutaways.
+                    type: number
+                required: [projectId, jobId, clips, photos]
         "400":
           description: The body is not a product ad request
         "401":
@@ -727,7 +749,7 @@ paths:
         "409":
           description: That project already holds a video
         "422":
-          description: There are no photographs in it yet
+          description: There is no clip in it yet
 
   /shopify/ads:
     post:

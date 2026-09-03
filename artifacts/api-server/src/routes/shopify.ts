@@ -435,7 +435,20 @@ router.post("/shopify/ads", rateLimitBy(LIMITS.createProject, (req) => (req.shop
   const outcome = await startRenderForProject(
     userId,
     (await db.select().from(projectsTable).where(and(eq(projectsTable.id, projectId), eq(projectsTable.userId, userId))))[0]!,
-    planForProductAd(ad, stored.map((row) => row.id), { platform, targetSeconds }),
+    /*
+      Photographs only, from here.
+
+      A Shopify product's videos are counted and reported (`ad.videos`) and not
+      yet downloaded, so this door hands the plan builder no clips and gets the
+      stills reel. The moment that download exists, the clips go in `clipIds`
+      and this merchant gets the same footage-first advertisement the signed-in
+      door already builds.
+    */
+    planForProductAd(
+      ad,
+      { clipIds: [], photoIds: stored.map((row) => row.id), sourceSeconds: null },
+      { platform, targetSeconds },
+    ),
     req.log,
   );
 

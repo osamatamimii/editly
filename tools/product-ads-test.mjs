@@ -1,12 +1,12 @@
 /**
  * The section for people who sell things, end to end.
  *
- * A merchant brings photographs, not a recording, and until this slice existed
- * every door in the product was shut to them: the create-project dropzone
- * takes video, `projects.videoPath` is written only by the video upload path,
- * and `start-render.ts` refuses with "Upload a video before rendering." The
- * capability to build an advertisement out of stills was already there and had
- * no way in from a browser.
+ * A merchant brings a shop, not a recording: supplier clips of the product,
+ * phone clips of somebody holding it, photographs, a price, and a sentence
+ * saying what the advertisement should be like. Until this section existed
+ * every door in the product was shut to them, and the first version of it was
+ * shut in a subtler way: it took photographs only, so a merchant with footage
+ * was handed a slideshow made out of the stills sitting beside it.
  *
  * That is the failure this file is written against, and it is the reason the
  * middle section here goes through real HTTP against the real Express bundle
@@ -18,7 +18,9 @@
  * The three sections, and what each is worth:
  *
  *   1. **The plan both doors end at.** `lib/product-ad.ts` is pure, so it is
- *      bundled and called. The plan it returns is validated against the real
+ *      bundled and called. Both of its shapes are checked — the footage
+ *      advertisement, and the stills fallback a catalogue product with no
+ *      video still needs — and the plans are validated against the real
  *      `EditPlan` contract, which is what the worker will be handed.
  *   2. **The section, through the stack.** Sign in, upload photographs, ask for
  *      an advertisement, and read back the job the worker will pick up. The
@@ -84,21 +86,47 @@ const zod = await bundlePure("lib/api-zod/src/index.ts", "zod.mjs");
 
 section("The plan both doors end at");
 {
-  const ids = ["a1", "a2", "a3"];
-  const plan = ad.planForProductAd({ title: "Ceramic kettle", price: "34.00 USD" }, ids, {
-    platform: "tiktok",
-    targetSeconds: 15,
-  });
-
-  check("the reel is first, because everything else is about the reel", plan[0]?.type === "stillsReel", plan[0]?.type);
-  check(
-    "and it carries the photographs in the order they were given",
-    JSON.stringify(plan[0]?.assetIds) === JSON.stringify(ids),
-    JSON.stringify(plan[0]?.assetIds),
+  const clips = ["v1", "v2"];
+  const pics = ["p1", "p2", "p3"];
+  const plan = ad.planForProductAd(
+    { title: "Ceramic kettle", price: "34.00 USD" },
+    { clipIds: clips, photoIds: pics, sourceSeconds: 18 },
+    { platform: "tiktok", targetSeconds: 15 },
   );
-  check("the reel runs as long as was asked for", plan[0]?.targetSeconds === 15);
+  const types = plan.map((op) => op.type);
+
+  /*
+    The correction this section is written around.
+
+    The first version of this file built a slideshow out of the photographs and
+    ignored the footage entirely. A merchant with supplier clips got stills of
+    a product that was moving in the folder next door.
+  */
+  check("footage is the advertisement, not a slideshow of the stills", !types.includes("stillsReel"), types.join(","));
   check("the platform asked for is the platform framed for",
     plan.some((op) => op.type === "formatForPlatform" && op.platform === "tiktok"));
+
+  const cutaways = plan.filter((op) => op.type === "insertBRoll");
+  check("everything past the first clip is cut in over it", cutaways.length > 0, String(cutaways.length));
+  check(
+    "the second clip goes before the photographs, because a moving angle beats a still",
+    cutaways[0]?.assetId === "v2",
+    cutaways.map((c) => c.assetId).join(","),
+  );
+  check("and only files that were given are named",
+    cutaways.every((c) => [...clips.slice(1), ...pics].includes(c.assetId)),
+    cutaways.map((c) => c.assetId).join(","));
+  check("the first clip is never cut over itself", !cutaways.some((c) => c.assetId === "v1"));
+  check("each cutaway keeps the sound underneath, which is what a cutaway is",
+    cutaways.every((c) => c.keepSourceAudio === true));
+  check("and fills the frame rather than sitting in a box", cutaways.every((c) => c.fit === "cover"));
+
+  // The hook. A cutaway over the first beat is an advertisement nobody watches
+  // past the first beat.
+  check("nothing is cut in over the opening", cutaways.every((c) => c.at >= ad.HOOK_SECONDS), cutaways.map((c) => c.at).join(","));
+  const overlapping = cutaways.some((c, i) =>
+    i > 0 && c.at < cutaways[i - 1].at + cutaways[i - 1].durationSeconds);
+  check("and no two of them are on screen at once", !overlapping, cutaways.map((c) => `${c.at}+${c.durationSeconds}`).join(","));
 
   const titles = plan.filter((op) => op.type === "motionTitle");
   check("the product's own name goes on screen", titles[0]?.text === "Ceramic kettle", titles[0]?.text);
@@ -111,12 +139,13 @@ section("The plan both doors end at");
   );
   check("it ends on a fade", plan.at(-1)?.type === "fade");
 
-  // A price nobody gave is a price nobody invents. This is the single most
-  // damaging thing an automatic ad builder can get wrong.
-  const noPrice = ad.planForProductAd({ title: "Ceramic kettle", price: null }, ids, {
-    platform: "reels",
-    targetSeconds: 15,
-  });
+  // A price nobody gave is a price nobody invents. The single most damaging
+  // thing an automatic ad builder can get wrong.
+  const noPrice = ad.planForProductAd(
+    { title: "Ceramic kettle", price: null },
+    { clipIds: clips, photoIds: [], sourceSeconds: 18 },
+    { platform: "reels", targetSeconds: 15 },
+  );
   check(
     "a product with no price gets no price card rather than a made-up one",
     noPrice.filter((op) => op.type === "motionTitle").length === 1,
@@ -127,36 +156,102 @@ section("The plan both doors end at");
     JSON.stringify(noPrice),
   );
 
-  // The clamp. At five seconds, `seconds - 3.5` is 1.5, which would put the
-  // price card on top of the title.
-  const short = ad.planForProductAd({ title: "Kettle", price: "9 JOD" }, ids, {
-    platform: "square",
-    targetSeconds: 5,
-  });
-  const shortTitles = short.filter((op) => op.type === "motionTitle");
-  check(
-    "in a five second ad the price still waits for the title",
-    (shortTitles[1]?.at ?? 0) >= (shortTitles[0]?.at ?? 0) + (shortTitles[0]?.durationSeconds ?? 0),
-    `${shortTitles[0]?.at}+${shortTitles[0]?.durationSeconds} vs ${shortTitles[1]?.at}`,
-  );
-
   const long = "x".repeat(400);
-  const truncated = ad.planForProductAd({ title: long, price: null }, ids, {
-    platform: "tiktok",
-    targetSeconds: 15,
-  });
+  const truncated = ad.planForProductAd(
+    { title: long, price: null },
+    { clipIds: clips, photoIds: [], sourceSeconds: null },
+    { platform: "tiktok", targetSeconds: 15 },
+  );
   check(
     "a title longer than the contract allows is cut here, not refused later",
     (truncated.find((op) => op.type === "motionTitle")?.text ?? "").length <= 120,
   );
 
-  // The contract the worker is handed. A plan that only this file agrees with
-  // is a plan that fails at the far end of a queue.
   for (const [label, candidate] of [["with a price", plan], ["without one", noPrice], ["with a long title", truncated]]) {
     const parsed = zod.EditPlan.safeParse({ version: 1, operations: candidate });
     check(`the plan ${label} is a valid EditPlan`, parsed.success, parsed.error?.message?.slice(0, 200));
   }
-  check("and it stays well under the twelve operation ceiling", plan.length <= 12, String(plan.length));
+  check("and it stays under the twelve operation ceiling", plan.length <= 12, String(plan.length));
+}
+
+section("Long footage is cut down; short footage is left alone");
+{
+  const short = ad.planForProductAd(
+    { title: "Kettle", price: null },
+    { clipIds: ["v1"], photoIds: [], sourceSeconds: 18 },
+    { platform: "tiktok", targetSeconds: 15 },
+  );
+  check(
+    "eighteen seconds asked to be fifteen is not worth choosing a highlight out of",
+    !short.some((op) => op.type === "extractHighlight"),
+    short.map((o) => o.type).join(","),
+  );
+
+  const long = ad.planForProductAd(
+    { title: "Kettle", price: null },
+    { clipIds: ["v1"], photoIds: [], sourceSeconds: 120 },
+    { platform: "tiktok", targetSeconds: 15 },
+  );
+  const cut = long.find((op) => op.type === "extractHighlight");
+  check("two minutes of a product rotating on a table is", Boolean(cut), long.map((o) => o.type).join(","));
+  check("and it is cut to the length that was asked for", cut?.targetSeconds === 15, String(cut?.targetSeconds));
+
+  // Unknown is not long. A duration nobody measured must not become a cut
+  // placed at a second that does not exist.
+  const unknown = ad.planForProductAd(
+    { title: "Kettle", price: null },
+    { clipIds: ["v1"], photoIds: [], sourceSeconds: null },
+    { platform: "tiktok", targetSeconds: 15 },
+  );
+  check(
+    "a length nobody measured is not treated as a long one",
+    !unknown.some((op) => op.type === "extractHighlight"),
+    unknown.map((o) => o.type).join(","),
+  );
+}
+
+section("No footage at all, which is most of a Shopify catalogue");
+{
+  const stills = ad.planForProductAd(
+    { title: "Ceramic kettle", price: "34.00 USD" },
+    { clipIds: [], photoIds: ["p1", "p2", "p3"], sourceSeconds: null },
+    { platform: "tiktok", targetSeconds: 15 },
+  );
+  const reel = stills.find((op) => op.type === "stillsReel");
+  check("the photographs become the video", Boolean(reel), stills.map((o) => o.type).join(","));
+  check("in the order they were given", JSON.stringify(reel?.assetIds) === JSON.stringify(["p1", "p2", "p3"]));
+  check("and it is first, because everything else is about it", stills[0]?.type === "stillsReel");
+  check(
+    "nothing is cut in over a reel that is itself made of those files",
+    !stills.some((op) => op.type === "insertBRoll"),
+    stills.map((o) => o.type).join(","),
+  );
+  const parsed = zod.EditPlan.safeParse({ version: 1, operations: stills });
+  check("and the fallback is a valid EditPlan too", parsed.success, parsed.error?.message?.slice(0, 200));
+}
+
+section("Where the cutaways land");
+{
+  const places = ad.cutawayPlacements(3, 15);
+  check("three are placed in fifteen seconds", places.length === 3, JSON.stringify(places));
+  check("the first waits for the hook", places[0].at >= ad.HOOK_SECONDS, String(places[0]?.at));
+  check("they are in order", places.every((p, i) => i === 0 || p.at > places[i - 1].at));
+  check(
+    "none of them runs past the closing beat, where the price card is",
+    places.at(-1).at + places.at(-1).durationSeconds <= 15 - 0.5,
+    JSON.stringify(places.at(-1)),
+  );
+  const taken = places.reduce((sum, p) => sum + p.durationSeconds, 0);
+  check(
+    "and together they take no more than the share allowed",
+    taken <= 15 * ad.CUTAWAY_SHARE + 0.001,
+    `${taken}s of 15s`,
+  );
+
+  check("more files than there is room for are dropped rather than stacked",
+    ad.cutawayPlacements(20, 15).length < 20);
+  check("an advertisement too short to hold one gets none", ad.cutawayPlacements(3, 3).length === 0);
+  check("and none is placed when none were offered", ad.cutawayPlacements(0, 15).length === 0);
 }
 
 // ─── 2. The section, through the stack ───────────────────────────────────────
@@ -250,34 +345,49 @@ function sweep() {
 }
 sweep();
 
-/** A project, and `count` photographs registered into it in this order. */
-async function projectWithPhotos(user, title, count) {
+/**
+ * A project, with `clips` clips and `photos` photographs registered into it in
+ * that order.
+ *
+ * Rows only: this route reads the library, never the bytes, so a real file
+ * would prove nothing here that `overlay-test` does not already prove against
+ * ffmpeg itself.
+ */
+async function projectWith(user, title, { clips = 0, photos = 0, clipSeconds = 18 } = {}) {
   const created = await call(user, "/api/projects", "POST", { title });
   const id = created.json?.id;
-  const paths = [];
-  for (let i = 0; i < count; i += 1) {
-    const objectPath = `${user}/${id}/asset-${Date.now().toString(36)}-${i}.jpg`;
+  const paths = { clips: [], photos: [] };
+  const files = [
+    ...Array.from({ length: clips }, (_, i) => ({ kind: "video", i, ext: "mp4" })),
+    ...Array.from({ length: photos }, (_, i) => ({ kind: "image", i, ext: "jpg" })),
+  ];
+  for (const [n, file] of files.entries()) {
+    const objectPath = `${user}/${id}/asset-${Date.now().toString(36)}-${n}.${file.ext}`;
     const registered = await call(user, `/api/projects/${id}/assets`, "POST", {
       path: objectPath,
-      kind: "image",
-      label: `photo-${i}.jpg`,
-      bytes: 100000 + i,
+      kind: file.kind,
+      label: `${file.kind}-${file.i}.${file.ext}`,
+      bytes: 100000 + n,
+      // The browser measures this before it uploads, and the route judges the
+      // month's allowance against it. Sent here for the clips only, exactly as
+      // the page does.
+      ...(file.kind === "video" ? { durationSeconds: clipSeconds } : {}),
     });
-    if (registered.status !== 201) throw new Error(`could not register photo ${i}: ${registered.text}`);
-    paths.push(objectPath);
+    if (registered.status !== 201) throw new Error(`could not register ${file.kind} ${file.i}: ${registered.text}`);
+    paths[file.kind === "video" ? "clips" : "photos"].push(objectPath);
     /*
       A millisecond between rows, on purpose.
 
-      The route orders the photographs by `created_at`, and Postgres will hand
+      The route orders the material by `created_at`, and Postgres will hand
       several inserts inside one millisecond a timestamp they share. A suite
-      that registers twelve photographs in a tight loop and then asserts their
-      order would pass or fail on the machine's clock resolution rather than on
-      the code, which is the worst kind of flake: it is green on the laptop
-      that wrote it.
+      that registers a dozen files in a tight loop and then asserts their order
+      would pass or fail on the machine's clock resolution rather than on the
+      code, which is the worst kind of flake: it is green on the laptop that
+      wrote it.
     */
     await new Promise((r) => setTimeout(r, 3));
   }
-  return { id, paths };
+  return { id, ...paths };
 }
 
 section("The endpoint is a door, and it is locked");
@@ -292,47 +402,64 @@ section("The endpoint is a door, and it is locked");
   const noId = await call(OWNER, "/api/product-ads", "POST", {});
   check("a request with no project is refused as a bad request", noId.status === 400, `got ${noId.status}`);
 
-  const mine = await projectWithPhotos(OWNER, "Kettle", 2);
+  const mine = await projectWith(OWNER, "Kettle", { clips: 1 });
   const theirs = await call(STRANGER, "/api/product-ads", "POST", { id: mine.id });
   check(
     "a stranger asking for an ad on my project is told there is no such project",
     theirs.status === 404,
     `got ${theirs.status} ${theirs.text}`,
   );
-  check(
-    "and the refusal does not confirm the project exists",
-    !/kettle/i.test(theirs.text),
-    theirs.text,
-  );
+  check("and the refusal does not confirm the project exists", !/kettle/i.test(theirs.text), theirs.text);
 }
 
-section("A project with no photographs");
+section("A clip is required, and photographs alone are refused");
 {
-  const created = await call(OWNER, "/api/projects", "POST", { title: "Empty shelf" });
-  const empty = await call(OWNER, "/api/product-ads", "POST", { id: created.json?.id });
-  check("is refused", empty.status === 422, `got ${empty.status}`);
+  const empty = await projectWith(OWNER, "Empty shelf", {});
+  const nothing = await call(OWNER, "/api/product-ads", "POST", { id: empty.id });
+  check("an empty project is refused", nothing.status === 422, `got ${nothing.status}`);
   check(
-    "with the sentence that names the fix rather than the failure",
-    /add the product photos/i.test(empty.json?.error ?? ""),
-    empty.json?.error,
+    "and told to start with a clip",
+    /add a clip of the product to start/i.test(nothing.json?.error ?? ""),
+    nothing.json?.error,
   );
 
-  // An asset that is not a photograph is not a photograph. Registering an mp3
-  // into the project must not make the ad buildable out of nothing.
-  await call(OWNER, `/api/projects/${created.json?.id}/assets`, "POST", {
-    path: `${OWNER}/${created.json?.id}/asset-music.mp3`,
+  /*
+    The case the first version of this section was built entirely around, and
+    the one it now refuses.
+
+    A merchant who uploads six photographs and no footage is not asking for a
+    slideshow; they have footage and did not know it was wanted. So the refusal
+    names what to add and promises what will happen to what they already gave.
+  */
+  const stillsOnly = await projectWith(OWNER, "Six angles", { photos: 6 });
+  const refused = await call(OWNER, "/api/product-ads", "POST", { id: stillsOnly.id });
+  check("photographs with no clip are refused", refused.status === 422, `got ${refused.status}`);
+  check(
+    "with the sentence that names the fix and keeps their photos in it",
+    /add at least one clip/i.test(refused.json?.error ?? "") && /photos/i.test(refused.json?.error ?? ""),
+    refused.json?.error,
+  );
+  check(
+    "and nothing was queued for it",
+    psql(`select count(*) from jobs where project_id = '${stillsOnly.id}'`) === "0",
+  );
+
+  // Audio is not footage. Registering a music bed must not make the ad
+  // buildable out of nothing.
+  await call(OWNER, `/api/projects/${empty.id}/assets`, "POST", {
+    path: `${OWNER}/${empty.id}/asset-music.mp3`,
     kind: "audio",
     label: "bed.mp3",
     bytes: 4000,
   });
-  const stillEmpty = await call(OWNER, "/api/product-ads", "POST", { id: created.json?.id });
-  check("a project holding only a music bed is still refused", stillEmpty.status === 422, `got ${stillEmpty.status}`);
+  const stillNothing = await call(OWNER, "/api/product-ads", "POST", { id: empty.id });
+  check("a project holding only a music bed is still refused", stillNothing.status === 422, `got ${stillNothing.status}`);
 }
 
-section("Photographs in, a queued render out");
+section("Clips and photos in, a queued render out");
 let queued = null;
 {
-  const project = await projectWithPhotos(OWNER, "Ceramic pour-over kettle", 4);
+  const project = await projectWith(OWNER, "Ceramic pour-over kettle", { clips: 2, photos: 3, clipSeconds: 24 });
   const made = await call(OWNER, "/api/product-ads", "POST", {
     id: project.id,
     price: "34.00 USD",
@@ -344,7 +471,8 @@ let queued = null;
   check("the ad is accepted", made.status === 202, `got ${made.status} ${made.text}`);
   const parsed = zod.CreateProductAdResponse.safeParse(made.json);
   check("and the answer matches the contract it declares", parsed.success, parsed.error?.message?.slice(0, 200));
-  check("it says how many photographs it used", made.json?.photos === 4, JSON.stringify(made.json));
+  check("it says how many clips it used", made.json?.clips === 2, JSON.stringify(made.json));
+  check("and how many photographs", made.json?.photos === 3, JSON.stringify(made.json));
 
   const row = psql(`select status from jobs where id = '${made.json?.jobId}'`);
   check("a job is really in the queue", row === "queued", row);
@@ -353,17 +481,9 @@ let queued = null;
   // response: the response is this route's account of itself.
   const planJson = psql(`select plan from jobs where id = '${made.json?.jobId}'`);
   const plan = JSON.parse(planJson || "{}");
-  const reel = (plan.operations ?? []).find((op) => op.type === "stillsReel");
-  check("the queued plan is built around a stills reel", Boolean(reel), planJson.slice(0, 200));
+  const types = (plan.operations ?? []).map((op) => op.type);
 
-  const assetIds = psql(
-    `select string_agg(id::text, ',' order by created_at asc) from assets where project_id = '${project.id}'`,
-  ).split(",");
-  check(
-    "made of this project's photographs, in the order they were uploaded",
-    JSON.stringify(reel?.assetIds) === JSON.stringify(assetIds),
-    `${JSON.stringify(reel?.assetIds)} vs ${JSON.stringify(assetIds)}`,
-  );
+  check("the queued plan is not a slideshow", !types.includes("stillsReel"), types.join(","));
   check(
     "framed for the platform that was asked for, not the default",
     (plan.operations ?? []).some((op) => op.type === "formatForPlatform" && op.platform === "reels"),
@@ -373,22 +493,38 @@ let queued = null;
     (plan.operations ?? []).some((op) => op.type === "motionTitle" && op.text === "34.00 USD"),
     planJson.slice(0, 400));
 
+  const assetIds = psql(
+    `select string_agg(id::text, ',' order by created_at asc) from assets where project_id = '${project.id}'`,
+  ).split(",");
+  const cutaways = (plan.operations ?? []).filter((op) => op.type === "insertBRoll");
+  check("the extra material is cut in over the footage", cutaways.length > 0, String(cutaways.length));
+  check(
+    "and every cutaway names a file that is really in this project",
+    cutaways.every((c) => assetIds.includes(c.assetId)),
+    `${cutaways.map((c) => c.assetId).join(",")} vs ${assetIds.join(",")}`,
+  );
+  check(
+    "the first clip is the advertisement, so it is never cut over itself",
+    !cutaways.some((c) => c.assetId === assetIds[0]),
+    assetIds[0],
+  );
+
   const projectRow = psql(
     `select video_path || '|' || duration || '|' || platform || '|' || title from projects where id = '${project.id}'`,
   );
   const [videoPath, duration, platform, title] = projectRow.split("|");
   check(
-    "the project's source is the first photograph, which is what the reel replaces",
-    videoPath === project.paths[0],
-    `${videoPath} vs ${project.paths[0]}`,
+    "the project's source is the first clip, not the first photograph",
+    videoPath === project.clips[0],
+    `${videoPath} vs ${project.clips[0]}`,
   );
-  check("its length is the length that will be billed", Number(duration) === 20, duration);
-  check("its platform is recorded", platform === "reels", platform);
   check(
-    "and the title falls back to the one the project already had",
-    title === "Ceramic pour-over kettle",
-    title,
+    "its length is the footage's own, because that is what gets decoded and billed",
+    Number(duration) === 24,
+    duration,
   );
+  check("its platform is recorded", platform === "reels", platform);
+  check("and the title falls back to the one the project already had", title === "Ceramic pour-over kettle", title);
 }
 
 section("It goes through the same policy as every other render");
@@ -403,40 +539,101 @@ section("It goes through the same policy as every other render");
   check("and it names the job already running", again.json?.jobId === queued.json?.jobId, JSON.stringify(again.json));
 }
 
-section("A project that already holds a video is not a product ad");
+section("The sentence decides the advertisement");
 {
-  const project = await projectWithPhotos(OWNER, "Has a take in it", 2);
-  psql(
-    `update projects set video_path = '${OWNER}/${project.id}/source.mp4' where id = '${project.id}'`,
+  /*
+    The half a row of buttons cannot do.
+
+    "Cut it fast with subtitles", "keep her voice, no music", "خلّيه هادي" are
+    three advertisements out of one set of clips. The sentence goes through the
+    planner a chat message goes through — the model where there is a key, the
+    keyword matcher where there is none, which is what runs here — and whatever
+    it asks for wins over this route's defaults.
+  */
+  const project = await projectWith(OWNER, "Kettle", { clips: 1 });
+  const made = await call(OWNER, "/api/product-ads", "POST", {
+    id: project.id,
+    price: "34.00 USD",
+    description: "cut out the silences and level the audio",
+    targetSeconds: 15,
+  });
+  check("the ad is accepted", made.status === 202, `got ${made.status} ${made.text}`);
+
+  const plan = JSON.parse(psql(`select plan from jobs where id = '${made.json?.jobId}'`) || "{}");
+  const types = (plan.operations ?? []).map((op) => op.type);
+  check("what they asked for is in the plan", types.includes("removeSilence"), types.join(","));
+  check("all of it", types.includes("normalizeLoudness"), types.join(","));
+  check("and the advertisement is still built around it", types.includes("formatForPlatform"), types.join(","));
+  check("with the price they typed still on screen",
+    (plan.operations ?? []).some((op) => op.type === "motionTitle" && op.text === "34.00 USD"),
+    types.join(","));
+}
+
+section("Their words on screen beat ours, and the price survives both");
+{
+  /*
+    `withDirection` works by operation type, and the product's name and its
+    price are both `motionTitle`. So a sentence asking for any words on screen
+    would have dropped both of ours, including the number the advertisement is
+    asking the viewer to accept — a merchant who typed a price into a field
+    labelled Price and got a video with no price in it.
+  */
+  const project = await projectWith(OWNER, "Kettle", { clips: 1 });
+  const made = await call(OWNER, "/api/product-ads", "POST", {
+    id: project.id,
+    title: "Ceramic kettle",
+    price: "34.00 USD",
+    description: 'put the words "Free shipping" on screen',
+    targetSeconds: 15,
+  });
+  check("accepted", made.status === 202, `got ${made.status} ${made.text}`);
+
+  const plan = JSON.parse(psql(`select plan from jobs where id = '${made.json?.jobId}'`) || "{}");
+  const titles = (plan.operations ?? []).filter((op) => op.type === "motionTitle");
+  check("their words are on screen", titles.some((t) => /free shipping/i.test(t.text)), JSON.stringify(titles));
+  check("the price they typed is still there too", titles.some((t) => t.text === "34.00 USD"), JSON.stringify(titles));
+  check(
+    "and ours did not also pile on top, so the screen is not three cards deep",
+    titles.length === 2,
+    JSON.stringify(titles.map((t) => t.text)),
   );
+}
+
+section("A project that already holds somebody's own upload");
+{
+  const project = await projectWith(OWNER, "Has a take in it", { clips: 1 });
+  psql(`update projects set video_path = '${OWNER}/${project.id}/source.mp4' where id = '${project.id}'`);
   const refused = await call(OWNER, "/api/product-ads", "POST", { id: project.id });
-  check("it is refused rather than overwritten", refused.status === 409, `got ${refused.status}`);
+  check("is refused rather than overwritten", refused.status === 409, `got ${refused.status}`);
   check(
     "and the upload it already holds is still pointed at",
     psql(`select video_path from projects where id = '${project.id}'`).endsWith("source.mp4"),
   );
 }
 
-section("More photographs than one ad can hold");
+section("More material than one ad can hold");
 {
-  const project = await projectWithPhotos(OWNER, "Fifteen angles", 15);
+  const project = await projectWith(OWNER, "Everything at once", { clips: 2, photos: 15 });
   const made = await call(OWNER, "/api/product-ads", "POST", { id: project.id, targetSeconds: 15 });
   check("the ad is still accepted", made.status === 202, `got ${made.status} ${made.text}`);
-  check("and it says it used twelve", made.json?.photos === 12, JSON.stringify(made.json));
+  check("and it says it used twelve of the photographs", made.json?.photos === 12, JSON.stringify(made.json));
 
   const plan = JSON.parse(psql(`select plan from jobs where id = '${made.json?.jobId}'`) || "{}");
-  const reel = (plan.operations ?? []).find((op) => op.type === "stillsReel");
-  check("the reel holds twelve, not fifteen", reel?.assetIds?.length === 12, String(reel?.assetIds?.length));
+  const cutaways = (plan.operations ?? []).filter((op) => op.type === "insertBRoll");
   check(
-    "and the twelve are the first twelve, so the cover shot is still the cover",
-    reel?.assetIds?.[0] ===
-      psql(`select id from assets where project_id = '${project.id}' order by created_at asc limit 1`),
+    "and far fewer than that reach the screen, because a fifteen second ad has room for a few",
+    cutaways.length > 0 && cutaways.length <= 5,
+    String(cutaways.length),
   );
+  check("the plan stays inside the twelve operation ceiling", (plan.operations ?? []).length <= 12,
+    String((plan.operations ?? []).length));
+  const parsed = zod.EditPlan.safeParse(plan);
+  check("and what was queued is a valid EditPlan", parsed.success, parsed.error?.message?.slice(0, 200));
 }
 
 section("A title the merchant sent overrides the project's own");
 {
-  const project = await projectWithPhotos(OWNER, "untitled-3", 2);
+  const project = await projectWith(OWNER, "untitled-3", { clips: 1 });
   const made = await call(OWNER, "/api/product-ads", "POST", {
     id: project.id,
     title: "Hand-thrown mug",
@@ -453,8 +650,6 @@ section("A title the merchant sent overrides the project's own");
     psql(`select title from projects where id = '${project.id}'`) === "Hand-thrown mug",
   );
 }
-
-// ─── 3. The door in the browser ──────────────────────────────────────────────
 
 section("The door in the browser");
 {
@@ -483,9 +678,42 @@ section("The door in the browser");
     "and registers each photograph through the assets route the server checks",
     /\/api\/projects\/\$\{[^}]+\}\/assets/.test(page ?? ""),
   );
+  /*
+    It takes footage, and this check used to assert the opposite.
+
+    When the section was photographs-only it read "it takes photographs and not
+    video", and after the page was rewritten to take both it went on passing —
+    the new accept list contains the old one as a substring. A check that
+    survives the change it was written to notice is worse than no check, so it
+    now names the extensions on both sides.
+  */
+  for (const ext of [".mp4", ".mov", ".webm", ".jpg", ".png", ".webp"]) {
+    check(`the dropzone takes ${ext}`, (page ?? "").includes(ext), "not in the accept list");
+  }
   check(
-    "it takes photographs and not video",
-    (page ?? "").includes(".jpg,.jpeg,.png,.webp") && !/accept=\{?"video/.test(page ?? ""),
+    "and the button will not build an ad with no clip in it",
+    /disabled=\{clips\.length === 0/.test(page ?? ""),
+    "the build button is not gated on having a clip",
+  );
+  check(
+    "with the reason said next to it rather than after they press",
+    /product-ad-needs-clip/.test(page ?? ""),
+  );
+  check(
+    "the sentence they write is sent with the request",
+    /description: description\.trim\(\)/.test(page ?? ""),
+  );
+  /*
+    Measured in the browser, because nothing downstream can.
+
+    The route judges the month's allowance against `projects.duration`, and the
+    only place a clip's length can be read without downloading it is the
+    browser that already holds the file. A page that uploaded clips without it
+    would silently bill every advertisement at its target length.
+  */
+  check(
+    "and each clip's length is measured before it is uploaded",
+    /readVideoFacts/.test(page ?? "") && /durationSeconds: facts\.duration/.test(page ?? ""),
   );
 
   /*

@@ -1411,13 +1411,30 @@ export const CreateProductAdBody = z.object({
   platform: Platform.default("tiktok"),
   /** How long the finished advertisement should run. */
   targetSeconds: z.number().min(3).max(60).default(15),
+  /**
+   * What the advertisement should be like, in their own words.
+   *
+   * Optional, and the reason there is no row of switches beside it. "Cut it
+   * fast with big subtitles and a hard track", "keep her talking, no music",
+   * "طلّعه هادي والسعر بالآخر" are three different advertisements out of one
+   * set of clips, and none of them is a checkbox. This goes through the same
+   * planner a message does, and whatever it asks for wins over the product
+   * ad's own defaults.
+   *
+   * Six hundred characters: a brief, not a script. Past that the sentence
+   * stops being an instruction and the model starts choosing which half of it
+   * to honour, which is worse than refusing the length outright.
+   */
+  description: z.string().max(600).optional(),
 });
 export type CreateProductAdBody = z.infer<typeof CreateProductAdBody>;
 
 export const CreateProductAdResponse = z.object({
   projectId: z.string(),
   jobId: z.string(),
-  /** How many of the project's photographs the advertisement is made of. */
+  /** How many clips went in. The first is the advertisement; the rest are cut over it. */
+  clips: z.number(),
+  /** And how many photographs, which are cutaways rather than the spine. */
   photos: z.number(),
 });
 export type CreateProductAdResponse = z.infer<typeof CreateProductAdResponse>;

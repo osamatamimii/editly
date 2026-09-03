@@ -2736,13 +2736,37 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         // B-roll: a second clip filling the frame for a while. The source audio
         // is kept underneath, which is what a cutaway is — the picture changes
         // and the person keeps talking.
-        idx = addInput("-i", asset.file);
+        /*
+          A photograph is a legal cutaway, and it used to render as nothing.
+
+          `addInput("-i", file)` on a still gives an input of exactly one frame.
+          `trim` then has one frame to take, `setpts` moves it to the start of
+          the window, and `overlay` with `eof_action=pass` lets the base
+          through from there on — so the picture never changed. Measured, not
+          reasoned: a red still cut into a green clip left the frame green at
+          every sample inside the window, including its middle. Nothing failed,
+          nothing was logged, and the note said "cut to b-roll".
+
+          `-loop 1 -t` gives the still a duration, and `fps` gives it the
+          output's frame rate, which is the same pair `overlayImage` above has
+          always used. The extra half second matches that branch too: the input
+          must outlast the window, or the last frames of the cutaway are the
+          base again.
+
+          The kind is re-derived from the bytes at upload, so this is asking
+          what the file *is*, not what the plan called it.
+        */
+        const still = asset.kind === "image";
+        idx = still
+          ? addInput("-loop", "1", "-t", (end - start + 0.5).toFixed(3), "-i", asset.file)
+          : addInput("-i", asset.file);
         const fit =
           op.fit === "cover"
             ? `scale=${frameWidth}:${frameHeight}:force_original_aspect_ratio=increase:flags=lanczos,crop=${frameWidth}:${frameHeight}`
             : `scale=${frameWidth}:${frameHeight}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${frameWidth}:${frameHeight}:(ow-iw)/2:(oh-ih)/2:black`;
+        const rate = still ? `,fps=${source.fps.toFixed(4)}` : "";
         overlayLinks.push(
-          `[${idx}:v]${fit},setsar=1,trim=0:${(end - start).toFixed(3)},setpts=PTS-STARTPTS+${start.toFixed(3)}/TB[br${idx}]`,
+          `[${idx}:v]${fit},setsar=1${rate},trim=0:${(end - start).toFixed(3)},setpts=PTS-STARTPTS+${start.toFixed(3)}/TB[br${idx}]`,
         );
         overlayLinks.push(
           `[${inLabel}][br${idx}]overlay=0:0:` +
