@@ -248,6 +248,65 @@ export function rateLimitByIp(options: LimitOptions): RequestHandler {
 }
 
 /**
+ * The same limiter, keyed on whatever identifies the caller on *this* door.
+ *
+ * `rateLimit` keys on `req.userId`, which is set by `requireAuth` and by
+ * nothing else. The Shopify door authenticates a shop instead, deliberately
+ * into its own field — see `requireShop` — so a `rateLimit` placed on it finds
+ * no user, logs a warning and lets every request through. A limiter that
+ * always passes is worse than none: it reads as protection in the route table.
+ *
+ * `POST /shopify/ads` creates a project row and pulls a dozen photographs
+ * through this deployment, which is exactly the loop the `createProject`
+ * window exists to stop, and it went round the outside of it.
+ *
+ * The key a caller returns must be the account the work lands on, not the
+ * credential it arrived with, so that one shop cannot get a second budget by
+ * coming through a different door. For Shopify that is `accountIdForShop`,
+ * which is the same id its projects are written under.
+ */
+export function rateLimitBy(
+  options: LimitOptions,
+  keyOf: (req: Request) => string | null,
+): RequestHandler {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const key = keyOf(req);
+    if (!key) {
+      // Nothing to key on. Said out loud rather than passed silently, because
+      // this is the failure the function exists to make impossible.
+      logger.warn({ path: req.path, name: options.name }, "rate limit with no key for this caller");
+      next();
+      return;
+    }
+
+    let verdict: Verdict;
+    try {
+      verdict = await consume(`${key}:${options.name}`, options.limit, options.windowMs);
+    } catch (error) {
+      logger.error({ err: error, name: options.name }, "rate limiter unavailable. Allowing the request");
+      next();
+      return;
+    }
+
+    res.setHeader("X-RateLimit-Limit", String(options.limit));
+    res.setHeader("X-RateLimit-Remaining", String(verdict.remaining));
+
+    if (verdict.allowed) {
+      next();
+      return;
+    }
+
+    res.setHeader("Retry-After", String(verdict.retryAfterSeconds));
+    req.log?.warn({ key, name: options.name }, "rate limited");
+    res.status(429).json({
+      error: options.message,
+      retryAfterSeconds: verdict.retryAfterSeconds,
+      rateLimited: true,
+    });
+  };
+}
+
+/**
  * The limits themselves, in one place so they can be read as a policy rather
  * than found one route at a time.
  *

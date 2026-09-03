@@ -13,7 +13,6 @@
  * the product, and it is the commonest way these tools produce something the
  * merchant does not recognise.
  */
-import type { EditOperation, Platform } from "@workspace/api-zod";
 
 /**
  * How many photographs are worth downloading.
@@ -141,67 +140,4 @@ function priceOf(product: Record<string, unknown>): string | null {
   const asNumber = Number(amount);
   if (!Number.isFinite(asNumber) || asNumber <= 0) return null;
   return typeof currency === "string" && currency ? `${asNumber.toFixed(2)} ${currency}` : asNumber.toFixed(2);
-}
-
-/**
- * The advertisement, as operations.
- *
- * Short and fixed on purpose. This is the plan a merchant gets without saying
- * anything at all, and the first version of a thing chosen for somebody should
- * be the one they can most easily correct — every operation here is one they
- * can name in a sentence afterwards. A twelve-operation plan built from
- * guesses is impressive once and unarguable with.
- *
- * The reel is first because everything else is about the reel. The title opens
- * on the product's own name, which is text the merchant wrote; the price
- * closes, because a price at the end is the ad's ask and a price at the start
- * is a filter. Neither is invented — a product with no price gets no price
- * card rather than a made-up one.
- */
-export function planForProduct(
-  ad: ProductAd,
-  assetIds: readonly string[],
-  options: { platform: Platform; targetSeconds: number },
-): EditOperation[] {
-  const seconds = options.targetSeconds;
-  const operations: EditOperation[] = [
-    {
-      type: "stillsReel",
-      assetIds: [...assetIds],
-      targetSeconds: seconds,
-      motion: 0.12,
-    },
-    { type: "formatForPlatform", platform: options.platform },
-    {
-      // Their words. A generated headline is the one thing in this plan that
-      // could be wrong about the product itself, and a merchant who reads a
-      // sentence they did not write about their own product stops trusting the
-      // rest of the video.
-      type: "motionTitle",
-      text: ad.title.slice(0, 120),
-      at: 0.3,
-      durationSeconds: 2.5,
-      style: "card",
-      position: "center",
-    },
-  ];
-
-  if (ad.price) {
-    operations.push({
-      type: "motionTitle",
-      text: ad.price,
-      // Held to the last stretch of the reel, and clamped so a short one does
-      // not put the price card before the title has left the screen.
-      at: Math.max(3.2, seconds - 3.5),
-      durationSeconds: 2.5,
-      style: "lower-third",
-      position: "bottom",
-    });
-  }
-
-  // Out of black and back into it. The one operation here that is purely a
-  // finish: a hard first frame reads as a video that started already playing.
-  operations.push({ type: "fade", durationMs: 400 });
-
-  return operations;
 }

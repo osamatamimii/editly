@@ -364,6 +364,7 @@ jobs:
       - run: node tools/sfx-test.mjs
       - run: node tools/stills-test.mjs
       - run: node tools/shopify-test.mjs
+      - run: node tools/product-ads-test.mjs
       # Last, because it is the whole product and the slowest thing here: a
       # phone-sized browser, a real take, one sentence, and a real render by the
       # real worker binary. Everything above tests a part; this is the only one

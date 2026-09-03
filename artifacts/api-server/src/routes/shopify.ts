@@ -34,7 +34,9 @@ import { asShopDomain, accountIdForShop } from "../lib/shopify/domain";
 import { verifyWebhook } from "../lib/shopify/hmac";
 import { verifySessionToken } from "../lib/shopify/session-token";
 import { credentials, exchangeToken, adminGraphql, PRODUCT_MEDIA_QUERY } from "../lib/shopify/admin";
-import { readProduct, planForProduct, isAllowedMediaUrl, MAX_IMAGES } from "../lib/shopify/product";
+import { readProduct, isAllowedMediaUrl, MAX_IMAGES } from "../lib/shopify/product";
+import { planForProductAd } from "../lib/product-ad";
+import { rateLimitBy, LIMITS } from "../lib/rate-limit";
 
 // ── The public half ─────────────────────────────────────────────────────────
 
@@ -313,7 +315,13 @@ function extensionFor(contentType: string): string {
  * watermark and the one-render-at-a-time rule apply here exactly as they do to
  * a person pressing a button, and none of them had to learn what Shopify is.
  */
-router.post("/shopify/ads", async (req, res): Promise<void> => {
+/*
+  Counted against the same window a person pressing "New Project" is counted
+  against, and keyed on the shop's own account id so the two doors cannot be
+  alternated for a double budget. `rateLimit` cannot be used here: it keys on
+  `req.userId`, which this door deliberately never sets.
+*/
+router.post("/shopify/ads", rateLimitBy(LIMITS.createProject, (req) => (req.shopifyShop ? accountIdForShop(req.shopifyShop) : null)), async (req, res): Promise<void> => {
   const shop = req.shopifyShop as string;
   const userId = accountIdForShop(shop);
 
@@ -427,7 +435,7 @@ router.post("/shopify/ads", async (req, res): Promise<void> => {
   const outcome = await startRenderForProject(
     userId,
     (await db.select().from(projectsTable).where(and(eq(projectsTable.id, projectId), eq(projectsTable.userId, userId))))[0]!,
-    planForProduct(ad, stored.map((row) => row.id), { platform, targetSeconds }),
+    planForProductAd(ad, stored.map((row) => row.id), { platform, targetSeconds }),
     req.log,
   );
 

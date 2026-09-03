@@ -50,6 +50,15 @@ const ExportPage = lazy(() => import("@/pages/export"));
 const AccountPage = lazy(() => import("@/pages/account"));
 const ClipsPage = lazy(() => import("@/pages/clips"));
 const ScheduledPage = lazy(() => import("@/pages/scheduled"));
+/*
+  The shop door.
+
+  A merchant has no recording to upload, and the create-project dropzone takes
+  video only — so until this route existed the whole product was closed to
+  them. It is also the screen the embedded Shopify app renders, which is why it
+  is a page of its own rather than a mode of the editor.
+*/
+const ProductAdsPage = lazy(() => import("@/pages/product-ads"));
 const AdminPage = lazy(() => import("@/pages/admin"));
 /*
   Public, and not behind `Protected`: a privacy policy a reader has to sign in
@@ -128,6 +137,9 @@ function Router() {
       </Route>
       <Route path="/scheduled">
         <Protected component={ScheduledPage} />
+      </Route>
+      <Route path="/ads">
+        <Protected component={ProductAdsPage} />
       </Route>
       <Route path="/account">
         <Protected component={AccountPage} />

@@ -310,7 +310,17 @@ section("Every table this person owns is named");
     breaks every one of those platforms' developer terms, and it is what an app
     review looks for.
   */
-  const route = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/account.ts"), "utf8");
+  /*
+    Read from `lib/user-erasure.ts`, not from the route.
+
+    The list moved there the day a second caller appeared: Shopify's
+    `shop/redact` webhook is a legal obligation with a thirty-day clock and
+    asks for exactly this. Two lists of tables to delete from is a list that
+    eventually gets a table added to one of them, and the half that was
+    forgotten is the half nobody notices — what is left behind is invisible by
+    definition. So there is one list, and this reads it where it lives.
+  */
+  const route = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/user-erasure.ts"), "utf8");
   for (const table of [
     "jobsTable",
     "exportsTable",
@@ -411,8 +421,13 @@ section("What deletion removes, the export has to have shown");
     a table added next month, wired into deletion because that is the obvious
     half, and quietly missing from the export for a year.
   */
+  // Two files now, and the cross-check is the whole point of the section: the
+  // deletion list lives in `lib/user-erasure.ts` because two callers share it,
+  // and the export is still the route's own. Reading each where it is means a
+  // table added to one of them and not the other still fails here.
+  const erasure = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/user-erasure.ts"), "utf8");
   const route = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/account.ts"), "utf8");
-  const deleted = [...route.matchAll(/delete\((\w+Table)\)/g)].map((m) => m[1]);
+  const deleted = [...erasure.matchAll(/delete\((\w+Table)\)/g)].map((m) => m[1]);
   check("deletion names tables this check can read", deleted.length >= 8, deleted.join(", "));
 
   const exported = [...route.matchAll(/\.from\((\w+Table)\)/g)].map((m) => m[1]);

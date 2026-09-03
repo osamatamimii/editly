@@ -1981,7 +1981,17 @@ section("Every door that creates a project is counted through the same one");
       if (!/\.insert\(projectsTable\)/.test(part)) continue;
       const pathLiteral = /^\s*"([^"]+)"/.exec(part)?.[1] ?? "(unknown)";
       const head = part.slice(0, 400);
-      creators.push({ file, route: pathLiteral, limited: /rateLimit\(LIMITS\.createProject\)/.test(head) });
+      /*
+        `rateLimitBy` counts too.
+
+        The Shopify door authenticates a shop rather than a user, deliberately
+        into its own request field, so `rateLimit` — which keys on `req.userId`
+        and finds nothing there — would log a warning and pass every request
+        through. `rateLimitBy(LIMITS.createProject, ...)` consumes the same
+        named window under the same account id, which is what this check is
+        actually about: one budget, however the door was opened.
+      */
+      creators.push({ file, route: pathLiteral, limited: /rateLimit(?:By)?\(LIMITS\.createProject/.test(head) });
     }
   }
   check("there are project-creating routes to check", creators.length >= 2, JSON.stringify(creators));

@@ -660,6 +660,75 @@ paths:
               schema:
                 $ref: "#/components/schemas/CheckoutConfig"
 
+  /product-ads:
+    post:
+      operationId: createProductAd
+      tags: [projects]
+      summary: Turn a project's photographs into a product ad
+      description: >
+        The signed-in door to the same place `/shopify/ads` reaches. A project
+        that already holds photographs, uploaded through the ordinary assets
+        route, is given a name, an optional price and a shape, and comes back
+        as a queued render. The photographs are used in the order they were
+        uploaded, because that order is the only instruction the person gave
+        about their own product.
+
+
+        Both doors end at one plan builder, so a merchant who signs in here and
+        a merchant inside Shopify's admin get the same video out of the same
+        pictures. The month's allowance, the free-plan watermark and the
+        one-render-at-a-time rule apply exactly as they do to any other render.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  description: The project holding the photographs.
+                  type: string
+                title:
+                  description: The name to put on screen. The project's own title when absent.
+                  type: string
+                  maxLength: 120
+                price:
+                  description: Free text, written however the shop writes it.
+                  type: string
+                  maxLength: 40
+                platform:
+                  $ref: "#/components/schemas/Platform"
+                targetSeconds:
+                  description: How long the finished advertisement should run.
+                  type: number
+                  minimum: 3
+                  maximum: 60
+              required: [id]
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projectId: { type: string }
+                  jobId: { type: string }
+                  photos:
+                    description: How many of the project's photographs the ad is made of.
+                    type: number
+                required: [projectId, jobId, photos]
+        "400":
+          description: The body is not a product ad request
+        "401":
+          description: Not signed in
+        "404":
+          description: No such project on this account
+        "409":
+          description: That project already holds a video
+        "422":
+          description: There are no photographs in it yet
+
   /shopify/ads:
     post:
       operationId: shopifyProductAd

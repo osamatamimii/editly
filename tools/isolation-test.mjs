@@ -2231,7 +2231,28 @@ console.log("\nOne person cannot spend everybody's money");
     check("the pre-auth routers were found", targets.length >= 5, JSON.stringify(targets));
 
     /** Public by design, and each one says why above. */
-    const EXEMPT = [/\/billing\/webhook/, /\/healthz/];
+    const EXEMPT = [
+      /\/billing\/webhook/,
+      /\/healthz/,
+      /*
+        Shopify's four compliance webhooks, exempt on the same argument as the
+        billing one and not a weaker version of it.
+
+        Two of them are erasure requests with a thirty-day legal clock, and one
+        is the uninstall that stops us acting on a shop that has left. Refusing
+        a real one of those to save a little work is the failure; a 429 there is
+        not backpressure, it is an obligation dropped. And like the billing
+        webhook they verify an HMAC over the raw bytes before touching
+        anything, so an unsigned flood costs one comparison and reaches no
+        query.
+
+        `/shopify/ads` is deliberately *not* here. It creates a project and
+        pulls a dozen photographs, and it is limited — on the shop's own
+        account id, through `rateLimitBy`, into the same `createProject` window
+        a person pressing the button spends.
+      */
+      /\/shopify\/webhooks\//,
+    ];
 
     const unlimited = [];
     for (const { file, identifier } of targets) {
@@ -2240,7 +2261,10 @@ console.log("\nOne person cannot spend everybody's money");
       for (const [, method, rest] of source.matchAll(pattern)) {
         const routePath = rest.match(/"([^"]+)"/)?.[1] ?? "?";
         if (EXEMPT.some((re) => re.test(routePath))) continue;
-        if (!/rateLimit(ByIp)?\(/.test(rest)) unlimited.push(`${method.toUpperCase()} ${routePath}`);
+        // `rateLimitBy` counts as a limiter: it is the same window under a key
+        // the caller's own door provides, for a route where `req.userId` is
+        // never set because the authentication is not Supabase's.
+        if (!/rateLimit(By|ByIp)?\(/.test(rest)) unlimited.push(`${method.toUpperCase()} ${routePath}`);
       }
     }
     check(

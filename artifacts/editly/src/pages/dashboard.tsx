@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label";
 import {
   Video, Plus, Clock, PlayCircle, CheckCircle2,
   Trash2, AlertCircle, Loader2, Sparkles, Activity, TrendingUp, UserRound,
-  UploadCloud, Gauge, Scissors, CalendarClock, Mic
+  UploadCloud, Gauge, Scissors, CalendarClock, Mic, Store
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { ProjectArt } from "@/components/project-art";
@@ -616,6 +616,24 @@ export default function Dashboard() {
           >
             <CalendarClock className="w-4 h-4 sm:me-2" />
             <span className="hidden sm:inline">{t(DASHBOARD.scheduled)}</span>
+          </Button>
+          {/* The other half of who buys this.
+
+              Somebody who sells things has no recording to bring, so every
+              door on this screen was shut to them: "New Project" opens a
+              dropzone that takes video, and the editor refuses to render until
+              a video is in it. This one starts from photographs of a product,
+              and it is the same screen the Shopify app shows inside a store's
+              admin. */}
+          <Button
+            variant="outline"
+            className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
+            onClick={() => setLocation("/ads")}
+            aria-label="Product ad"
+            data-testid="button-product-ads"
+          >
+            <Store className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Product ad</span>
           </Button>
           <Button
             variant="outline"

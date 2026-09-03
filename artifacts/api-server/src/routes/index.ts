@@ -18,6 +18,7 @@ import clientErrorsRouter from "./client-errors";
 import cspReportRouter from "./csp-report";
 import mailRouter from "./mail";
 import shopifyRouter, { shopifyWebhookRouter } from "./shopify";
+import productAdsRouter from "./product-ads";
 import fontsRouter from "./fonts";
 import uploadsRouter from "./uploads";
 import { requireAuth } from "../middlewares/auth";
@@ -109,6 +110,11 @@ router.use(accountRouter);
 router.use(assetsRouter);
 router.use(clipsRouter);
 router.use(stockRouter);
+
+// The product-ads section. Behind `requireAuth` like every other data route:
+// this is the door a signed-in person uses, and the Shopify one above is the
+// door a store uses. They end at the same plan builder.
+router.use(productAdsRouter);
 
 // The operations console. Its own gate on top of requireAuth: every path under
 // /admin answers 404 to anyone not on the allowlist, which is a list in the

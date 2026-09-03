@@ -1387,6 +1387,41 @@ export const SendMessageResponse = MessagePair.extend({
 });
 export type SendMessageResponse = z.infer<typeof SendMessageResponse>;
 
+/**
+ * Turning a project full of product photographs into an advertisement.
+ *
+ * The one call the product-ads section makes. Everything it needs is already in
+ * the project by the time it is made — the photographs were uploaded and
+ * registered as assets through the doors that already existed — so this body
+ * carries only the words, which are the part no file can supply.
+ */
+export const CreateProductAdBody = z.object({
+  id: z.string().min(1),
+  /**
+   * The name to put on screen. Theirs, and optional: a project already has a
+   * title, and using it is better than making somebody type it twice.
+   */
+  title: z.string().min(1).max(120).optional(),
+  /**
+   * As they would write it. Free text on purpose — "34.00 USD" and "99 ر.س" are
+   * both right, and a currency picker would be this product having an opinion
+   * about a shop's own price.
+   */
+  price: z.string().max(40).optional(),
+  platform: Platform.default("tiktok"),
+  /** How long the finished advertisement should run. */
+  targetSeconds: z.number().min(3).max(60).default(15),
+});
+export type CreateProductAdBody = z.infer<typeof CreateProductAdBody>;
+
+export const CreateProductAdResponse = z.object({
+  projectId: z.string(),
+  jobId: z.string(),
+  /** How many of the project's photographs the advertisement is made of. */
+  photos: z.number(),
+});
+export type CreateProductAdResponse = z.infer<typeof CreateProductAdResponse>;
+
 export const StartRenderParams = z.object({ id: z.string() });
 export type StartRenderParams = z.infer<typeof StartRenderParams>;
 
