@@ -122,6 +122,19 @@ export async function enrichPlan(
       transcript = await providers.transcriber.transcribe(mediaPath, {
         ...(language ? { language } : {}),
         ...(options.language ? { expected: options.language } : {}),
+        /*
+          Speaker labels, and only for the plan that can use them.
+
+          Both providers have implemented `diarize` since the day this folder
+          was written and nothing has ever set it, so the capability has been
+          built, tested and unreachable — which is the same shape as the note
+          nothing called and the operation no sentence could ask for. It is
+          switched on here rather than everywhere because it costs more at the
+          provider and buys nothing on a single talking head: what it buys is
+          the one boundary a conversation has that a pause does not, the moment
+          the *other* person stopped, and only `extractClips` cuts on that.
+        */
+        ...(wantsClips ? { diarize: true } : {}),
       });
       // How the words were arrived at is part of what was done to the video.
       // A transcript that was corroborated and one that was not are worth

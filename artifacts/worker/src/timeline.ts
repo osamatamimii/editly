@@ -220,6 +220,16 @@ export interface SpokenWord {
    * fields all along without the type saying so.
    */
   text?: string;
+  /**
+   * Which voice said it, when the transcript was asked for speaker labels.
+   *
+   * Absent on every plan that did not ask — which is most of them, because
+   * diarisation costs more at the provider and a single talking head has one
+   * speaker. It is present on a clips plan, where it buys the one boundary a
+   * conversation has and a pause does not: the moment the *other* person
+   * stopped. See `conversation.ts`.
+   */
+  speaker?: number;
 }
 
 /**

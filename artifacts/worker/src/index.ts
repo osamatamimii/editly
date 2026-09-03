@@ -22,6 +22,7 @@ import { renderPlan, probeDuration, probeSource, grabPosterFrame, FfmpegError } 
 import { encodePreview, previewPathFor } from "./preview";
 import { reviewOutput } from "./review";
 import { chooseClips } from "./highlight";
+import { chooseConversationClips, type Reading } from "./conversation";
 import { snapToSpeechBreaks } from "./timeline";
 import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAllowanceMessage } from "./duration";
 import { enrichPlan } from "./enrich";
@@ -362,6 +363,15 @@ async function processJob(job: Job): Promise<void> {
         filler: word.filler,
         // Carried for the clip titles alone; the cut logic never reads it.
         text: word.text,
+        /*
+          Who said it, when the plan asked for speaker labels.
+
+          The label is on the segment rather than the word — a segment is one
+          run of one voice — so it is stamped onto each word here, where the
+          two shapes meet. Absent on every plan that did not ask, which is
+          what `conversation.ts` checks before it uses turns at all.
+        */
+        ...(typeof segment.speaker === "number" ? { speaker: segment.speaker } : {}),
       })),
     );
 
@@ -380,7 +390,7 @@ async function processJob(job: Job): Promise<void> {
       somebody for a feature they did not ask for. The step that decides a
       reading is worth buying is the one that wants it.
     */
-    await readMaterial(job, enriched.transcript, sourceSeconds, say.language, log);
+    const reading = await readMaterial(job, enriched.transcript, sourceSeconds, say.language, log);
 
     // Only the assets this plan actually names, and only after each one has
     // been confirmed to belong to this project.
@@ -476,6 +486,7 @@ async function processJob(job: Job): Promise<void> {
         job,
         clipsOp,
         enriched,
+        reading,
         words,
         assets,
         pulledAtStart,
@@ -493,6 +504,10 @@ async function processJob(job: Job): Promise<void> {
       workDir,
       language: say.language,
       words,
+      // What the material is, for the one decision in the renderer that is
+      // about content rather than about pixels: which stretch a highlight
+      // keeps. Everything else in there is arithmetic on this file.
+      reading,
       assets,
       ...(faces ? { faces } : {}),
       onProgress: (fraction, stage) => {
@@ -792,11 +807,11 @@ async function readMaterial(
   sourceSeconds: number,
   language: Language,
   log: pino.Logger,
-): Promise<void> {
-  if (!transcript) return;
+): Promise<Reading | null> {
+  if (!transcript) return null;
   try {
     const words = wordsOf(transcript);
-    if (words.length === 0) return;
+    if (words.length === 0) return null;
     const digest = transcriptDigest(words);
 
     const [stored] = await db
@@ -811,7 +826,12 @@ async function readMaterial(
       .limit(1);
     if (stored && stored.digest === digest && stored.version === COMPREHENSION_VERSION) {
       log.info({ how: stored.how }, "the reading of this material is still current");
-      return;
+      return {
+        questions: stored.questions ?? [],
+        claims: stored.claims ?? [],
+        peaks: stored.peaks ?? [],
+        hook: stored.hook ?? null,
+      };
     }
 
     const reading = await comprehend({
@@ -862,10 +882,17 @@ async function readMaterial(
       },
       "read what this material is",
     );
+    return {
+      questions: reading.questions,
+      claims: reading.claims,
+      peaks: reading.peaks,
+      hook: reading.hook,
+    };
   } catch (error) {
     // Deliberately swallowed. See the doc comment: a render that produced a
     // video must not fail because the step that reads it did.
     log.warn({ err: error }, "could not read this material; the render is unaffected");
+    return null;
   }
 }
 
@@ -886,7 +913,9 @@ async function renderClipSet(args: {
   job: Job;
   clipsOp: Extract<EditOperation, { type: "extractClips" }>;
   enriched: Awaited<ReturnType<typeof enrichPlan>>;
-  words: Array<{ start: number; end: number; filler: boolean; text?: string }>;
+  /** What the material is, when something has read it. Null falls back to density. */
+  reading: Reading | null;
+  words: Array<{ start: number; end: number; filler: boolean; text?: string; speaker?: number }>;
   assets: Map<string, { file: string; kind: "video" | "image" | "audio" }>;
   /** Where the job's download counter stood when it started. See `bytesIn`. */
   pulledAtStart: number;
@@ -897,7 +926,7 @@ async function renderClipSet(args: {
   language: Language;
   log: pino.Logger;
 }): Promise<void> {
-  const { job, clipsOp, enriched, words, assets, pulledAtStart, workDir, inputFile, sourceSeconds, sourceHadAudio, log } = args;
+  const { job, clipsOp, enriched, reading, words, assets, pulledAtStart, workDir, inputFile, sourceSeconds, sourceHadAudio, log } = args;
   const t = sayIn(args.language);
 
   await reportProgress(job.id, 9, "Choosing the clips");
@@ -905,12 +934,39 @@ async function renderClipSet(args: {
   // A retry must produce a fresh set, not a second copy of half of one.
   await db.delete(clipsTable).where(eq(clipsTable.jobId, job.id));
 
-  const chosen = chooseClips(
-    sourceSeconds,
-    clipsOp.count,
-    clipsOp.targetSeconds,
-    words.length > 0 ? words : undefined,
-  );
+  /*
+    Where the clips come from, and why there are now two answers.
+
+    `chooseClips` scores by speech density with a hesitation penalty. On a
+    conversation that is answering the wrong question: the strongest forty
+    seconds of an interview is not where the talking was busiest, it is where
+    somebody asked something real and somebody else answered it. The two often
+    coincide, and when they do not, density wins — which is exactly why the
+    pieces have always come out plausible and never the ones a person would
+    have picked.
+
+    So when the material has been read, the clips are cut from what it *says*:
+    a question with its answer, a claim with the line that set it up, a peak
+    inside the turn it happened in. Density remains the answer when there is no
+    reading, and the note below says which of the two happened rather than
+    letting a deployment with no model quietly get the weaker one.
+  */
+  const conversational =
+    reading && words.length > 0
+      ? chooseConversationClips({
+          reading,
+          words,
+          duration: sourceSeconds,
+          count: clipsOp.count,
+          targetSeconds: clipsOp.targetSeconds,
+        })
+      : [];
+
+  const chosen: { windows: { start: number; end: number }[]; how: "conversation" | "speech" | "divided" | "whole" } =
+    conversational.length > 0
+      ? { windows: conversational.map((clip) => ({ start: clip.start, end: clip.end })), how: "conversation" }
+      : chooseClips(sourceSeconds, clipsOp.count, clipsOp.targetSeconds, words.length > 0 ? words : undefined);
+
   if (chosen.windows.length === 0) {
     throw new PlanEmptiedError("This video is too short to cut clips of that length from.");
   }
@@ -952,7 +1008,16 @@ async function renderClipSet(args: {
     exactly the thing that could break that — two clips sharing a sentence read
     as the same clip posted twice.
   */
-  if (words.length > 0) {
+  if (words.length > 0 && chosen.how !== "conversation") {
+    /*
+      Not for the conversational windows.
+
+      Their edges are not arithmetic that happened to land somewhere — the start
+      *is* the moment a turn began or a question was asked, and the end *is* the
+      pause the answer settled into. Dragging those by a drift budget to find a
+      nearby pause can only move a clip off the sentence it was chosen for, and
+      the check that would notice is a person watching it.
+    */
     const drift = Math.min(4, Math.max(0.75, clipsOp.targetSeconds * 0.15));
     let floor = 0;
     let moved = 0;
@@ -977,16 +1042,41 @@ async function renderClipSet(args: {
   }
 
   notes.push(
-    chosen.how === "speech"
+    chosen.how === "conversation"
       ? t(
-          `chose ${chosen.windows.length} stretches where the speech runs densest`,
-          `اخترت ${chosen.windows.length} مقاطع حيث الكلام أكثف`,
+          `cut ${chosen.windows.length} pieces from what was said rather than from where the talking was densest`,
+          `قصصت ${chosen.windows.length} قطعًا مما قيل، لا من حيث كان الكلام أكثف`,
         )
-      : t(
-          `we could not hear words in this clip, so it was divided evenly into ${chosen.windows.length}`,
-          `لم نستطع سماع كلام في هذا المقطع، فقُسّم بالتساوي إلى ${chosen.windows.length}`,
-        ),
+      : chosen.how === "speech"
+        ? t(
+            `chose ${chosen.windows.length} stretches where the speech runs densest`,
+            `اخترت ${chosen.windows.length} مقاطع حيث الكلام أكثف`,
+          )
+        : t(
+            `we could not hear words in this clip, so it was divided evenly into ${chosen.windows.length}`,
+            `لم نستطع سماع كلام في هذا المقطع، فقُسّم بالتساوي إلى ${chosen.windows.length}`,
+          ),
   );
+  /*
+    Why each one, in the order they appear.
+
+    A clip nobody can argue with is a clip nobody can correct. "The strongest
+    thirty seconds" is not a reason — it is the name of the feature — whereas
+    "opens on the question and runs to where the answer lands" is a sentence a
+    person can disagree with, and disagreeing is how the next request gets
+    better.
+  */
+  for (const [index, clip] of conversational.entries()) {
+    notes.push(t(`clip ${index + 1}: ${clip.why.en}`, `القصاصة ${index + 1}: ${clip.why.ar}`));
+  }
+  if (chosen.how !== "conversation" && reading === null) {
+    notes.push(
+      t(
+        "nothing has read this recording for meaning yet, so the pieces were chosen by how densely somebody was talking",
+        "لم يقرأ أحد هذا التسجيل قراءةً معنويّة بعد، فاختيرت القطع بكثافة الكلام",
+      ),
+    );
+  }
   // The charge, said where the person will read it. Clips are metered by the
   // source they read, not by the pieces — the whole file was transcribed and
   // scored to choose them — and a charge nobody saw coming is a dispute.
@@ -1108,7 +1198,16 @@ async function renderClipSet(args: {
       outputPath,
       outputSeconds: measured.seconds,
       note: clipNote,
-      title: clipTitle(window, words),
+      /*
+        The clip's own name for itself.
+
+        A question is the best title a conversation clip can have — it is what
+        the piece is *about*, said by the person in it — so the conversational
+        chooser's title wins where it has one. The opening words remain the
+        answer everywhere else, and both are the speaker's own words: a title
+        this product invented would be the one part of a clip nobody said.
+      */
+      title: conversational[i]?.title ?? clipTitle(window, words),
       thumbnailPath,
     });
 

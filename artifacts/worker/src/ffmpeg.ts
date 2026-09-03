@@ -48,6 +48,7 @@ import { keepSegmentsFrom, mergeSpans, outputDuration, remapTime, snapToWords, s
 import { tighten, type TightenResult } from "./tighten";
 import { placeSoundEffects, joinTimes, type SfxPalette } from "./sfx";
 import { chooseHighlight } from "./highlight";
+import { chooseConversationClips, type Reading } from "./conversation";
 import { sayIn, type Language } from "./say";
 export { chooseHighlight, chooseClips } from "./highlight";
 
@@ -1270,6 +1271,16 @@ export interface RenderContext {
    */
   words?: SpokenWord[];
   /**
+   * What the material is, when something has read it.
+   *
+   * Only the highlight reads it, and only to answer the question density
+   * cannot: on a conversation, the strongest thirty seconds is where somebody
+   * asked something and somebody else answered, not where the talking was
+   * busiest. Absent on every render whose project has no reading, which is
+   * where `chooseHighlight` remains the answer.
+   */
+  reading?: Reading | null;
+  /**
    * Asset id → the file already downloaded next to the source.
    *
    * Resolved by the caller, not looked up here, for the same reason the plan
@@ -1625,7 +1636,29 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     );
   }
   if (highlight && !range) {
-    const choice = chooseHighlight(source.duration, highlight.targetSeconds, ctx.words);
+    /*
+      Content first, density second - the same order the clips path uses.
+
+      This is the branch the "Podcast clip" template goes down, which is why it
+      matters here as much as it does over there: that template points
+      `extractHighlight` at a ninety-minute conversation, and until now the
+      forty-five seconds it kept were the forty-five where the talking was
+      densest. One clip, chosen the way the set of clips is chosen.
+    */
+    const read =
+      ctx.reading && ctx.words && ctx.words.length > 0
+        ? chooseConversationClips({
+            reading: ctx.reading,
+            words: ctx.words,
+            duration: source.duration,
+            count: 1,
+            targetSeconds: highlight.targetSeconds,
+          })[0]
+        : undefined;
+    const choice: { window: { start: number; end: number }; how: "speech" | "centered" | "whole" | "conversation" } =
+      read
+        ? { window: { start: read.start, end: read.end }, how: "conversation" }
+        : chooseHighlight(source.duration, highlight.targetSeconds, ctx.words);
     if (choice.how === "whole") {
       notes.push(
         t(
@@ -1635,7 +1668,10 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       );
     } else {
       let window = choice.window;
-      if (ctx.words && ctx.words.length > 0) {
+      // Not for a window chosen from the reading: its edges are the moment a
+      // turn began and the pause an answer settled into, and a drift budget can
+      // only move them off the sentence they were chosen for.
+      if (choice.how !== "conversation" && ctx.words && ctx.words.length > 0) {
         // Two moves, and the second is the one somebody notices.
         //
         // Widening to word boundaries saves a clipped syllable: the scorer
@@ -1659,15 +1695,20 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       // nothing; the window alone is the least-wrong recovery.
       kept = inside.length > 0 ? inside : [window];
       notes.push(
-        choice.how === "speech"
+        choice.how === "conversation"
           ? t(
-              `kept the strongest ${Math.round(window.end - window.start)}s, ${window.start.toFixed(1)}s to ${window.end.toFixed(1)}s, where the speech runs densest`,
-              `أبقيت أقوى ${Math.round(window.end - window.start)} ثانية، من ${window.start.toFixed(1)} إلى ${window.end.toFixed(1)}، حيث الكلام أكثف`,
+              `kept ${Math.round(window.end - window.start)}s chosen from what was said, ${window.start.toFixed(1)}s to ${window.end.toFixed(1)}s: ${read?.why.en ?? ""}`,
+              `أبقيت ${Math.round(window.end - window.start)} ثانية مختارة ممّا قيل، من ${window.start.toFixed(1)} إلى ${window.end.toFixed(1)}: ${read?.why.ar ?? ""}`,
             )
-          : t(
-              `we could not hear the words in this clip, so the highlight is its middle ${Math.round(window.end - window.start)}s`,
-              `لم نستطع سماع الكلام في هذا المقطع، فالهايلايت هو ${Math.round(window.end - window.start)} ثانية من وسطه`,
-            ),
+          : choice.how === "speech"
+            ? t(
+                `kept the strongest ${Math.round(window.end - window.start)}s, ${window.start.toFixed(1)}s to ${window.end.toFixed(1)}s, where the speech runs densest`,
+                `أبقيت أقوى ${Math.round(window.end - window.start)} ثانية، من ${window.start.toFixed(1)} إلى ${window.end.toFixed(1)}، حيث الكلام أكثف`,
+              )
+            : t(
+                `we could not hear the words in this clip, so the highlight is its middle ${Math.round(window.end - window.start)}s`,
+                `لم نستطع سماع الكلام في هذا المقطع، فالهايلايت هو ${Math.round(window.end - window.start)} ثانية من وسطه`,
+              ),
       );
     }
   }

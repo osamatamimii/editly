@@ -245,6 +245,12 @@ jobs:
       # validates and looks exactly like a true one, so most of the suite is
       # about what gets *dropped*.
       - run: node tools/comprehend-test.mjs
+      # And the thing that reading is for, on the audience it matters most to.
+      # Clipping is judged in about two seconds — the time it takes to hear a
+      # piece open on "…and that's why I think" and know a machine chose it —
+      # so most of this suite is about the four ways a clipper produces a
+      # plausible wrong answer rather than about whether it finds a good one.
+      - run: node tools/clipping-test.mjs
       - run: node tools/reference-test.mjs
       - run: node tools/billing-test.mjs
       # Beside billing, because the webhook is the one place that sends today.
