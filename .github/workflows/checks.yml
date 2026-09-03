@@ -203,6 +203,12 @@ jobs:
       # reads rather than posts. A decision with no test decays unnoticed.
       - run: node tools/publish-snapchat-test.mjs
       - run: node tools/deadline-test.mjs
+      # Beside deadline-test, and the other half of it: that suite proves a hung
+      # child process is killed; this proves a hung *request* is too. The
+      # publishers were the last outbound calls in the worker not using the
+      # deadline wrapper, and the publish loop is sequential, so one wedged
+      # socket stalled every post behind it.
+      - run: node tools/publish-deadline-test.mjs
       - run: node tools/planner-test.mjs
       # Beside the planner, because the sentence is half of it: cutting a word
       # somebody meant is worse than leaving one they did not, so the checks

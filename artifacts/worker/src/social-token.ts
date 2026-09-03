@@ -41,6 +41,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { SOCIAL_SPEC, metaExchangeUrl, type SocialPlatform } from "@workspace/api-zod";
+import { withDeadline } from "./providers/deadline";
 
 /**
  * How long before expiry a token counts as expired.
@@ -84,6 +85,10 @@ export async function usableToken(
   credential: Credential,
   now: Date = new Date(),
   env: Record<string, string | undefined> = process.env,
+  // A refresh is a request to somebody else's server, so it takes the same
+  // deadline every other outbound call in the worker does — otherwise a token
+  // exchange that hangs wedges the publish loop before a single byte is sent.
+  doFetch: typeof fetch = withDeadline(fetch),
 ): Promise<string> {
   const expiresSoon =
     credential.expiresAt !== null && credential.expiresAt.getTime() - now.getTime() < EARLY_MS;
@@ -97,7 +102,7 @@ export async function usableToken(
     behaviour this replaces.
   */
   if (platform === "facebook" || platform === "instagram") {
-    return extendMetaToken(accountId, platform, credential, now, env);
+    return extendMetaToken(accountId, platform, credential, now, env, doFetch);
   }
 
   const url = REFRESH_URL[platform];
@@ -127,7 +132,7 @@ export async function usableToken(
     client_secret: env[spec.clientSecretVar] ?? "",
   });
 
-  const response = await fetch(url, {
+  const response = await doFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body,
@@ -208,9 +213,10 @@ async function extendMetaToken(
   credential: Credential,
   now: Date,
   env: Record<string, string | undefined>,
+  doFetch: typeof fetch = withDeadline(fetch),
 ): Promise<string> {
   const spec = SOCIAL_SPEC[platform];
-  const response = await fetch(
+  const response = await doFetch(
     metaExchangeUrl({
       clientId: env[spec.clientIdVar] ?? "",
       clientSecret: env[spec.clientSecretVar] ?? "",

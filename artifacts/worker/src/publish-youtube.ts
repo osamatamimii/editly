@@ -29,6 +29,7 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { withDeadline } from "./providers/deadline";
 
 /** YouTube's own limits, and the reason each one is here. */
 const TITLE_LIMIT = 100;
@@ -39,6 +40,8 @@ export interface YouTubeUpload {
   caption: string;
   hashtags: string[];
   accessToken: string;
+  /** Injected by tests; production gets a fetch with a deadline. */
+  fetchImpl?: typeof fetch;
 }
 
 export interface Published {
@@ -100,8 +103,13 @@ async function readError(response: Response): Promise<string> {
  */
 export async function publishToYouTube(upload: YouTubeUpload): Promise<Published> {
   const bytes = (await stat(upload.file)).size;
+  // No request to Google without a deadline. This worker sends on the same
+  // process that renders, and a socket Google accepts and never answers would
+  // block the publish loop on this one row for as long as the operating system
+  // holds it — which is the exact wedge `providers/deadline.ts` exists to stop.
+  const doFetch = upload.fetchImpl ?? withDeadline(fetch);
 
-  const start = await fetch(
+  const start = await doFetch(
     "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
     {
       method: "POST",
@@ -133,7 +141,7 @@ export async function publishToYouTube(upload: YouTubeUpload): Promise<Published
   const location = start.headers.get("location");
   if (!location) throw new PublishError("YouTube accepted the details but returned nowhere to send the file");
 
-  const put = await fetch(location, {
+  const put = await doFetch(location, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${upload.accessToken}`,

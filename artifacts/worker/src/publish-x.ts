@@ -48,6 +48,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { PublishError, type Published } from "./publish-youtube";
 import { probeDuration } from "./ffmpeg";
+import { withDeadline } from "./providers/deadline";
 
 const API = "https://api.x.com";
 
@@ -240,7 +241,7 @@ async function readRange(file: string, range: ChunkRange): Promise<Buffer> {
 }
 
 export async function publishToX(upload: XUpload): Promise<Published> {
-  const doFetch = upload.fetchImpl ?? fetch;
+  const doFetch = upload.fetchImpl ?? withDeadline(fetch);
   const sleep = upload.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = upload.now ?? (() => Date.now());
   const durationOf = upload.durationOf ?? probeDuration;

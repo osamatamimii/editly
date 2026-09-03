@@ -43,6 +43,7 @@
  * exchange, before the send, like the rest.
  */
 import { PublishError, type Published } from "./publish-youtube";
+import { withDeadline } from "./providers/deadline";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -221,7 +222,7 @@ async function waitForContainer(
 }
 
 export async function publishToInstagram(upload: MetaUpload): Promise<Published> {
-  const doFetch = upload.fetchImpl ?? fetch;
+  const doFetch = upload.fetchImpl ?? withDeadline(fetch);
   const sleep = upload.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = upload.now ?? (() => Date.now());
 
@@ -264,7 +265,7 @@ export async function publishToInstagram(upload: MetaUpload): Promise<Published>
 }
 
 export async function publishToFacebook(upload: MetaUpload): Promise<Published> {
-  const doFetch = upload.fetchImpl ?? fetch;
+  const doFetch = upload.fetchImpl ?? withDeadline(fetch);
   const page = upload.page ?? (await pageFor(upload.accessToken, doFetch));
 
   const posted = await graph(doFetch, "POST", `/${page.id}/videos`, {

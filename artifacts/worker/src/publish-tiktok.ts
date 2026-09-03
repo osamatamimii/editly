@@ -42,6 +42,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { PublishError, type Published } from "./publish-youtube";
+import { withDeadline } from "./providers/deadline";
 
 const API = "https://open.tiktokapis.com/v2";
 
@@ -214,7 +215,7 @@ function readStatus(data: Record<string, unknown>): { done: boolean; failed: str
 }
 
 export async function publishToTikTok(upload: TikTokUpload): Promise<Published> {
-  const doFetch = upload.fetchImpl ?? fetch;
+  const doFetch = upload.fetchImpl ?? withDeadline(fetch);
   const sleep = upload.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = upload.now ?? (() => Date.now());
 
