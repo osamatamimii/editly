@@ -23,7 +23,9 @@
  * victim's Editly account ends up connected to the *attacker's* Instagram —
  * after which everything the victim schedules is published to a stranger's
  * feed. So the state is an HMAC over the user, the platform and an expiry,
- * signed with a secret this deployment already holds.
+ * signed with a secret this deployment already holds — and bound to the
+ * browser that started the flow by a nonce echoed in an httpOnly cookie, so a
+ * state cannot be completed in anybody else's browser. See `StateClaims.nonce`.
  *
  * **The verifier may not travel in the state.** X and TikTok require PKCE, and
  * a verifier that rides in a URL parameter is a verifier the browser's history,
@@ -52,6 +54,16 @@ import { appOrigin } from "./allowed-origins";
 const STATE_TTL_MS = 10 * 60 * 1000;
 
 export const VERIFIER_COOKIE = "editly_pkce";
+
+/**
+ * The cookie that binds an OAuth flow to the browser that started it.
+ *
+ * Distinct from the PKCE verifier cookie, and set for every platform rather
+ * than the two that use PKCE: the verifier protects the *code* from
+ * interception, this protects the *account* from being attached in the wrong
+ * browser. See `StateClaims.nonce`.
+ */
+export const BINDING_COOKIE = "editly_oauth";
 
 /**
  * The secret the state is signed with.
@@ -92,6 +104,50 @@ export interface StateClaims {
   platform: SocialPlatform;
   /** Milliseconds since the epoch. */
   expiresAt: number;
+  /**
+   * A random value that also sits in an httpOnly cookie on the browser that
+   * started this flow.
+   *
+   * The signature proves *who signed the state* — this deployment — and the
+   * `userId` proves *which account it was minted for*. Neither proves that the
+   * browser finishing the flow is the one that began it, and that gap is a real
+   * attack. An attacker signs in, starts connecting their own account, and
+   * gets a valid state carrying their `userId`. They hand the *authorize* URL
+   * to a victim, who is signed in to their real Instagram and approves it. The
+   * platform redirects to the callback with the **victim's** `code` and the
+   * **attacker's** state, so the victim's Instagram tokens are exchanged and
+   * written under the attacker's account — after which the attacker publishes
+   * to, and reads, the victim's feed.
+   *
+   * The two PKCE platforms were shielded from this by accident: the verifier
+   * lives in the attacker's cookie and the victim's browser does not send it,
+   * so their exchange fails. The four that do not use PKCE had nothing tying
+   * the returning browser to the account at all. This nonce closes it for all
+   * six with one mechanism: it is echoed in a cookie the callback must present,
+   * so a state carrying the attacker's nonce is useless in the victim's
+   * browser, which never held that cookie.
+   */
+  nonce: string;
+}
+
+/** A browser-binding nonce, as unguessable as the state's own secret. */
+export function bindingNonce(): string {
+  return base64url(randomBytes(32));
+}
+
+/**
+ * Whether this state belongs to the browser presenting this cookie.
+ *
+ * Constant time, and length-checked first because `timingSafeEqual` throws on a
+ * length mismatch rather than returning false. A missing cookie is a missing
+ * binding and is refused: the whole defence is that the nonce cannot be present
+ * anywhere but the browser that started the flow.
+ */
+export function stateBoundToBrowser(claims: StateClaims, cookieNonce: string | null | undefined): boolean {
+  if (!cookieNonce) return false;
+  const a = Buffer.from(claims.nonce);
+  const b = Buffer.from(cookieNonce);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** `<payload>.<signature>`, where the payload is readable and the signature is not. */
@@ -123,6 +179,10 @@ export function readState(state: string, secret = signingSecret(), now = Date.no
     const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as StateClaims;
     if (typeof claims.userId !== "string" || typeof claims.platform !== "string") return null;
     if (typeof claims.expiresAt !== "number" || claims.expiresAt < now) return null;
+    // A state with no browser-binding nonce is a state from before this defence
+    // or one built by hand to sidestep it. Either way it cannot be bound to a
+    // browser, so it is not a valid state.
+    if (typeof claims.nonce !== "string" || claims.nonce.length === 0) return null;
     return claims;
   } catch {
     return null;

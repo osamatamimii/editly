@@ -48,10 +48,13 @@ import {
   signState,
   readState,
   pkcePair,
+  bindingNonce,
+  stateBoundToBrowser,
   authorizeUrlFor,
   exchangeCode,
   ENDPOINTS,
   VERIFIER_COOKIE,
+  BINDING_COOKIE,
 } from "../lib/social-oauth";
 import {
   identityFor,
@@ -149,7 +152,27 @@ router.post("/social/connect/:platform", rateLimit(LIMITS.schedulePost), async (
     return;
   }
 
-  const state = signState({ userId, platform, expiresAt: Date.now() + 10 * 60 * 1000 });
+  /*
+    A nonce that binds this flow to this browser.
+
+    The signed state proves who it was minted for; it does not prove that the
+    browser finishing the flow is the one that started it, and without that a
+    valid state can be walked into a victim's browser so their account's tokens
+    are written under the attacker's id. So a random nonce goes into the state
+    *and* into an httpOnly cookie here, and the callback refuses a state whose
+    nonce the returning browser cannot present. Set for every platform, not just
+    the two that use PKCE — see `StateClaims.nonce`.
+  */
+  const nonce = bindingNonce();
+  res.cookie(BINDING_COOKIE, nonce, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    maxAge: 10 * 60 * 1000,
+    path: "/api/social",
+  });
+
+  const state = signState({ userId, platform, expiresAt: Date.now() + 10 * 60 * 1000, nonce });
   let challenge: string | null = null;
   if (ENDPOINTS[platform].pkce) {
     const pair = pkcePair();
@@ -646,16 +669,24 @@ socialCallbackRouter.get("/social/callback/:platform", rateLimitByIp(LIMITS.soci
   }
 
   const claims = readState(String(req.query["state"] ?? ""));
-  if (!claims || claims.platform !== platform) {
-    /*
-      One message for every kind of bad state, and deliberately so.
+  /*
+    Two checks, one message.
 
-      This is the check that stops an attacker sending their own `code` here
-      and having a stranger's Editly account connected to the attacker's feed —
-      after which everything that person schedules is published to it. A reply
-      that said *which* part of the state was wrong would be an oracle for
-      building one that is not.
-    */
+    The signature and expiry are `readState`'s; the browser binding is here,
+    because it is the cookie that carries it. A state is refused unless the
+    browser presenting it also presents the nonce that was set when the flow
+    began — which is what stops a valid state, minted for the attacker, being
+    completed in a victim's browser and attaching the victim's tokens to the
+    attacker's account. The binding cookie is cleared either way, so a stale one
+    cannot be reused.
+
+    One message for every kind of bad state, and deliberately so: a reply that
+    said *which* part was wrong — bad signature, expired, wrong browser — would
+    be an oracle for building one that is not.
+  */
+  const boundNonce = cookieFrom(req.headers.cookie, BINDING_COOKIE);
+  res.clearCookie(BINDING_COOKIE, { path: "/api/social" });
+  if (!claims || claims.platform !== platform || !stateBoundToBrowser(claims, boundNonce)) {
     back({ connected: "no", platform, why: "That connection link has expired. Try again." });
     return;
   }

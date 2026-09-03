@@ -58,7 +58,8 @@ function bundle(entry, name) {
 }
 
 const {
-  signState, readState, pkcePair, authorizeUrlFor, redirectUri, ENDPOINTS, VERIFIER_COOKIE,
+  signState, readState, pkcePair, bindingNonce, stateBoundToBrowser,
+  authorizeUrlFor, redirectUri, ENDPOINTS, VERIFIER_COOKIE, BINDING_COOKIE,
 } = await import(bundle("artifacts/api-server/src/lib/social-oauth.ts", "oauth.mjs"));
 const { SOCIAL_PLATFORMS, SOCIAL_SPEC } = await import(
   bundle("lib/api-zod/src/social.ts", "social.mjs")
@@ -81,12 +82,16 @@ const OTHER = "somebody-else's-deployment-secret";
 const ME = "11111111-1111-4111-8111-111111111111";
 const THEM = "22222222-2222-4222-8222-222222222222";
 const soon = () => Date.now() + 10 * 60 * 1000;
+// Every state now carries a browser-binding nonce; a fixed one keeps the
+// existing checks about who/what/expiry readable, and the binding itself has
+// its own section below.
+const N = "test-binding-nonce";
 
 // ── The state ──────────────────────────────────────────────────────────────
 
 section("The state says who, and cannot be written by anybody else");
 {
-  const state = signState({ userId: ME, platform: "youtube", expiresAt: soon() }, SECRET);
+  const state = signState({ userId: ME, platform: "youtube", expiresAt: soon(), nonce: N }, SECRET);
   const read = readState(state, SECRET);
   check("a state we signed reads back", read !== null);
   check("as the person it was made for", read?.userId === ME, String(read?.userId));
@@ -101,13 +106,13 @@ section("The state says who, and cannot be written by anybody else");
   */
   const [payload] = state.split(".");
   const forgedPayload = Buffer.from(
-    JSON.stringify({ userId: THEM, platform: "youtube", expiresAt: soon() }),
+    JSON.stringify({ userId: THEM, platform: "youtube", expiresAt: soon(), nonce: N }),
   ).toString("base64url");
   const forged = `${forgedPayload}.${state.split(".")[1]}`;
   check("a payload swapped for another person's is refused", readState(forged, SECRET) === null);
   check(
     "and so is one signed with a different secret",
-    readState(signState({ userId: THEM, platform: "youtube", expiresAt: soon() }, OTHER), SECRET) === null,
+    readState(signState({ userId: THEM, platform: "youtube", expiresAt: soon(), nonce: N }, OTHER), SECRET) === null,
   );
   check("and one with no signature at all", readState(payload, SECRET) === null);
   check("and rubbish", readState("nonsense", SECRET) === null && readState("", SECRET) === null);
@@ -145,7 +150,7 @@ section("The signing secret can be its own, so a database key can be rotated");
 
 section("A state expires, so one left in a browser history is worthless");
 {
-  const state = signState({ userId: ME, platform: "x", expiresAt: Date.now() + 1000 }, SECRET);
+  const state = signState({ userId: ME, platform: "x", expiresAt: Date.now() + 1000, nonce: N }, SECRET);
   check("valid now", readState(state, SECRET, Date.now()) !== null);
   check("and not two seconds later", readState(state, SECRET, Date.now() + 2000) === null);
   check(
@@ -153,7 +158,7 @@ section("A state expires, so one left in a browser history is worthless");
     // Long enough for a password and a second factor; short enough that a URL
     // in somebody's history is useless by the time anybody reads it.
     (() => {
-      const s = signState({ userId: ME, platform: "x", expiresAt: soon() }, SECRET);
+      const s = signState({ userId: ME, platform: "x", expiresAt: soon(), nonce: N }, SECRET);
       const claims = JSON.parse(Buffer.from(s.split(".")[0], "base64url").toString());
       const minutes = (claims.expiresAt - Date.now()) / 60000;
       return minutes > 5 && minutes <= 15;
@@ -161,10 +166,93 @@ section("A state expires, so one left in a browser history is worthless");
   );
 }
 
+section("A valid state is useless in a browser that did not start the flow");
+{
+  /*
+    The residual attack, after the state carries the user and is signed.
+
+    The signature proves who *minted* the state, not who is *finishing* it. An
+    attacker signs in, starts connecting their own account, and gets a real
+    state carrying their id. They hand the authorize URL to a victim who is
+    logged in to their real Instagram; the victim approves; the platform
+    redirects to the callback with the victim's `code` and the attacker's state.
+    Without a browser binding, the victim's tokens are exchanged and written
+    under the attacker's account.
+
+    The binding is a nonce that lives in the signed state and in an httpOnly
+    cookie on the browser that started the flow. The callback refuses a state
+    whose nonce the returning browser cannot present, so the attacker's state is
+    inert in the victim's browser, which never held that cookie.
+  */
+  const started = bindingNonce();
+  const claims = readState(signState({ userId: ME, platform: "instagram", expiresAt: soon(), nonce: started }, SECRET), SECRET);
+  check("a nonce is long enough to be unguessable", started.length >= 43, String(started.length));
+  check("two flows get different nonces", bindingNonce() !== bindingNonce());
+
+  check("the state is bound to the browser that presents the matching cookie", stateBoundToBrowser(claims, started));
+  check(
+    "and refused in a browser that presents a different cookie",
+    // The victim's browser: a real, valid, attacker-minted state, but the
+    // attacker's nonce is not in the victim's cookie jar.
+    !stateBoundToBrowser(claims, bindingNonce()),
+  );
+  check("and refused when the browser presents no cookie at all", !stateBoundToBrowser(claims, null));
+  check("and when the cookie is empty", !stateBoundToBrowser(claims, ""));
+
+  // The binding is only as good as the nonce being required. A state with no
+  // nonce cannot be bound to anything, so it must not read back as valid.
+  const noNonce = Buffer.from(JSON.stringify({ userId: ME, platform: "instagram", expiresAt: soon() })).toString("base64url");
+  const { createHmac } = await import("node:crypto");
+  const signed = `${noNonce}.${createHmac("sha256", SECRET).update(noNonce).digest("base64url")}`;
+  check(
+    "a correctly-signed state with no nonce is refused, so the binding cannot be omitted",
+    readState(signed, SECRET) === null,
+  );
+}
+
+section("The route sets the binding cookie on connect and requires it on callback");
+{
+  /*
+    The library above is only the mechanism; these read the route that has to
+    use it. The cookie is set for *every* platform, not only the two that use
+    PKCE — the verifier shields the code, this shields the account — and the
+    callback compares it before it will exchange anything.
+  */
+  const route = await readFile(path.join(repoRoot, "artifacts/api-server/src/routes/social.ts"), "utf8");
+  const connect = route.slice(
+    route.indexOf('router.post("/social/connect/:platform"'),
+    route.indexOf('router.get("/social/accounts"'),
+  );
+  check("connect mints a browser-binding nonce", /bindingNonce\(\)/.test(connect));
+  check("and signs it into the state", /nonce/.test(connect) && /signState\(\{[\s\S]*nonce/.test(connect));
+  check(
+    "and sets it as an httpOnly cookie",
+    /res\.cookie\(BINDING_COOKIE,[\s\S]{0,120}httpOnly:\s*true/.test(connect),
+  );
+  check(
+    "before it checks whether the platform uses PKCE, so every platform gets it",
+    connect.indexOf("BINDING_COOKIE") < connect.indexOf("ENDPOINTS[platform].pkce"),
+  );
+
+  const callback = route.slice(route.indexOf('/social/callback/:platform'));
+  check("the callback reads the binding cookie", /cookieFrom\(req\.headers\.cookie, BINDING_COOKIE\)/.test(callback));
+  check("and refuses a state not bound to this browser", /stateBoundToBrowser\(claims, boundNonce\)/.test(callback));
+  check(
+    "and clears the cookie either way, so a stale one cannot be reused",
+    /clearCookie\(BINDING_COOKIE/.test(callback),
+  );
+  check(
+    "and says the same thing it says for every other bad state, giving no oracle",
+    // The binding failure shares the branch and the message with a bad
+    // signature and an expired state.
+    /stateBoundToBrowser\(claims, boundNonce\)\)\s*\{[\s\S]{0,200}That connection link has expired/.test(callback),
+  );
+}
+
 section("Every state is different, so one cannot be replayed as another");
 {
-  const a = signState({ userId: ME, platform: "tiktok", expiresAt: soon() }, SECRET);
-  const b = signState({ userId: THEM, platform: "tiktok", expiresAt: soon() }, SECRET);
+  const a = signState({ userId: ME, platform: "tiktok", expiresAt: soon(), nonce: N }, SECRET);
+  const b = signState({ userId: THEM, platform: "tiktok", expiresAt: soon(), nonce: N }, SECRET);
   check("two people get different states", a !== b);
   check(
     "and neither reads as the other",
@@ -184,7 +272,7 @@ section("The verifier is a real one, and never leaves in a URL");
   );
   check("two pairs are different", pkcePair().verifier !== pkcePair().verifier);
 
-  const state = signState({ userId: ME, platform: "x", expiresAt: soon() }, SECRET);
+  const state = signState({ userId: ME, platform: "x", expiresAt: soon(), nonce: N }, SECRET);
   const url = authorizeUrlFor("x", state, challenge, {
     X_CLIENT_ID: "client", APP_ORIGIN: "https://app.editlyai.io",
   });
@@ -242,7 +330,7 @@ check(
 
 section("The authorize URL carries what each platform actually requires");
 {
-  const state = signState({ userId: ME, platform: "youtube", expiresAt: soon() }, SECRET);
+  const state = signState({ userId: ME, platform: "youtube", expiresAt: soon(), nonce: N }, SECRET);
   const env = { YOUTUBE_CLIENT_ID: "google-client", APP_ORIGIN: "https://app.editlyai.io" };
   const url = new URL(authorizeUrlFor("youtube", state, null, env));
   check("the client id is the one for that platform", url.searchParams.get("client_id") === "google-client");
