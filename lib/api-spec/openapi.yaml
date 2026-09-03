@@ -1865,6 +1865,84 @@ paths:
         "302":
           description: Back to the scheduling page, with the outcome on the query string
 
+  /admin/attention:
+    get:
+      operationId: adminAttention
+      tags: [admin]
+      summary: Everything that needs somebody, as a list of things rather than counts
+      description: >
+        The console could say that three renders had failed and two posts were
+        overdue, and could not say which. Every other section answers "how
+        many"; this one answers "what", and each row names the exact render,
+        post, connected account or payment, with enough beside it to act on
+        without a database prompt.
+
+
+        Facts, not sentences. A kind, a timestamp, an id, an address, and -
+        where the system that failed wrote one - its own words verbatim,
+        untruncated and unrewritten. The console composes the sentence, in the
+        language of whoever is reading it; prose returned from here would be
+        one more place the Arabic half of the product stops.
+
+
+        Counts are taken over the whole table; rows are capped at twenty-five
+        per kind. Per kind rather than overall, so a hundred failed renders
+        cannot push the one overdue post off the page, and the counts let the
+        page say how many it is not showing rather than looking calm.
+
+
+        Nothing belonging to a customer crosses: no caption, no plan, no path.
+      responses:
+        "200":
+          description: The items, worst first, and the true total of each kind
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        kind:
+                          type: string
+                          enum:
+                            [
+                              worker-gone,
+                              render-unattended,
+                              post-overdue,
+                              post-stranded,
+                              billing-unapplied,
+                              render-failed,
+                              account-disconnected,
+                              minutes-spent,
+                              minutes-nearly-spent,
+                            ]
+                        severity: { type: string, enum: [critical, warning] }
+                        at: { type: string, nullable: true }
+                        userId: { type: string, nullable: true }
+                        email: { type: string, nullable: true }
+                        jobId: { type: string, nullable: true }
+                        postId: { type: string, nullable: true }
+                        platform: { type: string, nullable: true }
+                        handle: { type: string, nullable: true }
+                        detail: { type: string, nullable: true }
+                        used: { type: number, nullable: true }
+                        included: { type: number, nullable: true }
+                      required: [id, kind, severity, at, userId, email, jobId, postId, platform, handle, detail, used, included]
+                  counts:
+                    type: object
+                    additionalProperties: { type: integer }
+                required: [items, counts]
+        "404":
+          description: Not an admin on this deployment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /admin/deployment:
     get:
       operationId: adminDeployment

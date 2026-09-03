@@ -2787,6 +2787,36 @@ section("Every internal link lands on a route this app declares");
   }
   check("the router declares routes this check can read", declared.size >= 5, [...declared].join(" "));
 
+  /**
+   * Whether the router answers this path, the way the router decides it.
+   *
+   * This used to be a set lookup, which held for as long as every link into a
+   * parameterised route was itself interpolated: `/project/${id}` becomes
+   * `/project/*` on both sides and matches. A *literal* link into one does
+   * not, and the console's rail is exactly that shape - eight fixed addresses
+   * behind one `/admin/:section` route - so the check was refusing a pattern
+   * the router serves.
+   *
+   * A `*` stands for one non-empty segment, because that is what a wouter
+   * parameter is. Which does mean a typo in a parameter position is no longer
+   * caught here, and it never really was: every existing link in that position
+   * was interpolated, so it arrived as `*` and matched whatever it liked. What
+   * this file can still prove is the thing it was written for - that no link
+   * points at a route the app does not declare at all.
+   */
+  const answered = (pathname) => {
+    if (declared.has(pathname)) return true;
+    const parts = pathname.split("/");
+    for (const route of declared) {
+      const shape = route.split("/");
+      if (shape.length !== parts.length) continue;
+      if (shape.every((piece, i) => piece === parts[i] || (piece === "*" && parts[i] !== ""))) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   // Every internal destination, from the three ways this app expresses one.
   const NAVIGATES = /(?:navigate|setLocation)\(\s*(?:`([^`]*)`|"([^"]*)")|href=(?:\{\s*`([^`]*)`\s*\}|"([^"]*)")/g;
   const wrong = [];
@@ -2800,7 +2830,7 @@ section("Every internal link lands on a route this app declares");
       // An interpolated segment stands for whatever the route's parameter is.
       const shape = raw.replace(/\$\{[^}]*\}/g, "*").split("?")[0].split("#")[0];
       const normalised = shape.length > 1 ? shape.replace(/\/$/, "") : shape;
-      if (!declared.has(normalised)) {
+      if (!answered(normalised)) {
         wrong.push(`${path.relative(srcDir, file)}: ${raw} → ${normalised}`);
       }
     }

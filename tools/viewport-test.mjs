@@ -29,7 +29,7 @@
 import http from "node:http";
 import { readFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { existsSync, statSync, readdirSync } from "node:fs";
+import { existsSync, statSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -296,6 +296,44 @@ function fixtureFor(pathname) {
   }
   if (pathname === "/api/admin/actions") {
     return { total: 1, actions: [{ id: "a1", actorUserId: "admin", action: "grant_minutes", subjectUserId: "u2", subjectJobId: null, reason: "render failed on our side", detail: { minutes: 10 }, createdAt: "2026-08-24T08:30:00.000Z" }] };
+  }
+  /*
+    The work queue, which is the screen the console was missing.
+
+    Every other admin fixture answers "how many". This one answers "what", so
+    it carries one row of each interesting shape: a render nothing has claimed,
+    a render that failed with the renderer's own words rather than the
+    customer's sentence, a post past its time, a connected account whose token
+    stopped working, a payment that arrived and did not apply, and an account
+    that has spent its month.
+
+    `counts` is larger than `items` on purpose. The rows are capped per kind by
+    the server and the counts are not, and the page has to say so rather than
+    show twenty-five and look calm.
+  */
+  if (pathname === "/api/admin/attention") {
+    return {
+      counts: {
+        "worker-gone": 0,
+        "render-unattended": 1,
+        "post-overdue": 2,
+        "post-stranded": 0,
+        "billing-unapplied": 1,
+        "render-failed": 31,
+        "account-disconnected": 1,
+        "minutes-spent": 1,
+        "minutes-nearly-spent": 0,
+      },
+      items: [
+        { id: "render-unattended:j3", kind: "render-unattended", severity: "critical", at: "2026-08-24T07:40:00.000Z", userId: "u1", email: "someone@example.com", jobId: "j3", postId: null, platform: null, handle: null, detail: null, used: null, included: null },
+        { id: "post-overdue:s1", kind: "post-overdue", severity: "critical", at: "2026-08-24T06:00:00.000Z", userId: "u2", email: "another.person.with.a.long.address@example.com", jobId: null, postId: "s1", platform: "instagram", handle: null, detail: null, used: null, included: null },
+        { id: "post-overdue:s2", kind: "post-overdue", severity: "critical", at: "2026-08-24T06:30:00.000Z", userId: "u2", email: "another.person.with.a.long.address@example.com", jobId: null, postId: "s2", platform: "tiktok", handle: null, detail: null, used: null, included: null },
+        { id: "billing-unapplied:evt_2", kind: "billing-unapplied", severity: "critical", at: "2026-08-23T21:12:00.000Z", userId: null, email: "another.person.with.a.long.address@example.com", jobId: null, postId: null, platform: null, handle: null, detail: "no account for that email", used: null, included: null },
+        { id: "render-failed:j2", kind: "render-failed", severity: "warning", at: "2026-08-24T08:03:00.000Z", userId: "u2", email: "another.person.with.a.long.address@example.com", jobId: "j2", postId: null, platform: null, handle: null, detail: "ffmpeg exited 1: moov atom not found", used: null, included: null },
+        { id: "account-disconnected:sa1", kind: "account-disconnected", severity: "warning", at: "2026-08-22T10:00:00.000Z", userId: "u1", email: "someone@example.com", jobId: null, postId: null, platform: "instagram", handle: "@thestudio", detail: "the platform refused the token", used: null, included: null },
+        { id: "minutes-spent:u2", kind: "minutes-spent", severity: "warning", at: null, userId: "u2", email: "another.person.with.a.long.address@example.com", jobId: null, postId: null, platform: null, handle: null, detail: null, used: 5, included: 5 },
+      ],
+    };
   }
   if (pathname === "/api/admin/waitlist") {
     return { total: 3, entries: [{ email: "first@example.com", source: "landing", createdAt: "2026-08-20T10:00:00.000Z" }] };
@@ -979,7 +1017,51 @@ const PAGES = [
         // Seeing it once beforehand is the difference.
         verdict,
       );
-      check("the posting row is on the screen", await page.getByTestId("admin-posting").isVisible(), "");
+      /*
+        And a way from the sentence to the rows.
+
+        The banner says how many; the queue says which. Until the console had a
+        queue, the second half of that had nowhere to go and an operator read
+        "two posts are past their time" and then went looking through a table
+        ordered by time.
+      */
+      check(
+        "and offers a way through to the rows behind it",
+        await page.getByTestId("admin-attention-open").isVisible(),
+        "",
+      );
+      /*
+        The rail is the console now, so it has to be reachable from a phone.
+        This suite runs at 390px, where the rail is a strip across the top
+        rather than a column, and both are drawn from one list.
+      */
+      check("the rail is on the screen", await page.getByTestId("admin-rail").isVisible(), "");
+      for (const id of ["insights", "attention", "accounts", "renders", "posting", "money", "system", "log"]) {
+        check(`and leads to ${id}`, (await page.getByTestId(`admin-nav-${id}`).count()) === 1, "");
+      }
+      /*
+        The badge counts the faults and not the warnings.
+
+        The fixture holds five critical rows across three kinds and three
+        warnings. A badge that counted both would read eight, and would be red
+        on a morning whose only news is that an account is near its minutes.
+      */
+      check(
+        "the badge counts what is actually broken and not what is merely worth knowing",
+        (await page.getByTestId("admin-nav-urgent").innerText()).trim() === "4",
+        await page.getByTestId("admin-nav-urgent").innerText(),
+      );
+      /*
+        And the screen somebody opens because something might be wrong does not
+        ask them to justify anything. The reason field belongs on the three
+        screens with buttons; on this one it was a box demanding a sentence
+        before its author knew what for.
+      */
+      check(
+        "the first screen asks for no reason, because nothing on it does anything",
+        (await page.getByTestId("admin-reason").count()) === 0,
+        "",
+      );
 
       // The word and the number on the worker card come from one row and must
       // agree. Checked on the rendered card rather than on the fixture, because
@@ -1016,6 +1098,135 @@ const PAGES = [
         card,
       );
     } },
+  {
+    /*
+     * The screen the console did not have.
+     *
+     * Every other screen here answers "how many". A verdict that says three
+     * renders failed and two posts are overdue is the right first line and the
+     * wrong last one: finding the rows behind it meant a different section, a
+     * filter, and a table ordered by time rather than by whether anything was
+     * wrong with the row.
+     *
+     * So this checks the three properties that make it a queue rather than
+     * another report: it lists things, it says what it is not showing, and the
+     * button that deals with a row is in the row.
+     */
+    url: "/admin/attention",
+    name: "the work queue",
+    signedIn: true,
+    then: async (page, check) => {
+      const table = await page.getByTestId("admin-panel-attention").innerText();
+      check(
+        "it names the render nothing has claimed, rather than counting it",
+        /Render unclaimed/.test(table),
+        table.slice(0, 200),
+      );
+      check(
+        "and quotes what actually failed, not what the customer was told",
+        /moov atom not found/.test(table),
+        // `jobs.error` for this row reads "Rendering failed. We are looking
+        // into it." Showing an operator our own reassurance is how a failure
+        // with an answer becomes a log line somebody has to go and read.
+        table.slice(0, 400),
+      );
+      check(
+        "and says whose it is",
+        /example\.com/.test(table),
+        "",
+      );
+      /*
+        The counts are the table and the rows are a sample of it.
+
+        The server caps the rows per kind and counts the whole thing, and the
+        fixture holds thirty-one failed renders against seven rows. A screen
+        that showed seven and said nothing would be a screen that looks calm
+        because it ran out of room.
+      */
+      check(
+        "it says how much of the queue it is not showing",
+        /showing 7 of 37/.test(table),
+        (await page.getByTestId("admin-queue-showing").count()) === 1
+          ? await page.getByTestId("admin-queue-showing").innerText()
+          : "no line at all",
+      );
+      check(
+        "the buttons that deal with a row are in the row",
+        (await page.getByTestId("admin-requeue-j3").count()) === 1 &&
+          (await page.getByTestId("admin-grant-u2").count()) === 1,
+        "",
+      );
+      /*
+        And they are dead until a reason is typed, exactly as they are on every
+        other screen that can do something. This is the screen those buttons
+        will actually be pressed from, so it is the screen where the rule has
+        to hold.
+      */
+      check(
+        "and are refused until somebody says why",
+        await page.getByTestId("admin-requeue-j3").isDisabled(),
+        "",
+      );
+      check("this screen asks for a reason", (await page.getByTestId("admin-reason").count()) === 1, "");
+      await page.getByTestId("admin-reason").fill("the worker died mid-encode");
+      check(
+        "and the button wakes up once there is one",
+        !(await page.getByTestId("admin-requeue-j3").isDisabled()),
+        "",
+      );
+    },
+  },
+  {
+    /*
+      Posting, on its own screen.
+
+      It shares a worker with the render queue and nothing else. A render
+      nobody claims makes somebody wait and then complain; a post nobody claims
+      is simply not published, at a time the person chose and is not watching.
+      The cards were the only thing the console had for that, and the cards are
+      counts.
+    */
+    url: "/admin/posting",
+    name: "the other queue",
+    signedIn: true,
+    then: async (page, check) => {
+      check("the posting cards are on the screen", await page.getByTestId("admin-posting").isVisible(), "");
+      const panel = await page.getByTestId("admin-panel-posting").innerText();
+      check(
+        "and the posts behind them are named",
+        /Post overdue/.test(panel) && /instagram/.test(panel),
+        panel.slice(0, 300),
+      );
+      check(
+        "and so is the account whose token stopped working",
+        /@thestudio/.test(panel),
+        // Every post scheduled to it fails one at a time as each comes due.
+        // The handle is the whole answer to "which account do I reconnect".
+        panel.slice(0, 400),
+      );
+    },
+  },
+  {
+    /*
+      An address inside the console that is not one of its screens.
+
+      It renders the ordinary not-found page, which is the same answer this
+      route gives everyone who is not an admin. The alternative - falling back
+      to the first screen - is a console quietly showing you something other
+      than what you asked for, which is the one thing an operations console
+      cannot do.
+    */
+    url: "/admin/nothing-here",
+    name: "a screen the console does not have",
+    signedIn: true,
+    then: async (page, check) => {
+      check(
+        "it says there is no such page rather than drawing a different one",
+        (await page.getByTestId("admin-rail").count()) === 0,
+        "",
+      );
+    },
+  },
   {
     // The same screen, told something impossible.
     //
@@ -1437,6 +1648,56 @@ for (const spec of PAGES.filter((p) => ["the dashboard", "the project editor", "
   check("nothing wider than the screen escapes its container", m.overflowing.length === 0, m.overflowing.join(" | "));
   check("no control has collapsed to nothing", m.collapsed.length === 0, m.collapsed.join(" | "));
   await ctx.close();
+}
+
+/*
+  The two lists that decide what red means.
+
+  The server stamps a severity on every row and the console keeps its own copy
+  of which kinds are faults, because it draws the rail's badge from the counts
+  rather than from the rows. Two copies of a closed vocabulary is one copy too
+  many the moment somebody adds a tenth kind: the row would come back red and
+  the badge would not count it, and a badge that undercounts is worse than no
+  badge, because it reads as "three things" on a morning when there are four.
+
+  Read out of both files rather than listed here, so the check keeps working
+  after everybody has forgotten it exists.
+*/
+section("The console and the server agree on which faults are faults");
+{
+  const listOf = (source, name) => {
+    const body = source.slice(source.indexOf(name));
+    const block = body.slice(body.indexOf("["), body.indexOf("]") + 1);
+    return [...block.matchAll(/"([a-z-]+)"/g)].map((m) => m[1]).sort();
+  };
+  const server = readFileSync(
+    path.join(repoRoot, "artifacts/api-server/src/lib/attention.ts"),
+    "utf8",
+  );
+  const client = readFileSync(
+    path.join(repoRoot, "artifacts/editly/src/pages/admin.tsx"),
+    "utf8",
+  );
+  const onServer = listOf(server, "const CRITICAL");
+  const onClient = listOf(client, "const CRITICAL");
+  check("the server names some", onServer.length > 0, JSON.stringify(onServer));
+  check(
+    "and the console names exactly the same ones",
+    onServer.join(",") === onClient.join(","),
+    `server=${onServer.join(",")} client=${onClient.join(",")}`,
+  );
+  /*
+    And every kind the server can emit has a word on the screen. A kind with no
+    label renders as an empty badge, which is a row that says a thing needs
+    doing and does not say what.
+  */
+  const union = client.slice(client.indexOf("type AttentionKind"));
+  const kinds = [...union.slice(0, union.indexOf(";")).matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
+  const table = client.slice(client.indexOf("const KIND_LABEL"));
+  const labelled = table.slice(0, table.indexOf("\n};"));
+  check("there are kinds to check", kinds.length === 9, JSON.stringify(kinds));
+  const missing = kinds.filter((kind) => !labelled.includes(`"${kind}"`));
+  check("every kind the queue can show has a label", missing.length === 0, missing.join(", "));
 }
 
 await browser.close();

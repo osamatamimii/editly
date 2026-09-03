@@ -226,6 +226,96 @@ export const ADMIN = {
       `${count} billing ${count === 1 ? "event" : "events"} arrived and did not apply. Somebody has paid for something they do not have.`,
   ),
 
+  /*
+    The rail down the left, and the eight screens it leads to.
+
+    Short on purpose. A navigation label is read a hundred times and clicked
+    once, and the sentence that explains a screen belongs on the screen rather
+    than in the word that opens it.
+  */
+  navOverview: p("نظرة عامة", "Overview"),
+  navPlatform: p("المنصّة", "The platform"),
+  navInsights: p("الخلاصة", "Insights"),
+  navAttention: p("يحتاج إليك", "Needs you"),
+  navAccounts: p("الحسابات", "Accounts"),
+  navRenders: p("التنفيذات", "Renders"),
+  navPosting: p("النشر", "Posting"),
+  navMoney: p("المال", "Money"),
+  navSystem: p("النظام", "System"),
+  navLog: p("السجلّ", "Log"),
+  navBack: p("عودة إلى المنتج", "Back to the product"),
+
+  /*
+    The work queue.
+
+    The console could say that three renders had failed; it could not say
+    which. Every other screen here answers "how many" and this one answers
+    "what", so its words are the words of a list of jobs to do rather than of a
+    report.
+  */
+  queueTitle: p("ما يحتاج إلى شخص", "What needs somebody"),
+  queueLead: p(
+    "كل سطر شيء بعينه لا عدد. الأسوأ أوّلًا، والأقدم قبل الأحدث داخل النوع الواحد.",
+    "Every row is one thing, not a number. Worst first, and oldest before newest within a kind.",
+  ),
+  queueClear: p("لا شيء في الطابور.", "Nothing in the queue."),
+  queueClearLead: p(
+    "لا عامل غائب، ولا تنفيذ متروك، ولا منشور فات وقته، ولا دفعة وصلت ولم تُطبَّق.",
+    "No missing worker, no unclaimed render, no post past its time, no payment that arrived and did not apply.",
+  ),
+  queueShowing: f<[number, number]>(
+    (shown, total) => `يُعرض ${shown} من ${total}`,
+    (shown, total) => `showing ${shown} of ${total}`,
+  ),
+  headWhat: p("ما هو", "What"),
+  headSince: p("منذ", "Since"),
+  headWhose: p("لِمن", "Whose"),
+
+  /*
+    One label per kind, and the vocabulary is closed.
+
+    Written here beside each other rather than each beside its query, because
+    these are read as a column: nine badges stacked down one screen, and a
+    reader tells them apart by their shape more than by their words. Two that
+    sounded alike when they were written apart — "failed" and "unclaimed" — are
+    the two that matter most to tell apart, so they are named for what is true
+    of the row rather than for how bad it is.
+  */
+  kindWorkerGone: p("لا عامل", "No worker"),
+  kindRenderUnattended: p("تنفيذ متروك", "Render unclaimed"),
+  kindPostOverdue: p("منشور فات وقته", "Post overdue"),
+  kindPostStranded: p("منشور في منتصف الإرسال", "Post mid-send"),
+  kindBillingUnapplied: p("دفعة لم تُطبَّق", "Payment not applied"),
+  kindRenderFailed: p("تنفيذ فشل", "Render failed"),
+  kindAccountDisconnected: p("حساب مقطوع", "Account disconnected"),
+  kindMinutesSpent: p("نفدت الدقائق", "Minutes spent"),
+  kindMinutesNearlySpent: p("الدقائق تُشارف", "Minutes nearly spent"),
+
+  minutesOf: f<[number, number]>(
+    (used, included) => `${used} من ${included} دقيقة`,
+    (used, included) => `${used} of ${included} minutes`,
+  ),
+  neverBeat: p("لم يُسمع منه قطّ", "never heard from"),
+
+  /* The first screen: the platform in one page, money first. */
+  platformToday: p("المنصّة اليوم", "The platform today"),
+  paying: f<[number, number]>(
+    (paid, total) => `${paid} حسابًا يدفع من ${total}`,
+    (paid, total) => `${paid} paying of ${total}`,
+  ),
+  capLine: f<[number, number]>(
+    (over, near) =>
+      `${over} حسابًا نفدت دقائقه هذا الشهر، و${near} يقترب من حدّه`,
+    (over, near) => `${over} accounts have spent their minutes this month, ${near} are close to their limit`,
+  ),
+  seeTheQueue: p("افتح الطابور", "Open the queue"),
+  systemTitle: p("النظام", "System"),
+  deploymentAllWell: p(
+    "كل ما فُحص يطابق ما تفترضه الشيفرة.",
+    "Everything checked matches what the code assumes.",
+  ),
+  perPlan: p("لكل خطّة", "Per plan"),
+
   thisWeekNoneLast: f<[number]>(
     (count) => `${count} هذا الأسبوع، ولا شيء قبله`,
     (count) => `${count} this week, none last`,

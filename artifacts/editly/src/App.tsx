@@ -142,6 +142,18 @@ function Router() {
       <Route path="/admin">
         <Protected component={AdminPage} />
       </Route>
+      {/*
+        The console's other seven screens, on the same component.
+
+        One route each would be seven copies of the same three lines and a
+        seventh chance to forget `Protected`; the page reads the segment itself
+        and renders the ordinary not-found screen for a segment it does not
+        know, which is the same answer this route already gives everyone who is
+        not an admin.
+      */}
+      <Route path="/admin/:section">
+        <Protected component={AdminPage} />
+      </Route>
       <Route path="/privacy" component={PrivacyPage} />
       <Route path="/terms" component={TermsPage} />
       <Route component={NotFound} />

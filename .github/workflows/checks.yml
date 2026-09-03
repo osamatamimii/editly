@@ -264,6 +264,12 @@ jobs:
       # event is the ordinary case for that endpoint, and an email cannot be
       # taken back.
       - run: node tools/mail-test.mjs
+      # The console's work queue, against a real database, because every claim
+      # it makes is a query: that the count is the table and the rows are a
+      # capped sample of it, that a queue behind a live machine is not a fault,
+      # and that the failure quoted is the renderer's rather than the sentence
+      # written to reassure whoever was waiting.
+      - run: node tools/attention-test.mjs
       - run: node tools/models-test.mjs
       - run: node tools/meter-test.mjs
       - run: node tools/style-test.mjs

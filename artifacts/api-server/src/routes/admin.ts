@@ -23,6 +23,7 @@ import {
 } from "@workspace/api-zod";
 import { requireAdmin } from "../middlewares/admin";
 import { auditDeployment, summarise, readUsage } from "../lib/deployment-audit";
+import { attention } from "../lib/attention";
 import { currentUserId } from "../middlewares/auth";
 import { isUnattended, workerOnline } from "../lib/queue-health";
 import { DEFAULT_PLAN, PLAN_LIMITS, minutesFrom, type PlanKey } from "../lib/plan-limits";
@@ -730,6 +731,29 @@ router.get("/admin/actions", async (req, res): Promise<void> => {
       })),
     }),
   );
+});
+
+/**
+ * Everything that needs somebody, as a list of things.
+ *
+ * The console could say that three renders had failed and two posts were
+ * overdue; it could not say which. That gap is where an operator's time goes —
+ * a number at the top of the page, and then a different section, a filter, and
+ * a table ordered by time rather than by whether anything is wrong with the
+ * row.
+ *
+ * Facts rather than sentences: a kind, a timestamp, an id, an address, and the
+ * failing system's own words where it wrote any. The console writes the
+ * sentence, in the language of whoever is reading it. Counts are taken over
+ * the whole table and rows are capped per kind, so a hundred failed renders
+ * cannot push the one overdue post off the page and the page can still say how
+ * many it is not showing.
+ *
+ * Not cached, for the same reason `/admin/deployment` is not: this is opened
+ * by somebody asking whether anything is wrong right now.
+ */
+router.get("/admin/attention", async (_req, res): Promise<void> => {
+  res.json(await attention());
 });
 
 export default router;
