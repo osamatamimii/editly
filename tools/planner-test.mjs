@@ -43,6 +43,22 @@ if (built.status !== 0) {
 
 const { createPlanner, replyFor } = await import(pathToFileURL(outfile).href);
 
+// The keyword planner on its own, for the negations it reads directly.
+const kwOut = path.join(buildDir, "plan-from-text.mjs");
+{
+  const b = spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+    [
+      path.join(repoRoot, "artifacts/api-server/src/lib/plan-from-text.ts"),
+      "--bundle", "--platform=node", "--format=esm", "--target=node22",
+      `--outfile=${kwOut}`, "--log-level=error",
+    ],
+    { stdio: "inherit" },
+  );
+  if (b.status !== 0) { console.error("could not bundle plan-from-text"); process.exit(1); }
+}
+const { planFromText } = await import(pathToFileURL(kwOut).href);
+
 /**
  * Every note the planner produces now carries both languages (`{ en, ar }`),
  * because the reply answers in the language it was asked in. These checks are
@@ -1666,6 +1682,37 @@ console.log("\nThe two most basic asks, in the other language");
     !notLevel.operations.some((o) => o.type === "normalizeLoudness"),
     JSON.stringify(notLevel.operations.map((o) => o.type)),
   );
+}
+
+console.log("\n\"no music\" is a refusal, not a request for music");
+{
+  const track = [{ id: "t1", kind: "audio", label: "song.mp3" }];
+  const hasMusic = (asked) => planFromText(asked, { assets: track }).operations.some((o) => o.type === "addMusic");
+  const offersMusic = (asked) => {
+    const intent = planFromText(asked, { assets: track });
+    return [...(intent.willDo ?? []), ...(intent.cannotYet ?? [])].some((p) => /music|موسيق/i.test(p.en ?? p.ar ?? JSON.stringify(p)));
+  };
+
+  // The request still works.
+  check("'add music' still lays a bed", hasMusic("add some music") === true);
+  check("'حط موسيقى' still lays a bed", hasMusic("حط موسيقى تحت الفيديو") === true);
+
+  // The refusals no longer do — in either language, however phrased.
+  for (const asked of ["no music", "remove the music", "without music", "don't add music", "take out the music"]) {
+    check(`'${asked}' lays no bed`, hasMusic(asked) === false, asked);
+  }
+  for (const asked of ["بدون موسيقى", "لا تحط موسيقى", "شيل الموسيقى", "بلا موسيقى", "من غير موسيقى"]) {
+    check(`'${asked}' lays no bed`, hasMusic(asked) === false, asked);
+  }
+
+  // And a project with no track does not offer music to someone who declined it.
+  const noTrack = (asked) => {
+    const intent = planFromText(asked, { assets: [] });
+    return [...(intent.willDo ?? []), ...(intent.cannotYet ?? [])].some((p) => /add music|أضيف موسيق/i.test(JSON.stringify(p)));
+  };
+  check("a refusal with no track offers nothing", noTrack("no music") === false);
+  check("but an actual request with no track still offers the upload path", noTrack("add music") === true);
+  void offersMusic;
 }
 
 await rm(buildDir, { recursive: true, force: true });

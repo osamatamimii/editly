@@ -90,11 +90,23 @@ const base = {
   assets: [],
   habits: [],
   spokenTypes: new Set(),
-  spoke: { platform: false, captions: false, silence: false },
+  spoke: { platform: false, captions: false, silence: false, music: false },
   onlyWhatWasAsked: false,
 };
 const of = (over = {}) => direct({ ...base, ...over });
 const types = (result) => result.operations.map((op) => op.type);
+
+// The restructure planner lays a bed on its own when a track is present — but
+// not when the sentence spoke about music. "no music" names the subject, so it
+// is respected here the same way it is when it is asked for.
+{
+  const withTrack = { assets: [{ id: "t1", kind: "audio", label: "song.mp3" }] };
+  check("a restructured clip with a track laid gets a bed", types(of(withTrack)).includes("addMusic"));
+  check(
+    "but a sentence that spoke about music (a refusal) gets none",
+    !types(of({ ...withTrack, spoke: { ...base.spoke, music: true } })).includes("addMusic"),
+  );
+}
 
 /* ── the sentence the old planner could not hear ─────────────────────────── */
 

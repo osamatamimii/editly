@@ -62,7 +62,7 @@ export interface ParsedIntent {
    *
    * A subject is spoken if the words are about it, whichever way they went.
    */
-  spoke: { platform: boolean; captions: boolean; silence: boolean };
+  spoke: { platform: boolean; captions: boolean; silence: boolean; music: boolean };
 }
 
 /**
@@ -133,6 +133,16 @@ const LOOK_WORDS: Array<{ look: GradeLook; patterns: RegExp }> = [
  */
 const MUSIC_WORDS =
   /\bmusic|music ?bed|sound ?track|\bsong\b|\bbeat under\b|\btrack under\b|موسيق|أغنية|اغنية|خلفية موسيقية|صوت خلفي/i;
+
+/**
+ * Declining a music bed — the same phrases as `MUSIC_WORDS` contain the word,
+ * so without this a person saying "no music", "remove the music" or «بدون
+ * موسيقى» matched `MUSIC_WORDS` and was *given* a bed, or, on a project with no
+ * track, offered one they had just refused. Read the refusal, or every extra
+ * phrasing accepted for the request is another refusal swallowed.
+ */
+const NO_MUSIC_WORDS =
+  /\bno (?:music|soundtrack|song|backing track)|without (?:music|a soundtrack|a song)|\bdon'?t (?:add|put|want|use) (?:any )?(?:music|a soundtrack|a song)|(?:remove|take out|get rid of|kill|drop|no) (?:the )?music|بدون موسيق|بلا موسيق|من غير موسيق|من دون موسيق|لا موسيق|لا (?:تحط|تضع|تضيف|تريد) (?:موسيق|أغنية|اغنية)|شيل (?:ال)?موسيق|احذف (?:ال)?موسيق|بدون أغنية|بدون اغنية|بلا أغنية/i;
 
 /**
  * Asking for a beat *cut*, which we do not do.
@@ -1032,6 +1042,11 @@ export function planFromText(
     platform: platform !== null || VERTICAL_WORDS.test(text) || HORIZONTAL_WORDS.test(text),
     captions: CAPTION_WORDS.test(text) || TRANSLATE_WORDS.test(text) || refusesCaptions,
     silence: SILENCE_WORDS.test(text) || refusesSilenceCut,
+    // Music, request or refusal alike. The restructure planner lays a bed on its
+    // own when a track is present, and without this a person who said "no music"
+    // — having named the subject, and been given no bed here — still had one
+    // added there, because "not requested" and "refused" looked the same to it.
+    music: MUSIC_WORDS.test(text) || NO_MUSIC_WORDS.test(text),
   };
 
   /*
@@ -1289,7 +1304,7 @@ export function planFromText(
   // will not: a track we handed out would be a licence we bought on their
   // behalf. So the honest reply when the library is empty names the fix rather
   // than the limitation — upload the track and it goes under.
-  if (MUSIC_WORDS.test(text)) {
+  if (MUSIC_WORDS.test(text) && !NO_MUSIC_WORDS.test(text)) {
     if (tracks.length === 0) {
       cannotYet.push(
         say(

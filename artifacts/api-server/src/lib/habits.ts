@@ -221,7 +221,7 @@ export interface Applied {
 export function applyHabits(
   operations: EditOperation[],
   habits: Habit[],
-  spoke: { platform: boolean; captions: boolean; silence: boolean },
+  spoke: { platform: boolean; captions: boolean; silence: boolean; music: boolean },
 ): { operations: EditOperation[]; applied: Applied[] } {
   if (operations.length === 0 || habits.length === 0) return { operations, applied: [] };
 

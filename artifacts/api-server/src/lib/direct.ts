@@ -89,7 +89,7 @@ export interface DirectionInput {
    * The same set `applyHabits` reads, and for the same reason: "no captions"
    * produces no caption operation and is a decision about captions.
    */
-  spoke: { platform: boolean; captions: boolean; silence: boolean };
+  spoke: { platform: boolean; captions: boolean; silence: boolean; music: boolean };
   /** "cut the silences only" — the sentence is the whole plan. */
   onlyWhatWasAsked: boolean;
 }
@@ -404,7 +404,7 @@ export function direct(input: DirectionInput): Direction {
     the one place that is safe is a file they uploaded.
   */
   const track = input.assets.find((a) => a.kind === "audio");
-  if (track && longEnoughToRestructure) {
+  if (track && longEnoughToRestructure && !input.spoke.music) {
     add(
       { type: "addMusic", assetId: track.id, gainDb: -18, duck: true, fadeSeconds: 1, fromSeconds: 0, loop: true },
       say("lay your track under it, ducked under the voice", "أضع مقطوعتك تحته، خافتة تحت الصوت"),
