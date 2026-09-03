@@ -295,6 +295,10 @@ jobs:
       # one places the window, this one changes how wide it is across the cuts.
       - run: node tools/shots-test.mjs
       - run: node tools/render-test.mjs
+      # Beside the render suite: the keyframe interval is two seconds of the
+      # actual frame rate, not a fixed sixty frames — which was 2.5s at 24fps,
+      # past what these platforms cut cleanly on. A real 24fps encode is probed.
+      - run: node tools/keyframe-gop-test.mjs
       # Beside the render suite because it renders, and separate because of what
       # it guards: the free-plan watermark is drawtext, and its text used to be
       # interpolated into the filtergraph behind an escaper that let a comma

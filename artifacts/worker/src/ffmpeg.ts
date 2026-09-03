@@ -947,12 +947,22 @@ const VIDEO_ENCODE = [
  * does not admit frames this large — a mismatch some players enforce and others
  * ignore, which is the worst kind of wrong.
  */
-function videoEncodeFor(frameHeight: number): string[] {
-  if (frameHeight <= 1920) return VIDEO_ENCODE;
+export function videoEncodeFor(frameHeight: number, fps: number): string[] {
+  // Keyframe cadence in *frames*, computed from the actual frame rate rather
+  // than fixed. A hardcoded `-g 60` is two seconds only at 30fps; at 24 it is
+  // 2.5s and at 25 it is 2.4s — past the ≤2s every one of these platforms wants
+  // so it can cut on a keyframe when it re-encodes on upload. `round(fps*2)` is
+  // two seconds at any rate, and `keyint_min` follows at one second.
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const gop = String(Math.max(1, Math.round(safeFps * 2)));
+  const keyintMin = String(Math.max(1, Math.round(safeFps)));
+  const uhd = frameHeight > 1920;
   return VIDEO_ENCODE.map((arg, i, all) => {
-    if (all[i - 1] === "-preset") return "fast";
-    if (all[i - 1] === "-crf") return "20";
-    if (all[i - 1] === "-level") return "5.1";
+    if (all[i - 1] === "-g") return gop;
+    if (all[i - 1] === "-keyint_min") return keyintMin;
+    if (uhd && all[i - 1] === "-preset") return "fast";
+    if (uhd && all[i - 1] === "-crf") return "20";
+    if (uhd && all[i - 1] === "-level") return "5.1";
     return arg;
   });
 }
@@ -3135,7 +3145,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   args.push("-map", finalV);
   if (hasAudioOut) args.push("-map", finalA);
 
-  args.push(...videoEncodeFor(frameHeight));
+  args.push(...videoEncodeFor(frameHeight, source.fps));
   if (hasAudioOut) args.push(...AUDIO_ENCODE);
   args.push(...FASTSTART, output);
 
