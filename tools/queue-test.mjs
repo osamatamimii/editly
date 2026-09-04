@@ -372,6 +372,48 @@ section("A queue with nobody on it, and a queue with somebody on it");
     isUnattended(oldQueued, null, now) === isUnclaimed(oldQueued, now),
   );
 
+  /*
+    The narrowing the dashboard does, checked against the rule it narrows.
+
+    `GET /stats/dashboard` used to read *every* job this account had ever had,
+    and every project row with every column, to produce four numbers and four
+    cards. Nothing failed: on an account with a dozen projects it is instant,
+    which is every account we have. It is a query whose cost is the customer's
+    whole history, on the first screen they load, against a 500 MB database —
+    the heaviest user is the one it breaks for.
+
+    The route now reads only jobs that are `queued` with no lock, because those
+    are the only ones `isUnattended` can answer yes about. That is a copy of
+    this module's rule living in a SQL `where`, and a copy is a thing that
+    drifts: loosen `isUnclaimed` to count a locked job and the dashboard stops
+    seeing it, with no error anywhere. So both halves are asserted here — the
+    rule's refusals, and the fact that the route still filters on them.
+  */
+  check(
+    "a running job is never unattended, whatever the worker is doing",
+    isUnattended({ status: "running", createdAt: ago(6 * 60 * 60_000) }, null, now) === false,
+  );
+  check(
+    "nor is a done one",
+    isUnattended({ status: "done", createdAt: ago(6 * 60 * 60_000) }, null, now) === false,
+  );
+  check(
+    "nor a queued one somebody has already locked",
+    isUnattended({ ...oldQueued, lockedAt: ago(1_000) }, null, now) === false,
+  );
+  const { readFileSync: readSource } = await import("node:fs");
+  const stats = readSource("artifacts/api-server/src/routes/stats.ts", "utf8");
+  check(
+    "so the dashboard reads only those, rather than every job ever run",
+    /eq\(jobsTable\.status, "queued"\)/.test(stats) && /isNull\(jobsTable\.lockedAt\)/.test(stats),
+    "the whole job history for four numbers",
+  );
+  check(
+    "and counts the projects in the database rather than fetching them all",
+    /count\(\*\) filter/.test(stats) && !/\.slice\(0, 4\)/.test(stats),
+    "select() with no limit on the first screen every customer loads",
+  );
+
   await rm(buildDir, { recursive: true, force: true });
 }
 

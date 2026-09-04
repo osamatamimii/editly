@@ -59,7 +59,8 @@ export type RefusalCode =
   | "doesNotResolve"
   | "drawsNothing"
   | "cannotDrawTheScript"
-  | "ratioOutOfRange";
+  | "ratioOutOfRange"
+  | "wrongScript";
 
 export interface Refusal {
   code: RefusalCode;
@@ -309,12 +310,68 @@ async function widthPerCap(dir: string, family: string, capRatio: number, script
  * name it was renamed to. Both come from the repair step, which is the only
  * thing that knows them.
  */
+/**
+ * How many letters of each script the repair found in the file's cmap.
+ *
+ * Counted by `prepare-user-font.py`, which already refuses a file with fewer
+ * than twenty of either — a symbol or icon font, not a text one. Those numbers
+ * came back through `Prepared` and **nobody read them**, which is how the most
+ * ordinary mistake a person can make on this screen got the least useful answer
+ * in the file. See `intakeFace`'s first step.
+ */
+export interface Coverage {
+  arabic: number;
+  latin: number;
+}
+
+/** Below this, a font does not have the script — the same line the repair draws. */
+const ENOUGH_LETTERS = 20;
+
 export async function intakeFace(
   dir: string,
   family: string,
   script: FaceScript,
+  coverage?: Coverage,
 ): Promise<IntakeResult> {
   const sample = script === "arabic" ? ALEFS : CAPS;
+
+  /*
+    0. Is this the script the person filed it under?
+
+    Asked first, and asked from the cmap rather than from a frame, because
+    every question below it is asked by drawing — and a font with no Arabic in
+    it draws Arabic exactly the way a font with a broken name does: fontconfig
+    substitutes, the frame matches the fallback's, and step 2 answers
+    "doesNotResolve". So somebody who uploaded a perfectly good Latin display
+    face under the Arabic heading — the single most likely mistake on that
+    screen, since the two boxes sit side by side — was told *the family name
+    inside the file is not one the renderer can be asked for*. That sentence is
+    true of a different font and there is nothing they can do with it. They
+    have a working font and a message about metadata.
+
+    The numbers to answer it properly were already being computed, returned by
+    the repair step, and read by nothing.
+  */
+  if (coverage) {
+    const has = script === "arabic" ? coverage.arabic : coverage.latin;
+    const other = script === "arabic" ? coverage.latin : coverage.arabic;
+    if (has < ENOUGH_LETTERS && other >= ENOUGH_LETTERS) {
+      const isArabic = script === "arabic";
+      return {
+        ok: false,
+        refusal: {
+          code: "wrongScript",
+          detail: `${family} has ${coverage.arabic} Arabic and ${coverage.latin} Latin letters, filed under ${script}`,
+          english: isArabic
+            ? "This font has no Arabic letters in it. It looks like a Latin font, so add it under the Latin heading instead and it will work."
+            : "This font has no Latin letters in it. It looks like an Arabic font, so add it under the Arabic heading instead and it will work.",
+          arabic: isArabic
+            ? "هذا الخط لا يحتوي حروفًا عربية. يبدو أنه خطّ لاتيني، فأضفه تحت العنوان اللاتيني وسيعمل."
+            : "هذا الخط لا يحتوي حروفًا لاتينية. يبدو أنه خطّ عربي، فأضفه تحت العنوان العربي وسيعمل.",
+        },
+      };
+    }
+  }
 
   // 1. Does anything come out at all — asked where the renderer runs, because
   //    the next question can only be asked there and both want the same frame.

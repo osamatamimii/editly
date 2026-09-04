@@ -209,6 +209,82 @@ section("A face that cannot draw the script is refused for that script only");
 
 // ── Real uploads ───────────────────────────────────────────────────────────
 
+section("A font filed under the wrong script is told which script it is");
+{
+  /*
+    The most likely mistake on that screen, given the least useful answer.
+
+    The upload form has two headings side by side, Latin and Arabic, and a
+    person picking a display face for their captions will sooner or later drop
+    a Latin one under the Arabic heading. What happened then: the intake drew
+    the Arabic sample, fontconfig substituted (the font has no Arabic), the
+    frame matched the fallback's, and step 2 answered `doesNotResolve` — *the
+    family name inside the file is not one the renderer can be asked for*. That
+    sentence is about metadata, it is true of an entirely different fault, and
+    there is nothing whatsoever a person can do with it. They have a working
+    font and a message about names.
+
+    The numbers that answer it properly were already being counted by
+    `prepare-user-font.py`, already returned in its JSON as `arabicGlyphs` and
+    `latinGlyphs`, and read by nothing at all.
+
+    Run through the real repair rather than with hand-written counts, so the
+    two halves have to agree: the Python's coverage and the intake's use of it.
+
+    Only one direction is checked, and the asymmetry is real rather than an
+    omission. Every Arabic face in this repository — Cairo, Almarai, Tajawal,
+    Alexandria, Changa, Noto Kufi — also carries the full Latin alphabet,
+    because an Arabic text font that cannot set a Latin word is not shippable.
+    Latin faces carry no Arabic. So "Arabic font filed under Latin" is a case
+    that barely exists, and a check asserting it would be asserting something
+    untrue about real files. The rule is written both ways; only the way that
+    happens is claimed here.
+  */
+  const dir = path.join(work, "misfiled-anton");
+  await mkdir(dir, { recursive: true });
+  const prepared = prepare(
+    path.join(repoRoot, "artifacts/worker/fonts/Anton.ttf"),
+    path.join(dir, "face"),
+    path.join(dir, "preview"),
+  );
+  check("the repair reads Anton", prepared.ok === true, prepared.detail ?? "");
+  if (prepared.ok) {
+    check(
+      "and counts it as Latin with no Arabic in it, which is the fact the refusal needs",
+      prepared.latinGlyphs >= 20 && prepared.arabicGlyphs < 20,
+      `${prepared.arabicGlyphs} Arabic, ${prepared.latinGlyphs} Latin`,
+    );
+
+    const coverage = { arabic: prepared.arabicGlyphs, latin: prepared.latinGlyphs };
+    const misfiled = await intakeFace(path.join(dir, "face"), prepared.family, "arabic", coverage);
+    check(
+      "Anton under the Arabic heading is refused for the reason that is true",
+      !misfiled.ok && misfiled.refusal.code === "wrongScript",
+      misfiled.ok ? "accepted" : misfiled.refusal.code,
+    );
+    check(
+      "and the sentence says which script it is and what to do with it",
+      !misfiled.ok &&
+        misfiled.refusal.arabic.includes("لاتيني") &&
+        /instead/.test(misfiled.refusal.english),
+      misfiled.ok ? "accepted" : misfiled.refusal.english,
+    );
+    check(
+      "rather than the old answer, which was about the name inside the file",
+      !misfiled.ok && misfiled.refusal.code !== "doesNotResolve",
+      misfiled.ok ? "accepted" : misfiled.refusal.code,
+    );
+
+    // And the same file, filed correctly, still goes through everything below.
+    const properly = await intakeFace(path.join(dir, "face"), prepared.family, "latin", coverage);
+    check(
+      "Anton under Latin is measured, not refused on coverage",
+      properly.ok,
+      properly.ok ? `${properly.capRatio}/${properly.widthScale}` : properly.refusal.code,
+    );
+  }
+}
+
 section("Fonts a person actually uploaded, through the whole intake");
 {
   /*

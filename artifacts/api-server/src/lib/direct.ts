@@ -175,11 +175,22 @@ export function direct(input: DirectionInput): Direction {
    * the same claim — that there are joins — and a video that was never cut has
    * none: a dissolve from a shot to itself is invisible, and a quarter of a
    * second of nothing at the front of somebody's video.
+   *
+   * Both lists, and that is the fix rather than a detail. `add` refuses to
+   * append an operation the sentence already asked for — the sentence is never
+   * overridden — so «اقصّ الصمت وخليها عمودية» puts `removeSilence` in
+   * `spokenTypes` and *nothing* in `operations`. This asked only `operations`,
+   * so the one person who was most explicit about wanting a cut was the person
+   * the director decided had not cut anything: no transition on the joins, no
+   * change of shot size, no sound on the cut. Nothing failed; the edit was
+   * quietly plainer for having been asked for clearly. `opensOnHook`, twenty
+   * lines below, already reads both — this is the same question asked the same
+   * way.
    */
+  const CUTTING = ["removeSilence", "tighten", "extractHighlight"] as const;
   const cutsSoFar = (): boolean =>
-    operations.some(
-      (op) => op.type === "removeSilence" || op.type === "tighten" || op.type === "extractHighlight",
-    );
+    operations.some((op) => (CUTTING as readonly string[]).includes(op.type)) ||
+    CUTTING.some((type) => input.spokenTypes.has(type));
 
   const add = (operation: EditOperation, phrase: Phrase): void => {
     if (input.spokenTypes.has(operation.type)) return;

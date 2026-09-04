@@ -70,6 +70,30 @@ export const SCHEDULED_POSTS_LIMIT = 200;
  */
 export const MAX_FONT_BYTES = 8 * 1024 * 1024;
 
+/**
+ * The most caption cues one render will accept, and the most words in one cue.
+ *
+ * `burnCaptions.cues` had `.min(1)` and no ceiling, and each cue carried an
+ * optional `words` array with no ceiling either. Nothing validated the size of
+ * the thing, so `POST /render` would take a plan holding a million cues, hold
+ * it in this process while zod walked every one, write it into the job row, and
+ * hand it to a worker that turns each into a line of ASS and asks libass to
+ * lay them out. The failure is not a rejected request — it is a machine that
+ * stops answering, and a `jobs` row big enough to matter on a 500 MB database.
+ *
+ * The numbers come from the product's own ceiling rather than from taste. The
+ * longest video this product will render is four hours; a caption cue is a
+ * phrase, so one per second across that whole length is already an implausible
+ * transcript, and twenty thousand is comfortably past it. A cue's text is
+ * capped at 300 characters, which cannot honestly be more than a hundred
+ * words even in the shortest-worded language here.
+ *
+ * A refusal is the right answer at this size: a plan that exceeds these is not
+ * a long video, it is a mistake or a probe.
+ */
+export const MAX_CAPTION_CUES = 20_000;
+export const MAX_CAPTION_WORDS_PER_CUE = 100;
+
 export const UPLOAD_CONTENT_TYPES = [
   // What a person films, and what a render writes back.
   "video/mp4",

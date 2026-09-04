@@ -24,7 +24,7 @@
  */
 import type { EditOperation } from "@workspace/api-zod";
 import { remapTime, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
-import { sayIn, type Language } from "./say";
+import { sayIn, countedAr, AR_NOUNS, type Language } from "./say";
 
 export interface CriticInput {
   operations: EditOperation[];
@@ -252,7 +252,7 @@ export function criticise(input: CriticInput): CriticResult {
         notes.push(
           t(
             `${dropped} caption${dropped === 1 ? "" : "s"} covered speech that was cut, so ${dropped === 1 ? "it was" : "they were"} removed`,
-            `${dropped} كابشن كانت تغطّي كلامًا مقصوصًا، فأُزيلت`,
+            `${countedAr(dropped, AR_NOUNS.caption)} ${dropped === 1 ? "كان يغطّي" : "كانت تغطّي"} كلامًا مقصوصًا، ${dropped === 1 ? "فأُزيل" : "فأُزيلت"}`,
           ),
         );
       }

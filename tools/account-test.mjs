@@ -375,6 +375,34 @@ section("Every table this person owns is named");
     check(`${table} is deleted`, new RegExp(`delete\\(${table}\\)`).test(route), "");
   }
   check("and the mail rows with them", /delete from mail_sends/.test(route) && /delete from mail_settings/.test(route));
+
+  /*
+    And the table with no `user_id` column, which is why it was missed.
+
+    Every check above is a table with the account id in a column, so every
+    review of this list found the same shape and stopped there. `rate_limits`
+    is keyed on a text bucket instead, and the per-account buckets are
+    `${userId}:${endpoint}` — the account id, in a primary key, in a table
+    nobody thinks of as personal data, under a screen that promises no copy is
+    kept. The sweep in `rate-limit.ts` does clear closed windows eventually,
+    but "eventually, if somebody else keeps using that endpoint" is not
+    erasure, and the thirty-day Shopify clock does not accept it.
+
+    Both halves are read, because the bug this would have caught is the two
+    drifting apart: a bucket format changed in one file and a `LIKE` pattern
+    left behind in the other deletes nothing at all, silently.
+  */
+  check(
+    "the counters keyed on the account id go too",
+    /delete from rate_limits where bucket like/.test(route),
+    "rate_limits holds the account id in its primary key",
+  );
+  const limiter = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/rate-limit.ts"), "utf8");
+  check(
+    "and the pattern still matches the bucket the limiter writes",
+    /consume\(`\$\{userId\}:\$\{options\.name\}`/.test(limiter) && /\$\{userId \+ ":"\}/.test(route),
+    "a bucket format changed on one side deletes nothing on the other",
+  );
 }
 
 section("Leaving with a copy is the other half, and it cannot take a credential");

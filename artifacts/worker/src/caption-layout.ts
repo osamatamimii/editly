@@ -423,16 +423,70 @@ export function linesFor(text: string, widthInCapsAllowed: number, widthScale = 
   const lines: string[] = [];
   let line = "";
   for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (line && widthInCaps(candidate, widthScale) > widthInCapsAllowed) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = candidate;
+    /*
+      A token wider than the whole line has nowhere to be put whole.
+
+      This loop assumed every word fits on a line of its own, because in
+      ordinary prose it does. A URL, a sixty-five-character compound, a wall of
+      hashtags with no spaces in it — each of those was pushed onto a line by
+      itself and drawn straight past both edges of the frame: measured at 1080
+      px in the 734 the safe area allows. And nothing rescues it downstream:
+      the subtitle format is written with `WrapStyle: 2`, which means libass
+      does no wrapping of its own, so what this function returns is exactly
+      what gets drawn.
+
+      Broken rather than dropped, and only when it cannot fit alone. Every
+      character survives; what changes is that it survives inside the picture.
+    */
+    for (const piece of fitOnALine(word, widthInCapsAllowed, widthScale)) {
+      const candidate = line ? `${line} ${piece}` : piece;
+      if (line && widthInCaps(candidate, widthScale) > widthInCapsAllowed) {
+        lines.push(line);
+        line = piece;
+      } else {
+        line = candidate;
+      }
     }
   }
   if (line) lines.push(line);
   return lines;
+}
+
+/**
+ * One token, cut into pieces that each fit a line.
+ *
+ * Returns the token untouched — one piece — whenever it already fits, which is
+ * every word in ordinary text, so this costs a width measurement and nothing
+ * else on the path that matters.
+ *
+ * Cut on grapheme clusters rather than on code units, because a cut inside a
+ * surrogate pair or between a letter and its combining mark is a replacement
+ * glyph on somebody's video. Arabic is unaffected in practice — a single
+ * Arabic word wider than a whole caption line does not occur — but the same
+ * rule protects it if one ever does.
+ */
+export function fitOnALine(token: string, widthInCapsAllowed: number, widthScale = 1): string[] {
+  if (widthInCapsAllowed <= 0) return [token];
+  if (widthInCaps(token, widthScale) <= widthInCapsAllowed) return [token];
+
+  const graphemes =
+    typeof Intl !== "undefined" && "Segmenter" in Intl
+      ? [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(token)].map((s) => s.segment)
+      : [...token];
+
+  const pieces: string[] = [];
+  let piece = "";
+  for (const glyph of graphemes) {
+    const candidate = piece + glyph;
+    if (piece && widthInCaps(candidate, widthScale) > widthInCapsAllowed) {
+      pieces.push(piece);
+      piece = glyph;
+    } else {
+      piece = candidate;
+    }
+  }
+  if (piece) pieces.push(piece);
+  return pieces;
 }
 
 /**
@@ -467,7 +521,17 @@ export function balancedLines(text: string, widthInCapsAllowed: number, widthSca
     ...text.split(/\s+/).filter(Boolean).map((word) => widthInCaps(word, widthScale)),
   );
 
-  let low = longestWord;
+  /*
+    Except when that word is wider than the line it has to sit on — a URL, a
+    hashtag, a German compound. Then the floor is above the ceiling, every
+    midpoint of the bisection is *wider* than the allowance, and the block it
+    settles on is the one that fits that wider width: drawn past both edges of
+    the frame, with nothing raised anywhere. The wrapper breaks such a word
+    now, so no allowance is unreachable and the floor is only an optimisation;
+    holding it under the allowance is what keeps it from becoming a licence to
+    overflow.
+  */
+  let low = Math.min(longestWord, widthInCapsAllowed);
   let high = widthInCapsAllowed;
   let best = greedy;
   // Twenty halvings takes the interval to a millionth of its width, which is

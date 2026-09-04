@@ -3,7 +3,7 @@
  * Derived from lib/api-spec/openapi.yaml (source of truth).
  */
 import { z } from "zod/v4";
-import { MAX_FONT_BYTES, MAX_MESSAGE_LENGTH } from "./limits";
+import { MAX_FONT_BYTES, MAX_MESSAGE_LENGTH, MAX_CAPTION_CUES, MAX_CAPTION_WORDS_PER_CUE } from "./limits";
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -721,16 +721,20 @@ export type CaptionWord = z.infer<typeof CaptionWord>;
  */
 export const BurnCaptionsOperation = z.object({
   type: z.literal("burnCaptions"),
+  /* Both arrays are bounded. See `MAX_CAPTION_CUES` for what an unbounded one
+     costs — briefly, this endpoint accepted a plan of any size, validated
+     every element of it, stored it, and handed it to a renderer. */
   cues: z
     .array(
       z.object({
         startMs: z.number().min(0),
         endMs: z.number().min(0),
         text: z.string().min(1).max(300),
-        words: z.array(CaptionWord).optional(),
+        words: z.array(CaptionWord).max(MAX_CAPTION_WORDS_PER_CUE).optional(),
       }),
     )
-    .min(1),
+    .min(1)
+    .max(MAX_CAPTION_CUES),
   style: z.enum(["bold-white", "bold-yellow", "karaoke-box"]).default("bold-white"),
   /**
    * `kinetic` is the one that needs the words: each arrives with the voice, and
@@ -1915,6 +1919,51 @@ export const ListWaitlistResponse = z.object({
   total: z.number().int(),
 });
 export type ListWaitlistResponse = z.infer<typeof ListWaitlistResponse>;
+
+// ---------------------------------------------------------------------------
+// Scheduling an edit to the accounts somebody has connected.
+// ---------------------------------------------------------------------------
+
+/**
+ * The body of `POST /social/posts`.
+ *
+ * Written late, because the route parsed itself: `req.body as { … unknown }`
+ * followed by a dozen `typeof x === "string" ? x : ""` and two
+ * `Array.isArray(…).filter(…)`. That reads as careful and is the opposite of
+ * it — every one of those guards narrows a *type* and none of them bounds a
+ * *size*. So the route accepted an `accountIds` array of any length and put it
+ * straight into an `IN (…)`, a `hashtags` array of any length that every
+ * publisher would later join into one string, a caption of any length, and a
+ * `captions` object with any number of keys.
+ *
+ * Nothing throws on any of that. The request is accepted, the work is done,
+ * and the cost lands on a 500 MB database and a single shared worker. It is
+ * also the only unvalidated write endpoint left in this server, which is the
+ * more useful way to say it: twenty-two routes parse their body, and this one
+ * looked like it did.
+ *
+ * The numbers are the product's own. Nobody has more than a handful of
+ * accounts connected; `captionLimit` on the widest platform is Facebook's
+ * 63,206 and every other check happens after this one, in `refusalsFor`, which
+ * is where a platform's real limit is said in a sentence the person can act
+ * on. This schema is the outer wall, not the rules.
+ */
+export const SchedulePostBody = z.object({
+  projectId: z.string().min(1).max(200),
+  exportId: z.string().min(1).max(200).optional(),
+  accountIds: z.array(z.string().min(1).max(200)).min(1).max(20),
+  caption: z.string().max(64_000).default(""),
+  hashtags: z.array(z.string().min(1).max(140)).max(60).default([]),
+  /** Per-platform overrides: `{ x: "shorter words" }`. */
+  captions: z.record(z.string().max(40), z.string().max(64_000)).optional(),
+  /**
+   * When to send it. Validated as a string here and judged by
+   * `scheduleRefusal`, which is what says "that is in the past" in a sentence
+   * rather than as a type error.
+   */
+  scheduledFor: z.string().min(1).max(64),
+});
+export type SchedulePostBody = z.infer<typeof SchedulePostBody>;
 
 export * from "./social";
 export * from "./limits";

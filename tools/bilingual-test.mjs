@@ -745,6 +745,76 @@ console.log("\nThe microphone is asked to listen for the right language");
   );
 }
 
+
+/*
+  The number and the noun agree.
+
+  English picks between two forms on `n === 1`. Arabic has three, and the
+  boundary sits where an English speaker would not put it: the plural runs from
+  three to ten and the singular comes *back* at eleven. Every counted note in
+  the worker was written as `${n} كابشن`, which is right at 1, right at 11, and
+  wrong through the whole range a render actually lands in — "حرقت 4 كابشن" is
+  the register of a machine, and it is the first sentence an Arabic-speaking
+  customer reads when their video is done. Nothing failed; the product just
+  spoke badly to the people it was built for.
+*/
+{
+  console.log("\nA number and its Arabic noun agree");
+  const sayOut = path.join(buildDir, "say.mjs");
+  const sayBuilt = spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+    [
+      path.join(repoRoot, "artifacts/worker/src/say.ts"),
+      "--bundle", "--platform=node", "--format=esm", "--target=node22",
+      `--outfile=${sayOut}`, "--log-level=error",
+    ],
+    { stdio: "inherit" },
+  );
+  if (sayBuilt.status !== 0) {
+    console.error("could not bundle the worker's note writer");
+    process.exit(1);
+  }
+  const { countedAr, AR_NOUNS } = await import(pathToFileURL(sayOut).href);
+
+  check("one drops the digit and stays singular", countedAr(1, AR_NOUNS.caption) === "كابشن", countedAr(1, AR_NOUNS.caption));
+  check("two is the dual, and drops the digit too", countedAr(2, AR_NOUNS.caption) === "كابشنين", countedAr(2, AR_NOUNS.caption));
+  for (const n of [3, 4, 7, 10]) {
+    check(`${n} takes the plural`, countedAr(n, AR_NOUNS.caption) === `${n} كابشنات`, countedAr(n, AR_NOUNS.caption));
+  }
+  for (const n of [11, 20, 99, 100, 1000]) {
+    check(`${n} comes back to the singular`, countedAr(n, AR_NOUNS.caption) === `${n} كابشن`, countedAr(n, AR_NOUNS.caption));
+  }
+  // The part you say last is the part the noun follows.
+  check("103 ends in three, so it takes the plural", countedAr(103, AR_NOUNS.gap) === "103 فجوات", countedAr(103, AR_NOUNS.gap));
+  check("and a zero is not a crash", typeof countedAr(0, AR_NOUNS.clip) === "string", countedAr(0, AR_NOUNS.clip));
+
+  /*
+    And no note goes back to writing it by hand.
+
+    A scan rather than a list of the five that were found, because the sixth
+    will be written by someone who never read this file. `${…} <noun>` with one
+    of the counted nouns straight after the interpolation is the shape of the
+    bug, and `countedAr` is the shape of the fix.
+  */
+  const counted = ["كابشن", "فجوة", "قصاصة", "كلمة"];
+  const workerFiles = ["ffmpeg.ts", "critic.ts", "index.ts", "enrich.ts", "review.ts", "tighten.ts"];
+  for (const file of workerFiles) {
+    const full = path.join(repoRoot, "artifacts/worker/src", file);
+    let text = "";
+    try {
+      text = await readFile(full, "utf8");
+    } catch {
+      continue;
+    }
+    const offenders = [];
+    for (const noun of counted) {
+      const re = new RegExp("\\$\\{[^}]*\\}\\s" + noun + "(?![\u0621-\u064a])", "g");
+      for (const hit of text.matchAll(re)) offenders.push(hit[0]);
+    }
+    check(`${file} counts through the agreement rule`, offenders.length === 0, offenders.join(" | "));
+  }
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

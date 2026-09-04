@@ -51,7 +51,7 @@ import { tighten, type TightenResult } from "./tighten";
 import { placeSoundEffects, joinTimes, MIN_EDIT_SECONDS as SFX_MIN_EDIT_SECONDS, type SfxPalette } from "./sfx";
 import { chooseHighlight } from "./highlight";
 import { chooseConversationClips, type Reading } from "./conversation";
-import { sayIn, type Language } from "./say";
+import { sayIn, countedAr, AR_NOUNS, type Language } from "./say";
 import { threadArgs } from "./cores";
 export { chooseHighlight, chooseClips } from "./highlight";
 
@@ -1529,7 +1529,53 @@ const GRADE_LOOKS: Record<
   },
 };
 
-const AUDIO_ENCODE = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000"];
+/**
+ * How many channels the source's audio has, or 2 when it cannot be read.
+ *
+ * Two is the safe default in both directions: it never under-encodes a stereo
+ * recording, and a probe that fails on a mono file costs a few kilobits rather
+ * than a decision.
+ */
+export async function audioChannels(file: string): Promise<number> {
+  try {
+    const { stdout } = await run(FFPROBE, [
+      "-v", "error",
+      "-select_streams", "a:0",
+      "-show_entries", "stream=channels",
+      "-of", "csv=p=0",
+      file,
+    ], { limits: LIMITS.probe });
+    const found = Number(stdout.trim().split(/\r?\n/)[0]);
+    return Number.isFinite(found) && found > 0 ? found : 2;
+  } catch {
+    return 2;
+  }
+}
+
+/** AAC is transparent at about this per channel, and the number is per channel. */
+const AAC_KBIT_PER_CHANNEL = 96;
+
+/**
+ * The audio encode, sized to what is actually being encoded.
+ *
+ * This was a constant `-b:a 192k` whatever came out, so a mono recording — a
+ * phone held at arm's length, a lavalier, most of what this product is handed
+ * — was written at 192 kbit/s for one channel. That is 210 kbit/s of file for
+ * something transparent at 96: about a megabyte per minute of nothing, on
+ * every render, out of a bucket whose whole plan is one gigabyte, and down a
+ * connection somebody is waiting on.
+ *
+ * It is not only waste. A single AAC channel at 192 kbit/s is past the point
+ * where the encoder has anything left to spend the bits on, and some decoders
+ * are happier with a rate in the range the format was tuned for.
+ *
+ * Sized per channel rather than by a table, so a future six-channel source
+ * gets a number rather than a surprise.
+ */
+export function audioEncodeFor(channels: number): string[] {
+  const rate = Math.max(64, Math.min(320, Math.round(channels) * AAC_KBIT_PER_CHANNEL));
+  return ["-c:a", "aac", "-b:a", `${rate}k`, "-ar", "48000"];
+}
 
 /**
  * Where the shipped sound effects live.
@@ -2118,7 +2164,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             t(
               `removed ${silentSeconds.toFixed(1)}s of silence across ${silences.length} gaps`,
-              `أزلت ${silentSeconds.toFixed(1)} ثانية من الصمت موزّعة على ${silences.length} فجوة`,
+              `أزلت ${silentSeconds.toFixed(1)} ثانية من الصمت موزّعة على ${countedAr(silences.length, AR_NOUNS.gap)}`,
             ),
           );
         }
@@ -3422,7 +3468,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           `${trimmed} caption${trimmed === 1 ? " was" : "s were"} too long for this frame, so ${trimmed === 1 ? "it ends" : "they end"} on an ellipsis rather than covering the picture`,
-          `${trimmed} كابشن أطول من أن يتّسع لها هذا الإطار، فتنتهي بعلامة حذف بدل أن تغطّي الصورة`,
+          `${countedAr(trimmed, AR_NOUNS.caption)} أطول من أن ${trimmed === 1 ? "يتّسع له" : "تتّسع لها"} هذا الإطار، ${trimmed === 1 ? "فينتهي" : "فتنتهي"} بعلامة حذف بدل أن ${trimmed === 1 ? "يغطّي" : "تغطّي"} الصورة`,
         ),
       );
     }
@@ -3459,7 +3505,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           `burned ${cues.length} captions, but the words came back without their own timings, so they fade in rather than wiping across`,
-          `حرقت ${cues.length} كابشن، لكن الكلمات عادت بلا توقيت خاصّ بها، فتظهر بتلاشٍ بدل المسح كلمةً كلمة`,
+          `حرقت ${countedAr(cues.length, AR_NOUNS.caption)}، لكن الكلمات عادت بلا توقيت خاصّ بها، فتظهر بتلاشٍ بدل المسح كلمةً كلمة`,
         ),
       );
     } else if (captions.animation === "kinetic" && !wipeable) {
@@ -3475,11 +3521,11 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           `burned ${cues.length} captions, but the words came back without their own timings, so the whole caption pops in rather than arriving a word at a time`,
-          `حرقت ${cues.length} كابشن، لكن الكلمات عادت بلا توقيت خاصّ بها، فتظهر الجملة كاملة بدل أن تصل كلمةً كلمة`,
+          `حرقت ${countedAr(cues.length, AR_NOUNS.caption)}، لكن الكلمات عادت بلا توقيت خاصّ بها، فتظهر الجملة كاملة بدل أن تصل كلمةً كلمة`,
         ),
       );
     } else {
-      notes.push(t(`burned ${cues.length} captions (${captions.animation})`, `حرقت ${cues.length} كابشن (${captions.animation})`));
+      notes.push(t(`burned ${cues.length} captions (${captions.animation})`, `حرقت ${countedAr(cues.length, AR_NOUNS.caption)} (${captions.animation})`));
     }
   }
 
@@ -4475,7 +4521,18 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   if (hasAudioOut) args.push("-map", finalA);
 
   args.push(...videoEncodeFor(frameHeight, source.fps));
-  if (hasAudioOut) args.push(...AUDIO_ENCODE);
+  if (hasAudioOut) {
+    /*
+      The channel count of what comes out, not of what went in.
+
+      A mono recording stays mono all the way through unless something stereo
+      joins it — the music bed and the sound-effect bus are both stereo, and
+      `amix` widens the programme to match. So the output is stereo if either
+      of those was mixed, and otherwise whatever the source was.
+    */
+    const sourceChannels = source.hasAudio ? await audioChannels(input) : 2;
+    args.push(...audioEncodeFor(musicMixed || sfxMixed ? Math.max(2, sourceChannels) : sourceChannels));
+  }
   args.push(...FASTSTART, output);
 
   ctx.onProgress?.(0.15, describeWork(plan));

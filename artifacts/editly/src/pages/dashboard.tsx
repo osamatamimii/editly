@@ -33,6 +33,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import {
   usePlayableVideo,
+  ACCEPTED_VIDEO_ACCEPT,
   whyNotAVideo,
   servedCeiling,
   formatBytes,
@@ -1133,7 +1134,11 @@ export default function Dashboard() {
               <input
                 ref={createFileRef}
                 type="file"
-                accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
+                /* The one list, not a copy of it: the picker and the check that runs on
+                the chosen file have to name the same formats, and a hardcoded
+                second copy is how heic, which the server accepts, stayed
+                unpickable here. See `ACCEPTED_VIDEO_ACCEPT`. */
+                accept={ACCEPTED_VIDEO_ACCEPT}
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];

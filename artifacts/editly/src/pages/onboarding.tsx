@@ -40,6 +40,7 @@ import { useToast } from "@/hooks/use-toast";
 import { stashPendingUpload, stashPendingMessage, titleFromFilename } from "@/lib/pending-upload";
 import {
   isAcceptableVideo,
+  ACCEPTED_VIDEO_ACCEPT,
   whyNotAVideo,
   isHeic,
   formatBytes,
@@ -273,7 +274,11 @@ export default function Onboarding() {
             <input
               ref={fileRef}
               type="file"
-              accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
+              /* The one list, not a copy of it: the picker and the check that runs on
+              the chosen file have to name the same formats, and a hardcoded
+              second copy is how heic, which the server accepts, stayed
+              unpickable here. See `ACCEPTED_VIDEO_ACCEPT`. */
+              accept={ACCEPTED_VIDEO_ACCEPT}
               className="hidden"
               onChange={(e) => {
                 const picked = e.target.files?.[0];

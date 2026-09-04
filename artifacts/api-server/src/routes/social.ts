@@ -43,7 +43,9 @@ import {
   refusalsFor,
   scheduleRefusal,
   configuredPlatforms,
+  SchedulePostBody,
 } from "@workspace/api-zod";
+import { badRequest } from "../lib/bad-request";
 import {
   signState,
   readState,
@@ -424,36 +426,26 @@ router.get("/social/posts", async (req, res): Promise<void> => {
  */
 router.post("/social/posts", rateLimit(LIMITS.schedulePost), async (req, res): Promise<void> => {
   const userId = currentUserId(req);
-  const body = req.body as {
-    projectId?: unknown;
-    exportId?: unknown;
-    accountIds?: unknown;
-    caption?: unknown;
-    hashtags?: unknown;
-    /** Per-platform overrides: { x: "shorter words" }. */
-    captions?: unknown;
-    scheduledFor?: unknown;
-  };
+  /*
+    Parsed, not narrowed.
 
-  const projectId = typeof body.projectId === "string" ? body.projectId : "";
-  const accountIds = Array.isArray(body.accountIds)
-    ? body.accountIds.filter((id): id is string => typeof id === "string")
-    : [];
-  const caption = typeof body.caption === "string" ? body.caption : "";
-  const hashtags = Array.isArray(body.hashtags)
-    ? body.hashtags.filter((tag): tag is string => typeof tag === "string")
-    : [];
-  const overrides =
-    body.captions && typeof body.captions === "object"
-      ? (body.captions as Record<string, unknown>)
-      : {};
-
-  if (!projectId || accountIds.length === 0) {
-    res.status(400).json({ error: "Pick a project and at least one account." });
+    This was a dozen `typeof x === "string" ? x : ""` guards over
+    `req.body as { … unknown }`, which reads as careful and is the opposite:
+    each one narrows a type and none of them bounds a size. An `accountIds`
+    array of any length went into an `IN (…)`; `hashtags` of any length went
+    into a row every publisher later joins into one string. See
+    `SchedulePostBody` for the wall those numbers now sit behind.
+  */
+  const parsed = SchedulePostBody.safeParse(req.body);
+  if (!parsed.success) {
+    badRequest(res, parsed.error);
     return;
   }
 
-  const when = new Date(String(body.scheduledFor ?? ""));
+  const { projectId, accountIds, caption, hashtags } = parsed.data;
+  const overrides: Record<string, unknown> = parsed.data.captions ?? {};
+
+  const when = new Date(parsed.data.scheduledFor);
   const whenRefusal = scheduleRefusal(when);
   if (whenRefusal) {
     res.status(400).json({ error: whenRefusal });
@@ -497,7 +489,7 @@ router.post("/social/posts", rateLimit(LIMITS.schedulePost), async (req, res): P
   // platforms judge, not the source clip's — a 16:9 take reframed to 9:16 is
   // vertical, and refusing it on the source's shape would refuse the very
   // thing the product just did.
-  const [finished] = body.exportId
+  const [finished] = parsed.data.exportId
     ? await db
         .select({
           id: exportsTable.id,
@@ -513,7 +505,7 @@ router.post("/social/posts", rateLimit(LIMITS.schedulePost), async (req, res): P
         })
         .from(exportsTable)
         .leftJoin(jobsTable, eq(jobsTable.id, exportsTable.jobId))
-        .where(and(eq(exportsTable.id, String(body.exportId)), eq(exportsTable.userId, userId)))
+        .where(and(eq(exportsTable.id, parsed.data.exportId), eq(exportsTable.userId, userId)))
         .limit(1)
     : [];
 

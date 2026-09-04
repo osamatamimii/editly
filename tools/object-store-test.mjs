@@ -708,6 +708,70 @@ section("Multipart, which is what lets a two-hour podcast leave the browser at a
   await new Promise((r) => s3.close(r));
 }
 
+section("A store with no ceiling is not a store we failed to ask");
+{
+  /*
+    The one place where `null` meant two different things.
+
+    `storage-limits.ts` reads the bucket's own `file_size_limit` and falls back
+    to `FALLBACK_UPLOAD_BYTES` when it cannot get one. R2 has no bucket
+    metadata at all, so its `facts()` returns `fileSizeLimit: null`
+    deliberately — "there is no ceiling here" — and that fell straight into the
+    same branch as "Storage did not answer". The fallback is fifty megabytes,
+    labelled in its own comment as *Supabase's free-plan per-object ceiling*.
+
+    So the migration whose entire economic case is larger files would have
+    landed, and the product would have gone on refusing anything over 50 MB,
+    naming a limit that does not exist on the provider actually in use, with
+    every suite in this repository green. Nothing throws. Nothing logs. The
+    only symptom is a customer being told their file is too big.
+
+    Both answers are checked, because a fix that returns the large number
+    unconditionally would pass a check for the first and quietly accept an
+    upload that dies at the end of itself on the second.
+  */
+  const limits = await import(build("artifacts/api-server/src/lib/storage-limits.ts", "limits.mjs"));
+
+  const saved = { ...process.env };
+  const setEnv = (vars) => {
+    for (const key of ["OBJECT_STORE_PROVIDER", "R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]) {
+      delete process.env[key];
+    }
+    Object.assign(process.env, vars);
+    limits.forgetStorageLimit();
+  };
+
+  setEnv({
+    OBJECT_STORE_PROVIDER: "r2",
+    R2_ENDPOINT: "https://acc.r2.cloudflarestorage.com",
+    R2_ACCESS_KEY_ID: "AK",
+    R2_SECRET_ACCESS_KEY: "SK",
+  });
+  const onR2 = await limits.effectiveUploadLimitBytes();
+  check(
+    "on a store that names no limit, the ceiling is ours and not the free plan's",
+    onR2 === limits.UNCAPPED_STORE_BYTES && onR2 > limits.FALLBACK_UPLOAD_BYTES,
+    `${onR2} vs fallback ${limits.FALLBACK_UPLOAD_BYTES}`,
+  );
+  const said = await limits.storeCeiling();
+  check("and the store is recorded as having answered", said.answered === true && said.bytes === null, JSON.stringify(said));
+
+  // Nothing configured at all: `objectStoreFrom` throws, which is the "we could
+  // not ask" case, and the conservative number is the right one there.
+  setEnv({});
+  const blind = await limits.effectiveUploadLimitBytes();
+  check(
+    "with nothing to ask, the conservative fallback still answers",
+    blind === limits.FALLBACK_UPLOAD_BYTES,
+    String(blind),
+  );
+  check("and it is not recorded as an answer", (await limits.storeCeiling()).answered === false);
+
+  for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+  Object.assign(process.env, saved);
+  limits.forgetStorageLimit();
+}
+
 await rm(buildDir, { recursive: true, force: true });
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);

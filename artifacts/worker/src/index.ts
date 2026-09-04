@@ -31,7 +31,7 @@ import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, allowa
 import { enrichPlan } from "./enrich";
 import { comprehend, transcriptDigest, wordsOf, COMPREHENSION_VERSION } from "./comprehend";
 import { resolveProviders } from "./providers";
-import { sayIn, type Language } from "./say";
+import { sayIn, countedAr, AR_NOUNS, type Language } from "./say";
 import { publishDuePosts, surfaceStrandedPosts } from "./publisher";
 import { mailLogsTo, tellThemItDidNotFinish, tellThemTheEditIsReady } from "./mail";
 import { prepareUploadedFaces, fetchUploadedFaces } from "./font-prepare";
@@ -691,16 +691,35 @@ async function processJob(job: Job): Promise<void> {
     // if the job carries a reference: measuring one costs a few ffmpeg passes
     // and nobody should pay for them by default.
     let referenceFile: string | null = null;
+    /** Said out loud when the reference could not be fetched. See below. */
+    const referenceNotes: string[] = [];
     if (job.referencePath) {
       await reportProgress(job.id, 7, "Fetching the video you want to match");
       try {
         referenceFile = path.join(workDir, "reference.mp4");
         await downloadObject(job.referencePath, referenceFile);
       } catch (error) {
-        // The reference is an improvement to the edit, not a precondition for
-        // it. Losing it costs the match and nothing else.
+        /*
+          The reference is an improvement to the edit, not a precondition for
+          it. Losing it costs the match and nothing else — so the render goes
+          on, and the person is told.
+
+          Being told is the part that was missing. This was a log line and
+          nothing more, so the project went on showing an attached reference,
+          the edit came back with none of its look, and the only place that
+          knew was a machine's stdout. Somebody comparing the two videos would
+          conclude the feature does not work, which is the conclusion this
+          codebase exists to prevent: a render that quietly did less than it
+          said.
+        */
         referenceFile = null;
         log.warn({ err: error }, "could not fetch the reference video");
+        referenceNotes.push(
+          say(
+            "could not fetch the video you asked to match, so this edit was made without it. The reference is still on the project, and rendering again will use it",
+            "تعذّر جلب الفيديو الذي طلبت مطابقته، فصُنع هذا التعديل دونه. المرجع ما زال على المشروع، وإعادة التنفيذ ستستعمله",
+          ),
+        );
       }
     }
 
@@ -909,7 +928,7 @@ async function processJob(job: Job): Promise<void> {
         void reportProgress(job.id, 10 + fraction * 80, stage).catch(() => {});
       },
     });
-    const notes = [...reelNotes, ...enriched.notes, ...renderNotes];
+    const notes = [...reelNotes, ...referenceNotes, ...enriched.notes, ...renderNotes];
 
     // The look at what actually came out, before anyone else sees it.
     //
@@ -1190,6 +1209,22 @@ async function processJob(job: Job): Promise<void> {
         error: message,
         errorDetail: detail,
         stage: null,
+        /*
+          And the percentage, which the other two requeue paths clear and this
+          one did not.
+
+          The bar is drawn from this column. A render that failed at 62% and is
+          going back in the queue leaves it reading 62% under "you can close
+          this page, it keeps going" — for as long as it takes another machine
+          to claim it, which on a busy queue is minutes. The person is watching
+          a number that is not about anything: the attempt it described is over,
+          and the attempt that replaces it has not started.
+
+          `requeueStaleJobs` and `releaseHeldJob` both write `progress = 0`
+          here. This is the path a retry actually takes, and it was the one
+          left out.
+        */
+        ...(willRetry ? { progress: 0 } : {}),
         lockedAt: null,
         lockedBy: null,
         ...(willRetry ? {} : { finishedAt: new Date() }),
@@ -1560,7 +1595,7 @@ async function renderClipSet(args: {
     notes.push(
       t(
         `the video is ${sourceSeconds.toFixed(0)}s long, which holds ${chosen.windows.length} clip${chosen.windows.length === 1 ? "" : "s"} of ${Math.round(clipsOp.targetSeconds)}s, not the ${clipsOp.count} asked for`,
-        `الفيديو طوله ${sourceSeconds.toFixed(0)} ثانية، وهو يسع ${chosen.windows.length} قصاصة من ${Math.round(clipsOp.targetSeconds)} ثانية، لا ${clipsOp.count} المطلوبة`,
+        `الفيديو طوله ${sourceSeconds.toFixed(0)} ثانية، وهو يسع ${countedAr(chosen.windows.length, AR_NOUNS.clip)} من ${Math.round(clipsOp.targetSeconds)} ثانية، لا ${countedAr(clipsOp.count, AR_NOUNS.clip)} المطلوبة`,
       ),
     );
   }

@@ -341,6 +341,47 @@ check("and none at all on a video that was never cut", !types(of({ hasSpeech: fa
 check("no sound effects on a platform that plays the whole thing", !types(of({ platform: "youtube" })).includes("soundEffects"));
 check("and effects on the feeds, under the voice", of({ platform: "tiktok" }).operations.find((o) => o.type === "soundEffects")?.gainDb <= -10);
 
+/*
+  And the cut the *sentence* made counts as a cut.
+
+  `add` refuses to append an operation the person already asked for, because
+  the sentence is never overridden. So «اقصّ الصمت وخليها عمودية» leaves
+  `removeSilence` in `spokenTypes` and nothing in the director's own
+  `operations` — and `cutsSoFar` read only the latter. The result: the person
+  who was most explicit about wanting a cut was the one the director decided
+  had cut nothing, so no transition on the joins, no second shot size, no sound
+  on the cut. Nothing failed. The edit was just plainer for having been asked
+  for clearly, and there was no way to see it from the outside.
+
+  Checked against all three cutting operations rather than the one that was
+  found, and with the plain case beside it, because a `cutsSoFar` that simply
+  returned true would pass the first three lines and break the fourth.
+*/
+{
+  /*
+    Both of the director's own cutting operations named in the sentence, which
+    is «اقصّ الصمت واحذف التردد» — an ordinary thing to ask for. One of them
+    spoken is not enough to show this: the director still adds the other, and
+    the answer comes out right for the wrong reason.
+  */
+  const asked = of({ spokenTypes: new Set(["removeSilence", "tighten"]) });
+  for (const on of ["transition", "alternateFraming", "soundEffects"]) {
+    check(
+      `a cut the person asked for is still a cut: ${on}`,
+      types(asked).includes(on),
+      JSON.stringify(types(asked)),
+    );
+  }
+  check(
+    "and the extracted highlight counts the same way",
+    types(of({ spokenTypes: new Set(["removeSilence", "tighten", "extractHighlight"]) })).includes("transition"),
+  );
+  check(
+    "while a video nobody cut still gets none",
+    !types(of({ hasSpeech: false, sourceSeconds: 300, spokenTypes: new Set(["addMusic"]) })).includes("transition"),
+  );
+}
+
 section("It fits, and the person's plan is still theirs");
 
 {

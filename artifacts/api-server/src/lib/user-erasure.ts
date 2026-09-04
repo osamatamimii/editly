@@ -118,6 +118,27 @@ export function erasureStepsFor(userId: string, options: ErasureOptions): Deleti
       await db.delete(renderFollowupsTable).where(eq(renderFollowupsTable.userId, userId));
       await db.execute(sql`delete from mail_sends where user_id = ${userId}`);
       await db.execute(sql`delete from mail_settings where user_id = ${userId}`);
+
+      /*
+        And the counters, which have no `user_id` column and so were invisible
+        to every review of this list.
+
+        `rate_limits` is keyed on a text bucket, and the per-account buckets are
+        `${userId}:${endpoint}` — one row per endpoint the person ever touched,
+        holding their account id in the primary key. So an account deleted here
+        left its identifier sitting in a table nobody thought of as personal
+        data, under a screen that says there is no copy kept. Nothing failed:
+        the sweep in `rate-limit.ts` clears rows whose window closed, so the
+        rows do eventually go — but "eventually, if this endpoint is still
+        being used by somebody else" is not what erasure means, and the
+        thirty-day Shopify clock does not accept it either.
+
+        Matched on the prefix rather than on equality, because the endpoint half
+        of the key is a list this file must not have to keep in step. The id is
+        parameterised, so the only literal in the pattern is the `%` this file
+        writes; a uuid carries no `%` or `_` of its own to widen it.
+      */
+      await db.execute(sql`delete from rate_limits where bucket like ${userId + ":"} || '%'`);
     },
 
     removeLogin: () => (options.hasLogin ? deleteAuthUser(userId) : Promise.resolve(true)),

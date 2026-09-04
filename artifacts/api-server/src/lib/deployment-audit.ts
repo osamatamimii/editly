@@ -32,7 +32,7 @@
  */
 import { UPLOAD_CONTENT_TYPES } from "@workspace/api-zod";
 import { objectStoreFrom, type StoreFacts } from "@workspace/object-store";
-import { VIDEOS_BUCKET, FALLBACK_UPLOAD_BYTES } from "./storage-limits";
+import { VIDEOS_BUCKET, FALLBACK_UPLOAD_BYTES, UNCAPPED_STORE_BYTES } from "./storage-limits";
 
 export type Verdict = "ok" | "wrong" | "unknown";
 
@@ -157,16 +157,34 @@ export async function auditDeployment(env: NodeJS.ProcessEnv = process.env): Pro
       });
     }
 
+    /*
+      A store with no ceiling of its own is not a store we failed to ask.
+
+      This read `null` as "unknown", which is what it means when the request
+      failed — and R2 returns it deliberately, because it has no bucket
+      metadata and no per-object limit. The two now read differently here for
+      the same reason they now produce different numbers in `storage-limits.ts`:
+      on a provider with no wall, ours is the only wall, and a console that
+      shrugs at that is hiding the one fact the operator needs.
+    */
     const bytes = facts.fileSizeLimit;
     findings.push({
       id: "storage.size",
       verdict: bytes === null ? "unknown" : bytes >= FALLBACK_UPLOAD_BYTES ? "ok" : "wrong",
-      expected: `at least ${megabytes(FALLBACK_UPLOAD_BYTES)} per file, which is what the browser falls back to promising`,
-      actual: bytes === null ? "the store names no limit of its own" : `${megabytes(bytes)} per file`,
+      expected:
+        bytes === null
+          ? `${megabytes(UNCAPPED_STORE_BYTES)} per file, which is the ceiling this API enforces before it signs`
+          : `at least ${megabytes(FALLBACK_UPLOAD_BYTES)} per file, which is what the browser falls back to promising`,
+      actual:
+        bytes === null
+          ? `${facts.provider} imposes no per-file limit of its own`
+          : `${megabytes(bytes)} per file`,
       consequence:
-        bytes !== null && bytes < FALLBACK_UPLOAD_BYTES
-          ? "the app offers a larger file than Storage will take, and the refusal arrives with no sentence attached"
-          : "",
+        bytes === null
+          ? "nothing at the store refuses an over-size file, so the only ceiling is the one this API applies before signing"
+          : bytes < FALLBACK_UPLOAD_BYTES
+            ? "the app offers a larger file than Storage will take, and the refusal arrives with no sentence attached"
+            : "",
     });
 
     findings.push({

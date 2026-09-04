@@ -1136,10 +1136,27 @@ console.log("\nA caption block is broken evenly, not greedily");
   // And a word wider than the allowance cannot send the search into a loop.
   const huge = "Supercalifragilisticexpialidocious and then some more words after it";
   const hugeLines = balancedLines(huge, allowed, scale);
+  /*
+    Every character survives, and none of them is drawn outside the frame.
+
+    This asserted `hugeLines.join(" ") === huge`, which quietly assumed a word
+    is never split — and a word wider than the whole line used to be put on a
+    line of its own and drawn straight past both edges, measured at 1080 px in
+    the 734 the safe area allows. `WrapStyle: 2` means libass wraps nothing, so
+    what the layout returns is what appears. It is broken now, so the join is
+    on nothing rather than on a space, and the claim worth making is the pair:
+    the same characters in the same order, and no line wider than the line.
+  */
+  const bare = (text) => text.replace(/\s+/g, "");
   check(
-    "a word wider than the whole line does not hang the search",
-    hugeLines.join(" ") === huge,
+    "a word wider than the whole line loses no characters",
+    bare(hugeLines.join("")) === bare(huge),
     JSON.stringify(hugeLines),
+  );
+  check(
+    "and is broken rather than drawn past the edge of the picture",
+    hugeLines.every((line) => widthInCaps(line, scale) <= allowed + 1e-9),
+    JSON.stringify(hugeLines.map((line) => widthInCaps(line, scale).toFixed(1))),
   );
 }
 

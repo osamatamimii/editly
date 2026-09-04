@@ -31,6 +31,23 @@
  * large accepts an upload that dies at the end. Neither is worth inventing, so
  * when Storage will not say, the fallback answers — and the fallback is the
  * same 50 MB the browser used before any of this existed.
+ *
+ * ## And the case that is not "cannot tell"
+ *
+ * A store can also answer, clearly, that it imposes no per-file ceiling. R2
+ * does: it has no bucket metadata to read and `facts()` says so on purpose.
+ * That is the opposite of not knowing, and it was being treated as the same
+ * thing — `fileSizeLimit: null` fell through to `FALLBACK_UPLOAD_BYTES`, which
+ * is fifty megabytes and is described three lines up as *Supabase's free-plan
+ * per-object ceiling*. So the migration whose entire economic case is larger
+ * files would have landed and gone on refusing anything over 50 MB, naming a
+ * limit that does not exist on the provider in use, with every suite green.
+ *
+ * When the store names no ceiling, the ceiling is ours, and it has to be a
+ * number rather than "none": the upload is one signed `PUT`, and S3-compatible
+ * stores cap a single `PUT` at five gigabytes. Past that the request does not
+ * get refused politely at the start, it dies at the end of a five-gigabyte
+ * upload — which is the one failure this whole file exists to prevent.
  */
 
 import { objectStoreFrom } from "@workspace/object-store";
@@ -42,6 +59,17 @@ export const FALLBACK_UPLOAD_BYTES =
   Number(process.env["MAX_UPLOAD_BYTES"]) || 50 * 1024 * 1024;
 
 /**
+ * What we say when the store answers that it has no ceiling of its own.
+ *
+ * Not the same number as the fallback and not the same question. Five
+ * gigabytes is the largest object an S3-compatible store will take in a single
+ * signed `PUT`, which is how every upload here is done; a deployment that
+ * wants a smaller wall sets `MAX_UPLOAD_BYTES` and gets it in both cases.
+ */
+export const UNCAPPED_STORE_BYTES =
+  Number(process.env["MAX_UPLOAD_BYTES"]) || 5 * 1024 * 1024 * 1024;
+
+/**
  * Five minutes.
  *
  * The answer changes when somebody changes a plan, which is a thing that
@@ -51,7 +79,12 @@ export const FALLBACK_UPLOAD_BYTES =
  */
 const CACHE_MS = 5 * 60_000;
 
-let cached: { at: number; bytes: number | null } | null = null;
+/**
+ * `bytes: null` with `answered: true` is "this store has no ceiling"; with
+ * `answered: false` it is "we could not ask". Two different numbers follow
+ * from them, which is why they stopped being the same value.
+ */
+let cached: { at: number; bytes: number | null; answered: boolean } | null = null;
 
 /** Test seam, and the way a deploy that changed the plan can be made to look again. */
 export function forgetStorageLimit(): void {
@@ -89,15 +122,31 @@ export async function bucketUploadLimitBytes(): Promise<number | null> {
     const facts = await objectStoreFrom().facts();
     const raw = facts?.fileSizeLimit ?? null;
     const bytes = typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
-    cached = { at: Date.now(), bytes };
+    // A `facts()` that returned an object answered the question, even when the
+    // answer is "no ceiling". A null return, or a throw, did not.
+    cached = { at: Date.now(), bytes, answered: facts !== null };
     return bytes;
   } catch {
-    cached = { at: Date.now(), bytes: null };
+    cached = { at: Date.now(), bytes: null, answered: false };
     return null;
   }
 }
 
+/**
+ * Did the store answer at all, and with what?
+ *
+ * Exported so the one caller that has to tell "no ceiling" from "no answer"
+ * can, without every other caller having to care.
+ */
+export async function storeCeiling(): Promise<{ bytes: number | null; answered: boolean }> {
+  const bytes = await bucketUploadLimitBytes();
+  return { bytes, answered: cached?.answered ?? false };
+}
+
 /** The ceiling to enforce and to say out loud: Storage's if it will say, ours otherwise. */
 export async function effectiveUploadLimitBytes(): Promise<number> {
-  return (await bucketUploadLimitBytes()) ?? FALLBACK_UPLOAD_BYTES;
+  const ceiling = await storeCeiling();
+  if (ceiling.bytes !== null) return ceiling.bytes;
+  // No ceiling at the store is our ceiling, not the Supabase free plan's.
+  return ceiling.answered ? UNCAPPED_STORE_BYTES : FALLBACK_UPLOAD_BYTES;
 }

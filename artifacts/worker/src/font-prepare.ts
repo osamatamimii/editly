@@ -227,7 +227,18 @@ async function prepareOne(
     }
 
     const script = row.script as FaceScript;
-    const verdict = await intakeFace(faceDir, prepared.family, script);
+    /*
+      The coverage numbers go with it.
+
+      They were computed by the Python, carried in `Prepared`, and read by
+      nothing — while the one thing they answer, "is this the script you filed
+      it under", was being answered by drawing a frame and getting the wrong
+      reason. See `intakeFace`'s first step.
+    */
+    const verdict = await intakeFace(faceDir, prepared.family, script, {
+      arabic: prepared.arabicGlyphs ?? 0,
+      latin: prepared.latinGlyphs ?? 0,
+    });
     if (!verdict.ok) {
       await db
         .update(captionFacesTable)

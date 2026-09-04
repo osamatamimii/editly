@@ -166,11 +166,30 @@ section("A file is refused before a project row is made for it");
     gate({ type: "image/heic", name: "IMG_0421.HEIC", size: 10 }) === "type",
     "accepting it would move the failure to a render that dies while somebody watches",
   );
-  check(
-    "and neither screen hardcodes a format list in its file input",
-    /ACCEPTED_VIDEO_ACCEPT/.test(page),
+  /*
+    Every screen with a video picker, not the one that was noticed.
+
+    `clips.tsx` and `project-editor.tsx`'s first input were pointed at the
+    shared list; `dashboard.tsx`, `onboarding.tsx` and the editor's *second*
+    input kept the literal `video/mp4,video/quicktime,video/webm` — so the two
+    doors most people come through offered three formats while the server took
+    six, and an `.mkv` was greyed out in the picker with no message anywhere.
+    A scan rather than a named list, so a screen added later is covered by it.
+  */
+  const withPickers = [
     "clips.tsx",
-  );
+    "dashboard.tsx",
+    "onboarding.tsx",
+    "project-editor.tsx",
+  ].map((name) => [name, read(`artifacts/editly/src/pages/${name}`)]);
+  for (const [name, source] of withPickers) {
+    const literal = source.match(/accept="[^"]*video\/[^"]*"/);
+    check(
+      `${name} takes its picker list from the one place it is written`,
+      !literal,
+      literal ? literal[0] : "no hardcoded accept",
+    );
+  }
   check(
     "and neither keeps a second copy of the rule",
     !/ACCEPTED_VIDEO_TYPES\.includes\(file\.type\)/.test(dashboard) && !/ACCEPTED_VIDEO_TYPES\.includes\(file\.type\)/.test(page),

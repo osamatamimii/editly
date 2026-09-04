@@ -1814,7 +1814,11 @@ export default function ProjectEditor() {
                       type="file" 
                       ref={fileInputRef} 
                       className="hidden" 
-                      accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" 
+                      /* The one list, not a copy of it: the picker and the check that runs on
+                      the chosen file have to name the same formats, and a hardcoded
+                      second copy is how heic, which the server accepts, stayed
+                      unpickable here. See `ACCEPTED_VIDEO_ACCEPT`. */
+                      accept={ACCEPTED_VIDEO_ACCEPT} 
                       onChange={handleFileChange}
                     />
                 </div>

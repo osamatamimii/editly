@@ -60,6 +60,8 @@ import path from "node:path";
 import type { EditOperation } from "@workspace/api-zod";
 import { sayIn, type Language } from "./say";
 import { withDeadline } from "./providers/deadline";
+// The encode is sized by channel count in one place; see `audioEncodeFor`.
+import { audioChannels, audioEncodeFor } from "./ffmpeg";
 
 export interface ReviewContext {
   operations: EditOperation[];
@@ -763,7 +765,16 @@ async function correctLoudness(
         `:measured_I=${measured.inputI}:measured_TP=${measured.inputTp}` +
         `:measured_LRA=${measured.inputLra}:measured_thresh=${measured.inputThresh}` +
         `:offset=${measured.targetOffset}:linear=true:print_format=json`,
-      "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+      /*
+        Sized to the file being corrected, not to a constant.
+
+        This pass re-encodes the audio of a master that is already right, so a
+        flat `192k` here undoes on the correction path what `audioEncodeFor`
+        does on the render path: a mono edit came out of the renderer at 96 and
+        left this function at 192, which is the same waste with an extra
+        generation of AAC on it.
+      */
+      ...audioEncodeFor(await audioChannels(file)),
       "-movflags", "+faststart",
       fixed,
     ]);

@@ -425,6 +425,108 @@ section("A rejected request is answered with a sentence, not with our schema");
   );
 }
 
+section("A request body is parsed, and every list in it has a ceiling");
+{
+  /*
+    `POST /social/posts` was the last write route in this server that read its
+    own body.
+
+    A dozen `typeof x === "string" ? x : ""` guards over `req.body as { …
+    unknown }`, and two `Array.isArray(…).filter(…)`. It reads as careful, and
+    it is the opposite of careful: every one of those narrows a *type* and none
+    of them bounds a *size*. So the route accepted an `accountIds` array of any
+    length and put it straight into an `IN (…)`, a `hashtags` array of any
+    length that each publisher later joins into a single string, and a
+    `captions` object with any number of keys. Nothing throws on any of it. The
+    request is accepted, the work is done, and the cost lands on a 500 MB
+    database and one shared worker.
+
+    The same shape sat in `burnCaptions`: `cues` had `.min(1)` and no ceiling,
+    each cue's `words` had none either. `POST /render` would take a plan of a
+    million cues, validate every one of them, store it in a job row, and hand
+    it to libass.
+
+    Two properties, then. The bodies are parsed by a schema, and the arrays in
+    them are bounded — checked by asking the real schemas to refuse, because a
+    ceiling nobody has watched refuse anything is a ceiling that is off by an
+    order of magnitude or missing.
+  */
+  const tooMany = (n, of) => Array.from({ length: n }, (_, i) => of(i));
+
+  check(
+    "a schedule with no accounts is refused",
+    !zod.SchedulePostBody.safeParse({ projectId: "p", accountIds: [], scheduledFor: "2030-01-01" }).success,
+  );
+  check(
+    "and one with twenty-one is refused too",
+    !zod.SchedulePostBody.safeParse({
+      projectId: "p",
+      accountIds: tooMany(21, (i) => `a${i}`),
+      scheduledFor: "2030-01-01",
+    }).success,
+    "an unbounded list here becomes an unbounded IN (…)",
+  );
+  check(
+    "a handful is accepted, because that is what people actually have",
+    zod.SchedulePostBody.safeParse({
+      projectId: "p",
+      accountIds: ["a", "b", "c"],
+      scheduledFor: "2030-01-01",
+    }).success,
+  );
+  check(
+    "hashtags have a ceiling",
+    !zod.SchedulePostBody.safeParse({
+      projectId: "p",
+      accountIds: ["a"],
+      hashtags: tooMany(61, (i) => `#t${i}`),
+      scheduledFor: "2030-01-01",
+    }).success,
+  );
+
+  const cue = { startMs: 0, endMs: 100, text: "x" };
+  check(
+    "a caption track has a ceiling",
+    !zod.BurnCaptionsOperation.safeParse({
+      type: "burnCaptions",
+      cues: tooMany(zod.MAX_CAPTION_CUES + 1, () => cue),
+    }).success,
+    "one per second across the four-hour ceiling is already implausible",
+  );
+  check(
+    "and so does one cue's words",
+    !zod.BurnCaptionsOperation.safeParse({
+      type: "burnCaptions",
+      cues: [{ ...cue, words: tooMany(zod.MAX_CAPTION_WORDS_PER_CUE + 1, () => ({ startMs: 0, endMs: 1, text: "w" })) }],
+    }).success,
+  );
+  check(
+    "a real caption track still passes",
+    zod.BurnCaptionsOperation.safeParse({
+      type: "burnCaptions",
+      cues: tooMany(400, () => ({ ...cue, words: [{ startMs: 0, endMs: 1, text: "w" }] })),
+    }).success,
+  );
+
+  // And the route reads the schema rather than the body.
+  const social = readFileSync(path.join(routesDir, "social.ts"), "utf8");
+  check(
+    "the route parses its body with the schema",
+    /SchedulePostBody\.safeParse\(req\.body\)/.test(social),
+    "hand-narrowing a body is how a list gets no ceiling",
+  );
+  check(
+    "and no route hand-filters an array out of one",
+    !/Array\.isArray\(\s*(?:req\.)?body\./.test(
+      readdirSync(routesDir)
+        .filter((n) => n.endsWith(".ts"))
+        .map((n) => readFileSync(path.join(routesDir, n), "utf8"))
+        .join("\n"),
+    ),
+    "the tell of a collection that nothing bounds",
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
