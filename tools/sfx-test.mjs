@@ -733,6 +733,58 @@ section("An edit with nothing to accent says so rather than pretending");
   await rm(dir, { recursive: true, force: true });
 }
 
+section("Levelling that could not happen is said, not dropped");
+{
+  /*
+    The plan asks to level the audio *and* lay effects, on a clip with no sound
+    of its own. The renderer reads `hasAudioOut` for the loudness pass before
+    the effects layer turns it on, so the pass is skipped — correctly, because a
+    soundtrack of four whooshes must not be pushed to speaking level. But the
+    request was made, and a request that quietly does not happen is the failure
+    this repository is written against: the notes have to say the levelling
+    stood down, not stay silent about it while the file ships unlevelled.
+  */
+  const dir = await scratch();
+  const source = path.join(dir, "silent-for-level.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=9",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", source,
+  ]);
+
+  const { notes } = await render.renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        { type: "zoomPunch", at: [2, 4, 6], amount: 0.13, holdMs: 1000, on: "emphasis" },
+        { type: "soundEffects", gainDb: 0, palette: "punchy", onCuts: true, onPunches: true, onOpen: true },
+        { type: "normalizeLoudness", targetLufs: -14 },
+      ],
+    },
+    { workDir: dir },
+  );
+
+  check(
+    "the effects were laid",
+    notes.some((n) => /sound effect|مؤثّر/.test(n)),
+    notes.join(" | "),
+  );
+  check(
+    "and the skipped levelling is named rather than left silent",
+    notes.some((n) => /did not level|only sound here is the effects|لم أُسوِّ المستوى/.test(n)),
+    notes.join(" | "),
+  );
+  // The one that must never appear on this clip: it was not levelled, so no
+  // note may claim it was.
+  check(
+    "and nothing claims a level it did not reach",
+    !notes.some((n) => /-14 LUFS|LUFS/.test(n)),
+    notes.join(" | "),
+  );
+  await rm(dir, { recursive: true, force: true });
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

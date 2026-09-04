@@ -3069,6 +3069,21 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         sfxMixed = true;
         hasAudioOut = true;
 
+        // The levelling pass reads `hasAudioOut` above, before this layer turns
+        // it on, and that is deliberate: a soundtrack that is four whooshes and
+        // nothing else must not be pushed to -14 LUFS, which would make the
+        // accents as loud as a person talking. But the plan asked for
+        // `normalizeLoudness`, and a request that quietly does not happen is the
+        // failure this file is written against — so it is said, not dropped.
+        if (loudness && !source.hasAudio && !musicMixed) {
+          notes.push(
+            t(
+              "did not level the audio: the only sound here is the effects, kept at their own accent level rather than raised to a speaking one",
+              "لم أُسوِّ المستوى: الصوت الوحيد هنا هو المؤثّرات، تُركت على مستوى لكنتها لا رُفعت إلى مستوى الكلام",
+            ),
+          );
+        }
+
         const cuts = sfxPlan.cues.filter((c) => c.reason === "cut").length;
         const hits = sfxPlan.cues.filter((c) => c.reason === "punch").length;
         const parts: string[] = [];
