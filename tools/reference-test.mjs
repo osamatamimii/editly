@@ -78,6 +78,7 @@ const profile = (over = {}) => ({
   targetLufs: -14,
   loudnessRange: 7,
   audioMeasured: true,
+  gradeMeasured: true,
   saturation: 0.3,
   brightness: 0.5,
   motion: 0.2,
@@ -225,6 +226,29 @@ section("Without a reading of the user's own footage, the colour is not touched"
 {
   const blind = apply([VERTICAL], RESTLESS, undefined);
   check("no grade is invented from the reference alone", !find(blind, "grade"));
+}
+
+section("A reference with no readable grade does not pull the colour toward grey");
+{
+  /*
+    A reference that is an audio file, or anything signalstats could sample no
+    frame from, measures saturation 0 — which is not "grey", it is "not
+    measured". The old reading averaged the empty result to a real flat grade
+    and pulled the footage toward grey with a note claiming a colour match that
+    never happened. `gradeMeasured: false` is the honest answer.
+  */
+  const unreadable = profile({ gradeMeasured: false, saturation: 0, brightness: 0 });
+  const result = apply([VERTICAL], unreadable, OWN);
+  check("no grade is added from a reference whose colour was never read", !find(result, "grade"));
+  check(
+    "and nothing is claimed about the colour",
+    !result.notes.some((n) => /colour|saturat|تشبّع|اللون/i.test(n)),
+    result.notes.join(" | "),
+  );
+  // And the reverse: the user's own footage being unreadable is just as much a
+  // reason not to touch the colour.
+  const blindSource = apply([VERTICAL], RESTLESS, profile({ gradeMeasured: false, saturation: 0 }));
+  check("nor when it is the user's footage that could not be read", !find(blindSource, "grade"));
 }
 
 section("A colour setting already in the plan is an instruction, not a suggestion");

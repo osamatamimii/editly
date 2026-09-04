@@ -29,6 +29,14 @@ export interface StyleProfile {
   loudnessRange: number;
   /** False when the reference had no audio, or none loud enough to measure. */
   audioMeasured: boolean;
+  /**
+   * False when the reference had no readable video — an audio file, or anything
+   * signalstats could not sample a frame from. Without it the empty readings
+   * average to 0, which reads as a real flat-grey grade rather than as "not
+   * measured", and pulls the user's footage toward grey on a comparison that
+   * never happened. Only meaningful readings when this is true.
+   */
+  gradeMeasured: boolean;
   /** Mean saturation on the 0..1 scale described by SAT_FULL_SCALE. */
   saturation: number;
   /** Mean luma, 0..1. Tells bright-and-airy from moody. */
@@ -163,12 +171,15 @@ export async function measureStyle(referencePath: string): Promise<StyleProfile>
   const luma = numbers(statsOut, /lavfi\.signalstats\.YAVG=([\d.]+)/g);
   const lumaDiff = numbers(statsOut, /lavfi\.signalstats\.YDIF=([\d.]+)/g);
 
+  const gradeMeasured = sat.length > 0 && luma.length > 0;
+
   return {
     cutsPerMinute: sampled > 0 ? round(cuts / (sampled / 60), 2) : 0,
     keptSilenceMs,
     targetLufs: audioMeasured ? (integrated ?? -14) : -14,
     loudnessRange: audioMeasured ? (lra ?? 0) : 0,
     audioMeasured,
+    gradeMeasured,
     saturation: round(clamp(mean(sat) / SAT_FULL_SCALE, 0, 1), 3),
     brightness: round(clamp(mean(luma) / 255, 0, 1), 3),
     motion: round(clamp(mean(lumaDiff) / MOTION_FULL_SCALE, 0, 1), 3),
@@ -267,7 +278,11 @@ export function styleToSettings(style: StyleProfile, source?: StyleProfile): Sty
  * produce an unbounded multiplier.
  */
 function saturationBoostFor(style: StyleProfile, source?: StyleProfile): number {
-  if (!source || source.saturation < 0.02) return 1;
+  // A grade neither side could read is not a grade to match. Without this an
+  // unreadable reference measures 0 saturation, and the ratio pulls the footage
+  // grey while a note claims a colour comparison that never happened.
+  if (!source || !style.gradeMeasured || !source.gradeMeasured) return 1;
+  if (source.saturation < 0.02) return 1;
   const ratio = style.saturation / source.saturation;
   // Half the distance, not all of it: the reference's grade belongs to the
   // reference's footage, shot under its own light.

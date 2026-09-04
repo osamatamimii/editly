@@ -291,6 +291,28 @@ console.log("\nReading only what it needs");
   );
 }
 
+console.log("\nA reference with no readable video says so, rather than measuring grey");
+{
+  /*
+    The reference gate accepts by extension, so an audio file — or anything
+    signalstats samples no frame from — reaches the reader. Its empty video
+    readings averaged to 0, which is a real flat-grey grade, not "not measured".
+    `gradeMeasured` has to be false so nothing downstream pulls the footage grey.
+  */
+  const audioOnly = at("audio-only.m4a");
+  ff(["-f", "lavfi", "-i", "sine=frequency=440:duration=6", "-c:a", "aac", audioOnly]);
+  const style = await measureStyle(audioOnly);
+  check("a reference with no video reports its grade was not measured", style.gradeMeasured === false, JSON.stringify(style));
+  check(
+    "and matching a flat source against it leaves the colour alone",
+    styleToSettings(style, await measureStyle(stillClip("realvid", "red", 4))).saturationBoost === 1,
+    `${styleToSettings(style, { saturation: 0.3, gradeMeasured: true }).saturationBoost}`,
+  );
+  // A real video reference still reports it was measured.
+  const real = await measureStyle(stillClip("realref", "red", 4));
+  check("a reference with video reports its grade was measured", real.gradeMeasured === true, JSON.stringify(real.gradeMeasured));
+}
+
 await rm(workDir, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });
 
