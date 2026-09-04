@@ -278,6 +278,39 @@ section("The cold open, which is the most designed moment short-form has");
   check("and nothing is lifted out of a video that plays whole", !types(of({ platform: "youtube", reading: { peaks: [], hook: { at: 30 }, chapters: 2, how: "model" } })).includes("coldOpen"));
 }
 
+section("A cold open is not also promised a transition it will not get");
+{
+  /*
+    A cold open reorders the timeline, and the renderer refuses to overlap the
+    joins of an out-of-order edit past four pieces — which a speech clip with
+    the silences removed always is — so the dissolve is dropped and the cuts
+    stay hard. Promising it here makes the reply say "joined the cuts" while the
+    render says they did not. So an edit that opens on a hook offers no
+    transition, and an edit that plays in order still does.
+  */
+  const withHook = of({ reading: { peaks: [], hook: { at: 30 }, chapters: 2, how: "model" } });
+  check("the cold open is decided", types(withHook).includes("coldOpen"));
+  check(
+    "and no transition is promised on top of it",
+    !types(withHook).includes("transition"),
+    JSON.stringify(types(withHook)),
+  );
+  // The in-order edit — no hook to open on — still gets its dissolve.
+  const inOrder = of();
+  check(
+    "an in-order edit that cuts still gets its transition",
+    types(inOrder).includes("transition"),
+    JSON.stringify(types(inOrder)),
+  );
+  // Even when the person names the cold open themselves, the transition stays off.
+  const spokenHook = of({ spokenTypes: new Set(["coldOpen"]) });
+  check(
+    "a spoken cold open suppresses the transition too",
+    !types(spokenHook).includes("transition"),
+    JSON.stringify(types(spokenHook)),
+  );
+}
+
 section("What it will not decide on its own");
 
 // The product refuses, by name, to grade to a look it does not have. Inventing

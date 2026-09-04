@@ -352,13 +352,26 @@ export function direct(input: DirectionInput): Direction {
   }
 
   /*
-    A join between the pieces, and only when there are pieces.
+    A join between the pieces, and only when there are pieces — and only when
+    the renderer can actually draw it.
 
     A transition on a video that was never cut is a dissolve from a shot to
     itself: invisible, and a quarter of a second of nothing at the front of
     somebody's video. So it is emitted only where something above actually cuts.
+
+    And not on a cold open. A cold open reorders the timeline, and overlapping
+    the joins of an out-of-order edit costs one decoder per piece; past four
+    pieces on a 1080p source — which a speech clip with the silences removed is,
+    every time — the renderer refuses the overlap rather than risk an OOM kill,
+    leaves the cuts hard, and says so (see MAX_SEPARATE_DECODES in ffmpeg.ts).
+    Promising the dissolve here is a promise the render breaks the moment it is
+    made: the reply says "joined the cuts" while the note from the render says
+    they stayed hard. So when this edit opens on a hook, the transition is not
+    offered — the hook is the open, and it stands on its own.
   */
-  if (cutsSoFar()) {
+  const opensOnHook =
+    operations.some((op) => op.type === "coldOpen") || input.spokenTypes.has("coldOpen");
+  if (cutsSoFar() && !opensOnHook) {
     add(
       { type: "transition", style: "dissolve", durationMs: 250 },
       say("join the cuts rather than jumping between them", "أصل بين القطع بدل القفز بينها"),
