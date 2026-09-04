@@ -96,6 +96,26 @@ function prepare(source, into, previews) {
   }
 }
 
+/**
+ * What a font's Unicode cmap maps, as `{ codepoint: glyphName }`.
+ *
+ * Through fontTools rather than a parser written here: the point of this suite
+ * is to read the file the way the thing that consumes it does, and a second
+ * cmap reader would be a second thing to be wrong.
+ */
+function cmapOf(file) {
+  const result = spawnSync(
+    "python3",
+    ["-c", "import json,sys\nfrom fontTools import ttLib\nprint(json.dumps({str(k): v for k, v in ttLib.TTFont(sys.argv[1]).getBestCmap().items()}))", file],
+    { encoding: "utf8" },
+  );
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    return {};
+  }
+}
+
 // ── The measurement agrees with the one the catalogue was built from ────────
 
 section("An uploaded copy of a face we ship measures what we wrote down");
@@ -208,6 +228,124 @@ section("A face that cannot draw the script is refused for that script only");
 }
 
 // ── Real uploads ───────────────────────────────────────────────────────────
+
+section("Lam-alef, the two commonest letters in Arabic, actually reach a glyph");
+{
+  /*
+    The repair's lam-alef lookup had never once succeeded.
+
+    libass resolves an Arabic run through the legacy presentation forms — the
+    U+FE70..U+FEFC block — so "لا" arrives at the font as U+FEFB (standing
+    alone) or U+FEFC (after a letter that joins). A modern font carries neither
+    codepoint in its cmap: the shapes are in GSUB, produced by an `rlig`
+    lookup, with no codepoint pointing at them. Filling that in is the whole
+    reason `facerepair.py` exists.
+
+    It looked the ligature up under the **base** glyph names, `uni0644+uni0627`
+    — and no font keys it that way. Cairo, Tajawal, Changa, Almarai, Alexandria
+    and Rubik all key it on the shaped pair, `uniFEDF+uniFE8E`. So the lookup
+    missed on every font ever put through it, and any face that did not already
+    ship U+FEFB drew **a box** where the two commonest letters in Arabic
+    should be.
+
+    Four of the eleven fonts real customers uploaded — Rubik, GHAITHSANS,
+    KO Sans, AllGenders — were then refused by the intake with "this font
+    cannot draw لا". That sentence was true of the file we produced and false
+    of the file they sent. They were told their font was broken.
+
+    Nothing failed anywhere. The repair reported success, filled 117 forms out
+    of 125, and the eight it missed were the eight that matter most.
+  */
+  const dir = path.join(work, "lamalef");
+  await mkdir(dir, { recursive: true });
+  const prepared = prepare(
+    path.join(repoRoot, "artifacts/worker/fonts/Rubik-Black.ttf"),
+    path.join(dir, "face"),
+    path.join(dir, "preview"),
+  );
+  check("the repair reads a face whose lam-alef lives only in GSUB", prepared.ok === true, prepared.detail ?? "");
+
+  if (prepared.ok) {
+    const mapped = cmapOf(path.join(dir, "face", prepared.file));
+    const forms = [0xfef5, 0xfef6, 0xfef7, 0xfef8, 0xfef9, 0xfefa, 0xfefb, 0xfefc];
+    const missing = forms.filter((cp) => !mapped[cp]);
+    check(
+      "every lam-alef form reaches a glyph after the repair",
+      missing.length === 0,
+      missing.map((cp) => `U+${cp.toString(16).toUpperCase()}`).join(", "),
+    );
+
+    /*
+      And the isolated form is not the final one.
+
+      This is the half a looser fix would get wrong. U+FEFB and U+FEFC are two
+      different drawings: the lam is initial in one and medial in the other,
+      and the alef is final in both. A lookup that takes whichever of the two
+      the font happens to have and points both codepoints at it puts a
+      disconnected lam in the middle of a word — which is the failure this
+      module's header refuses in the single-glyph case, arrived at from the
+      other direction.
+    */
+    check(
+      "and the isolated form and the final form are different glyphs",
+      mapped[0xfefb] && mapped[0xfefc] && mapped[0xfefb] !== mapped[0xfefc],
+      `${mapped[0xfefb]} vs ${mapped[0xfefc]}`,
+    );
+
+    // The end of the chain: the intake, which is what actually refused people.
+    const verdict = await intakeFace(path.join(dir, "face"), prepared.family, "arabic");
+    check(
+      "so the repaired face draws لا, and the intake stops calling it broken",
+      verdict.ok,
+      verdict.ok ? `ratio ${verdict.capRatio}` : verdict.refusal.detail,
+    );
+  }
+
+  /*
+    A font that has only one of the two, to prove the refusal above is real.
+
+    Rubik with its medial-lam ligature removed can draw «لا» alone and cannot
+    draw it after a joining letter. The right answer is to map U+FEFB and leave
+    U+FEFC alone — a missing glyph, not a wrong one.
+  */
+  const half = path.join(work, "lamalef-half");
+  await mkdir(half, { recursive: true });
+  const carved = spawnSync("python3", ["-c", `
+import sys
+from fontTools import ttLib
+font = ttLib.TTFont(sys.argv[1])
+gsub = font["GSUB"].table
+removed = 0
+for lookup in gsub.LookupList.Lookup:
+    for sub in lookup.SubTable:
+        sub = sub.ExtSubTable if lookup.LookupType == 7 else sub
+        ligs = getattr(sub, "ligatures", None)
+        if not ligs or "uniFEE0" not in ligs:
+            continue
+        keep = [l for l in ligs["uniFEE0"] if l.Component != ["uniFE8E"]]
+        removed += len(ligs["uniFEE0"]) - len(keep)
+        ligs["uniFEE0"] = keep
+font.save(sys.argv[2])
+print(removed)
+`, path.join(repoRoot, "artifacts/worker/fonts/Rubik-Black.ttf"), path.join(half, "Carved.ttf")], { encoding: "utf8" });
+  check("the half-ligature fixture was built", carved.status === 0 && Number(carved.stdout.trim()) === 1, carved.stderr?.trim() ?? carved.stdout);
+
+  if (carved.status === 0) {
+    await mkdir(path.join(half, "face"), { recursive: true });
+    await mkdir(path.join(half, "preview"), { recursive: true });
+    const p2 = prepare(path.join(half, "Carved.ttf"), path.join(half, "face"), path.join(half, "preview"));
+    check("the repair reads it", p2.ok === true, p2.detail ?? "");
+    if (p2.ok) {
+      const mapped = cmapOf(path.join(half, "face", p2.file));
+      check("the form it does have is mapped", Boolean(mapped[0xfefb]), String(mapped[0xfefb]));
+      check(
+        "and the one it does not is left as a missing glyph rather than the wrong one",
+        !mapped[0xfefc],
+        `U+FEFC -> ${mapped[0xfefc]}`,
+      );
+    }
+  }
+}
 
 section("A font filed under the wrong script is told which script it is");
 {

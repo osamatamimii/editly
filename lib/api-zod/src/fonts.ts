@@ -148,17 +148,36 @@ export const CAPTION_FACES: readonly CaptionFace[] = [
     capRatio: 0.46,
     widthScale: 1,
     /*
-      Latin only, and it was nearly listed for Arabic too.
+      Latin only, and the reason written here was wrong.
 
-      Rubik covers both scripts, so it was added to both lists — and then a
-      real Arabic *word* rendered a box where لا should be. The font has no
-      lam-alef ligature glyph for plain alef at all (only for alef-wasla), and
-      FriBidi asks for U+FEFB by codepoint, so there is nothing in the file to
-      point that codepoint at. Not a cmap problem and not fixable by one.
+      Rubik covers both scripts, so it was added to both lists — and then a real
+      Arabic *word* rendered a box where لا should be. The conclusion drawn at
+      the time, and written here for months, was that the font has no lam-alef
+      ligature glyph for plain alef at all, and that this was "not a cmap
+      problem and not fixable by one".
 
-      It passed every check at the time, because the checks drew isolated
-      letters and measured heights. Drawing one word is what found it, and the
-      suite draws one now.
+      Both halves are false, measured. Rubik's GSUB carries the ligature twice
+      over — `uniFEDF+uniFE8E → uniFEFB` for the isolated pair and
+      `uniFEE0+uniFE8E → uniFEFC` for the final one — and it is precisely a cmap
+      problem, because FriBidi asks for U+FEFB by codepoint and no modern font
+      puts those codepoints in its cmap. Filling them in is the whole job of
+      `facerepair.py`, and its lam-alef lookup had never once succeeded: it
+      searched under the base glyph names, `uni0644+uni0627`, which not one font
+      on this machine keys it by. With that fixed, Rubik draws لا.
+
+      So the box was ours. It is left in the Latin list for now because listing
+      it for Arabic means shipping a rebuilt `Rubik-Black.ttf` (the committed
+      one is the old repair's output and still lacks those eight codepoints) and
+      a second catalogue row with Arabic-measured numbers — 0.5 and 0.9, not the
+      0.46 and 1 below, which are Latin's. That is a change to what the product
+      offers, and it is Osama's to make. Its Arabic is complete: all 28 letters,
+      every hamza form, the harakat, the Arabic-Indic digits and the
+      punctuation; what it lacks against Cairo is thirteen Urdu and Persian
+      letters, which are not Arabic.
+
+      The lesson the old note drew is still right, and worth keeping: the checks
+      at the time drew isolated letters and measured heights, and Rubik passed
+      every one of them. Drawing one real word is what found it.
     */
     note: "Slightly rounded corners, and a touch narrower than Montserrat.",
   },

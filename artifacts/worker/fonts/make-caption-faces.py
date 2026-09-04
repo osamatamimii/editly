@@ -117,10 +117,13 @@ FACES = [
     ("noto-kufi-black", "Noto Kufi Arabic Black", "ofl/notokufiarabic/NotoKufiArabic%5Bwght%5D.ttf", "ofl/notokufiarabic", {"wght": 900}),
     ("alexandria-extrabold", "Alexandria ExtraBold", "ofl/alexandria/Alexandria%5Bwght%5D.ttf", "ofl/alexandria", {"wght": 800}),
 
-    # Latin only. Rubik draws Arabic and cannot draw لا: it has no lam-alef
-    # ligature glyph for plain alef, and FriBidi asks for U+FEFB by codepoint,
-    # so there is nothing in the file to point that codepoint at. It was listed
-    # for both scripts until one real word was rendered.
+    # Latin only, and the reason written here was wrong: Rubik does have the
+    # lam-alef ligature, for plain alef, in both its forms. What it did not have
+    # was a codepoint pointing at it, because `facerepair.py` looked the
+    # ligature up under the base glyph names and no font keys it that way. That
+    # is fixed; the file committed under `fonts/` is the old repair's output and
+    # still lacks those eight codepoints, so it stays Latin here until it is
+    # rebuilt and a second row is measured for it. See the note in `fonts.ts`.
     ("rubik-black", "Rubik Black", "ofl/rubik/Rubik%5Bwght%5D.ttf", "ofl/rubik", {"wght": 900}),
 ]
 

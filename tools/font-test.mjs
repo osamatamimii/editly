@@ -326,9 +326,14 @@ section("Every Arabic face draws a word, not just letters");
     Everything else here draws runs of one letter and measures a height, which
     is a fine way to ask "is this face installed and what size is it" and no
     way at all to ask "can it draw Arabic". Rubik passed every one of them and
-    could not render لا — the commonest two letters in the language — because
-    it has no lam-alef ligature glyph for plain alef, and FriBidi asks for
-    U+FEFB by codepoint rather than shaping it.
+    could not render لا — the commonest two letters in the language.
+
+    The reason first written here was that Rubik has no lam-alef ligature glyph.
+    It has one, for plain alef, in both its forms; what the file lacked was a
+    codepoint pointing at it, because FriBidi asks for U+FEFB by codepoint and
+    `facerepair.py` searched its GSUB under the wrong names. The wrong diagnosis
+    does not weaken this check — it is the reason it exists, and it is the check
+    that would have caught the mistake either way.
 
     So: one real sentence, containing initial, medial, final and isolated
     forms and the lam-alef ligature, measured against a row of boxes. A face

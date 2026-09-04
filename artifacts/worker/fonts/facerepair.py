@@ -43,6 +43,64 @@ FORM_FEATURE = {
     "<final>": "fina",
 }
 
+# The shape each half of a lam-alef is in, per legacy form.
+#
+# The presentation block spells lam-alef twice — U+FEFB for the pair standing
+# alone or after a letter that does not join, U+FEFC for the same pair after
+# one that does — and every real font draws those as two different glyphs. The
+# difference is the *lam*: initial in the first, medial in the second. The alef
+# is final in both, because nothing joins to its left.
+#
+# This is why the lam-alef branch below has never worked. It looked the
+# ligature up under the names of the **base** glyphs, `uni0644+uni0627`, and no
+# font on this machine keys it that way: Cairo, Tajawal, Changa, Almarai,
+# Alexandria and Rubik all key it on the shaped pair, `uniFEDF+uniFE8E`. So the
+# lookup missed on every one of them, U+FEFB and U+FEFC were left out of the
+# cmap, and a face with no lam-alef of its own drew a box where the commonest
+# two letters in Arabic should be. Four of the eleven fonts real customers
+# uploaded were refused for it, with a sentence saying they cannot draw لا —
+# which was true of the file we produced and false of the file they sent.
+LIGATURE_FORMS = {
+    "<isolated>": ("init", "fina"),
+    "<final>": ("medi", "fina"),
+}
+
+
+def ligature_for(
+    features: dict[str, dict[str, str]], glyphs: list[str], tag: str
+) -> str | None:
+    """
+    The glyph this font draws for a ligature, or None if it does not have one.
+
+    Tried in one order and no other: the shaped pair the form actually means,
+    then the base pair. The reverse — accepting the isolated ligature for the
+    final form because that is the one the font happened to have — is the
+    mistake this module's header refuses in the single-glyph case, for the same
+    reason. A lam-alef in its isolated shape after a joining letter leaves a
+    gap in the middle of a word: wrong in a way that reads as a broken font
+    rather than a missing glyph, and a box is the more honest of the two.
+    """
+    ligatures = {**features.get("liga", {}), **features.get("rlig", {})}
+    if not ligatures:
+        return None
+
+    keys = []
+    forms = LIGATURE_FORMS.get(tag)
+    if forms and len(glyphs) == 2:
+        first = features.get(forms[0], {}).get(glyphs[0])
+        second = features.get(forms[1], {}).get(glyphs[1])
+        if first and second:
+            keys.append(f"{first}+{second}")
+    # And the way the old code looked, kept as the last resort: a font whose
+    # GSUB works on base glyphs is a font this key is right for.
+    keys.append("+".join(glyphs))
+
+    for key in keys:
+        hit = ligatures.get(key)
+        if hit:
+            return hit
+    return None
+
 BLANK = "editlyZeroWidth"
 
 # A fixed date in every built face, so that building twice from the same source
@@ -249,9 +307,10 @@ def repair(font: ttLib.TTFont) -> tuple[int, int]:
                 target = glyphs[0]
         else:
             # Lam-alef and friends. The ligature lives under `rlig` or `liga`
-            # depending on the foundry, and there is no third place to look.
-            key = "+".join(glyphs)
-            target = features.get("rlig", {}).get(key) or features.get("liga", {}).get(key)
+            # depending on the foundry, and there is no third place to look —
+            # but it is keyed on the *shaped* pair, not on the base letters.
+            # See `ligature_for`.
+            target = ligature_for(features, glyphs, tag)
 
         if target is None or target not in font.getGlyphOrder():
             continue

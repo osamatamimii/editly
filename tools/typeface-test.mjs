@@ -144,7 +144,47 @@ async function aReadyFace({ owner = OWNER, source, script, label }) {
   generated, and nothing in this file names "Cairo Black".
 */
 const SOURCE = path.join(repoRoot, "artifacts/worker/fonts/Cairo-Black.ttf");
-const RUBIK = path.join(repoRoot, "artifacts/worker/fonts/Rubik-Black.ttf");
+/*
+  A face that genuinely cannot draw لا.
+
+  This used to be Rubik, on the belief that Rubik has no lam-alef ligature.
+  That belief was wrong: Rubik has it, in both forms, for plain alef — what it
+  lacked was a codepoint pointing at it, because `facerepair.py` searched the
+  GSUB under the base glyph names and no font keys the ligature that way. With
+  the repair fixed, Rubik draws لا, and a fixture that has stopped being an
+  example of the thing it is named after is a check that passes for no reason.
+
+  So the fixture is made rather than found: Rubik with both lam-alef ligature
+  records cut out of its GSUB. A font that really does not have the shape, so
+  the refusal under test is a refusal of something real.
+*/
+const NO_LIGATURE = path.join(work, "no-lam-alef.ttf");
+{
+  const carved = spawnSync("python3", ["-c", `
+import sys
+from fontTools import ttLib
+font = ttLib.TTFont(sys.argv[1])
+removed = 0
+for lookup in font["GSUB"].table.LookupList.Lookup:
+    for sub in lookup.SubTable:
+        sub = sub.ExtSubTable if lookup.LookupType == 7 else sub
+        ligs = getattr(sub, "ligatures", None)
+        if not ligs:
+            continue
+        for first in ("uniFEDF", "uniFEE0"):
+            if first not in ligs:
+                continue
+            keep = [l for l in ligs[first] if l.Component != ["uniFE8E"]]
+            removed += len(ligs[first]) - len(keep)
+            ligs[first] = keep
+font.save(sys.argv[2])
+print(removed)
+`, path.join(repoRoot, "artifacts/worker/fonts/Rubik-Black.ttf"), NO_LIGATURE], { encoding: "utf8" });
+  if (carved.status !== 0 || Number(carved.stdout.trim()) !== 2) {
+    console.error("could not build the no-ligature fixture", carved.stderr || carved.stdout);
+    process.exit(1);
+  }
+}
 
 // ── 1 & 2: pending, then measured ──────────────────────────────────────────
 
@@ -183,7 +223,7 @@ let mine;
 
 section("A font that cannot draw its script is refused with the reason");
 {
-  const refused = await aReadyFace({ source: RUBIK, script: "arabic", label: "rubik as arabic" });
+  const refused = await aReadyFace({ source: NO_LIGATURE, script: "arabic", label: "a face with no lam-alef" });
   check("it is refused rather than measured", !refused.verdict.ok, JSON.stringify(refused.verdict).slice(0, 90));
   check(
     "the reason names the shape that is missing",
