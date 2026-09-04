@@ -61,6 +61,19 @@ const HELD_THEN_RELEASED = /^(?:[اأآإ]{2,}ه+|[اأآإ]+ه{2,})$/;
 const TATWEEL = /ـ/g;
 
 /**
+ * Arabic short vowels and the shadda — the marks that spell a word out.
+ *
+ * A held sound is never written with them: «ممم» and «آآ» carry none. So their
+ * presence is proof the token is a spelled, meant word, not a vocalisation —
+ * and it is the one signal that survives stripping. «مِمَّ» (*from what*) is
+ * two mims with a kasra, a shadda and a fatha; strip the marks, as the letter
+ * filter below does, and it collapses to «مم», a doubled letter that reads as a
+ * held sound and gets the word deleted. Checked on the raw text, before
+ * anything is stripped.
+ */
+const HARAKAT = /[\u064B-\u0652\u0670]/;
+
+/**
  * Everything that is not a letter or a digit, which is how all three original
  * call sites differed: one stripped punctuation, one stripped everything
  * non-alphanumeric, one also stripped apostrophes first. Same intent, three
@@ -70,6 +83,12 @@ const NOT_A_LETTER = /[^\p{L}\p{N}]/gu;
 
 /** Is this word a sound rather than something the person meant to say? */
 export function isFiller(text: string): boolean {
+  // A held sound carries no short vowels; a spelled word may. So a token with
+  // harakat on it is a word — even when stripping those marks would leave a
+  // doubled letter that reads as a held sound, which is exactly how «مِمَّ»
+  // (*from what*) was being deleted. English fillers have no marks, so this
+  // never touches them.
+  if (HARAKAT.test(text)) return false;
   const bare = text.replace(NOT_A_LETTER, "").replace(TATWEEL, "");
   if (bare.length === 0) return false;
   if (ENGLISH.has(bare.toLowerCase())) return true;

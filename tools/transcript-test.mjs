@@ -508,7 +508,7 @@ section("A hesitation is a sound; a word is not");
   // *aspirations*, «ماما» is *mum*. A filler list that eats any of them is
   // deleting speech, which is the failure this list is shaped to avoid — the
   // same shape as reading «ترجم» for «ترجمة».
-  const words = ["يعني", "إيه", "طيب", "اه", "آه", "أمم", "همم", "ماما", "ما", "هم", "am", "her", "meme"];
+  const words = ["يعني", "إيه", "طيب", "اه", "آه", "أمم", "همم", "ماما", "ما", "هم", "مِمَّ", "am", "her", "meme"];
   for (const word of words) {
     check(`«${word}» is a word, and survives`, !isFiller(word), "dropped, so the person's own word never reaches the screen");
   }
