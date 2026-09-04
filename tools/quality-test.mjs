@@ -504,6 +504,43 @@ console.log("\nLines break where we chose, and never spill");
   check("a short cue is left alone", short.text === "short one", short.text);
 }
 
+console.log("\nA mark takes no width and an emoji takes its own");
+{
+  /*
+    The common harakat are already 0.0 in the width table. But the marks that
+    are not in that short set — the superscript alef (U+0670) of «هٰذا» and
+    «رَحْمٰن», the combining madda, the superscript hamza — fell through to the
+    fallback and were charged a whole 0.95 cap each, when a mark stacks on its
+    letter and draws no advance at all. So those lines measured wider than they
+    draw and wrapped early. And an emoji was charged only 1.05 where the pixels
+    give 1.47, the dangerous direction: a line of them measured as fitting and
+    then ran past the safe area, under the username. Both are arithmetic on the
+    measured table, so both are checked without drawing a frame.
+  */
+  const bare = "هذا";                  // no superscript alef
+  const withMark = "هٰذا";        // the same word carrying U+0670
+  check(
+    "a combining mark outside the harakat set still adds no width",
+    Math.abs(widthInCaps(withMark) - widthInCaps(bare)) < 0.001,
+    `${widthInCaps(withMark).toFixed(3)} marked vs ${widthInCaps(bare).toFixed(3)} bare`,
+  );
+
+  const oneEmoji = widthInCaps("🎬");
+  check(
+    "an emoji is measured at its drawn width, not the default 1.05",
+    oneEmoji > 1.4,
+    `emoji ${oneEmoji.toFixed(2)}`,
+  );
+  // The failure the number guards against: a run of emoji must not measure as
+  // fitting a line it would overrun.
+  const emojiRun = widthInCaps("🎬🎬🎬🎬🎬🎬🎬🎬");
+  check(
+    "a run of emoji is measured at its real width",
+    emojiRun > 8 * 1.4,
+    `${emojiRun.toFixed(1)} for eight`,
+  );
+}
+
 console.log("\nPunches land on emphasis, not on filler");
 {
   const words = [

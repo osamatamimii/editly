@@ -370,6 +370,18 @@ for (const [width, chars] of ADVANCE_IN_CAPS) {
  * takes a number a little above Latin's own average.
  */
 function fallbackAdvance(codePoint: number): number {
+  const ch = String.fromCodePoint(codePoint);
+  // A combining mark stacks on the letter before it and takes no width of its
+  // own: the harakat, the superscript alef, a combining madda. Counted as 0.95
+  // each, a vocalised Arabic line measured far wider than it draws and wrapped
+  // early — every short vowel a whole cap of phantom width. They draw no
+  // advance, so they cost none.
+  if (/\p{M}/u.test(ch)) return 0;
+  // Emoji draw about half again as wide as a Latin cap: 1.47 measured, against
+  // the 1.05 the default returned. Under-measuring is the dangerous way to be
+  // wrong — a line of emoji ran past the safe area and sat under the username —
+  // so the emoji blocks get the number the pixels gave.
+  if (codePoint >= 0x1f000 && /\p{Extended_Pictographic}/u.test(ch)) return 1.47;
   // Arabic, Hebrew, Syriac, Thaana, and the Arabic presentation forms.
   if (
     (codePoint >= 0x0590 && codePoint <= 0x08ff) ||
