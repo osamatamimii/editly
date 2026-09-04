@@ -106,11 +106,24 @@ export function applyReferenceStyle(
     if (operation.type === "normalizeLoudness") {
       out.push({ ...operation, targetLufs: settings.targetLufs });
       if (context.reference.audioMeasured) {
+        // The target is clamped to the range the feeds leave alone, so it is
+        // not always where the reference sits. Saying "levelled to -20, which
+        // is where your reference sits" when the reference measured -21.9 is a
+        // false claim about the number the person can read off their own clip.
+        // When the two differ, the note says both: what we levelled to, and
+        // where the reference actually was.
+        const measured = round(context.reference.targetLufs);
+        const applied = round(settings.targetLufs);
         notes.push(
-          t(
-            `levelled to ${round(settings.targetLufs)} LUFS, which is where your reference sits`,
-            `سُوّي المستوى إلى ${round(settings.targetLufs)} LUFS، وهو حيث يجلس مرجعك`,
-          ),
+          Math.abs(measured - applied) >= 0.5
+            ? t(
+                `levelled to ${applied} LUFS — your reference sits at ${measured}, past what the feeds leave alone, so it was brought to the edge of that range`,
+                `سُوّي المستوى إلى ${applied} LUFS — مرجعك عند ${measured}، خارج ما تتركه المنصّات كما هو، فجُلب إلى حافة ذلك المدى`,
+              )
+            : t(
+                `levelled to ${applied} LUFS, which is where your reference sits`,
+                `سُوّي المستوى إلى ${applied} LUFS، وهو حيث يجلس مرجعك`,
+              ),
         );
       }
       continue;

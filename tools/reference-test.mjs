@@ -198,6 +198,34 @@ section("Loudness follows the reference, within what platforms accept");
     !silentReference.notes.some((n) => /LUFS/.test(n)),
     silentReference.notes.join(" | "),
   );
+
+  // A reference quieter than the range the feeds leave alone. The target is
+  // clamped to -20, but the reference sits at -23.5 — so the note must not
+  // claim -20 is "where your reference sits".
+  const tooQuiet = apply([LOUD], profile({ audioMeasured: true, targetLufs: -23.5 }), OWN);
+  const note = tooQuiet.notes.find((n) => /LUFS/.test(n)) ?? "";
+  check(
+    "the level applied is clamped to the range",
+    find(tooQuiet, "normalizeLoudness").targetLufs === -20,
+    String(find(tooQuiet, "normalizeLoudness").targetLufs),
+  );
+  check(
+    "and the note does not claim the clamped target is where the reference sits",
+    !/-20 LUFS, which is where your reference sits/.test(note),
+    note,
+  );
+  check(
+    "it names where the reference actually was",
+    /-23\.5/.test(note),
+    note,
+  );
+  // And when the reference is inside the range, the plain note is right.
+  const inRange = apply([LOUD], profile({ audioMeasured: true, targetLufs: -15 }), OWN);
+  check(
+    "a reference inside the range keeps the plain note",
+    inRange.notes.some((n) => /where your reference sits|حيث يجلس مرجعك/.test(n)),
+    inRange.notes.join(" | "),
+  );
 }
 
 // ─── The grade ───────────────────────────────────────────────────────────────
