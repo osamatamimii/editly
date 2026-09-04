@@ -142,6 +142,13 @@ const LOUDNESS_TOLERANCE_LU = 1.0;
 
 /** Quieter than this and the mix is silence, not a level to be corrected. */
 const SILENT_MIX_LUFS = -55;
+/**
+ * The level a silent file is reported at. loudnorm prints `-inf` for the
+ * integrated loudness of silence; that is a measurement, not a failure, so it
+ * is floored to a number below the silence gate rather than dropped — well
+ * under loudnorm's own noise floor around -70.
+ */
+const SILENT_FLOOR_LUFS = -99;
 
 /**
  * Output duration may drift this far from the cut map's arithmetic before it is
@@ -557,12 +564,17 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
         const corrected = await correctLoudness(file, target, measured, ctx.workDir);
         if (corrected != null) {
           repaired = true;
-          measuredLufs = corrected;
+          measuredLufs = corrected.lufs;
           notes.push(
-            t(
-              `the levelling missed on the first pass. The mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected`,
-              `أخطأت التسوية في التمريرة الأولى: خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقيس وصُحّح`,
-            ),
+            corrected.compressedDynamics
+              ? t(
+                  `the levelling missed on the first pass. The mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected — the range was compressed to bring it up without clipping, rather than a clean level shift`,
+                  `أخطأت التسوية في التمريرة الأولى: خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقيس وصُحّح — وضُغط المدى الديناميكي لرفعه دون قصّ القمم، لا بإزاحة مستوى نظيفة`,
+                )
+              : t(
+                  `the levelling missed on the first pass. The mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected`,
+                  `أخطأت التسوية في التمريرة الأولى: خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقيس وصُحّح`,
+                ),
           );
         } else {
           warnings.push(
@@ -657,15 +669,41 @@ async function measureLoudness(file: string, target: number): Promise<LoudnessRe
   ]);
   const json = lastJsonBlock(said);
   if (!json) return null;
+  // loudnorm writes "-inf" for a silent file. `Number("-inf")` is `NaN`, which
+  // the old read could not tell apart from "the filter printed nothing" — so a
+  // measurably silent render came back as null and was reported as
+  // *unmeasurable* (a tooling problem) rather than *silent* (a clip with
+  // nothing in it), and the silence branch that names it was never reached.
   const numberField = (name: string): number | null => {
-    const v = Number(json[name]);
+    const raw = json[name];
+    if (typeof raw === "string" && /^-(inf|infinity)$/i.test(raw.trim())) return -Infinity;
+    const v = Number(raw);
     return Number.isFinite(v) ? v : null;
   };
   const inputI = numberField("input_i");
+  if (inputI == null) return null;
+  if (inputI === -Infinity) {
+    // A definitive silent measurement. The other fields are meaningless here
+    // (and often -inf themselves), and no correction will run on a silent mix,
+    // so a floored, self-consistent silent reading is enough for the caller to
+    // name it correctly.
+    return {
+      inputI: SILENT_FLOOR_LUFS,
+      inputTp: SILENT_FLOOR_LUFS,
+      inputLra: 0,
+      inputThresh: SILENT_FLOOR_LUFS,
+      targetOffset: 0,
+    };
+  }
   const inputTp = numberField("input_tp");
   const inputLra = numberField("input_lra");
   const inputThresh = numberField("input_thresh");
-  if (inputI == null || inputTp == null || inputLra == null || inputThresh == null) return null;
+  // A finite integrated loudness with a non-finite peak/range/threshold is not
+  // a file a linear correction can be built from, so it is treated as
+  // unreadable rather than fed nonsense into the second pass.
+  if (inputTp == null || inputTp === -Infinity) return null;
+  if (inputLra == null || inputLra === -Infinity) return null;
+  if (inputThresh == null || inputThresh === -Infinity) return null;
   return { inputI, inputTp, inputLra, inputThresh, targetOffset: numberField("target_offset") ?? 0 };
 }
 
@@ -678,18 +716,26 @@ async function measureLoudness(file: string, target: number): Promise<LoudnessRe
  * closer to the target than the one it replaces — a correction is not taken on
  * faith from the same filter that just missed.
  *
- * Returns the corrected file's measured loudness, or null when the correction
- * failed or did not improve matters (the original is kept untouched).
+ * Returns the corrected file's measured loudness and whether the pass stayed
+ * linear, or null when the correction failed or did not improve matters (the
+ * original is kept untouched).
+ *
+ * `linear=true` is a request, not a guarantee: when the linear gain the
+ * measurements call for would push the true peak past the ceiling, loudnorm
+ * quietly falls back to dynamic normalisation, which compresses the range to
+ * fit. That is a different thing to have done to somebody's audio than a clean
+ * level shift, so the filter's own `normalization_type` is read back and
+ * reported rather than assumed.
  */
 async function correctLoudness(
   file: string,
   target: number,
   measured: LoudnessReading,
   workDir: string,
-): Promise<number | null> {
+): Promise<{ lufs: number; compressedDynamics: boolean } | null> {
   const fixed = path.join(workDir, "relevelled.mp4");
   try {
-    await ffmpegOrThrow([
+    const said = await ffmpegOrThrow([
       "-y", "-i", file,
       "-map", "0:v?", "-map", "0:a",
       "-c:v", "copy",
@@ -697,7 +743,7 @@ async function correctLoudness(
       `loudnorm=I=${target}:TP=-1.5:LRA=11` +
         `:measured_I=${measured.inputI}:measured_TP=${measured.inputTp}` +
         `:measured_LRA=${measured.inputLra}:measured_thresh=${measured.inputThresh}` +
-        `:offset=${measured.targetOffset}:linear=true`,
+        `:offset=${measured.targetOffset}:linear=true:print_format=json`,
       "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
       "-movflags", "+faststart",
       fixed,
@@ -708,7 +754,11 @@ async function correctLoudness(
     const after = Math.abs(again.inputI - target);
     if (after >= before) return null;
     await rename(fixed, file);
-    return again.inputI;
+    const applied = lastJsonBlock(said);
+    const type = typeof applied?.["normalization_type"] === "string"
+      ? String(applied["normalization_type"]).toLowerCase()
+      : "";
+    return { lufs: again.inputI, compressedDynamics: type === "dynamic" };
   } catch {
     await unlink(fixed).catch(() => {});
     return null;
@@ -775,8 +825,10 @@ function ffmpeg(args: string[]): Promise<string> {
   });
 }
 
-/** Runs ffmpeg for its output file; a non-zero exit is a failure. */
-function ffmpegOrThrow(args: string[]): Promise<void> {
+/** Runs ffmpeg for its output file; a non-zero exit is a failure. Resolves
+ * with what it printed, so a caller that asked the filter to report can read
+ * it back. */
+function ffmpegOrThrow(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(FFMPEG, ["-hide_banner", "-nostdin", ...args]);
     const deadline = guard(child, { ...LIMITS.analysis, what: "cutting a sample of the render" });
@@ -792,7 +844,7 @@ function ffmpegOrThrow(args: string[]): Promise<void> {
     child.on("close", (code) => {
       deadline.clear();
       if (deadline.expired) reject(deadline.error);
-      else if (code === 0) resolve();
+      else if (code === 0) resolve(said);
       else reject(new Error(`ffmpeg exited ${code}: ${said.slice(-400)}`));
     });
   });

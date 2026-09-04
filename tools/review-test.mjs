@@ -97,6 +97,26 @@ function encode(name, lavfi) {
   return file;
 }
 
+/** A file with both a picture and a given audio signal, so the loudness pass
+ * has something real to measure. */
+function encodeAV(name, videoLavfi, audioLavfi) {
+  const file = path.join(workRoot, name);
+  const made = spawnSync(FFMPEG, [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-f", "lavfi", "-i", videoLavfi,
+    "-f", "lavfi", "-i", audioLavfi,
+    "-map", "0:v", "-map", "1:a",
+    "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast",
+    "-c:a", "aac", "-b:a", "192k", "-shortest",
+    file,
+  ]);
+  if (made.status !== 0) {
+    console.error(`could not encode ${name}: ${String(made.stderr).slice(-400)}`);
+    process.exit(1);
+  }
+  return file;
+}
+
 const MOVING = encode("moving.mp4", "testsrc=size=320x240:rate=25:duration=6");
 const BLACK = encode("black.mp4", "color=c=black:size=320x240:rate=25:duration=6");
 
@@ -406,6 +426,86 @@ section("A black render is named as black, and not then asked for a second opini
   */
   check("nothing is asked about a picture we already know is black", calls.length === 0, String(calls.length));
   check("the look is reported as not done", result.seen === null);
+}
+
+section("A silent mix is named as silent, not as unmeasurable");
+{
+  /*
+    loudnorm prints "-inf" for the integrated loudness of a silent file, and
+    `Number("-inf")` is `NaN` — indistinguishable, to the old read, from the
+    filter having printed nothing at all. So a silent render came back as
+    *could not measure* (which reads as a tooling problem) instead of
+    *effectively silent* (a clip with nothing in it), and the branch that names
+    silence was never reached. This is the bug that says the wrong true thing:
+    the render is silent, and the review reports a measurement failure.
+  */
+  const silent = encodeAV(
+    "silent-mix.mp4",
+    "testsrc=size=320x240:rate=25:duration=4",
+    "anullsrc=r=48000:cl=stereo:d=4",
+  );
+  const result = await reviewOutput(
+    silent,
+    baseContext({
+      operations: [{ type: "normalizeLoudness", targetLufs: -14 }],
+      expectedAudio: true,
+      sourceHadAudio: true,
+    }),
+  );
+  const all = [...result.warnings, ...result.notes];
+  check(
+    "the silent mix is called silent",
+    result.warnings.some((w) => /effectively silent/.test(w)),
+    all.join(" | "),
+  );
+  check(
+    "and not reported as a measurement that could not be taken",
+    !result.warnings.some((w) => /could not measure/.test(w)),
+    all.join(" | "),
+  );
+  check(
+    "and nothing claims it was levelled to a number",
+    !result.notes.some((n) => /LUFS/.test(n)),
+    result.notes.join(" | "),
+  );
+}
+
+section("A correction that had to compress the range says so");
+{
+  /*
+    `linear=true` is a request loudnorm does not always honour: when the linear
+    gain the measurements call for would push the true peak past the ceiling, it
+    quietly falls back to dynamic normalisation, which compresses the range. A
+    quiet average under rare full-scale peaks is exactly that file — bringing it
+    up to -14 linearly would clip, so the filter compresses instead. That is a
+    different thing to have done to somebody's audio than a clean level shift,
+    and the note has to admit it rather than saying "measured and corrected"
+    over a range that was squeezed.
+  */
+  const peaky = encodeAV(
+    "peaky-quiet.mp4",
+    "testsrc=size=320x240:rate=25:duration=6",
+    "aevalsrc='0.03*sin(2*PI*200*t)+sin(2*PI*1000*t)*lt(mod(t\\,1.5)\\,0.008)':s=48000:d=6",
+  );
+  const result = await reviewOutput(
+    peaky,
+    baseContext({
+      operations: [{ type: "normalizeLoudness", targetLufs: -14 }],
+      expectedAudio: true,
+      sourceHadAudio: true,
+    }),
+  );
+  const all = [...result.warnings, ...result.notes];
+  check(
+    "the level was corrected",
+    result.notes.some((n) => /measured and corrected|قِيس وصُحّح|فقيس وصُحّح/.test(n)),
+    all.join(" | "),
+  );
+  check(
+    "and the note admits the range was compressed to fit the ceiling",
+    result.notes.some((n) => /range was compressed|compressed to bring|ضُغط المدى/.test(n)),
+    all.join(" | "),
+  );
 }
 
 await rm(buildDir, { recursive: true, force: true });
