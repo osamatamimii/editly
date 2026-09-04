@@ -11,7 +11,7 @@ import {
   type EditOperation,
   type Platform, MAX_PLAN_OPERATIONS } from "@workspace/api-zod";
 import { serializeExport } from "../lib/transformers";
-import { planKeyFrom } from "../lib/plan-limits";
+import { planKeyFrom, referenceForPlan } from "../lib/plan-limits";
 import { usageFor } from "../lib/usage";
 import { decideRender } from "../lib/render-policy";
 import { currentUserId } from "../middlewares/auth";
@@ -259,7 +259,9 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
         status: "queued",
         plan: { version: 1, operations },
         inputPath: project.videoPath as string,
-        referencePath: project.referenceVideoPath ?? null,
+        // Gated on the plan, not just snapshotted: a reference set while paying
+        // must not still be applied after a downgrade. See referenceForPlan.
+        referencePath: referenceForPlan(planKey, project.referenceVideoPath),
         // Enforced for real by the worker, which has the file. See render.ts.
         maxSourceSeconds: decision.maxSourceSeconds,
         // And the balance, for the same reason: the ceiling survives a missing

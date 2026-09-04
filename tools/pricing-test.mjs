@@ -59,7 +59,7 @@ function bundle(entry, name, resolveFrom) {
 const { PLANS, SHARED_FEATURES, FREE_TIER } = await import(
   bundle("artifacts/editly/src/lib/pricing.ts", "pricing.mjs", "artifacts/editly")
 );
-const { PLAN_LIMITS } = await import(
+const { PLAN_LIMITS, referenceForPlan } = await import(
   bundle("artifacts/api-server/src/lib/plan-limits.ts", "plan-limits.mjs", "artifacts/api-server")
 );
 
@@ -395,6 +395,54 @@ console.log("\nThe sentence under the paid buttons matches the checkout it opens
   const days = english.match(/(\d+)-day/)?.[1];
   check("the trial length on the page is a number", Boolean(days), english);
   check("and the Arabic says the same number", arabic.includes(days ?? " "), arabic);
+}
+
+console.log("\nA paid reference does not survive a downgrade");
+{
+  /*
+    Matching another video's look is a paid feature, and the project remembers
+    the reference file across a downgrade. The only gate was on *setting* the
+    reference, so a person who set one while paying kept getting the paid edit
+    on every render after dropping to free. `referenceForPlan` is the gate on
+    the render side, and both render doors have to go through it.
+  */
+  // Guarded so a revert that removes the helper fails these cleanly rather than
+  // throwing: with no gate there is no gating, which is the bug.
+  const ref = (plan, p) => (typeof referenceForPlan === "function" ? referenceForPlan(plan, p) : "UNGATED");
+  check(
+    "a free plan gets no reference, whatever the project holds",
+    ref("free", "user/proj/reference.mp4") === null,
+    String(ref("free", "user/proj/reference.mp4")),
+  );
+  for (const plan of ["creator", "pro", "studio"]) {
+    check(
+      `a ${plan} plan keeps its reference`,
+      ref(plan, "user/proj/reference.mp4") === "user/proj/reference.mp4",
+      String(ref(plan, "user/proj/reference.mp4")),
+    );
+  }
+  check(
+    "and no reference is no reference on any plan",
+    ref("pro", null) === null && ref("free", undefined) === null,
+    "",
+  );
+
+  // Both render doors must gate through the helper, not read the stored path
+  // raw — the raw read is exactly the bug.
+  const startRender = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/start-render.ts"), "utf8");
+  const exports = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/exports.ts"), "utf8");
+  check(
+    "start-render gates the reference on the plan",
+    /referencePath:\s*referenceForPlan\(/.test(startRender) &&
+      !/referencePath:\s*project\.referenceVideoPath\s*\?\?\s*null/.test(startRender),
+    "start-render.ts",
+  );
+  check(
+    "the export route gates the reference on the plan",
+    /referencePath:\s*referenceForPlan\(/.test(exports) &&
+      !/referencePath:\s*project\.referenceVideoPath\s*\?\?\s*null/.test(exports),
+    "exports.ts",
+  );
 }
 
 await rm(buildDir, { recursive: true, force: true });

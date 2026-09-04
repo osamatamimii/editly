@@ -130,6 +130,21 @@ export const PLAN_LIMITS: Record<PlanKey, PlanLimits> = {
 
 export const DEFAULT_PLAN: PlanKey = "free";
 
+/**
+ * The reference a render on this plan may actually apply.
+ *
+ * Matching another video's look is a paid feature, and the project remembers
+ * the reference file across a downgrade — so a person who set one while paying
+ * and then dropped to free kept getting the paid edit on every render, because
+ * the only gate was on *setting* the reference, not on using it. This is that
+ * gate on the render side: a plan without `referenceStyle` gets no reference,
+ * whatever the project still holds. Both render doors read it, so the
+ * entitlement lives in one place rather than being re-derived per route.
+ */
+export function referenceForPlan(plan: PlanKey, referencePath: string | null | undefined): string | null {
+  return PLAN_LIMITS[plan].referenceStyle ? (referencePath ?? null) : null;
+}
+
 export function isPlanKey(value: string): value is PlanKey {
   return value in PLAN_LIMITS;
 }

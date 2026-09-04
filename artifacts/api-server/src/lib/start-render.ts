@@ -20,7 +20,7 @@ import { eq, and, desc, inArray } from "drizzle-orm";
 import { db, projectsTable, jobsTable, subscriptionsTable, renderFollowupsTable } from "@workspace/db";
 import type { EditOperation } from "@workspace/api-zod";
 import { evenlySpacedPunches } from "./templates";
-import { planKeyFrom } from "./plan-limits";
+import { planKeyFrom, referenceForPlan } from "./plan-limits";
 import { usageFor } from "./usage";
 import { decideRender } from "./render-policy";
 import { isDuplicateActiveJob, ALREADY_RENDERING } from "./one-active-job";
@@ -152,8 +152,10 @@ export async function startRenderForProject(
         plan,
         inputPath: project.videoPath,
         // Snapshotted so that changing or clearing the reference while this
-        // sits in the queue cannot quietly alter a render already accepted.
-        referencePath: project.referenceVideoPath ?? null,
+        // sits in the queue cannot quietly alter a render already accepted —
+        // and gated on the plan, so a reference set while paying is not still
+        // applied after a downgrade to a plan that does not include it.
+        referencePath: referenceForPlan(planKey, project.referenceVideoPath),
         // Snapshotted for the same reason, one line up: a render already
         // accepted must not change language because the next thing they typed
         // was in the other one.
