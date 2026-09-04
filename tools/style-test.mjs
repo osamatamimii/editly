@@ -289,6 +289,34 @@ console.log("\nReading only what it needs");
     Math.abs(style.sampledSeconds - 12) < 0.6,
     `${style.sampledSeconds}s`,
   );
+  check(
+    "and a short source's whole length is its sampled length",
+    Math.abs(style.sourceSeconds - 12) < 0.6,
+    `${style.sourceSeconds}s`,
+  );
+
+  // A source longer than the sample window: the reader looks at the first two
+  // minutes, but the whole length has to be reported too, because a punch
+  // budget is spread over the entire source and using the 120s window kept a
+  // fraction of the punches on a long talk.
+  const overCap = at("over-cap.mp4");
+  ff(["-f", "lavfi", "-i", "color=c=teal:size=160x120:rate=2:duration=150", "-c:v", "libx264", "-pix_fmt", "yuv420p", overCap]);
+  const capped = await measureStyle(overCap);
+  check(
+    "a source past the sample cap still samples only the window",
+    Math.abs(capped.sampledSeconds - 120) < 1,
+    `${capped.sampledSeconds}s`,
+  );
+  check(
+    "but reports its whole length, not the window",
+    Math.abs(capped.sourceSeconds - 150) < 2,
+    `${capped.sourceSeconds}s`,
+  );
+  check(
+    "so the source length exceeds the sampled length on a long source",
+    capped.sourceSeconds > capped.sampledSeconds + 20,
+    `source ${capped.sourceSeconds}s vs sampled ${capped.sampledSeconds}s`,
+  );
 }
 
 console.log("\nA reference with no readable video says so, rather than measuring grey");

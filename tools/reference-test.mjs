@@ -83,6 +83,7 @@ const profile = (over = {}) => ({
   brightness: 0.5,
   motion: 0.2,
   sampledSeconds: 120,
+  sourceSeconds: 120,
   ...over,
 });
 

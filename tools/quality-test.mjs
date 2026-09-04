@@ -575,6 +575,56 @@ console.log("\nPunches land on emphasis, not on filler");
   );
 }
 
+console.log("\nA reference thins punches against the whole source, not the sample window");
+{
+  /*
+    The punch budget is the reference's rhythm spread over the source. It used
+    to be spread over the two-minute sample window instead — so a ten-minute
+    talk kept a fraction of its punches and the note claimed a rate per minute
+    it never applied. The whole source length has to reach the thinning.
+  */
+  // A user source longer than the 120s sample cap. Still and low-rate, so it
+  // costs almost nothing to make or to measure.
+  const longSource = at("ref-long-source.mp4");
+  ff(["-f", "lavfi", "-i", "color=c=gray:size=160x120:rate=2:duration=150", "-c:v", "libx264", "-pix_fmt", "yuv420p", longSource]);
+
+  // A restless reference, so its rhythm earns a real punch budget: eight
+  // half-second segments give plenty of cuts a minute.
+  const segs = [];
+  const cols = ["red", "green", "blue", "yellow", "white", "black", "magenta", "cyan"];
+  for (let i = 0; i < 16; i += 1) {
+    const seg = at(`ref-seg-${i}.mp4`);
+    ff(["-f", "lavfi", "-i", `color=c=${cols[i % cols.length]}:size=160x120:rate=10:duration=0.6`, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-g", "3", seg]);
+    segs.push(`file '${seg}'`);
+  }
+  const listFile = at("ref-list.txt");
+  await (await import("node:fs/promises")).writeFile(listFile, segs.join("\n"));
+  const reference = at("ref-restless.mp4");
+  ff(["-f", "concat", "-safe", "0", "-i", listFile, "-c:v", "libx264", "-pix_fmt", "yuv420p", reference]);
+
+  // Forty punch moments spread across the whole 150s. Pre-populated, so enrich
+  // leaves them for the reference to thin rather than refilling from speech.
+  const forty = Array.from({ length: 40 }, (_, i) => Number((2 + i * 3.6).toFixed(1)));
+  const enriched = await enrichMod.enrichPlan(longSource, {
+    version: 1,
+    operations: [{ type: "zoomPunch", at: forty, amount: 0.13, holdMs: 1000 }],
+  }, {
+    providers: { transcriber: { name: "stub", transcribe: async () => ({ segments: [], language: null, source: "t" }) }, sceneReader: null, status: { transcription: null, vision: null } },
+    referencePath: reference,
+  });
+  const punch = enriched.plan.operations.find((op) => op.type === "zoomPunch");
+  const kept = punch?.at.length ?? 0;
+
+  // Over 150s (2.5 min) even the clamped ceiling of 12/min earns ~30 punches;
+  // over the 120s window it would earn at most 24. The kept count must reflect
+  // the full source — comfortably above what the window alone would allow.
+  check(
+    "the punch budget is spread over the whole source, not the 120s window",
+    kept > 26,
+    `kept ${kept} of ${forty.length}`,
+  );
+}
+
 console.log("\nThe whole thing survives one pass");
 {
   const clip = spokenClip("full", [[0, 2], [4, 6]], 6);

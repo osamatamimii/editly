@@ -16,7 +16,7 @@ import type { EditOperation, EditPlan, Platform } from "@workspace/api-zod";
 import { buildCaptionCues, emphasisPoints } from "./captions";
 import { captionLayout } from "./caption-layout";
 import { faceById } from "@workspace/api-zod/fonts";
-import { defaultHeightFor, frameFor, shapeFor } from "./ffmpeg";
+import { defaultHeightFor, frameFor, shapeFor, probeDuration } from "./ffmpeg";
 import { missingCapabilityNotes, type Providers } from "./providers";
 import { measureStyle, styleToSettings } from "./style-measure";
 import { applyReferenceStyle } from "./reference-style";
@@ -348,9 +348,16 @@ export async function enrichPlan(
         // a cut for something already graded.
         measureStyle(mediaPath).catch(() => undefined),
       ]);
+      // The full length of the user's own footage, not the two-minute sample
+      // window and never the reference's length: the punch budget is spread
+      // over the whole source. `own.sourceSeconds` is that length for free when
+      // the footage was measured; a direct probe is the fallback when it was
+      // not, because the reference's duration says nothing about the source's.
+      const sourceSeconds =
+        own?.sourceSeconds ?? (await probeDuration(mediaPath).catch(() => reference.sourceSeconds));
       const applied = applyReferenceStyle(shaped, styleToSettings(reference, own), {
         reference,
-        sourceSeconds: own?.sampledSeconds ?? reference.sampledSeconds,
+        sourceSeconds,
         language: options.language,
       });
       shaped = applied.operations;

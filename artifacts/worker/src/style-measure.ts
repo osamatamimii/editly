@@ -43,8 +43,16 @@ export interface StyleProfile {
   brightness: number;
   /** How much the picture moves, 0..1. See MOTION_FULL_SCALE. */
   motion: number;
-  /** Seconds of reference actually examined. */
+  /** Seconds of reference actually examined — capped at the sample window. */
   sampledSeconds: number;
+  /**
+   * The whole length of the file, which is not the same as `sampledSeconds`:
+   * the reader looks at the first two minutes at most, but a punch budget is
+   * spread over the *entire* source. Using the sample window instead kept 12
+   * punches of 40 on a ten-minute talk and reported "6 a minute". 0 when the
+   * duration could not be read.
+   */
+  sourceSeconds: number;
 }
 
 /**
@@ -184,6 +192,7 @@ export async function measureStyle(referencePath: string): Promise<StyleProfile>
     brightness: round(clamp(mean(luma) / 255, 0, 1), 3),
     motion: round(clamp(mean(lumaDiff) / MOTION_FULL_SCALE, 0, 1), 3),
     sampledSeconds: round(sampled, 1),
+    sourceSeconds: round(duration > 0 ? duration : sampled, 1),
   };
 }
 
