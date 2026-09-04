@@ -51,6 +51,21 @@ export interface Template {
    * button says what is missing.
    */
   needs?: "music";
+  /**
+   * The shortest source this look can honestly be built from.
+   *
+   * A look that lifts a clip out of a recording needs a recording to lift it
+   * out of, and the two dishonest answers are both easy to reach by accident.
+   * `three-clips` on a twenty-second upload queued a job and then failed deep
+   * in the worker with an empty plan, after the person was already charged;
+   * `the-highlight` and `podcast-clip` on a clip shorter than the window they
+   * extract quietly returned the whole file with captions burned across it — a
+   * correct render of an edit nobody can post, under a name that says the
+   * opposite. So the length requirement is data, checked at the route before
+   * anything is queued, the same as `needs`. Absent on a look that works at any
+   * length.
+   */
+  needsSeconds?: number;
   build: (context: TemplateContext) => EditOperation[];
 }
 
@@ -243,6 +258,7 @@ export const TEMPLATES: Template[] = [
   },
   {
     id: "the-highlight",
+    needsSeconds: 45,
     name: "The highlight",
     nameAr: "أقوى جزء",
     description: "Keeps only the strongest 30 seconds, reframed and captioned.",
@@ -268,6 +284,7 @@ export const TEMPLATES: Template[] = [
   },
   {
     id: "three-clips",
+    needsSeconds: 90,
     name: "Three clips",
     nameAr: "ثلاثة مقاطع",
     description: "Cuts the take into three posts, each captioned and titled by what is said in it.",
@@ -356,6 +373,7 @@ export const TEMPLATES: Template[] = [
   },
   {
     id: "podcast-clip",
+    needsSeconds: 60,
     name: "Podcast clip",
     nameAr: "مقطع بودكاست",
     description: "Finds the best 45 seconds of the conversation, captions it in a box, evens the levels.",
@@ -399,4 +417,46 @@ export const TEMPLATES: Template[] = [
 
 export function findTemplate(id: string): Template | undefined {
   return TEMPLATES.find((t) => t.id === id);
+}
+
+/**
+ * Whether a look can be built for this project, decided before anything is
+ * queued or billed.
+ *
+ * Both refusals live here rather than in the route so the same rule is checked
+ * in one place and can be tested without a database: a look that cuts to a
+ * track and a project with no track, and a look that lifts a clip out of a
+ * recording and a recording too short to lift one out of. A duration of `null`
+ * is "not measured yet", not "too short" — it cannot fail this check, because
+ * the failure it guards against is a false refusal as much as a false render.
+ */
+export function templatePreflight(
+  template: Template,
+  context: { durationSeconds: number | null; hasMusic: boolean },
+): { ok: true } | { ok: false; reason: string; reasonAr: string } {
+  if (template.needs === "music" && !context.hasMusic) {
+    return {
+      ok: false,
+      reason: "This look cuts to a track, and this project has no audio file yet. Upload one and press it again.",
+      reasonAr: "هذا الشكل يقصّ على مقطوعة، ولا يحمل هذا المشروع ملفًّا صوتيًّا بعد. ارفع واحدًا ثم أعد الضغط.",
+    };
+  }
+  if (
+    template.needsSeconds != null &&
+    context.durationSeconds != null &&
+    context.durationSeconds < template.needsSeconds
+  ) {
+    return {
+      ok: false,
+      reason:
+        `"${template.name}" lifts a clip out of a longer recording, and this one is ` +
+        `${Math.round(context.durationSeconds)}s — it needs at least ${template.needsSeconds}s. ` +
+        `Try a look built for shorter clips.`,
+      reasonAr:
+        `«${template.nameAr}» يلتقط مقطعًا من تسجيل أطول، وهذا طوله ` +
+        `${Math.round(context.durationSeconds)} ثانية — يحتاج ${template.needsSeconds} ثانية على الأقل. ` +
+        `جرّب شكلًا مصمَّمًا للمقاطع القصيرة.`,
+    };
+  }
+  return { ok: true };
 }

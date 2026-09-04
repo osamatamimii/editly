@@ -71,7 +71,7 @@ spawnSync(
   ],
   { stdio: "inherit" },
 );
-const { TEMPLATES } = await import(pathToFileURL(templatesPath).href);
+const { TEMPLATES, findTemplate, templatePreflight } = await import(pathToFileURL(templatesPath).href);
 
 let checks = 0;
 let failures = 0;
@@ -732,6 +732,71 @@ console.log("\nA title beside an overlay");
       JSON.stringify(out.notes),
     );
   }
+}
+
+console.log("\nA look that cannot deliver its promise is refused before it is queued");
+{
+  /*
+    Both refusals a template can raise are decided here, before a job is queued
+    or billed: a beat-cut look with no track to cut to, and a clip look on a
+    recording too short to lift a clip out of. `three-clips` on a 20s upload
+    used to queue a render and then fail deep in the worker with an empty plan,
+    after the person was charged; `the-highlight` and `podcast-clip` on a short
+    clip quietly returned the whole file captioned. Now they are stopped at the
+    door with a message that says which look and why.
+  */
+  // Guarded so a revert that removes the helper fails these checks cleanly
+  // rather than throwing: with no preflight there is no refusal, which is
+  // exactly the bug — the job would be queued.
+  const pre = (id, durationSeconds, hasMusic) =>
+    typeof templatePreflight === "function"
+      ? templatePreflight(findTemplate(id), { durationSeconds, hasMusic })
+      : { ok: true };
+
+  check(
+    "three-clips is refused on a source too short for three clips",
+    pre("three-clips", 20, false).ok === false,
+    JSON.stringify(pre("three-clips", 20, false)),
+  );
+  check(
+    "the-highlight is refused on a clip shorter than the window it extracts",
+    pre("the-highlight", 25, false).ok === false,
+  );
+  check(
+    "podcast-clip is refused on a clip that would come back whole",
+    pre("podcast-clip", 40, false).ok === false,
+  );
+  check(
+    "and the refusal names the look and the length in both languages",
+    (() => {
+      const r = pre("three-clips", 20, false);
+      return !r.ok && /three/i.test(r.reason) && /20/.test(r.reason) && /90/.test(r.reason) && /[؀-ۿ]/.test(r.reasonAr);
+    })(),
+  );
+
+  check(
+    "a long enough recording passes",
+    pre("three-clips", 300, false).ok === true,
+    JSON.stringify(pre("three-clips", 300, false)),
+  );
+  check(
+    "an unmeasured source is not refused as too short — that is a false refusal",
+    pre("three-clips", null, false).ok === true,
+  );
+  // The music refusal still lives here too.
+  check(
+    "the beat look is still refused with no track",
+    pre("on-the-beat", 300, false).ok === false,
+  );
+  check(
+    "and passes with one",
+    pre("on-the-beat", 300, true).ok === true,
+  );
+  // A look with no length requirement works at any length.
+  check(
+    "a look built for any length is not gated on duration",
+    pre("tight-talking-head", 8, false).ok === true,
+  );
 }
 
 await rm(workDir, { recursive: true, force: true });

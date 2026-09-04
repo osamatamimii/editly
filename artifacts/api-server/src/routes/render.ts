@@ -12,7 +12,7 @@ import {
 import { currentUserId } from "../middlewares/auth";
 import { serializeJob } from "../lib/transformers";
 import type { EditOperation } from "@workspace/api-zod";
-import { TEMPLATES, findTemplate } from "../lib/templates";
+import { TEMPLATES, findTemplate, templatePreflight } from "../lib/templates";
 import { isUnattended, waitEstimate } from "../lib/queue-health";
 import { newestWorkerSeenAt, renderCapacity, workAheadOf } from "../lib/worker-presence";
 import { startRenderForProject } from "../lib/start-render";
@@ -111,11 +111,12 @@ router.post("/projects/:id/render", rateLimit(LIMITS.render), async (req, res): 
       .orderBy(desc(assetsTable.createdAt))
       .limit(1);
 
-    if (template.needs === "music" && !track) {
-      res.status(400).json({
-        error:
-          "This look cuts to a track, and this project has no audio file yet. Upload one and press it again.",
-      });
+    const preflight = templatePreflight(template, {
+      durationSeconds: project.duration ?? null,
+      hasMusic: Boolean(track),
+    });
+    if (!preflight.ok) {
+      res.status(400).json({ error: preflight.reason });
       return;
     }
 
