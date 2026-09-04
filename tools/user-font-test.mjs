@@ -253,6 +253,39 @@ section("Fonts a person actually uploaded, through the whole intake");
   }
 }
 
+section("A font with no Unicode cmap is refused with the reason, not a crash");
+{
+  /*
+    A font can carry a cmap table with only a Mac-Roman or symbol subtable and
+    no Unicode one. The gate that only checked for a *missing* cmap table let it
+    through, and the coverage count then iterated `getBestCmap()`'s `None` into
+    a TypeError — which surfaced as "this isn't a font or it's corrupt", while
+    the true, translated `noCmap` message sat right there, unreachable.
+  */
+  const dir = path.join(work, "nocmap");
+  await mkdir(dir, { recursive: true });
+  const src = path.join(dir, "nocmap.ttf");
+  // Strip every Unicode subtable off a real font, leaving one Mac-Roman table.
+  const craft = spawnSync("python3", ["-c", `
+from fontTools import ttLib
+from fontTools.ttLib.tables._c_m_a_p import CmapSubtable
+f = ttLib.TTFont(${JSON.stringify(path.join(repoRoot, "artifacts/worker/fonts/Cairo-Black.ttf"))})
+sub = CmapSubtable.getSubtableClass(0)(0)
+sub.platformID, sub.platEncID, sub.language = 1, 0, 0
+sub.cmap = {i: ".notdef" for i in range(10)}
+f["cmap"].tables = [sub]
+f.save(${JSON.stringify(src)})
+`], { encoding: "utf8" });
+  check("the no-cmap fixture was built", craft.status === 0 && existsSync(src), craft.stderr?.slice(-200));
+
+  const result = prepare(src, path.join(dir, "out"), path.join(dir, "prev"));
+  check(
+    "it is refused as noCmap, not crashed into a generic error",
+    result.ok === false && result.code === "noCmap",
+    JSON.stringify(result),
+  );
+}
+
 await rm(work, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });
 console.log(`\n${checks - failures}/${checks} checks passed`);

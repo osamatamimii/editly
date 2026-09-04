@@ -108,7 +108,14 @@ def main() -> None:
 
     if "glyf" not in font and "CFF " not in font and "CFF2" not in font:
         fail("noOutlines", "the file has neither TrueType nor CFF outlines")
-    if "cmap" not in font:
+    # Not just a missing `cmap` table: a font can carry a cmap with only a
+    # Mac-Roman or symbol subtable and no Unicode one, which is the same thing
+    # for our purposes — `getBestCmap` returns `None`, and the coverage count
+    # below iterates it into a `TypeError`. That crash surfaced as "this isn't a
+    # font or it's corrupt", while the true, translated message right here was
+    # never reached. So the gate asks the question the coverage count depends
+    # on: is there a Unicode mapping at all.
+    if "cmap" not in font or font.getBestCmap() is None:
         fail("noCmap", "the file maps no characters at all")
 
     arabic_glyphs, latin_glyphs = coverage(font)
