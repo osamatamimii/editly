@@ -71,6 +71,12 @@ export function createDeepgramTranscriber(options: DeepgramOptions): Transcriber
   return {
     name: `deepgram/${model}`,
 
+    // Detection and support are two different lists. Nova-3 transcribes Arabic
+    // when it is told, but Arabic is not in `DETECTABLE`, so it can never name
+    // it — a clip it was not told about comes back as a confident wrong
+    // language. The cross-check reads this to know whose disagreement to trust.
+    canDetectLanguage: (tag: string): boolean => DETECTABLE.has(baseOf(tag)),
+
     async transcribe(mediaPath: string, opts: TranscribeOptions = {}): Promise<Transcript> {
       const audio = await extractSpeechAudio(mediaPath);
       try {

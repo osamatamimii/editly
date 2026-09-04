@@ -61,6 +61,19 @@ export interface Transcriber {
   readonly name: string;
   /** `mediaPath` is a local file. Implementations extract their own audio. */
   transcribe(mediaPath: string, options?: TranscribeOptions): Promise<Transcript>;
+  /**
+   * Whether this model can *detect* a language, as opposed to transcribe it
+   * when told. The two are different lists: Deepgram's Nova-3 transcribes
+   * Arabic well when it is told, and cannot detect it at all — so on an Arabic
+   * clip it returns a confident wrong language rather than an error.
+   *
+   * Used by the cross-check to break a language disagreement: a reading in a
+   * language the *other* model could never have named is not one opinion of
+   * two, and the blind model's guess must not win. Optional — a provider that
+   * does not declare it is assumed able to detect anything, which keeps the
+   * cross-check's behaviour unchanged for models that detect broadly.
+   */
+  readonly canDetectLanguage?: (bcp47: string) => boolean;
 }
 
 export interface TranscribeOptions {

@@ -80,8 +80,24 @@ export function createCrossCheckedTranscriber(options: CrossCheckOptions): Trans
         const heard = first.value.language;
         const alsoHeard = second.value.language;
         if (heard && alsoHeard && baseLanguage(heard) !== baseLanguage(alsoHeard)) {
-          return withNotes(first.value, [
-            `the two speech models heard different languages (${heard} and ${alsoHeard}), so the words are as ${primary.name} heard them rather than a mixture of the two`,
+          // Whose reading to keep is not always the primary's. A disagreement
+          // where one model *cannot detect* what the other heard is not two
+          // opinions — the blind model guessed a language it was never able to
+          // name. On an Arabic clip uploaded through an English UI, Deepgram
+          // (which cannot detect Arabic) comes back with a confident wrong
+          // language and words to match, while the model that heard Arabic was
+          // right. So the reader whose language the other cannot name wins.
+          const primaryCanNameSecondary = primary.canDetectLanguage?.(alsoHeard) ?? true;
+          const secondaryCanNamePrimary = secondary.canDetectLanguage?.(heard) ?? true;
+          const trustSecondary = !primaryCanNameSecondary && secondaryCanNamePrimary;
+          const winner = trustSecondary ? second.value : first.value;
+          const winnerName = trustSecondary ? secondary.name : primary.name;
+          const blindName = trustSecondary ? primary.name : secondary.name;
+          const blindTo = trustSecondary ? alsoHeard : heard;
+          return withNotes(winner, [
+            trustSecondary || (!secondaryCanNamePrimary && primaryCanNameSecondary)
+              ? `the two speech models heard different languages (${heard} and ${alsoHeard}); ${blindName} cannot detect ${blindTo}, so the words are as ${winnerName} heard them`
+              : `the two speech models heard different languages (${heard} and ${alsoHeard}), so the words are as ${winnerName} heard them rather than a mixture of the two`,
           ]);
         }
 

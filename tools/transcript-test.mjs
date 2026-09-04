@@ -769,6 +769,64 @@ section("Two models that heard different languages are not two opinions");
   );
 }
 
+section("When one model cannot even name what the other heard, the other wins");
+{
+  /*
+    The disagreement is not symmetric. Deepgram's Nova-3 transcribes Arabic
+    when told and cannot *detect* it — Arabic is not in its detection set — so
+    an Arabic clip uploaded through an English UI comes back from Deepgram as a
+    confident wrong language with words to match («bir şey»), while ElevenLabs,
+    which detects Arabic, heard it right. Keeping the primary there ships the
+    wrong-language caption the customer paid for. The reader whose language the
+    other cannot name has to win.
+  */
+  const withDetect = (name, result, canDetectLanguage) => ({
+    ...fakeTranscriber(name, result),
+    canDetectLanguage,
+  });
+  const arabicWords = asTranscript([speech(words5, { confidence: 0.9 })], "elevenlabs/scribe_v1");
+  const turkishGuess = asTranscript([speech(["bir", "şey", "ne", "oldu", "burada"], { confidence: 0.55 })], "deepgram/nova-3");
+
+  const t = createCrossCheckedTranscriber({
+    // Deepgram can name Turkish but not Arabic — the real detection set.
+    primary: withDetect("deepgram/nova-3", { ...turkishGuess, language: "tr" }, (tag) =>
+      ["en", "tr", "de", "fr"].includes(tag.toLowerCase().split(/[-_]/)[0])),
+    secondary: withDetect("elevenlabs/scribe_v1", { ...arabicWords, language: "ar" }, () => true),
+    prepareAudio: passthroughAudio,
+  });
+  const out = await t.transcribe("/tmp/whatever.mp4");
+
+  check(
+    "the words come from the model that could hear the language",
+    out.source === "elevenlabs/scribe_v1",
+    out.source,
+  );
+  check(
+    "and they are the Arabic reading, not the Turkish guess",
+    flat(out).map((w) => w.text).join(" ") === words5.join(" "),
+    flat(out).map((w) => w.text).join(" "),
+  );
+  check(
+    "the note says why the primary was set aside",
+    (out.notes ?? []).some((n) => /cannot detect ar/i.test(n)),
+    JSON.stringify(out.notes),
+  );
+
+  // The real Deepgram transcriber declares the same thing, so the fix is not
+  // just a property of the fake above.
+  const real = createDeepgramTranscriber({ apiKey: "not-a-real-key" });
+  check(
+    "the real Deepgram transcriber knows it cannot detect Arabic",
+    real.canDetectLanguage?.("ar") === false && real.canDetectLanguage?.("ar-EG") === false,
+    `ar → ${real.canDetectLanguage?.("ar")}`,
+  );
+  check(
+    "and knows it can detect the languages it lists",
+    real.canDetectLanguage?.("en") === true && real.canDetectLanguage?.("tr") === true,
+    `en → ${real.canDetectLanguage?.("en")}`,
+  );
+}
+
 section("The second model is down");
 {
   const t = createCrossCheckedTranscriber({
