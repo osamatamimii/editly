@@ -341,6 +341,55 @@ console.log("\nA reference with no readable video says so, rather than measuring
   check("a reference with video reports its grade was measured", real.gradeMeasured === true, JSON.stringify(real.gradeMeasured));
 }
 
+console.log("\nA ten-bit reference is measured on the same scale as an eight-bit one");
+{
+  /*
+    signalstats reports its averages in the source's own bit depth, and the
+    iPhone default is 10-bit. Measured natively, a 10-bit clip's SATAVG and
+    YAVG land on a 0..1023 scale — four times the 0..255 these readings are
+    divided against — so every 10-bit reference read saturation and brightness
+    of 1.0 (clamped) and drove the grade to its ceiling on a comparison that
+    never really happened. The same picture at 8 and at 10 bits has to measure
+    the same.
+  */
+  const colour = "0x3060A0"; // a mid, clearly-not-saturated-to-1.0 blue
+  const eight = at("depth-8.mp4");
+  ff([
+    "-f", "lavfi", "-i", `color=c=${colour}:size=320x240:rate=25:duration=6`,
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", eight,
+  ]);
+  const ten = at("depth-10.mp4");
+  ff([
+    "-f", "lavfi", "-i", `color=c=${colour}:size=320x240:rate=25:duration=6`,
+    "-c:v", "libx264", "-profile:v", "high10", "-pix_fmt", "yuv420p10le", ten,
+  ]);
+
+  const s8 = await measureStyle(eight);
+  const s10 = await measureStyle(ten);
+
+  check(
+    "the 8-bit and 10-bit saturation agree",
+    Math.abs(s8.saturation - s10.saturation) < 0.05,
+    `8-bit ${s8.saturation} vs 10-bit ${s10.saturation}`,
+  );
+  check(
+    "the 8-bit and 10-bit brightness agree",
+    Math.abs(s8.brightness - s10.brightness) < 0.05,
+    `8-bit ${s8.brightness} vs 10-bit ${s10.brightness}`,
+  );
+  // The specific failure: the 10-bit reading must not be pinned at the ceiling.
+  check(
+    "the 10-bit brightness is not clamped to its maximum",
+    s10.brightness < 0.95,
+    `${s10.brightness}`,
+  );
+  check(
+    "the 10-bit saturation is not clamped to its maximum",
+    s10.saturation < 0.95,
+    `${s10.saturation}`,
+  );
+}
+
 await rm(workDir, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });
 

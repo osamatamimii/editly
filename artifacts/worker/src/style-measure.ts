@@ -170,9 +170,16 @@ export async function measureStyle(referencePath: string): Promise<StyleProfile>
   // The grade, and how much the picture moves. Sampled at 4 fps: saturation and
   // brightness do not change meaningfully between neighbouring frames, and this
   // keeps a two-minute read to a few seconds.
+  // `format=yuv420p` before `signalstats`, because signalstats reports its
+  // averages in the source's own bit depth: a 10-bit source — the iPhone
+  // default — gives SATAVG and YAVG on a 0..1023 scale, four times the 0..255
+  // these readings are divided against, so every 10-bit reference measured
+  // saturation and brightness of 1.0 (clamped) and drove the grade to its
+  // ceiling on a comparison that never happened. Converting to 8-bit first puts
+  // both the reference and the source on the one scale the constants assume.
   const statsOut = await ffmpeg([
     ...window,
-    "-vf", "fps=4,signalstats,metadata=print:file=-",
+    "-vf", "fps=4,format=yuv420p,signalstats,metadata=print:file=-",
     "-an", "-f", "null", "-",
   ]);
   const sat = numbers(statsOut, /lavfi\.signalstats\.SATAVG=([\d.]+)/g);
