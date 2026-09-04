@@ -674,9 +674,21 @@ await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForTimeout(3000);
 const after = await page.locator("body").innerText();
 await page.screenshot({ path: path.join(SHOTS, "4-done.png") }).catch(() => {});
+/*
+  In either language, read from the copy table rather than from memory.
+
+  This matched `done|AI Edited`. The product is written in both languages now
+  and Arabic is the default, so the badge on this screen says «عُدِّل آليًّا» —
+  which is the same word, and this check was failing on a screen that was
+  saying exactly what it should. Pinning the English half in a suite is how a
+  translation looks like a regression.
+*/
+const AI_EDITED = readFileSync(path.join(repoRoot, "artifacts/editly/src/lib/copy/editor.ts"), "utf8")
+  .match(/aiEdited: p\("([^"]+)", "([^"]+)"\)/);
+check("the copy table still names the finished badge", AI_EDITED !== null);
 check(
   "the editor says the edit is done rather than still thinking",
-  /done|AI Edited/i.test(after),
+  Boolean(AI_EDITED) && (after.includes(AI_EDITED[1]) || after.includes(AI_EDITED[2]) || /\bdone\b/i.test(after)),
   after.replace(/\s+/g, " ").slice(0, 200),
 );
 
@@ -684,9 +696,23 @@ check(
 // picture gets the screen. The notes are behind the header — which is a claim
 // worth checking rather than assuming, because a sheet that does not open is
 // the same as notes that were never written.
+/*
+  The claim is "it says there is something new", not "a dot is painted".
+
+  The dot is `lg:hidden` — it exists because a phone folds the conversation
+  away — so on a viewport this suite may be running at any width, its absence
+  says nothing. The header's own sentence changes in the same condition
+  (`unreadFromNoah && !chatOpen`) and is visible at every width, so the check
+  reads that, in either language, out of the copy table.
+*/
+const TAP_WHAT_I_DID = readFileSync(path.join(repoRoot, "artifacts/editly/src/lib/copy/editor.ts"), "utf8")
+  .match(/noahTapWhatIDid: p\("([^"]+)", "([^"]+)"\)/);
+check("the copy table still names the unread invitation", TAP_WHAT_I_DID !== null);
 check(
   "and it says there is something new to read",
-  (await page.getByTestId("chat-unread").count()) > 0,
+  (await page.getByTestId("chat-unread").count()) > 0 ||
+    (Boolean(TAP_WHAT_I_DID) && (after.includes(TAP_WHAT_I_DID[1]) || after.includes(TAP_WHAT_I_DID[2]))),
+  after.replace(/\s+/g, " ").slice(0, 160),
 );
 await page.getByTestId("button-toggle-chat").click().catch(() => {});
 await page.waitForTimeout(600);

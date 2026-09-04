@@ -34,6 +34,7 @@ import { withDirection } from "../lib/direct";
 import { createPlanner } from "../lib/planner";
 import { plannerAssets } from "../lib/planner-assets";
 import { MAX_IMAGES } from "../lib/shopify/product";
+import { badRequest } from "../lib/bad-request";
 
 /**
  * One planner for the process, exactly as the messages route holds one: it
@@ -49,7 +50,9 @@ router.post("/product-ads", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const body = CreateProductAdBody.safeParse({ ...req.body, id: req.body?.id ?? "" });
   if (!body.success) {
-    res.status(400).json({ error: body.error.message });
+    // See `lib/bad-request.ts`: `ZodError.message` is the issue array
+    // pretty-printed as JSON, and the client hands it to a toast.
+    badRequest(res, body.error);
     return;
   }
 

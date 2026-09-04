@@ -284,14 +284,62 @@ async function prepareOne(
   }
 }
 
-/** One pass. Returns how many were dealt with, so the loop can say so. */
+/**
+ * How often a claimed row says it is still being worked on.
+ *
+ * `claim()` writes `updated_at` once and the sweep re-claims anything in
+ * `preparing` that has not moved for ten minutes — so, exactly as the render
+ * queue's lock once did, "abandoned by a dead worker" was decided from a single
+ * sample taken before any work happened. And the work is longer than the lease
+ * it is held under: a Python repair gets `LIMITS.probe` on its own, and
+ * `intakeFace` renders eight measurement frames each with the same budget, so
+ * eighteen minutes of perfectly healthy preparation fits inside the guarded
+ * path before a single byte is downloaded or uploaded.
+ *
+ * With one worker this costs nothing and with two it is a race: A claims a
+ * large CJK face and is fourteen minutes into measuring it when B's sweep takes
+ * the same row, downloads it again, repairs it again, and both write `ready`
+ * with independently measured ratios over the same object key. Whichever
+ * finishes second wins, and captions are then sized by a measurement taken from
+ * bytes that may not be the ones in the bucket.
+ *
+ * The claim is a statement about the last few seconds now, which is what the
+ * ten-minute rule was always meant to mean. Same shape as `withLockKeptAlive`
+ * in the worker's queue, for the same reason.
+ */
+const CLAIM_RENEW_EVERY_MS = 60_000;
+
+async function withClaimKeptAlive<T>(faceId: string, work: () => Promise<T>): Promise<T> {
+  const renew = async () => {
+    try {
+      // Only while it is still ours and still being prepared: a row the sweep
+      // has already handed to somebody else must not be touched by us.
+      await db.execute(sql`
+        UPDATE caption_faces SET updated_at = now()
+         WHERE id = ${faceId} AND status = 'preparing'
+      `);
+    } catch {
+      // A failed renewal is not a reason to abandon preparation that is going
+      // fine. If the database is really gone the row is swept, which is the
+      // behaviour we want.
+    }
+  };
+  const timer = setInterval(() => void renew(), CLAIM_RENEW_EVERY_MS);
+  try {
+    return await work();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+/** One pass. Returns how many were dealt with, so the loop can say so. *//** One pass. Returns how many were dealt with, so the loop can say so. */
 export async function prepareUploadedFaces(say: Say = QUIET): Promise<number> {
   let done = 0;
   for (let i = 0; i < PER_SWEEP; i += 1) {
     const row = await claim();
     if (!row) break;
     try {
-      await prepareOne(say, row);
+      await withClaimKeptAlive(row.id, () => prepareOne(say, row));
     } catch (error) {
       /*
         Anything unexpected — storage down, the file gone, a font that crashes

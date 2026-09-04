@@ -33,8 +33,7 @@
  * same 50 MB the browser used before any of this existed.
  */
 
-const SUPABASE_URL = (process.env["SUPABASE_URL"] ?? "").replace(/\/+$/, "");
-const SERVICE_ROLE_KEY = process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "";
+import { objectStoreFrom } from "@workspace/object-store";
 
 export const VIDEOS_BUCKET = "videos";
 
@@ -68,38 +67,27 @@ export function forgetStorageLimit(): void {
  */
 export async function bucketUploadLimitBytes(): Promise<number | null> {
   if (cached && Date.now() - cached.at < CACHE_MS) return cached.bytes;
-  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    cached = { at: Date.now(), bytes: null };
-    return null;
-  }
 
+  /*
+    Asked through the seam, not by building a Supabase URL by hand.
+
+    This file constructed `<SUPABASE_URL>/storage/v1/bucket/videos` itself —
+    the exact pattern `lib/object-store` exists to remove, and which the worker
+    already stopped doing. On an R2 deployment `SUPABASE_URL` is unset, so this
+    answered null and every caller fell back to `FALLBACK_UPLOAD_BYTES`: fifty
+    megabytes, described three lines up as "Supabase's free-plan per-object
+    ceiling", enforced on a provider that has no per-object ceiling at all. The
+    migration whose entire economic case is larger files would have gone on
+    refusing anything over 50 MB, and named a limit that does not exist on the
+    provider in use.
+
+    `facts()` answers the same question for whichever store is configured, and
+    already returns `fileSizeLimit: null` where there is no ceiling — which is
+    the same "cannot say" this function has always returned.
+  */
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5_000);
-    let body: unknown;
-    try {
-      const res = await fetch(`${SUPABASE_URL}/storage/v1/bucket/${VIDEOS_BUCKET}`, {
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-        },
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        cached = { at: Date.now(), bytes: null };
-        return null;
-      }
-      body = await res.json();
-    } finally {
-      clearTimeout(timer);
-    }
-
-    // `file_size_limit` is null on a bucket with no limit of its own, which is
-    // a real answer and not a failure — it means the project's ceiling
-    // applies, and that is not a number this endpoint reports. Null either
-    // way, so the fallback speaks; the two cases differ only in a log nobody
-    // needs.
-    const raw = (body as { file_size_limit?: unknown } | null)?.file_size_limit;
+    const facts = await objectStoreFrom().facts();
+    const raw = facts?.fileSizeLimit ?? null;
     const bytes = typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
     cached = { at: Date.now(), bytes };
     return bytes;

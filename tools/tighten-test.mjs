@@ -144,8 +144,47 @@ section("A sentence begun twice keeps the attempt that finished");
   check("never the second", !touches(cuts, words[2]) && !touches(cuts, words[3]));
   check("and never what comes after it", !touches(cuts, words[4]));
 
-  const stutter = say(["the", "the", "point"]);
-  check("a one-word stutter is a false start too", T.repeatCuts(stutter).length === 1);
+  /*
+    A one-word stutter is a word *cut off* and said again — the first token is
+    shorter than the finished one. Two tokens of the same length are two
+    deliberate utterances, and the pair below is what that looks like.
+  */
+  const stutter = [
+    { start: 0, end: 0.14, text: "the" },
+    { start: 0.2, end: 0.55, text: "the" },
+    { start: 0.6, end: 0.95, text: "point" },
+  ];
+  check("a word cut off and started again is a false start too", T.repeatCuts(stutter).length === 1);
+}
+
+section("A word said twice on purpose is left alone");
+{
+  /*
+    This deleted one of them. "Very very good" lost a "very", "no no no" came
+    back as "no no", «لا لا لا» the same, and the note said only "cut 1 false
+    start" — so the person was told a stumble had been removed and what had
+    actually been removed was the word they leant on. The rule the file states
+    is that a word somebody meant is never removed; an intensifier is a word
+    somebody meant.
+  */
+  const intensifier = say(["very", "very", "good"]);
+  check("'very very good' keeps both", T.repeatCuts(intensifier).length === 0, JSON.stringify(T.repeatCuts(intensifier)));
+
+  const refusal = say(["no", "no", "no"]);
+  check("'no no no' is not 'no no'", T.repeatCuts(refusal).length === 0, JSON.stringify(T.repeatCuts(refusal)));
+
+  const arabic = say(["لا", "لا", "لا"]);
+  check("«لا لا لا» keeps all three", T.repeatCuts(arabic).length === 0, JSON.stringify(T.repeatCuts(arabic)));
+
+  const counting = say(["one", "one", "two"]);
+  check("and a count is not a stumble", T.repeatCuts(counting).length === 0, JSON.stringify(T.repeatCuts(counting)));
+
+  /*
+    Two full words is still a false start whatever their lengths: nobody says
+    "I think I think" on purpose, and that shape needs no timing evidence.
+  */
+  const phrase = say(["I", "think", "I", "think", "so"]);
+  check("while two whole words repeated are still a false start", T.repeatCuts(phrase).length === 1);
 }
 
 section("Repetition that is not a false start survives");
@@ -176,7 +215,11 @@ section("Arabic diacritics are pronunciation, not spelling");
 {
   check("«قَالَ» and «قال» normalise to one word", T.normaliseWord("قَالَ") === T.normaliseWord("قال"));
   check("and so do 'The' and 'the.'", T.normaliseWord("The") === T.normaliseWord("the."));
-  const marked = say(["قَالَ", "قال", "لي"]);
+  const marked = [
+    { start: 0, end: 0.14, text: "قَالَ" },
+    { start: 0.2, end: 0.55, text: "قال" },
+    { start: 0.6, end: 0.95, text: "لي" },
+  ];
   check("so a stutter written with marks on one of them is still a stutter", T.repeatCuts(marked).length === 1);
 }
 

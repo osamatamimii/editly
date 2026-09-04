@@ -49,7 +49,7 @@ function bundle(entry, name) {
   return pathToFileURL(outfile).href;
 }
 
-const { subjectPath, cropExpression, MIN_SUBJECT_COVERAGE } = await import(
+const { subjectPath, cropExpression, pathWithinCut, MIN_SUBJECT_COVERAGE } = await import(
   bundle("artifacts/worker/src/framing.ts", "framing.mjs")
 );
 const { trackSubject, trackNote } = await import(bundle("artifacts/worker/src/subject.ts", "subject.mjs"));
@@ -406,6 +406,94 @@ if (!haveVision) {
 }
 
 await rm(buildDir, { recursive: true, force: true });
+
+/**
+ * Evaluate the nested `if(lt(t,B),ramp,rest)` expression `cropExpression`
+ * builds, the way ffmpeg would, so the check reads the picture's position
+ * rather than the string.
+ */
+function evaluateCrop(expression, t) {
+  const body = expression.replace(/^2\*floor\(\(/, "").replace(/\)\/2\)$/, "");
+  const fn = new Function("t", `
+    const lt = (a, b) => (a < b ? 1 : 0);
+    const If = (c, a, b) => (c ? a : b);
+    return ${body.replace(/if\(/g, "If(")};
+  `);
+  return Math.floor(fn(t) / 2) * 2;
+}
+
+console.log("\nThe path is cut to the clip, not pinned to its edges");
+{
+  /*
+    `remapTime` pins a moment outside the kept material onto a seam — a
+    keyframe before the window lands at 0, one after it lands at the end — and
+    nothing dropped them. So a clip taken out of the middle of a recording
+    opened on the speaker's position at 0:00 of the *recording* and ramped
+    linearly to their position at the end of it, across the whole clip, while
+    the note said it had followed them.
+
+    A speaker walking steadily left to right through a twenty-second file, and
+    a four-second clip taken from 8s, during which they barely move.
+  */
+  const walking = [];
+  for (let i = 0; i <= 20; i += 1) walking.push({ t: i, x: 0.1 + (i / 20) * 0.8 });
+  const kept = [{ start: 8, end: 12 }];
+
+  const trimmed = pathWithinCut(walking, kept, 0);
+  check(
+    "no keyframe from outside the clip survives",
+    trimmed.every((frame) => frame.t >= -1e-9 && frame.t <= 4 + 1e-9),
+    JSON.stringify(trimmed),
+  );
+  check(
+    "the clip opens where the speaker actually was, not where they started",
+    Math.abs(trimmed[0].x - 0.42) < 0.01,
+    JSON.stringify(trimmed[0]),
+  );
+  check(
+    "and ends where they actually were, not where they finished the recording",
+    Math.abs(trimmed[trimmed.length - 1].x - 0.58) < 0.01,
+    JSON.stringify(trimmed[trimmed.length - 1]),
+  );
+
+  /*
+    The whole point is the picture: over four seconds this speaker moves an
+    eighth of the frame, so the window should barely move. Before, the
+    expression ramped across 80% of the frame in the same four seconds.
+  */
+  const expression = cropExpression(trimmed, 1920, 608);
+  const positions = [];
+  for (let t = 0; t <= 4; t += 0.5) {
+    // The expression is ffmpeg's, so read it the way ffmpeg would: the last
+    // branch whose bound is above t.
+    positions.push(Number(evaluateCrop(expression, t)));
+  }
+  const travel = Math.max(...positions) - Math.min(...positions);
+
+  // What it used to do, for the contrast: every keyframe kept, the ones
+  // outside pinned to the seams, ramped across the whole clip.
+  const pinned = walking
+    .map((frame) => ({ ...frame, t: Math.min(4, Math.max(0, frame.t - 8)) }))
+    .filter((frame, i, all) => i === 0 || frame.t > all[i - 1].t + 0.001);
+  const wasExpression = cropExpression(pinned, 1920, 608);
+  const wasPositions = [];
+  for (let t = 0; t <= 4; t += 0.5) wasPositions.push(evaluateCrop(wasExpression, t));
+  const wasTravel = Math.max(...wasPositions) - Math.min(...wasPositions);
+
+  check(
+    "the window moves as far as the speaker does and no further",
+    travel < 350 && travel < wasTravel / 2,
+    `${travel}px over 4s, against ${wasTravel}px before`,
+  );
+
+  /*
+    And a speaker who was moving *before* the clip does not drag the opening
+    hold backwards: the hold is the last position they were seen in.
+  */
+  const late = pathWithinCut(walking, [{ start: 16, end: 20 }], 0);
+  check("a clip from the end holds where they were at its start", Math.abs(late[0].x - 0.74) < 0.02, JSON.stringify(late[0]));
+}
+
 await rm(workDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

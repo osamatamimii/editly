@@ -77,6 +77,26 @@ export interface SfxSound {
    * would otherwise change the balance of the layer with nothing failing.
    */
   trimDb: number;
+  /**
+   * Where the sound's own moment is, measured from its first sample.
+   *
+   * `cue.at` is the instant the *file starts*, which is only the instant the
+   * sound arrives for a sound that begins with its transient. Most of these do.
+   * `whoosh-air` is a symmetric swell whose peak sits 0.44s in and which is 27
+   * dB down at its own start — so placing its start 60ms before a cut put its
+   * loudest point 380ms *after* the picture changed, which is the exact
+   * failure `LEAD_SECONDS` exists to prevent, and it is one of the three files
+   * the default palette rotates through on every cut.
+   *
+   * Measured per file rather than guessed, and re-measured by the suite, for
+   * the same reason `trimDb` is: a regenerated asset with a different envelope
+   * would otherwise move every accent in the product with nothing failing.
+   *
+   * A riser is the exception and the reason the field is called an anchor
+   * rather than a peak: its moment is the hole at its end, where the climb
+   * stops and the seam lands. So its anchor is its own length.
+   */
+  anchorSeconds: number;
 }
 
 /**
@@ -87,22 +107,22 @@ export interface SfxSound {
  * suite checks the folder against this list in both directions.
  */
 export const SFX_CATALOGUE: readonly SfxSound[] = [
-  { name: "whoosh-soft", role: "whoosh", seconds: 0.55, trimDb: -1.5 },
-  { name: "whoosh-fast", role: "whoosh", seconds: 0.32, trimDb: 0 },
-  { name: "whoosh-down", role: "whoosh", seconds: 0.5, trimDb: 0 },
-  { name: "whoosh-air", role: "whoosh", seconds: 0.85, trimDb: -1.5 },
-  { name: "impact-soft", role: "impact", seconds: 0.5, trimDb: -1 },
-  { name: "impact-deep", role: "impact", seconds: 0.9, trimDb: -2 },
-  { name: "impact-tight", role: "impact", seconds: 0.25, trimDb: 0 },
-  { name: "impact-snap", role: "impact", seconds: 0.18, trimDb: 0 },
-  { name: "thud", role: "impact", seconds: 0.42, trimDb: -1.5 },
-  { name: "riser-short", role: "riser", seconds: 1.0, trimDb: 0 },
-  { name: "riser-mid", role: "riser", seconds: 2.0, trimDb: 0 },
-  { name: "riser-long", role: "riser", seconds: 3.0, trimDb: 0 },
-  { name: "tick", role: "accent", seconds: 0.08, trimDb: 0 },
-  { name: "pop", role: "accent", seconds: 0.14, trimDb: -1 },
-  { name: "blip", role: "accent", seconds: 0.16, trimDb: -2.5 },
-  { name: "sweep-up", role: "accent", seconds: 0.4, trimDb: -4 },
+  { name: "whoosh-soft", role: "whoosh", seconds: 0.55, trimDb: -1.5, anchorSeconds: 0.107 },
+  { name: "whoosh-fast", role: "whoosh", seconds: 0.32, trimDb: 0, anchorSeconds: 0.032 },
+  { name: "whoosh-down", role: "whoosh", seconds: 0.5, trimDb: 0, anchorSeconds: 0.064 },
+  { name: "whoosh-air", role: "whoosh", seconds: 0.85, trimDb: -1.5, anchorSeconds: 0.443 },
+  { name: "impact-soft", role: "impact", seconds: 0.5, trimDb: -1, anchorSeconds: 0 },
+  { name: "impact-deep", role: "impact", seconds: 0.9, trimDb: -2, anchorSeconds: 0 },
+  { name: "impact-tight", role: "impact", seconds: 0.25, trimDb: 0, anchorSeconds: 0 },
+  { name: "impact-snap", role: "impact", seconds: 0.18, trimDb: 0, anchorSeconds: 0 },
+  { name: "thud", role: "impact", seconds: 0.42, trimDb: -1.5, anchorSeconds: 0 },
+  { name: "riser-short", role: "riser", seconds: 1.0, trimDb: 0, anchorSeconds: 1.0 },
+  { name: "riser-mid", role: "riser", seconds: 2.0, trimDb: 0, anchorSeconds: 2.0 },
+  { name: "riser-long", role: "riser", seconds: 3.0, trimDb: 0, anchorSeconds: 3.0 },
+  { name: "tick", role: "accent", seconds: 0.08, trimDb: 0, anchorSeconds: 0 },
+  { name: "pop", role: "accent", seconds: 0.14, trimDb: -1, anchorSeconds: 0 },
+  { name: "blip", role: "accent", seconds: 0.16, trimDb: -2.5, anchorSeconds: 0 },
+  { name: "sweep-up", role: "accent", seconds: 0.4, trimDb: -4, anchorSeconds: 0.096 },
 ];
 
 const byName = new Map(SFX_CATALOGUE.map((s) => [s.name, s]));
@@ -217,7 +237,17 @@ export function joinTimes(kept: readonly { start: number; end: number }[], overl
   const joins: number[] = [];
   let elapsed = 0;
   for (let i = 0; i < kept.length; i += 1) {
-    if (i > 0) joins.push(Math.max(0, elapsed - i * overlap));
+    /*
+      The middle of the join, not its beginning.
+
+      With a hard cut the two are the same instant. With a dissolve the join is
+      a stretch — it begins at `elapsed - i·overlap` and ends one overlap
+      later — and a whoosh placed on its beginning arrives while the outgoing
+      shot is still the one on screen, half a dissolve before anything has
+      visibly changed. Half an overlap later is the frame where the picture has
+      changed as much as it is going to, which is what a cut accent is for.
+    */
+    if (i > 0) joins.push(Math.max(0, elapsed - i * overlap + overlap / 2));
     elapsed += kept[i]!.end - kept[i]!.start;
   }
   return joins;
@@ -260,10 +290,22 @@ export function placeSoundEffects(request: SfxRequest): SfxPlacement {
 
   const budget = Math.max(1, Math.min(MAX_CUES, Math.floor(request.duration / SECONDS_PER_CUE)));
 
-  /** Placed only if nothing is already within MIN_GAP, and it fits. */
-  const place = (at: number, name: string, reason: SfxCue["reason"]): boolean => {
+  /**
+   * Lay a sound so that *it* arrives on `moment`, if it fits and nothing is
+   * already there.
+   *
+   * The cue carries the instant the file starts, because that is what
+   * `adelay` needs. Where that instant is relative to the moment is the
+   * sound's own business: `LEAD_SECONDS` of anticipation, plus however far
+   * into the file its transient sits. Callers used to subtract the lead
+   * themselves and nothing subtracted the anchor, so `whoosh-air` — one of
+   * the three files the default palette rotates through on every cut — landed
+   * 380ms after the picture changed.
+   */
+  const place = (moment: number, name: string, reason: SfxCue["reason"]): boolean => {
     const sound = byName.get(name);
     if (!sound) return false;
+    const at = moment - LEAD_SECONDS - sound.anchorSeconds;
     if (at < 0 || at > latest) return false;
     if (cues.some((c) => Math.abs(c.at - at) < MIN_GAP)) return false;
     cues.push({ sound: name, at, reason, trimDb: sound.trimDb, seconds: sound.seconds });
@@ -282,7 +324,11 @@ export function placeSoundEffects(request: SfxRequest): SfxPlacement {
     const chosen = spread(punches, keep);
     thinned += punches.length - chosen.length;
     chosen.forEach((at, i) => {
-      place(at - LEAD_SECONDS, palette.punch[i % palette.punch.length]!, "punch");
+      // A moment that cannot take a sound is one the person does not get, and
+      // the note that says how many were left out has to know about it. Only
+      // the budget used to count here, so an edit with seven cuts 0.2s apart
+      // laid four accents and reported nothing.
+      if (!place(at, palette.punch[i % palette.punch.length]!, "punch")) thinned += 1;
     });
   }
 
@@ -296,7 +342,8 @@ export function placeSoundEffects(request: SfxRequest): SfxPlacement {
       // The rotation counter advances only on a sound that was actually laid
       // down, so a join dropped for sitting next to a punch does not also skip
       // a variant and leave two identical whooshes either side of the hole.
-      if (place(at - LEAD_SECONDS, palette.cut[placed % palette.cut.length]!, "cut")) placed += 1;
+      if (place(at, palette.cut[placed % palette.cut.length]!, "cut")) placed += 1;
+      else thinned += 1;
     }
   }
 
@@ -316,9 +363,20 @@ export function placeSoundEffects(request: SfxRequest): SfxPlacement {
       it is a noise that stops; started before the video does it is half a
       riser.
     */
+    /*
+      Which of the two answers this is.
+
+      "There is no join to announce" and "there is a join and no room to climb
+      into it" are different facts, and the file goes to some trouble to keep
+      them apart — then reported the first for both, because the `>= 1.2` test
+      was inside the same branch that set the value. `placeSoundEffects({joins:
+      [0.9], onOpen: true})` answered "no-join" about a join that plainly
+      exists, and an edit with no joins at all was told there had been no room
+      before the first one.
+    */
     const seam = usable(request.joins)[0];
+    if (seam !== undefined) riserSkipped = "no-room";
     if (seam !== undefined && seam >= 1.2) {
-      riserSkipped = "no-room";
       // Longest first: a three-second lift is a better one, and the short files
       // are the fallback for an edit that cuts early.
       const candidates = [...palette.open]
@@ -326,7 +384,8 @@ export function placeSoundEffects(request: SfxRequest): SfxPlacement {
         .filter((s): s is SfxSound => Boolean(s))
         .sort((a, b) => b.seconds - a.seconds);
       for (const sound of candidates) {
-        const at = seam - sound.seconds;
+        // A riser's anchor is its end — see `anchorSeconds`.
+        const at = seam - sound.anchorSeconds;
         if (at < 0.15) continue;
         // A riser runs *into* the seam, so the sound on the seam itself is not
         // a collision — it is the landing. Only the riser's own start is

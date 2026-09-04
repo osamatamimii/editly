@@ -216,7 +216,7 @@ section("There is one upload ceiling, and it comes from the bucket");
   );
   check(
     "and the extra-files uploader is handed the ceiling rather than choosing one",
-    /ceiling: number;/.test(storage),
+    /ceiling: number \| null;/.test(storage),
     "an uploader with a default ceiling is a caller that forgot, enforcing a number unrelated to the bucket",
   );
 
@@ -234,10 +234,21 @@ section("There is one upload ceiling, and it comes from the bucket");
   }
 
   const editor = await readFile(path.join(repoRoot, "artifacts/editly/src/pages/project-editor.tsx"), "utf8");
+  /*
+    `servedCeiling`, not `uploadCeiling`, and the difference is the defect.
+
+    Both read what the server said. `uploadCeiling` then folds "the server has
+    not said yet" into the build-time fallback — 50 MB, the *free* plan's order
+    of magnitude — so for as long as the subscription query is in flight, and
+    for the whole of any failure or 401 on it, this panel told a Pro customer
+    to keep each extra file under fifty megabytes. The signing route enforces
+    the real ceiling before a byte is sent, so `null` costs one round trip and
+    a guess costs a customer.
+  */
   check(
     "and the number handed down is the served one",
-    /ceiling=\{uploadCeiling\(subscription\)\}/.test(editor),
-    "uploadCeiling reads what the server asked Storage; anything else is a guess",
+    /ceiling=\{servedCeiling\(subscription\)\}/.test(editor),
+    "servedCeiling says nothing until the server has said it; uploadCeiling guesses the free plan's number",
   );
 }
 
@@ -247,9 +258,63 @@ section("The bucket is named where somebody changing the list will read it");
   check(
     "the list says how to change the bucket with it",
     /storage\.buckets/.test(source) && /allowed_mime_types/.test(source),
-    // This is the half no test can assert. The least it can do is refuse to
-    // let the instruction be deleted.
-    "the one thing this suite cannot check is the bucket itself",
+    "an instruction nobody can read is an instruction nobody follows",
+  );
+}
+
+section("And the bucket the migrations build takes exactly what the product offers");
+{
+  /*
+    This was the half the suite said it could not check, and it could.
+
+    `UPLOAD_CONTENT_TYPES` was widened twice; the bucket was last set by
+    migration 0004, to four types. So an empty Postgres plus every file in
+    `lib/db/migrations` — the property that whole directory exists to
+    establish — produced a bucket that refused twelve of the sixteen.
+
+    Nothing failed on our side, which is why it survived. The API checks the
+    filename, decides the type, signs the ticket and writes its log line; the
+    refusal arrives as a 400 from Storage direct to the browser, on a request no
+    server of ours ever sees. A PNG logo, an MP3 bed, a WebP, an MKV and every
+    uploaded font were refused at the moment somebody pressed the button, and
+    `addMusic` and `overlayImage` — both built, both tested — could not be
+    handed a file.
+
+    Production had been widened by hand, which made it worse rather than
+    better: the database the migrations build and the database customers use
+    disagreed, so every suite that runs against a fresh one was testing a
+    narrower product than the deployed one.
+
+    Read from the migration rather than from a list here, because a third copy
+    of the list is a third thing to forget.
+  */
+  const { readdirSync } = await import("node:fs");
+  const dir = path.join(repoRoot, "lib/db/migrations");
+  const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+
+  // The last migration that says anything about the bucket's types is the one
+  // that decides them.
+  let deciding = null;
+  for (const file of files) {
+    const sql = await readFile(path.join(dir, file), "utf8");
+    if (/allowed_mime_types\s*=/.test(sql)) deciding = { file, sql };
+  }
+  check("a migration sets the bucket's types", deciding !== null, "the bucket is whatever somebody typed into a dashboard");
+
+  const declared = [...(deciding?.sql ?? "").matchAll(/'([a-z]+\/[a-z0-9.+-]+)'/g)].map((m) => m[1]);
+  const inBucket = new Set(declared);
+  const missing = UPLOAD_CONTENT_TYPES.filter((type) => !inBucket.has(type));
+  const extra = declared.filter((type) => !allowed.has(type));
+
+  check(
+    `${deciding?.file} accepts every type the product offers`,
+    missing.length === 0,
+    `${missing.join(", ")} would be refused by Storage on a request the API never sees`,
+  );
+  check(
+    "and nothing the product would never send",
+    extra.length === 0,
+    `${extra.join(", ")} is in the bucket and not in the list`,
   );
 }
 

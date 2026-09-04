@@ -132,7 +132,27 @@ export async function enrichPlan(
    * wrong when it was written; it was wrong the moment a third note was added
    * next door and nobody thought to add it here too.
    */
-  notes.push(...missingCapabilityNotes(providers.status, { transcript: needsTranscript, vision: cutsSilence }, t));
+  /*
+    Kept apart from the notes about *this* video, because one caller reads
+    only the first one.
+
+    `index.ts` throws `PlanEmptiedError(enriched.notes[0])` when nothing in the
+    plan could be applied, and that message becomes the job's `error`, the
+    sentence in the chat, and the body of the "it didn't finish" email. These
+    notes are pushed first and are facts about the deployment — "only one
+    speech model is configured, so captions rest on a single reading instead of
+    two that agree" — so on a render that failed because the clip has no speech
+    in it, that is the entire explanation the customer receives. It is true,
+    and it answers a question nobody asked.
+
+    They still reach the customer, in the same order, on every render that
+    succeeds. They are only held back from being mistaken for a reason.
+  */
+  const capabilityNotes = missingCapabilityNotes(
+    providers.status,
+    { transcript: needsTranscript, vision: cutsSilence },
+    t,
+  );
 
   let transcript: Transcript | null = null;
 
@@ -149,6 +169,10 @@ export async function enrichPlan(
       transcript = await providers.transcriber.transcribe(mediaPath, {
         ...(language ? { language } : {}),
         ...(options.language ? { expected: options.language } : {}),
+        // Which language the transcriber's own notes come back in. Separate
+        // from the two above, which are about the audio: this one is about the
+        // person reading "here is what I did".
+        ...(options.language ? { notesIn: options.language } : {}),
         /*
           Speaker labels, and only for the plan that can use them.
 
@@ -316,7 +340,29 @@ export async function enrichPlan(
       continue;
     }
 
-    if (operation.type === "zoomPunch" && operation.at.length === 0 && transcript) {
+    /*
+      `on !== "beat"` is the whole condition, and it was missing.
+
+      An empty `at` means two different things depending on `on`. For emphasis
+      it means "find them in the words", which is this block. For a beat plan it
+      means "find them in the music", which the renderer does at
+      `ffmpeg.ts`'s `zoomPunch.on === "beat" && at.length === 0` — a branch that
+      is skipped the moment anything fills `at` in.
+
+      So a plan asking for punches on the beat, on a render that also wanted
+      captions or a highlight (which is what put a transcript in scope at all),
+      had its beat grid quietly replaced by speech emphasis. Nothing failed:
+      the times are valid, the critic remaps them, ffmpeg punches, and the note
+      says "3 punch-ins". The person was told in their own chat that the punches
+      would land on the beat of the track rather than on their voice, and got
+      the opposite, on a video with music under it where the difference is
+      audible.
+
+      The predicate twenty lines up — the one that decides whether to *buy* a
+      transcript — has always had this clause, and so does the API's copy. This
+      one did not.
+    */
+    if (operation.type === "zoomPunch" && operation.on !== "beat" && operation.at.length === 0 && transcript) {
       const at = emphasisPoints(transcript);
       if (at.length > 0) {
         operations.push({ ...operation, at });
@@ -378,7 +424,18 @@ export async function enrichPlan(
   // A plan can be emptied by all of the above — captions with no recogniser and
   // punches with nothing to punch on. Rendering nothing is worse than not
   // rendering, so we say so and let the caller decide.
-  return { plan: { version: 1, operations: shaped } as EditPlan, notes, transcript };
+  /*
+    Deployment facts last, video facts first.
+
+    See the note above `capabilityNotes`: the only reader that takes one note
+    rather than all of them takes `notes[0]`, and it uses it as the reason a
+    render failed. What belongs there is what happened to this clip.
+  */
+  return {
+    plan: { version: 1, operations: shaped } as EditPlan,
+    notes: [...notes, ...capabilityNotes],
+    transcript,
+  };
 }
 
 /**

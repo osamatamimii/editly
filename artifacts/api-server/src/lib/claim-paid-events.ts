@@ -93,6 +93,42 @@ export async function claimPaidEvents(userId: string, email: string | null, curr
       currentPlan,
     );
 
+    /*
+      The plan first, then the mark. It used to be the other way round.
+
+      These are two separate statements with no transaction between them, and
+      the mark was going first — so a failure in the second (a pool exhausted, a
+      statement timeout, a serverless invocation cut short between the two) left
+      the row saying `outcome = 'applied'` with `applied_at` set, and no
+      subscription written. The catch below swallows it and answers with the old
+      plan, so the page looks entirely normal.
+
+      And it is unrecoverable in that order. The row no longer satisfies
+      `user_id IS NULL`, so the query above will never select it again on any
+      future request; the retry this file's header promises — "it is retried on
+      the next read, which is the next time they load the app" — does not exist
+      for that window. Support looking into "they say they paid and the product
+      disagrees" is shown a row that says the payment *was* applied.
+
+      Written this way round, the same failure leaves the row unclaimed and the
+      subscription written: the next page load re-selects it, `claimable`
+      declines to apply a plan the account already has, and it is marked then.
+      A repeat of work already done is the safe direction; a mark with no work
+      behind it is not.
+    */
+    if (winner) {
+      await pool.query(
+        `INSERT INTO subscriptions (user_id, plan, license_id, plan_source_at, updated_at)
+         VALUES ($1, $2, $3, $4, now())
+         ON CONFLICT (user_id) DO UPDATE
+           SET plan = EXCLUDED.plan,
+               license_id = EXCLUDED.license_id,
+               plan_source_at = EXCLUDED.plan_source_at,
+               updated_at = now()`,
+        [userId, winner.plan, winner.licenseId, winner.eventAt ?? null],
+      );
+    }
+
     // Every row for this address stops being unclaimed either way, so a payment
     // that is not worth applying is not re-examined on every page load for the
     // rest of the account's life.
@@ -106,17 +142,6 @@ export async function claimPaidEvents(userId: string, email: string | null, curr
     );
 
     if (!winner) return currentPlan;
-
-    await pool.query(
-      `INSERT INTO subscriptions (user_id, plan, license_id, plan_source_at, updated_at)
-       VALUES ($1, $2, $3, $4, now())
-       ON CONFLICT (user_id) DO UPDATE
-         SET plan = EXCLUDED.plan,
-             license_id = EXCLUDED.license_id,
-             plan_source_at = EXCLUDED.plan_source_at,
-             updated_at = now()`,
-      [userId, winner.plan, winner.licenseId, winner.eventAt ?? null],
-    );
 
     logger.info({ userId, plan: winner.plan, eventId: winner.eventId }, claimNote(winner));
     return winner.plan;

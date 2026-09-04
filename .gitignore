@@ -40,3 +40,9 @@ artifacts/api-server/.stock-test/
 # Upstream font downloads, cached by make-caption-faces.py. What is committed is
 # the built face beside it, not the file it came from.
 artifacts/worker/fonts/.sources/
+
+# Python bytecode. One of these was committed by accident and travelled through a
+# merge as a binary hunk that `git apply` refuses without a full index line — a
+# build artefact that made a patch of this repository unappliable.
+__pycache__/
+*.pyc

@@ -128,6 +128,32 @@ export function createSupabaseStore(config: SupabaseStoreConfig): ObjectStore {
       return signed ? `${base}${signed.startsWith("/") ? "" : "/"}${signed}` : null;
     },
 
+    /*
+      Supabase has no multipart we can sign, and saying so is the whole answer.
+
+      Its large-file path is `tus`, and a tus upload is authorised by the
+      person's own session against a row-level-security policy — there is no
+      form of it our server can sign and hand over. That is not a gap in this
+      driver; it is the property that made the browser talk to Supabase
+      directly in the first place, and the reason changing provider was a
+      rewrite until this package existed.
+
+      `null`, so `routes/uploads.ts` keeps handing out the tus ticket it
+      already builds. The day the provider switches, the same call answers with
+      signed parts and that branch stops being taken — which is the point.
+    */
+    async beginMultipart(): Promise<null> {
+      return null;
+    },
+
+    async completeMultipart(): Promise<void> {
+      throw new ObjectStoreError("this provider has no multipart upload to complete", null);
+    },
+
+    async abortMultipart(): Promise<void> {
+      throw new ObjectStoreError("this provider has no multipart upload to abort", null);
+    },
+
     async signedPut(key: string, options: SignedPutOptions): Promise<SignedUpload | null> {
       guardKey(key);
       const body = await json(`/object/upload/sign/${bucket}/${encodeKey(key)}`, {
@@ -170,6 +196,24 @@ export function createSupabaseStore(config: SupabaseStoreConfig): ObjectStore {
       }
     },
 
+    /*
+      Every page, or a throw. Never a short answer.
+
+      The drain used to stop at `MAX_LIST_PAGES` and return what it had, with
+      no flag and no log. The caller got a well-formed array that happened to be
+      incomplete — and the caller that matters is `listAccountObjects`, the
+      "what do you have on me" export, whose own comment says an inventory that
+      is quietly truncated "is a document claiming we hold less than we do,
+      which is the one thing this feature must not do".
+
+      It also truncated at a different total on each provider — twenty thousand
+      here, two hundred thousand on R2 — so the same account exported two
+      different inventories depending on which store was configured.
+
+      A caller that asked for one page with `limit` is asking for one page and
+      gets it; a caller that asked for everything gets everything or an error
+      it can act on.
+    */
     async list(prefix: string, options: ListOptions = {}): Promise<StoredObject[]> {
       guardPrefix(prefix);
       const folder = prefix.replace(/\/+$/, "");
@@ -201,30 +245,47 @@ export function createSupabaseStore(config: SupabaseStoreConfig): ObjectStore {
           });
         }
         if (rows.length < size) break;
+        // A full page on the last pass means there was more and we stopped.
+        // See below.
+        if (page === pages - 1 && rows.length === size && !options.limit) {
+          throw new Error(
+            `listing "${folder}" did not finish: ${MAX_LIST_PAGES} pages of ${size} and still more`,
+          );
+        }
       }
       return found;
     },
 
+    /*
+      Bounded like every other metadata call, and it was the one that was not.
+
+      `remove` is awaited from inside the worker's render loop — the retention
+      sweep runs there, before the claim, and the clips path removes the tail
+      of a previous set mid-render. `fetch` in Node has no timeout, so a
+      provider that accepts the connection and goes quiet was a queue that
+      stopped: no claims, no heartbeat, and `/healthz` still answering 200
+      because it reports whether the process is up rather than whether it is
+      doing anything. The `try/catch` around the clips call does not help — a
+      promise that never settles is not an error.
+    */
     async remove(keys: string[]): Promise<void> {
       if (keys.length === 0) return;
       for (const key of keys) guardKey(key);
-      const res = await fetch(`${base}/object/${bucket}`, {
+      await ask(`/object/${bucket}`, {
         method: "DELETE",
         headers: auth({ "Content-Type": "application/json" }),
         body: JSON.stringify({ prefixes: keys }),
       });
-      if (!res.ok) throw new Error(`delete failed: ${res.status}`);
     },
 
     async copy(from: string, to: string): Promise<void> {
       guardKey(from);
       guardKey(to);
-      const res = await fetch(`${base}/object/copy`, {
+      await ask("/object/copy", {
         method: "POST",
         headers: auth({ "Content-Type": "application/json" }),
         body: JSON.stringify({ bucketId: bucket, sourceKey: from, destinationKey: to }),
       });
-      if (!res.ok) throw new Error(`copy failed: ${res.status}`);
     },
 
     async facts(): Promise<StoreFacts | null> {

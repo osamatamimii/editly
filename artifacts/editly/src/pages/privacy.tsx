@@ -28,7 +28,7 @@
  * address. So the gaps are drawn as gaps: see `PendingDetail`, and the notice
  * at the top that goes with them.
  */
-import { PROCESSORS } from "@workspace/api-zod/processors";
+import { PROCESSORS, DATA_REGION, RETENTION, ACCOUNT_MIN_AGE } from "@workspace/api-zod/processors";
 import { Link } from "wouter";
 import { BackButton } from "@/components/back-button";
 import { PendingDetail, PendingNotice } from "@/components/pending-detail";
@@ -98,6 +98,23 @@ export default function Privacy() {
           cookie we set is a short-lived one during the few seconds of connecting a social
           account.
         </p>
+        <p>
+          {/*
+            Said because the paragraph above it invites the wrong conclusion.
+
+            "No analytics, no pixel, no third-party cookie" is true and reads as
+            "nothing leaves your browser except to us" — and the page loads its
+            typefaces from Google and Fontshare, which means both see the
+            address of everybody who opens it. Self-hosting the files would end
+            it outright and is the better fix; until then the honest thing is to
+            say it rather than let the sentence above do the work.
+          */}
+          <strong className="text-foreground">One exception, and it is the fonts.</strong> The
+          typefaces this product is set in are fetched from Google Fonts and Fontshare when a
+          page loads, so both of them see the address your browser connects from and which
+          browser it is. They receive nothing else: no account, no video, no name. We would
+          rather serve the files ourselves, and that is the fix we intend.
+        </p>
       </Section>
 
       <Section title="Who else receives something">
@@ -150,8 +167,28 @@ export default function Privacy() {
 
       <Section title="How long anything is kept">
         <p>
-          Your files stay until you delete them. Deleting a project deletes the files under it;
-          deleting your account deletes the account, its projects, and its files.
+          <strong className="text-foreground">Your videos stay until you delete them.</strong> The
+          master of every upload and every edit, for as long as the project exists. Deleting a
+          project deletes the files under it; deleting your account deletes the account, its
+          projects, and its files.
+        </p>
+        <p>
+          {/*
+            The two windows the sweep actually has.
+
+            The page said "your files stay until you delete them" and stopped
+            there, which was true only because the sweep ships in `dry` mode and
+            removes nothing. It is one environment variable away from being
+            false, and a policy that becomes a lie when a setting changes is a
+            policy nobody can rely on. `privacy-test` compares these numbers
+            against `DEFAULT_RETENTION` in the worker, so they cannot drift.
+          */}
+          Two copies beside them are not videos and do age out. A browser-playable mirror we
+          write next to each master goes {RETENTION.previewDays} days after a project was last
+          opened; losing it costs nothing you can see, because the player falls back to the
+          master on its own. And a video you uploaded and never edited goes after{" "}
+          {RETENTION.unusedSourceDays} days. Poster frames are kept: they are what your
+          dashboard is made of.
         </p>
         <p>
           One thing survives an account deletion on purpose: the record of payments, because a
@@ -160,11 +197,35 @@ export default function Privacy() {
         </p>
       </Section>
 
+      <Section title="Where your files are">
+        <p>
+          Your videos are stored and edited in {DATA_REGION.where.en}. The database, the file
+          storage and the machine that runs the edit are all there, which is also why they are
+          there: moving video across a continent on every render costs time nobody would
+          understand from the outside.
+        </p>
+        <p>
+          Some of the companies above are not. When a transcript is made, a scene is read or a
+          plan is written by a model, that part of your video goes to a provider in the United
+          States, and it goes only when the feature that needs it runs. The list above says which
+          ones always receive something and which only do when you choose. The arrangement we hold
+          with each of them for that transfer:{" "}
+          <PendingDetail what="Transfer mechanism" />.
+        </p>
+      </Section>
+
       <Section title="What you can ask for">
         <p>
-          A copy of what we hold about you, a correction, or a deletion. Deleting your account
-          from the account screen does the last one immediately and completely; write to us for
-          the others.
+          A copy of what we hold about you, a correction, or a deletion. The account screen does
+          two of those itself: <strong>Download my data</strong> gives you every row we hold in
+          one file, and deleting your account does the last one immediately and completely. Write
+          to us for a correction.
+        </p>
+        <p>
+          The export leaves out the access tokens for accounts you have connected, and says so
+          where each one would have been. A copy of one in a file is a working key to that account
+          for as long as the file exists, and handing you one would be a worse answer than the
+          gap.
         </p>
         <p>
           If you are in the EU or the UK, the lawful basis for holding your files is performing
@@ -173,10 +234,19 @@ export default function Privacy() {
         </p>
       </Section>
 
+      <Section title="If you think we have got this wrong">
+        <p>
+          Tell us first, at the address below, and we will fix it. If you are in the EU or the UK
+          and you are not satisfied with what we do about it, you also have the right to complain
+          to the data protection authority where you live. Using that right does not cost you
+          anything here.
+        </p>
+      </Section>
+
       <Section title="Children">
         <p>
-          Editly is not for people under 16, and we do not knowingly hold anything belonging to
-          one.
+          Editly is not for people under {ACCOUNT_MIN_AGE}, and we do not knowingly hold anything
+          belonging to one. The terms say the same number, and so does the sign-up screen.
         </p>
       </Section>
 

@@ -331,7 +331,13 @@ export async function readUsage(): Promise<Usage> {
            count(*) filter (where bytes_in is not null) as measured,
            count(*) filter (where bytes_in is null)     as unmeasured
       from jobs
-     where created_at >= date_trunc('month', now())
+     -- UTC, named. date_trunc on a timestamptz truncates in the session's
+     -- own timezone, and every other month boundary in this product is pinned
+     -- to UTC by hand. Supabase ships UTC so these agree today; they stop
+     -- agreeing the moment anything sets a timezone on the connection, and
+     -- then the egress on this screen is bounded differently from the minutes
+     -- beside it, with both looking right.
+     where created_at >= (date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
   `);
   const row = moved.rows[0] as { egress: string; measured: string; unmeasured: string };
 

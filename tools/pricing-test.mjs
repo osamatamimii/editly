@@ -121,14 +121,30 @@ section("An upload limit named on the page is the one the worker enforces");
     return minutes ? Number(minutes[1]) : null;
   };
 
+  /*
+    Every plan's line has to name a ceiling this check can read.
+
+    The `null` branch used to be `check(…, true)` — a pass — on the grounds
+    that a plan may sell something other than a ceiling. That was true of
+    Studio's line once, and stopped being true; the branch is now dead and its
+    comment was stale. Worse, it made a *parse failure* and a *deliberate
+    silence* the same outcome: reword any line to "half-hour files" and that
+    plan's page-against-worker comparison silently becomes a pass.
+
+    All three lines name minutes or hours today. If one genuinely stops
+    claiming a length, this check is the thing to change deliberately, which is
+    the whole difference.
+  */
+  const silent = PLANS.filter((plan) => minutesIn(plan.upload) === null).map((plan) => plan.name);
+  check(
+    "every plan's upload line names a length this check can read",
+    silent.length === 0,
+    `${silent.join(", ")} — an unreadable line is not compared against the worker at all`,
+  );
+
   for (const plan of PLANS) {
     const stated = minutesIn(plan.upload);
-    if (stated === null) {
-      // Studio's line sells seats rather than a ceiling. Saying nothing is
-      // allowed; saying the wrong number is not.
-      check(`${plan.name} names no upload ceiling, which is not a claim`, true);
-      continue;
-    }
+    if (stated === null) continue;
     check(
       `${plan.name} says ${stated} minutes and the ceiling is ${PLAN_LIMITS[plan.key].maxUploadMinutes}`,
       stated === PLAN_LIMITS[plan.key].maxUploadMinutes,
@@ -167,11 +183,34 @@ const CLAIMS = {
     kind: "enforced",
     holds: (limits) => limits.watermark === false,
   },
+  /*
+    The one line on this page that is not true yet, filed as what it is.
+
+    It was `kind: "enforced"` with `holds: (limits) => limits.minutesPerMonth > 0`
+    — which is true of all four plans including free, so the check could not
+    fail, and the comment beside it argued against itself: "re-asking costs a
+    render, and a render costs minutes, so this is only true because the meter
+    counts finished output rather than attempts". Counting finished output
+    rather than attempts is a distinction for renders that *fail*. Every
+    re-ask that succeeds produces output and is billed for it.
+
+    And the product has already acted on the sentence: `project-editor.tsx`
+    deliberately dropped its "you have used all your edits" branch, on the
+    stated grounds that the pricing page promises unlimited edits.
+
+    Concretely: free plan, five minutes, a two-minute clip. "Add captions" —
+    2 minutes billed. "Now cut the silences" — about 1.8. "Make it vertical" —
+    about 1.8. Exhausted after three sentences about one two-minute video, by a
+    person the page told that asking again was free.
+
+    The rule in this repository is that a line on the page which is not built
+    stays there and gets built toward. So it stays, and it is a promise until
+    the meter charges a project once a month rather than once a render — which
+    is what `builtWhen` is watching for.
+  */
   "Unlimited edits. Asking again is free": {
-    kind: "enforced",
-    // Re-asking costs a render, and a render costs minutes — so this is only
-    // true because the meter counts finished output rather than attempts.
-    holds: (limits) => limits.minutesPerMonth > 0,
+    kind: "promised",
+    builtWhen: /\bchargeOncePerProject\b|\bprojectMonthlyCharge\b|\bbilledOncePerProject\b/,
   },
   "Match the style of a video you like": {
     kind: "enforced",
@@ -219,6 +258,35 @@ section("Every claim on the page is one somebody has justified");
       `"${line.slice(0, 46)}${line.length > 46 ? "…" : ""}" is true of every plan it is shown beside`,
       broken.length === 0,
       broken.map((p) => p.name).join(", "),
+    );
+  }
+
+  /*
+    And the promised ones, held to the same rule the card promises are:
+    still on the page, still not built, and reclassified the day they are.
+  */
+  const appSource = readdirSync(path.join(repoRoot, "artifacts"), { recursive: true })
+    .filter((f) => typeof f === "string" && /\.(ts|tsx)$/.test(f) && !f.includes("node_modules"))
+    .map((f) => {
+      try {
+        return readFileSync(path.join(repoRoot, "artifacts", f), "utf8");
+      } catch {
+        return "";
+      }
+    })
+    .join("\n");
+
+  for (const [line, claim] of Object.entries(CLAIMS)) {
+    if (claim.kind !== "promised") continue;
+    check(
+      `"${line.slice(0, 46)}${line.length > 46 ? "…" : ""}" is still on the page rather than quietly deleted`,
+      SHARED_FEATURES.includes(line),
+      "a promise removed instead of delivered",
+    );
+    check(
+      "and still filed as a promise rather than as a feature nobody reclassified",
+      !claim.builtWhen.test(appSource),
+      `${line} appears to be built now — move it back to enforced with a holds() that means something`,
     );
   }
 }
@@ -305,6 +373,71 @@ section("Paying more never buys less");
     FREE_TIER.lines.some((line) => /mark|watermark/i.test(line)) === PLAN_LIMITS.free.watermark,
   );
   check("it costs nothing, and says so", FREE_TIER.price === 0 && PLAN_LIMITS.free.pricePerMonth === 0);
+
+  /*
+    And it does not claim to include what it does not include.
+
+    The line was "Every editing feature, so you can judge the result", beside a
+    plan whose `referenceStyle` is false and whose `maxHeight` is below the
+    paid tiers — and the dashboard repeated it in the band a free customer
+    reads every day. The editor then offered the reference control with no
+    gate, so the way somebody found out was a finished 25 MB upload followed by
+    "That's a paid feature".
+
+    Written as a relationship rather than as a banned phrase: any free-tier
+    line that claims *all* of something has to be true of a plan that is
+    strictly smaller than the cheapest paid one, and it never can be.
+  */
+  const cheapestPaid = PLAN_LIMITS[ordered[0].key];
+  const freeIsSmaller =
+    PLAN_LIMITS.free.referenceStyle !== cheapestPaid.referenceStyle ||
+    PLAN_LIMITS.free.maxHeight !== cheapestPaid.maxHeight ||
+    PLAN_LIMITS.free.watermark !== cheapestPaid.watermark;
+  const claimsEverything = FREE_TIER.lines.filter((line) =>
+    /\b(every|all)\b[^.]*\b(feature|features|tool|tools)\b/i.test(line),
+  );
+  /*
+    And the same claim in Arabic, which is the language most of these readers
+    are in.
+
+    The English line was withdrawn and the Arabic was not, so the claim went on
+    being made to the default audience for as long as nobody happened to read
+    that file. This guard did not catch it because it was written as an English
+    regexp, and `landing-test` compares digits — neither of them could see a
+    sentence in the other language.
+
+    `كل ميزات` is "every feature" and `جميع الميزات` is the other way to say
+    it; both are pinned rather than a general rule, because a rule about Arabic
+    prose written by somebody matching patterns is a rule that fails in both
+    directions.
+  */
+  const arabicCopy = readFileSync(
+    path.join(repoRoot, "artifacts/editly/src/lib/landing-copy.ts"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const arabicClaims = /(كل|جميع)\s+(ال)?ميزات/.test(arabicCopy);
+  check(
+    "nor does the Arabic card, which is the one most people read",
+    !(freeIsSmaller && arabicClaims),
+    "the English claim was withdrawn and the Arabic was left saying it",
+  );
+
+  check(
+    "the free tier does not say it has every feature while having fewer than the cheapest paid plan",
+    !(freeIsSmaller && claimsEverything.length > 0),
+    `${claimsEverything.join(" | ")} — free lacks ${[
+      PLAN_LIMITS.free.referenceStyle ? null : "reference styling",
+      PLAN_LIMITS.free.maxHeight < cheapestPaid.maxHeight ? "the paid resolution" : null,
+    ].filter(Boolean).join(" and ")}`,
+  );
+  check(
+    "and the dashboard's free band does not say it either",
+    !/every editing feature/i.test(readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/dashboard.tsx"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "")
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")),
+    "the band under the dashboard heading still repeats the claim",
+  );
 
   // The free tier still has to make sense
   // against the cheapest paid one — it is what everybody starts on.
@@ -397,7 +530,7 @@ console.log("\nThe sentence under the paid buttons matches the checkout it opens
   check("and the Arabic says the same number", arabic.includes(days ?? " "), arabic);
 }
 
-console.log("\nA paid reference does not survive a downgrade");
+section("A paid reference does not survive a downgrade");
 {
   /*
     Matching another video's look is a paid feature, and the project remembers
@@ -431,9 +564,23 @@ console.log("\nA paid reference does not survive a downgrade");
   // raw — the raw read is exactly the bug.
   const startRender = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/start-render.ts"), "utf8");
   const exports = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/exports.ts"), "utf8");
+  /*
+    Either spelling, because the value moved and the property did not.
+
+    This matched `referencePath: referenceForPlan(...)` at the insert. The
+    reference is now decided a few lines earlier, beside the allowance and
+    inside the same transaction — deliberately, so a job can never be written
+    with one plan's minutes and another plan's reference. The claim being made
+    here is that the stored path reaches the row *through the helper*, so both
+    the inline call and a binding named `referencePath` that is assigned from
+    it satisfy it; what must never appear is the raw read.
+  */
+  const gatedInline = /referencePath:\s*referenceForPlan\(/.test(startRender);
+  const gatedByBinding =
+    /const referencePath = referenceForPlan\(/.test(startRender) && /^\s*referencePath,$/m.test(startRender);
   check(
     "start-render gates the reference on the plan",
-    /referencePath:\s*referenceForPlan\(/.test(startRender) &&
+    (gatedInline || gatedByBinding) &&
       !/referencePath:\s*project\.referenceVideoPath\s*\?\?\s*null/.test(startRender),
     "start-render.ts",
   );

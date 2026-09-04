@@ -19,6 +19,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -51,7 +52,7 @@ const { parseElevenLabs, createElevenLabsTranscriber } = await import(
 const { createCrossCheckedTranscriber } = await import(
   bundle("artifacts/worker/src/providers/cross-check.ts", "cross-check.mjs")
 );
-const { createDeepgramTranscriber, parseDeepgram } = await import(
+const { createDeepgramTranscriber, extractSpeechAudio, parseDeepgram } = await import(
   bundle("artifacts/worker/src/providers/deepgram.ts", "deepgram-provider.mjs")
 );
 const { resolveProviders, missingCapabilityNotes } = await import(
@@ -1020,6 +1021,106 @@ section("Which models are configured decides which pipeline runs");
   });
   check("no key is carried back out of the resolver", SECRETS.every((s) => !exposed.includes(s)), exposed);
   check("nor is one reachable as a property", SECRETS.every((s) => !Object.values(resolved.transcriber ?? {}).includes(s)));
+}
+
+section("The notes a transcriber writes are in the language the person asked in");
+{
+  /*
+    These strings are not diagnostics. `enrich.ts` pushes them straight into
+    the render notes, and `index.ts` writes those into the conversation, word
+    for word, under "here is what I did".
+
+    They were English. So an Arabic customer's summary read Arabic, then "the
+    second speech model was unavailable (elevenlabs 503), so the words are as
+    deepgram/nova-3 heard them and were not cross-checked", then Arabic again:
+    a conversation that changes language halfway through and back, which is the
+    exact failure `say.ts` was written to end.
+
+    `say.ts` makes both halves *required arguments* so a note cannot be written
+    without its Arabic. A plain string literal is the one seam that rule cannot
+    reach across, and these were plain string literals.
+  */
+  const arabic = /[\u0600-\u06ff]/;
+
+  const empty = mergeTranscripts(
+    asTranscript([speech(["we", "shipped"], { confidence: 0.9 })], "dg"),
+    { segments: [], language: null, source: "el" },
+    "ar",
+  );
+  check("an unusable second opinion says so in Arabic when asked in Arabic", arabic.test(empty.notes[0] ?? ""), empty.notes[0]);
+
+  const english = mergeTranscripts(
+    asTranscript([speech(["we", "shipped"], { confidence: 0.9 })], "dg"),
+    { segments: [], language: null, source: "el" },
+    "en",
+  );
+  check("and in English when asked in English", !arabic.test(english.notes[0] ?? ""), english.notes[0]);
+
+  /*
+    And the three the cross-checker writes itself, which are the ones a person
+    is most likely to see: a provider being briefly unavailable is an ordinary
+    Tuesday, not an exceptional branch.
+  */
+  const failing = { name: "elevenlabs/x", transcribe: async () => { throw new Error("503"); } };
+  const working = {
+    name: "deepgram/x",
+    transcribe: async () => asTranscript([speech(["we", "shipped"], { confidence: 0.9 })], "dg"),
+  };
+  const crossed = createCrossCheckedTranscriber({
+    primary: working,
+    secondary: failing,
+    // No extraction: this is about the sentence, not about ffmpeg.
+    prepareAudio: async (p) => p,
+  });
+  const withArabicNotes = await crossed.transcribe("clip.mp4", { notesIn: "ar" });
+  check(
+    "a model that was unavailable says so in the person's language",
+    (withArabicNotes.notes ?? []).some((n) => arabic.test(n)),
+    JSON.stringify(withArabicNotes.notes),
+  );
+
+  const withEnglishNotes = await crossed.transcribe("clip.mp4", { notesIn: "en" });
+  check(
+    "and in English when that is what they wrote in",
+    (withEnglishNotes.notes ?? []).every((n) => !arabic.test(n)),
+    JSON.stringify(withEnglishNotes.notes),
+  );
+
+  // And `enrich` actually passes it, because a parameter nothing sets is a
+  // parameter that does nothing.
+  const enrich = readFileSync(path.join(repoRoot, "artifacts/worker/src/enrich.ts"), "utf8");
+  check("and the caller sets it from the job's language", /notesIn: options\.language/.test(enrich));
+}
+
+section("A long source is decoded once for both models, not three times");
+{
+  /*
+    `cross-check` extracts a 16 kHz FLAC and hands the *path* to both
+    providers. Both then ran `extractSpeechAudio` again on whatever they were
+    given, so a two-hour podcast was decoded and FLAC-encoded three times per
+    render — and the header of `cross-check.ts` described a saving the code did
+    not make. Re-encoding FLAC to FLAC succeeds and produces an equivalent
+    file, which is why nothing noticed.
+
+    The half that makes this safe is ownership: a provider handed a shared file
+    must not delete it in its `finally`, because the other model is reading it
+    at the same time under `Promise.allSettled`.
+  */
+  const alreadyExtracted = "/tmp/editly-asr-xyz/speech.flac";
+  check(
+    "an already-extracted file is handed straight back",
+    (await extractSpeechAudio(alreadyExtracted)) === alreadyExtracted,
+  );
+
+  for (const provider of ["deepgram", "elevenlabs"]) {
+    const source = readFileSync(path.join(repoRoot, `artifacts/worker/src/providers/${provider}.ts`), "utf8");
+    check(
+      `${provider} deletes only what it created`,
+      /const ours = audio !== mediaPath;/.test(source) &&
+        /if \(ours\) await rm\(path\.dirname\(audio\)/.test(source),
+      "deleting a shared file removes it from under the other model, which is running concurrently",
+    );
+  }
 }
 
 section("No word is dropped in the gap between Deepgram's sentences");

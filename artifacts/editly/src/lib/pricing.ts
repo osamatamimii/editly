@@ -113,7 +113,24 @@ export const FREE_TIER = {
   lines: [
     "5 minutes of finished video a month",
     "Upload clips up to 10 minutes",
-    "Every editing feature, so you can judge the result",
+    /*
+      It said "Every editing feature, so you can judge the result", and that is
+      not true: `PLAN_LIMITS.free.referenceStyle` is false, and matching another
+      video's style is the feature this codebase calls "the thing nobody else
+      does". 4K is not on it either.
+
+      The rule here is that a line on the page which is not built stays and
+      gets built toward — and that rule is about promises. This was not a
+      promise; it was a statement of present fact about what the free plan
+      includes, and it was wrong. The Studio card two blocks up already settled
+      this exact dilemma the same way: say the enforced things, label the
+      promised ones, and never let a card assert something the server refuses.
+
+      What the line is actually for survives intact, and it is the better
+      claim anyway: this is the product, not a demonstration of it. The
+      suite ties it to `PLAN_LIMITS.free` so it cannot drift back.
+    */
+    "The real editor, not a trial version, so you can judge the result",
     "Exports carry a small Editly mark",
   ],
 } as const;

@@ -70,8 +70,12 @@ export function StockSearch({
    * least able to guess: they picked a thumbnail. A two-hundred-megabyte clip
    * downloaded through our proxy and then refused by Storage costs the wait,
    * the bandwidth, and a failure with nothing to act on.
+   *
+   * Null while the server has not said which ceiling applies. See
+   * `servedCeiling`: guessing means quoting the free plan's number at a paying
+   * customer, and the signing route enforces the real one anyway.
    */
-  ceiling: number;
+  ceiling: number | null;
 }) {
   const { t } = useLanguage();
   const [query, setQuery] = useState("");

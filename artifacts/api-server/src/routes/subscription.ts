@@ -4,9 +4,10 @@ import { db, subscriptionsTable, projectsTable } from "@workspace/db";
 import { GetSubscriptionResponse, UpdateSubscriptionBody, UpdateSubscriptionResponse } from "@workspace/api-zod";
 import { DEFAULT_PLAN, PLAN_LIMITS, planKeyFrom, uploadCeiling, type PlanKey } from "../lib/plan-limits";
 import { usageFor } from "../lib/usage";
-import { currentUserId, currentUserEmail } from "../middlewares/auth";
+import { currentUserId, verifiedUserEmail } from "../middlewares/auth";
 import { claimPaidEvents } from "../lib/claim-paid-events";
 import { effectiveUploadLimitBytes } from "../lib/storage-limits";
+import { badRequest } from "../lib/bad-request";
 
 const router: IRouter = Router();
 
@@ -92,7 +93,11 @@ router.get("/subscription", async (req, res): Promise<void> => {
   // it is the moment they are most likely to be looking for it. Never throws:
   // a failure here leaves them on the plan they had and is retried on the next
   // read.
-  const plan = await claimPaidEvents(userId, currentUserEmail(req), sub.plan);
+  //
+  // The *verified* address, not merely the one on the token: this hands over
+  // a plan somebody paid for, and Supabase issues a session before an address
+  // is confirmed. See `verifiedUserEmail`.
+  const plan = await claimPaidEvents(userId, verifiedUserEmail(req), sub.plan);
 
   const usage = await buildUsageResponse(userId, plan);
   res.json(GetSubscriptionResponse.parse(usage));
@@ -103,7 +108,7 @@ router.patch("/subscription", async (req, res): Promise<void> => {
 
   const parsed = UpdateSubscriptionBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
+    badRequest(res, parsed.error);
     return;
   }
 
@@ -127,13 +132,48 @@ router.patch("/subscription", async (req, res): Promise<void> => {
     return;
   }
 
+  /*
+    This changes what the account may do. It does not stop the card.
+
+    Freemius is the merchant of record, and nothing in this codebase calls it:
+    there is no Freemius client here, only signature verification and the
+    public checkout config. So a Pro subscriber who presses "Switch to Creator"
+    gets Creator's allowance immediately and goes on being charged $29 a month
+    until they cancel at Freemius themselves.
+
+    It is also unstable in the other direction. The Pro licence is still live,
+    so the next renewal webhook writes `plan = pro` back — which will read to
+    them as the downgrade having been undone by us.
+
+    Two things follow, and only one of them is code. The response now carries
+    `billingUnchanged` and where to go, so the screen can say it; and until a
+    Freemius client exists, this route must not be the only place that knows.
+  */
   await db
     .update(subscriptionsTable)
     .set({ plan, updatedAt: new Date() })
     .where(eq(subscriptionsTable.userId, userId));
 
+  req.log?.info({ userId, from: currentPlan, to: plan }, "a plan was reduced from inside the product");
+
   const usage = await buildUsageResponse(userId, plan);
-  res.json(UpdateSubscriptionResponse.parse(usage));
+  res.json(
+    UpdateSubscriptionResponse.parse({
+      ...usage,
+      // Only when there was something to stop. Moving between free and free
+      // has no card behind it and saying otherwise would be noise.
+      ...(currentPlan === "free"
+        ? {}
+        : {
+            billingUnchanged: {
+              was: currentPlan,
+              message:
+                "Your plan here is now smaller, and your card has not been stopped. Editly does not take the payment, so the subscription has to be cancelled where it was bought.",
+              where: "https://users.freemius.com/",
+            },
+          }),
+    }),
+  );
 });
 
 export default router;

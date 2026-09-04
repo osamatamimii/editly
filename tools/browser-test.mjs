@@ -31,6 +31,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { order } from "./lib/order.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -1104,6 +1105,59 @@ section("Checkout cannot grant anything, and hands off to a page it cannot be bl
   );
 }
 
+section("Signing in finishes the journey the link started");
+{
+  /*
+    `Protected` redirected to a bare `/login`, and both sign-in paths ended at
+    `/dashboard`. So a link to a project — shared with a collaborator, or a
+    bookmark opened after a session expired — silently meant "the dashboard":
+    the person signs in correctly, lands on the project grid, and nothing
+    anywhere says the link had been to something.
+
+    And the refusals matter more than the happy path. A sign-in page that sends
+    the browser wherever a query parameter says is an open redirect, which is
+    how a phishing link is made to begin on the real domain.
+  */
+  const after = (search) => run((s) => window.OA.afterSignIn(s), search);
+
+  check("no destination means the dashboard", (await after("")) === "/dashboard");
+  check("a project link is honoured", (await after("?next=%2Fproject%2Fabc123")) === "/project/abc123");
+  check(
+    "with its query intact, because that is where a shared timestamp lives",
+    (await after("?next=%2Fexport%2Fabc%3Fat%3D42")) === "/export/abc?at=42",
+    await after("?next=%2Fexport%2Fabc%3Fat%3D42"),
+  );
+  check(
+    "another origin is refused",
+    (await after("?next=https%3A%2F%2Fevil.example%2Fpay")) === "/dashboard",
+    await after("?next=https%3A%2F%2Fevil.example%2Fpay"),
+  );
+  check(
+    "and so is the protocol-relative spelling of one, which a browser reads the same way",
+    (await after("?next=%2F%2Fevil.example%2Fpay")) === "/dashboard",
+    await after("?next=%2F%2Fevil.example%2Fpay"),
+  );
+  check(
+    "a backslash is not a way round it",
+    (await after("?next=%2F%5Cevil.example")) === "/dashboard",
+    await after("?next=%2F%5Cevil.example"),
+  );
+  check(
+    "and it never sends anybody back to the sign-in page",
+    (await after("?next=%2Flogin")) === "/dashboard",
+    await after("?next=%2Flogin"),
+  );
+
+  // And the two ends of it are wired: the guard carries the destination, and
+  // both sign-in paths read it back.
+  const app = readFileSync(path.join(repoRoot, "artifacts/editly/src/App.tsx"), "utf8");
+  check("the guard carries where somebody was going", /next=\$\{encodeURIComponent/.test(app), "");
+  const loginPage = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/login.tsx"), "utf8");
+  check("the password path reads it back", /setLocation\(afterSignIn\(\)\)/.test(loginPage), "");
+  const oauth = readFileSync(path.join(repoRoot, "artifacts/editly/src/lib/oauth.ts"), "utf8");
+  check("and so does the OAuth round trip", /redirectTo: `\$\{window\.location\.origin\}\$\{afterSignIn\(\)\}`/.test(oauth), "");
+}
+
 section("Sign-in buttons are shown for providers that are actually switched on");
 {
   const providers = await run(() => window.OA.enabledProviders().then((s) => [...s]));
@@ -1294,10 +1348,14 @@ section("No screen can render an empty state without handling a failed one");
   );
 
   const dashboard = readFileSync(path.join(pagesDir, "dashboard.tsx"), "utf8");
+  const failureFirst = order(dashboard, 'projectsState === "failed"', 'projectsState === "empty"');
   check(
     "the dashboard checks for failure before it says the account is empty",
-    dashboard.indexOf('projectsState === "failed"') < dashboard.indexOf('projectsState === "empty"'),
-    "the empty branch comes first, which is the bug",
+    // Was `indexOf(a) < indexOf(b)`, which passes when `a` is absent — so
+    // deleting the failure branch entirely, which is the 12 August regression
+    // this section exists for, kept it green.
+    failureFirst.ok,
+    failureFirst.why || "the empty branch comes first, which is the bug",
   );
   check(
     "and a stat tile that could not be read does not print a zero",
@@ -1655,7 +1713,7 @@ section("A sign-in that failed on the way back says what happened");
   check(
     "the reason is taken off the URL before anything renders",
     main.indexOf("captureOAuthError()") > 0 &&
-      main.indexOf("captureOAuthError()") < main.indexOf("createRoot(document"),
+      order(main, "captureOAuthError()", "createRoot(document").ok,
     "reading it after the router has run reads a URL the router already discarded",
   );
   check(
@@ -1728,9 +1786,10 @@ section("Forgetting a password is not the same as losing the account");
   );
   check(
     "the reset notice does not reveal whether the address has an account",
-    // The sentence moved into the copy table, in both languages. Both halves
-    // have to keep the property: an Arabic sentence that names the account is
-    // the same leak said in Arabic.
+    // The sentence itself moved out of login.tsx and into the copy table, so
+    // it is read there now rather than off the screen. Both halves have to
+    // keep the property: an Arabic sentence that names the account is the
+    // same leak, said in Arabic.
     /If that address has an account/.test(loginCopy) &&
       /إن كان لهذا العنوان حساب/.test(loginCopy) &&
       !/[Nn]o account with th(at|is)/.test(loginCopy) &&
@@ -1762,11 +1821,28 @@ section("Nobody creates an account without being shown what they are agreeing to
   // The privacy policy says under-16s may not use the product. Saying it only
   // there, and never where an account is made, is a rule nobody was told.
   {
-    // In both languages, because it is a term of use rather than a nicety and
-    // an Arabic sign-up screen that omits it has omitted it.
+    // The sentence lives in the copy table now, in both languages, because the
+    // sign-up screen is bilingual and an Arabic screen that omits this has
+    // omitted a term of use rather than a nicety.
+    //
+    // The other branch read the screen for `ACCOUNT_MIN_AGE` and `aged {`,
+    // which is where the sentence used to be interpolated. That spelling
+    // cannot hold once the words moved into the table — but its claim can, and
+    // is the last two checks here: the number in the copy is still the number
+    // /terms and /privacy are built from, not a fourth one typed by hand.
     const copy = readSource(path.join(repoRoot, "artifacts/editly/src/lib/copy/login.ts"), "utf8");
     check("it states the age the policy already claims", /aged 16 and over/.test(copy));
     check("and says so in Arabic too", /أعمارهم 16 فأكثر/.test(copy));
+
+    const minAge = Number(
+      readSource(path.join(repoRoot, "lib/api-zod/src/processors.ts"), "utf8").match(/ACCOUNT_MIN_AGE\s*=\s*(\d+)/)?.[1],
+    );
+    check("the age the terms and the policy are built from is readable here", Number.isFinite(minAge), String(minAge));
+    check(
+      "and both halves of the sign-up line name that same number",
+      new RegExp(`aged ${minAge} and over`).test(copy) && new RegExp(`أعمارهم ${minAge} فأكثر`).test(copy),
+      `ACCOUNT_MIN_AGE is ${minAge}; a number typed by hand here disagrees with /terms and /privacy silently`,
+    );
   }
 }
 
@@ -2112,7 +2188,10 @@ section("A render that finished is a project that changed");
 
   check(
     "export.tsx refetches the project when the render settles",
-    /status === 'done'[\s\S]{0,400}?invalidateQueries\(\{ queryKey: getGetProjectQueryKey/.test(exportPage),
+    // Quote-agnostic: the branch was rewritten when the toast stopped firing on
+    // every visit, and a check that pins the quote style is a check about the
+    // formatter rather than about the refetch.
+    /status === ["']done["'][\s\S]{0,500}?invalidateQueries\(\{ queryKey: getGetProjectQueryKey/.test(exportPage),
   );
   check(
     "and now the editor does too, which is the screen people actually watch",
@@ -2206,9 +2285,26 @@ section("An export nobody on this tab started is still an export");
     "a 404 is not retried, because 'never exported' is an answer",
     /isNotFound\(error\) \? false/.test(exportPage),
   );
+  /*
+    Pinned to the property rather than to the spelling — and the spelling it
+    was pinned to was the bug.
+
+    It required `isRunning = isExporting || exportStatus?.status === 'pending'`
+    exactly, and the server never sends `pending` for a live render:
+    `exportStatusFor` answers `pending` only when there is no job row at all.
+    Everything queued or running is `processing`. So this check was green on a
+    page that went blank for the length of every render and offered a live
+    "Render & Export" button on reload — and it would have gone red the moment
+    somebody fixed it.
+  */
   check(
     "a render the server reports is treated as running whoever started it",
-    /const isRunning = isExporting \|\| exportStatus\?\.status === 'pending'/.test(exportPage),
+    /const isRunning =[\s\S]{0,200}?exportStatus\?\.status === 'processing'/.test(exportPage),
+    "the page does not treat the status a live render actually reports as running",
+  );
+  check(
+    "and the legacy status a row with no job carries is still treated as running too",
+    /const isRunning =[\s\S]{0,240}?exportStatus\?\.status === 'pending'/.test(exportPage),
   );
   check(
     "and the picker is not offered while we are still finding out",
@@ -2291,10 +2387,22 @@ section("A video dropped on the dashboard becomes a project that uploads itself"
     /await createProject\.mutateAsync[\s\S]{0,700}?stashPendingUpload/.test(dashboardSrc),
     "stash must follow a successful create, or a failed create strands the file",
   );
+  /*
+    `isAcceptableVideo`, which is the same question asked in one place.
+
+    The three doors each carried their own copy — a literal list of three media
+    types beside a regexp of three extensions — while the server's table has
+    taken nine for a long time. So a streamer dropping the file OBS had just
+    written was refused by the browser on behalf of a server that would have
+    stored it. The list is derived now, and what this check is really about is
+    unchanged: the vetting happens before a project row is created.
+  */
+  const vetted = order(dashboardSrc, "isAcceptableVideo", "createAndOpen(titleFromFilename");
   check(
     "and vets the file the same way the editor would, before creating anything",
-    dashboardSrc.indexOf("ACCEPTED_VIDEO_TYPES") < dashboardSrc.indexOf("createAndOpen(titleFromFilename"),
-    "a rejected file should cost a toast, not an empty project",
+    // Was `indexOf(a) < indexOf(b)`: deleting the type check made it pass.
+    vetted.ok,
+    vetted.why || "a rejected file should cost a toast, not an empty project",
   );
   check(
     "the editor refuses a stale stash when the project already has footage",
@@ -2351,12 +2459,29 @@ section("Every video plays where it was put");
   let videoElements = 0;
   for (const file of searched) {
     const text = withoutComments(readSrc(file, "utf8"));
-    // Each `<video` up to the end of its opening tag.
-    for (const match of text.matchAll(/<video\b[\s\S]*?>/g)) {
+    /*
+      Each `<video` up to the end of its opening tag — and the end of the tag
+      is not simply the next `>`.
+
+      It was `/<video\b[\s\S]*?>/`, which stops at the first `>` it meets, and
+      an arrow function in an attribute (`onError={() => …}`) contains one. So
+      adding a handler above `playsInline` truncated the match before the
+      attribute this check is about, and the check reported a missing
+      `playsInline` on an element that has one. A scanner that tracks brace
+      depth reads the tag the way the compiler does.
+    */
+    for (const start of [...text.matchAll(/<video\b/g)].map((m) => m.index)) {
       videoElements += 1;
-      if (!/playsInline/.test(match[0])) {
-        offenders.push(path.relative(repoRoot, file));
+      let depth = 0;
+      let end = start;
+      for (let at = start; at < text.length; at += 1) {
+        const ch = text[at];
+        if (ch === "{") depth += 1;
+        else if (ch === "}") depth -= 1;
+        else if (ch === ">" && depth === 0) { end = at; break; }
       }
+      const tag = text.slice(start, end + 1);
+      if (!/playsInline/.test(tag)) offenders.push(path.relative(repoRoot, file));
     }
   }
   check("there are video elements to check", videoElements >= 4, String(videoElements));
@@ -2407,7 +2532,7 @@ section("The editor fits a phone, which is where the owner will test it");
     "the conversation folds away on a phone without taking the input with it",
     /data-testid="button-toggle-chat"/.test(editorSrc)
       && /hidden lg:block/.test(editorSrc)
-      && editorSrc.indexOf('data-testid="input-chat"') > editorSrc.indexOf("hidden lg:block"),
+      && order(editorSrc, "hidden lg:block", 'data-testid="input-chat"').ok,
     "folding the sheet must hide the history, not the way to talk to it",
   );
   // This check used to demand `overflow-hidden` at every width, and got it —
@@ -2775,6 +2900,138 @@ section("A download saves the file rather than playing it");
   );
 }
 
+section("Nothing in the interface reports a failure as an absence, or a memory as news");
+{
+  /*
+    Four of a kind, found by reading for the shape rather than for a symptom:
+    the interface saying something happened that did not, or nothing happening
+    where something did.
+  */
+  const { readFileSync } = await import("node:fs");
+  const srcDir = path.join(repoRoot, "artifacts/editly/src");
+  const read = (file) => readFileSync(path.join(srcDir, file), "utf8");
+  const codeOf = (file) =>
+    read(file).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  /*
+    1. "Export Another Format" had nothing to set.
+
+    `currentStatus` reads `done` whenever the status query says `done`, and that
+    query returns the most recent export row forever. So the button set a flag
+    that was already false and refetched the same row; the card re-rendered
+    identically. A person who exported for TikTok could never export for Reels,
+    by pressing it or by reloading.
+  */
+  const exportPage = codeOf("pages/export.tsx");
+  check("the export screen can be sent back to the picker", /startingAnother/.test(exportPage));
+  check(
+    "and that is what the button does",
+    /button-export-another[\s\S]{0,200}?setStartingAnother\(true\)|setStartingAnother\(true\)[\s\S]{0,200}?button-export-another/.test(exportPage) ||
+      /onClick=\{\(\) => setStartingAnother\(true\)\}/.test(exportPage),
+    "it used to set a flag that was already false and refetch the same row",
+  );
+  check("cleared when an export actually starts", /setStartingAnother\(false\)/.test(exportPage));
+
+  /*
+    2. The same screen announced a settled export on every visit.
+
+    The effect keyed on the status object, which the query hands back fresh on
+    mount and on every window refocus. So opening the export page of a project
+    exported last week popped "Export Complete! Your video is ready to
+    download", and one whose last export failed popped a destructive "Export
+    Failed" about a failure from days ago, every time a tab came back.
+  */
+  check(
+    "a settled export is announced once, not on every fetch",
+    /const announced = useRef/.test(exportPage) && /announced\.current/.test(exportPage),
+  );
+  check(
+    "and an export that settled before the screen opened is history rather than news",
+    /previous === null && !isExporting/.test(exportPage),
+  );
+
+  /*
+    3. The query cache outlived whoever it belonged to.
+
+    One `QueryClient` for the app's lifetime, every key a path with no user in
+    it, and both sign-in and sign-out are client-side navigations with no
+    document reload. On a shared browser the second person to sign in mounted
+    the dashboard against the first person's cached projects and rendered them
+    while the refetch was in flight.
+  */
+  const auth = codeOf("lib/auth.tsx");
+  check("the cache is cleared when the identity changes", /queryClient\.clear\(\)/.test(auth));
+  check(
+    "on any change of who, not only on an explicit sign-out",
+    /onAuthStateChange\([\s\S]{0,200}?forget\(/.test(auth),
+    "signing in as somebody else is the case a sign-out handler misses",
+  );
+
+  /*
+    4. A plan the conversation had moved on from was still what Generate Edit
+    built.
+
+    The server returns `plan: null` whenever a sentence yields zero operations,
+    and the sentence most likely to do that is a correction. "cut the silences
+    and caption it" built a plan; "actually drop the captions" parsed to
+    nothing; the editor kept the first one and rendered the captions the person
+    had just asked to remove.
+  */
+  const editor = codeOf("pages/project-editor.tsx");
+  check(
+    "a reply that promised nothing clears what the last one promised",
+    /setChatPlan\(result\?\.plan \?\? null\)/.test(editor),
+    "`if (result?.plan)` leaves the previous plan standing",
+  );
+
+  /*
+    5. And the two silent no-ops, plus the list that read a failure as an
+    absence.
+  */
+  const library = codeOf("components/project-library.tsx");
+  check("a list that could not be read says so", /unreadable/.test(library));
+  check(
+    "rather than borrowing the words for a project with no files",
+    /library-unreadable/.test(read("components/project-library.tsx")),
+  );
+  check("and a refused delete is reported", /That file could not be removed/.test(read("components/project-library.tsx")));
+
+  for (const file of ["components/project-clips.tsx", "pages/clips.tsx"]) {
+    const source = read(file);
+    check(
+      `${file} says something when a clip cannot be fetched`,
+      /Could not fetch that clip/.test(source),
+      "a control that visibly does nothing is one somebody presses three times and then stops trusting",
+    );
+  }
+  check("and when a clip cannot be opened", /Could not open that clip/.test(read("components/project-clips.tsx")));
+
+  /*
+    6. And the delete that destroyed the bytes before the row.
+
+    The client swept Storage with the person's own token and then asked for the
+    row — so a failure on the second step showed "Failed to delete project.
+    Please try again later." over footage that was already gone. The route
+    reclaims the objects itself and refuses with a 503 when it cannot, which is
+    the property the client version did not have.
+  */
+  const dashboard = codeOf("pages/dashboard.tsx");
+  check(
+    "the dashboard no longer destroys the bytes itself",
+    !/deleteProjectVideos/.test(dashboard),
+    "the only irreversible half was running first, behind a message saying nothing happened",
+  );
+  check(
+    "and there is one place that decides, which is the one that can refuse",
+    !/deleteProjectVideos/.test(codeOf("lib/video-storage.ts")),
+  );
+  check(
+    "a create cannot be fired twice by pressing Enter twice",
+    /if \(createProject\.isPending\) return;/.test(dashboard),
+    "the button is disabled while it is in flight; the field it is next to is not",
+  );
+}
+
 section("Every internal link lands on a route this app declares");
 {
   const { readFileSync, readdirSync, statSync } = await import("node:fs");
@@ -2852,6 +3109,132 @@ section("Every internal link lands on a route this app declares");
 await browser.close();
 server.close();
 await rm(workDir, { recursive: true, force: true });
+section("The long waits announce themselves, and the buttons have names");
+{
+  /*
+    Four separate silences, and each of them looks like a working product.
+
+    **No focus indicator.** Covered in `theme-test`, because the cause was a
+    CSS token; named here because the symptom is this file's subject.
+
+    **No accessible name.** `Export` and `Generate Edit` put their words in a
+    `hidden sm:inline` span, so below 640px the text node is not rendered at
+    all and the control's name is its icon: nothing. `Send` is icon-only at
+    every width. A screen reader announced "button" for the three most
+    important actions in the product.
+
+    **No progress role.** Nothing in the whole app had `role="progressbar"` or
+    an `aria-live` region, and the two long waits in it — the upload and the
+    render — are exactly where somebody most needs to know that anything is
+    happening. A coloured div growing silently for four minutes is
+    indistinguishable from a page that has stopped.
+
+    **No way out of an upload.** `video-storage.ts` returns a `cancel` on every
+    handle, aborts the request, refuses to resume, and its own comment says
+    "the caller wires `cancel` to a button that is already on screen". There
+    was no such button: the handle was stored in a ref, cleared in two places,
+    and read by nothing. Picking the wrong 1.4 GB file meant closing the tab.
+  */
+  const { readFileSync } = await import("node:fs");
+  const srcDir = path.join(repoRoot, "artifacts/editly/src");
+  const editor = readFileSync(path.join(srcDir, "pages/project-editor.tsx"), "utf8");
+
+  for (const [what, testid] of [
+    ["Export", "button-export"],
+    ["Generate Edit", "button-generate-edit"],
+    ["Send", "button-send-message"],
+  ]) {
+    // The attribute within the same element as the testid, not merely present
+    // in the file: a name on the wrong button is the same silence.
+    const at = editor.indexOf(`data-testid="${testid}"`);
+    /*
+      This element's attributes and no other's.
+
+      A window of a fixed number of characters around the testid is not good
+      enough here: Export and Generate Edit sit next to each other in the
+      header, so a label on one of them satisfied a window centred on the
+      other — which is the same silence the check exists to catch, passing.
+
+      So the slice runs from the opening tag before the testid to the `>` that
+      closes it.
+    */
+    const opened = Math.max(editor.lastIndexOf("<Button", at), editor.lastIndexOf("<button", at));
+    const closed = editor.slice(at).search(/\n\s*>/);
+    const element = at < 0 || opened < 0 ? "" : editor.slice(opened, closed < 0 ? at : at + closed);
+    check(
+      `${what} has a name a screen reader can say`,
+      /aria-label=/.test(element),
+      `${testid} — its label is inside a span that is not rendered below 640px`,
+    );
+  }
+
+  check(
+    "the render's progress is a progressbar, with the number on it",
+    /role="progressbar"[\s\S]{0,240}aria-valuenow=\{renderJob\?\.progress/.test(editor),
+    "a coloured div growing silently is not progress to anybody who cannot see it",
+  );
+  check(
+    "and the upload's is too",
+    /role="progressbar"[\s\S]{0,240}aria-valuenow=\{uploadProgress\}/.test(editor),
+  );
+  check(
+    "with a live region on the sentence rather than on the bar",
+    (editor.match(/aria-live="polite"/g) ?? []).length >= 2,
+    "announcing a percentage on every tick is unusable; the sentence is the milestone",
+  );
+
+  check(
+    "an upload in flight can be stopped",
+    /data-testid="button-cancel-upload"/.test(editor) && /cancelUploadRef\.current\?\.\(\)/.test(editor),
+    "the cancel machinery exists in video-storage.ts and nothing called it",
+  );
+  check(
+    "and stopping one is not reported as a failure",
+    /Upload cancelled/.test(editor) && /cancelled\/i\.test\(message\)/.test(editor),
+    "the person pressed the button; apologising for it is the wrong sentence",
+  );
+
+  /*
+    And the plan that was invented when a correction produced nothing.
+
+    `chatPlan === null` meant two things — "nobody has asked for anything" and
+    "what you just asked for yielded no operations" — and the button treated
+    them as one, rendering a canned plan that reframes to a vertical platform.
+    A 16:9 podcast came back cropped to a phone after "actually drop the
+    captions".
+  */
+  check(
+    "a correction that yielded nothing does not become a canned render",
+    /saidSomething/.test(editor) && /if \(!chatPlan && saidSomething\)/.test(editor),
+    "rendering the default after a sentence answers something nobody asked",
+  );
+  check(
+    "and the default does not reshape a video nobody named a platform for",
+    !/platform: \(project\?\.platform \?\? "tiktok"\)/.test(editor),
+    "reframing is the most visible change this product makes; a default must not make it",
+  );
+
+  // The crash screen, which is mounted outside the language provider.
+  const boundary = readFileSync(path.join(srcDir, "components/error-boundary.tsx"), "utf8");
+  check(
+    "the crash screen declares its own direction",
+    /dir="ltr"/.test(boundary) && /lang="en"/.test(boundary),
+    "it is English, it sits outside LanguageProvider, and the landing page leaves the document rtl",
+  );
+
+  // And the poll that never stopped.
+  const renderHooks = readFileSync(path.join(repoRoot, "lib/api-client-react/src/render.ts"), "utf8");
+  check(
+    "the render poll gives up when the server stops answering",
+    /query\.state\.status === "error"/.test(renderHooks),
+    "it read the last *successful* answer, so a 401 on an overnight tab polled for ever behind a frozen bar",
+  );
+  check(
+    "and the screen says so rather than showing a frozen bar",
+    /renderStatusUnreachable/.test(editor),
+  );
+}
+
 await rm(entryDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

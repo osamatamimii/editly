@@ -5,6 +5,17 @@ app = "editly-worker"
 primary_region = "fra"  # same region as the Supabase project, so pulling and
                         # pushing video does not cross a continent
 
+# Long enough to put down what this machine is holding, and no longer.
+#
+# Fly sends SIGTERM and then SIGKILL, five seconds later by default. A render
+# takes minutes to hours, so no value here can mean "let it finish" — what the
+# process does with the signal is hand the job back to the queue so another
+# machine takes it immediately, and thirty seconds is a very generous ceiling
+# on one UPDATE. See `releaseHeldJob` in src/index.ts for what it costs the
+# customer when that query does not land: half an hour of a project that looks
+# stuck, and an attempt spent on a render that never failed.
+kill_timeout = "30s"
+
 [build]
   dockerfile = "Dockerfile"
 
@@ -69,6 +80,21 @@ primary_region = "fra"  # same region as the Supabase project, so pulling and
   size = "shared-cpu-1x"
   memory = "1gb"
   cpus = 1
+
+# Half a gigabyte of swap, which is not extra memory and is not meant to be.
+#
+# The piece cap keeps a render inside this box, but the cap is arithmetic on
+# measurements and the measurements were taken on particular files. A source
+# whose resolution or bitrate sits outside them goes a little over — and
+# without swap "a little over" is the OOM killer taking the process with no
+# exit code, no stderr, no output and the customer's minute spent, which is the
+# one failure mode this codebase cannot report on because nothing survives it
+# to report. With swap the same render finishes slowly and says so in its
+# duration.
+#
+# Deliberately small. Enough to absorb an overshoot; not enough to let a render
+# that is genuinely too large thrash for an hour instead of failing.
+swap_size_mb = 512
 
 [deploy]
   # Rolling, so a deploy does not empty the queue of workers for a moment. Two

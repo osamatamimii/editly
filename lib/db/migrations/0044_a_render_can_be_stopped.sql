@@ -1,0 +1,36 @@
+-- A render could be started and never stopped.
+--
+-- Nothing in the product could cancel one. A person who queued the wrong plan,
+-- or pointed at the wrong file, or simply changed their mind, had exactly one
+-- option: wait. On a long source that is hours of watching a progress bar for
+-- an output they have already decided they do not want — and the minutes come
+-- out of their month either way, because the meter charges what was read.
+--
+-- It is worse for us than for them. `jobs_one_active_per_project` means that
+-- while it runs they cannot start the render they *do* want, and the machine
+-- is spending an hour on work nobody is waiting for while the queue behind it
+-- holds people who are.
+--
+-- The same gap has a second half nobody reported, because it produces no
+-- symptom anybody could describe: deleting a project does not stop its render.
+-- The job keeps its lock, keeps its slot, keeps being retried, and finally
+-- fails three attempts later against a project that no longer exists.
+--
+-- ## Why a column and not a status
+--
+-- `status` is compared in about a hundred and seventy places across the
+-- worker, the API and the browser, and every one of them means "settled" by
+-- `done` or `failed`. A fourth value would be correct and would also be a
+-- hundred and seventy chances to miss one — and the ones missed would read a
+-- cancelled render as still running, which is the exact bug this is fixing.
+--
+-- So a cancelled render is a `failed` one that carries the reason. Everything
+-- that asks "is this still going" keeps working untouched, and the three
+-- places that should behave differently — the sentence the person reads, the
+-- apology mail, and whether it is retried — ask this column.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS cancelled_at timestamptz;
+
+-- Read by the worker on every progress report, against the row it already
+-- holds by primary key, so no index is needed for that. This one is for the
+-- other direction: the console asking how much work is being thrown away.
+CREATE INDEX IF NOT EXISTS jobs_cancelled_idx ON jobs (cancelled_at) WHERE cancelled_at IS NOT NULL;

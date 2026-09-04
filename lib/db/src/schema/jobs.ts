@@ -203,6 +203,23 @@ export const jobsTable = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+
+    /**
+     * When the person asked us to stop.
+     *
+     * A cancelled render is a `failed` one that carries the reason, rather
+     * than a fourth status — `status` is compared in about a hundred and
+     * seventy places and every one of them means "settled" by `done` or
+     * `failed`, so a new value would be a hundred and seventy chances to miss
+     * one, and each miss would read a stopped render as still running.
+     *
+     * Three things ask this column, and nothing else needs to: the sentence
+     * the person reads (their own decision, not our failure), whether the
+     * apology mail goes out (it must not), and whether it is retried (it must
+     * not be). Set while the job is still `running` it is a *request*: the
+     * worker reads it at the next progress report and stops.
+     */
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   },
   (t) => [
     index("jobs_user_project_idx").on(t.userId, t.projectId, t.createdAt),

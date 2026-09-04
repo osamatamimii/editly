@@ -59,6 +59,18 @@ const MAX_PERIOD_S = 1.2;
  */
 const MIN_CONFIDENCE = 0.3;
 
+/**
+ * How much louder the envelope has to be on the grid than off it.
+ *
+ * The confidence above is a claim that the envelope repeats, and a held chord
+ * repeats: two partials that are not bin-centred beat against each other at a
+ * steady rate, and a sustained pad measured 0.947 — higher than the click track
+ * this was tuned against. Twenty punches on a track with nothing struck in it.
+ * See `gridContrast` for the measurements; three sits in the middle of a gap
+ * between 2.6 and 15.
+ */
+const MIN_GRID_CONTRAST = 3;
+
 export interface BeatGrid {
   /** Seconds, from the start of the audio. */
   beats: number[];
@@ -181,35 +193,125 @@ export function periodOf(env: Float32Array): { lag: number; confidence: number }
   const minLag = Math.round((MIN_PERIOD_S * SAMPLE_RATE) / HOP);
   const maxLag = Math.min(Math.round((MAX_PERIOD_S * SAMPLE_RATE) / HOP), x.length - 1);
   const scores: number[] = [];
-  let bestLag = 0;
-  let bestScore = 0;
-  for (let lag = minLag; lag <= maxLag; lag += 1) {
+  // One lag either side of the range as well, so the interpolation below has
+  // neighbours at both edges: without them the fastest tempo the detector
+  // admits is refined against itself, and 196 to 200 bpm came back as nothing.
+  const from = Math.max(1, minLag - 1);
+  const to = Math.min(x.length - 1, maxLag + 1);
+  for (let lag = from; lag <= to; lag += 1) {
     let s = 0;
     for (let i = 0; i + lag < x.length; i += 1) s += x[i]! * x[i + lag]!;
-    const score = s / energy;
-    scores[lag] = score;
-    if (score > bestScore) { bestScore = score; bestLag = lag; }
+    scores[lag] = s / energy;
   }
-  if (bestLag === 0) return { lag: 0, confidence: 0 };
 
   /**
-   * A whole number of frames is not a tempo.
+   * A whole number of frames is not a tempo — and it is not a fair comparison
+   * either.
    *
    * The lag is measured in 11.6 ms steps, so the closest integer to 90 bpm is
-   * 90.67 — three quarters of a percent out. That reads as correct on a
-   * twelve-second fixture and drifts a third of a second over a minute, which
-   * is punches that start on the beat and end up between them. This is exactly
-   * the defect the fixtures caught: the tempo was right and the *grid* was not.
+   * 90.67, three quarters of a percent out: a grid that reads as correct on a
+   * twelve-second fixture and drifts a third of a second over a minute. The
+   * autocorrelation is smooth around its peak, so a parabola through the three
+   * points either side gives the fractional lag the samples imply.
    *
-   * The autocorrelation is smooth around its peak, so a parabola through the
-   * three points either side of it gives the fractional lag the samples imply.
+   * The parabola's *height* matters just as much, and that was the bug. The
+   * winner used to be chosen by comparing raw integer samples, and the true
+   * lag almost never lands on one — so whichever multiple of it happened to
+   * fall closest to a whole frame won. On a 128 bpm click track the true lag is
+   * 40.37 frames: `scores[40]` is 0.837 and `scores[81]` — the double — is
+   * 0.866, so the detector reported 64 bpm. Nineteen of the seventy-one tempos
+   * between 60 and 200 came back as an integer sub-multiple, 128 and 170 among
+   * them. Interpolating first puts the two peaks within a per cent of each
+   * other, which is what they are.
    */
-  const left = scores[bestLag - 1] ?? bestScore;
-  const right = scores[bestLag + 1] ?? bestScore;
-  const curvature = left - 2 * bestScore + right;
-  const shift = curvature === 0 ? 0 : (0.5 * (left - right)) / curvature;
-  const lag = bestLag + (Math.abs(shift) < 1 ? shift : 0);
-  return { lag, confidence: bestScore };
+  const refine = (lag: number): { lag: number; score: number } => {
+    const centre = scores[lag] ?? 0;
+    const left = scores[lag - 1] ?? centre;
+    const right = scores[lag + 1] ?? centre;
+    const curvature = left - 2 * centre + right;
+    const raw = curvature === 0 ? 0 : (0.5 * (left - right)) / curvature;
+    const shift = Math.abs(raw) < 1 ? raw : 0;
+    return { lag: lag + shift, score: centre - 0.25 * (left - right) * shift };
+  };
+
+  let best = { lag: 0, score: 0 };
+  let bestInteger = 0;
+  for (let lag = minLag; lag <= maxLag; lag += 1) {
+    const peak = refine(lag);
+    if (peak.score > best.score) {
+      best = peak;
+      bestInteger = lag;
+    }
+  }
+  if (bestInteger === 0) return { lag: 0, confidence: 0 };
+
+  /*
+    And then down an octave, where the octave is really there.
+
+    A signal that repeats every L frames also repeats every 2L and every 3L, so
+    the autocorrelation has peaks at all of them and the tallest is not always
+    the fastest. Interpolation removes the accident above; this removes the
+    ambiguity underneath it. The faster reading is taken when its own peak is
+    within a tenth of the slower one — on a click track there is nothing at
+    half the period and the test simply fails, which is the point.
+  */
+  const OCTAVE_TOLERANCE = 0.9;
+  for (const divisor of [3, 2]) {
+    const around = Math.round(bestInteger / divisor);
+    if (around < minLag) continue;
+    let faster = { lag: 0, score: 0 };
+    for (let lag = Math.max(minLag, around - 2); lag <= Math.min(maxLag, around + 2); lag += 1) {
+      const peak = refine(lag);
+      if (peak.score > faster.score) faster = peak;
+    }
+    if (faster.lag > 0 && faster.score >= best.score * OCTAVE_TOLERANCE) {
+      return { lag: faster.lag, confidence: faster.score };
+    }
+  }
+
+  return { lag: best.lag, confidence: best.score };
+}
+
+/**
+ * How much louder the envelope is on the grid than it is on average.
+ *
+ * The confidence above says the envelope *repeats*; it does not say the
+ * envelope has onsets in it. Two partials of a held chord that are not
+ * bin-centred beat against each other, and the beating is periodic, so a
+ * sustained pad with nothing struck in it scored 0.947 — higher than the click
+ * track this detector was tuned against. Measured on twelve fixtures, the two
+ * kinds of input do not overlap anywhere near each other:
+ *
+ *     click tracks 100-170 bpm   15.1 - 25.3      held triad          1.32
+ *     kick and pad, 100 bpm             17.1      Fmaj7 pad           2.56
+ *                                                 lofi pad, crackle   1.31
+ *                                                 low-passed noise    1.12
+ *                                                 speech              1.77
+ *                                                 pink noise          1.11
+ *
+ * A struck sound is several times the average flux by construction; a beat
+ * that is only a phase of a smooth oscillation is about 1.4, which is what the
+ * peak of a sine is. The gate sits at three, with the whole gap either side.
+ */
+export function gridContrast(env: Float32Array, lag: number): number {
+  if (lag <= 0 || env.length === 0) return 0;
+  let total = 0;
+  for (const value of env) total += value;
+  const mean = total / env.length;
+  if (mean <= 0) return 0;
+
+  let strongest = 0;
+  for (let offset = 0; offset < Math.ceil(lag); offset += 1) {
+    let hit = 0;
+    let count = 0;
+    for (let at = offset; at < env.length; at += lag) {
+      hit += env[Math.round(at)] ?? 0;
+      count += 1;
+    }
+    const average = hit / Math.max(1, count);
+    if (average > strongest) strongest = average;
+  }
+  return strongest / mean;
 }
 
 /**
@@ -253,6 +355,9 @@ export async function beatsOf(file: string): Promise<BeatGrid | null> {
   const env = onsetEnvelope(samples);
   const { lag, confidence } = periodOf(env);
   if (lag <= 0 || confidence < MIN_CONFIDENCE) return null;
+  // A repeating envelope is not the same claim as a struck one. See
+  // `gridContrast` for the twelve fixtures this number comes from.
+  if (gridContrast(env, lag) < MIN_GRID_CONTRAST) return null;
 
   const offset = phaseOf(env, lag);
   const beats: number[] = [];

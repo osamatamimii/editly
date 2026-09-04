@@ -322,6 +322,46 @@ section("The migrations in the repository build the schema the code expects");
     }
   }
   check("and nothing the code has never heard of", orphans.length === 0, orphans.join(", "));
+
+  /*
+    And the unique indexes, which are the part of the schema that decides
+    whether the product is *correct* rather than whether it runs.
+
+    `jobs_one_active_per_project` is a partial unique index created by a
+    migration of its own, and it is the whole of the defence against a
+    double-clicked Export producing two encodes of one clip, both billed. Its
+    comment in the Drizzle schema says "declared here so the schema check knows
+    it exists" — and the schema check read columns and nothing else, so with
+    that migration unapplied `/healthz` answered green and a Creator customer
+    lost their month to one double-click.
+  */
+  const indexPool = attach(new Pool({ connectionString: scratchUrl, max: 1 }));
+  const { rows: indexRows } = await indexPool.query(
+    "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'",
+  );
+  await indexPool.end();
+  const presentIndexes = new Set(indexRows.map((r) => r.indexname));
+
+  const declaredIndexes = health.expectedUniqueIndexes();
+  check(
+    "the code declares the index that stops one project rendering twice",
+    declaredIndexes.has("jobs_one_active_per_project"),
+    [...declaredIndexes].join(", "),
+  );
+  const missingIndexes = health.compareIndexes(declaredIndexes, presentIndexes);
+  check(
+    "and the migrations create every unique index the code declares",
+    missingIndexes.length === 0,
+    `${missingIndexes.join(", ")} — declared in the schema and never created, so nothing enforces it`,
+  );
+  check(
+    "the comparison itself notices an absent one",
+    health.compareIndexes(new Set(["never_created"]), presentIndexes).length === 1,
+  );
+  check(
+    "and does not invent one that is there",
+    health.compareIndexes(new Set(["jobs_one_active_per_project"]), presentIndexes).length === 0,
+  );
 }
 
 /**
@@ -356,6 +396,48 @@ section("The health check, against a real database rather than a fixture");
   check("a fully migrated database is reachable", healthy.reachable === true, JSON.stringify(healthy));
   check("and reports nothing missing", healthy.missingColumns?.length === 0, JSON.stringify(healthy));
   check("with no error to explain", healthy.error === undefined, String(healthy.error));
+  check(
+    "and it looked at the indexes as well as the columns",
+    Array.isArray(healthy.missingIndexes) && healthy.missingIndexes.length === 0,
+    JSON.stringify(healthy.missingIndexes),
+  );
+}
+
+section("The index whose absence costs a customer their month");
+{
+  /*
+    Columns were the whole of this check, and a schema is not only its columns.
+
+    `jobs_one_active_per_project` is created by `0013`, which is a
+    `CREATE UNIQUE INDEX IF NOT EXISTS` in a migration of its own — exactly the
+    class of migration that gets skipped, and exactly the class this module was
+    written after five of them were. With it missing, every column still
+    exists, so `/healthz` answered `{status: "ok"}` while a double-clicked
+    Export produced two encodes of one four-minute clip on a Creator plan with
+    eight minutes left. One video, the whole month, one export row shown.
+  */
+  await recreateScratch();
+  const applied = runMigrations(scratchUrl);
+  check("the scratch database migrates cleanly first", applied.status === 0, (applied.stderr || applied.stdout || "").slice(0, 200));
+  // Every migration applied, and then the one index dropped — which is what an
+  // unapplied 0013 looks like from here, without having to rebuild the schema
+  // as it was before that migration existed.
+  const pool = attach(new Pool({ connectionString: scratchUrl, max: 1 }));
+  await pool.query("DROP INDEX IF EXISTS jobs_one_active_per_project");
+  await pool.end();
+
+  const noIndex = askHealth(scratchUrl);
+  check("the database is reachable, and every column is there", noIndex.reachable === true && noIndex.missingColumns?.length === 0, JSON.stringify(noIndex));
+  check(
+    "so nothing about the columns would have said a word",
+    noIndex.missingColumns?.length === 0,
+    JSON.stringify(noIndex.missingColumns),
+  );
+  check(
+    "and the index is named",
+    noIndex.missingIndexes?.includes("jobs_one_active_per_project"),
+    JSON.stringify(noIndex.missingIndexes),
+  );
 }
 
 section("A database in the state production was actually in");

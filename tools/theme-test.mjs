@@ -22,6 +22,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { order } from "./lib/order.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CSS_PATH = "artifacts/editly/src/index.css";
@@ -264,6 +265,19 @@ console.log("\nText stays readable");
     ["warning text on a card", "--warning", "--card", 4.5],
     // Secondary carries text (labels, icons) *and* sits under white text on the
     // send button and the progress fill. On light both were 3.55:1 at once.
+    /*
+      The brand colour as *text*, which nothing here measured.
+
+      `--primary-foreground` on `--primary` is a label on a button and it was
+      the only direction covered. Used as text on the page, `--primary`
+      measures 3.55:1 — and that is what every link on the sign-in screen used:
+      Terms, Privacy Policy, "Create an account", "Forgot it?". The words
+      somebody has to read before they can have an account, below AA, on the
+      theme that is the default. `--link` is the same hue at a lightness that
+      clears it on both grounds.
+    */
+    ["a link on the page", "--link", "--background", 4.5],
+    ["a link on a card", "--link", "--card", 4.5],
     ["secondary text on a card", "--secondary", "--card", 4.5],
     ["label on a secondary fill", "--secondary-foreground", "--secondary", 4.5],
   ];
@@ -333,7 +347,7 @@ console.log("\nThe glass is a material rather than a scrim");
   );
   check(
     "with the standard property last, so the minifier keeps it",
-    shippedPanel.lastIndexOf("-webkit-backdrop-filter:") < shippedPanel.lastIndexOf(";backdrop-filter:"),
+    order(shippedPanel, "-webkit-backdrop-filter:", ";backdrop-filter:").ok,
     "alias written after the standard property is how the standard one gets dropped",
   );
 
@@ -422,6 +436,80 @@ console.log("\nThe no-flash script and the provider agree");
     /colorScheme\s*=/.test(html),
     "",
   );
+}
+
+console.log("\nA raw token where a colour belongs voids the whole declaration");
+{
+  /*
+    The defect that removed every focus ring in the product.
+
+    These tokens hold a raw HSL triple, not a colour: `--background: 255 10% 4%`.
+    That is the Tailwind convention and it is why every use goes through
+    `hsl(var(--token))`. Write `0 0 0 3px var(--background)` instead and the
+    value expands to `0 0 0 3px 255 10% 4%`, which is not a length-and-colour —
+    so the browser discards the **entire** `box-shadow` declaration at
+    computed-value time.
+
+    On a `:focus-visible` rule that also sets `outline: none`, discarding the
+    box-shadow leaves nothing at all. Every primary button in the product — the
+    five sign-in buttons, Generate Edit, every `.glow-btn` and `.aura-btn` —
+    had no visible focus indicator, on a dark interface, and nothing anywhere
+    said so: the CSS parses, the class applies, and only somebody navigating by
+    keyboard would ever find out.
+
+    So: any token declared as a bare triple may only appear inside a colour
+    function. The list of such tokens is read from the stylesheet rather than
+    written here, so a new one is covered the day it is added.
+  */
+  const tripled = new Set();
+  for (const [, name, value] of css.matchAll(/(--[a-z0-9-]+):\s*([^;]+);/g)) {
+    // A raw HSL triple: three space-separated numbers, the last two percentages.
+    if (/^-?[\d.]+\s+-?[\d.]+%\s+-?[\d.]+%$/.test(value.trim())) tripled.add(name);
+  }
+  check("the stylesheet still declares tokens as raw triples", tripled.size > 10, String(tripled.size));
+
+  /*
+    Comments stripped, and blanked rather than removed, so a reported line
+    number still points at the line it came from. This file's own prose talks
+    about the bad spelling — the check would otherwise catch the explanation of
+    the bug rather than the bug.
+  */
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, " "));
+  const bare = [];
+  const lines = withoutComments.split("\n");
+  lines.forEach((line, i) => {
+    for (const [, name] of line.matchAll(/(?<!hsl\()(?<!hsla\()var\((--[a-z0-9-]+)\)/g)) {
+      if (!tripled.has(name)) continue;
+      // `hsl(var(--x))` and `hsl(var(--x) / 0.4)` are the correct spellings and
+      // both put the token inside the function, so the lookbehind above misses
+      // only when the function is on an earlier line — which this catches.
+      const before = line.slice(0, line.indexOf(`var(${name})`));
+      if (/hsla?\($/.test(before) || /hsla?\([^)]*$/.test(before)) continue;
+      bare.push(`${CSS_PATH}:${i + 1} ${line.trim().slice(0, 70)}`);
+    }
+  });
+  check(
+    "and never uses one outside a colour function",
+    bare.length === 0,
+    `${bare.join(" | ")} — the declaration is dropped entirely, which on a :focus-visible rule means no focus ring`,
+  );
+
+  /*
+    And the class that had no rule at all.
+
+    `.aura-chip` is the outline style: Export, "Try that render again", the
+    board bar. It sets `box-shadow` in three states and never for
+    `:focus-visible` — which does not merely fail to draw a ring, it *removes*
+    the one Tailwind would have drawn, because Tailwind's focus ring is also a
+    box-shadow and this rule's specificity wins.
+  */
+  for (const cls of ["glow-btn", "aura-btn", "aura-chip"]) {
+    check(
+      `.${cls} says what focus looks like`,
+      new RegExp(`\\.${cls}:focus-visible\\s*\\{`).test(css),
+      "a class that sets box-shadow and not :focus-visible outranks the framework's ring and shows nothing",
+    );
+  }
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

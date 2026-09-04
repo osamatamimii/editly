@@ -98,7 +98,25 @@ function Protected({ component: Component }: { component: ComponentType }) {
     );
   }
 
-  if (!user) return <Redirect to="/login" />;
+  /*
+    And where they were going, so signing in finishes the journey.
+
+    This was `<Redirect to="/login" />` with nothing carried, and `login.tsx`
+    ends every successful sign-in with `setLocation("/dashboard")`. So a link
+    to a project — shared with a collaborator, or a bookmark opened after a
+    session expired — silently meant "the dashboard": the person signs in,
+    lands on the project grid with no explanation, and has to find what they
+    were sent to. Nothing errors, so nothing suggests the link was ever
+    anything else.
+
+    Same-origin paths only, and only ones that start with a single `/`:
+    `//evil.example` is a protocol-relative URL that a browser reads as another
+    origin, and an open redirect on the sign-in page is the classic way to make
+    a phishing link look like ours.
+  */
+  const here = `${window.location.pathname}${window.location.search}`;
+  const next = /^\/(?!\/)/.test(here) && here !== "/login" ? `?next=${encodeURIComponent(here)}` : "";
+  if (!user) return <Redirect to={`/login${next}`} />;
 
   return <Component />;
 }

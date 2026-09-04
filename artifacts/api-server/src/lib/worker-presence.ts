@@ -102,6 +102,17 @@ export async function renderCapacity(now = Date.now()): Promise<Capacity> {
          and started_at is not null
          and finished_at is not null
          and source_seconds > 0
+         -- First attempts only, because started_at is not re-stamped on a
+         -- retry: the claim writes COALESCE(started_at, now()) so a job that
+         -- died and succeeded on attempt two measures from the first claim,
+         -- and the span includes the failed attempt plus the whole
+         -- thirty-minute stale-lock window before it was requeued. That is a
+         -- perfectly good record of what happened to that job and a terrible
+         -- sample of how long a render takes: one such row is twenty times the
+         -- rate of a healthy one, and with ten renders in the whole history a
+         -- couple of them move the median by a factor of eight. The wait
+         -- estimate is a number people plan around.
+         and attempts <= 1
          and finished_at > now() - interval '${sql.raw(String(RATE_WINDOW_DAYS))} days'
        order by finished_at desc
        limit ${RATE_SAMPLE_LIMIT}

@@ -34,6 +34,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { order } from "./lib/order.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -231,7 +232,7 @@ section("The route sets the binding cookie on connect and requires it on callbac
   );
   check(
     "before it checks whether the platform uses PKCE, so every platform gets it",
-    connect.indexOf("BINDING_COOKIE") < connect.indexOf("ENDPOINTS[platform].pkce"),
+    order(connect, "BINDING_COOKIE", "ENDPOINTS[platform].pkce").ok,
   );
 
   const callback = route.slice(route.indexOf('/social/callback/:platform'));

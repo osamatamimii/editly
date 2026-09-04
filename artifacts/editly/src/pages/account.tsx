@@ -182,6 +182,7 @@ export default function AccountPage() {
     }
   };
 
+
   const deleteAccount = async () => {
     setBusy("delete");
     try {

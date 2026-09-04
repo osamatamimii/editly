@@ -157,6 +157,53 @@ jobs:
           # needing them the day it began telling people their edit was ready.
           [ -n "${RESEND_API_KEY:-}" ] && args+=(RESEND_API_KEY="$RESEND_API_KEY")
           [ -n "${MAIL_FROM:-}" ] && args+=(MAIL_FROM="$MAIL_FROM")
+          # Where the video lives, and whether the sweep may delete any of it.
+          #
+          # Both are read through an injectable `env` parameter rather than
+          # `process.env` directly, which is why they were invisible to the
+          # check above and to whoever last read this file: the retention sweep
+          # has never run in `on` mode in production, and the object-store seam
+          # — the whole point of which is to move this product off Supabase —
+          # could not be switched on from here at all. Optional like the keys
+          # above, and for the same reason.
+          [ -n "${RETENTION_SWEEP:-}" ] && args+=(RETENTION_SWEEP="$RETENTION_SWEEP")
+          [ -n "${OBJECT_STORE_PROVIDER:-}" ] && args+=(OBJECT_STORE_PROVIDER="$OBJECT_STORE_PROVIDER")
+          [ -n "${OBJECT_STORE_BUCKET:-}" ] && args+=(OBJECT_STORE_BUCKET="$OBJECT_STORE_BUCKET")
+          [ -n "${R2_ENDPOINT:-}" ] && args+=(R2_ENDPOINT="$R2_ENDPOINT")
+          [ -n "${R2_ACCESS_KEY_ID:-}" ] && args+=(R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID")
+          [ -n "${R2_SECRET_ACCESS_KEY:-}" ] && args+=(R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY")
+          [ -n "${R2_PUBLIC_BASE:-}" ] && args+=(R2_PUBLIC_BASE="$R2_PUBLIC_BASE")
+          # The twelve that make scheduled posting work at all.
+          #
+          # Every one of them was set on Vercel and none of them here, and the
+          # consequence only appears on the day the platform apps are approved:
+          # `publisher.ts` refuses every due post with "posting is not switched
+          # on for this deployment" — after the customer connected the account
+          # successfully five minutes earlier, because *that* half runs on
+          # Vercel and works. And `social-token.ts` renews an expiring token
+          # with `client_id=""`, which is a 400 nobody reads.
+          #
+          # Invisible to the check above and to the scanner in `deploy-test`
+          # because the worker reads them as `env[spec.clientIdVar]` — the name
+          # is data, not a literal. `deploy-test` now asserts this list against
+          # `SOCIAL_SPEC` instead, so a seventh platform cannot be added
+          # without the deploy learning about it.
+          #
+          # Optional individually, like the model keys: a deployment with
+          # TikTok approved and Snapchat not should ship TikTok rather than
+          # wait.
+          [ -n "${INSTAGRAM_CLIENT_ID:-}" ] && args+=(INSTAGRAM_CLIENT_ID="$INSTAGRAM_CLIENT_ID")
+          [ -n "${INSTAGRAM_CLIENT_SECRET:-}" ] && args+=(INSTAGRAM_CLIENT_SECRET="$INSTAGRAM_CLIENT_SECRET")
+          [ -n "${FACEBOOK_CLIENT_ID:-}" ] && args+=(FACEBOOK_CLIENT_ID="$FACEBOOK_CLIENT_ID")
+          [ -n "${FACEBOOK_CLIENT_SECRET:-}" ] && args+=(FACEBOOK_CLIENT_SECRET="$FACEBOOK_CLIENT_SECRET")
+          [ -n "${TIKTOK_CLIENT_KEY:-}" ] && args+=(TIKTOK_CLIENT_KEY="$TIKTOK_CLIENT_KEY")
+          [ -n "${TIKTOK_CLIENT_SECRET:-}" ] && args+=(TIKTOK_CLIENT_SECRET="$TIKTOK_CLIENT_SECRET")
+          [ -n "${X_CLIENT_ID:-}" ] && args+=(X_CLIENT_ID="$X_CLIENT_ID")
+          [ -n "${X_CLIENT_SECRET:-}" ] && args+=(X_CLIENT_SECRET="$X_CLIENT_SECRET")
+          [ -n "${SNAPCHAT_CLIENT_ID:-}" ] && args+=(SNAPCHAT_CLIENT_ID="$SNAPCHAT_CLIENT_ID")
+          [ -n "${SNAPCHAT_CLIENT_SECRET:-}" ] && args+=(SNAPCHAT_CLIENT_SECRET="$SNAPCHAT_CLIENT_SECRET")
+          [ -n "${YOUTUBE_CLIENT_ID:-}" ] && args+=(YOUTUBE_CLIENT_ID="$YOUTUBE_CLIENT_ID")
+          [ -n "${YOUTUBE_CLIENT_SECRET:-}" ] && args+=(YOUTUBE_CLIENT_SECRET="$YOUTUBE_CLIENT_SECRET")
           flyctl secrets set "${args[@]}" --app editly-worker --stage
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -168,6 +215,31 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
+          # A setting, not a credential — `on` or `dry`, and `dry` is what the
+          # code assumes when nobody says.
+          RETENTION_SWEEP: ${{ vars.RETENTION_SWEEP }}
+          OBJECT_STORE_PROVIDER: ${{ vars.OBJECT_STORE_PROVIDER }}
+          OBJECT_STORE_BUCKET: ${{ vars.OBJECT_STORE_BUCKET }}
+          R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+          # The same secrets the Vercel project already has. A client id is not
+          # a secret in the strict sense — it travels in the authorise URL —
+          # but keeping the pair together means one place to look when a
+          # platform stops working.
+          INSTAGRAM_CLIENT_ID: ${{ secrets.INSTAGRAM_CLIENT_ID }}
+          INSTAGRAM_CLIENT_SECRET: ${{ secrets.INSTAGRAM_CLIENT_SECRET }}
+          FACEBOOK_CLIENT_ID: ${{ secrets.FACEBOOK_CLIENT_ID }}
+          FACEBOOK_CLIENT_SECRET: ${{ secrets.FACEBOOK_CLIENT_SECRET }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          X_CLIENT_ID: ${{ secrets.X_CLIENT_ID }}
+          X_CLIENT_SECRET: ${{ secrets.X_CLIENT_SECRET }}
+          SNAPCHAT_CLIENT_ID: ${{ secrets.SNAPCHAT_CLIENT_ID }}
+          SNAPCHAT_CLIENT_SECRET: ${{ secrets.SNAPCHAT_CLIENT_SECRET }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
 
       - name: Deploy
         if: steps.changed.outputs.worker == 'true'

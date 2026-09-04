@@ -17,7 +17,7 @@
  */
 import { Router, type IRouter } from "express";
 import { HealthCheckResponse } from "@workspace/api-zod";
-import { checkSchema, BEHIND_MESSAGE } from "../lib/schema-health";
+import { checkSchema, BEHIND_MESSAGE, MISSING_INDEX_MESSAGE } from "../lib/schema-health";
 import { storageAdminConfigured, verifyStorageAdmin } from "../lib/storage";
 import { stockConfigured } from "../lib/stock";
 import { adminCount } from "../lib/admin";
@@ -105,7 +105,7 @@ router.get("/healthz", async (_req, res): Promise<void> => {
     res.status(503).json(
       HealthCheckResponse.parse({
         status: "unreachable",
-        database: { reachable: false, missingColumns: [] },
+        database: { reachable: false, missingColumns: [], missingIndexes: [] },
         capabilities: await capabilities(),
         message: "The database could not be reached.",
       }),
@@ -113,13 +113,20 @@ router.get("/healthz", async (_req, res): Promise<void> => {
     return;
   }
 
-  if (schema.missingColumns.length > 0) {
+  if (schema.missingColumns.length > 0 || schema.missingIndexes.length > 0) {
     res.status(503).json(
       HealthCheckResponse.parse({
         status: "behind",
-        database: { reachable: true, missingColumns: schema.missingColumns },
+        database: {
+          reachable: true,
+          missingColumns: schema.missingColumns,
+          missingIndexes: schema.missingIndexes,
+        },
         capabilities: await capabilities(),
-        message: BEHIND_MESSAGE,
+        // Columns first when both are wrong: a missing column takes the whole
+        // endpoint down and a missing index only takes the correctness, so the
+        // sentence names the one that is already failing.
+        message: schema.missingColumns.length > 0 ? BEHIND_MESSAGE : MISSING_INDEX_MESSAGE,
       }),
     );
     return;
@@ -128,7 +135,7 @@ router.get("/healthz", async (_req, res): Promise<void> => {
   res.json(
     HealthCheckResponse.parse({
       status: "ok",
-      database: { reachable: true, missingColumns: [] },
+      database: { reachable: true, missingColumns: [], missingIndexes: [] },
       capabilities: await capabilities(),
       // Deliberately not folded into `status`. A dead worker is not a broken
       // API, and answering 503 here would tell every uptime check and deploy

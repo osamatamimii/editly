@@ -180,7 +180,18 @@ section("What was checked is written down, not remembered");
   const source = await read("artifacts/worker/src/publish-snapchat.ts");
   check("the file says it is allowlist only", /allowlist/i.test(source), "");
   check("that it needs a business organisation", /Business Account|Organization/i.test(source), "");
-  check("and that the nearest API only reads", /read\b/i.test(source), "");
+  /*
+    `/read\b/i` was the old spelling, and it is satisfied by any sentence with
+    the word "read" in it — including the sentence explaining why this file
+    exists. What has to survive is the *finding*: that the nearest Snap API
+    reads statistics and does not post, which is the fact somebody would
+    otherwise spend a day rediscovering.
+  */
+  check(
+    "and that the nearest API only reads rather than posts",
+    /only reads|read[- ]only|reads (profile )?statistics|does not post/i.test(source),
+    "a regex for the word 'read' passes on any prose at all",
+  );
   check("it says what would replace it", /If Snap ships a content API|would replace/i.test(source), "");
 }
 

@@ -23,6 +23,7 @@ import { readFileSync, existsSync, readdirSync, mkdtempSync, writeFileSync, chmo
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { order } from "./lib/order.mjs";
 
 const repoRoot = process.cwd();
 const read = (p) => readFileSync(path.join(repoRoot, p), "utf8");
@@ -92,6 +93,29 @@ section("Every variable the worker reads is one the deploy actually sets");
     ...[...workerSource.matchAll(/requireEnv\(["']([A-Z][A-Z0-9_]*)["']\)/g)].map((m) => m[1]),
     ...[...(workerSource.match(/interface ProviderEnv \{[^}]*\}/s)?.[0] ?? "")
       .matchAll(/^\s*([A-Z][A-Z0-9_]*)\??:/gm)].map((m) => m[1]),
+    /*
+      The fourth way, and the one this suite was blind to.
+
+      Half of this codebase reaches the environment through an injectable
+      parameter — `retentionFrom(env = process.env)`, `objectStoreFrom(env =
+      process.env)` — and then reads `env["NAME"]`, which none of the patterns
+      above match. Three whole subsystems were invisible to a check whose entire
+      job is to notice a variable the deploy does not carry:
+
+        RETENTION_SWEEP and RETENTION_*_DAYS — so the retention sweep has never
+        run in `on` mode in production, and every preview, poster and unrendered
+        source ever created is still in the bucket;
+
+        OBJECT_STORE_PROVIDER and the R2 credentials — so the seam whose entire
+        purpose is to move this product off Supabase cannot be switched on
+        through the deploy at all;
+
+        the twelve social OAuth variables, read as `env[spec.clientIdVar]` —
+        see the publishing section below for what that costs.
+
+      A scan that misses the idiom the code prefers passes for the wrong reason.
+    */
+    ...[...workerSource.matchAll(/\benv\[["']([A-Z][A-Z0-9_]*)["']\]/g)].map((m) => m[1]),
   ]);
 
   check("the worker reads some environment at all", referenced.size >= 4, JSON.stringify([...referenced]));
@@ -133,11 +157,32 @@ section("Every variable the worker reads is one the deploy actually sets");
     // and it has a default — so a machine that never sets it still sends a
     // working link rather than one to nowhere.
     "APP_ORIGIN",
+    // How long a publisher may spend sending a finished master before it is
+    // abandoned. Not a secret and not deployed: it has a default measured in
+    // minutes, and the override exists so a slow link can be given more rather
+    // than so a deployment can be configured.
+    "PUBLISH_TIMEOUT_MS",
+    // The same, for the model providers, which is where this pair started.
+    "PROVIDER_TIMEOUT_MS",
     // Which port the health listener binds. Not a secret and not deployed: it
     // is declared in `fly.toml` as `internal_port`, and the override exists so
     // `worker-test` can run a copy without colliding with anything else on the
     // machine. `worker-test` asserts the two numbers agree.
     "HEALTH_PORT",
+    // How often the lock is renewed — which is also where a stop request is
+    // read, so it is the worst case for noticing that somebody pressed cancel.
+    // Twenty seconds against a render measured in minutes is right in
+    // production and useless in a test, which would otherwise wait twenty
+    // seconds to prove a property that takes one query. Not deployed: a
+    // deployment that set it would be changing how quickly a lock goes stale,
+    // which is a decision `fly.toml` and the stale-lock sweep already make
+    // together.
+    "LOCK_RENEW_EVERY_MS",
+    // The same shape again, on the API side rather than the worker's: how
+    // often one warm serverless instance is willing to sweep expired rate
+    // limit rows. Its default is an hour and a suite that has already made a
+    // hundred requests has long since spent this instance's one.
+    "RATE_LIMIT_SWEEP_MS",
   ]);
 
   const mustBeDeployed = [...referenced].filter((name) => !notSecrets.has(name)).sort();
@@ -160,6 +205,26 @@ section("Every variable the worker reads is one the deploy actually sets");
     is safe: it makes the deploy carry *more* than the scan can prove, never
     less.
   */
+  /*
+    And the ones read through a name the scan cannot see at all.
+
+    `retentionFrom` reads its day counts as `days("RETENTION_PREVIEW_DAYS", …)`
+    — the name is an argument, so no pattern above matches it. They are
+    settings with defaults rather than credentials, so the deploy is not
+    *required* to carry them; what matters is that the switch beside them is,
+    and it is asserted above. Named here so the next person to add one has a
+    list to add it to.
+  */
+  const settingsWithDefaults = [
+    "RETENTION_PREVIEW_DAYS",
+    "RETENTION_UNUSED_SOURCE_DAYS",
+    "RETENTION_THUMBNAIL_DAYS",
+  ];
+  const sweepSource = sourceIn("artifacts/worker/src");
+  for (const name of settingsWithDefaults) {
+    check(`${name} is still read where this list says it is`, sweepSource.includes(name));
+  }
+
   const readOnePackageAway = ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
   for (const name of readOnePackageAway) {
     check(`including ${name}, which lives one package away`, workflow.includes(name));
@@ -173,11 +238,41 @@ section("Every variable the worker reads is one the deploy actually sets");
     );
   }
 
+  /*
+    The twelve the worker reads by a name it looks up rather than spells.
+
+    `social-token.ts` renews an expiring token with `env[spec.clientIdVar]`, so
+    the variable's name is data — invisible to the scan above, and invisible to
+    whoever last read the deploy workflow. All twelve were set on Vercel and
+    none on the worker, and the consequence appears only on the day the
+    platform apps are approved: every scheduled post fails with "posting is not
+    switched on for this deployment", five minutes after the customer connected
+    the account successfully, because *that* half runs on Vercel and works.
+
+    Read from `SOCIAL_SPEC` rather than listed here, so a seventh platform
+    cannot be added without the deploy learning about it.
+  */
+  const socialSpecSource = readFileSync(path.join(repoRoot, "lib/api-zod/src/social.ts"), "utf8");
+  const oauthVars = [...socialSpecSource.matchAll(/client(?:Id|Secret)Var: "([A-Z0-9_]+)"/g)].map((m) => m[1]);
+  check("the platform table still names its variables", oauthVars.length === 12, String(oauthVars.length));
+  const missingOauth = oauthVars.filter((name) => !workflow.includes(name));
+  check(
+    "and every one of them reaches the worker",
+    missingOauth.length === 0,
+    `${missingOauth.join(", ")} — scheduled posting fails for every account the moment the apps are approved`,
+  );
+
   // Anything the workflow sends that nothing reads is either a rename that went
   // half-done or a secret being handled for no reason.
   const sent = [...workflow.matchAll(/^\s+([A-Z][A-Z0-9_]*): \$\{\{ secrets\./gm)].map((m) => m[1]);
   const unread = sent.filter(
-    (name) => name !== "FLY_API_TOKEN" && !referenced.has(name) && !readOnePackageAway.includes(name),
+    (name) =>
+      name !== "FLY_API_TOKEN" &&
+      !referenced.has(name) &&
+      !readOnePackageAway.includes(name) &&
+      // Read through the platform table, one package away and by a looked-up
+      // name. Asserted above rather than assumed here.
+      !oauthVars.includes(name),
   );
   check("and nothing is pushed that nothing reads", unread.length === 0, unread.join(", "));
 }
@@ -614,8 +709,9 @@ section("CI has what the suites need");
   // than a missing prerequisite.
   check(
     "with the Supabase stand-in applied first",
-    checksWorkflow.indexOf("supabase-shim.sql") < checksWorkflow.indexOf("pnpm run migrate"),
-    "the shim comes after the migrations, so the migrations cannot run",
+    // Was `indexOf(a) < indexOf(b)`, true when `a` is absent.
+    order(checksWorkflow, "supabase-shim.sql", "pnpm run migrate").ok,
+    "the shim is missing, or comes after the migrations, so the migrations cannot run",
   );
   check(
     "and it is the same file the schema suite uses, not a copy",
@@ -676,6 +772,163 @@ section("No live credential is compiled into the bundle that ships");
     secretish.join(", "),
   );
   check("and DATABASE_URL in particular is read at runtime", !defined.includes("DATABASE_URL"));
+}
+
+section("No suite proves an ordering with a comparison that passes when the thing is gone");
+{
+  /*
+    The highest-leverage defect in this repository is a check that cannot fail,
+    because it hides whatever it was written to catch — and six suites had the
+    same one.
+
+        check("and below requireAuth", source.indexOf(a) < source.indexOf(b));
+
+    `String.indexOf` answers -1 for something that is not there, and -1 is less
+    than every real position. So each of those passed *most loudly* in the case
+    it existed to catch: the thing being ordered deleted altogether.
+
+    What was green under that spelling, all at once:
+
+      - the upload-signing route being mounted below `requireAuth` — absent
+        case: a route minting signed storage URLs for anybody with no token
+      - the paid plan being written before the customer is told it changed —
+        absent case: a letter saying "your plan changed" and no plan written
+      - the dashboard checking for failure before it says the account is empty,
+        which is the 12 August regression that section exists for
+      - a render failure being reported only once it is final — absent case:
+        three apology letters for one render
+
+    `tools/lib/order.mjs` returns a verdict that fails when either side is
+    missing, and says which. This is the line that stops the old spelling
+    coming back — including in a suite written next month by somebody who has
+    not read any of the above.
+  */
+  const suites = readdirSync(path.join(repoRoot, "tools"))
+    .filter((f) => f.endsWith(".mjs"))
+    .filter((f) => f !== "deploy-test.mjs");
+
+  const offenders = [];
+  for (const file of suites) {
+    const source = read(`tools/${file}`);
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    // Two `indexOf` (or `lastIndexOf`) results compared with `<` or `>`. The
+    // only safe way to write that is to check both were found first, which is
+    // what `order()` does — so the comparison itself is the tell.
+    for (const match of code.matchAll(/\.(?:last)?[iI]ndexOf\([^)]*\)\s*[<>]=?\s*\w[\w.]*\.(?:last)?[iI]ndexOf\(/g)) {
+      // The snippet rather than a line number: the scan runs over the source
+      // with comments removed, so a line number here would point at the wrong
+      // line in the file somebody opens.
+      offenders.push(`${file}: ${match[0].replace(/\s+/g, " ").slice(0, 70)}`);
+    }
+  }
+  check(
+    "every ordering check goes through order(), which fails when either side is missing",
+    offenders.length === 0,
+    `${offenders.join(", ")} — a bare indexOf comparison passes when the left-hand string is gone`,
+  );
+
+  // And the helper it must go through really refuses the absent case, so this
+  // is not a rule pointing at nothing.
+  check("order() accepts a real ordering", order("a then b", "a", "b").ok === true);
+  check("refuses the reverse", order("b then a", "a", "b").ok === false);
+  check(
+    "and refuses a missing left-hand side, which is the whole point",
+    order("only b here", "a", "b").ok === false,
+    "this is the case the old spelling reported as a pass",
+  );
+  check("saying which half is wrong", /not there/.test(order("only b here", "a", "b").why));
+  // And on an array, which is what `account-test` orders: a log of steps.
+  check("and it works on a list of steps as well as a string", order(["a", "b"], "a", "b").ok === true);
+  check("refusing a step that never happened", order(["b"], "a", "b").ok === false);
+}
+
+section("A lease is renewed for as long as the work it guards runs");
+{
+  /*
+    Two queues in this worker hand a row to one machine for a stretch of time,
+    and both decide "abandoned" from a timestamp. The render queue learned the
+    hard way that writing that timestamp once, at claim, means the rule cannot
+    tell a dead worker from a busy one — at thirty minutes a second worker
+    requeued a live render, at ninety the sweeper failed it, and we paid for
+    the encode three times.
+
+    The font queue was written afterwards, with a comment saying it is "the
+    same shape the render queue uses for a stale lock", and it was the shape
+    from before that lesson: `updated_at` written once at claim, a ten-minute
+    staleness rule, and up to eighteen minutes of legitimate work inside it
+    before a byte is downloaded.
+  */
+  const fontQueue = read("artifacts/worker/src/font-prepare.ts");
+  check(
+    "the font claim is renewed while the font is being prepared",
+    /withClaimKeptAlive\(/.test(fontQueue),
+    "prepareOne runs under a claim written once at the start",
+  );
+  check(
+    "and only while the row is still ours and still being prepared",
+    /UPDATE caption_faces SET updated_at = now\(\)[\s\S]{0,120}status = 'preparing'/.test(fontQueue),
+    "the renewal does not check that the row is still in preparing, so it can reach into another worker's row",
+  );
+  const renewMs = Number(/CLAIM_RENEW_EVERY_MS = ([\d_]+)/.exec(fontQueue)?.[1]?.replace(/_/g, "") ?? 0);
+  const staleMinutes = Number(/status = 'preparing' AND updated_at < now\(\) - interval '(\d+) minutes'/.exec(fontQueue)?.[1] ?? 0);
+  check("the staleness rule names a real window", staleMinutes > 0, String(staleMinutes));
+  check(
+    "and the renewal is comfortably inside it, or the lease expires under its own worker",
+    renewMs > 0 && renewMs * 3 < staleMinutes * 60_000,
+    `${renewMs}ms renewal against a ${staleMinutes}-minute lease`,
+  );
+
+  // And the render queue's, which is where the rule came from.
+  const renderQueue = read("artifacts/worker/src/index.ts");
+  check(
+    "the render lock is still renewed too",
+    /withLockKeptAlive\(job\.id/.test(renderQueue),
+    "",
+  );
+}
+
+section("A backtick in a SQL comment ends the query it was written inside");
+{
+  /*
+    Every SQL statement in this codebase lives in a `sql` tagged template, and
+    a backtick inside one closes it. Writing `date_trunc` in an explanatory
+    `--` comment — the ordinary way to name an identifier in prose — therefore
+    truncates the statement at that point and leaves the remainder of the file
+    to be parsed as TypeScript.
+
+    Sometimes that is a syntax error and `tsc` says so. Sometimes the remainder
+    happens to parse, and then the only symptom is a query silently missing its
+    `where` clause. That is the version worth a check: it typechecks, it
+    builds, it deploys, and the first thing that notices is a number on a
+    screen that is bounded by nothing.
+
+    Both spellings were written in this session, three minutes apart. Only one
+    of them failed the typecheck.
+  */
+  const withSql = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name === "dist" || entry.name.startsWith(".")) continue;
+      const here = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) walk(here);
+      else if (entry.name.endsWith(".ts")) withSql.push(here);
+    }
+  };
+  for (const root of ["artifacts/api-server/src", "artifacts/worker/src", "lib"]) walk(root);
+
+  const bad = [];
+  for (const file of withSql) {
+    const source = read(file);
+    source.split("\n").forEach((line, at) => {
+      if (/^\s*--/.test(line) && line.includes("`")) bad.push(`${file}:${at + 1}`);
+    });
+  }
+  check(
+    "no SQL comment contains a backtick",
+    bad.length === 0,
+    `${bad.join(", ")} — a backtick closes the sql\`\` template it sits in, and the statement ends there`,
+  );
+  check("and there were files to look at", withSql.length > 20, String(withSql.length));
 }
 
 section("The runbook names things that exist");

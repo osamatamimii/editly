@@ -413,7 +413,10 @@ export default function Home() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const subscriptionQuery = useGetSubscription({
-    query: { queryKey: getGetSubscriptionQueryKey() }
+    // Only for somebody who has one. `/subscription` is behind `requireAuth`
+    // and answers 401 to a visitor, so this fired three times and failed three
+    // times on every load of the public page. See `planKnown`.
+    query: { queryKey: getGetSubscriptionQueryKey(), enabled: Boolean(user) },
   });
   const { data: subscription } = subscriptionQuery;
   /**
@@ -429,10 +432,32 @@ export default function Home() {
    * against "free" too.
    *
    * So the page says nothing about somebody's plan until it has been told.
+   *
+   * ## And a visitor has been told
+   *
+   * `subscriptionQuery.data !== undefined` was the whole of this, and this is
+   * the **public** page. `/subscription` sits behind `requireAuth` and answers
+   * 401, so for everybody who is not signed in the query failed, `data` stayed
+   * undefined for ever, and all three plan buttons rendered disabled reading
+   * "Checking your plan…" — in Arabic, which is what the page opens in,
+   * «نقرأ خطّتك…». `handleSelectPlan` returns early on the same flag, so even a
+   * programmatic click did nothing.
+   *
+   * Every pricing button on the marketing site, permanently unpressable, for
+   * one hundred per cent of the traffic that has not signed up yet. Nothing
+   * threw and nothing was logged: a disabled button with a plausible sentence
+   * on it looks like a page that is thinking.
+   *
+   * A signed-out visitor has no plan, and that is not an unknown — it is
+   * known immediately and with certainty. The uncertainty this flag exists for
+   * belongs to somebody who *has* an account and whose plan we have not read
+   * back yet.
    */
-  const planKnown = subscriptionQuery.data !== undefined;
+  const planKnown = !user || subscriptionQuery.data !== undefined;
   const currentPlan = (subscription?.plan ?? "free") as keyof typeof RANK;
   const updateSubscription = useUpdateSubscription();
+  /** What a downgrade did not do, when it did not do it. See handleSelectPlan. */
+  const [billingNotice, setBillingNotice] = useState<{ message: string; where: string } | null>(null);
 
   const [isYearly, setIsYearly] = useState(false);
   /** Which plan's checkout is opening, so only that button shows a spinner. */
@@ -492,9 +517,38 @@ export default function Home() {
     const current = currentPlan;
 
     if (RANK[plan] < RANK[current]) {
+      /*
+        The plan here moves. The card does not, and somebody has to say so.
+
+        Freemius is the merchant of record and nothing in this product can
+        cancel a subscription there — so a Pro subscriber pressing this button
+        got Creator's allowance immediately and went on being charged for Pro
+        until they cancelled it themselves. The button said "Switch to
+        Creator", the page then said Creator was their plan, and the only
+        place the truth appeared was the card statement a fortnight later.
+
+        The server now returns `billingUnchanged` whenever there was a paid
+        subscription behind the change, and this is where it is read. A person
+        who is not told is a person who finds out from their bank.
+      */
       updateSubscription.mutate(
         { data: { plan } },
-        { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() }) }
+        {
+          onSuccess: (answer) => {
+            queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() });
+            // The body itself, not `answer.data`. `updateSubscription` returns
+            // `customFetch<SubscriptionUsage>(…)`, which is the parsed JSON —
+            // there is no envelope around it, so this read was one property
+            // too deep and `unchanged` was always undefined. The server half
+            // of this shipped and worked; the notice it exists to show could
+            // not appear, and the only place the truth turned up was the card
+            // statement a fortnight later, which is the exact outcome the
+            // paragraph above says was fixed.
+            const unchanged = (answer as { billingUnchanged?: { message: string; where: string } } | undefined)
+              ?.billingUnchanged;
+            if (unchanged) setBillingNotice(unchanged);
+          },
+        },
       );
       return;
     }
@@ -1550,6 +1604,24 @@ export default function Home() {
           >
             {checkoutError}
           </p>
+        )}
+        {billingNotice && (
+          <div
+            role="status"
+            data-testid="text-billing-unchanged"
+            className="mt-6 max-w-md mx-auto rounded-xl border border-hairline bg-surface-1 p-4 text-sm"
+          >
+            <p dir="auto">{billingNotice.message}</p>
+            <a
+              href={billingNotice.where}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline font-medium inline-flex min-h-11 items-center"
+              data-testid="link-cancel-billing"
+            >
+              {t(LANDING.pricing.cancelWhereBought)}
+            </a>
+          </div>
         )}
         <p className="text-center text-xs text-muted-foreground mt-8 opacity-60">
           {t(LANDING.pricing.footnote)}

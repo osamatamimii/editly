@@ -25,6 +25,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { order } from "./lib/order.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -256,6 +257,51 @@ section("What each provider can honestly say about itself");
   check("and it names which provider answered", facts.provider === "r2");
 }
 
+section("A playback URL is signed and expires, whatever the bucket also answers to");
+{
+  /*
+    `signedGet` returned `${publicBase}/${key}` whenever a custom domain was
+    configured — unsigned, no expiry, and the requested lifetime dropped on the
+    floor. The reasoning was that a custom domain serves objects unsigned
+    anyway, so a signature would be noise.
+
+    It is not noise, because of who this URL is handed to. `publisher.ts` gives
+    it to Meta with the comment "signed by the object store, short-lived, and
+    long enough to outlive Meta's own fetch and transcode". On
+    R2-with-a-custom-domain it was neither: a permanent, unauthenticated URL to
+    somebody's finished video, living in a third party's logs and every proxy
+    in between, for good.
+
+    And it changed with no code change and no error — setting
+    `OBJECT_STORE_PROVIDER=r2` with `R2_PUBLIC_BASE`, the documented migration
+    path, was the whole trigger.
+  */
+  const withDomain = store.objectStoreFrom({}, {
+    provider: "r2",
+    bucket: "videos",
+    r2: {
+      endpoint: "https://acc.r2.cloudflarestorage.com",
+      accessKeyId: "AK",
+      secretAccessKey: "SK",
+      publicBase: "https://files.example.test",
+    },
+  });
+
+  const url = await withDomain.signedGet("u/p/source.mp4", 900);
+  check("it carries a signature", /X-Amz-Signature=/.test(url), url.slice(0, 120));
+  check("and an expiry", /X-Amz-Expires=900/.test(url), url.slice(0, 160));
+  check(
+    "rather than a bare public path that never stops working",
+    !url.startsWith("https://files.example.test"),
+    url.slice(0, 120),
+  );
+
+  // And the fact stays reportable: a bucket that also answers unsigned is a
+  // bucket configuration question, and the deploy audit is where it belongs.
+  const facts = await withDomain.facts();
+  check("while the audit still knows the bucket answers unsigned too", facts?.publicReads === true);
+}
+
 section("Misconfiguration fails at the deploy, not at a customer's upload");
 {
   let threw = false;
@@ -420,6 +466,246 @@ section("Copying says so out loud rather than doing nothing");
   });
   check("R2 copy throws", message.length > 0);
   check("and the message says what is missing", /x-amz-copy-source/.test(message), message.slice(0, 60));
+}
+
+section("Every call to somebody else's server comes back, one way or another");
+{
+  /*
+    `fetch` in Node has no timeout of any kind.
+
+    That is not a detail — it is the difference between a slow provider and a
+    stopped product. `remove()` is awaited from inside the worker's render
+    loop: the retention sweep runs there, before the claim, and the clips path
+    removes the tail of a previous set mid-render. A provider that accepts the
+    connection and then goes quiet was a queue that stopped — no claims, no
+    heartbeat, and `/healthz` still answering 200, because it reports whether
+    the process is up rather than whether it is doing anything. The `try/catch`
+    around the clips call is no help at all: a promise that never settles is
+    not an error.
+
+    Two checks, because "bounded" is two separate claims.
+
+    First, that the bound is real: `list` is the one call that takes its
+    timeout as an argument, so it can be made to prove in a tenth of a second
+    what the others do in fifteen — a hung host becomes an error rather than
+    an await that never returns.
+
+    Second, that every other call goes through the same machinery, seen from
+    the only place a caller can see it: whether an `AbortSignal` arrived with
+    the request. `head`, `remove`, `copy` and `facts` are asked for real and
+    the signals are counted. This is the check that goes red if a new method is
+    added with a bare `fetch`, which is how `remove` and `copy` came to be
+    unbounded in the first place — they were written beside calls that were.
+  */
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  try {
+    // A host that accepts the connection and says nothing, ever.
+    globalThis.fetch = (url, init = {}) =>
+      new Promise((_resolve, reject) => {
+        seen.push({ url: String(url), signal: init.signal ?? null });
+        init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+
+    for (const [name, driver] of [["Supabase", supabase], ["R2", r2]]) {
+      const began = Date.now();
+      const outcome = await driver
+        .list("u/p", { limit: 10, timeoutMs: 100 })
+        .then(() => "answered", (error) => error);
+      const elapsed = Date.now() - began;
+      check(
+        `${name} gives up on a host that went quiet`,
+        outcome instanceof Error && elapsed < 5_000,
+        `${String(outcome)} after ${elapsed}ms`,
+      );
+      check(
+        `and says it does not know, rather than that the credential was refused`,
+        outcome instanceof store.ObjectStoreError && outcome.status === null,
+        String(outcome),
+      );
+    }
+
+    /*
+      And now the rest of the surface, one method at a time.
+
+      Each is called with a timeout it will not reach inside this test, so what
+      is being measured is not that it returns — it is what it handed to
+      `fetch` on the way out. A call with no signal is a call that can wait for
+      ever.
+    */
+    for (const [name, driver] of [["Supabase", supabase], ["R2", r2]]) {
+      const bare = [];
+      for (const [method, run] of [
+        ["head", () => driver.head("u/p/a.mp4")],
+        ["remove", () => driver.remove(["u/p/a.mp4"])],
+        ["copy", () => driver.copy("u/p/a.mp4", "u/q/a.mp4")],
+        ["facts", () => driver.facts()],
+      ]) {
+        const before = seen.length;
+        // Started, not awaited: these have fifteen-second bounds and the point
+        // is what they sent, which they send immediately.
+        void Promise.resolve().then(run).catch(() => {});
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        const made = seen.slice(before);
+        // A method with nothing to ask — R2's `facts`, `copy` where the signer
+        // cannot produce the header — is bounded by not going out at all.
+        if (made.length === 0) continue;
+        if (made.some((call) => !call.signal)) bare.push(method);
+      }
+      check(
+        `${name} puts a deadline on every metadata call it makes`,
+        bare.length === 0,
+        `${bare.join(", ")} — Node's fetch waits for ever, and remove() is awaited inside the render loop`,
+      );
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+section("Multipart, which is what lets a two-hour podcast leave the browser at all");
+{
+  /*
+    `signedPut` is one URL and one PUT — right up to a few hundred megabytes
+    and wrong for what this product is being built to take. A two-hour podcast
+    is about seven gigabytes, and a single request that starts again from zero
+    when a train enters a tunnel is not an upload.
+
+    Today the large-file path is Supabase's `tus` endpoint, reached by the
+    browser with the person's own session, and that is the one piece that makes
+    changing storage provider a rewrite. This is its equivalent on the other
+    side of that change.
+  */
+  const http = await import("node:http");
+  const calls = [];
+  let failComplete = false;
+  const s3 = http.createServer(async (req, res) => {
+    const url = new URL(req.url, "http://fake");
+    const body = await new Promise((resolve) => {
+      let text = "";
+      req.on("data", (c) => { text += c; });
+      req.on("end", () => resolve(text));
+    });
+    calls.push({ method: req.method, path: url.pathname, query: url.search, body });
+    if (url.searchParams.has("uploads")) {
+      res.writeHead(200, { "content-type": "application/xml" });
+      res.end("<InitiateMultipartUploadResult><UploadId>up-123</UploadId></InitiateMultipartUploadResult>");
+      return;
+    }
+    if (req.method === "POST" && url.searchParams.get("uploadId")) {
+      res.writeHead(200, { "content-type": "application/xml" });
+      // A 200 with an error inside is how S3 refuses this particular call.
+      res.end(failComplete
+        ? "<Error><Code>InvalidPart</Code></Error>"
+        : "<CompleteMultipartUploadResult><ETag>\"final\"</ETag></CompleteMultipartUploadResult>");
+      return;
+    }
+    res.writeHead(204).end();
+  });
+  await new Promise((r) => s3.listen(0, "127.0.0.1", r));
+  const near = store.objectStoreFrom({}, {
+    provider: "r2",
+    bucket: "videos",
+    r2: { endpoint: `http://127.0.0.1:${s3.address().port}`, accessKeyId: "AK", secretAccessKey: "SK" },
+  });
+
+  const GB = 1024 * 1024 * 1024;
+  const begun = await near.beginMultipart("u/p/source.mp4", {
+    expiresInSeconds: 6 * 3600,
+    totalBytes: 7 * GB,
+    parts: 140,
+    contentType: "video/mp4",
+  });
+
+  check("it opens an upload with the provider", calls[0]?.method === "POST" && /[?&]uploads(=|&|$)/.test(calls[0].query), JSON.stringify(calls[0]));
+  check("and reports the id the provider chose", begun.uploadId === "up-123", String(begun?.uploadId));
+  check("one signed URL per part", begun.parts.length === 140, String(begun.parts.length));
+  check("numbered from one, in order", begun.parts[0].partNumber === 1 && begun.parts[139].partNumber === 140);
+  check(
+    "each part carries its own number and the upload id",
+    begun.parts.every((part) => part.url.includes(`partNumber=${part.partNumber}`) && part.url.includes("uploadId=up-123")),
+  );
+  check("and none of them carries our secret", begun.parts.every((part) => !part.url.includes("SK")));
+  check("they are signed, not merely addressed", begun.parts.every((part) => /X-Amz-Signature=/.test(part.url)));
+  check("the window covers the whole upload rather than one part", new Date(begun.expiresAt).getTime() - Date.now() > 5 * 3600 * 1000);
+
+  /*
+    The floor that fails at the worst possible moment.
+
+    Every part but the last must be at least 5 MiB. An undersized part in the
+    middle is accepted on upload and refused at assembly with `EntityTooSmall`
+    — after every byte has been sent. So it is refused here, before a single
+    URL is signed.
+  */
+  let refused = "";
+  await near.beginMultipart("u/p/small.mp4", { expiresInSeconds: 600, totalBytes: 10 * 1024 * 1024, parts: 40 })
+    .catch((e) => { refused = e.message; });
+  check("parts below the provider's floor are refused before anything is signed", /minimum/.test(refused), refused.slice(0, 120));
+  check("and the message names both numbers", /262144/.test(refused) && /5242880/.test(refused), refused.slice(0, 160));
+
+  let tooMany = "";
+  await near.beginMultipart("u/p/many.mp4", { expiresInSeconds: 600, totalBytes: 900 * GB, parts: 20000 })
+    .catch((e) => { tooMany = e.message; });
+  check("and so is a part count past what S3 accepts", /at most 10000 parts/.test(tooMany), tooMany.slice(0, 120));
+
+  // Completion.
+  calls.length = 0;
+  await near.completeMultipart("u/p/source.mp4", "up-123", [
+    { partNumber: 3, etag: '"c"' },
+    { partNumber: 1, etag: '"a"' },
+    { partNumber: 2, etag: '"b"' },
+  ]);
+  const done = calls[0];
+  check("completing posts the part list", done?.method === "POST" && /uploadId=up-123/.test(done.query), JSON.stringify(done?.query));
+  check(
+    "in ascending order, because the browser reports parts as they finish and S3 assembles in the order it is given",
+    order(done.body, "<PartNumber>1<", "<PartNumber>2<").ok &&
+      order(done.body, "<PartNumber>2<", "<PartNumber>3<").ok,
+    done.body,
+  );
+  check("carrying each provider etag", done.body.includes("&quot;a&quot;"), done.body);
+
+  // An etag is the one value here that came back through a browser.
+  calls.length = 0;
+  await near.completeMultipart("u/p/source.mp4", "up-123", [{ partNumber: 1, etag: '"a"<Part><PartNumber>9' }]);
+  check(
+    "and an etag cannot write XML into our own request",
+    !/<PartNumber>9<\/PartNumber>/.test(calls[0].body) && calls[0].body.includes("&lt;Part&gt;"),
+    calls[0].body,
+  );
+
+  let noParts = "";
+  await near.completeMultipart("u/p/source.mp4", "up-123", []).catch((e) => { noParts = e.message; });
+  check("completing with no parts is refused", /no parts/.test(noParts), noParts);
+
+  /*
+    The failure that arrives as a success.
+
+    CompleteMultipartUpload streams its response while it assembles, so the
+    status line is written before the outcome is known and a real failure comes
+    back as an `<Error>` document under a 200. Reading only the status would
+    report a finished upload for an object that does not exist — and the next
+    thing to touch it is a render.
+  */
+  failComplete = true;
+  let hidden = "";
+  await near.completeMultipart("u/p/source.mp4", "up-123", [{ partNumber: 1, etag: '"a"' }])
+    .catch((e) => { hidden = e.message; });
+  check("a 200 carrying an error is read as a failure", /InvalidPart/.test(hidden), hidden);
+  failComplete = false;
+
+  calls.length = 0;
+  await near.abortMultipart("u/p/source.mp4", "up-123");
+  check("aborting throws the parts away", calls[0]?.method === "DELETE" && /uploadId=up-123/.test(calls[0].query), JSON.stringify(calls[0]));
+
+  /*
+    And Supabase says no, which is the whole shape of the seam: the caller keeps
+    the tus path it already has, and switches by configuration rather than by a
+    rewrite the day the provider changes.
+  */
+  check("Supabase has no multipart we can sign, and says so with null", (await supabase.beginMultipart("u/p/x.mp4", { expiresInSeconds: 60, totalBytes: 10, parts: 1 })) === null);
+
+  await new Promise((r) => s3.close(r));
 }
 
 await rm(buildDir, { recursive: true, force: true });

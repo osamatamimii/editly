@@ -79,6 +79,16 @@ const MAX_REPEAT_GAP_SECONDS = 2.5;
 const MAX_REPEAT_WORDS = 5;
 
 /**
+ * How much shorter than its finished twin a single repeated word has to be
+ * before it reads as an attempt that was cut off rather than as emphasis.
+ *
+ * Three quarters: a stutter is a word stopped part-way through, and a quarter
+ * of a syllable is about the least that is audible as one. Above it the two
+ * are the same word said twice, which is a decision the speaker made.
+ */
+const TRUNCATED_ATTEMPT_RATIO = 0.75;
+
+/**
  * The most of a video this pass is allowed to take.
  *
  * Not a tuning knob. If a quarter of somebody's recording reads as filler and
@@ -194,6 +204,31 @@ export function repeatCuts(words: SpokenWord[]): Cut[] {
       // as a stutter.
       const gap = timed[i + n].start - timed[i + n - 1].end;
       if (gap > MAX_REPEAT_GAP_SECONDS) continue;
+
+      /*
+        One word said twice is not, on its own, a false start.
+
+        A run of two or more words repeated is a sentence begun and abandoned —
+        nobody says "I think I think" on purpose. A single word repeated is
+        ambiguous, and the ambiguity is not close: "very very good", "no no
+        no", «لا لا لا», "one one two" are all the same shape as "the the
+        point", and this deleted a word from every one of them. The file's own
+        rule is that a word somebody meant is never removed, and an intensifier
+        is a word somebody meant — cutting it changes what a person said on a
+        recording published under their name.
+
+        So a single-word repeat is cut only where the transcript shows the
+        first attempt was *cut off*: a truncated word is measurably shorter
+        than the finished one beside it. Two tokens of the same length are two
+        deliberate utterances, whatever the word is. Where the recogniser gives
+        no useful timings the answer is to leave the word in, which is the side
+        of this line worth being wrong on.
+      */
+      if (n === 1) {
+        const first = timed[i]!.end - timed[i]!.start;
+        const second = timed[i + 1]!.end - timed[i + 1]!.start;
+        if (first > second * TRUNCATED_ATTEMPT_RATIO) continue;
+      }
 
       /*
         The *first* run goes.

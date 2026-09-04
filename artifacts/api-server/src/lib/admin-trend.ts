@@ -98,7 +98,30 @@ export async function trends(): Promise<Trends> {
   const [signups, renders, minutes, failures] = await Promise.all([
     series("subscriptions", "created_at", "count(*)::int"),
     series("jobs", "finished_at", "count(*) filter (where status = 'done')::int"),
-    series("jobs", "finished_at", "(coalesce(sum(billed_seconds) filter (where status = 'done'), 0) / 60)::int"),
+    /*
+      The same expression the meter bills on, which this was not.
+
+      `usage.ts` sums `coalesce(billed_seconds, output_seconds)` — the charge
+      column with the measurement as its fallback — and `admin.ts` repeats it
+      deliberately with the note that "a console that computes its own answers
+      is a console that will one day disagree with the invoice". This line
+      dropped the fallback, so every job written before `billed_seconds`
+      existed contributed zero to the chart while contributing fully to the
+      bill and to the "minutes rendered this month" card two lines above it in
+      the same response.
+
+      The chart and the card disagreed on one screen, and the chart was the low
+      one — the direction that hides cost growth rather than inventing it.
+
+      `ceil` rather than integer division, for the same reason `minutesFrom`
+      ceils: a forty-second render is a minute of finished video, and floor
+      turns a day of short clips into a day of nothing.
+    */
+    series(
+      "jobs",
+      "finished_at",
+      "ceil(coalesce(sum(coalesce(billed_seconds, output_seconds)) filter (where status = 'done'), 0) / 60.0)::int",
+    ),
     series("jobs", "updated_at", "count(*) filter (where status = 'failed')::int"),
   ]);
   return { signups, renders, minutes, failures };

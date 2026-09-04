@@ -45,7 +45,7 @@ if (built.status !== 0) {
   process.exit(1);
 }
 
-const { decideRender, smallestPlanFor, FREE_WATERMARK } = await import(pathToFileURL(outfile).href);
+const { decideRender, smallestPlanFor, FREE_WATERMARK, MAX_RENDERS_IN_FLIGHT } = await import(pathToFileURL(outfile).href);
 
 /*
   The ceiling, read from the schema that enforces it rather than typed here.
@@ -83,11 +83,25 @@ const check = (name, ok, detail = "") => {
   }
 };
 
-const usage = (used, included) => ({
+/**
+ * One shape, built the way `usageFor` builds it.
+ *
+ * Three of these were hand-written object literals further down the file, and
+ * when `Usage` grew `secondsRemaining` and `jobsInFlight` those three kept
+ * typechecking — a .mjs test does not typecheck at all — and started asserting
+ * against `undefined`. The whole point of the seconds balance is that it is
+ * not `minutesRemaining * 60`, so a test that builds it by hand is a test of
+ * the arithmetic it was written to replace.
+ */
+const usage = (used, included, { inFlightMinutes = 0, jobs = 0, secondsUsed = used * 60 } = {}) => ({
   minutesUsed: used,
   minutesIncluded: included,
-  minutesRemaining: Math.max(0, included - used),
-  exhausted: used >= included,
+  minutesGranted: 0,
+  minutesInFlight: inFlightMinutes,
+  jobsInFlight: jobs,
+  minutesRemaining: Math.max(0, included - used - inFlightMinutes),
+  secondsRemaining: Math.max(0, included * 60 - secondsUsed - inFlightMinutes * 60),
+  exhausted: used + inFlightMinutes >= included,
 });
 
 const SILENCE = { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 };
@@ -376,7 +390,7 @@ console.log("\nWhat the decision hands to the worker");
   // skipped precisely when the file could be anything at all.
   const decision = decideRender({
     plan: "free",
-    usage: { minutesUsed: 4, minutesIncluded: 5, minutesRemaining: 1, exhausted: false },
+    usage: usage(4, 5),
     sourceDurationSeconds: null,
     operations: [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 }],
   });
@@ -395,7 +409,7 @@ console.log("\nWhat the decision hands to the worker");
 
   const rich = decideRender({
     plan: "pro",
-    usage: { minutesUsed: 0, minutesIncluded: 240, minutesRemaining: 240, exhausted: false },
+    usage: usage(0, 240),
     sourceDurationSeconds: 600,
     operations: [],
   });
@@ -411,12 +425,122 @@ console.log("\nWhat the decision hands to the worker");
   // relaxed, the number behind it is still honest.
   const spent = decideRender({
     plan: "free",
-    usage: { minutesUsed: 5, minutesIncluded: 5, minutesRemaining: 0, exhausted: true },
+    usage: usage(5, 5),
     sourceDurationSeconds: 30,
     operations: [],
   });
   check("an exhausted month is refused before any of this", spent.allowed === false);
   check("with the status that means a limit, not a fault", spent.allowed === false && spent.status === 429, String(spent.status));
+}
+
+console.log("\nThe allowance a render has not finished spending yet");
+{
+  // The hole this closes: the meter counts finished video, so thirty renders
+  // fired at once each read the same "nothing used" and each were allowed.
+  // The per-project unique index did not touch it — thirty projects is thirty
+  // renders — and a five-minute plan delivered a hundred and fifty minutes.
+  const busy = decideRender({
+    plan: "free",
+    usage: usage(0, 5, { inFlightMinutes: 5, jobs: 1 }),
+    sourceDurationSeconds: 60,
+    operations: [SILENCE],
+  });
+  check("work already accepted holds the allowance", busy.allowed === false, JSON.stringify(busy).slice(0, 120));
+  check("and it is a wait, not a fault", busy.allowed === false && busy.status === 429, String(busy.status));
+  check(
+    "the sentence says renders, not spend — the meter beside it still reads zero",
+    busy.allowed === false && /renders already going/i.test(busy.body.error),
+    busy.allowed === false ? busy.body.error : "",
+  );
+  check(
+    "and it does not claim minutes were used",
+    busy.allowed === false && !/you've used all/i.test(busy.body.error),
+    busy.allowed === false ? busy.body.error : "",
+  );
+
+  const many = decideRender({
+    plan: "pro",
+    usage: usage(0, 400, { jobs: MAX_RENDERS_IN_FLIGHT }),
+    sourceDurationSeconds: 60,
+    operations: [SILENCE],
+  });
+  check(
+    "and a plan with minutes to spare still cannot hold more than three doors open",
+    many.allowed === false && many.body.tooManyInFlight === true,
+    JSON.stringify(many).slice(0, 140),
+  );
+  check(
+    "which is what covers a project whose duration was never sent, and so reserved nothing",
+    decideRender({
+      plan: "pro",
+      usage: usage(0, 400, { jobs: MAX_RENDERS_IN_FLIGHT }),
+      sourceDurationSeconds: null,
+      operations: [SILENCE],
+    }).allowed === false,
+  );
+  check(
+    "one below the cap is allowed",
+    decideRender({
+      plan: "pro",
+      usage: usage(0, 400, { jobs: MAX_RENDERS_IN_FLIGHT - 1 }),
+      sourceDurationSeconds: 60,
+      operations: [SILENCE],
+    }).allowed === true,
+  );
+}
+
+console.log("\nAfter a downgrade, the refusal has to survive being checked");
+{
+  // 200 minutes rendered on Pro, then "Switch to Creator" on the 20th. The
+  // meter is plan-independent and the allowance is not, so the block is right
+  // and the sentence behind it was arithmetically false: "you've used all 60
+  // minutes" to somebody who used two hundred.
+  const downgraded = decideRender({
+    plan: "creator",
+    usage: usage(200, 60),
+    sourceDurationSeconds: 30,
+    operations: [SILENCE],
+  });
+  check("still refused", downgraded.allowed === false);
+  check(
+    "and the number it quotes is the one they actually rendered",
+    downgraded.allowed === false && downgraded.body.error.includes("200"),
+    downgraded.allowed === false ? downgraded.body.error : "",
+  );
+  check(
+    "beside what the plan they are on now includes",
+    downgraded.allowed === false && downgraded.body.error.includes("60"),
+    downgraded.allowed === false ? downgraded.body.error : "",
+  );
+  check(
+    "and it does not say they used all sixty, which they did not",
+    downgraded.allowed === false && !/used all 60/.test(downgraded.body.error),
+    downgraded.allowed === false ? downgraded.body.error : "",
+  );
+}
+
+console.log("\nThe balance the worker is handed is in seconds, and it is not the shown number");
+{
+  // 61 seconds rendered on a five-minute plan. Shown: 2 used, 3 left. Real:
+  // 239 seconds left. `minutesRemaining * 60` handed the worker 180 and the
+  // worker enforces it exactly, so a 200-second clip was refused with a
+  // number that was wrong by 59 seconds in our favour.
+  const partial = decideRender({
+    plan: "free",
+    usage: usage(2, 5, { secondsUsed: 61 }),
+    sourceDurationSeconds: null,
+    operations: [SILENCE],
+  });
+  check(
+    "the seconds carried are the real balance, not the ceiled minutes multiplied back up",
+    partial.allowed && partial.remainingSeconds === 239,
+    String(partial.allowed && partial.remainingSeconds),
+  );
+  check(
+    "which is more than the shown minutes would have given",
+    partial.allowed && partial.remainingSeconds > 3 * 60,
+    String(partial.allowed && partial.remainingSeconds),
+  );
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

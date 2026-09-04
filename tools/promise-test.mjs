@@ -91,9 +91,20 @@ const OWED = {
   burnCaptions: /burned \d+ captions/,
   watermark: /watermarked/,
   kenBurns: /slow push to/,
-  // Both branches again: the punches are placed from the speech, so an edit
-  // whose emphasis did not survive the cut legitimately has none — and says so.
-  zoomPunch: /punch-in|no punch survived the cut/,
+  /*
+    Four branches, and the pattern used to know two.
+
+    Punches are placed from the speech, so an edit whose emphasis did not
+    survive the cut legitimately has none — and says so. There are two more
+    refusals it can give and neither was listed: a clip whose words were never
+    transcribed at all ("there was no moment to punch on: emphasis is read from
+    the words, and this render had none to read"), which is every render in
+    this suite because no recogniser is configured here, and a beat punch with
+    no music under it. Both are the operation saying why it did not happen,
+    which is exactly what this table accepts — so the missing patterns made two
+    correct refusals look like silent drops.
+  */
+  zoomPunch: /punch-in|no punch survived the cut|no moment to punch on|no beat to put the punches on/,
   // Both branches, like zoomPunch above. Tightening needs the words, so on a
   // deployment with no recogniser — which is this one — the honest note is the
   // refusal, and an edit that asked for it and said nothing at all is the

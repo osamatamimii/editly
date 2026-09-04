@@ -95,6 +95,36 @@ section("Workers are counted, not merely detected");
   );
   check("nulls are not workers", liveWorkers([null, undefined, secondsAgo(2)], NOW) === 1);
   check("and it agrees with the single-worker question", liveWorkers([secondsAgo(5)], NOW) > 0 === workerOnline(secondsAgo(5), NOW));
+
+  /*
+    A beat from the future is a clock disagreement, not a live worker.
+
+    The row is written from the worker's own clock and read against the API's,
+    and `now - seen < 120000` is satisfied by any future timestamp however far
+    out. A machine that came up ninety minutes ahead, beat, and then died went
+    on reading `online: true` for ninety minutes — with `lastSeenAgoSeconds`
+    clamped to zero, so the skew that caused it was hidden as well. That is the
+    monitor written after the August outage staying green through a dead
+    worker.
+  */
+  const inTheFuture = (s) => new Date(NOW + s * 1000);
+  check(
+    "a beat a few seconds ahead is still a live worker, because clocks disagree slightly",
+    workerOnline(inTheFuture(30), NOW) === true,
+  );
+  check(
+    "one an hour and a half ahead is not evidence of anything",
+    workerOnline(inTheFuture(90 * 60), NOW) === false,
+  );
+  check(
+    "and the grace is one window in each direction, not unbounded in one",
+    workerOnline(inTheFuture(WORKER_OFFLINE_AFTER_MS / 1000 + 60), NOW) === false,
+  );
+  check(
+    "a worker that is skewed far ahead is not counted either",
+    liveWorkers([inTheFuture(90 * 60)], NOW) === 0,
+    String(liveWorkers([inTheFuture(90 * 60)], NOW)),
+  );
 }
 
 // ── How fast ────────────────────────────────────────────────────────────────

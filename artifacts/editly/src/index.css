@@ -22,6 +22,7 @@
 
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-link: hsl(var(--link));
   --color-primary-border: var(--primary-border);
 
   --color-secondary: hsl(var(--secondary));
@@ -362,6 +363,23 @@
 
   /* Deep Purple #6C3BFF */
   --primary: 255 100% 62%;
+  /*
+    The brand colour when it is *text* rather than a fill.
+
+    `--primary` is tuned to sit under white on a button, and it measures
+    **3.55:1** as text on this page — below the 4.5 that AA asks for. Every
+    link on the sign-in screen used it: "Terms", "Privacy Policy", "Create an
+    account", "Forgot it?" — the words somebody has to read before they can
+    have an account at all, on the theme that is the default.
+
+    Nothing caught it because the contrast pairs in `theme-test` covered
+    `--primary-foreground` on `--primary` (a label on a button) and never the
+    other direction. The pair is in that list now.
+
+    Lighter rather than a different hue: 72% is the same brand violet at 5.7:1
+    on this ground, so the page does not acquire a second accent colour.
+  */
+  --link: 255 100% 72%;
   --primary-foreground: 0 0% 100%;
 
   /*
@@ -560,6 +578,9 @@ html[data-page-theme="light"] body {
 
   /* Unchanged. The brand does not have two purples. */
   --primary: 255 100% 62%;
+  /* The same role on the light ground, where the fix runs the other way: 46%
+     is 8.41:1 on this page and still unmistakably the brand hue. */
+  --link: 255 100% 46%;
   --primary-foreground: 0 0% 100%;
   /*
    * On dark, secondary is the *lighter* purple — the neon one that glows. On
@@ -908,11 +929,20 @@ html[data-page-theme="light"] body {
     0 2px 6px var(--cta-shadow-soft);
 }
 /* The ring is a focus indicator too — a keyboard user gets the same shape a
-   mouse user gets, rather than a browser outline over the top of it. */
+   mouse user gets, rather than a browser outline over the top of it.
+
+   `hsl(var(--background))`, and the two extra characters are the whole rule.
+   These tokens hold a raw HSL triple — `255 10% 4%` — so `3px var(--background)`
+   expands to `3px 255 10% 4%`, which is not a length-and-colour and makes the
+   browser drop the entire declaration at computed-value time. With `outline:
+   none` above it, that left **no focus indicator at all** on every primary
+   button in the product: the five sign-in buttons, Generate Edit, all of them.
+   Nothing failed and nothing logged; the ring simply was not drawn, and only
+   somebody navigating by keyboard would ever notice. */
 .glow-btn:focus-visible {
   outline: none;
   box-shadow:
-    0 0 0 3px var(--background),
+    0 0 0 3px hsl(var(--background)),
     0 0 0 7px var(--halo-strong),
     inset 0 1px 0 var(--btn-lip);
 }
@@ -1600,10 +1630,13 @@ html[data-page-theme="light"] body {
     inset 0 0 0 1px var(--aura-rim),
     0 1px 1px var(--aura-drop);
 }
+/* Same defect, same fix — see `.glow-btn:focus-visible` above. A raw HSL triple
+   where a colour belongs voids the declaration, and `outline: none` is already
+   applied by then. */
 .aura-btn:focus-visible {
   outline: none;
   box-shadow:
-    0 0 0 2px var(--background),
+    0 0 0 2px hsl(var(--background)),
     0 0 0 4px hsl(var(--primary)),
     inset 0 0 0 1px var(--aura-rim);
 }
@@ -1656,6 +1689,26 @@ html[data-page-theme="light"] body {
 }
 .aura-chip:active:not(:disabled) {
   transform: scale(0.985);
+}
+/* And a focus ring, which this class did not have.
+ *
+ * `.aura-chip` is the outline style — Export, "Try that render again", the
+ * board bar — and it sets `box-shadow` in three states without ever setting
+ * one for `:focus-visible`. That is not merely a missing ring: Tailwind's own
+ * focus ring is also a `box-shadow`, and this rule's specificity beats it, so
+ * the class *removed* the indicator the framework would otherwise have drawn.
+ * A keyboard user tabbing across the board bar had nothing to follow.
+ *
+ * Two rings rather than one, like the buttons above: the inner one is the
+ * page's own colour, so the outer one reads against any surface the chip is
+ * sitting on. `hsl()` around the token, for the reason written at
+ * `.glow-btn:focus-visible`. */
+.aura-chip:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px hsl(var(--background)),
+    0 0 0 4px hsl(var(--primary)),
+    0 1px 2px var(--aura-drop);
 }
 
 @media (prefers-reduced-motion: reduce) {

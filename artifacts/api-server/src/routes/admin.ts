@@ -303,10 +303,44 @@ router.get("/admin/accounts", async (req, res): Promise<void> => {
         )
         .groupBy(jobsTable.userId)
     : [];
+  /*
+    The minutes an operator handed out, which this page was leaving off.
+
+    `usage.ts` defines `minutesIncluded` as the plan's minutes *plus* grants,
+    and says why it is one number: every reader asks the same question, and a
+    grant only some of them know about lets one screen promise minutes another
+    refuses. This route computed it from `PLAN_LIMITS` alone.
+
+    So the inverse happened, on the one screen built to check it: an operator
+    grants sixty minutes to a stuck customer, reloads, and the row still reads
+    `5 / 5`. The obvious next move is to grant again.
+
+    Read here the same way `usage.ts` reads it — from the audit log, which is
+    where a grant lives rather than merely where it is described.
+  */
+  const grants = ids.length
+    ? await db
+        .select({
+          userId: adminActionsTable.subjectUserId,
+          seconds: sql<number>`coalesce(sum((${adminActionsTable.detail} ->> 'seconds')::numeric), 0)`,
+        })
+        .from(adminActionsTable)
+        .where(
+          and(
+            eq(adminActionsTable.action, "grant_minutes"),
+            inArray(adminActionsTable.subjectUserId, ids),
+            gte(adminActionsTable.createdAt, startOfMonthUtc()),
+          ),
+        )
+        .groupBy(adminActionsTable.subjectUserId)
+    : [];
 
   const planFor = new Map(plans.map((row) => [row.userId, planOf(row.plan)]));
   const projectsFor = new Map(projects.map((row) => [row.userId, Number(row.n)]));
   const secondsFor = new Map(minutes.map((row) => [row.userId, Number(row.seconds)]));
+  const grantedFor = new Map(
+    grants.filter((row) => row.userId !== null).map((row) => [row.userId as string, Number(row.seconds)]),
+  );
 
   res.json(
     ListAdminAccountsResponse.parse({
@@ -321,7 +355,8 @@ router.get("/admin/accounts", async (req, res): Promise<void> => {
           plan,
           projectCount: projectsFor.get(row.user_id) ?? 0,
           minutesUsedThisMonth: minutesFrom(secondsFor.get(row.user_id) ?? 0),
-          minutesIncluded: PLAN_LIMITS[plan].minutesPerMonth,
+          minutesIncluded:
+            PLAN_LIMITS[plan].minutesPerMonth + minutesFrom(grantedFor.get(row.user_id) ?? 0),
         };
       }),
     }),
@@ -516,9 +551,37 @@ router.post("/admin/jobs/:id/requeue", async (req, res): Promise<void> => {
   await record({ actorUserId, action: "requeue_job", subjectJobId: job.id, reason,
     detail: { fromStatus: job.status, attempts: job.attempts } });
 
+  /*
+    `attempts` back to zero, and this is the whole action rather than a detail
+    of it.
+
+    The claim reads `WHERE status = 'queued' AND attempts < max_attempts`, and
+    the job most likely to be requeued is the one the sweep gave up on — which
+    is `failed` with `attempts >= max_attempts` by definition. Requeueing it
+    without this produced a row that is queued, that no worker will ever
+    claim, and that neither sweep can reach either: both require
+    `status = 'running'` and a `locked_at` we have just set to NULL.
+
+    And `jobs_one_active_per_project` is a unique index over the queued and
+    running rows, so that permanently unclaimable row means every future
+    render and export on that project answers 409 "This project is already
+    rendering." Forever. The customer's project can never be rendered again,
+    the console shows a queue item no action can clear, and the thing that
+    broke it was the operator's attempt to fix it.
+  */
   await db
     .update(jobsTable)
-    .set({ status: "queued", lockedAt: null, lockedBy: null, progress: 0, stage: null, error: null })
+    .set({
+      status: "queued",
+      lockedAt: null,
+      lockedBy: null,
+      progress: 0,
+      stage: null,
+      error: null,
+      errorDetail: null,
+      attempts: 0,
+      finishedAt: null,
+    })
     .where(eq(jobsTable.id, job.id));
 
   res.status(204).end();
@@ -656,10 +719,31 @@ router.post("/admin/accounts/:userId/plan", async (req, res): Promise<void> => {
     detail: { from: existing?.plan ?? null, to: requested },
   });
 
+  /*
+    The plan, and the two columns that decide whether it survives.
+
+    `license_id` and `plan_source_at` exist only so the next webhook has
+    something to compare against — the ledger's whole ordering rule is built on
+    them. Writing the plan alone left `plan_source_at` at whatever it was, so a
+    redelivered cancellation from before the correction compared as *newer* and
+    undid it. The one action in this console for "Freemius is wrong and the
+    customer is paying for something they do not have" was the one action a
+    stale retry could quietly reverse.
+
+    Stamped with now, so the correction is the newest thing known about this
+    account and every event older than it is refused as stale. `updatedAt` is
+    written by hand because `onConflictDoUpdate` does not carry Drizzle's
+    `$onUpdate`, so the row's timestamp said the plan had not changed since
+    whenever it last did.
+  */
+  const setAt = new Date();
   await db
     .insert(subscriptionsTable)
-    .values({ userId: subjectUserId, plan: requested })
-    .onConflictDoUpdate({ target: subscriptionsTable.userId, set: { plan: requested } });
+    .values({ userId: subjectUserId, plan: requested, planSourceAt: setAt })
+    .onConflictDoUpdate({
+      target: subscriptionsTable.userId,
+      set: { plan: requested, planSourceAt: setAt, updatedAt: setAt },
+    });
 
   res.json({
     plan: requested,

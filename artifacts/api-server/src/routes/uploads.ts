@@ -216,7 +216,18 @@ router.post("/uploads", rateLimit(LIMITS.write), async (req, res): Promise<void>
       path: key,
       contentType,
       maxBytes,
-      expiresAt: new Date(Date.now() + ticketTtlFor(purpose) * 1000).toISOString(),
+      // No `expiresAt`: a resumable upload has no deadline to name. It goes to
+      // the tus endpoint with the person's own bearer token and `x-upsert`,
+      // and nothing about that arrangement goes stale on a clock. The field
+      // was here, computed exactly as the signed branch computes its real one,
+      // and it described a moment that does not exist.
+      //
+      // The other branch of this merge kept the field and moved it onto the
+      // per-purpose TTL, `ticketTtlFor(purpose)` — a faithful adaptation of the
+      // old line, but it makes the number *more* believable rather than true,
+      // and a client that trusts it will abandon a transfer that was still
+      // perfectly resumable. The per-purpose TTL still governs the signed
+      // branch below, where there is a signature that really does expire.
       transfer: {
         mode: "resumable",
         url: `${base}/storage/v1/upload/resumable`,

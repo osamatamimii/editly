@@ -54,6 +54,9 @@ async function load(source, name) {
 const {
   refusalsFor,
   captionLength,
+  captionLengthFor,
+  captionWith,
+  truncateToGraphemes,
   scheduleRefusal,
   MIN_LEAD_SECONDS,
   MAX_LEAD_DAYS,
@@ -178,11 +181,77 @@ check(
   ),
   "275 + a nine-character tag is 285, and counting only the caption is how that posts as 240",
 );
+/*
+  Two characters between the words and the tags, not one.
+
+  This asserted `2 + 1 + "#one #two".length` — a single space — while every
+  publisher joins with a blank line. The number was wrong by one, always, and
+  it only shows at the boundary: a caption the composer measured at exactly the
+  platform's limit arrived one over, and the publisher's own truncation took
+  the last hashtag off. The composer said it fitted, the post went out, and a
+  tag the person chose was not on it.
+
+  Both sides now build the string with `captionWith`, so there is one answer
+  to "what will actually be sent" rather than two.
+*/
 check(
-  "and the count includes the space and the hash",
-  captionLength("ab", ["one", "two"]) === 2 + 1 + "#one #two".length,
+  "and the count includes the separator, the space and the hash",
+  captionLength("ab", ["one", "two"]) === 2 + "\n\n".length + "#one #two".length,
   String(captionLength("ab", ["one", "two"])),
 );
+check(
+  "and it is exactly what the publisher will send",
+  captionWith("ab", ["one", "two"]) === "ab\n\n#one #two",
+  JSON.stringify(captionWith("ab", ["one", "two"])),
+);
+
+/*
+  And X counts its own way.
+
+  Every URL is 23 characters to X, whatever its real length, because the
+  platform rewrites it through `t.co` before counting. Our check counted what
+  was typed, so a post carrying two long links measured 340 here and 246 there
+  — refused by us, perfectly postable on X.
+*/
+{
+  const link = `https://example.com/${"a".repeat(80)}`;
+  const caption = `look at this ${link}`;
+  check(
+    "a link is 23 characters to X, whatever its length",
+    captionLengthFor("x", caption, []) === "look at this ".length + 23,
+    `${captionLengthFor("x", caption, [])} against ${caption.length} typed`,
+  );
+  check(
+    "and everybody else counts what was typed",
+    captionLengthFor("instagram", caption, []) === caption.length,
+    String(captionLengthFor("instagram", caption, [])),
+  );
+  check(
+    "so a post X would take is not refused here",
+    !refusalsFor(post({ platform: "x", caption: `${"a".repeat(200)} ${link}`, hashtags: [] })).some(
+      (r) => r.field === "caption",
+    ),
+    "200 characters plus a link is 224 to X and 301 to String.length",
+  );
+}
+
+/*
+  A cut never lands inside a character.
+
+  `slice` counts UTF-16 code units, so cutting mid-emoji left a lone surrogate:
+  the post ended `…🎬\uFFFD`, a replacement glyph on somebody's feed where their
+  last word should have been.
+*/
+{
+  const cut = truncateToGraphemes(`${"a".repeat(20)} 🎬🎬🎬`, 24);
+  check("the cut is inside the limit", cut.length <= 24, `${cut.length}: ${JSON.stringify(cut)}`);
+  check(
+    "and contains no lone surrogate",
+    !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(cut),
+    JSON.stringify(cut),
+  );
+  check("and says it was cut", cut.endsWith("…"), JSON.stringify(cut));
+}
 check(
   "an empty hashtag is not a hashtag",
   captionLength("ab", ["  ", ""]) === 2,

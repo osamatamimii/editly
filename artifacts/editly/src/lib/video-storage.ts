@@ -21,7 +21,7 @@
  */
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
-import { uploadKindFor } from "@workspace/api-zod/limits";
+import { VIDEO_UPLOAD_EXTENSIONS, uploadKindFor } from "@workspace/api-zod/limits";
 import type {
   ResumableTransfer,
   SignedTransfer,
@@ -64,8 +64,31 @@ export const MAX_UPLOAD_BYTES = Number(import.meta.env.VITE_MAX_UPLOAD_BYTES) ||
  * is a product that refuses a file on one page and accepts it on the next.
  */
 export function uploadCeiling(subscription?: { maxUploadBytes?: number } | null): number {
+  return servedCeiling(subscription) ?? MAX_UPLOAD_BYTES;
+}
+
+/**
+ * The ceiling the server actually named, or null when it has not said.
+ *
+ * `uploadCeiling` folds those two into one number, and the number it folds
+ * them into is 50 MB — the build-time fallback, which is the *free* plan's
+ * order of magnitude. So while the subscription query is in flight, and for
+ * the whole of any failure or 401 on it, the editor told a Pro customer whose
+ * plan is sold on "upload a 4-hour episode as one file" that the limit was
+ * 50 MB, and refused their file with a confidently worded toast naming that
+ * number.
+ *
+ * Nothing threw. The dashboard shows a banner when this query fails; the
+ * editor showed nothing and quietly downgraded the customer.
+ *
+ * A caller that is about to refuse somebody should use this one and do nothing
+ * when it answers null: the signing route enforces the real ceiling before a
+ * byte is sent, so the cost of not guessing is one round trip, and the cost of
+ * guessing is telling a paying customer their file is too big when it is not.
+ */
+export function servedCeiling(subscription?: { maxUploadBytes?: number } | null): number | null {
   const served = subscription?.maxUploadBytes;
-  return typeof served === "number" && served > 0 ? served : MAX_UPLOAD_BYTES;
+  return typeof served === "number" && served > 0 ? served : null;
 }
 
 /**
@@ -124,7 +147,76 @@ function backoffMs(attempt: number): number {
 
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-export const ACCEPTED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
+/*
+  Which files get through lives in `start-from-video.ts`, not here.
+
+  That module is the one both screens ask, and it is deliberately free of this
+  file's imports — the Supabase client at the top of this one reads
+  `import.meta.env`, so anything that pulls it in cannot be exercised outside a
+  browser, and `tools/clip-section-test.mjs` exists precisely to exercise the
+  acceptance rule outside one. Re-exported here so the doors that already
+  import from this file keep working.
+*/
+export {
+  ACCEPTED_VIDEO_TYPES,
+  ACCEPTED_VIDEO_ACCEPT,
+  isAcceptableVideo,
+  isHeic,
+  type PickedFile,
+} from "./start-from-video";
+import { isHeic, type PickedFile } from "./start-from-video";
+
+
+/*
+  The four refusals, in both languages.
+
+  Written here rather than in `lib/copy/transfer.ts` because they arrived with
+  the derived format list above and that file had already been split; they
+  belong beside `TRANSFER` and should move there on the next pass through it.
+  Paired regardless, because every door that shows one of these sentences —
+  the dashboard, the editor, the drop zone — is on `BILINGUAL` and declares
+  the reader's language over whatever is printed under it.
+
+  The Arabic gives the iPhone's own menu path in the words an Arabic iPhone
+  uses, which is the only version that helps: a person reading «Settings,
+  Camera, Formats» has to translate it back before they can follow it. iPhone,
+  HEIC and JPEG stay in Latin script, like every other product and format name
+  in this product.
+*/
+const NOT_A_VIDEO = {
+  heic: phrase(
+    "هذه صورة HEIC من iPhone، ولا نستطيع قراءتها بعد. من الهاتف: الإعدادات ← الكاميرا ← التنسيقات ← الأكثر توافقًا، فتُحفظ الصور بصيغة JPEG. ومشاركة صورة موجودة عبر البريد أو الملفات تحوّلها أيضًا.",
+    "That is an iPhone HEIC photo, which we cannot read yet. " +
+      "On the phone: Settings, Camera, Formats, Most Compatible saves as JPEG, " +
+      "and sharing an existing photo to Mail or Files converts it too.",
+  ),
+  image: template<[string]>(
+    (formats) =>
+      `هذه صورة. أضفها من لوحة الملفات داخل المشروع لتُوضع فوق الكادر؛ أمّا ${formats} هنا فهي الفيديو نفسه.`,
+    (formats) =>
+      `That is an image. Add it from the files panel inside a project and it can be laid over the frame; the ${formats} here are the video itself.`,
+  ),
+  audio: phrase(
+    "هذا ملف صوتي. أضفه من لوحة الملفات داخل المشروع ليُشغَّل تحت التعديل.",
+    "That is an audio file. Add it from the files panel inside a project and it can be played under the edit.",
+  ),
+  weTake: template<[string]>(
+    (formats) => `نقبل ${formats}.`,
+    (formats) => `We take ${formats}.`,
+  ),
+} as const;
+
+export function whyNotAVideo(file: PickedFile): string {
+  const formats = VIDEO_UPLOAD_EXTENSIONS.join(", ");
+  if (isHeic(file)) return said(NOT_A_VIDEO.heic);
+  // A browser that names no type at all is the ordinary case for several
+  // containers, so an absent type falls through to the general sentence rather
+  // than being guessed at.
+  const type = file.type ?? "";
+  if (type.startsWith("image/")) return shaped(NOT_A_VIDEO.image, formats);
+  if (type.startsWith("audio/")) return said(NOT_A_VIDEO.audio);
+  return shaped(NOT_A_VIDEO.weTake, formats);
+}
 
 /*
   Re-exported rather than defined.
@@ -135,7 +227,7 @@ export const ACCEPTED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm
 */
 export { formatBytes } from "@workspace/api-zod/uploads";
 import { formatBytes } from "@workspace/api-zod/uploads";
-import { fill, say, type Phrase, type Template } from "./landing-copy";
+import { fill, phrase, say, template, type Phrase, type Template } from "./landing-copy";
 import { storedLanguage } from "./language-routes";
 import { TRANSFER } from "./copy/transfer";
 
@@ -847,6 +939,15 @@ async function uploadErrorText(response: Response, size?: number): Promise<strin
  * Mints a short-lived playback URL. The bucket is private, so a raw object key
  * is useless without one of these.
  */
+/**
+ * How often a playback URL is minted again.
+ *
+ * Comfortably inside the hour the signature lasts, so a fresh one is in hand
+ * long before the old one stops working — and rare enough that an hour on this
+ * screen is four requests rather than a poll.
+ */
+const RESIGN_EVERY_MS = 45 * 60 * 1000;
+
 export async function signedVideoUrl(path: string, expiresInSeconds = 3600): Promise<string | null> {
   const { data, error } = await supabase.storage
     .from(VIDEOS_BUCKET)
@@ -885,21 +986,22 @@ export async function downloadableVideoUrl(
   return data?.signedUrl ?? null;
 }
 
-/**
- * Removes every object a project put in Storage.
- *
- * Row-level security already limits this to the caller's own folder, so it runs
- * with the user's token rather than an admin key. Best-effort: a project that
- * fails to shed its bytes is still deleted, it just leaves them behind.
- */
-export async function deleteProjectVideos(userId: string, projectId: string): Promise<void> {
-  const prefix = `${userId}/${projectId}`;
-  const { data, error } = await supabase.storage.from(VIDEOS_BUCKET).list(prefix);
-  if (error || !data?.length) return;
-  const keys = data.filter((entry) => entry.id !== null).map((entry) => `${prefix}/${entry.name}`);
-  if (keys.length === 0) return;
-  await supabase.storage.from(VIDEOS_BUCKET).remove(keys);
-}
+/*
+  `deleteProjectVideos` used to live here, and the dashboard called it before
+  asking the server to delete the row.
+
+  It is gone because the route does this now, and does it with the property
+  that matters: `DELETE /projects/:id` sweeps the objects, refuses with a 503
+  when it cannot, and never reports a deletion it could not complete. With both
+  in place the client destroyed the source, the render, the poster and every
+  asset with the person's own token and *then* asked for the row — so a failure
+  on that second step showed "Failed to delete project. Please try again later."
+  over footage that was already gone.
+
+  The only irreversible half was running first, behind a sentence saying nothing
+  had happened. One place decides now, and it is the one that can refuse.
+*/
+
 
 /**
  * Turns a stored object key into something a <video> element can play.
@@ -949,21 +1051,46 @@ export function usePlayableVideo(pathOrUrl: string | null | undefined): {
     // The preview lives at the master's key plus this suffix — a convention
     // shared with the worker, not a column, so it cannot drift from the file.
     const previewKey = /\.mp4$/i.test(pathOrUrl) ? pathOrUrl.replace(/\.mp4$/i, "") + ".preview.webm" : null;
-    Promise.all([
-      signedVideoUrl(pathOrUrl),
-      previewKey ? signedVideoUrl(previewKey) : Promise.resolve(null),
-    ])
-      .then(([signed, preview]) => {
-        if (cancelled) return;
-        setUrl(signed);
-        setPreviewUrl(preview);
-      })
-      .finally(() => {
-        if (!cancelled) setIsResolving(false);
-      });
+
+    const sign = () =>
+      Promise.all([
+        signedVideoUrl(pathOrUrl),
+        previewKey ? signedVideoUrl(previewKey) : Promise.resolve(null),
+      ])
+        .then(([signed, preview]) => {
+          if (cancelled) return;
+          setUrl(signed);
+          setPreviewUrl(preview);
+        })
+        .finally(() => {
+          if (!cancelled) setIsResolving(false);
+        });
+
+    void sign();
+
+    /*
+      And again before it expires, because people sit on this screen.
+
+      The signature lasts an hour and this effect depended only on the object
+      key, so a background refetch handing back the same string minted nothing
+      new. The editor is exactly the screen somebody stays on while a render
+      runs, and the project page holds this URL for the whole session.
+
+      Past the hour Storage refuses the request, `<video onError>` fires, and
+      the overlay says "This file will not preview here. It is stored safely,
+      and it still edits and exports normally." That sentence is confidently
+      wrong about the cause — the file is fine and the codec is fine, the link
+      has simply expired — and there is nothing to retry, so the person
+      concludes their browser cannot play their own video.
+
+      `clips.tsx` already re-signs on every press for this reason. This is the
+      same fix for a URL nobody presses.
+    */
+    const renew = setInterval(() => void sign(), RESIGN_EVERY_MS);
 
     return () => {
       cancelled = true;
+      clearInterval(renew);
     };
   }, [pathOrUrl]);
 
@@ -1020,20 +1147,27 @@ export async function uploadProjectAsset(options: {
   projectId: string;
   accessToken: string;
   /**
-   * The bucket's real ceiling for this account, from `uploadCeiling`.
+   * The bucket's real ceiling for this account, from `servedCeiling`, or null
+   * when the server has not said.
    *
-   * Required rather than defaulted. A default here is a caller that forgot,
-   * silently enforcing a number that has nothing to do with the bucket — which
-   * is exactly what the 512 MB constant this replaced was.
+   * Required rather than defaulted, and nullable rather than folded. A default
+   * here is a caller that forgot, silently enforcing a number that has nothing
+   * to do with the bucket — which is exactly what the 512 MB constant this
+   * replaced was. Folding "not answered yet" into the build-time fallback is
+   * the same mistake wearing a nicer name: that fallback is 50 MB, the free
+   * plan's order of magnitude, so a Pro customer adding a music bed while the
+   * subscription query was in flight was told to keep it under fifty
+   * megabytes. The signing route enforces the real ceiling before a byte is
+   * sent, so `null` costs one round trip and a guess costs a customer.
    */
-  ceiling: number;
+  ceiling: number | null;
 }): Promise<{ path: string; kind: AssetKind }> {
   const { file, projectId, accessToken, ceiling } = options;
   const kind = assetKindOf(file);
   if (!kind) {
     throw new UploadError(shaped(TRANSFER.notMedia, file.name));
   }
-  if (file.size > ceiling) {
+  if (ceiling !== null && file.size > ceiling) {
     throw new UploadError(
       shaped(TRANSFER.assetTooBig, file.name, formatBytes(file.size), formatBytes(ceiling)),
     );

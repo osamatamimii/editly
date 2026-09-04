@@ -1008,9 +1008,16 @@ export default function AdminPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
           <h2 className="text-xl font-semibold">
             {t(ADMIN.accounts)}{" "}
-            <span className="text-muted-foreground text-base font-normal">
-              ({accounts.data?.total ?? 0})
-            </span>
+            {/* A count only when there is one. `?? 0` printed a bare "(0)" over
+                a failed read — on the one screen whose job is to tell an
+                operator when something is wrong, a 500 reading as "this
+                deployment has no customers". The panel below already says the
+                read failed; the heading was contradicting it calmly. */}
+            {accounts.data?.total !== undefined && (
+              <span className="text-muted-foreground text-base font-normal">
+                ({accounts.data.total})
+              </span>
+            )}
           </h2>
           <div className="relative w-full sm:w-auto">
             <Search className="w-4 h-4 absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />

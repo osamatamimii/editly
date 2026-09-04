@@ -127,7 +127,25 @@ export function keepSegmentsFrom(
     const closesTheFile = silence.end >= duration - EDGE;
     const start = opensTheFile ? 0 : Math.max(0, silence.start + pad);
     if (start > cursor) kept.push({ start: cursor, end: start });
-    cursor = closesTheFile ? duration : Math.max(cursor, Math.min(duration, silence.end - pad));
+    /*
+      The cursor cannot go back behind the piece just pushed.
+
+      It was clamped against its own previous value and against the duration,
+      and against nothing else — so a padding wider than half a silence put the
+      next piece's start *before* the last one's end, and the overlapping
+      stretch played, jumped back, and played again. `keepSegmentsFrom(60,
+      [{5,5.5},{20,25}], 1.0)` returned `[0,6] [4.5,21] [24,60]`: a second and a
+      half of the recording twice. `outputDuration` still summed to less than
+      the source, so the "no silence found to remove" guard did not catch it
+      either.
+
+      Reachable without anything unusual: the planner takes `minSilenceMs` from
+      the model and hard-codes `paddingMs: 80`, so any answer between 100 and
+      159 does it — at 60ms of repeated video per cut.
+    */
+    cursor = closesTheFile
+      ? duration
+      : Math.min(duration, Math.max(cursor, start, silence.end - pad));
   }
   if (cursor < duration) kept.push({ start: cursor, end: duration });
 

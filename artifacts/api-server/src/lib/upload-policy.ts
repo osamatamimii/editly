@@ -63,8 +63,14 @@ import { PLAN_LIMITS, smallestPlanForBytes } from "./plan-limits";
  */
 export const MAX_REFERENCE_BYTES = 25 * 1024 * 1024;
 
-/** A text face is under two megabytes; ten is a CJK family nobody burns captions with. */
-export const MAX_FONT_BYTES = 8 * 1024 * 1024;
+/*
+  Re-exported rather than declared, because the register route's zod schema is
+  in `lib/api-zod` and needs the same number. It used to allow twenty million
+  while this door refused anything over eight megabytes, and the register door
+  writes the value straight into `caption_faces.bytes`.
+*/
+import { MAX_FONT_BYTES } from "@workspace/api-zod/limits";
+export { MAX_FONT_BYTES };
 
 /**
  * A poster frame, which this product encodes itself.

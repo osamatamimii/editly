@@ -69,7 +69,7 @@ if (built.status !== 0) {
   console.error("could not bundle the publisher");
   process.exit(1);
 }
-const { claimDuePosts, refusalToSend, settle, publishDuePosts, surfaceStrandedPosts, TOO_LATE_MINUTES } =
+const { claimDuePosts, refusalToSend, settle, publishDuePosts, surfaceStrandedPosts, TOO_LATE_MINUTES, STRANDED_AFTER_MINUTES } =
   await import(pathToFileURL(outfile).href);
 
 let checks = 0;
@@ -368,6 +368,128 @@ section("A post the publisher died holding is surfaced, never retried");
     "a post claimed a second ago is left to finish",
     (await rowOf(fresh)).status === "publishing",
     (await rowOf(fresh)).status,
+  );
+}
+
+section("A send in progress is not mistaken for a machine that died");
+{
+  /*
+    The window was shorter than a healthy send.
+
+    `updated_at` was written once, at the claim, and the sweep read it fifteen
+    minutes later to decide a worker had died. But the fetch deadline alone is
+    fifteen minutes, Meta waits eight for a container and TikTok ten for a
+    status, and the master is downloaded before any of that. So a second
+    worker's sweep marked posts that were being uploaded *right then* as "it is
+    not known whether it went out" — a sentence that is terminal and that sends
+    a person to go and check their own account for a post we were in the middle
+    of making.
+
+    Two halves, and both are needed: the row says it is still alive while the
+    send runs, and the window is wider than the worst honest send.
+  */
+  check(
+    "the window clears the fetch deadline the publishers use",
+    STRANDED_AFTER_MINUTES * 60_000 > 15 * 60_000,
+    `${STRANDED_AFTER_MINUTES} minutes against a 15-minute deadline plus the download before it`,
+  );
+
+  const publisher = readFileSync(path.join(process.cwd(), "artifacts/worker/src/publisher.ts"), "utf8");
+  check(
+    "and the row says it is still going while it goes",
+    /setInterval\(\(\) => \{[\s\S]{0,200}update scheduled_posts set updated_at = now\(\)/.test(publisher),
+    "a window alone is a guess; the heartbeat is what makes it a fact",
+  );
+  check(
+    "and the heartbeat is cleared however the send ends",
+    /finally \{\s*clearInterval\(beating\);/.test(publisher),
+    "a timer left running writes to a row another worker may now hold",
+  );
+
+  /*
+    And the clock the batch is judged against.
+
+    `now` was read once, before the claim, and used for every post in the
+    batch — but a batch is five and each can take the full deadline. So the
+    "too late to send this" guard protected the first post and nobody else: the
+    fifth could go out an hour after its slot without ever being marked late.
+    Somebody's 7pm post landing at 8pm is worse than not landing, and the row
+    said it went out on time.
+  */
+  check(
+    "and each post is judged against the clock as it is reached",
+    /const asOf = new Date\(\);\s*const refusal = refusalToSend\(post, asOf\)/.test(publisher),
+    "one `now` for a batch of five means the last one is judged by an hour-old clock",
+  );
+}
+
+section("A hung upload does not hold the font somebody is watching for");
+{
+  /*
+    They shared a timer and an `await` chain: `sendDuePosts()` and then
+    `prepareFonts()`.
+
+    A send takes up to `PUBLISH_TIMEOUT_MS` — fifteen minutes — plus the
+    download of the master before it. So one slow platform held the font in
+    front of somebody who is looking at the screen right now, for the whole of
+    it: the exact wait the comment beside `prepareFonts` was written about,
+    where they conclude it is broken and upload the file again.
+
+    They are unrelated pieces of work that share only a clock, so neither waits
+    on the other and neither failing stops the other running.
+  */
+  const worker = readFileSync(path.join(process.cwd(), "artifacts/worker/src/index.ts"), "utf8");
+  check(
+    "the two halves of the sweep do not queue behind each other",
+    /Promise\.allSettled\(\[sendDuePosts\(\), prepareFonts\(\)\]\)/.test(worker),
+    "a fifteen-minute upload was the font's wait too",
+  );
+  check(
+    "and one failing does not silence the other",
+    /outcome\.status === "rejected"/.test(worker),
+    "allSettled with the outcomes discarded is a swallow, which is worse than the wait",
+  );
+}
+
+section("A post that did not go out is said out loud, to the person it belonged to");
+{
+  /*
+    Nothing told anybody. Not a letter, not a message in the product, not a
+    badge — the admin console counted every failure and the customer found out
+    by looking at their own feed, or did not.
+
+    The shape is what makes a letter the right surface. Somebody schedules a
+    week and closes the tab; an account whose authorisation was revoked then
+    fails thirty posts one at a time, at their hours, over seven days. Thirty
+    slots on a content calendar that quietly did not happen, and no screen they
+    were ever going to be looking at.
+  */
+  const publisher = readFileSync(path.join(process.cwd(), "artifacts/worker/src/publisher.ts"), "utf8");
+  check(
+    "the publisher tells them",
+    /tellThemAPostDidNotGoOut/.test(publisher),
+    "the console counted it and the person was never told",
+  );
+  check(
+    "on the refusals as well as on the failures",
+    (publisher.match(/await tellThem\(post, /g) ?? []).length >= 2,
+    "'it was 40 minutes late so it was not sent' is the one they most want to act on today",
+  );
+  check(
+    "and never for a post that went out",
+    /if \(outcome\.kind === "published"\) return;/.test(publisher),
+  );
+  check(
+    "a letter is never worth a settled row",
+    /catch \{[\s\S]{0,200}A letter is never worth a settled row/.test(publisher),
+    "the post is already settled when this runs; a mail provider must not change that",
+  );
+
+  const mail = readFileSync(path.join(process.cwd(), "artifacts/worker/src/mail.ts"), "utf8");
+  check(
+    "and it is deduplicated by the post, so a retry does not apologise twice",
+    /"post\.failed",\s*input\.postId/.test(mail),
+    "the deduplication key is what stops thirty failures becoming sixty letters",
   );
 }
 

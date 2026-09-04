@@ -44,6 +44,7 @@ import { publishToTikTok } from "./publish-tiktok.js";
 import { publishToInstagram, publishToFacebook } from "./publish-meta.js";
 import { publishToX } from "./publish-x.js";
 import { publishToSnapchat } from "./publish-snapchat.js";
+import { tellThemAPostDidNotGoOut } from "./mail.js";
 
 /**
  * How late is too late.
@@ -59,6 +60,31 @@ import { publishToSnapchat } from "./publish-snapchat.js";
  * waits for a person to decide.
  */
 export const TOO_LATE_MINUTES = 20;
+
+/**
+ * How often a send says it is still going.
+ *
+ * Written against the row it holds, so `surfaceStrandedPosts` can tell a
+ * worker that died from one that is uploading a two-gigabyte master. Frequent
+ * enough that several can be missed inside one stranded window.
+ */
+const PUBLISH_HEARTBEAT_MS = 30_000;
+
+/**
+ * How long a post may sit in `publishing` before it is assumed abandoned.
+ *
+ * This was fifteen minutes, and a healthy send takes longer: the fetch
+ * deadline alone is fifteen (`PUBLISH_TIMEOUT_MS`), Meta waits eight minutes
+ * for a container to finish and TikTok ten for a status, and the download of
+ * the master comes before any of that. So the sweep was declaring live sends
+ * dead — with a sentence that is terminal and unpleasant, telling a person to
+ * go and check their own account for a post we were in the middle of making.
+ *
+ * Forty-five is comfortably past the worst honest send now that the row also
+ * carries a heartbeat, and still short enough that a machine which really died
+ * does not leave a post in limbo for an hour.
+ */
+export const STRANDED_AFTER_MINUTES = 45;
 
 /**
  * How many due posts one pass takes.
@@ -266,7 +292,7 @@ export async function settle(postId: string, outcome: PostOutcome): Promise<void
  * is marked `failed` with a sentence that says what is uncertain and what to
  * check, and a person decides.
  */
-export async function surfaceStrandedPosts(staleMinutes = 15): Promise<number> {
+export async function surfaceStrandedPosts(staleMinutes = STRANDED_AFTER_MINUTES): Promise<number> {
   const stranded = await db.execute<{ id: string }>(sql`
     update scheduled_posts
        set status = 'failed',
@@ -540,6 +566,38 @@ async function send(post: ClaimedPost): Promise<PostOutcome> {
 }
 
 /**
+ * Say that a post did not go out, to the person it belonged to.
+ *
+ * Nothing said anything before this — not a letter, not a message in the
+ * product, not a badge. The admin console counted every failure and the
+ * customer found out by looking at their own feed, or did not. The shape is
+ * what makes it a letter: somebody schedules a week and closes the tab, and an
+ * account whose authorisation was revoked fails thirty posts one at a time,
+ * over seven days, at their hours.
+ *
+ * Best-effort by construction, like every other letter this worker sends: the
+ * post has already been settled by the time this runs, so a mail provider
+ * having a bad minute must not change what the row says. And `mail_sends`
+ * deduplicates on the post id, so a retry cannot apologise twice.
+ */
+async function tellThem(post: ClaimedPost, outcome: PostOutcome): Promise<void> {
+  if (outcome.kind === "published") return;
+  try {
+    await tellThemAPostDidNotGoOut({
+      userId: post.userId,
+      postId: post.id,
+      projectId: post.projectId,
+      platform: isSocialPlatform(post.platform) ? SOCIAL_LABEL[post.platform] : post.platform,
+      handle: post.handle,
+      reason: outcome.reason,
+    });
+  } catch {
+    // `tellThemAPostDidNotGoOut` does not throw; this is the belt for the day
+    // it grows a call that can. A letter is never worth a settled row.
+  }
+}
+
+/**
  * One pass. Returns what it did, for the log line.
  *
  * Nothing here throws on a single bad post: one destination failing is the
@@ -558,19 +616,66 @@ export async function publishDuePosts(now: Date = new Date()): Promise<{
   let missed = 0;
 
   for (const post of posts) {
-    const refusal = refusalToSend(post, now);
+    /*
+      A fresh clock per post, not the batch's.
+
+      `now` was read once, before the claim, and then used to judge every post
+      in the batch — but a batch is five posts and each of them can take up to
+      `PUBLISH_TIMEOUT_MS`, which is fifteen minutes. So the "too late to send
+      this" guard protected the first post and nobody else: the fifth could go
+      out an hour after its slot, without ever being marked late, which is the
+      exact thing `TOO_LATE_MINUTES` exists to prevent. Somebody's 7pm post
+      landing at 8pm is worse than not landing, and the row said it went out on
+      time.
+
+      The claim keeps the batch's `now` on purpose: what is *due* was decided
+      when the batch was taken, and re-reading it there would let a post become
+      due mid-loop and be sent by a pass that had not claimed it.
+    */
+    const asOf = new Date();
+    const refusal = refusalToSend(post, asOf);
     if (refusal) {
       await settle(post.id, refusal);
       if (refusal.kind === "missed") missed += 1;
       else failed += 1;
+      await tellThem(post, refusal);
       continue;
     }
 
-    const outcome = await send(post);
+    /*
+      Proof of life while the send runs.
+
+      `updated_at` was written once, at the claim, and `surfaceStrandedPosts`
+      reads it to decide that a worker has died. A healthy send takes longer
+      than that window did — Meta waits eight minutes for a container, TikTok
+      ten for a status — so a second worker's sweep marked posts that were
+      being uploaded *right then* as "it is not known whether it went out", and
+      that sentence is terminal: a person is told to go and check their own
+      account for a post we were in the middle of making.
+
+      The timer is the same shape as the render loop's lock renewal, and for
+      the same reason. `STRANDED_AFTER_MINUTES` is the other half.
+    */
+    const beating = setInterval(() => {
+      void db
+        .execute(sql`update scheduled_posts set updated_at = now() where id = ${post.id} and status = 'publishing'`)
+        .catch(() => {
+          // A missed heartbeat is not a reason to abandon a send in progress.
+          // The window is wide enough to absorb several.
+        });
+    }, PUBLISH_HEARTBEAT_MS);
+
+    let outcome: PostOutcome;
+    try {
+      outcome = await send(post);
+    } finally {
+      clearInterval(beating);
+    }
     await settle(post.id, outcome);
     if (outcome.kind === "published") published += 1;
     else if (outcome.kind === "missed") missed += 1;
     else failed += 1;
+    if (outcome.kind !== "published") await tellThem(post, outcome);
   }
 
   return { claimed: posts.length, published, failed, missed };

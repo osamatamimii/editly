@@ -41,7 +41,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { SOCIAL_SPEC, metaExchangeUrl, type SocialPlatform } from "@workspace/api-zod";
-import { withDeadline } from "./providers/deadline";
+import { withDeadline, PUBLISH_TIMEOUT_MS } from "./providers/deadline";
 
 /**
  * How long before expiry a token counts as expired.
@@ -88,7 +88,9 @@ export async function usableToken(
   // A refresh is a request to somebody else's server, so it takes the same
   // deadline every other outbound call in the worker does — otherwise a token
   // exchange that hangs wedges the publish loop before a single byte is sent.
-  doFetch: typeof fetch = withDeadline(fetch),
+  // The publish budget rather than the provider one, because this runs on the
+  // path a scheduled post takes and shares that path's lateness ceiling.
+  doFetch: typeof fetch = withDeadline(fetch, PUBLISH_TIMEOUT_MS),
 ): Promise<string> {
   const expiresSoon =
     credential.expiresAt !== null && credential.expiresAt.getTime() - now.getTime() < EARLY_MS;
@@ -213,7 +215,7 @@ async function extendMetaToken(
   credential: Credential,
   now: Date,
   env: Record<string, string | undefined>,
-  doFetch: typeof fetch = withDeadline(fetch),
+  doFetch: typeof fetch = withDeadline(fetch, PUBLISH_TIMEOUT_MS),
 ): Promise<string> {
   const spec = SOCIAL_SPEC[platform];
   const response = await doFetch(

@@ -3,6 +3,7 @@
  * Derived from lib/api-spec/openapi.yaml (source of truth).
  */
 import { z } from "zod/v4";
+import { MAX_FONT_BYTES, MAX_MESSAGE_LENGTH } from "./limits";
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -199,6 +200,19 @@ export const HealthCheckResponse = z.object({
   database: z.object({
     reachable: z.boolean(),
     missingColumns: z.array(z.string()),
+    /**
+     * Unique indexes the code relies on and the database does not have.
+     *
+     * Separate from `missingColumns` because they fail differently: a missing
+     * column makes every query naming it throw, which is loud; a missing unique
+     * index makes the product quietly wrong. `jobs_one_active_per_project` is
+     * the whole of the defence against a double-clicked Export billing a
+     * customer twice, and until this field existed `/healthz` could not see it.
+     *
+     * Optional so an older deployment answering without it still parses — the
+     * monitor reads this endpoint across versions.
+     */
+    missingIndexes: z.array(z.string()).optional().default([]),
   }),
   /**
    * Which optional parts of the product this deployment actually has.
@@ -306,7 +320,47 @@ export type HealthCheckResponse = z.infer<typeof HealthCheckResponse>;
 export const ListProjectsResponse = z.array(Project);
 export type ListProjectsResponse = z.infer<typeof ListProjectsResponse>;
 
-export const CreateProjectBody = z.object({ title: z.string().min(1) });
+/**
+ * What a title may be.
+ *
+ * The column is `text`, so Postgres will take a megabyte of it, and nothing
+ * between the browser and the row said otherwise. A title is rendered in a
+ * list, in a tab, in the subject line of the letter that says a render
+ * finished, and in the operations console — none of which has a plan for a
+ * paragraph, and none of which failed either: they just got very tall.
+ *
+ * Two hundred is what `label` on an asset already uses, and it is well past
+ * any title anybody types.
+ */
+export const MAX_TITLE_LENGTH = 200;
+
+/**
+ * The longest source this product will ever be told about, in seconds.
+ *
+ * Twenty-four hours, matching `durationSeconds` on an asset. It is not the
+ * plan ceiling and it is not what the machine can render — both of those are
+ * enforced where they are known, against the file rather than against a claim.
+ * This is the bound that says the number is a duration at all.
+ *
+ * The value it replaces was `z.number()`, and the consequence was not a large
+ * number: `PATCH {"duration": -999999}` was accepted, and the next render
+ * started with a month's allowance reading 1.0e6 seconds. A negative duration
+ * is not a long video, it is a credit.
+ */
+export const MAX_DURATION_SECONDS = 86_400;
+
+/** Beyond this a pixel count is a mistake, not a video. Matches `RegisterAssetBody`. */
+export const MAX_PIXEL_DIMENSION = 20_000;
+
+/**
+ * A storage object path, as long as one can be.
+ *
+ * `<userId>/<projectId>/<name>` with room for a long filename — the same 400
+ * `RegisterAssetBody.path` uses, so the two doors into the same column agree.
+ */
+export const MAX_PATH_LENGTH = 400;
+
+export const CreateProjectBody = z.object({ title: z.string().min(1).max(MAX_TITLE_LENGTH) });
 export type CreateProjectBody = z.infer<typeof CreateProjectBody>;
 
 export const CreateProjectResponse = Project;
@@ -322,19 +376,32 @@ export const UpdateProjectParams = IdParams;
 export type UpdateProjectParams = z.infer<typeof UpdateProjectParams>;
 
 export const UpdateProjectBody = z.object({
-  title: z.string().min(1).optional(),
+  title: z.string().min(1).max(MAX_TITLE_LENGTH).optional(),
   status: ProjectStatus.optional(),
-  thumbnailUrl: z.string().optional(),
-  videoUrl: z.string().optional(),
-  editedVideoUrl: z.string().optional(),
-  videoPath: z.string().optional(),
-  editedVideoPath: z.string().optional(),
-  thumbnailPath: z.string().optional(),
+  thumbnailUrl: z.string().max(MAX_PATH_LENGTH * 4).optional(),
+  videoUrl: z.string().max(MAX_PATH_LENGTH * 4).optional(),
+  editedVideoUrl: z.string().max(MAX_PATH_LENGTH * 4).optional(),
+  videoPath: z.string().max(MAX_PATH_LENGTH).optional(),
+  editedVideoPath: z.string().max(MAX_PATH_LENGTH).optional(),
+  thumbnailPath: z.string().max(MAX_PATH_LENGTH).optional(),
   /** Null clears it. Gated on the plan — see routes/projects.ts. */
-  referenceVideoPath: z.string().nullable().optional(),
-  duration: z.number().optional(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
+  referenceVideoPath: z.string().max(MAX_PATH_LENGTH).nullable().optional(),
+  /*
+    Bounded on both sides, and the lower bound is the one that mattered.
+
+    `width` and `height` beside it were `.int().positive()` from the day they
+    were written; `duration` was `z.number()`, which accepts −999999. Nothing
+    rejected it, nothing normalised it, and it went into `projects.duration` —
+    where `usage.ts` subtracts it from the month's allowance. One PATCH bought
+    a free account eleven days of encoding, with no error anywhere and no
+    unusual row to notice: just a project whose length was negative.
+
+    A duration of exactly zero is a real answer for a file still uploading, so
+    the floor is zero rather than one.
+  */
+  duration: z.number().min(0).max(MAX_DURATION_SECONDS).optional(),
+  width: z.number().int().positive().max(MAX_PIXEL_DIMENSION).optional(),
+  height: z.number().int().positive().max(MAX_PIXEL_DIMENSION).optional(),
   platform: Platform.optional(),
 });
 export type UpdateProjectBody = z.infer<typeof UpdateProjectBody>;
@@ -413,7 +480,16 @@ export const RegisterFaceBody = z.object({
   path: z.string().min(3).max(400),
   label: z.string().min(1).max(120),
   script: z.enum(["latin", "arabic"]),
-  bytes: z.number().int().min(0).max(20_000_000).default(0),
+  /*
+    The ceiling the product actually enforces, not a rounder number beside it.
+
+    This was `20_000_000` while `upload-policy.ts` refused anything over
+    8,388,608 — two and a half times wider, at a door that writes the value
+    straight into `caption_faces.bytes` with no re-check. So the shared schema
+    declared a limit that was not the product's, and the size the picker and the
+    console display was a client's claim validated against the wrong one.
+  */
+  bytes: z.number().int().min(0).max(MAX_FONT_BYTES).default(0),
   /**
    * What the person says about their right to use this font.
    *
@@ -432,7 +508,7 @@ export type RegisterFaceBody = z.infer<typeof RegisterFaceBody>;
 export const DeleteFaceParams = z.object({ id: z.string().min(1) });
 
 export const SendMessageBody = z.object({
-  content: z.string().min(1),
+  content: z.string().min(1).max(MAX_MESSAGE_LENGTH),
   /* The same choice, on the other door a plan comes through. */
   fonts: CaptionFontChoice.optional(),
 });
@@ -477,7 +553,31 @@ export type GetSubscriptionResponse = z.infer<typeof GetSubscriptionResponse>;
 export const UpdateSubscriptionBody = z.object({ plan: SubscriptionPlan });
 export type UpdateSubscriptionBody = z.infer<typeof UpdateSubscriptionBody>;
 
-export const UpdateSubscriptionResponse = SubscriptionUsage;
+/**
+ * What a self-serve downgrade actually did, including what it did not do.
+ *
+ * The plan here and the subscription at the merchant of record are two
+ * different things, and this endpoint only moves the first. Freemius takes the
+ * payment and nothing in this codebase can cancel it, so a Pro subscriber who
+ * presses "Switch to Creator" gets Creator's allowance and goes on being
+ * charged for Pro until they cancel where they bought it.
+ *
+ * That was true before this field existed; what was missing was anybody saying
+ * so. A button labelled "Switch to Creator" that quietly leaves the card
+ * running is the product taking a decision on somebody's behalf and not
+ * mentioning it.
+ */
+export const UpdateSubscriptionResponse = SubscriptionUsage.extend({
+  billingUnchanged: z
+    .object({
+      /** The plan they were on, which is the one still being charged for. */
+      was: z.string(),
+      message: z.string(),
+      /** Where the subscription can actually be stopped. */
+      where: z.string(),
+    })
+    .optional(),
+});
 export type UpdateSubscriptionResponse = z.infer<typeof UpdateSubscriptionResponse>;
 
 // ---------------------------------------------------------------------------
@@ -1370,6 +1470,17 @@ export const RenderJob = z.object({
    * than no number, because somebody plans around it.
    */
   waitSeconds: z.number().nullable().optional(),
+  /**
+   * True when this render was stopped by the person rather than by a failure.
+   *
+   * A stopped render is `failed`, because that is what every reader of
+   * `status` in this product understands as "not going any more" — see the
+   * migration for why it is not a fourth status. Which leaves the screen
+   * unable to tell a decision from a fault, and the difference is the whole
+   * feature: an apology for a failure that did not happen is worse than no
+   * message.
+   */
+  cancelled: z.boolean().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -1455,6 +1566,25 @@ export type StartRenderBody = z.infer<typeof StartRenderBody>;
 
 export const StartRenderResponse = RenderJob;
 export type StartRenderResponse = z.infer<typeof StartRenderResponse>;
+
+/**
+ * What stopping a render answers with.
+ *
+ * `status` is the row's status *after* the request, which is the honest
+ * difference between the two cases: a queued render is `failed` because it
+ * stopped here and now, and a running one is still `running` because a machine
+ * is inside ffmpeg and reads the request at its next progress report. Claiming
+ * it had stopped would be the same kind of lie this feature exists to remove.
+ */
+export const CancelRenderParams = z.object({ id: z.string() });
+export type CancelRenderParams = z.infer<typeof CancelRenderParams>;
+
+export const CancelRenderResponse = z.object({
+  id: z.string(),
+  status: JobStatus,
+  cancelled: z.literal(true),
+});
+export type CancelRenderResponse = z.infer<typeof CancelRenderResponse>;
 
 export const GetRenderStatusParams = z.object({ id: z.string() });
 export type GetRenderStatusParams = z.infer<typeof GetRenderStatusParams>;
@@ -1790,3 +1920,19 @@ export * from "./social";
 export * from "./limits";
 export * from "./processors";
 export * from "./fonts";
+
+/*
+  The failure type, exported beside the schemas that produce it.
+
+  Every server that parses one of these has to say something when the parse
+  fails, and until now each of them said `error.message` — which in zod's v4
+  API is the whole issue array, pretty-printed as JSON. Turning that into a
+  sentence needs the issue's own shape, and a consumer that cannot name the
+  type ends up either adding a direct dependency on zod (a second copy, and a
+  second version to keep in step with this one) or reaching into `any`.
+
+  So the contract package exports its own error type, the same way it exports
+  the schemas: this is the version of zod these schemas were validated with,
+  and nobody downstream has to know which.
+*/
+export type { ZodError, ZodIssue } from "zod/v4";

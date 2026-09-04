@@ -44,7 +44,7 @@ if (esbuild.status !== 0) {
   process.exit(1);
 }
 
-const { renderPlan, probeSource, keepSegmentsFrom, remapTime, outputDuration, zoomExpression, writeSubtitleFile, wrapToLayout, frameFor, shapeFor, defaultHeightFor, chooseHighlight, chooseClips } =
+const { renderPlan, probeSource, duckThreshold, keepSegmentsFrom, remapTime, outputDuration, zoomExpression, writeSubtitleFile, wrapToLayout, frameFor, shapeFor, defaultHeightFor, chooseHighlight, chooseClips } =
   await import(pathToFileURL(modulePath).href);
 
 // The reference command below has to crop where the pipeline crops, or it
@@ -166,6 +166,19 @@ console.log("\nSegment arithmetic");
 
   const padded = keepSegmentsFrom(20, [{ start: 3, end: 7 }], 0.5);
   check("padding widens what is kept on both sides of a cut", padded[0].end === 3.5 && padded[1].start === 6.5, JSON.stringify(padded));
+
+  /*
+    Padding wider than half a silence used to put the next piece's start behind
+    the last one's end, and the overlap played twice. Not exotic: the planner
+    hard-codes 80ms of padding and takes the gap length from the model, so any
+    answer between 100 and 159ms did it.
+  */
+  const wide = keepSegmentsFrom(60, [{ start: 5, end: 5.5 }, { start: 20, end: 25 }], 1.0);
+  check(
+    "a pad wider than the silence it fills never plays a stretch twice",
+    wide.every((segment, i) => i === 0 || segment.start >= wide[i - 1].end - 1e-9),
+    JSON.stringify(wide),
+  );
 
   const trailing = keepSegmentsFrom(10, [{ start: 8, end: 10 }], 0);
   check("a silence running to the end truncates the clip", trailing.length === 1 && trailing[0].end === 8, JSON.stringify(trailing));
@@ -308,6 +321,80 @@ console.log("\nZoom expressions");
   check("the punch is scaled by the base zoom", punched.includes((0.12 * 1.15).toFixed(4)), punched);
 }
 
+console.log("\nA note counts what was removed as silence, not everything that was removed");
+{
+  /*
+    The note said `source.duration - keptDuration`, which is the total the edit
+    lost — and the kept map is built from the silences *and* the word cuts
+    `tighten` found, so the hesitations were inside a number labelled "of
+    silence". The very next note then reported the same seconds again, so the
+    two sentences on one screen contradicted each other by exactly the amount
+    the second one named.
+  */
+  const dir = await scratch();
+  const clip = path.join(dir, "talk.mp4");
+  // Sound from 0–3 and 7–10 of a 12-second clip: two real gaps.
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=12",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=12",
+    "-filter_complex", "[1:a]volume='if(between(t,0,3)+between(t,7,10),1,0)':eval=frame[a]",
+    "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+    clip,
+  ]);
+
+  /*
+    Both operations together, which is the only shape that shows it: with
+    `removeSilence` alone the two numbers are equal and the bug is invisible.
+    The hesitations are placed inside the *audible* stretches, so every second
+    `tighten` removes is a second that was not silent.
+  */
+  const words = [
+    { text: "so", start: 0.2, end: 0.5 },
+    { text: "um", start: 0.6, end: 1.1, filler: true },
+    { text: "anyway", start: 1.2, end: 1.8 },
+    { text: "uh", start: 2.0, end: 2.5, filler: true },
+    { text: "listen", start: 2.6, end: 2.9 },
+    { text: "and", start: 7.2, end: 7.5 },
+    { text: "um", start: 7.6, end: 8.1, filler: true },
+    { text: "here", start: 8.2, end: 8.6 },
+  ];
+
+  const { notes } = await renderPlan(
+    clip,
+    {
+      version: 1,
+      operations: [
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
+        { type: "tighten", fillers: true, repeats: false },
+      ],
+    },
+    { workDir: await scratch(), words },
+  );
+  const line = notes.find((n) => /removed .* of silence/.test(n)) ?? "";
+  const tightLine = notes.find((n) => /that was not silent/.test(n)) ?? "";
+  check("it says how much silence went", line.length > 0, JSON.stringify(notes));
+  check("and separately how much was cut that was not silent", tightLine.length > 0, JSON.stringify(notes));
+
+  const removed = Number(/removed ([\d.]+)s of silence across (\d+) gaps/.exec(line)?.[1] ?? "0");
+  const gaps = Number(/across (\d+) gaps/.exec(line)?.[1] ?? "0");
+  const notSilent = Number(/([\d.]+)s that was not silent/.exec(tightLine)?.[1] ?? "0");
+  check("across a real number of gaps", gaps >= 1, line);
+  check("and some hesitations really were found", notSilent > 0, tightLine);
+
+  /*
+    The two numbers must not overlap. Sound runs 0–3 and 7–10 of twelve
+    seconds, so at most six seconds are silent — and the hesitations are all
+    inside the audible stretches, so a silence figure that includes them
+    exceeds what the clip can possibly contain.
+  */
+  check(
+    "and the silence figure does not include the hesitations",
+    removed > 0 && removed <= 6.01,
+    `${removed}s claimed as silence of at most 6s silent, with ${notSilent}s of hesitations counted separately — ${line} / ${tightLine}`,
+  );
+}
+
 console.log("\nCaption files");
 {
   const dir = await scratch();
@@ -325,6 +412,169 @@ console.log("\nCaption files");
   const k = readFileSync(withWords, "utf8");
   check("karaoke emits a wipe per word", (k.match(/\\kf\d+/g) ?? []).length === 2, k.split("\n").pop());
   check("each wipe lasts that word's own duration", /\\kf40[^\d]/.test(k) && /\\kf60[^\d]/.test(k), k.split("\n").pop());
+
+  /*
+    The wipe has to arrive with the voice, and the gaps are what decides that.
+
+    `\kf` durations are cumulative from the start of the line. Emitting only
+    each word's own length means every silence between words shifts everything
+    after it earlier by exactly that silence — and a cue is only broken at a
+    pause of half a second, so it can legitimately hold several gaps of nearly
+    that. Rendered through libass, a three-word cue with 500 ms gaps finished
+    its sweep 850 ms before the last word was spoken.
+  */
+  const gappy = path.join(dir, "gaps.ass");
+  await writeSubtitleFile(
+    gappy,
+    [{
+      startMs: 10_000, endMs: 12_100, text: "So anyway listen",
+      words: [
+        { startMs: 10_000, endMs: 10_200, text: "So" },
+        { startMs: 10_700, endMs: 11_200, text: "anyway" },
+        { startMs: 11_600, endMs: 12_100, text: "listen" },
+      ],
+    }],
+    "karaoke-box",
+    "karaoke",
+    { width: 1080, height: 1920 },
+  );
+  const gapLine = readFileSync(gappy, "utf8").split("\n").filter((l) => l.startsWith("Dialogue")).pop();
+  const centiseconds = [...gapLine.matchAll(/\\(k|kf)(\d+)/g)].reduce((sum, m) => sum + Number(m[2]), 0);
+  check(
+    "the karaoke timings add up to the span they cover, gaps included",
+    centiseconds === 210,
+    `${centiseconds}cs of tags for a 2100ms cue: ${gapLine}`,
+  );
+  check(
+    "and the silences are rests rather than nothing",
+    (gapLine.match(/\\k\d/g) ?? []).length === 2,
+    gapLine,
+  );
+  check(
+    "while every word still wipes for its own length",
+    /\\kf20[^\d]/.test(gapLine) && (gapLine.match(/\\kf50[^\d]/g) ?? []).length === 2,
+    gapLine,
+  );
+
+  /*
+    And right to left it is a colour, not a wipe.
+
+    `\kf` sweeps left to right in *visual* order whatever the script, and an
+    Arabic line lays its runs down in reverse so the bidi algorithm puts the
+    words back in the right places. Both of those are correct on their own and
+    together they mean the wipe on every Arabic caption ran backwards through
+    the sentence: it started on the last word and finished on the first.
+    Verified with libass, twice, because it is the kind of claim that sounds
+    like a guess.
+  */
+  const arabic = path.join(dir, "ar.ass");
+  await writeSubtitleFile(
+    arabic,
+    [{
+      startMs: 0, endMs: 2100, text: "واحد اثنان ثلاثة",
+      words: [
+        { startMs: 0, endMs: 200, text: "واحد" },
+        { startMs: 700, endMs: 1200, text: "اثنان" },
+        { startMs: 1600, endMs: 2100, text: "ثلاثة" },
+      ],
+    }],
+    "karaoke-box",
+    "karaoke",
+    { width: 1080, height: 1920 },
+  );
+  const arLine = readFileSync(arabic, "utf8").split("\n").filter((l) => l.startsWith("Dialogue")).pop();
+  check("an Arabic karaoke line uses no wipe at all", !/\\kf/.test(arLine), arLine);
+  check(
+    "it times each word with a transform anchored to the line",
+    (arLine.match(/\\t\(\d+,\d+,/g) ?? []).length === 3,
+    arLine,
+  );
+  const transforms = [...arLine.matchAll(/\\t\((\d+),(\d+),/g)].map((m) => [Number(m[1]), Number(m[2])]);
+  check(
+    "the run drawn first in the string is the last word spoken",
+    transforms[0][0] === 1600 && transforms[0][1] === 2100,
+    JSON.stringify(transforms),
+  );
+  check(
+    "and the run drawn last is the first word spoken",
+    transforms[2][0] === 0 && transforms[2][1] === 200,
+    JSON.stringify(transforms),
+  );
+  check(
+    "which is what makes the highlight travel right to left, in order",
+    transforms[0][0] > transforms[1][0] && transforms[1][0] > transforms[2][0],
+    JSON.stringify(transforms),
+  );
+  check(
+    "each transition runs from the unspoken colour to the spoken one",
+    (arLine.match(/\\c&H[0-9A-Fa-f]{6}&\\t\(\d+,\d+,\\c&H[0-9A-Fa-f]{6}&\)/g) ?? []).length === 3,
+    arLine,
+  );
+
+  /*
+    A box does not grow word by word.
+
+    `\alpha` sets all four alphas at once — fill, secondary, border and shadow —
+    and with `BorderStyle: 3` the border *is* the box behind the line. So on the
+    box styles a word nobody had said yet took its box with it: at half a second
+    the caption was a small black rectangle around one word floating in the
+    middle of the frame, and by two seconds it had inflated into two full-width
+    bars. Rendered and watched, because a still of the finished cue looks
+    perfect and this is only visible while it plays.
+  */
+  const boxed = path.join(dir, "kinetic-box.ass");
+  await writeSubtitleFile(
+    boxed,
+    [{
+      startMs: 0, endMs: 1200, text: "one two three",
+      words: [
+        { startMs: 0, endMs: 300, text: "one" },
+        { startMs: 400, endMs: 700, text: "two" },
+        { startMs: 800, endMs: 1200, text: "three" },
+      ],
+    }],
+    "karaoke-box",
+    "kinetic",
+    { width: 1080, height: 1920 },
+  );
+  const boxedLine = readFileSync(boxed, "utf8").split("\n").filter((l) => l.startsWith("Dialogue")).pop();
+  check(
+    "on a style that draws a box, only the letters are hidden",
+    /\\1a&HFF&/.test(boxedLine) && /\\4a&HFF&/.test(boxedLine),
+    boxedLine,
+  );
+  check(
+    "and the box itself is never hidden with them",
+    !/\\alpha&HFF&/.test(boxedLine) && !/\\3a&HFF&/.test(boxedLine),
+    boxedLine,
+  );
+  check(
+    "the words still arrive one at a time",
+    (boxedLine.match(/\\t\(\d+,\d+,/g) ?? []).length === 3,
+    boxedLine,
+  );
+
+  const outlined = path.join(dir, "kinetic-outline.ass");
+  await writeSubtitleFile(
+    outlined,
+    [{
+      startMs: 0, endMs: 1200, text: "one two three",
+      words: [
+        { startMs: 0, endMs: 300, text: "one" },
+        { startMs: 400, endMs: 700, text: "two" },
+        { startMs: 800, endMs: 1200, text: "three" },
+      ],
+    }],
+    "bold-white",
+    "kinetic",
+    { width: 1080, height: 1920 },
+  );
+  const outlinedLine = readFileSync(outlined, "utf8").split("\n").filter((l) => l.startsWith("Dialogue")).pop();
+  check(
+    "on a style with no box, everything is hidden — an outline of a word nobody has said is a ghost",
+    /\\alpha&HFF&/.test(outlinedLine),
+    outlinedLine,
+  );
 
   const withoutWords = path.join(dir, "n.ass");
   await writeSubtitleFile(withoutWords, [{ startMs: 0, endMs: 1000, text: "hello there" }], "karaoke-box", "karaoke", { width: 1080, height: 1920 });
@@ -2720,6 +2970,455 @@ console.log("\nThe render answers in the language it was asked in");
   check(
     "an unset language is English, which is what a button in an English interface gives",
     (await renderPlan(source, plan, { workDir: await scratch() })).notes.every((n) => !arabicScript.test(n)),
+  );
+}
+
+
+console.log("\nA hard cut is one streaming pass, and the clock it reports is the clock the file has");
+{
+  /*
+    Two things, one render, because they are the same fix.
+
+    ## The length
+
+    `outputDuration` modelled the edit as the exact sum of the kept spans, and
+    the file was not that: a video piece is a whole number of frames and an
+    audio piece a whole number of samples, so `concat` advanced by the longer
+    of the two — half a frame more than the model, at every join. Thirty cuts
+    put the model 178ms ahead of the picture; a hundred and seventy-six put it
+    1.36s ahead. Every caption, punch and overlay is placed through the same
+    model, so all of them drifted, and nothing failed.
+
+    ## The memory
+
+    That cut was built as one `trim` branch per kept piece off a single decode.
+    `concat` drains its inputs in order and the decoder produces frames in time
+    order, so every frame belonging to a later piece waited in memory — 92 MB
+    per second of source span at 1080p, against a worker with 1 GB. The default
+    plan on a forty-second upload peaked at 3.4 GB and was killed with no note.
+
+    Both are guarded here: the file's own length against the number the model
+    reports, and the shape of the graph against the branch-per-piece form that
+    cannot be sized. The second is checked by reading the command because the
+    fixtures in this suite are 320x240, where the bad shape costs 35 MB and
+    measuring memory would prove nothing.
+  */
+  const dir = await scratch();
+  const clip = path.join(dir, "many-cuts.mp4");
+  // Twelve seconds of speech-shaped bursts: sound for 0.6s of every second, so
+  // a 0.3s pass finds eleven gaps and the edit is cut into twelve pieces.
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=30:duration=12",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=12",
+    "-filter_complex", "[1:a]volume='if(lt(mod(t,1),0.6),1,0)':eval=frame[a]",
+    "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+    clip,
+  ]);
+
+  const commands = [];
+  const { output, estimatedSeconds } = await renderPlan(
+    clip,
+    {
+      version: 1,
+      operations: [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 300, paddingMs: 40 }],
+    },
+    { workDir: await scratch(), onCommand: (args) => commands.push(args.join(" ")) },
+  );
+
+  const videoSeconds = Number(ffprobe(output, "stream=duration", ["-select_streams", "v:0"]));
+  const audioSeconds = Number(ffprobe(output, "stream=duration", ["-select_streams", "a:0"]));
+  // A frame is 1/30s. The old graph was out by half of one per join, and this
+  // edit has eleven of them — 183ms, which this tolerance would catch.
+  check(
+    "the file is as long as the render said it would be",
+    Math.abs(videoSeconds - estimatedSeconds) <= 1 / 30 + 0.002,
+    `estimated ${estimatedSeconds} picture ${videoSeconds}`,
+  );
+  check(
+    "and the sound is exactly as long as the picture",
+    Math.abs(audioSeconds - videoSeconds) <= 1 / 30 + 0.002,
+    `picture ${videoSeconds} sound ${audioSeconds}`,
+  );
+  check("the cut really was cut", videoSeconds > 1 && videoSeconds < 11, String(videoSeconds));
+
+  const graph = commands.find((c) => c.includes("select=") || c.includes("trim=")) ?? commands.join(" ");
+  check(
+    "the cut is a selection out of one decode, not a branch per piece",
+    !/\[0:v\]trim=/.test(graph) && /select='between/.test(graph),
+    graph.slice(0, 400),
+  );
+  check(
+    "and the sound is selected on cells that divide a frame, so the two round together",
+    /asetnsamples=n=\d+/.test(graph) && /aselect='between/.test(graph),
+    graph.slice(0, 400),
+  );
+}
+
+console.log("\nA cold open is two decodes, not one holding the whole file");
+{
+  /*
+    A cold open plays the hook first, so the kept list goes backwards once. The
+    old graph expressed that as branches off one decode, which meant every
+    frame between the top of the file and the hook sat in memory until the hook
+    had finished playing. Split at the one place the order reverses and each
+    direction streams on its own decode.
+  */
+  const dir = await scratch();
+  const clip = path.join(dir, "hooked.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=30:duration=12",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=12",
+    "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+    clip,
+  ]);
+
+  const commands = [];
+  const { output, estimatedSeconds } = await renderPlan(
+    clip,
+    { version: 1, operations: [{ type: "coldOpen", seconds: 3 }] },
+    { workDir: await scratch(), onCommand: (args) => commands.push(args.join(" ")) },
+  );
+  const graph = commands.find((c) => c.includes("select=")) ?? commands.join(" ");
+  check(
+    "each direction gets its own decode",
+    (graph.match(/select='between/g) ?? []).length >= 2 && !/\[0:v\]trim=/.test(graph),
+    graph.slice(0, 400),
+  );
+  const seconds = Number(ffprobe(output, "stream=duration", ["-select_streams", "v:0"]));
+  check(
+    "and the whole recording is still there, in a new order",
+    Math.abs(seconds - estimatedSeconds) <= 1 / 30 + 0.002 && Math.abs(seconds - 12) < 0.1,
+    `${seconds} vs ${estimatedSeconds}`,
+  );
+}
+
+
+console.log("\nThe cut looks at the recording in front of it");
+{
+  const dir = await scratch();
+  const clip = path.join(dir, "talk.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=30",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=30",
+    "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+    clip,
+  ]);
+
+  /*
+    The hook used to be chosen from the whole recording and then intersected
+    with what the edit still held — so inside a named range it found no
+    intersection at all and the render said "could not find a moment strong
+    enough to open on" about a stretch it had never looked at. The clips path
+    made that the normal case: a cold open rides into every per-clip plan, and
+    at most one clip of six can hold the source's globally strongest window.
+
+    Speech is dense at 3–6s, outside the range, and at 25–28s inside it.
+  */
+  const words = [];
+  for (let i = 0; i < 30; i += 1) words.push({ start: i, end: i + 0.2, text: `w${i}` });
+  for (let i = 0; i < 40; i += 1) words.push({ start: 25 + i * 0.07, end: 25 + i * 0.07 + 0.06, text: `d${i}` });
+  for (let i = 0; i < 40; i += 1) words.push({ start: 3 + i * 0.07, end: 3 + i * 0.07 + 0.06, text: `e${i}` });
+  words.sort((a, b) => a.start - b.start);
+
+  const ranged = await renderPlan(
+    clip,
+    {
+      version: 1,
+      operations: [
+        { type: "extractRange", startSeconds: 20, endSeconds: 29 },
+        { type: "coldOpen", seconds: 3 },
+      ],
+    },
+    { workDir: await scratch(), words },
+  );
+  const opened = ranged.notes.find((n) => /opened on the strongest/.test(n)) ?? "";
+  check(
+    "a cold open inside a named range opens on the best moment in that range",
+    /from 2[0-9]\.\ds/.test(opened),
+    JSON.stringify(ranged.notes),
+  );
+  check(
+    "and does not report a failure it did not have",
+    !ranged.notes.some((n) => /strong enough/.test(n)),
+    JSON.stringify(ranged.notes),
+  );
+
+  /*
+    Ties break toward the earliest window and a clip that genuinely opens
+    strongly picks its own first seconds — so hook and body concatenate back
+    into the original and nothing has been moved. The note claimed a
+    reordering, and turning one piece into two is also enough for a requested
+    dissolve to cross fade a shot into itself.
+  */
+  const front = [];
+  for (let i = 0; i < 40; i += 1) front.push({ start: 0.2 + i * 0.07, end: 0.2 + i * 0.07 + 0.06, text: `f${i}` });
+  const noop = await renderPlan(
+    clip,
+    { version: 1, operations: [{ type: "coldOpen", seconds: 3 }] },
+    { workDir: await scratch(), words: front },
+  );
+  check(
+    "a hook that is already the opening says so instead of claiming a move",
+    noop.notes.some((n) => /already where this starts|أقوى لحظة هي بداية/.test(n)) &&
+      !noop.notes.some((n) => /opened on the strongest/.test(n)),
+    JSON.stringify(noop.notes),
+  );
+}
+
+console.log("\nA quietly recorded clip is edited, not refused");
+{
+  /*
+    `silencedetect` takes an absolute level, and an absolute level is a claim
+    about a recording made at an ordinary one. A phone at arm's length or a
+    lavalier with its gain down arrives peaking around -34 dBFS, read as
+    silence from end to end, and the render threw "The whole clip reads as
+    silence at this threshold" — a final failure, on a file every other editor
+    handles by looking at the level first.
+  */
+  const dir = await scratch();
+  const clip = path.join(dir, "quiet.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=12",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=12",
+    "-filter_complex", "[1:a]volume='if(between(t,0,3)+between(t,7,10),1,0)':eval=frame,volume=-31dB[a]",
+    "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+    clip,
+  ]);
+
+  let failed = null;
+  let result = null;
+  try {
+    result = await renderPlan(
+      clip,
+      {
+        version: 1,
+        operations: [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 }],
+      },
+      { workDir: await scratch() },
+    );
+  } catch (error) {
+    failed = error;
+  }
+  check("it renders rather than failing", failed === null, String(failed?.message ?? ""));
+  check(
+    "the silence really was found and cut",
+    result !== null && result.estimatedSeconds > 3 && result.estimatedSeconds < 10,
+    String(result?.estimatedSeconds),
+  );
+  check(
+    "and the note says the level was moved to meet the recording",
+    (result?.notes ?? []).some((n) => /quiet|هادئ/.test(n)),
+    JSON.stringify(result?.notes),
+  );
+}
+
+
+console.log("\nThe bed answers to the voice, and the de-rumble does not reach the bed");
+{
+  /*
+    Two findings that live in the same three filters.
+
+    `sidechaincompress` takes an absolute threshold, and 0.02 — about -34 dBFS
+    — was written against a recording made at an ordinary level. A take peaking
+    at -32 dBFS never crosses it, so the bed never moved while the note said
+    "ducking under the speech": the reduction was a function of how close the
+    person held the microphone, and `loudnorm` runs after this mix so nothing
+    downstream could recover it.
+
+    And `normalizeLoudness{voice:true}` put an 80Hz highpass on the *finished
+    mix*, so it took the bottom octave out of the music — which the filter's own
+    comment says is exactly wrong. `direct.ts` emits that pair for any project
+    holding an audio file.
+  */
+  check("a full-scale recording keys where it always did", Math.abs(duckThreshold(0) - 0.02) < 1e-9, String(duckThreshold(0)));
+  check(
+    "a recording twelve decibels quieter keys twelve decibels lower",
+    Math.abs(20 * Math.log10(duckThreshold(-12) / duckThreshold(0)) + 12) < 0.01,
+    `${duckThreshold(-12)} against ${duckThreshold(0)}`,
+  );
+  check("and nothing is asked of the filter that it refuses", duckThreshold(-90) >= 1 / 1024, String(duckThreshold(-90)));
+
+  const dir = await scratch();
+  const bed = path.join(dir, "bed.wav");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi",
+    "-i", "aevalsrc='0.5*sin(2*PI*60*t)*exp(-8*mod(t,0.5))+0.2*sin(2*PI*900*t)':s=48000:d=16",
+    "-c:a", "pcm_s16le", bed,
+  ]);
+  // Two seconds of speech, two of nothing, at a level a phone at arm's length
+  // produces: peaks around -32 dBFS.
+  const quiet = path.join(dir, "quiet.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=16",
+    "-f", "lavfi", "-i", "aevalsrc='0.5*sin(2*PI*300*t)*(lt(mod(t,4),2))':s=48000:d=16",
+    "-filter_complex", "[1:a]volume=-26dB[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", quiet,
+  ]);
+  const assets = new Map([["m1", { file: bed, kind: "audio" }]]);
+  const inBand = (file, from, to, centre, width) => {
+    const r = spawnSync(
+      "ffmpeg",
+      ["-hide_banner", "-nostats", "-i", file, "-af",
+       `atrim=${from}:${to},bandpass=f=${centre}:width_type=h:w=${width},volumedetect`, "-f", "null", "-"],
+      { encoding: "utf8" },
+    );
+    const mean = /mean_volume: ([-\d.]+)/.exec(r.stderr);
+    return mean ? Number(mean[1]) : NaN;
+  };
+
+  const ducked = await renderPlan(
+    quiet,
+    { version: 1, operations: [{ type: "addMusic", assetId: "m1", gainDb: -6, duck: true, fadeSeconds: 0, fromSeconds: 0, loop: true }] },
+    { workDir: await scratch(), assets },
+  );
+  const under = inBand(ducked.output, 0, 2, 60, 40);
+  const between = inBand(ducked.output, 2, 4, 60, 40);
+  check(
+    "a quietly recorded voice still pushes the bed out of the way",
+    between - under > 4,
+    `${(between - under).toFixed(1)} dB of ducking`,
+  );
+
+  const plain = await renderPlan(
+    quiet,
+    { version: 1, operations: [
+      { type: "addMusic", assetId: "m1", gainDb: -6, duck: false, fadeSeconds: 0, fromSeconds: 0, loop: true },
+      { type: "normalizeLoudness", targetLufs: -14, voice: false },
+    ] },
+    { workDir: await scratch(), assets },
+  );
+  const filtered = await renderPlan(
+    quiet,
+    { version: 1, operations: [
+      { type: "addMusic", assetId: "m1", gainDb: -6, duck: false, fadeSeconds: 0, fromSeconds: 0, loop: true },
+      { type: "normalizeLoudness", targetLufs: -14, voice: true },
+    ] },
+    { workDir: await scratch(), assets },
+  );
+  const lost = inBand(plain.output, 2, 6, 70, 50) - inBand(filtered.output, 2, 6, 70, 50);
+  check(
+    "and filtering the room out of the voice leaves the kick drum alone",
+    Math.abs(lost) < 1,
+    `${lost.toFixed(2)} dB off the bottom of the bed`,
+  );
+}
+
+
+console.log("\nA bed that starts late repeats from where it started, and one that runs out says so");
+{
+  const dir = await scratch();
+  /*
+    A track whose every second is a different tone, so which part of it is
+    playing is readable off the output.
+
+    `-ss` before `-i` seeks the first pass; `-stream_loop` then replays the
+    decoded stream from its beginning, so every repeat brought back the intro
+    the person asked to skip — measured as seconds 4,5,6,7 then 0,1,2,3. The
+    repeat period on the edit clock was therefore the whole track rather than
+    the part after the seek, so `loopPeriod` was wrong with it and beat punches
+    drifted by `fromSeconds` on every pass.
+  */
+  const tones = [400, 600, 800, 1000, 1200, 1400, 1600, 1800];
+  const bed = path.join(dir, "tones.m4a");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+    `aevalsrc='${tones.map((f, i) => `(gte(t,${i})*lt(t,${i + 1}))*0.5*sin(2*PI*${f}*t)`).join("+")}':s=48000:d=8`,
+    "-c:a", "aac", bed,
+  ]);
+  const silent = path.join(dir, "silent.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=160x120:r=25:d=24",
+    "-map", "0:v", "-c:v", "libx264", "-pix_fmt", "yuv420p", silent,
+  ]);
+  const assets = new Map([["m1", { file: bed, kind: "audio" }]]);
+
+  const looped = await renderPlan(
+    silent,
+    { version: 1, operations: [{ type: "addMusic", assetId: "m1", gainDb: 0, duck: false, fadeSeconds: 0, fromSeconds: 4, loop: true }] },
+    { workDir: await scratch(), assets },
+  );
+  const toneAt = (file, second) => {
+    let best = [-Infinity, 0];
+    for (const f of tones) {
+      const r = spawnSync(
+        "ffmpeg",
+        ["-hide_banner", "-nostats", "-i", file, "-af",
+         `atrim=${second + 0.2}:${second + 0.8},bandpass=f=${f}:width_type=h:w=60,volumedetect`, "-f", "null", "-"],
+        { encoding: "utf8" },
+      );
+      const mean = /mean_volume: ([-\d.]+)/.exec(r.stderr);
+      const value = mean ? Number(mean[1]) : -Infinity;
+      if (value > best[0]) best = [value, f];
+    }
+    return best[1];
+  };
+  const played = [0, 1, 2, 3, 4, 5, 6, 7].map((second) => toneAt(looped.output, second));
+  check(
+    "the intro that was skipped stays skipped on every repeat",
+    JSON.stringify(played) === JSON.stringify([1200, 1400, 1600, 1800, 1200, 1400, 1600, 1800]),
+    JSON.stringify(played),
+  );
+
+  /*
+    And with `loop: false` under a longer edit, everything end-anchored was
+    written past the end of the bed's own stream: no fade-out, and an output
+    whose audio stream was shorter than its picture, under a note that said
+    the music was laid "under the whole edit".
+  */
+  const short = await renderPlan(
+    silent,
+    { version: 1, operations: [{ type: "addMusic", assetId: "m1", gainDb: 0, duck: false, fadeSeconds: 1.5, fromSeconds: 0, loop: false }] },
+    { workDir: await scratch(), assets },
+  );
+  const video = Number(ffprobe(short.output, "stream=duration", ["-select_streams", "v:0"]));
+  const audio = Number(ffprobe(short.output, "stream=duration", ["-select_streams", "a:0"]));
+  check("the sound runs as long as the picture", Math.abs(audio - video) < 0.1, `${audio} against ${video}`);
+  check(
+    "the bed fades where it ends rather than stopping dead",
+    segmentMeanVolume(short.output, 7.8, 8.0) < segmentMeanVolume(short.output, 6.0, 6.4) - 10,
+    `${segmentMeanVolume(short.output, 7.8, 8.0)} against ${segmentMeanVolume(short.output, 6.0, 6.4)}`,
+  );
+  check(
+    "and the note says how far it reached",
+    short.notes.some((n) => /under the first 8\.\ds/.test(n)),
+    JSON.stringify(short.notes),
+  );
+
+  /*
+    And an AAC bed does not drop out at the seam.
+
+    `-stream_loop` repeats the *decoded* stream, and an AAC decode carries the
+    encoder's priming and padding: measured on an 8-second m4a under a
+    30-second edit, the level fell to digital silence from 8.012s to 8.020s,
+    once per pass. mp3, wav and ogg are all seamless, and `audio/mp4`,
+    `audio/x-m4a` and `audio/aac` are all accepted uploads — so this was a hole
+    in the bed of every second video whose music came off a phone.
+  */
+  const aac = path.join(dir, "bed.m4a");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=8", "-c:a", "aac", aac,
+  ]);
+  const looping = await renderPlan(
+    silent,
+    { version: 1, operations: [{ type: "addMusic", assetId: "m2", gainDb: 0, duck: false, fadeSeconds: 0, fromSeconds: 0, loop: true }] },
+    { workDir: await scratch(), assets: new Map([["m2", { file: aac, kind: "audio" }]]) },
+  );
+  let deepest = 0;
+  for (let at = 7.95; at < 8.1; at += 0.005) {
+    deepest = Math.min(deepest, segmentMeanVolume(looping.output, at, at + 0.005));
+  }
+  const steady = segmentMeanVolume(looping.output, 4, 5);
+  check(
+    "a looping AAC bed plays through its own seam",
+    deepest > steady - 6,
+    `${deepest.toFixed(1)} dB at the seam against ${steady.toFixed(1)} dB steady`,
   );
 }
 

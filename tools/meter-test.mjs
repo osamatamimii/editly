@@ -54,7 +54,7 @@ function bundle(entry, name, from) {
   return pathToFileURL(outfile).href;
 }
 
-const { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAllowanceMessage } = await import(
+const { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, allowanceNow, overAllowanceMessage } = await import(
   bundle("artifacts/worker/src/duration.ts", "duration.mjs", "artifacts/worker")
 );
 const { evenlySpacedPunches, TEMPLATES, findTemplate } = await import(
@@ -200,6 +200,34 @@ section("The allowance is enforced against the file too, because the API cannot 
     exceedsAllowance(4 * 3600, null) === false,
   );
   check("nor by a nonsense balance", exceedsAllowance(4 * 3600, Number.NaN) === false);
+}
+
+section("The balance on the row is a snapshot, and the worker brings it up to date");
+{
+  // Thirty renders queued in the same second all carry the same
+  // `remaining_seconds`, because none of them had finished when the others
+  // were accepted. The API reserves in-flight work now, but it can only size
+  // what the browser told it, so the last check is here — against what has
+  // actually been billed since this row was written.
+  check("nothing billed since, so the snapshot stands", allowanceNow(300, 0) === 300);
+  check("what was billed since comes off it", allowanceNow(300, 120) === 180);
+  check("and it does not go below nothing", allowanceNow(300, 900) === 0);
+  check(
+    "a sibling that finished first is what makes the second of thirty refusable",
+    exceedsAllowance(300, allowanceNow(300, 300)) === true,
+  );
+  check("no snapshot still means no limit", allowanceNow(null, 500) === null);
+  check("nor does a nonsense one become one", allowanceNow(Number.NaN, 0) === null);
+  check("a nonsense spend is treated as none rather than as a refusal", allowanceNow(300, Number.NaN) === 300);
+  check("and a negative one cannot inflate the balance", allowanceNow(300, -600) === 300);
+  check(
+    "a row queued last month is carrying a balance that has since been given back",
+    allowanceNow(0, 0, true) === null,
+  );
+  check(
+    "so it is not enforced — the alternative refuses work against minutes that were reset",
+    exceedsAllowance(600, allowanceNow(0, 0, true)) === false,
+  );
 
   const message = overAllowanceMessage(9 * 60, 60);
   check("the refusal says how long the file is", /9 minutes/.test(message), message);
@@ -342,7 +370,18 @@ if (!DATABASE_URL) {
     );
   };
 
-  const clear = () => pool.query("DELETE FROM jobs WHERE user_id = ANY($1)", [[METERED, OTHER]]);
+  const project = async (id, userId, durationSeconds) => {
+    await pool.query(
+      `INSERT INTO projects (id, user_id, title, duration) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (id) DO UPDATE SET duration = EXCLUDED.duration`,
+      [id, userId, id, durationSeconds],
+    );
+  };
+
+  const clear = async () => {
+    await pool.query("DELETE FROM jobs WHERE user_id = ANY($1)", [[METERED, OTHER]]);
+    await pool.query("DELETE FROM projects WHERE user_id = ANY($1)", [[METERED, OTHER]]);
+  };
 
   section("The month boundary is where a bill starts");
   {
@@ -439,6 +478,53 @@ if (!DATABASE_URL) {
     check("five of five is exhausted", at.exhausted === true, JSON.stringify(at));
     check("with nothing remaining", at.minutesRemaining === 0, JSON.stringify(at));
     check("and remaining never goes negative", (await usageFor(METERED, "free")).minutesRemaining >= 0);
+  }
+
+  section("A render already accepted is not free until it finishes");
+  {
+    // The hole: the meter counts finished video, and the only cap on
+    // simultaneous work was `jobs_one_active_per_project`. Thirty projects is
+    // thirty renders, all reading the same "nothing used", all allowed, and a
+    // five-minute plan delivering a hundred and fifty minutes of video with no
+    // error and no log line anywhere.
+    await clear();
+    await project("p-flight-a", METERED, 180);
+    await project("p-flight-b", METERED, 180);
+    await insert("flight-a", METERED, { project_id: "p-flight-a", status: "queued", output_seconds: null, finished_at: null });
+    await insert("flight-b", METERED, { project_id: "p-flight-b", status: "running", output_seconds: null, finished_at: null });
+
+    const held = await usageFor(METERED, "free");
+    check("neither has finished, so neither is charged", held.minutesUsed === 0, JSON.stringify(held));
+    check("but both are counted as in flight", held.minutesInFlight === 6, JSON.stringify(held));
+    check("and there are two of them", held.jobsInFlight === 2, JSON.stringify(held));
+    check("so a five-minute plan is out of room", held.exhausted === true, JSON.stringify(held));
+    check("with nothing left to promise", held.minutesRemaining === 0, JSON.stringify(held));
+    check("and no seconds either", held.secondsRemaining === 0, JSON.stringify(held));
+
+    // Somebody else's queue is not mine.
+    const theirs = await usageFor(OTHER, "free");
+    check("in flight is per person", theirs.minutesInFlight === 0 && theirs.jobsInFlight === 0, JSON.stringify(theirs));
+
+    // A finished job is charged and stops being in flight — not both.
+    await pool.query("UPDATE jobs SET status = 'done', output_seconds = 120, finished_at = now() WHERE id = 'flight-a'");
+    const settled = await usageFor(METERED, "free");
+    check("once it finishes it is charged", settled.minutesUsed === 2, JSON.stringify(settled));
+    check("and no longer reserved", settled.minutesInFlight === 3, JSON.stringify(settled));
+    check("it is not counted twice", settled.minutesUsed + settled.minutesInFlight === 5, JSON.stringify(settled));
+  }
+
+  section("The seconds balance is not the shown minutes multiplied back up");
+  {
+    await clear();
+    await insert("sixty-one-sec", METERED, { output_seconds: 61 });
+    const usage = await usageFor(METERED, "free");
+    check("shown as two minutes used", usage.minutesUsed === 2, JSON.stringify(usage));
+    check("and three left", usage.minutesRemaining === 3, JSON.stringify(usage));
+    check(
+      "but the real balance is 239 seconds, not 180",
+      usage.secondsRemaining === 239,
+      JSON.stringify(usage),
+    );
   }
 
   section("Seconds round up, as anyone reading a meter would expect");

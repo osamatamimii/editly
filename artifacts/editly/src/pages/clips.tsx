@@ -46,8 +46,9 @@ import { BackButton } from "@/components/back-button";
 import { LoadFailed } from "@/components/load-failed";
 import { ProjectArt } from "@/components/project-art";
 import { apiJson } from "@/lib/api-fetch";
-import { usePlayableVideo, downloadableVideoUrl, ACCEPTED_VIDEO_TYPES, uploadCeiling, formatBytes } from "@/lib/video-storage";
+import { usePlayableVideo, downloadableVideoUrl, ACCEPTED_VIDEO_ACCEPT, servedCeiling, formatBytes } from "@/lib/video-storage";
 import { useLanguage } from "@/lib/language";
+import { phrase } from "@/lib/landing-copy";
 import { CLIPS } from "@/lib/copy/clips";
 import { COMMON, LOAD } from "@/lib/copy/common";
 
@@ -73,6 +74,7 @@ function clock(seconds: number): string {
 function ClipCard({ clip }: { clip: LibraryClip }) {
   const { t } = useLanguage();
   const { url, previewUrl } = usePlayableVideo(clip.outputPath);
+  const { toast } = useToast();
   const [taking, setTaking] = useState(false);
   const [painted, setPainted] = useState(false);
 
@@ -91,7 +93,22 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
       // library.
       const filename = `${(clip.title ?? "clip").replace(/\s+/g, "-").toLowerCase()}.mp4`;
       const signed = await downloadableVideoUrl(clip.outputPath, filename);
-      if (!signed) return;
+      if (!signed) {
+        // Silent before: the spinner stopped, no file arrived, and nothing was
+        // said. A control that visibly does nothing is one somebody presses
+        // three times and then stops trusting.
+        //
+        // The pair is written here rather than in `lib/copy/clips.ts` because
+        // it is the only sentence this card says; `phrase` is the same shape
+        // that file uses, so it can move there whenever the card grows a
+        // second one.
+        toast({
+          title: t(phrase("تعذّر جلب هذا المقطع", "Could not fetch that clip")),
+          description: t(phrase("المقطع ما زال هنا. جرّب بعد قليل.", "It is still here. Try again in a moment.")),
+          variant: "destructive",
+        });
+        return;
+      }
       const link = document.createElement("a");
       link.href = signed;
       link.download = filename;
@@ -219,8 +236,16 @@ function StartRow() {
     sentence is written for anything.
   */
   const addEpisode = async (file: File) => {
-    const ceiling = uploadCeiling(subscription);
-    const rejection = videoRejection(file, { accepted: ACCEPTED_VIDEO_TYPES, ceilingBytes: ceiling });
+    /*
+      The ceiling the server named, and nothing while it has not.
+
+      `uploadCeiling` folds "not answered yet" into the build-time fallback —
+      fifty megabytes, the free plan's order of magnitude — so a Pro customer
+      dropping an episode before the subscription query returns was told it was
+      too large. `videoRejection` treats null as "no ceiling to enforce yet".
+    */
+    const ceiling = servedCeiling(subscription);
+    const rejection = videoRejection(file, { ceilingBytes: ceiling });
     if (rejection === "type") {
       toast({ title: t(CLIPS.badType), description: t(CLIPS.badTypeDetail), variant: "destructive" });
       return;
@@ -228,7 +253,9 @@ function StartRow() {
     if (rejection === "size") {
       toast({
         title: t(CLIPS.tooLarge),
-        description: fmt(CLIPS.tooLargeDetail, formatBytes(file.size), formatBytes(ceiling)),
+        // Only reachable when `ceiling` is a number: `videoRejection` never
+        // answers "size" without one.
+        description: fmt(CLIPS.tooLargeDetail, formatBytes(file.size), formatBytes(ceiling as number)),
         variant: "destructive",
       });
       return;
@@ -291,7 +318,10 @@ function StartRow() {
         </span>
         <input
           type="file"
-          accept={ACCEPTED_VIDEO_TYPES.join(",")}
+          /* Extensions as well as types: browsers disagree about `.mkv`, so a
+             list of media types alone does not offer the file OBS just wrote.
+             See `ACCEPTED_VIDEO_ACCEPT`. */
+          accept={ACCEPTED_VIDEO_ACCEPT}
           className="hidden"
           data-testid="clips-add-input"
           onChange={(e) => {

@@ -28,6 +28,14 @@ import { EditOperation, TransitionStyle, type Platform, MAX_PLAN_OPERATIONS } fr
 import { languageOf, momentsNotHonoured, planFromText, replyFor, type ParsedIntent, type Phrase } from "./plan-from-text";
 
 const ENDPOINT = "https://api.openai.com/v1/chat/completions";
+
+/**
+ * The most a plan may cost to produce, in completion tokens.
+ *
+ * See the call site: the JSON schema is strict, so this is a bound on failure
+ * rather than on ordinary use.
+ */
+const MAX_PLAN_TOKENS = 1500;
 const DEFAULT_MODEL = "gpt-5-mini";
 
 /** A model that thinks for ten seconds about a one-line request is a bug. */
@@ -497,6 +505,24 @@ export function createPlanner(options: PlannerOptions = {}) {
               type: "json_schema",
               json_schema: { name: "edit_plan", strict: true, schema: buildSchema(assets) },
             },
+            /*
+              A ceiling on the answer, which had none.
+
+              The schema is `strict: true`, so a well-behaved model returns a
+              short JSON object and this number is never reached. It is here
+              for the case that is not well-behaved: a model that loops, or a
+              schema change that lets a list grow, produces a completion that
+              is billed by the token and read by nothing — the parser only ever
+              takes the operations. There is no per-user spend cap anywhere in
+              this project, so the only thing standing between a bad minute and
+              a bill is a bound on each call.
+
+              Generous on purpose: a plan with a dozen operations and their
+              parameters is a few hundred tokens, and cutting a legitimate
+              answer off mid-JSON would turn a working request into
+              "the planner returned nothing we could execute".
+            */
+            max_tokens: MAX_PLAN_TOKENS,
           }),
           signal: controller.signal,
         }).finally(() => clearTimeout(timer));

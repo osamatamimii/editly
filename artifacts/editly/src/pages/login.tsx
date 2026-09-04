@@ -18,6 +18,7 @@ import {
   takeOAuthError,
   ProviderNotEnabledError,
   PROVIDER_LABEL,
+  afterSignIn,
   type OAuthProvider,
 } from "@/lib/oauth";
 
@@ -158,7 +159,7 @@ export default function Login() {
         if (signInError) throw signInError;
       }
 
-      setLocation("/dashboard");
+      setLocation(afterSignIn());
     } catch (err) {
       setError(err instanceof Error ? err.message : LOGIN.somethingWrong);
     } finally {
@@ -295,7 +296,7 @@ export default function Login() {
                         setError(null);
                         setNotice(null);
                       }}
-                      className="text-xs text-primary hover:underline min-h-11 md:min-h-0 -my-3 md:my-0 px-2 -mx-2 inline-flex items-center"
+                      className="text-xs text-link hover:underline min-h-11 md:min-h-0 -my-3 md:my-0 px-2 -mx-2 inline-flex items-center"
                       data-testid="button-forgot-password"
                     >
                       {t(LOGIN.forgot)}
@@ -326,7 +327,7 @@ export default function Login() {
               </p>
             )}
             {notice && (
-              <p className="text-sm text-primary" role="status" data-testid="text-auth-notice">
+              <p className="text-sm text-link" role="status" data-testid="text-auth-notice">
                 {read(notice)}
               </p>
             )}
@@ -364,13 +365,21 @@ export default function Login() {
             {mode === "signup" && (
               <p className="text-xs text-muted-foreground text-center" data-testid="text-signup-terms">
                 {t(LOGIN.agreeLead)}
-                <a href="/terms" className="text-primary hover:underline" data-testid="link-terms">
+                <a href="/terms" className="text-link hover:underline" data-testid="link-terms">
                   {t(LOGIN.agreeTerms)}
                 </a>
                 {t(LOGIN.agreeAnd)}
-                <a href="/privacy" className="text-primary hover:underline" data-testid="link-privacy">
+                <a href="/privacy" className="text-link hover:underline" data-testid="link-privacy">
                   {t(LOGIN.agreePrivacy)}
                 </a>
+                {/* The age was `{ACCOUNT_MIN_AGE}` here, read from
+                    `@workspace/api-zod/processors` so the screen could not
+                    disagree with the schema that enforces it. It lost to the
+                    copy table: the sentence exists twice now, once per
+                    language, and a number interpolated into an Arabic sentence
+                    from a page component is a hole the translator cannot see.
+                    `LOGIN.agreeTail` carries the 16 in both halves — if
+                    `ACCOUNT_MIN_AGE` ever moves, both halves move with it. */}
                 {t(LOGIN.agreeTail)}
               </p>
             )}
@@ -388,7 +397,7 @@ export default function Login() {
                 setError(null);
                 setNotice(null);
               }}
-              className="text-primary hover:underline font-medium"
+              className="text-link hover:underline font-medium"
               data-testid="button-toggle-auth-mode"
             >
               {mode === "signin" ? t(LOGIN.switchToSignup) : t(LOGIN.switchToSignin)}

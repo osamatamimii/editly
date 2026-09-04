@@ -80,7 +80,7 @@ for (const [entry, out] of [
 
 const { verifySignature, planFromEvent, checkoutConfig, freemiusConfigured } =
   await import(pathToFileURL(outfile).href);
-const { decideApply, eventIdFor, eventTimeFrom } = await import(pathToFileURL(ledgerOut).href);
+const { decideApply, eventIdFor, eventTimeFrom, licenceIdFrom } = await import(pathToFileURL(ledgerOut).href);
 const { claimable } = await import(pathToFileURL(claimOut).href);
 
 let checks = 0;
@@ -242,6 +242,81 @@ console.log("\nA retry that lost a race is not news");
     laterCancellation.apply === true,
     JSON.stringify(laterCancellation),
   );
+
+  /*
+    The upgrade's own tidy-up, arriving in the same second as the upgrade.
+
+    Freemius timestamps have one-second resolution, so the grant and the
+    cancellation of the licence it replaces carry the same string. `<` is false
+    for equal values, so the ordering rule was a no-op for exactly the pair it
+    was written for — and the superseded-licence rule could not cover for it,
+    because a `subscription.cancelled` payload has no `objects.license` and so
+    no id to compare.
+
+    A real cancellation is always strictly after the grant. Only the tidy-up is
+    level with it.
+  */
+  const sameSecond = decideApply(
+    { plan: "free", licenseId: null, eventAt: now },
+    { plan: "pro", licenseId: "L-PRO", planSourceAt: now },
+  );
+  check(
+    "a drop to free timed level with the grant it would undo is not news",
+    sameSecond.apply === false,
+    JSON.stringify(sameSecond),
+  );
+  check("and it is named as stale, not as an error", sameSecond.outcome === "stale", sameSecond.outcome);
+
+  const sameSecondUpgrade = decideApply(
+    { plan: "studio", licenseId: "L-NEW", eventAt: now },
+    { plan: "pro", licenseId: "L-PRO", planSourceAt: now },
+  );
+  check(
+    "but a grant timed level with the current state still applies — the rule is only about losing access",
+    sameSecondUpgrade.apply === true,
+    JSON.stringify(sameSecondUpgrade),
+  );
+
+  const oneSecondLater = decideApply(
+    { plan: "free", licenseId: null, eventAt: new Date(now.getTime() + 1000) },
+    { plan: "pro", licenseId: "L-PRO", planSourceAt: now },
+  );
+  check(
+    "and a cancellation one second later is a real one, which must go through",
+    oneSecondLater.apply === true,
+    JSON.stringify(oneSecondLater),
+  );
+
+  const namedLiveLicence = decideApply(
+    { plan: "free", licenseId: "L-PRO", eventAt: now },
+    { plan: "pro", licenseId: "L-PRO", planSourceAt: now },
+  );
+  check(
+    "a cancellation that names the live licence is real however close it lands",
+    namedLiveLicence.apply === true,
+    JSON.stringify(namedLiveLicence),
+  );
+
+  /*
+    And the rule can only fire if the id is read at all.
+
+    The route read `objects.license.id` and nothing else, so every event shaped
+    as a subscription or a payment arrived with `licenseId: null` — which is
+    the one value that switches the superseded rule off.
+  */
+  check("a licence event names its licence", licenceIdFrom({ license: { id: 991 } }) === "991");
+  check(
+    "so does a subscription event, one level down and under another name",
+    licenceIdFrom({ subscription: { id: "sub_1", license_id: 991 } }) === "991",
+    String(licenceIdFrom({ subscription: { license_id: 991 } })),
+  );
+  check(
+    "and a payment event",
+    licenceIdFrom({ payment: { license_id: "L-7" } }) === "L-7",
+    String(licenceIdFrom({ payment: { license_id: "L-7" } })),
+  );
+  check("an event that names none is null, not the string 'null'", licenceIdFrom({ user: { email: "a@b.c" } }) === null);
+  check("and an empty string is not an id", licenceIdFrom({ license: { id: "  " } }) === null);
 
   const noTimestamps = decideApply({ plan: "free", licenseId: null, eventAt: null }, { plan: "pro", licenseId: null, planSourceAt: null });
   check(

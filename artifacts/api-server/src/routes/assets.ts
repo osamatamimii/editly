@@ -27,9 +27,11 @@ import {
   RegisterAssetResponse,
   DeleteAssetParams,
 } from "@workspace/api-zod";
+import { PROJECT_ASSETS_LIMIT } from "@workspace/api-zod/limits";
 import { currentUserId } from "../middlewares/auth";
 import { isOwnedObjectPath } from "../lib/storage";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
+import { badRequest } from "../lib/bad-request";
 
 const router: IRouter = Router();
 
@@ -74,7 +76,7 @@ router.get("/projects/:id/assets", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const params = ListAssetsParams.safeParse(req.params);
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
   if (!(await ownsProject(userId, params.data.id))) {
@@ -84,11 +86,15 @@ router.get("/projects/:id/assets", async (req, res): Promise<void> => {
     return;
   }
 
+  // Bounded, like every other list in `limits.ts`. See the comment there:
+  // these three grow with use rather than with a plan, so they are the ones
+  // that get slower for the customer who has been here longest.
   const rows = await db
     .select()
     .from(assetsTable)
     .where(eq(assetsTable.projectId, params.data.id))
-    .orderBy(desc(assetsTable.createdAt));
+    .orderBy(desc(assetsTable.createdAt))
+    .limit(PROJECT_ASSETS_LIMIT);
 
   res.json(ListAssetsResponse.parse(rows.map(serialize)));
 });
@@ -153,7 +159,7 @@ router.delete("/projects/:id/assets/:assetId", async (req, res): Promise<void> =
   const userId = currentUserId(req);
   const params = DeleteAssetParams.safeParse(req.params);
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
 

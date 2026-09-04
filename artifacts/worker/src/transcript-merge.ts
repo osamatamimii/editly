@@ -110,6 +110,11 @@ export interface MergeResult {
  */
 export function mergeTranscripts(primary: Transcript, secondary: Transcript, language?: Language): MergeResult {
   const stats = { agreed: 0, contested: 0, primaryOnly: 0, secondaryOnly: 0, inserted: 0, unchecked: 0 };
+  // Bound before the early return below, which used to be the one note in this
+  // file with no Arabic half at all: a plain string literal on the branch that
+  // fires when a model comes back empty, which is not the rare branch it looks
+  // like.
+  const early = sayIn(language);
 
   const primaryFlat = flatten(primary);
   const secondaryFlat = secondary.segments.flatMap((s) => s.words);
@@ -118,7 +123,10 @@ export function mergeTranscripts(primary: Transcript, secondary: Transcript, lan
     return {
       transcript: primary,
       notes: [
-        "the second speech model returned nothing usable, so the words were not cross-checked",
+        early(
+          "the second speech model returned nothing usable, so the words were not cross-checked",
+          "لم يُرجِع النموذج الثاني للكلام شيئًا صالحًا، فلم تُقابَل الكلمات",
+        ),
       ],
       stats,
     };

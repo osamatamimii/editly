@@ -211,12 +211,29 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, BoundarySt
     if (this.state.message === null) return this.props.children;
 
     /*
-      Read here rather than taken from the provider, and the reason is
-      structural: this boundary is mounted *above* `LanguageProvider` in
-      `App.tsx`, because a boundary inside the tree it is catching cannot
-      render when that tree is what threw. So it reads the stored preference,
-      which is the same key the provider reads and the same one the script in
-      `index.html` reads before the first paint.
+      This screen declares its own language and direction, on its own wrapper.
+
+      The boundary is mounted *above* `LanguageProvider` in `App.tsx` on
+      purpose — a boundary inside the tree it is catching cannot render when
+      that tree is what threw — so the provider is not there to put the
+      document back when this renders. The landing page declares
+      `lang="ar" dir="rtl"`, and the provider only restores the document on
+      navigation, so a crash on or shortly after an Arabic route drew this
+      screen's sentences with their punctuation on the wrong side: the one
+      moment in the product where somebody is already unsure whether something
+      is broken.
+
+      The language is therefore read from storage here — the same key the
+      provider reads and the same one the script in `index.html` reads before
+      the first paint — and declared on the wrapper rather than by reaching for
+      `document.documentElement`, because a render is not the place to touch
+      the document, and because the direction here is a property of this
+      screen's own copy rather than of the app's state.
+
+      An earlier fix hardcoded `lang="en" dir="ltr"` here, on the grounds that
+      the crash screen was the one screen still written only in English. It is
+      not any more: `CRASH` is a set of pairs, so the honest declaration is
+      whichever language these sentences are about to be said in.
     */
     const language = storedLanguage();
 

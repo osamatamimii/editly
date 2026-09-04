@@ -147,25 +147,13 @@ export function criticise(input: CriticInput): CriticResult {
         (input.words ?? []).some((word) => word.filler && seconds >= word.start && seconds <= word.end);
       const hesitations = operation.at.filter((at) => survived(at) && onFiller(at)).length;
 
-      let at = operation.at
+      const edited = operation.at
         .filter(survived)
         .filter((seconds) => !onFiller(seconds))
-        .map(toEdited)
-        // A punch needs room to open and close. One that starts with less than
-        // its own hold left plays as a zoom that never comes back.
-        .filter((seconds) => seconds >= 0 && seconds + holdSeconds <= effectiveDuration)
-        .sort((a, b) => a - b);
-
-      // Cutting silence pulls moments together: two emphases a second apart in
-      // the recording can end up touching once the pause between them is gone.
-      const spaced: number[] = [];
-      for (const seconds of at) {
-        if (spaced.length === 0 || seconds - spaced[spaced.length - 1] >= MIN_PUNCH_GAP_SECONDS) {
-          spaced.push(seconds);
-        }
-      }
-      const crowded = at.length - spaced.length;
-      at = spaced.map((seconds) => nudgeOffSplice(seconds, kept, effectiveDuration, overlap));
+        .map(toEdited);
+      const settled = settlePunches(edited, { kept, effectiveDuration, overlap, holdSeconds });
+      const crowded = settled.crowded;
+      let at = settled.at;
 
       if (lost > 0) {
         notes.push(
@@ -202,11 +190,31 @@ export function criticise(input: CriticInput): CriticResult {
       }
 
       if (at.length === 0) {
+        /*
+          Two different silences, and they were sharing one sentence.
+
+          "No punch survived the cut" is a claim about a cut. It was printed
+          whenever `at` ended up empty — including when it started empty, which
+          is what `enrich` leaves behind when there is no transcript to read
+          emphasis from: the operation passes through untouched with `at: []`,
+          so `original` is zero, nothing was filtered, and nothing was cut.
+
+          The reachable case is ordinary: a deployment with no speech key, or a
+          provider answering 500. The customer then read "we could not hear the
+          words in this clip this time" followed immediately by "no punch
+          survived the cut" — on a render containing no cut at all, which reads
+          as a second unrelated failure and is not one.
+        */
         notes.push(
-          t(
-            "no punch survived the cut, so the clip is left without them rather than with arbitrary ones",
-            "لم تنجُ أي تقريبة من القصّ، فتُرك المقطع بلا تقريبات بدل تقريبات اعتباطية",
-          ),
+          original === 0
+            ? t(
+                "there was no moment to punch on: emphasis is read from the words, and this render had none to read",
+                "لم يكن هناك ما يُقرَّب عليه: التقريبات تُقرأ من الكلمات، وهذا التعديل لم يكن فيه كلمات تُقرأ",
+              )
+            : t(
+                "no punch survived the cut, so the clip is left without them rather than with arbitrary ones",
+                "لم تنجُ أي تقريبة من القصّ، فتُرك المقطع بلا تقريبات بدل تقريبات اعتباطية",
+              ),
         );
         continue;
       }
@@ -305,12 +313,42 @@ function capZoom(
     amount = Math.max(0.02, room / base);
   }
 
+  const easedPush = to != null && to !== kenBurnsTo;
+  const easedPunch = amount != null && amount !== punchAmount;
+
+  /*
+    The sentence names what was actually eased back.
+
+    It was one fixed string — "the push and the punches together … so both were
+    eased back" — returned whenever anything was capped, and the two inputs are
+    independently nullable. A plan with `kenBurns{to: 1.3}` and no `zoomPunch`
+    at all exceeds the ceiling on its own and was told its *punches* had been
+    eased back, on a render that has none. So was the reverse: `zoomPunch`
+    alone at 0.4, which the schema allows up to 0.6. And a plan carrying both
+    where only one of them actually moved was told both had.
+
+    Three sentences instead of one, chosen from what changed rather than from
+    what was passed in. And nothing is said at all when nothing moved — the
+    old shape could return a note beside two nulls.
+  */
+  if (!easedPush && !easedPunch) return { kenBurnsTo: null, punchAmount: null };
+
+  const note = easedPush && easedPunch
+    ? "the push and the punches together would have magnified past the frame we kept, so both were eased back"
+    : easedPush
+      ? "the slow push would have magnified past the frame we kept, so it was eased back"
+      : "the punches would have magnified past the frame we kept, so they were eased back";
+  const noteAr = easedPush && easedPunch
+    ? "الحركة البطيئة والتقريبات معًا كانت ستكبّر الصورة أبعد من الكادر الذي أبقيناه، فخُفّفت الاثنتان"
+    : easedPush
+      ? "الحركة البطيئة كانت ستكبّر الصورة أبعد من الكادر الذي أبقيناه، فخُفّفت"
+      : "التقريبات كانت ستكبّر الصورة أبعد من الكادر الذي أبقيناه، فخُفّفت";
+
   return {
-    kenBurnsTo: to != null && to !== kenBurnsTo ? round(to) : null,
-    punchAmount: amount != null && amount !== punchAmount ? round(amount) : null,
-    note: "the push and the punches together would have magnified past the frame we kept, so both were eased back",
-    noteAr:
-      "الحركة البطيئة والتقريبات معًا كانت ستكبّر الصورة أبعد من الكادر الذي أبقيناه، فخُفّفت الاثنتان",
+    kenBurnsTo: easedPush ? round(to as number) : null,
+    punchAmount: easedPunch ? round(amount as number) : null,
+    note,
+    noteAr,
   };
 }
 
@@ -320,6 +358,40 @@ function capZoom(
  * Only forward: a punch is emphasis on something about to be said, and pulling
  * it earlier puts it on the word before.
  */
+/**
+ * The three things a punch has to survive once its time is known.
+ *
+ * Room to open and close, spacing from its neighbours, and clear of the joins.
+ * Written as one function because there are two callers and they were not
+ * doing the same thing: the critic applied all three, and the beat placer —
+ * which chooses its times *after* the critic has run, from the music — applied
+ * none. A beat punch could therefore open half a second before the end of the
+ * edit and leave the video ending mid-zoom, or land inside a dissolve, both of
+ * which the critic exists to prevent for every punch that arrives another way.
+ */
+export function settlePunches(
+  seconds: readonly number[],
+  options: { kept: Segment[] | null; effectiveDuration: number; overlap: number; holdSeconds: number },
+): { at: number[]; crowded: number } {
+  // A punch needs room to open and close. One that starts with less than its
+  // own hold left plays as a zoom that never comes back.
+  const inRange = [...seconds]
+    .filter((at) => at >= 0 && at + options.holdSeconds <= options.effectiveDuration)
+    .sort((a, b) => a - b);
+
+  // Cutting silence pulls moments together: two emphases a second apart in the
+  // recording can end up touching once the pause between them is gone.
+  const spaced: number[] = [];
+  for (const at of inRange) {
+    if (spaced.length === 0 || at - spaced[spaced.length - 1]! >= MIN_PUNCH_GAP_SECONDS) spaced.push(at);
+  }
+
+  return {
+    at: spaced.map((at) => nudgeOffSplice(at, options.kept, options.effectiveDuration, options.overlap)),
+    crowded: inRange.length - spaced.length,
+  };
+}
+
 function nudgeOffSplice(seconds: number, kept: Segment[] | null, limit: number, overlap = 0): number {
   if (!kept || kept.length < 2) return seconds;
 
@@ -329,11 +401,26 @@ function nudgeOffSplice(seconds: number, kept: Segment[] | null, limit: number, 
   // is the very thing the guard exists to prevent.
   let elapsed = 0;
   for (let i = 0; i < kept.length; i += 1) {
-    elapsed += kept[i].end - kept[i].start;
-    const splice = elapsed - (i + 1) * overlap;
-    if (splice >= limit) break;
-    if (seconds > splice - SPLICE_GUARD_SECONDS - overlap && seconds < splice + SPLICE_GUARD_SECONDS) {
-      return Math.min(splice + SPLICE_GUARD_SECONDS, limit);
+    elapsed += kept[i]!.end - kept[i]!.start;
+    /*
+      Where the join *ends*, which is what the guard is measured from.
+
+      This computed `elapsed - (i + 1) * overlap`, which is where the join
+      begins — the renderer's own `offset` for that xfade. So the window sat
+      one whole overlap early: it cleared punches out of the stretch *before*
+      the dissolve, which needed no clearing, and left the dissolve itself
+      open. A punch that opens inside a dissolve is a zoom on two shots at
+      once, which is the one thing this function exists to prevent, and with a
+      quarter-second dissolve it was landing there by construction.
+
+      The join between piece i and piece i+1 runs from
+      `sum(0..i) - (i+1)·overlap` to `sum(0..i) - i·overlap`; the second of
+      those is what a punch has to clear.
+    */
+    const joinEnd = elapsed - i * overlap;
+    if (joinEnd - overlap >= limit) break;
+    if (seconds > joinEnd - overlap - SPLICE_GUARD_SECONDS && seconds < joinEnd + SPLICE_GUARD_SECONDS) {
+      return Math.min(joinEnd + SPLICE_GUARD_SECONDS, limit);
     }
   }
   return seconds;

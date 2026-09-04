@@ -341,6 +341,15 @@ export const LANDING = {
     switchTo: p("انتقل إلى", "Switch to"),
     get: p("اشترك في", "Get"),
     /*
+      Where a subscription is actually stopped, which is not here.
+
+      Freemius takes the payment, so switching to a smaller plan on this page
+      changes what the account may do and leaves the card running. The sentence
+      beside this link comes from the server, which knows which plan was being
+      paid for; this is the way out of it.
+    */
+    cancelWhereBought: p("ألغِ الاشتراك حيث اشتريته", "Cancel the subscription where you bought it"),
+    /*
       Under the paid cards, so it says what a paid card actually does.
 
       It used to read "no credit card required" here, three centimetres above
@@ -433,7 +442,23 @@ export const PRICING_AR = {
     lines: [
       "5 دقائق فيديو منتهٍ في الشهر",
       "ارفع مقاطع حتى 10 دقائق",
-      "كل ميزات التعديل، حتى تحكم على النتيجة",
+      /*
+        The English said "Every editing feature, so you can judge the result"
+        and the claim was withdrawn: `PLAN_LIMITS.free.referenceStyle` is
+        false, so matching another video's look — the thing this codebase calls
+        the feature nobody else does — is not on the free plan, and neither is
+        4K. `pricing.ts` records the reasoning.
+
+        The Arabic said the same thing and was not changed, which is worse than
+        the original defect: Arabic is this product's default language, so the
+        withdrawn claim went on being made to most of the people reading it.
+        The guard did not catch it because `pricing-test` matches an English
+        phrase and `landing-test` compares digits.
+
+        The replacement is the same better claim: this is the product, not a
+        demonstration of it.
+      */
+      "المحرّر نفسه، لا نسخة تجريبية، حتى تحكم على النتيجة",
       "الصادرات تحمل علامة Editly صغيرة",
     ],
   },

@@ -43,7 +43,8 @@
  * exchange, before the send, like the rest.
  */
 import { PublishError, type Published } from "./publish-youtube";
-import { withDeadline } from "./providers/deadline";
+import { withDeadline, PUBLISH_TIMEOUT_MS } from "./providers/deadline";
+import { captionWith, truncateToGraphemes } from "@workspace/api-zod";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -86,15 +87,18 @@ export interface MetaUpload {
 
 /** The caption with its hashtags, inside the platform's ceiling. */
 export function captionFor(caption: string, hashtags: string[], limit = INSTAGRAM_CAPTION_LIMIT): string {
-  const tags = hashtags
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0)
-    .map((t) => (t.startsWith("#") ? t : `#${t}`));
-  const whole = tags.length > 0 ? `${caption.trim()}\n\n${tags.join(" ")}` : caption.trim();
-  if (whole.length <= limit) return whole;
-  const cut = whole.slice(0, limit - 1);
-  const lastSpace = cut.lastIndexOf(" ");
-  return `${(lastSpace > limit * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+  /*
+    Assembled and cut by the contract package, not here.
+
+    Two things were wrong with the copy that was here, and both are invisible
+    until the boundary. It joined with a blank line while `captionLength` — the
+    check the composer shows the person — counted a single space, so a caption
+    measured at exactly the limit arrived one over and lost its last hashtag on
+    the way out. And it cut with `slice`, which counts UTF-16 code units, so a
+    cut landing mid-emoji left a lone surrogate: the post ended in a
+    replacement glyph where somebody's last word should have been.
+  */
+  return truncateToGraphemes(captionWith(caption, hashtags), limit);
 }
 
 async function graph(
@@ -222,7 +226,10 @@ async function waitForContainer(
 }
 
 export async function publishToInstagram(upload: MetaUpload): Promise<Published> {
-  const doFetch = upload.fetchImpl ?? withDeadline(fetch);
+  // Deadlined, because Node's `fetch` has no timeout and a publisher that
+  // never returns stops this worker claiming renders. The publish budget
+  // rather than the provider one — this streams a master. See PUBLISH_TIMEOUT_MS.
+  const doFetch = upload.fetchImpl ?? withDeadline(fetch, PUBLISH_TIMEOUT_MS);
   const sleep = upload.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = upload.now ?? (() => Date.now());
 
@@ -253,19 +260,44 @@ export async function publishToInstagram(upload: MetaUpload): Promise<Published>
   const id = published["id"] ? String(published["id"]) : null;
   if (!id) throw new PublishError("Instagram took the video and did not say what it became");
 
+  /*
+    The real permalink, asked for, because the one we were building did not work.
+
+    `externalUrl` was `https://www.instagram.com/reel/${id}/`, and `id` is the
+    numeric media id `media_publish` returns. Instagram's `/reel/` path takes a
+    shortcode, not a media id, so every "View post" link this product has ever
+    written for a Reel lands on "this page isn't available". Nothing failed: the
+    post genuinely went out, the row says `published`, and the URL is only ever
+    rendered as a link — so the only person who finds out is the customer, on
+    their own post, a day later.
+
+    The comment that was here said "a link we could not build is a field left
+    null", which was the right rule and was not what the code did. Now it is:
+    one GET for the `permalink` field, best effort, and null when it does not
+    come back. The post is already published by this point, so nothing about
+    its reliability depends on this request.
+  */
+  let permalink: string | null = null;
+  try {
+    const read = await graph(doFetch, "GET", `/${id}`, { fields: "permalink", access_token: page.token });
+    const value = read["permalink"];
+    if (typeof value === "string" && value.startsWith("https://")) permalink = value;
+  } catch {
+    // A link we could not build is a field left null, and the row still carries
+    // the id that finds it.
+  }
+
   return {
     externalPostId: id,
-    /*
-      No permalink without a second request, and the second request is not worth
-      a post's reliability: a link we could not build is a field left null, and
-      the row already carries the id that finds it.
-    */
-    externalUrl: `https://www.instagram.com/reel/${id}/`,
+    externalUrl: permalink,
   };
 }
 
 export async function publishToFacebook(upload: MetaUpload): Promise<Published> {
-  const doFetch = upload.fetchImpl ?? withDeadline(fetch);
+  // Deadlined, because Node's `fetch` has no timeout and a publisher that
+  // never returns stops this worker claiming renders. The publish budget
+  // rather than the provider one — this streams a master. See PUBLISH_TIMEOUT_MS.
+  const doFetch = upload.fetchImpl ?? withDeadline(fetch, PUBLISH_TIMEOUT_MS);
   const page = upload.page ?? (await pageFor(upload.accessToken, doFetch));
 
   const posted = await graph(doFetch, "POST", `/${page.id}/videos`, {

@@ -26,6 +26,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Transcriber, Transcript, TranscribeOptions, TranscriptSegment, TranscriptWord } from "./types";
 import { withDeadline } from "./deadline";
+import { guard, LIMITS } from "../deadline";
+
+/** The same override the renderer honours, so a deployment sets it once. */
+const FFMPEG = process.env["FFMPEG_PATH"] ?? "ffmpeg";
 import { isFiller } from "./fillers";
 
 const ENDPOINT = "https://api.deepgram.com/v1/listen";
@@ -79,6 +83,18 @@ export function createDeepgramTranscriber(options: DeepgramOptions): Transcriber
 
     async transcribe(mediaPath: string, opts: TranscribeOptions = {}): Promise<Transcript> {
       const audio = await extractSpeechAudio(mediaPath);
+      /*
+        Only delete what this call created.
+
+        `extractSpeechAudio` hands back the path it was given when that path is
+        already an extracted `speech.flac` — which is what `cross-check` passes,
+        so a long source is decoded once for both models rather than three
+        times. That makes the file shared, and a `finally` that deleted it
+        regardless would remove it out from under the other model, which is
+        running concurrently under `Promise.allSettled`. The owner deletes; a
+        borrower leaves it alone.
+      */
+      const ours = audio !== mediaPath;
       try {
         // What language to transcribe as, in three steps.
         //
@@ -154,7 +170,7 @@ export function createDeepgramTranscriber(options: DeepgramOptions): Transcriber
         // chapter reader with no language to work in.
         return parseDeepgram(await response.json(), `deepgram/${model}`, named);
       } finally {
-        await rm(path.dirname(audio), { recursive: true, force: true });
+        if (ours) await rm(path.dirname(audio), { recursive: true, force: true });
       }
     },
   };
@@ -322,11 +338,28 @@ async function safeBody(response: Response): Promise<string> {
  * that a long podcast is a normal upload rather than an event.
  */
 export async function extractSpeechAudio(mediaPath: string): Promise<string> {
+  /*
+    Already the right thing? Then hand it back.
+
+    `cross-check` extracts once and passes the *path* to both providers, so
+    that a two-hour podcast is decoded once instead of per model. Both
+    providers then ran this again on whatever they were given — so the file
+    was decoded and FLAC-encoded three times per cross-checked render, and the
+    header of `cross-check.ts` describes a saving the code did not make.
+    Re-encoding FLAC to FLAC succeeds and produces an equivalent file, which is
+    why nothing ever noticed.
+
+    The extension is the whole test, and it is enough: this function is the
+    only thing that writes `speech.flac`, and it writes it into a directory it
+    made itself.
+  */
+  if (mediaPath.endsWith("speech.flac")) return mediaPath;
+
   const dir = await mkdtemp(path.join(tmpdir(), "editly-asr-"));
   const out = path.join(dir, "speech.flac");
 
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("ffmpeg", [
+    const child = spawn(FFMPEG, [
       "-hide_banner", "-nostdin", "-loglevel", "error",
       "-i", mediaPath,
       "-vn",
@@ -335,13 +368,29 @@ export async function extractSpeechAudio(mediaPath: string): Promise<string> {
       "-c:a", "flac",
       "-y", out,
     ]);
+    /*
+      Guarded, which it was not.
+
+      This runs on essentially every render that produces captions, and it had
+      no deadline of any kind. A wedged ffmpeg emits no exit code and no error,
+      so the `await` above never returns — and `withLockKeptAlive` keeps
+      renewing both the lock and the heartbeat on a timer, so the job is never
+      requeued and the health endpoint reports the worker online throughout.
+      One stuck decode was a permanent, invisible outage.
+    */
+    const deadline = guard(child, { ...LIMITS.extract, what: "pulling the audio out for transcription" });
     let err = "";
     child.stderr.on("data", (d) => {
       err += d.toString();
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      deadline.clear();
+      reject(error);
+    });
     child.on("close", (code) => {
-      if (code === 0) resolve();
+      deadline.clear();
+      if (deadline.expired) reject(deadline.error);
+      else if (code === 0) resolve();
       else reject(new Error(`could not extract audio for transcription: ${err.slice(0, 300)}`));
     });
   });

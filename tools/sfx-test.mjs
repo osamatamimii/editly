@@ -198,6 +198,158 @@ section("And none of them sits at a different weight from the rest");
   }
 }
 
+section("The layer sits under the programme, whatever the recording was made at");
+{
+  /*
+    `gainDb` is documented as "how far under the programme the layer sits", and
+    the renderer applied it as a plain attenuation of a file that always ships
+    peak-normalised to -3 dBFS — so the layer's level was a fact about the
+    catalogue rather than about the edit. Measured on a source peaking at -17.7
+    dBFS, which is an ordinary unnormalised phone or call recording, the whoosh
+    came out at -16.5: a decibel *above* the speech it was meant to sit twelve
+    under. The mix is deliberately upstream of `loudnorm`, so levelling could
+    not recover the ratio either — the same take recorded further from the
+    microphone got a completely different mix and the same sentence.
+
+    The arithmetic is the decision, so it is checked as arithmetic; that the
+    layer lands where it should and is audible is checked by the renders above.
+  */
+  check("a recording at the level the files were built for changes nothing", render.sfxLayerOffsetDb(-3) === 0, String(render.sfxLayerOffsetDb(-3)));
+  check("a full-scale recording is never boosted", render.sfxLayerOffsetDb(0) === 0, String(render.sfxLayerOffsetDb(0)));
+  check(
+    "a recording twelve decibels quieter takes the layer twelve decibels down with it",
+    Math.abs(render.sfxLayerOffsetDb(-17.7) - render.sfxLayerOffsetDb(-5.7) + 12) < 1e-9,
+    `${render.sfxLayerOffsetDb(-17.7)} against ${render.sfxLayerOffsetDb(-5.7)}`,
+  );
+  check(
+    "and a recording nobody could measure is left exactly as it was",
+    render.sfxLayerOffsetDb(null) === 0,
+    String(render.sfxLayerOffsetDb(null)),
+  );
+  check(
+    "nothing is pulled down past the noise floor",
+    render.sfxLayerOffsetDb(-90) === -30,
+    String(render.sfxLayerOffsetDb(-90)),
+  );
+}
+
+section("And each one's own moment is where the catalogue says it is");
+{
+  /*
+    `cue.at` is the instant the *file starts*, which is only the instant the
+    sound arrives for a sound that begins with its transient. `whoosh-air` is a
+    symmetric swell 27 dB down at its own start, peaking 0.44s in — so placing
+    its start 60ms before a cut put its loudest point 380ms *after* the picture
+    changed, and it is one of the three files the default palette rotates
+    through on every cut. `anchorSeconds` is that offset, measured, and this
+    re-measures it for the same reason `trimDb` is re-measured: a regenerated
+    asset with a different envelope would move every accent in the product with
+    nothing failing.
+  */
+  for (const sound of sfx.SFX_CATALOGUE) {
+    const file = path.join(SOUND_DIR, `${sound.name}.flac`);
+    const out = spawnSync(
+      "ffmpeg",
+      ["-hide_banner", "-nostats", "-i", file, "-af",
+       "asetnsamples=n=256:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.Peak_level:file=-",
+       "-f", "null", "-"],
+      { encoding: "utf8" },
+    );
+    let at = null;
+    let best = -Infinity;
+    let frame = null;
+    for (const line of out.stdout.split("\n")) {
+      const time = /pts_time:([\d.]+)/.exec(line);
+      if (line.startsWith("frame:") && time) frame = Number(time[1]);
+      else if (line.includes("Peak_level=") && frame !== null) {
+        const value = Number(line.split("=").pop());
+        if (Number.isFinite(value) && value > best) {
+          best = value;
+          at = frame;
+        }
+      }
+    }
+    if (sound.role === "riser") {
+      // A riser's moment is the hole at its end, not its loudest point: the
+      // climb stops and the seam lands in the silence. So its anchor is its
+      // own length, and its peak is just before that.
+      check(
+        `${sound.name} is anchored on its end`,
+        Math.abs(sound.anchorSeconds - sound.seconds) < 1e-9 && at !== null && at < sound.seconds,
+        `anchor ${sound.anchorSeconds}s, length ${sound.seconds}s, peak ${at}s`,
+      );
+      continue;
+    }
+    check(
+      `${sound.name} peaks where anchorSeconds says`,
+      at !== null && Math.abs(at - sound.anchorSeconds) <= 0.03,
+      `peak at ${at}s, catalogue says ${sound.anchorSeconds}s`,
+    );
+  }
+}
+
+section("A moment that could not take an accent is counted, not swallowed");
+{
+  /*
+    Only budget thinning was counted. A join dropped for sitting inside
+    `MIN_GAP` of another incremented nothing — so the note written precisely to
+    say "somebody who cut forty times and hears eleven whooshes should know
+    that was a decision" was skipped in exactly the case it was written for.
+    `MIN_SEGMENT_SECONDS` is 0.05, so any stutter-heavy silence cut produces
+    joins closer together than the gap rule allows.
+  */
+  const crowded = sfx.placeSoundEffects({
+    duration: 16,
+    joins: [2, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2],
+    punches: [],
+    onCuts: true,
+    onPunches: false,
+    onOpen: false,
+    palette: "clean",
+  });
+  check(
+    "seven joins a fifth of a second apart do not become seven accents",
+    crowded.cues.length < 7,
+    String(crowded.cues.length),
+  );
+  check(
+    "and the ones that could not be laid are counted",
+    crowded.thinned === 7 - crowded.cues.length,
+    `${crowded.thinned} thinned against ${7 - crowded.cues.length} missing`,
+  );
+}
+
+section("The riser's two refusals are two different sentences");
+{
+  /*
+    "There is no join to announce" and "there is a join and no room to climb
+    into it" are different facts, and the file keeps them apart — then reported
+    the first for both, because the test for room sat inside the branch that
+    set the value.
+  */
+  const early = sfx.placeSoundEffects({
+    duration: 20,
+    joins: [0.9],
+    punches: [],
+    onCuts: false,
+    onPunches: false,
+    onOpen: true,
+    palette: "clean",
+  });
+  check("a join too early to climb into is 'no room'", early.riserSkipped === "no-room", String(early.riserSkipped));
+
+  const none = sfx.placeSoundEffects({
+    duration: 20,
+    joins: [],
+    punches: [3, 6, 9],
+    onCuts: false,
+    onPunches: true,
+    onOpen: true,
+    palette: "clean",
+  });
+  check("and an edit with no joins at all is 'no join'", none.riserSkipped === "no-join", String(none.riserSkipped));
+}
+
 section("Every palette names sounds that exist, and every sound is reachable");
 {
   const reachable = new Set();
@@ -310,11 +462,21 @@ section("Joins land where the cut map says they do");
     overlap, so a whoosh placed by the un-overlapped map drifts further out of
     sync with every join it survives — which is the same failure captions had
     before `remapTime` learned about overlap, arriving through a different door.
+
+    Half an overlap later than `remapTime`, deliberately. `remapTime` answers
+    "where does this source moment land", and the moment a piece begins lands
+    where the dissolve *begins* — while the outgoing shot is still the one on
+    screen. A cut accent belongs where the picture has changed, which is the
+    middle. Both conventions were the same number until this was written down,
+    which is why the drift could not be caught here: the two agreed with each
+    other and both were early.
   */
   const overlapped = sfx.joinTimes(kept, 0.5);
   check(
-    "with a dissolve, every join agrees with remapTime to the microsecond",
-    overlapped.every((at, i) => Math.abs(at - timeline.remapTime(kept[i + 1].start, kept, 0.5)) < 1e-9),
+    "with a dissolve, every accent sits in the middle of the join remapTime opens",
+    overlapped.every(
+      (at, i) => Math.abs(at - (timeline.remapTime(kept[i + 1].start, kept, 0.5) + 0.25)) < 1e-9,
+    ),
     JSON.stringify(overlapped),
   );
   check("one piece has no joins", sfx.joinTimes([{ start: 0, end: 5 }], 0).length === 0);
@@ -612,7 +774,11 @@ section("On a real cut, the sound is at the cut and nowhere else");
     "-f", "lavfi", "-i", "sine=frequency=300:duration=3",
     "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=1.2",
     "-f", "lavfi", "-i", "sine=frequency=300:duration=4",
-    "-filter_complex", "[1:a][2:a][3:a][4:a][5:a]concat=n=5:v=0:a=1[a]",
+    // Levelled to near full scale on purpose: the effects layer is placed
+    // *relative to the programme*, so a fixture recorded quietly would move
+    // every number below by however quiet it happened to be. The section after
+    // this one is the one that checks the relationship itself.
+    "-filter_complex", "[1:a][2:a][3:a][4:a][5:a]concat=n=5:v=0:a=1,volume=12dB[a]",
     "-map", "0:v", "-map", "[a]",
     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", source,
   ]);
@@ -630,19 +796,69 @@ section("On a real cut, the sound is at the cut and nowhere else");
 
   check("both renders come out the same length", Math.abs(dry.estimatedSeconds - wet.estimatedSeconds) < 1e-6);
 
-  const rise = (from, to) => level(wet.output, from, to).mean - level(dry.output, from, to).mean;
-  const atFirstCut = rise(6.0, 6.5);
-  const atSecondCut = rise(9.15, 9.7);
-  const control = rise(1.0, 3.5);
-  check("the first cut is louder with the layer than without it", atFirstCut > 4, `${atFirstCut.toFixed(1)} dB`);
-  check("so is the second", atSecondCut > 4, `${atSecondCut.toFixed(1)} dB`);
+  /*
+    In energy, not in decibels.
+
+    The layer sits *under* the programme by `gainDb`, so at a moment where the
+    programme is loud the layer barely moves the mean — and where the programme
+    is silent (a join, which is exactly where the accents are) a decibel
+    difference is dominated by the silence, not by the sound. The energy the
+    layer added is the layer's own contribution either way.
+  */
+  const energy = (db) => (Number.isFinite(db) ? 10 ** (db / 10) : 0);
+  const added = (from, to) =>
+    energy(level(wet.output, from, to).mean) - energy(level(dry.output, from, to).mean);
+
+  /*
+    Where the accent actually arrives, not where its file starts.
+
+    `cue.at` is the instant the file starts, and the 60ms lead in front of it is
+    only correct for a sound that begins with its transient. `whoosh-air` — the
+    second entry in the default palette's rotation, so every second cut in the
+    product — is a symmetric swell that peaks 0.44s in and is 27 dB down at its
+    own start. Placing its start 60ms before the cut put its loudest point 380ms
+    *after* the picture changed, which is the exact failure the lead exists to
+    prevent.
+
+    Measured as the loudest 40ms window of what the layer added, against the
+    join the cut map puts at 9.24s.
+  */
+  {
+    // In energy, not in decibels: the dry render dips to near-silence at the
+    // join itself, so a difference measured in dB peaks on that dip whichever
+    // sound was laid and whenever it arrived. The energy the layer *added* is
+    // the layer's own envelope.
+    let peakAt = null;
+    let peak = -Infinity;
+    for (let from = 8.7; from < 10.3; from += 0.04) {
+      const gained = added(from, from + 0.04);
+      if (gained > peak) {
+        peak = gained;
+        peakAt = from + 0.02;
+      }
+    }
+    check(
+      "the accent arrives on the cut, not a third of a second after it",
+      peakAt !== null && Math.abs(peakAt - 9.24) <= 0.2,
+      `loudest at ${peakAt?.toFixed(2)}s against a join at 9.24s`,
+    );
+  }
+  const atFirstCut = added(6.0, 6.5);
+  const atSecondCut = added(9.15, 9.7);
+  const control = added(1.0, 3.5);
+  check("the first cut has a sound on it", atFirstCut > Math.abs(control) * 8, `${atFirstCut.toExponential(2)} against ${control.toExponential(2)}`);
+  check("so does the second", atSecondCut > Math.abs(control) * 8, `${atSecondCut.toExponential(2)} against ${control.toExponential(2)}`);
   /*
     And the stretch between them is untouched to within the noise of two
     encodes. This is the half that catches a layer laid down as one continuous
     bed instead of as accents — which would pass every "is it louder at the cut"
     check ever written.
   */
-  check("and the speech between the cuts is exactly as it was", Math.abs(control) < 0.6, `${control.toFixed(2)} dB`);
+  check(
+    "and the speech between the cuts is exactly as it was",
+    Math.abs(control) < atFirstCut / 8,
+    `${control.toExponential(2)} against ${atFirstCut.toExponential(2)} at the cut`,
+  );
 
   await rm(dir, { recursive: true, force: true });
 }

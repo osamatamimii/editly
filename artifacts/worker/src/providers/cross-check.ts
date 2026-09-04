@@ -23,6 +23,7 @@ import path from "node:path";
 import { extractSpeechAudio } from "./deepgram";
 import { mergeTranscripts } from "../transcript-merge";
 import type { Transcriber, Transcript, TranscribeOptions } from "./types";
+import { sayIn } from "../say";
 
 export interface CrossCheckOptions {
   /** The clock. Its word boundaries and sentence breaks are the ones that survive. */
@@ -41,6 +42,17 @@ export function createCrossCheckedTranscriber(options: CrossCheckOptions): Trans
     name: `${primary.name}+${secondary.name}`,
 
     async transcribe(mediaPath: string, opts: TranscribeOptions = {}): Promise<Transcript> {
+      /*
+        The notes below are read by a person, in their chat, so they are
+        written in their language.
+
+        They were English literals. An Arabic customer's summary read Arabic,
+        then a sentence about a speech model in English, then Arabic again.
+        `say.ts` makes both halves required arguments exactly so this cannot
+        happen; a plain string is the seam that rule cannot reach across, and
+        this is that seam.
+      */
+      const t = sayIn(opts.notesIn);
       const audio = await prepare(mediaPath);
       const shared = audio !== mediaPath;
 
@@ -56,13 +68,19 @@ export function createCrossCheckedTranscriber(options: CrossCheckOptions): Trans
 
         if (second.status === "rejected") {
           return withNotes(first.status === "fulfilled" ? first.value : emptyOf(primary), [
-            `the second speech model was unavailable (${short(second.reason)}), so the words are as ${primary.name} heard them and were not cross-checked`,
+            t(
+              `the second speech model was unavailable (${short(second.reason)}), so the words are as ${primary.name} heard them and were not cross-checked`,
+              `النموذج الثاني للكلام لم يكن متاحًا (${short(second.reason)})، فالكلمات كما سمعها ${primary.name} بلا مقابلة`,
+            ),
           ]);
         }
 
         if (first.status === "rejected") {
           return withNotes(second.value, [
-            `the main speech model was unavailable (${short(first.reason)}), so both the words and the timings come from ${secondary.name} alone`,
+            t(
+              `the main speech model was unavailable (${short(first.reason)}), so both the words and the timings come from ${secondary.name} alone`,
+              `النموذج الأساسي للكلام لم يكن متاحًا (${short(first.reason)})، فالكلمات والتوقيتات كلّها من ${secondary.name} وحده`,
+            ),
           ]);
         }
 
@@ -80,13 +98,17 @@ export function createCrossCheckedTranscriber(options: CrossCheckOptions): Trans
         const heard = first.value.language;
         const alsoHeard = second.value.language;
         if (heard && alsoHeard && baseLanguage(heard) !== baseLanguage(alsoHeard)) {
-          // Whose reading to keep is not always the primary's. A disagreement
-          // where one model *cannot detect* what the other heard is not two
-          // opinions — the blind model guessed a language it was never able to
-          // name. On an Arabic clip uploaded through an English UI, Deepgram
-          // (which cannot detect Arabic) comes back with a confident wrong
-          // language and words to match, while the model that heard Arabic was
-          // right. So the reader whose language the other cannot name wins.
+          /*
+            Whose reading to keep is not always the primary's.
+
+            A disagreement where one model *cannot detect* what the other heard
+            is not two opinions — the blind model guessed a language it was
+            never able to name. On an Arabic clip uploaded through an English
+            interface, Deepgram (which cannot detect Arabic) comes back with a
+            confident wrong language and words to match, while the model that
+            heard Arabic was right. So the reader whose language the other
+            cannot name wins.
+          */
           const primaryCanNameSecondary = primary.canDetectLanguage?.(alsoHeard) ?? true;
           const secondaryCanNamePrimary = secondary.canDetectLanguage?.(heard) ?? true;
           const trustSecondary = !primaryCanNameSecondary && secondaryCanNamePrimary;
@@ -94,14 +116,21 @@ export function createCrossCheckedTranscriber(options: CrossCheckOptions): Trans
           const winnerName = trustSecondary ? secondary.name : primary.name;
           const blindName = trustSecondary ? primary.name : secondary.name;
           const blindTo = trustSecondary ? alsoHeard : heard;
+          const oneIsBlind = trustSecondary || (!secondaryCanNamePrimary && primaryCanNameSecondary);
           return withNotes(winner, [
-            trustSecondary || (!secondaryCanNamePrimary && primaryCanNameSecondary)
-              ? `the two speech models heard different languages (${heard} and ${alsoHeard}); ${blindName} cannot detect ${blindTo}, so the words are as ${winnerName} heard them`
-              : `the two speech models heard different languages (${heard} and ${alsoHeard}), so the words are as ${winnerName} heard them rather than a mixture of the two`,
+            oneIsBlind
+              ? t(
+                  `the two speech models heard different languages (${heard} and ${alsoHeard}); ${blindName} cannot detect ${blindTo}, so the words are as ${winnerName} heard them`,
+                  `سمع النموذجان لغتين مختلفتين (${heard} و${alsoHeard})، و${blindName} لا يستطيع التعرّف على ${blindTo}، فالكلمات كما سمعها ${winnerName}`,
+                )
+              : t(
+                  `the two speech models heard different languages (${heard} and ${alsoHeard}), so the words are as ${winnerName} heard them rather than a mixture of the two`,
+                  `سمع النموذجان لغتين مختلفتين (${heard} و${alsoHeard})، فالكلمات كما سمعها ${winnerName} لا مزيجًا بينهما`,
+                ),
           ]);
         }
 
-        const merged = mergeTranscripts(first.value, second.value);
+        const merged = mergeTranscripts(first.value, second.value, opts.notesIn);
         return withNotes(merged.transcript, merged.notes);
       } finally {
         if (shared) await rm(path.dirname(audio), { recursive: true, force: true });

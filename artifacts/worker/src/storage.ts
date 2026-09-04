@@ -59,9 +59,29 @@ export { VIDEOS_BUCKET };
  * the video, not by whoever is on call.
  */
 export class StorageTransferError extends Error {
-  constructor(message: string) {
+  /**
+   * Whether trying the same render again could produce a different answer.
+   *
+   * Most of what this class covers is worth retrying: a stalled download, an
+   * upload that timed out, a bucket having a bad minute. One case is not, and
+   * it was being retried anyway — a 413, which is the bucket saying the file is
+   * larger than it will accept. The same plan on the same source produces the
+   * same bytes every time, so `max_attempts` of three meant the machine
+   * encoded a guaranteed-refused file three times, potentially hours of paid
+   * compute on a long source, while the person who had already been shown
+   * "A shorter edit will fit" waited three render-lengths for a verdict that
+   * was known at the first upload.
+   *
+   * Nothing looked wrong from outside: retrying is the designed path, and the
+   * customer is not billed on a failed render, so neither the meter nor the log
+   * showed anything unusual.
+   */
+  readonly final: boolean;
+
+  constructor(message: string, final = false) {
     super(message);
     this.name = "StorageTransferError";
+    this.final = final;
   }
 }
 
@@ -154,6 +174,23 @@ export function bytesPulled(): number {
   return pulledBytes;
 }
 
+/**
+ * How large the file is, before deciding whether to pull it.
+ *
+ * One HEAD, and `null` when the store will not say — which every caller has to
+ * treat as "carry on", because refusing a render on a metadata hiccup would be
+ * a worse bug than the one this exists to prevent.
+ */
+export async function objectBytes(key: string): Promise<number | null> {
+  if (!isSafeObjectKey(key)) return null;
+  try {
+    const found = await store.head(key);
+    return found && Number.isFinite(found.bytes) && found.bytes > 0 ? found.bytes : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function downloadObject(key: string, destination: string): Promise<void> {
   // Where, and with what — from the seam. It applies the key rule before it
   // builds anything, so an unsafe key throws here rather than reaching a URL.
@@ -183,7 +220,25 @@ export async function downloadObject(key: string, destination: string): Promise<
   clearTimeout(connect);
 
   if (!res.ok || !res.body) {
-    throw new Error(`download failed for ${key}: ${res.status} ${await res.text().catch(() => "")}`);
+    /*
+      A refusal from storage is plumbing, and this class is what says so.
+
+      Everything else on this path — the stall clock, the connect clock, a body
+      that came up short, a 413 — is a `StorageTransferError`, whose whole
+      argument (see the class) is that "your video did not arrive here in full"
+      is the one sentence that tells somebody trying again is worth their time.
+      A 502 or 503 from the provider is the *most likely* failure of all, and it
+      was the one thrown as a plain `Error` — which `index.ts` classifies as
+      infrastructure and shows as "Rendering failed. We are looking into it."
+      A blip at Supabase presented as our own bug.
+    */
+    const detail = await res.text().catch(() => "");
+    if (res.status >= 500 || res.status === 429) {
+      throw new StorageTransferError(
+        `Storage answered ${res.status} when we asked for your video. Nothing was rendered, so trying again is worth it.`,
+      );
+    }
+    throw new Error(`download failed for ${key}: ${res.status} ${detail}`);
   }
 
   /*
@@ -358,10 +413,63 @@ export async function uploadObject(key: string, source: string, contentType = "v
           `${inMegabytes(limit)}. Nothing was billed. A shorter edit will fit.`
         : `Your edit was made, but storage refused it as too large at ${inMegabytes(size)}. ` +
           `Nothing was billed. A shorter edit will fit.`,
+      // Final: the same plan on the same source makes the same bytes, and the
+      // sentence above already told them the only thing that would change it.
+      true,
     );
   }
 
   if (!res.ok) {
-    throw new Error(`upload failed for ${key}: ${res.status} ${await res.text().catch(() => "")}`);
+    const detail = await res.text().catch(() => "");
+    /*
+      Same distinction as the download: this is worth another attempt, and the
+      sentence says so, because "Rendering failed. We are looking into it." is
+      the wrong answer to a store that had a bad minute.
+
+      What the next attempt costs is the part this comment used to get wrong.
+      It said the file was still on disk and a retry would re-upload rather
+      than re-render — but `processJob` removes the work directory in its
+      `finally`, so the finished video goes with it and the retry renders the
+      whole thing again. On a two-hour source that is another two hours of
+      paid compute to send bytes that already existed. Carrying the output
+      between attempts is a real fix and a real change — it has to survive a
+      retry landing on a different machine, and it has to not resurrect a
+      stale render for a plan that was edited — so it is written down rather
+      than half-done here. Retrying is still right; it is just not cheap.
+    */
+    if (res.status >= 500 || res.status === 429) {
+      throw new StorageTransferError(
+        `Storage answered ${res.status} when we sent your finished video. The edit itself is done, so trying again is worth it.`,
+      );
+    }
+    throw new Error(`upload failed for ${key}: ${res.status} ${detail}`);
+  }
+
+  /*
+    And then ask whether what arrived is what we sent.
+
+    A 200 is the store saying it accepted the request, not that it stored the
+    bytes. The download side of this file has carried a length check since the
+    day a truncated body produced a render of the first two thirds of somebody's
+    video — `pipeline` resolves cleanly when a connection ends early, and the
+    only thing that catches it is counting. The upload had no equivalent, and
+    the failure is worse in that direction: a short object is the file the
+    customer downloads, the file the publisher sends to TikTok, and the file the
+    preview plays. It is done, charged, and wrong.
+
+    One HEAD, and only a disagreement is an error. A store that will not answer
+    `head` is not evidence of anything — an unbounded number of them cannot say
+    — so silence leaves the upload standing, exactly as `bucketObjectLimit`
+    above leaves the 413 message standing when the ceiling cannot be read.
+
+    Retryable, deliberately: the render is finished and the bytes are still on
+    disk, so the next attempt is another upload rather than another hour.
+  */
+  const stored = await store.head(key).catch(() => null);
+  if (stored && Number.isFinite(stored.bytes) && stored.bytes > 0 && stored.bytes !== size) {
+    throw new StorageTransferError(
+      `Your edit was made, but only part of it reached storage: ${inMegabytes(stored.bytes)} of ` +
+        `${inMegabytes(size)}. Nothing was billed for the incomplete copy, and trying again is worth it.`,
+    );
   }
 }

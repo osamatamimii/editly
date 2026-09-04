@@ -48,7 +48,8 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { PublishError, type Published } from "./publish-youtube";
 import { probeDuration } from "./ffmpeg";
-import { withDeadline } from "./providers/deadline";
+import { withDeadline, PUBLISH_TIMEOUT_MS } from "./providers/deadline";
+import { weightedLength, truncateToGraphemes } from "@workspace/api-zod";
 
 const API = "https://api.x.com";
 
@@ -110,15 +111,30 @@ export function captionFor(caption: string, hashtags: string[], limit = CAPTION_
     .filter((t) => t.length > 0)
     .map((t) => (t.startsWith("#") ? t : `#${t}`));
 
+  /*
+    Measured the way X measures, not the way `String.length` does.
+
+    Every URL is 23 characters to X, whatever its real length, because the
+    platform rewrites it through `t.co` first. Counting the characters somebody
+    typed meant a post with two long links measured 340 here and 246 there: we
+    dropped their hashtags, and then cut their sentence, to fit a limit that
+    was not the limit.
+  */
   for (let keep = tags.length; keep > 0; keep -= 1) {
     const whole = `${text}\n\n${tags.slice(0, keep).join(" ")}`;
-    if (whole.length <= limit) return whole;
+    if (weightedLength(whole) <= limit) return whole;
   }
-  if (text.length <= limit) return text;
+  if (weightedLength(text) <= limit) return text;
 
-  const cut = text.slice(0, limit - 1);
-  const lastSpace = cut.lastIndexOf(" ");
-  return `${(lastSpace > limit * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+  /*
+    And cut on graphemes.
+
+    `slice` counts UTF-16 code units, so a cut landing mid-emoji left a lone
+    surrogate — the post ended in a replacement glyph. The budget is the
+    weighted one, so a sentence carrying a link keeps more of itself than a
+    naive count would allow.
+  */
+  return truncateToGraphemes(text, limit + (text.length - weightedLength(text)));
 }
 
 export interface ChunkRange {
@@ -241,7 +257,10 @@ async function readRange(file: string, range: ChunkRange): Promise<Buffer> {
 }
 
 export async function publishToX(upload: XUpload): Promise<Published> {
-  const doFetch = upload.fetchImpl ?? withDeadline(fetch);
+  // Deadlined, because Node's `fetch` has no timeout and a publisher that
+  // never returns stops this worker claiming renders. The publish budget
+  // rather than the provider one — this streams a master. See PUBLISH_TIMEOUT_MS.
+  const doFetch = upload.fetchImpl ?? withDeadline(fetch, PUBLISH_TIMEOUT_MS);
   const sleep = upload.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = upload.now ?? (() => Date.now());
   const durationOf = upload.durationOf ?? probeDuration;

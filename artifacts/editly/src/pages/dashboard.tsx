@@ -28,17 +28,16 @@ import {
 import { BackButton } from "@/components/back-button";
 import { ProjectArt } from "@/components/project-art";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { videoRejection } from "@/lib/start-from-video";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import {
-  deleteProjectVideos,
   usePlayableVideo,
-  ACCEPTED_VIDEO_TYPES,
-  uploadCeiling,
+  whyNotAVideo,
+  servedCeiling,
   formatBytes,
 } from "@/lib/video-storage";
 import { stashPendingUpload, titleFromFilename } from "@/lib/pending-upload";
-import { videoRejection } from "@/lib/start-from-video";
 import { hasSkippedFirstRun } from "@/lib/first-run";
 import { loadState } from "@/lib/load-state";
 import { FREE_TIER } from "@/lib/pricing";
@@ -47,10 +46,44 @@ import { useDates } from "@/lib/dates";
 import { ACCOUNT } from "@/lib/copy/account";
 import { COMMON, LOAD } from "@/lib/copy/common";
 import { DASHBOARD } from "@/lib/copy/dashboard";
-import { PRICING_AR, phrase } from "@/lib/landing-copy";
+import { PRICING_AR, phrase, template } from "@/lib/landing-copy";
 import { LoadFailed } from "@/components/load-failed";
-import { ToastAction } from "@/components/ui/toast";
+import { refusalToast, isPlanWall } from "@/lib/refusal";
 import { Badge } from "@/components/ui/badge";
+
+/*
+  Two sentences this screen owns, rather than two entries in
+  `lib/copy/dashboard.ts`.
+
+  Both exist because the copy table carries an older version of them and the
+  fix is in the wording, not in the table's shape. They are written with the
+  same `phrase`/`template` primitives that file uses, so either can move into
+  it unchanged the moment its entry is corrected.
+*/
+
+/*
+  Not "Invalid file type", which is the title `DASHBOARD.badFileType` still
+  carries. The single most-refused file at this door is an iPhone HEIC photo,
+  and its owner reading "invalid file type" learns that something is wrong and
+  nothing about what to do; `whyNotAVideo` writes the half of the toast that
+  tells them, and the title has to leave room for it to be about a photo, an
+  audio file or a codec rather than only about a format list.
+*/
+const CANNOT_USE_FILE = phrase("لا يمكننا استخدام هذا الملف", "We cannot use that file");
+
+/*
+  Not "every editing feature": free does not include style matching or 4K, and
+  this band repeated the pricing card's overclaim in the one place a free
+  customer reads it daily. `DASHBOARD.freeBandDetail` still says "every editing
+  feature" in both languages — "وكل ميزات التعديل" — so the pair is written
+  here, with the Arabic making the same narrower claim the English does.
+*/
+const FREE_BAND_DETAIL = template<[number, number]>(
+  (minutes, upload) =>
+    `${minutes} دقائق فيديو منتهٍ في الشهر، ورفع حتى ${upload} دقائق، والمحرّر نفسه كاملًا. بلا بطاقة وبلا انتهاء. تعمل وحسب.`,
+  (minutes, upload) =>
+    `${minutes} minutes of finished video a month, uploads up to ${upload} minutes, and the real editor. No card, no expiry. It simply keeps working.`,
+);
 
 /**
  * A project's poster frame. The bucket is private, so the stored key has to be
@@ -250,35 +283,42 @@ export default function Dashboard() {
       setNewTitle("");
       setLocation(`/project/${project.id}`);
     } catch (error: unknown) {
+      /*
+        The server's sentence, not one written here from numbers this screen
+        happens to hold.
+
+        This wrote its own: "You've used all {minutesIncluded} exported minutes
+        on your {plan} plan this month." That claim is false in the case the
+        refusal most often means now — `exhausted` includes renders already
+        accepted, so a Pro customer with nothing billed who has queued a
+        400-minute podcast is refused, and the server says so in as many words
+        ("Renders already going account for 400 of your 400 minutes… nothing is
+        lost"). This screen printed "you've used all 400 exported minutes"
+        directly above its own usage banner reading "0 / 400 minutes of
+        finished video this month" — two contradictory numbers on one screen,
+        and an Upgrade button attached to the wrong one.
+
+        And when the subscription query had not resolved, the `?? ""` fallbacks
+        rendered "You've used all  exported minutes on your  plan this month."
+
+        `refusalToast` is what the three editor paths already use. This was the
+        one caller that never got converted.
+      */
       const status = (error as { response?: { status?: number } })?.response?.status;
-      if (status === 429) {
-        toast({
-          title: t(DASHBOARD.limitReached),
-          description: fmt(
-            DASHBOARD.limitReachedDetail,
-            String(subscription?.minutesIncluded ?? ""),
-            String(subscription?.plan ?? ""),
-          ),
-          variant: "destructive",
-          action: (
-            <ToastAction altText={t(COMMON.upgrade)} onClick={() => window.location.href = "/#pricing"}>
-              {t(COMMON.upgrade)}
-            </ToastAction>
-          ),
-        });
-        setIsCreateOpen(false);
-      } else {
-        toast({
-          title: t(DASHBOARD.createFailed),
-          description: t(DASHBOARD.tryLater),
-          variant: "destructive"
-        });
-      }
+      toast(refusalToast(error, DASHBOARD.createFailed, t));
+      // Every plan wall closes the dialog, not the 429 alone: a 402 or a 413
+      // otherwise leaves the form open over a toast that has already explained
+      // why the form cannot succeed.
+      if (isPlanWall(status)) setIsCreateOpen(false);
     }
   };
 
   const handleCreate = () => {
     if (!newTitle.trim()) return;
+    // The button is disabled while this is in flight; the field is not, and
+    // Enter goes through the field. On a slow connection a second Enter made a
+    // second project — and, from the dropzone, a second stashed upload with it.
+    if (createProject.isPending) return;
     void createAndOpen(newTitle);
   };
 
@@ -288,23 +328,59 @@ export default function Dashboard() {
    * named after a spreadsheet.
    */
   const handleStartFromVideo = (file: File) => {
-    // The ceiling Storage will actually enforce, not the one this bundle was
-    // built with. They are the same number today and stop being the same the
-    // morning the storage plan changes.
-    const ceiling = uploadCeiling(subscription);
-    // The rule is shared with the clip-extraction screen, which starts a
-    // project the same way; the words are not, because the sentence somebody
-    // reads here and the one they read holding a two-hour episode differ.
-    const rejection = videoRejection(file, { accepted: ACCEPTED_VIDEO_TYPES, ceilingBytes: ceiling });
+    /*
+      What this product will take, decided in one place.
+
+      The rule is shared with the clip-extraction screen and the editor, which
+      start a project the same way; a hand-written list of three extensions
+      beside a hand-written list of three types, repeated at three doors, is
+      how this door came to refuse mkv and m4v that the server accepts.
+      `whyNotAVideo` also knows the answer somebody can act on: the file most
+      often refused here is an iPhone HEIC photo, and "please upload an mp4,
+      mov or webm" tells its owner nothing about what to do next.
+    */
+    /*
+      Through `videoRejection`, which is the one function both screens ask.
+
+      Two rules were converging on the same answer from opposite directions:
+      this door had learned the derived format list and the useful sentence,
+      and the clip screen had the shared function that stops two doors drifting
+      apart. Keeping only one of those would give back the other's bug, so
+      `videoRejection` now asks `isAcceptableVideo` and both screens call it.
+      The words stay each screen's own — somebody standing here has dropped
+      anything at all, and somebody on the clip screen is holding an episode.
+    */
+    const rejection = videoRejection(file, { ceilingBytes: servedCeiling(subscription) });
     if (rejection === "type") {
       toast({
-        title: t(DASHBOARD.badFileType),
-        description: t(DASHBOARD.badFileTypeDetail),
+        title: t(CANNOT_USE_FILE),
+        // The file most often refused here is an iPhone HEIC photo, and
+        // "please upload an mp4, mov or webm" tells its owner nothing about
+        // what to do next. `whyNotAVideo` does.
+        description: whyNotAVideo(file),
         variant: "destructive",
       });
       return;
     }
+    /*
+      The ceiling the server actually named, and nothing when it has not said.
+
+      This was `uploadCeiling`, which folds "the server has not answered yet"
+      into 50 MB — the build-time fallback, which is the *free* plan's order of
+      magnitude. So while the subscription query is in flight, and for the
+      whole of any failure or 401 on it, a Pro customer dropping the 200 MB
+      file their plan is sold on was refused with a confidently worded toast
+      naming a limit that is not theirs. Nothing threw; the customer was simply
+      downgraded for a second and told so.
+
+      The signing route enforces the real ceiling before a byte is sent, so
+      saying nothing costs one round trip and guessing costs a customer. The
+      editor was fixed and these two doors were not.
+    */
     if (rejection === "size") {
+      // Only reachable with a ceiling the server named: `videoRejection` never
+      // answers "size" without one.
+      const ceiling = servedCeiling(subscription) as number;
       toast({
         title: t(DASHBOARD.fileTooLarge),
         description: fmt(DASHBOARD.fileTooLargeDetail, formatBytes(file.size), formatBytes(ceiling)),
@@ -312,6 +388,10 @@ export default function Dashboard() {
       });
       return;
     }
+    // Same guard as the Enter key above: the dropzone stays clickable while a
+    // create is in flight, and a second drop was a second project plus a
+    // second stashed upload.
+    if (createProject.isPending) return;
     void createAndOpen(titleFromFilename(file.name), file);
   };
 
@@ -319,9 +399,24 @@ export default function Dashboard() {
     e.preventDefault();
     e.stopPropagation();
     try {
-      // Drop the stored bytes first: once the row is gone we no longer know
-      // that this project existed, and the objects would linger unreferenced.
-      if (user) await deleteProjectVideos(user.id, id);
+      /*
+        The server does this, and doing it here first was the destructive half
+        running behind a message saying nothing happened.
+
+        The comment that was here argued for dropping the bytes before the row,
+        so nothing is left unreferenced — which was right when the route did not
+        reclaim them. It does now, with the whole property this depended on:
+        `DELETE /projects/:id` sweeps the objects, refuses with a 503 when it
+        cannot, and never reports a deletion it could not complete.
+
+        With both, the client destroyed the source, the render, the poster and
+        every asset with the person's own token, and *then* asked for the row.
+        If that failed — a 500, a timeout — the toast read "Failed to delete
+        project. Please try again later." while the footage was already gone,
+        and the card stayed in the library pointing at objects that no longer
+        existed. The only irreversible step ran first, behind a sentence saying
+        nothing had happened.
+      */
       await deleteProject.mutateAsync({ id });
       queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
@@ -797,7 +892,7 @@ export default function Dashboard() {
               {t(phrase(PRICING_AR.free.headline, FREE_TIER.headline))}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
-              {fmt(DASHBOARD.freeBandDetail, FREE_TIER.minutes, FREE_TIER.uploadMinutes)}
+              {fmt(FREE_BAND_DETAIL, FREE_TIER.minutes, FREE_TIER.uploadMinutes)}
             </div>
           </div>
           <Link href="/#pricing">
@@ -924,7 +1019,22 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Projects Grid */}
+      {/*
+        Projects Grid, hidden when the podcast grid above already holds
+        everything.
+
+        `projectsState` is computed from the whole list, so a library of nothing
+        but long recordings is "ready" rather than "empty" — and this section
+        rendered a heading called "Everything else" over an empty array. A
+        podcaster whose every upload is over eight minutes got a correct grid
+        followed by a heading with nothing under it, which reads as a section
+        that failed to load.
+
+        The empty state below is still reachable and still right: it is for a
+        library with nothing in it at all, and that is exactly when `podcasts`
+        is empty too.
+      */}
+      {(podcasts.length === 0 || shortForm.length > 0) && (
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">
           {podcasts.length > 0 ? t(DASHBOARD.everythingElse) : t(DASHBOARD.recentProjects)}
@@ -968,6 +1078,7 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+      )}
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent className="glass-panel border-hairline sm:max-w-[425px]">

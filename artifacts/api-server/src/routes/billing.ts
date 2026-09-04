@@ -21,7 +21,7 @@ import { currentUserId } from "../middlewares/auth";
 import { checkoutConfig, freemiusConfigured, planFromEvent, verifySignature } from "../lib/freemius";
 import { paymentFailed, planChanged, send } from "../lib/mail";
 import { planKeyFrom } from "../lib/plan-limits";
-import { decideApply, eventIdFor, eventTimeFrom } from "../lib/billing-ledger";
+import { decideApply, eventIdFor, eventTimeFrom, licenceIdFrom } from "../lib/billing-ledger";
 import { createHash } from "node:crypto";
 
 /**
@@ -79,7 +79,7 @@ billingWebhookRouter.post(
 
     const type = String(payload.type ?? "");
     const email = String(user["email"] ?? license["user_email"] ?? "").trim().toLowerCase();
-    const licenseId = license["id"] != null ? String(license["id"]) : null;
+    const licenseId = licenceIdFrom(objects);
     const eventId = eventIdFor(payload as Record<string, unknown>, raw, (input) =>
       createHash("sha256").update(input).digest("hex"),
     );
@@ -97,6 +97,45 @@ billingWebhookRouter.post(
       plan: decision?.plan ?? null,
       eventAt,
     });
+
+    /*
+      A declined card is not a plan change, and it was being dropped as one.
+
+      `planFromEvent` answers `null` for `payment.failed` — correctly, because
+      the plan must not move: Freemius retries a declined card, and taking
+      somebody's access away on the first failure would be wrong. But `null`
+      landed in the branch below, which closes the event as `ignored` and
+      returns before the letter twenty lines further down is ever evaluated.
+
+      So the one letter this file's own comment calls "the only one of these
+      that is a thing the person has to *do* something about, and it is the one
+      the product loses a subscription to by staying quiet" could not be sent by
+      any path. Nothing failed: the webhook answered 200 with
+      `ignored: "payment.failed"`, Freemius stopped retrying, and the row in
+      `billing_events` reads `ignored`, which looks deliberate. The customer
+      heard nothing and the subscription lapsed.
+
+      It is handled here rather than by giving it a plan, because it does not
+      have one. The event is closed as `notified`, which is a third outcome and
+      the honest one: we did not change anything and we did tell them.
+    */
+    if (!decision && type === "payment.failed") {
+      const userId = await userIdForEmail(email);
+      if (userId) {
+        await send({
+          userId,
+          to: email,
+          kind: "account",
+          event: "payment-failed",
+          reference: eventId,
+          letter: paymentFailed(),
+        });
+      }
+      await closeEvent(eventId, userId, "notified");
+      req.log?.info({ eventId, told: Boolean(userId) }, "a declined card was reported to the customer");
+      res.status(200).json({ ok: true, notified: Boolean(userId) });
+      return;
+    }
 
     // An event we do not act on is still a delivered event. Answering 200 stops
     // Freemius retrying something we will never do anything with.
@@ -145,7 +184,16 @@ billingWebhookRouter.post(
         { userId, eventId, type, outcome: verdict.outcome, wanted: decision.plan, have: current?.plan },
         "billing event not applied",
       );
-      await closeEvent(eventId, userId, verdict.outcome);
+      /*
+        `duplicate` never overwrites what the first attempt recorded.
+
+        This row is the answer to "somebody says they paid and the product
+        disagrees", and stamping `duplicate` over `applied` on a redelivery
+        would erase the only record that it *was* applied — leaving a table that
+        says the payment was received and never acted on, which is the opposite
+        of what happened.
+      */
+      await closeEvent(eventId, userId, verdict.outcome, { keepExisting: verdict.outcome === "duplicate" });
       // Still 200. The event was received and understood; refusing to act on a
       // stale one is not a failure Freemius should retry.
       res.status(200).json({ ok: true, outcome: verdict.outcome });
@@ -172,14 +220,13 @@ billingWebhookRouter.post(
       applied above and a webhook that answered 500 because an email did not go
       would be retried, and the retry would apply nothing and send nothing.
     */
-    const letter = type === "payment.failed" ? paymentFailed() : planChanged(decision.plan);
     await send({
       userId,
       to: email,
       kind: "account",
-      event: type === "payment.failed" ? "payment-failed" : "plan-changed",
+      event: "plan-changed",
       reference: eventId,
-      letter,
+      letter: planChanged(decision.plan),
     });
     req.log?.info({ userId, plan: decision.plan, reason: decision.reason, eventId }, "billing event applied");
     res.status(200).json({ ok: true });
@@ -268,27 +315,61 @@ async function recordEvent(event: {
   eventAt: Date | null;
 }): Promise<boolean> {
   const { pool } = await import("@workspace/db");
-  const { rows } = await pool.query(
+  const { rows } = await pool.query<{ outcome: string | null }>(
     `INSERT INTO billing_events (event_id, type, email, license_id, plan, event_at)
      VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (event_id) DO NOTHING
-     RETURNING event_id`,
+     RETURNING outcome`,
     [event.eventId, event.type, event.email, event.licenseId, event.plan, event.eventAt],
   );
-  return rows.length === 0;
+  if (rows.length > 0) return false;
+
+  /*
+    Seen before is not the same as finished before, and it was being treated as
+    if it were.
+
+    This insert commits, and everything that decides and applies the payment
+    happens after it: the address lookup, the subscription read, `setPlan`. Any
+    failure in that window — and the comment on `userIdForEmail` records one
+    that has already happened in production, a permission error on `auth.users`
+    that fired after the event was recorded and before anything was decided —
+    left a row with no outcome. Freemius then retried, this returned "seen
+    before", `decideApply` short-circuited as a duplicate, and the webhook
+    answered 200. The payment was permanently converted into a no-op, and the
+    only trace is a warn line reading "billing event not applied", which is
+    exactly what a genuine redelivery produces.
+
+    `claimPaidEvents` rescues some of these on the next page load, but only
+    strict upgrades: a lost cancellation or refund is never re-applied, so the
+    account keeps a paid plan nobody is paying for.
+
+    So a row that was recorded and never closed is not a duplicate. It is an
+    attempt that did not finish, and the retry is the second attempt.
+  */
+  const { rows: existing } = await pool.query<{ outcome: string | null }>(
+    `SELECT outcome FROM billing_events WHERE event_id = $1`,
+    [event.eventId],
+  );
+  const outcome = existing[0]?.outcome ?? null;
+  return outcome !== null;
 }
 
 /** Marks what became of an event. Never throws: bookkeeping must not fail a payment. */
-async function closeEvent(eventId: string, userId: string | null, outcome: string): Promise<void> {
+async function closeEvent(
+  eventId: string,
+  userId: string | null,
+  outcome: string,
+  options: { keepExisting?: boolean } = {},
+): Promise<void> {
   try {
     const { pool } = await import("@workspace/db");
     await pool.query(
       `UPDATE billing_events
           SET user_id = COALESCE($2, user_id),
-              outcome = $3,
+              outcome = CASE WHEN $4 AND outcome IS NOT NULL THEN outcome ELSE $3 END,
               applied_at = CASE WHEN $3 = 'applied' THEN now() ELSE applied_at END
         WHERE event_id = $1`,
-      [eventId, userId, outcome],
+      [eventId, userId, outcome, options.keepExisting === true],
     );
   } catch {
     // Deliberately silent. The plan is already written; failing the request now

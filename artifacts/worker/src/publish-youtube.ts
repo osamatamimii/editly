@@ -29,7 +29,7 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
-import { withDeadline } from "./providers/deadline";
+import { withDeadline, PUBLISH_TIMEOUT_MS } from "./providers/deadline";
 
 /** YouTube's own limits, and the reason each one is here. */
 const TITLE_LIMIT = 100;
@@ -46,7 +46,17 @@ export interface YouTubeUpload {
 
 export interface Published {
   externalPostId: string;
-  externalUrl: string;
+  /**
+   * A link to the post, or null when we cannot build one that works.
+   *
+   * Nullable because the alternative is worse than nothing, and this product
+   * shipped the alternative: Instagram's `externalUrl` was assembled from the
+   * numeric media id as `instagram.com/reel/<id>/`, a path that takes a
+   * shortcode, so every "View post" link for a Reel landed on "this page isn't
+   * available". The schedule screen already branches on null and simply does
+   * not draw the button, which is the honest outcome.
+   */
+  externalUrl: string | null;
 }
 
 export class PublishError extends Error {}
@@ -103,11 +113,21 @@ async function readError(response: Response): Promise<string> {
  */
 export async function publishToYouTube(upload: YouTubeUpload): Promise<Published> {
   const bytes = (await stat(upload.file)).size;
-  // No request to Google without a deadline. This worker sends on the same
-  // process that renders, and a socket Google accepts and never answers would
-  // block the publish loop on this one row for as long as the operating system
-  // holds it — which is the exact wedge `providers/deadline.ts` exists to stop.
-  const doFetch = upload.fetchImpl ?? withDeadline(fetch);
+  /*
+    Deadlined, which it was not.
+
+    Node's `fetch` has no timeout, and this function streams a whole master to
+    Google. A socket that is accepted and then goes quiet is not an error, so
+    the `await` below never returned — and `sendDuePosts()` runs before
+    `claimJob()`, so that worker stopped claiming renders altogether while the
+    health endpoint went on reporting it online, blocked on this one row for as
+    long as the operating system held the socket.
+
+    The publish budget rather than the provider one: this streams a whole
+    master to Google, and five minutes is a real upload on a modest link.
+    `fetchImpl` is how the tests get in; production never passes it.
+  */
+  const doFetch = upload.fetchImpl ?? withDeadline(fetch, PUBLISH_TIMEOUT_MS);
 
   const start = await doFetch(
     "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
@@ -162,8 +182,53 @@ export async function publishToYouTube(upload: YouTubeUpload): Promise<Published
   } as RequestInit & { duplex: "half" });
 
   if (!put.ok) throw new PublishError(await readError(put));
-  const video = (await put.json().catch(() => ({}))) as { id?: string };
+  const video = (await put.json().catch(() => ({}))) as {
+    id?: string;
+    status?: { privacyStatus?: string; uploadStatus?: string; rejectionReason?: string };
+  };
   if (!video.id) throw new PublishError("YouTube took the file and did not say what it became");
+
+  /*
+    What YouTube says it did, not what we asked it to do.
+
+    Only `id` was read. The request above asks for `privacyStatus: "public"`
+    and an **unaudited Google project silently overrides it**: every upload
+    from an API client that has not been through Google's verification is
+    locked to `private`, the response is a perfectly ordinary 200, and the id
+    is real. So the post was recorded as published, with a watch URL, and the
+    only person on earth who could open that URL was the account owner. Their
+    audience saw nothing; the product said it had gone out; there was no error
+    anywhere in the sequence.
+
+    It is the exact failure `publish-tiktok.ts` is careful about — that file
+    checks the audit state and refuses — reached from the other end, and it is
+    the single most likely thing to be wrong on the day this is switched on,
+    because verification takes weeks and everything else works without it.
+
+    Reported as a failure rather than a success with a note, because the row's
+    whole meaning is "this is on their channel". A private video is not.
+  */
+  const privacy = video.status?.privacyStatus;
+  if (privacy && privacy !== "public") {
+    throw new PublishError(
+      `YouTube accepted the video and made it ${privacy} instead of public. ` +
+        `That happens when the Google project uploading it has not been verified yet, ` +
+        `and it means nobody but you can see it. The video is on your channel: ` +
+        `https://www.youtube.com/watch?v=${video.id}`,
+    );
+  }
+
+  /*
+    And the other thing a 200 can be hiding.
+
+    `uploadStatus: "rejected"` is YouTube saying it took the bytes and will not
+    show them — a copyright claim, a length the channel is not allowed, a
+    format it could not process. `rejectionReason` says which.
+  */
+  if (video.status?.uploadStatus === "rejected") {
+    const why = video.status.rejectionReason ?? "no reason given";
+    throw new PublishError(`YouTube rejected the video after taking it: ${why}.`);
+  }
 
   return {
     externalPostId: video.id,

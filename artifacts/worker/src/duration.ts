@@ -82,6 +82,39 @@ export function exceedsCeiling(sourceSeconds: number, maxSourceSeconds: number |
 }
 
 /**
+ * The balance the row was queued with, brought up to date.
+ *
+ * `remainingSeconds` is a snapshot taken when the job was accepted, and a
+ * snapshot is per-job: fire thirty renders at once and all thirty carry the
+ * same number, because none of them had finished when the others were
+ * accepted. The API now subtracts work in flight before it writes this, which
+ * closes the door — but the door can only reserve what it can size, and a
+ * project whose duration the browser never sent reserves nothing.
+ *
+ * So the worker re-reads it. It does not need to know what a plan is to do
+ * that: whatever this person has been billed for **since this job was queued**
+ * has come out of the balance the row is carrying. Jobs are claimed one at a
+ * time, so by the time the second of thirty is claimed the first has been
+ * billed and this number reflects it.
+ *
+ * @param queuedBeforeThisMonth The allowance resets on the 1st. A row queued in
+ *   September and claimed in October is carrying September's balance, which is
+ *   not a smaller version of October's — it is a different month's. Enforcing
+ *   it would refuse work against minutes that have already been given back, so
+ *   the snapshot is dropped rather than adjusted.
+ */
+export function allowanceNow(
+  snapshotSeconds: number | null,
+  spentSinceQueuedSeconds: number,
+  queuedBeforeThisMonth = false,
+): number | null {
+  if (queuedBeforeThisMonth) return null;
+  if (snapshotSeconds == null || !Number.isFinite(snapshotSeconds) || snapshotSeconds < 0) return null;
+  const spent = Number.isFinite(spentSinceQueuedSeconds) ? Math.max(0, spentSinceQueuedSeconds) : 0;
+  return Math.max(0, snapshotSeconds - spent);
+}
+
+/**
  * Is this file longer than what was left of the month when the job was queued?
  *
  * The API asks the same question, and cannot always answer it: the length it
@@ -129,6 +162,51 @@ function spoken(seconds: number): string {
 /** The sentence the customer sees. It names the length, because "too long" invites an argument. */
 export function tooLongMessage(sourceSeconds: number, maxSourceSeconds: number): string {
   return `This file is ${spoken(sourceSeconds)} and your plan takes up to ${spoken(maxSourceSeconds)} in one upload. A longer plan, or a shorter clip, and we will edit it.`;
+}
+
+/**
+ * Is this file longer than this machine can finish inside the render deadline?
+ *
+ * The third ceiling, and the one nothing enforced.
+ * `ENCODE_SECONDS_PER_SOURCE_SECOND` was measured, `deliverableSourceMinutes()`
+ * turns it into a number of minutes, that number is written into a doc comment
+ * — and then no code read it. The two ceilings above are about what the
+ * customer bought; this one is about what the hardware can do, and they are
+ * not the same question. Pro sells 240 minutes of source. This machine can
+ * render 115 before `LIMITS.render.totalMs` kills the job.
+ *
+ * Unreachable today only because the `videos` bucket refuses anything over
+ * 50 MB. The morning somebody upgrades the Supabase plan — which is the first
+ * thing anybody does, and the whole point of the object-store seam — that
+ * bound disappears and this one becomes the live one. Without this check the
+ * symptom is a customer uploading a two-hour podcast the plan says they may,
+ * waiting four hours, and being told "Rendering failed. We are looking into
+ * it." Twice more, because it retries.
+ *
+ * Checked against the measured file, at the same place as the other two, and
+ * final: the file will be exactly as long next time.
+ */
+export function exceedsDeliverable(sourceSeconds: number, deliverableMinutes: number): boolean {
+  if (!Number.isFinite(deliverableMinutes) || deliverableMinutes <= 0) return false;
+  return sourceSeconds > deliverableMinutes * 60 + CEILING_TOLERANCE_SECONDS;
+}
+
+/**
+ * The sentence for it, which is the hardest of the three to write.
+ *
+ * The other two refusals have something the person can do: pay more, or send
+ * less. This one is ours — they are inside their plan and we cannot finish the
+ * job — so it does not pretend otherwise, does not blame the file, and says
+ * the two things that are actually useful: nothing was charged, and roughly
+ * what length does work today.
+ */
+export function notDeliverableMessage(sourceSeconds: number, deliverableMinutes: number): string {
+  return (
+    `This file is ${spoken(sourceSeconds)}, and right now we can only finish edits ` +
+    `up to about ${deliverableMinutes} minutes long. That is our limit, not your plan's. ` +
+    `Nothing has been charged. Send a shorter cut and we will edit it today; ` +
+    `we are adding the capacity for the longer ones.`
+  );
 }
 
 function usable(value: number | null | undefined): value is number {

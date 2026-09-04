@@ -323,11 +323,38 @@ export async function send(message: Send, fetchImpl: typeof fetch = fetch): Prom
       if (await unsubscribed(message.userId)) return { sent: false, because: "unsubscribed" };
     }
 
+    /*
+      The token before the claim, for news, because without it there is nothing
+      to send.
+
+      `unsubscribeToken` answers null on any failure — a locked row, a timeout,
+      a `mail_settings` that has not been migrated. And null quietly removed
+      both halves of the way out: `withUnsubscribe` returns the body unchanged,
+      and the `List-Unsubscribe` headers are spread conditionally on the same
+      value. So a marketing message went out with no footer and no header at
+      all, and this function answered `{ sent: true }`.
+
+      That is bulk mail with no unsubscribe of any kind — unlawful in most of
+      the places this product is read, and a breach of the Gmail and Yahoo
+      bulk-sender rules the headers below argue about at length. The damage
+      lands on the account mail too, because deliverability is one domain's.
+
+      `UNSUBSCRIBE_ROUTE_EXISTS` guards the *feature* existing. This guards this
+      particular message having one.
+    */
+    const token = message.kind === "news" ? await unsubscribeToken(message.userId) : null;
+    if (message.kind === "news" && !token) {
+      logger.warn(
+        { event: message.event },
+        "a marketing message was refused because its unsubscribe token could not be minted",
+      );
+      return { sent: false, because: "no-way-out" };
+    }
+
     if (!(await claim(message))) return { sent: false, because: "already-sent" };
 
     const language = await languageFor(message.userId);
     const letter = message.letter[language];
-    const token = message.kind === "news" ? await unsubscribeToken(message.userId) : null;
 
     const response = await fetchImpl(RESEND_ENDPOINT, {
       method: "POST",
@@ -385,8 +412,29 @@ export async function send(message: Send, fetchImpl: typeof fetch = fetch): Prom
       });
     return { sent: true };
   } catch (error) {
-    logger.warn({ err: error, event: message.event }, "a message could not be sent, and nothing else failed");
-    await release(message).catch(() => {});
+    /*
+      The claim is kept, and that is the change.
+
+      It used to be released here, which is the one place it must not be. The
+      `!response.ok` branch above releases correctly: a 4xx or a 5xx body is a
+      definite non-send. This branch is different — it catches a twenty-second
+      abort, an `ECONNRESET`, a socket closed after Resend accepted the POST.
+      In every one of those the message may already be in their queue.
+
+      And the outcome returned, `refused`, is the one callers retry: a webhook
+      redelivery, the worker's next sweep, a restarted loop. It found no row,
+      claimed it, and sent a second copy — which is the exact thing this
+      module's headline promise is about, breaking on precisely the failure
+      that makes anybody try again.
+
+      `release`'s own comment already had the rule: "Leaving the claim is the
+      safe direction: at worst one message is not sent. The other direction
+      sends two." This branch was the one place it was not followed.
+    */
+    logger.warn(
+      { err: error, event: message.event },
+      "a message may or may not have been sent, so the claim is kept rather than freed",
+    );
     return { sent: false, because: "refused" };
   }
 }
@@ -566,6 +614,64 @@ export function renderFailed(project: string, projectId: string, reason: string)
         (said ? `ما الذي حدث: ${said}\n\n` : "") +
         `ولم يُحتسب عليك شيء، وفيديوك كما هو.\n\n` +
         `تستطيع طلبه مرّة أخرى من هنا: ${link}`,
+    },
+  };
+}
+
+/**
+ * A scheduled post that did not go out.
+ *
+ * Nothing told anybody. Not a letter, not a message in the product, not a
+ * badge — the operations console counted every failure and the person whose
+ * post it was found out by looking at their own feed, or did not.
+ *
+ * The shape of it is what makes it worth a letter rather than a screen: a
+ * person schedules a week of posts and closes the tab. An account whose
+ * authorisation was revoked then fails thirty of them, one at a time, at their
+ * hours, over seven days — and every one of those is a slot on somebody's
+ * content calendar that silently did not happen. Nothing in the product was
+ * ever going to catch their eye, because the product is a page they are not on.
+ *
+ * Deduplicated by post id, so a retry cannot apologise twice for one post.
+ *
+ * The reason is quoted rather than reworded: `publisher.ts` already writes a
+ * sentence for the person — "That account needs reconnecting", "Instagram
+ * refused it: ..." — and the letter's job is to carry it, not to have an
+ * opinion about it.
+ */
+export function postFailed(
+  platform: string,
+  handle: string | null,
+  reason: string,
+  projectId: string,
+): Letter {
+  const link = appLink(`/export/${projectId}`);
+  const where = handle ? `${platform} (${handle})` : platform;
+  const said = reason.trim().slice(0, 300);
+  return {
+    en: {
+      subject: `That post did not go out: ${platform}`,
+      body:
+        `The post scheduled for ${where} did not go out.
+
+` +
+        (said ? `What happened: ${said}
+
+` : "") +
+        `Your video is untouched and still in your exports. ` +
+        `You can reschedule it here: ${link}`,
+    },
+    ar: {
+      subject: `لم يُنشر المنشور: ${platform}`,
+      body:
+        `المنشور المجدول إلى ${where} لم يخرج.
+
+` +
+        (said ? `ما الذي حدث: ${said}
+
+` : "") +
+        `فيديوك كما هو وما يزال في صادراتك، ` +
+        `وتستطيع إعادة جدولته من هنا: ${link}`,
     },
   };
 }

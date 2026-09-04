@@ -50,6 +50,18 @@ export function createElevenLabsTranscriber(options: ElevenLabsOptions): Transcr
 
     async transcribe(mediaPath: string, opts: TranscribeOptions = {}): Promise<Transcript> {
       const audio = await extractSpeechAudio(mediaPath);
+      /*
+        Only delete what this call created.
+
+        `extractSpeechAudio` hands back the path it was given when that path is
+        already an extracted `speech.flac` — which is what `cross-check` passes,
+        so a long source is decoded once for both models rather than three
+        times. That makes the file shared, and a `finally` that deleted it
+        regardless would remove it out from under the other model, which is
+        running concurrently under `Promise.allSettled`. The owner deletes; a
+        borrower leaves it alone.
+      */
+      const ours = audio !== mediaPath;
       try {
         const form = new FormData();
         form.set("model_id", model);
@@ -78,7 +90,7 @@ export function createElevenLabsTranscriber(options: ElevenLabsOptions): Transcr
         }
         return parseElevenLabs(await response.json(), `elevenlabs/${model}`);
       } finally {
-        await rm(path.dirname(audio), { recursive: true, force: true });
+        if (ours) await rm(path.dirname(audio), { recursive: true, force: true });
       }
     },
   };

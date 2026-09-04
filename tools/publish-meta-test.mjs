@@ -109,6 +109,14 @@ function fakeGraph(script = {}) {
       return json({ status_code: "FINISHED" });
     }
     if (parsed.pathname === "/v21.0/ig_9/media_publish") return json({ id: "reel_77" });
+    // The permalink read that follows a publish. `media_publish` returns a
+    // numeric media id and Instagram's /reel/ path takes a shortcode, so the
+    // link has to be asked for rather than assembled — see publish-meta.ts.
+    if (parsed.pathname === "/v21.0/reel_77") {
+      if (script.noPermalink) return json({ id: "reel_77" });
+      if (script.permalinkFails) return json({ error: { message: "nope" } }, 500);
+      return json({ id: "reel_77", permalink: "https://www.instagram.com/reel/AbC123xyz/" });
+    }
     if (parsed.pathname === "/v21.0/page_1/videos") return json({ id: "vid_88" });
     throw new Error(`unexpected call to ${url}`);
   };
@@ -152,14 +160,47 @@ section("A Reel: container, wait, publish");
     accessToken: USER_TOKEN, fetchImpl: doFetch, ...NEVER_WAITS,
   });
   check("it comes back with the post id", landed.externalPostId === "reel_77", landed.externalPostId);
-  check("and a link", landed.externalUrl === "https://www.instagram.com/reel/reel_77/", landed.externalUrl);
+  check(
+    "and a link Instagram gave us, rather than one assembled from the media id",
+    landed.externalUrl === "https://www.instagram.com/reel/AbC123xyz/",
+    landed.externalUrl,
+  );
 
   const order = calls.map((c) => `${c.method} ${c.path.replace("/v21.0", "")}`);
   check(
     "in the order Meta requires",
-    order.join(" → ") === "GET /me/accounts → GET /page_1 → POST /ig_9/media → GET /container_5 → GET /container_5 → GET /container_5 → POST /ig_9/media_publish",
+    order.join(" → ") ===
+      "GET /me/accounts → GET /page_1 → POST /ig_9/media → GET /container_5 → GET /container_5 → GET /container_5 → POST /ig_9/media_publish → GET /reel_77",
     order.join(" → "),
   );
+
+  /*
+    A link we could not get is a field left null, never a link that 404s.
+
+    The URL used to be assembled: `https://www.instagram.com/reel/${id}/` with
+    the numeric media id `media_publish` returns. Instagram's /reel/ path takes
+    a shortcode, so every "View post" link this product ever wrote for a Reel
+    landed on "this page isn't available" — and nothing failed anywhere. The
+    post went out, the row said published, and the only person who found out
+    was the customer, on their own post.
+  */
+  {
+    const quiet = fakeGraph({ noPermalink: true });
+    const landedQuiet = await publishToInstagram({
+      videoUrl: VIDEO_URL, caption: "x", hashtags: [],
+      accessToken: USER_TOKEN, fetchImpl: quiet.doFetch, ...NEVER_WAITS,
+    });
+    check("a permalink Meta does not return leaves the link null", landedQuiet.externalUrl === null, String(landedQuiet.externalUrl));
+    check("and the post id is still there to find it by", landedQuiet.externalPostId === "reel_77");
+
+    const broken = fakeGraph({ permalinkFails: true });
+    const landedBroken = await publishToInstagram({
+      videoUrl: VIDEO_URL, caption: "x", hashtags: [],
+      accessToken: USER_TOKEN, fetchImpl: broken.doFetch, ...NEVER_WAITS,
+    });
+    check("a permalink read that fails does not fail the publish", landedBroken.externalPostId === "reel_77");
+    check("it just has no link", landedBroken.externalUrl === null, String(landedBroken.externalUrl));
+  }
 
   /*
     The check this file exists for. Every call after the first must carry the

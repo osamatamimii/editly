@@ -60,6 +60,7 @@ const enrichMod = await import(bundle("artifacts/worker/src/enrich.ts", "enrich.
 const { renderPlan, probeSource, keepSegmentsFrom, remapTime, writeSubtitleFile, wrapToLayout } = ffmpegMod;
 const {
   captionLayout, safeAreaFor, collidesWithFurniture, nominalSizeFor, CAPTION_FACES, widthInCaps,
+  linesFor, balancedLines,
 } = layoutMod;
 
 let checks = 0;
@@ -491,11 +492,34 @@ console.log("\nLines break where we chose, and never spill");
     [{ startMs: 0, endMs: 2000, text: "لا أحد يخبرك بهذا لكنه يغير كل شيء عن الطريقة" }],
     layout,
   );
+  /*
+    Measured against the greedy break rather than the drawn one.
+
+    The property is that Arabic is charged Arabic widths: it joins, so its
+    letters are narrower than Latin, and charging Latin widths would break every
+    Arabic caption early and truncate the tail with an ellipsis. The evidence is
+    a line that holds *more characters* than the character budget would allow.
+
+    `wrapToLayout` now breaks evenly, which deliberately shortens the longest
+    line — so the drawn output is no longer where that evidence lives, while the
+    property itself is unchanged. Asking `linesFor` directly keeps the check
+    about widths instead of about the shape of the block.
+  */
+  const arabicGreedy = linesFor(
+    "لا أحد يخبرك بهذا لكنه يغير كل شيء عن الطريقة",
+    layout.usableWidth / layout.capHeight,
+    CAPTION_FACES.arabic.widthScale,
+  );
   check(
     "an Arabic line is not broken early for being Latin-wide",
     arabic.text.split("\n").every(fits) &&
-      Math.max(...arabic.text.split("\n").map((l) => l.length)) > layout.maxCharsPerLine,
-    JSON.stringify(arabic.text.split("\n").map((l) => [l.length, widthInCaps(l).toFixed(1)])),
+      Math.max(...arabicGreedy.map((l) => l.length)) > layout.maxCharsPerLine,
+    JSON.stringify(arabicGreedy.map((l) => [l.length, widthInCaps(l, CAPTION_FACES.arabic.widthScale).toFixed(1)])),
+  );
+  check(
+    "and the drawn block still holds every word of it",
+    arabic.text.replace(/\n/g, " ") === "لا أحد يخبرك بهذا لكنه يغير كل شيء عن الطريقة",
+    JSON.stringify(arabic.text),
   );
   check("no word is split across lines", lines.every((l) => !/\w-$/.test(l)), JSON.stringify(lines));
   check("an overlong cue says it was cut rather than spilling silently", wrapped.text.endsWith("…"), wrapped.text);
@@ -1042,6 +1066,83 @@ console.log("\nAnd what libass actually draws");
 }
 
 await rm(workDir, { recursive: true, force: true });
+console.log("\nA caption block is broken evenly, not greedily");
+{
+  /*
+    Greedy filling answers "how many lines" correctly and draws them in the
+    wrong shape. Rendered through the real layout, an ordinary eight-word
+    sentence came out as
+
+        This is the part
+        nobody ever tells
+        you
+
+    — two full lines and a single orphaned word, on a centred block. Nothing
+    fails: every word is there, inside the safe area, correctly timed, and it
+    reads as ragged rather than as typeset. Every caption in the product had
+    that shape.
+  */
+  const layout = captionLayout({ width: 1080, height: 1920 }, "tiktok");
+  const allowed = layout.usableWidth / layout.capHeight;
+  const scale = CAPTION_FACES.latin.widthScale;
+  const text = "This is the part nobody ever tells you";
+
+  const greedy = linesFor(text, allowed, scale);
+  const even = balancedLines(text, allowed, scale);
+
+  check("the greedy break needs three lines here", greedy.length === 3, JSON.stringify(greedy));
+  check(
+    "and it leaves one word alone on the last one",
+    greedy[greedy.length - 1].split(/\s+/).length === 1,
+    JSON.stringify(greedy),
+  );
+
+  check("the even break uses the same number of lines", even.length === greedy.length, JSON.stringify(even));
+  check(
+    "loses no words and reorders none",
+    even.join(" ") === text,
+    JSON.stringify(even),
+  );
+  const widths = even.map((line) => widthInCaps(line, scale));
+  check(
+    "and no line is left alone with one word",
+    even.every((line) => line.split(/\s+/).length > 1),
+    JSON.stringify(even),
+  );
+
+  const spread = (lines) => {
+    const w = lines.map((line) => widthInCaps(line, scale));
+    return Math.max(...w) - Math.min(...w);
+  };
+  check(
+    "the lines are closer in width than the greedy ones",
+    spread(even) < spread(greedy),
+    `even ${spread(even).toFixed(2)} vs greedy ${spread(greedy).toFixed(2)}`,
+  );
+  check(
+    "and none of them is wider than the allowance, which is what made it safe to apply everywhere",
+    widths.every((w) => w <= allowed + 0.001),
+    `${widths.map((w) => w.toFixed(2)).join(", ")} against ${allowed.toFixed(2)}`,
+  );
+
+  // A line that already fits is left alone rather than rearranged.
+  const short = "Two words";
+  check(
+    "a caption that fits on one line is untouched",
+    balancedLines(short, allowed, scale).join("|") === short,
+    JSON.stringify(balancedLines(short, allowed, scale)),
+  );
+
+  // And a word wider than the allowance cannot send the search into a loop.
+  const huge = "Supercalifragilisticexpialidocious and then some more words after it";
+  const hugeLines = balancedLines(huge, allowed, scale);
+  check(
+    "a word wider than the whole line does not hang the search",
+    hugeLines.join(" ") === huge,
+    JSON.stringify(hugeLines),
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

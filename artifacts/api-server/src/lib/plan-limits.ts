@@ -181,13 +181,39 @@ export function minutesFrom(seconds: number): number {
  * own is a dead end. And it repeats the meter, because running out is exactly
  * the moment someone decides whether the meter was fair.
  */
-export function exhaustedMessage(plan: PlanKey, minutesIncluded: number): string {
+export function exhaustedMessage(plan: PlanKey, minutesIncluded: number, minutesUsed = minutesIncluded): string {
   // "Uploading is unlimited" was here, and it stopped being true the day a plan
   // grew a byte ceiling. It was never quite the claim it sounded like — it
   // meant uploading does not spend the meter — and the day one promise in this
   // product contradicts another is the day somebody reads both and believes the
   // wrong one. Said as what it actually means instead.
-  return `You've used all ${minutesIncluded} minutes of finished video on the ${plan} plan this month. Uploading doesn't spend it; only the exported minutes count. Upgrade for more, or your allowance resets on the 1st.`;
+  const meter = "Uploading doesn't spend it; only the exported minutes count.";
+
+  // "You've used all 60 minutes" is a true sentence about somebody who used
+  // sixty. It is a false one about somebody who used two hundred on Pro and
+  // then pressed "Switch to Creator" on the twentieth — and that person is
+  // refused for the rest of the month by a sentence whose arithmetic they can
+  // check and find wrong. Downgrading mid-month does not refund the meter and
+  // was never going to; saying the real number is the least it can do.
+  if (minutesUsed > minutesIncluded) {
+    return `You've rendered ${minutesUsed} minutes this month and the ${plan} plan includes ${minutesIncluded}. ${meter} Your allowance resets on the 1st.`;
+  }
+
+  return `You've used all ${minutesIncluded} minutes of finished video on the ${plan} plan this month. ${meter} Upgrade for more, or your allowance resets on the 1st.`;
+}
+
+/**
+ * The same wall, reached by work that has not been charged for yet.
+ *
+ * `exhausted` used to mean one thing — finished video — and now means finished
+ * video plus renders already accepted. Those want different sentences: being
+ * told "you've used all 5 minutes" while the meter on the same screen reads
+ * zero is the kind of contradiction that makes a person stop believing both
+ * numbers. This one names what is actually holding the allowance, and says the
+ * thing that matters about it, which is that it clears by itself.
+ */
+export function inFlightMessage(plan: PlanKey, minutesIncluded: number, minutesInFlight: number): string {
+  return `Renders already going account for ${minutesInFlight} of your ${minutesIncluded} minutes on the ${plan} plan this month. Nothing is lost. Start this one when they finish, or upgrade for more.`;
 }
 
 /**

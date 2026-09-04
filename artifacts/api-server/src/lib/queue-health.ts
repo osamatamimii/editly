@@ -63,10 +63,26 @@ export function workerOnline(
   if (!lastSeenAt) return false;
   const seen = new Date(lastSeenAt).getTime();
   if (!Number.isFinite(seen)) return false;
-  // A timestamp from the future is a clock disagreement, not a live worker, but
-  // it is also not evidence of absence — treat it as present and let the next
-  // beat settle it.
-  return now - seen < WORKER_OFFLINE_AFTER_MS;
+  /*
+    A timestamp from the future is a clock disagreement, not a live worker, but
+    it is also not evidence of absence — so a small one is treated as present
+    and the next beat settles it.
+
+    "Small" is the part that was missing. The row is written from the worker's
+    own clock and read against the API's, and `now - seen < 120000` is
+    satisfied by *any* future timestamp, however far out. A Fly machine that
+    came up with its clock ninety minutes ahead — a hypervisor restore, a
+    failed NTP step — beat normally, died, and went on reading `online: true`
+    for ninety minutes, with `lastSeenAgoSeconds` clamped to 0 so the skew that
+    caused it was hidden too. The monitor written after the outage in August
+    stayed green through exactly that.
+
+    One window's grace in each direction. Past it, a clock this far out is not
+    evidence of anything and the honest answer is that nothing is listening.
+  */
+  const drift = now - seen;
+  if (drift < -WORKER_OFFLINE_AFTER_MS) return false;
+  return drift < WORKER_OFFLINE_AFTER_MS;
 }
 
 

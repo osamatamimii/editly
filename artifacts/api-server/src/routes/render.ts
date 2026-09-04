@@ -8,6 +8,8 @@ import {
   StartRenderResponse,
   GetRenderStatusParams,
   GetRenderStatusResponse,
+  CancelRenderParams,
+  CancelRenderResponse,
 } from "@workspace/api-zod";
 import { currentUserId } from "../middlewares/auth";
 import { serializeJob } from "../lib/transformers";
@@ -18,6 +20,8 @@ import { newestWorkerSeenAt, renderCapacity, workAheadOf } from "../lib/worker-p
 import { startRenderForProject } from "../lib/start-render";
 import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
+import { badRequest } from "../lib/bad-request";
+import { cancelJobs } from "../lib/cancel-render";
 
 const router: IRouter = Router();
 
@@ -68,13 +72,13 @@ router.post("/projects/:id/render", rateLimit(LIMITS.render), async (req, res): 
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = StartRenderParams.safeParse({ id: raw });
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
 
   const body = StartRenderBody.safeParse(req.body);
   if (!body.success) {
-    res.status(400).json({ error: body.error.message });
+    badRequest(res, body.error);
     return;
   }
 
@@ -158,7 +162,7 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = GetRenderStatusParams.safeParse({ id: raw });
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
 
@@ -228,6 +232,81 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
     GetRenderStatusResponse.parse(
       job ? serializeJob(await withWait(annotateStaleQueue(job, workerLastSeenAt))) : null,
     ),
+  );
+});
+
+/**
+ * "Stop this render."
+ *
+ * There was no way to. Somebody who queued the wrong plan, or pointed at the
+ * wrong file, or simply changed their mind, could only wait — on a long source
+ * that is hours of watching a bar for an output they have already decided they
+ * do not want, and `jobs_one_active_per_project` means they cannot start the
+ * render they *do* want until it finishes. Meanwhile the machine spends that
+ * hour on work nobody is waiting for, while the queue behind it holds people
+ * who are.
+ *
+ * Two shapes, because a job in the queue and a job being rendered are
+ * different things.
+ *
+ * A **queued** job has not been claimed by anybody, so this settles it here
+ * and now: the row is `failed`, carrying `cancelledAt` and a sentence that
+ * says whose decision it was. Nothing was read, so nothing is billed.
+ *
+ * A **running** job belongs to a worker that is inside ffmpeg. Nothing here
+ * can reach into that, so this writes the request and answers 202: the worker
+ * reads `cancelledAt` at its next progress report — which is several times a
+ * second — and stops. The 202 is honest about the difference: accepted, not
+ * done.
+ *
+ * The charge is the one thing this deliberately does not promise. A render
+ * stopped at 90% has read the whole source, and the meter charges what was
+ * read; a render stopped at 5% has not. Rather than assert either, the
+ * sentence says nothing about billing for a running job and says "nothing was
+ * charged" only for a queued one, where it is true.
+ */
+router.post("/projects/:id/render/cancel", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const params = CancelRenderParams.safeParse({ id: raw });
+  if (!params.success) {
+    badRequest(res, params.error);
+    return;
+  }
+
+  const [job] = await db
+    .select()
+    .from(jobsTable)
+    .where(and(eq(jobsTable.projectId, params.data.id), eq(jobsTable.userId, userId)))
+    .orderBy(desc(jobsTable.createdAt))
+    .limit(1);
+
+  // 404 rather than 403 for a project that is not theirs, like every other
+  // door: whether an id exists is not something a stranger learns from us.
+  if (!job) {
+    res.status(404).json({ error: "There is no render on this project." });
+    return;
+  }
+
+  if (job.status !== "queued" && job.status !== "running") {
+    res.status(409).json({ error: "That render has already finished." });
+    return;
+  }
+
+  const stopped = await cancelJobs(userId, [job.id]);
+  if (stopped.length === 0) {
+    // It settled between the read and the write. Not an error: they wanted it
+    // to stop and it has.
+    res.status(409).json({ error: "That render has already finished." });
+    return;
+  }
+
+  res.status(job.status === "queued" ? 200 : 202).json(
+    CancelRenderResponse.parse({
+      id: job.id,
+      status: stopped[0]?.status ?? "failed",
+      cancelled: true,
+    }),
   );
 });
 

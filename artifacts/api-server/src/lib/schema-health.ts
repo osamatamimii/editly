@@ -50,12 +50,32 @@ export interface SchemaHealth {
   reachable: boolean;
   /** "jobs.output_seconds" — qualified, because a bare column name is ambiguous. */
   missingColumns: string[];
+  /**
+   * Unique indexes the schema declares and the database does not have.
+   *
+   * Columns were the whole of this check, and columns are not the whole of a
+   * schema. `jobs_one_active_per_project` is a partial unique index created by
+   * a migration of its own, and it is the only thing standing between a
+   * double-clicked Export and two encodes of one clip, both billed. Its own
+   * comment in the schema says "declared here so the schema check knows it
+   * exists" — and the schema check read `getTableConfig(table).columns` and
+   * nothing else, so with that migration unapplied `/healthz` answered green
+   * while a Creator customer lost their month to one double-click.
+   *
+   * Unique indexes only, deliberately. A missing performance index makes the
+   * product slow; a missing unique index makes it wrong, and only the second
+   * kind belongs in a health check somebody is paged by.
+   */
+  missingIndexes: string[];
   /** Present only when the database could not be reached at all. */
   error?: string;
 }
 
 export const BEHIND_MESSAGE =
   "The database is missing columns this build expects. Apply the migrations in lib/db/migrations, in order.";
+
+export const MISSING_INDEX_MESSAGE =
+  "The database is missing a unique index this build relies on to stay correct. Apply the migrations in lib/db/migrations, in order.";
 
 /**
  * What the code says the database should have.
@@ -70,6 +90,27 @@ export function expectedColumns(): Map<string, Set<string>> {
     expected.set(config.name, new Set(config.columns.map((column) => column.name)));
   }
   return expected;
+}
+
+/**
+ * The unique indexes the code declares, by name.
+ *
+ * Read from the Drizzle tables for the same reason the columns are: a
+ * hand-maintained list is the forgetting one layer up.
+ */
+export function expectedUniqueIndexes(): Set<string> {
+  const names = new Set<string>();
+  for (const table of TABLES) {
+    for (const index of getTableConfig(table).indexes) {
+      if (index.config.unique && index.config.name) names.add(index.config.name);
+    }
+  }
+  return names;
+}
+
+/** The same comparison as `compareSchema`, for indexes. Pure, and driven by the suite. */
+export function compareIndexes(expected: Set<string>, actual: Set<string>): string[] {
+  return [...expected].filter((name) => !actual.has(name)).sort();
 }
 
 /**
@@ -137,13 +178,23 @@ export async function checkSchema(now = Date.now()): Promise<SchemaHealth> {
       actual.set(row.table_name, set);
     }
 
-    result = { reachable: true, missingColumns: compareSchema(expected, actual) };
+    const indexRows = await db.execute<{ indexname: string }>(sql`
+      SELECT indexname FROM pg_indexes WHERE schemaname = 'public'
+    `);
+    const actualIndexes = new Set(indexRows.rows.map((row) => row.indexname));
+
+    result = {
+      reachable: true,
+      missingColumns: compareSchema(expected, actual),
+      missingIndexes: compareIndexes(expectedUniqueIndexes(), actualIndexes),
+    };
   } catch (error) {
     // Unreachable is a different failure from behind, and conflating them sends
     // whoever is reading this to the wrong place.
     result = {
       reachable: false,
       missingColumns: [],
+      missingIndexes: [],
       error: error instanceof Error ? error.message : String(error),
     };
   }

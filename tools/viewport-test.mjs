@@ -705,8 +705,49 @@ const PAGES = [
     not the other. `?lang=` is how the page is asked for a language, so this is
     also the mechanism a shared link uses.
   */
-  { url: "/", name: "the landing page in Arabic", signedIn: false, expect: /توقّف عن المونتاج/ },
-  { url: "/?lang=en", name: "the landing page in English", signedIn: false, expect: /Stop editing/ },
+  /*
+    And `/api/subscription` answers 401 to both, because that is what it does.
+
+    It sits behind `requireAuth`, so every signed-out visitor's read of it
+    fails — and this suite was serving them the signed-in fixture, which is why
+    it never saw that all three pricing buttons rendered disabled, reading
+    "Checking your plan…" (in Arabic, «نقرأ خطّتك…»), for one hundred per cent
+    of the marketing traffic. A fixture kinder than production is a fixture
+    that tests a page nobody visits.
+  */
+  {
+    url: "/", name: "the landing page in Arabic", signedIn: false, expect: /توقّف عن المونتاج/,
+    override: { "/api/subscription": { status: 401 } },
+    then: async (page, check) => {
+      const buttons = await page.getByRole("button").all();
+      const priced = [];
+      for (const button of buttons) {
+        const label = (await button.innerText()).trim();
+        // The waiting label too, deliberately: when this bug is present the
+        // button does not name a plan at all, and a matcher that only looks
+        // for plan names reports "no pricing buttons" instead of "the pricing
+        // buttons say they are still thinking".
+        if (/Creator|Pro|Studio|نقرأ خطّتك|Checking your plan/.test(label)) {
+          priced.push({ label, disabled: await button.isDisabled() });
+        }
+      }
+      check("the pricing page offers three plans", priced.length === 3, JSON.stringify(priced));
+      check(
+        "and a visitor can press every one of them",
+        priced.every((b) => !b.disabled),
+        JSON.stringify(priced),
+      );
+      check(
+        "none of them is still waiting to be told a plan the visitor does not have",
+        !priced.some((b) => /نقرأ خطّتك|Checking your plan/.test(b.label)),
+        JSON.stringify(priced.map((b) => b.label)),
+      );
+    },
+  },
+  {
+    url: "/?lang=en", name: "the landing page in English", signedIn: false, expect: /Stop editing/,
+    override: { "/api/subscription": { status: 401 } },
+  },
   { url: "/login", name: "signing in", signedIn: false, expect: /Welcome back|Sign in/ },
   {
     url: "/dashboard",
@@ -1637,6 +1678,30 @@ for (const viewport of VIEWPORTS) {
     await page.screenshot({ path: path.join(SHOTS, shot), fullPage: true });
 
     check("it renders without throwing", consoleErrors.length === 0, consoleErrors[0] ?? "");
+
+    /*
+      A signed-in scenario has to actually be signed in.
+
+      The session is planted in `localStorage` under `sb-${PROJECT_REF}-auth-token`,
+      and the ref that key has to match is the one **compiled into the bundle**
+      from `VITE_SUPABASE_URL`. Build `dist/` without it and every key misses:
+      the client sees no session, each page redirects to /login, and this suite
+      measures the sign-in screen fifteen times over — where nothing scrolls
+      sideways, no control has collapsed and every tap target is a thumb's
+      width. Two hundred and seventy checks, all green, all about one page.
+
+      It surfaced by accident, on the one late check that names an element only
+      the dashboard has. Named here instead, once, at the top, where it says
+      what is actually wrong.
+    */
+    if (spec.signedIn) {
+      const signInScreen = await page.getByRole("button", { name: /^sign in$/i }).count();
+      check(
+        "the planted session was accepted, so this is the page and not the sign-in screen",
+        signInScreen === 0,
+        `redirected to sign in — dist/ was probably built without VITE_SUPABASE_URL=https://${PROJECT_REF}.supabase.co`,
+      );
+    }
     check(
       "the page does not scroll sideways",
       m.scrollWidth <= m.clientWidth + 1,

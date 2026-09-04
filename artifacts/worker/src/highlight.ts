@@ -39,16 +39,35 @@ export function chooseHighlight(
   duration: number,
   targetSeconds: number,
   words: SpokenWord[] | undefined,
+  /**
+   * The stretch of the recording the window has to come out of.
+   *
+   * Defaults to all of it, which is right for "the best thirty seconds of this
+   * video" and wrong for everything else that calls this. A cold open picks
+   * its hook out of whatever the edit still holds — and it was picking it out
+   * of the whole source, so inside `extractRange 60→90` the hook was chosen
+   * from the strongest thirty seconds of the *recording*, found no
+   * intersection with the range, and the render said "could not find a moment
+   * strong enough to open on" about a stretch it had never looked at. The
+   * clips path made that the normal case: a cold open rides into every
+   * per-clip plan, and at most one clip of six can contain the source's
+   * globally strongest window, so five of them reported failure.
+   */
+  within?: Segment,
 ): HighlightChoice {
-  // A clip no longer than the ask IS the highlight. Cutting it would remove
+  const lo = Math.max(0, within?.start ?? 0);
+  const hi = Math.min(duration, within?.end ?? duration);
+  const span = hi - lo;
+
+  // A stretch no longer than the ask IS the highlight. Cutting it would remove
   // something the person did not ask to lose.
-  if (duration <= targetSeconds + 0.05) {
-    return { window: { start: 0, end: duration }, how: "whole" };
+  if (span <= targetSeconds + 0.05) {
+    return { window: { start: lo, end: hi }, how: "whole" };
   }
 
-  const spoken = (words ?? []).filter((w) => w.end > w.start);
+  const spoken = (words ?? []).filter((w) => w.end > w.start && w.end > lo && w.start < hi);
   if (spoken.length === 0) {
-    const start = (duration - targetSeconds) / 2;
+    const start = lo + (span - targetSeconds) / 2;
     return { window: { start, end: start + targetSeconds }, how: "centered" };
   }
 
@@ -66,16 +85,16 @@ export function chooseHighlight(
 
   let best: Segment | null = null;
   let bestScore = -Infinity;
-  const starts = new Set<number>([0]);
+  const starts = new Set<number>([lo]);
   for (const word of spoken) {
-    if (word.start + targetSeconds <= duration) starts.add(word.start);
+    if (word.start >= lo && word.start + targetSeconds <= hi) starts.add(word.start);
   }
   // The tail window too, or a clip whose best material is at the end could
   // never be chosen in full.
-  starts.add(Math.max(0, duration - targetSeconds));
+  starts.add(Math.max(lo, hi - targetSeconds));
 
   for (const start of starts) {
-    const candidate = { start, end: Math.min(duration, start + targetSeconds) };
+    const candidate = { start, end: Math.min(hi, start + targetSeconds) };
     const value = score(candidate);
     // Ties break toward the earlier window: with nothing to separate them,
     // the one that keeps more of the setup reads less like a jump cut.
@@ -85,7 +104,7 @@ export function chooseHighlight(
     }
   }
 
-  return { window: best ?? { start: 0, end: targetSeconds }, how: "speech" };
+  return { window: best ?? { start: lo, end: Math.min(hi, lo + targetSeconds) }, how: "speech" };
 }
 
 /**

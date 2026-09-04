@@ -345,6 +345,23 @@ function sweep() {
 }
 sweep();
 
+/*
+  Nothing left in the queue between sections.
+
+  Every section here queues a render and none of them waits for one to finish,
+  so by the fourth the account is holding three — and three is the per-account
+  in-flight cap. That used to pass because the cap was read on one connection
+  and the job inserted on another, so parallel starts all saw an empty queue;
+  `start-render.ts` now reads the meter and writes the row inside one
+  transaction under a lock on the user, which is what makes the cap mean
+  something. The suite was relying on the race it is not about.
+
+  Clearing rather than settling: these renders have no worker and are never
+  going to finish, and what each section is checking is the plan that was
+  queued, which is already on the row.
+*/
+const clearQueue = () => psql(`delete from jobs where user_id = '${OWNER}'`);
+
 /**
  * A project, with `clips` clips and `photos` photographs registered into it in
  * that order.
@@ -460,6 +477,7 @@ section("Clips and photos in, a queued render out");
 let queued = null;
 {
   const project = await projectWith(OWNER, "Ceramic pour-over kettle", { clips: 2, photos: 3, clipSeconds: 24 });
+  clearQueue();
   const made = await call(OWNER, "/api/product-ads", "POST", {
     id: project.id,
     price: "34.00 USD",
@@ -551,6 +569,7 @@ section("The sentence decides the advertisement");
     it asks for wins over this route's defaults.
   */
   const project = await projectWith(OWNER, "Kettle", { clips: 1 });
+  clearQueue();
   const made = await call(OWNER, "/api/product-ads", "POST", {
     id: project.id,
     price: "34.00 USD",
@@ -579,6 +598,7 @@ section("Their words on screen beat ours, and the price survives both");
     labelled Price and got a video with no price in it.
   */
   const project = await projectWith(OWNER, "Kettle", { clips: 1 });
+  clearQueue();
   const made = await call(OWNER, "/api/product-ads", "POST", {
     id: project.id,
     title: "Ceramic kettle",
@@ -614,6 +634,7 @@ section("A project that already holds somebody's own upload");
 section("More material than one ad can hold");
 {
   const project = await projectWith(OWNER, "Everything at once", { clips: 2, photos: 15 });
+  clearQueue();
   const made = await call(OWNER, "/api/product-ads", "POST", { id: project.id, targetSeconds: 15 });
   check("the ad is still accepted", made.status === 202, `got ${made.status} ${made.text}`);
   check("and it says it used twelve of the photographs", made.json?.photos === 12, JSON.stringify(made.json));
@@ -634,6 +655,7 @@ section("More material than one ad can hold");
 section("A title the merchant sent overrides the project's own");
 {
   const project = await projectWith(OWNER, "untitled-3", { clips: 1 });
+  clearQueue();
   const made = await call(OWNER, "/api/product-ads", "POST", {
     id: project.id,
     title: "Hand-thrown mug",

@@ -29,9 +29,20 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
-// Before anything imports the worker: the deadline is read from the environment
-// at module load, so it has to be small before the bundle exists.
+/*
+  Before anything imports the worker: both deadlines are read from the
+  environment at module load, so they have to be small before the bundle exists.
+
+  Two of them, because the publishers are on the longer budget on purpose. A
+  metadata call to a platform is a provider call and gets `PROVIDER_TIMEOUT_MS`;
+  the call that *sends the file* is a publish and gets `PUBLISH_TIMEOUT_MS`,
+  which is measured in minutes because a two-hundred-megabyte master genuinely
+  takes them. This suite is not about which budget applies — it is about there
+  being one at all, and a call that cannot hang — so it shortens both and races
+  whichever the publisher chose.
+*/
 process.env.PROVIDER_TIMEOUT_MS = "150";
+process.env.PUBLISH_TIMEOUT_MS = "150";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();

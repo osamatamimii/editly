@@ -42,7 +42,8 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { PublishError, type Published } from "./publish-youtube";
-import { withDeadline } from "./providers/deadline";
+import { withDeadline, PUBLISH_TIMEOUT_MS } from "./providers/deadline";
+import { captionWith, truncateToGraphemes } from "@workspace/api-zod";
 
 const API = "https://open.tiktokapis.com/v2";
 
@@ -85,15 +86,18 @@ export interface TikTokUpload {
  * somebody's post is not half a word.
  */
 export function captionFor(caption: string, hashtags: string[], limit = CAPTION_LIMIT): string {
-  const tags = hashtags
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0)
-    .map((t) => (t.startsWith("#") ? t : `#${t}`));
-  const whole = tags.length > 0 ? `${caption.trim()}\n\n${tags.join(" ")}` : caption.trim();
-  if (whole.length <= limit) return whole;
-  const cut = whole.slice(0, limit - 1);
-  const lastSpace = cut.lastIndexOf(" ");
-  return `${(lastSpace > limit * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+  /*
+    Assembled and cut by the contract package, not here.
+
+    Two things were wrong with the copy that was here, and both are invisible
+    until the boundary. It joined with a blank line while `captionLength` — the
+    check the composer shows the person — counted a single space, so a caption
+    measured at exactly the limit arrived one over and lost its last hashtag on
+    the way out. And it cut with `slice`, which counts UTF-16 code units, so a
+    cut landing mid-emoji left a lone surrogate: the post ended in a
+    replacement glyph where somebody's last word should have been.
+  */
+  return truncateToGraphemes(captionWith(caption, hashtags), limit);
 }
 
 export interface ChunkPlan {
@@ -215,7 +219,10 @@ function readStatus(data: Record<string, unknown>): { done: boolean; failed: str
 }
 
 export async function publishToTikTok(upload: TikTokUpload): Promise<Published> {
-  const doFetch = upload.fetchImpl ?? withDeadline(fetch);
+  // Deadlined, because Node's `fetch` has no timeout and a publisher that
+  // never returns stops this worker claiming renders. The publish budget
+  // rather than the provider one — this streams a master. See PUBLISH_TIMEOUT_MS.
+  const doFetch = upload.fetchImpl ?? withDeadline(fetch, PUBLISH_TIMEOUT_MS);
   const sleep = upload.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = upload.now ?? (() => Date.now());
 

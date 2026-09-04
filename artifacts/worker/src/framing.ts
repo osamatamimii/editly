@@ -28,6 +28,7 @@
  */
 import { spawn } from "node:child_process";
 import { guard, LIMITS } from "./deadline";
+import { remapTime, type Segment } from "./timeline";
 
 /** Columns the frame is reduced to. Enough to place a person, cheap to read. */
 export const COLUMNS = 64;
@@ -63,10 +64,22 @@ export interface InterestProfile {
  * strip is. Greyscale, 64x36, four frames a second — about half a megabyte for
  * a minute and a half of video, and it never leaves the machine.
  */
-export function measureInterest(file: string, seconds = MAX_SAMPLE_SECONDS): Promise<InterestProfile> {
+export function measureInterest(
+  file: string,
+  seconds = MAX_SAMPLE_SECONDS,
+  /**
+   * Where in the recording to start.
+   *
+   * This read the first ninety seconds of the *source* whatever stretch the
+   * edit was made of, so a clip taken from ten minutes in was framed by where
+   * the picture was busiest in a minute and a half nobody will see.
+   */
+  from = 0,
+): Promise<InterestProfile> {
   return new Promise((resolve, reject) => {
     const child = spawn("ffmpeg", [
       "-hide_banner", "-nostdin", "-loglevel", "error",
+      ...(from > 0 ? ["-ss", from.toFixed(3)] : []),
       "-t", String(seconds),
       "-i", file,
       "-an",
@@ -340,6 +353,57 @@ export function subjectPath(samples: SubjectSample[], windowFraction: number): S
  * resolution, so an odd offset makes the encoder resample them and quietly
  * softens every frame of a reframed clip.
  */
+/**
+ * The subject's path, cut down to the material the edit is made of.
+ *
+ * The tracker samples the whole recording; the crop it feeds runs on the
+ * edited stream. `remapTime` moves a keyframe onto the edited clock, and for a
+ * moment *outside* the kept material it does the only sensible thing available
+ * to it: pins it to a seam. Nothing dropped those, so a clip taken out of the
+ * middle of a recording kept them — the opening hold became the speaker's
+ * position at 0:00 of the recording, and one keyframe from after the window
+ * carried their position at the end of it, with `cropExpression` ramping
+ * linearly between the two across the whole clip.
+ *
+ * Measured on a four-second clip cut from 8s of a twenty-second file: the
+ * window opened 660px away from the speaker, lost them for the first 0.7s, and
+ * panned for three of the four seconds — while the note said "followed the
+ * speaker, moving the frame 2 times where they moved". The right answer was a
+ * still window.
+ *
+ * So: everything before the window collapses into one hold at the position the
+ * speaker was last seen in, everything after it is dropped, and what is left
+ * is remapped. `extractHighlight`, `extractRange`, `extractClips` and
+ * `coldOpen` all take this path, and the one-tap plan puts a highlight and a
+ * reframe together by default.
+ */
+export function pathWithinCut(
+  keyframes: Array<{ t: number; x: number }>,
+  kept: Segment[],
+  overlap = 0,
+): Array<{ t: number; x: number }> {
+  if (kept.length === 0) return keyframes;
+  const from = Math.min(...kept.map((s) => s.start));
+  const to = Math.max(...kept.map((s) => s.end));
+
+  const inside = keyframes.filter((frame) => frame.t >= from && frame.t <= to);
+  const before = keyframes.filter((frame) => frame.t < from).pop();
+  const held =
+    before && (inside.length === 0 || inside[0]!.t > from + 0.001)
+      ? [{ ...before, t: from }, ...inside]
+      : inside;
+
+  /*
+    Moments inside a removed stretch collapse onto their seam, which is right,
+    and which can put two keyframes at the same instant; a zero-span ramp there
+    would be a division guarded to 0.001 and a jump. Keeping the first of each
+    cluster leaves the move on the seam, where the cut already is.
+  */
+  return held
+    .map((frame) => ({ ...frame, t: remapTime(frame.t, kept, overlap) }))
+    .filter((frame, i, all) => i === 0 || frame.t > all[i - 1]!.t + 0.001);
+}
+
 export function cropExpression(
   keyframes: Array<{ t: number; x: number }>,
   scaledWidth: number,

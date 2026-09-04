@@ -31,6 +31,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { resolveTestDatabaseUrl } from "./lib/test-db.mjs";
 
 const require = createRequire(import.meta.url);
@@ -135,6 +136,16 @@ const storage = {
   refuseUploadsAsTooLarge: 0,
   /** Every upload's Content-Length header, so a streamed body can be told from a buffered one. */
   uploadLengths: [],
+  /**
+   * Accept this many uploads and store two thirds of them.
+   *
+   * The mirror image of `truncateDownloads`, and the more dangerous of the
+   * two. A 200 is the store saying it accepted the request, not that it kept
+   * the bytes — and a short object is what the customer downloads, what the
+   * publisher sends to TikTok, and what the preview plays. Done, charged, and
+   * two thirds of somebody's video, with nothing anywhere reporting a failure.
+   */
+  truncateUploads: 0,
 };
 
 const server = http.createServer(async (req, res) => {
@@ -171,9 +182,28 @@ const server = http.createServer(async (req, res) => {
     storage.uploadLengths.push(req.headers["content-length"] ?? null);
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
+    let body = Buffer.concat(chunks);
+    if (storage.truncateUploads > 0) {
+      storage.truncateUploads -= 1;
+      body = body.subarray(0, Math.floor(body.length * 0.66));
+    }
     mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, Buffer.concat(chunks));
+    writeFileSync(file, body);
     return res.writeHead(200, { "content-type": "application/json" }).end("{}");
+  }
+  /*
+    HEAD, which Supabase answers and this stand-in did not.
+
+    Two things ask it now: the disk check before a download, which needs to
+    know how large the source is before pulling it, and the integrity check
+    after an upload, which needs to know how large the object actually is. A
+    stand-in that answers 405 makes both of them no-ops and the suite green on
+    a worker where neither runs.
+  */
+  if (req.method === "HEAD") {
+    if (!existsSync(file)) return res.writeHead(404).end();
+    const { size } = statSync(file);
+    return res.writeHead(200, { "content-type": "video/mp4", "content-length": String(size) }).end();
   }
   res.writeHead(405).end();
 });
@@ -260,6 +290,10 @@ const worker = spawn("node", [path.join(repoRoot, "artifacts/worker/dist/index.m
     SUPABASE_URL: ORIGIN,
     SUPABASE_SERVICE_ROLE_KEY: "service-role-key-for-tests",
     POLL_INTERVAL_MS: "300",
+    // The lock renewal is also where a stop request is read, so this is what
+    // makes "the customer pressed cancel" observable in less than the twenty
+    // seconds production uses. See the section on stopping a render.
+    LOCK_RENEW_EVERY_MS: "250",
     // A port of its own, so this suite can knock on the health endpoint
     // without colliding with anything else on the machine running CI.
     HEALTH_PORT: String(HEALTH_PORT),
@@ -327,6 +361,132 @@ section("Every operation that names a file is on the list of files to fetch");
     "and for nothing that does not name one",
     spurious.length === 0,
     `${JSON.stringify(spurious)} are on the worker's list and carry no assetId`,
+  );
+}
+
+section("A post due at nine goes out at nine, whatever the queue is doing");
+{
+  /*
+    The loop is single-threaded and a render blocks it for minutes.
+
+    `sendDuePosts()` used to sit at the top of that loop, with a comment saying
+    that putting it before `claimJob()` bounds the lateness by the poll
+    interval. It bounds it within one iteration; the next iteration begins when
+    `processJob` returns, which is up to four hours later at the render
+    ceiling. And lateness is terminal — past `TOO_LATE_MINUTES` the post is
+    written `missed` and nothing retries it — so a long render did not delay a
+    scheduled post, it cancelled it.
+
+    Read from the source because the shape is the fix: these two must be
+    reachable without the loop having to come round.
+  */
+  const loop = readFileSync(path.join(repoRoot, "artifacts/worker/src/index.ts"), "utf8");
+  const loopBody = loop.slice(loop.indexOf("while (!shuttingDown)"));
+  check(
+    "the scheduled-post sweep is not inside the render loop",
+    !/\bawait sendDuePosts\(\)/.test(loopBody),
+    "sendDuePosts() is still called from inside the loop that blocks for the length of a render",
+  );
+  check(
+    "nor is the font sweep somebody is watching a spinner for",
+    !/\bawait prepareFonts\(\)/.test(loopBody),
+    "prepareFonts() is still called from inside the loop",
+  );
+  /*
+    And the two of them no longer wait on each other either.
+
+    They were `await sendDuePosts()` then `await prepareFonts()` in one chain,
+    which is why this check looked for the first of those. A send takes up to
+    fifteen minutes — the fetch deadline — plus the download of the master
+    before it, so a slow platform held the font in front of somebody looking at
+    the screen right now, for the whole of it: the same wait, moved off the
+    render loop and onto the publisher.
+  */
+  const attend = loop.slice(loop.indexOf("async function attendToWaitingWork"));
+  check(
+    "both run on a timer instead",
+    /setInterval\(\(\) => void attendToWaitingWork\(\)/.test(loop) &&
+      /sendDuePosts\(\)/.test(attend) &&
+      /prepareFonts\(\)/.test(attend),
+    "attendToWaitingWork is not armed with setInterval",
+  );
+  check(
+    "and neither of them queues behind the other",
+    /Promise\.allSettled\(\[sendDuePosts\(\), prepareFonts\(\)\]\)/.test(attend),
+    "a fifteen-minute upload was the font's wait too",
+  );
+  check(
+    "and that timer cannot stack a slow sweep on top of itself",
+    /if \(attendingNow \|\| shuttingDown\) return;/.test(loop),
+    "no re-entrancy guard",
+  );
+  check(
+    "nor take the process down with an unhandled rejection",
+    /the sweep for work people are waiting on failed/.test(loop),
+    "no catch inside attendToWaitingWork",
+  );
+
+  /*
+    And the budget for one upload has to be under the ceiling that decides a
+    post is too late, or a single hung upload refuses everything due in the
+    window it holds.
+  */
+  const deadlineOut = path.join(await mkdtemp(path.join(tmpdir(), "editly-deadline-")), "d.mjs");
+  const builtDeadline = spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/worker"] }),
+    ["artifacts/worker/src/providers/deadline.ts", "--bundle", "--format=esm", "--platform=node", `--outfile=${deadlineOut}`],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  if (builtDeadline.status !== 0) {
+    check("the deadline module builds", false, builtDeadline.stderr?.slice(0, 200) ?? "");
+  } else {
+    const { PUBLISH_TIMEOUT_MS } = await import(pathToFileURL(deadlineOut).href);
+    const publisherSource = readFileSync(path.join(repoRoot, "artifacts/worker/src/publisher.ts"), "utf8");
+    const tooLate = Number(/TOO_LATE_MINUTES = (\d+)/.exec(publisherSource)?.[1] ?? 0);
+    check("the lateness ceiling is a real number", tooLate > 0, String(tooLate));
+    check(
+      "and one upload's budget is under it, so a hung upload cannot mark the next batch missed",
+      PUBLISH_TIMEOUT_MS < tooLate * 60_000,
+      `${PUBLISH_TIMEOUT_MS}ms budget against a ${tooLate}-minute ceiling`,
+    );
+  }
+}
+
+section("The sweep ages against the database's clock, and cannot take the estate in one pass");
+{
+  /*
+    Every timestamp in the age comparison — `last_opened_at`, `updated_at`, the
+    migration floor — is written by Postgres `now()`, and the sweep measured
+    them against `Date.now()` on the Fly VM. `chooseRemovals` guards the
+    backwards direction, which is the harmless one; there was no ceiling in the
+    other, and no ceiling on how much a single pass may remove.
+
+    A machine that resumed from a snapshot, or stepped its clock forward before
+    chronyd settled, computed an age in the hundreds of days for every row at
+    once — and in `on` mode that is every preview and every never-rendered
+    source in the estate, deleted in one pass.
+  */
+  const worker = readFileSync(path.join(repoRoot, "artifacts/worker/src/index.ts"), "utf8");
+  check(
+    "the sweep asks Postgres what time it is",
+    /now\(\) AS server_now/.test(worker),
+    "the age comparison still mixes this machine's clock with the database's",
+  );
+  check(
+    "and ages from that rather than from this machine",
+    /now: serverNow,/.test(worker),
+    "chooseRemovals is still handed Date.now()",
+  );
+  check(
+    "a pass that wants most of the estate refuses instead",
+    /MAX_SWEEP_SHARE/.test(worker) && /wanted to remove most of the estate/.test(worker),
+    "no ceiling on how much one sweep may take",
+  );
+  const share = Number(/MAX_SWEEP_SHARE = ([\d.]+)/.exec(worker)?.[1] ?? 0);
+  check(
+    "and the ceiling is a real fraction, well above a working sweep and well below every way this fails",
+    share > 0 && share < 1,
+    String(share),
   );
 }
 
@@ -1096,6 +1256,62 @@ section("An edit too big for storage says so, at the end of a render that cost m
   storage.refuseUploadsAsTooLarge = 0;
 }
 
+section("A store that keeps two thirds of the file is caught before anybody watches it");
+{
+  /*
+    The direction nothing was checking.
+
+    The download side has counted bytes since a truncated body produced an edit
+    of two thirds of somebody's recording — `pipeline` resolves cleanly on a
+    connection that ends early, so counting is the only thing that catches it.
+    The upload side had no equivalent, and the consequence is worse: a short
+    object is the file the customer downloads, the file the publisher sends to
+    TikTok, and the file the preview plays. The render is done, the minute is
+    charged, and every instrument reads success.
+
+    So the store here answers 200 and keeps two thirds — no error, no status
+    worth reading, exactly the shape a proxy dropping a body produces.
+  */
+  const projectId = await queue("short-upload", {
+    plan: { version: 1, operations: [{ type: "formatForPlatform", platform: "tiktok", maxHeight: 720 }] },
+  });
+  putObject(`${ALICE}/${projectId}/source.mp4`, source);
+  storage.truncateUploads = 1;
+
+  const row = await settle("short-upload");
+  storage.truncateUploads = 0;
+
+  /*
+    It finishes, because this is retryable on purpose: the render is done and
+    the bytes are still on disk, so the second attempt is another upload rather
+    than another hour. What must not happen is finishing on the *first* one.
+  */
+  check("the render eventually lands", row?.status === "done", `${row?.status}: ${row?.error}`);
+  check(
+    "but not on the attempt whose upload was cut short",
+    row?.attempts >= 2,
+    `${row?.attempts} — a 200 was taken as proof the bytes were kept`,
+  );
+
+  const complaint = workerLog.find((l) => /only part of it reached storage/.test(l));
+  check("and the failure said what actually happened", complaint !== undefined, workerLog.slice(-2).join(" | "));
+  check(
+    "naming both sizes, because 'upload failed' is not something anybody can act on",
+    typeof complaint === "string" && /\d[\d.]*[KM]B of \d[\d.]*[KM]B/.test(complaint),
+    String(complaint).slice(0, 200),
+  );
+
+  // And the object that is actually there at the end is the whole file.
+  const stored = statSync(path.join(objects, row?.output_path ?? "missing")).size;
+  const probe = spawnSync(
+    "ffprobe",
+    ["-v", "error", "-show_entries", "format=duration", "-of", "json", path.join(objects, row?.output_path ?? "missing")],
+    { encoding: "utf8" },
+  );
+  check("the object left in storage is a video that plays to the end", Number.isFinite(Number(JSON.parse(probe.stdout || "{}").format?.duration)), probe.stderr?.slice(0, 200));
+  check("and it is not the two-thirds copy", stored > 0, String(stored));
+}
+
 section("The output is streamed to storage, not read into memory twice");
 {
   /*
@@ -1172,8 +1388,227 @@ section("A deploy can tell a working copy from a started one");
   );
 }
 
-section("It finishes what it is doing before it exits");
+section("Nothing this worker starts can run forever");
 {
+  /*
+    The rule `providers/deadline.ts` opens with, checked as a rule rather than
+    trusted to each call site.
+
+    Node's `fetch` has no timeout, and a spawned process that wedges emits no
+    exit code and no error. Either one leaves an `await` inside `processJob`
+    that never returns — and `withLockKeptAlive` goes on renewing both the lock
+    and the heartbeat on a timer, so the job is never requeued, the queue stops
+    moving, and `/healthz` reports the worker online throughout. One silent
+    socket was a permanent, invisible outage.
+
+    Both files say every call site consults them. Nine did and six did not: the
+    publishers, whose traffic does not go through `providers/`, and three child
+    processes that were spawned bare. The publishers are the worst of the set,
+    because `index.ts` runs `sendDuePosts()` before `claimJob()` on purpose, so
+    a post is never stuck behind a render — which means one hung upload stops
+    that worker claiming any render at all.
+  */
+  const { readdirSync } = await import("node:fs");
+  const srcDir = path.join(repoRoot, "artifacts/worker/src");
+
+  const files = [];
+  (function walk(dir) {
+    for (const name of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, name.name);
+      if (name.isDirectory()) walk(full);
+      else if (name.name.endsWith(".ts")) files.push(full);
+    }
+  })(srcDir);
+  check("there are worker sources to read", files.length > 20, String(files.length));
+
+  /** Comments stripped: this file explains the rule beside the code that keeps it. */
+  const codeOf = (file) =>
+    readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  // ── Every spawned process is guarded ──
+  const unguarded = [];
+  for (const file of files) {
+    const code = codeOf(file);
+    if (!/\bspawn\(/.test(code)) continue;
+    const spawns = (code.match(/\bspawn\(/g) ?? []).length;
+    const guards = (code.match(/\bguard\(/g) ?? []).length;
+    if (guards < spawns) unguarded.push(`${path.relative(srcDir, file)} (${spawns} spawned, ${guards} guarded)`);
+  }
+  check(
+    "every child process has a deadline on it",
+    unguarded.length === 0,
+    `${unguarded.join(", ")} — a wedged child holds the render loop open with nothing to report it`,
+  );
+
+  // ── Every outbound request has one too ──
+  //
+  // `deadline.ts` is itself exempt: it is the thing that wraps `fetch`.
+  const bare = [];
+  for (const file of files) {
+    if (file.endsWith("providers/deadline.ts")) continue;
+    const code = codeOf(file);
+    /*
+      Two ways to be bounded, and both count.
+
+      `withDeadline(fetch)` is the wrapper the providers use. `storage.ts`
+      instead builds its own `AbortController` per transfer, on purpose: a
+      download has two clocks — "the server never answered" and "the server
+      answered and then stopped sending" — and the wrapper only expresses the
+      first. What is not allowed is neither.
+    */
+    for (const match of code.matchAll(/(?<![\w.])fetch\(/g)) {
+      const before = code.slice(Math.max(0, match.index - 60), match.index);
+      if (/withDeadline\($/.test(before)) continue;
+      const call = code.slice(match.index, match.index + 500);
+      if (/\bsignal\s*:/.test(call)) continue;
+      bare.push(`${path.relative(srcDir, file)}`);
+      break;
+    }
+  }
+  check(
+    "and every request to somebody else's server has one",
+    bare.length === 0,
+    `${[...new Set(bare)].join(", ")} — Node's fetch waits forever, and this loop is single-threaded`,
+  );
+
+  // And the publishers in particular, named, because they are the six that
+  // were missing and the ones where it costs the most.
+  for (const publisher of ["publish-youtube.ts", "publish-tiktok.ts", "publish-x.ts", "publish-meta.ts", "social-token.ts"]) {
+    const code = codeOf(path.join(srcDir, publisher));
+    check(
+      `${publisher} sends with a deadline`,
+      /withDeadline\(/.test(code),
+      "sendDuePosts runs before claimJob, so a hung upload stops every render on this machine",
+    );
+  }
+}
+
+section("A render that is stopped stops, and is not called a failure");
+{
+  /*
+    The worker's half of cancelling.
+
+    The API can settle a queued job by itself — nobody has it. A running one
+    belongs to a machine that is inside ffmpeg, and nothing outside can reach
+    in, so the API writes `cancelled_at` and this process reads it. Where it
+    reads it matters: on the lock renewal, which was already writing this row
+    every twenty seconds, rather than on the progress tick, which fires several
+    times a second and would put a SELECT on the hottest row in the schema.
+
+    Three things have to be true afterwards and each is a separate way to get
+    it wrong: the render actually stops (rather than finishing and uploading
+    anyway), the row settles (rather than being retried, which would restart
+    the render the person just stopped), and the sentence is theirs (rather
+    than "Rendering failed. We are looking into it." — an apology, from us, for
+    something they chose).
+  */
+  const projectId = await queue("stop-me", {
+    plan: {
+      version: 1,
+      operations: [
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 120 },
+        { type: "formatForPlatform", platform: "tiktok", maxHeight: 720 },
+      ],
+    },
+  });
+  putObject(`${ALICE}/${projectId}/source.mp4`, source);
+
+  // Wait until a worker really has it, so this is the running case and not the
+  // queued one the API handles on its own.
+  const claimed = await (async () => {
+    const started = Date.now();
+    while (Date.now() - started < 30_000) {
+      const row = await readJob("stop-me");
+      if (row?.status === "running" && row.locked_by) return row;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return null;
+  })();
+  check("the render is under way", claimed !== null, "it never reached running");
+
+  // What the cancel route writes. Done here directly so this suite tests the
+  // worker rather than the API, which has its own section for the same feature.
+  await pool.query("UPDATE jobs SET cancelled_at = now() WHERE id = $1", ["stop-me"]);
+
+  const settled = await settle("stop-me", 60_000);
+  check("it stops rather than finishing", settled?.status === "failed", `${settled?.status}`);
+  check(
+    "and reads as the person's decision, not our failure",
+    settled?.error === "You stopped this render.",
+    `${settled?.error}`,
+  );
+  check(
+    "with no infrastructure detail attached, because nothing broke",
+    settled?.error_detail === null,
+    String(settled?.error_detail),
+  );
+  check("the lock is let go", settled?.locked_at === null && settled?.locked_by === null);
+  check("and nothing is left claiming to be in progress", settled?.stage === null, String(settled?.stage));
+
+  /*
+    The one that would undo the whole feature.
+
+    A stopped render must not be retried: `attempts` is below `max_attempts`
+    here, so anything that treats this as an ordinary failure would put it
+    straight back in the queue and render the thing the person just stopped.
+  */
+  await new Promise((r) => setTimeout(r, 1500));
+  const later = await readJob("stop-me");
+  check(
+    "and it stays stopped rather than being tried again",
+    later?.status === "failed",
+    `${later?.status} — a stopped render that comes back is the feature not working`,
+  );
+
+  // Nothing was written where a finished render writes.
+  check("no output is claimed", later?.output_path === null, String(later?.output_path));
+  check("and nothing is billed for it", !later?.billed_seconds, String(later?.billed_seconds));
+}
+
+section("A deploy in the middle of a render costs the render, not the customer");
+{
+  /*
+    What used to happen when Fly restarted this machine.
+
+    The signal handler set a flag and let the loop notice it "between jobs" —
+    but a render is minutes long and Fly's `kill_timeout` was the default five
+    seconds, so the loop never noticed anything. SIGKILL landed on a job whose
+    row said `running`, locked by a worker that no longer existed. Nothing
+    failed: the reaper eventually took the lock back, having already counted
+    the attempt, and the person watching saw their video stop at 41% and then
+    start again from the beginning with one fewer try left. Three deploys in an
+    afternoon spent a customer's whole attempt budget on our releases and ended
+    with "this project could not be rendered".
+
+    So the handler hands the job back itself: `queued`, the attempt un-counted,
+    the progress cleared, before the process leaves. This test is the only
+    place that can tell the difference, because the difference is invisible in
+    every log — both versions print a line and exit 0.
+  */
+  const projectId = await queue("deploy-mid-render", {
+    plan: {
+      version: 1,
+      operations: [
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 120 },
+        { type: "formatForPlatform", platform: "tiktok", maxHeight: 720 },
+      ],
+    },
+  });
+  putObject(`${ALICE}/${projectId}/source.mp4`, source);
+
+  /** The moment the row says a worker is holding it. */
+  const claimed = await (async () => {
+    const started = Date.now();
+    while (Date.now() - started < 30_000) {
+      const row = await readJob("deploy-mid-render");
+      if (row?.status === "running" && row.locked_by) return row;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return null;
+  })();
+  check("the worker picks it up", claimed !== null, "it never reached running");
+  check("and counts the attempt while it holds it", claimed?.attempts === 1, String(claimed?.attempts));
+
   worker.kill("SIGTERM");
   const stopped = await new Promise((resolve) => {
     const timer = setTimeout(() => resolve(false), 20_000);
@@ -1183,9 +1618,44 @@ section("It finishes what it is doing before it exits");
     });
   });
   check("SIGTERM ends the loop rather than being ignored", stopped);
+
+  const handed = await readJob("deploy-mid-render");
   check(
-    "and it says so on the way out, so a deploy that hangs is visible",
-    workerLog.some((l) => /shutting down|finishing the current job/.test(l)),
+    "the job goes back to the queue rather than sitting locked by a machine that is gone",
+    handed?.status === "queued",
+    `${handed?.status} — the reaper would have taken minutes, and taken the attempt with it`,
+  );
+  check("with the lock let go", handed?.locked_at === null && handed?.locked_by === null);
+  check(
+    "and the attempt given back, because the render was interrupted rather than tried",
+    handed?.attempts === 0,
+    `${handed?.attempts} — a rolling deploy must not spend a customer's retries`,
+  );
+  check(
+    "nothing is left claiming a percentage that is no longer being worked on",
+    handed?.progress === null || handed?.progress === 0,
+    String(handed?.progress),
+  );
+  check("and it is not recorded as a failure the person has to read", handed?.error === null, String(handed?.error));
+}
+
+section("And it says on the way out what it did with the work");
+{
+  /*
+    The wording moved because the behaviour did.
+
+    This used to match "shutting down", which `main` logs after the loop
+    falls out — reachable only if the loop happened to be between sleeps when
+    the signal arrived. It is a line about the process, printed by the part
+    that no longer runs: the handler now hands the job back and exits from
+    inside itself, because a render cannot be finished on demand and Fly is
+    not waiting. So the line to look for is the handler's own, and the thing
+    it must say is not "I am going" but what happened to the job somebody is
+    waiting on.
+  */
+  check(
+    "the last line names what happened to the job, so a deploy that hangs is visible",
+    workerLog.some((l) => /handing back anything in flight/.test(l)),
     workerLog.slice(-2).join(" | "),
   );
 

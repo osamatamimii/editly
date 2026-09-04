@@ -117,8 +117,8 @@ export function applyReferenceStyle(
         notes.push(
           Math.abs(measured - applied) >= 0.5
             ? t(
-                `levelled to ${applied} LUFS — your reference sits at ${measured}, past what the feeds leave alone, so it was brought to the edge of that range`,
-                `سُوّي المستوى إلى ${applied} LUFS — مرجعك عند ${measured}، خارج ما تتركه المنصّات كما هو، فجُلب إلى حافة ذلك المدى`,
+                `levelled to ${applied} LUFS. Your reference sits at ${measured}, past what the feeds leave alone, so it was brought to the edge of that range`,
+                `سُوّي المستوى إلى ${applied} LUFS. مرجعك عند ${measured}، خارج ما تتركه المنصّات كما هو، فجُلب إلى حافة ذلك المدى`,
               )
             : t(
                 `levelled to ${applied} LUFS, which is where your reference sits`,

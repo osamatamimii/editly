@@ -14,6 +14,44 @@ import { uploadProjectAsset, formatBytes, assetKindOf } from "@/lib/video-storag
 import { StockSearch } from "./stock-search";
 import { useLanguage } from "@/lib/language";
 import { LIBRARY } from "@/lib/copy/editor";
+import { phrase as p } from "@/lib/landing-copy";
+
+/*
+  Three sentences this panel says that `LIBRARY` has no entry for.
+
+  They arrived with the load-state and nullable-ceiling fixes, after the copy
+  table had been written, and each exists because of a state the table does not
+  model: a list that could not be read, a delete the server refused, and an
+  empty library whose size limit is not known yet. They are written here rather
+  than left in English, because a screen on `BILINGUAL` that says one sentence
+  in English is the exact bug `lib/language.tsx` is about. They belong in
+  `lib/copy/editor.ts` beside the rest of `LIBRARY` and should move there on
+  the next pass through that file.
+*/
+const LIBRARY_STATES = {
+  /** The list did not load. Distinct from "you have no files", deliberately. */
+  unreadable: p(
+    "تعذّرت قراءة هذه القائمة الآن. ملفاتك ما زالت هنا، وهذه اللوحة وحدها هي الغائبة. أضف ملفًا وستُحاول من جديد.",
+    "We could not read this list just now. Your files are still here; this panel is not. Adding one will try again.",
+  ),
+  /** A refused delete, said out loud instead of looking like a dead button. */
+  couldNotRemove: p(
+    "تعذّر حذف هذا الملف. حاول مرّة أخرى.",
+    "That file could not be removed. Please try again.",
+  ),
+  /*
+    The empty library, with no size named.
+
+    `LIBRARY.empty` ends by naming the per-file ceiling, and the ceiling is not
+    known until the subscription answers. Quoting the wrong number is worse
+    than quoting none, so while it is null this half of the pair is said and
+    the sentence simply stops.
+  */
+  emptyCeilingUnknown: p(
+    "لا شيء بعد. الملفات التي تضيفها هنا يمكن قصّها كلقطات إضافية، أو وضعها فوق الكادر، أو تشغيلها تحت التعديل كلّه إن كانت موسيقى تملك حقوقها.",
+    "Nothing yet. Files you add here can be cut in as b-roll, laid over the frame, or, if it is a track you have the rights to, played under the whole edit.",
+  ),
+} as const;
 
 export interface ProjectAsset {
   id: string;
@@ -36,13 +74,19 @@ export function ProjectLibrary({
 }: {
   projectId: string;
   /**
-   * The bucket's real ceiling, handed down rather than looked up here.
+   * The bucket's real ceiling, handed down rather than looked up here, and
+   * null while the server has not said what it is.
    *
    * The editor already reads it from the subscription for the source video,
    * and two components asking separately is two chances to answer differently
    * — a product that refuses a file on one panel and accepts it on the next.
+   *
+   * Nullable because the alternative is worse than not knowing: the build-time
+   * fallback is 50 MB, the free plan's order of magnitude, so folding "not
+   * answered yet" into it told a Pro customer to keep each extra file under
+   * fifty megabytes. See `servedCeiling`.
    */
-  ceiling: number;
+  ceiling: number | null;
 }) {
   const { t, fmt } = useLanguage();
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
@@ -52,9 +96,29 @@ export function ProjectLibrary({
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  /*
+    Whether the last read of this list worked.
+
+    Without it, a failed read left `assets` at `[]` and the panel said "Nothing
+    yet. Files you add here can be cut in as b-roll…" — the same words a project
+    with no files gets. So a person whose upload succeeded and whose refetch
+    then 500'd watched their b-roll disappear, and either uploaded it again or
+    concluded the feature was broken.
+
+    This is the distinction `lib/load-state.ts` exists to keep, in a component
+    that was bypassing it.
+  */
+  const [unreadable, setUnreadable] = useState(false);
+
   const refresh = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}/assets`, { headers: await authHeaders() });
-    if (!res.ok) return;
+    const res = await fetch(`/api/projects/${projectId}/assets`, { headers: await authHeaders() }).catch(
+      () => null,
+    );
+    if (!res || !res.ok) {
+      setUnreadable(true);
+      return;
+    }
+    setUnreadable(false);
     // `as ProjectAsset[]` is a promise the compiler cannot keep. Anything that
     // answers 200 with something that is not an array — an error envelope, a
     // proxy's own JSON, a later version of this endpoint that wraps the list —
@@ -114,7 +178,19 @@ export function ProjectLibrary({
   }
 
   async function remove(id: string): Promise<void> {
-    await fetch(`/api/projects/${projectId}/assets/${id}`, { method: "DELETE", headers: await authHeaders() });
+    setError(null);
+    // The answer was being discarded, so a refused delete looked exactly like a
+    // successful one that the list then re-rendered unchanged: the file is
+    // still there, nothing is said, and the only reading available is that the
+    // button does not work.
+    const res = await fetch(`/api/projects/${projectId}/assets/${id}`, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? ((await res.json().catch(() => ({}))) as { error?: string }) : {};
+      setError(body.error ?? t(LIBRARY_STATES.couldNotRemove));
+    }
     await refresh();
   }
 
@@ -155,9 +231,19 @@ export function ProjectLibrary({
         </div>
       )}
 
-      {assets.length === 0 ? (
+      {unreadable ? (
+        <div className="text-xs text-muted-foreground" data-testid="library-unreadable">
+          {t(LIBRARY_STATES.unreadable)}
+        </div>
+      ) : assets.length === 0 ? (
         <div className="text-xs text-muted-foreground">
-          {fmt(LIBRARY.empty, formatBytes(ceiling))}
+          {/* The size is named only when it is known. A sentence that quotes
+              the wrong number is worse than one that quotes none: this panel
+              was telling paying customers a free plan's limit for as long as
+              the subscription query was in flight. */}
+          {ceiling !== null
+            ? fmt(LIBRARY.empty, formatBytes(ceiling))
+            : t(LIBRARY_STATES.emptyCeilingUnknown)}
         </div>
       ) : (
         <ul className="flex flex-col gap-1.5">

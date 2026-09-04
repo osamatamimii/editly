@@ -30,8 +30,9 @@ import { copyObject, deleteObjects, storageAdminConfigured } from "../lib/storag
 import { serializeProject } from "../lib/transformers";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 import { planKeyFrom } from "../lib/plan-limits";
-import { usageFor, exhaustedMessage } from "../lib/usage";
+import { usageFor, exhaustedMessage, usageNotConsulted } from "../lib/usage";
 import { decideRender } from "../lib/render-policy";
+import { badRequest } from "../lib/bad-request";
 
 const router: IRouter = Router();
 
@@ -115,7 +116,7 @@ router.get("/projects/:id/clips", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const params = ListClipsParams.safeParse(req.params);
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
 
@@ -161,7 +162,7 @@ router.delete("/projects/:id/clips/:clipId", async (req, res): Promise<void> => 
   const userId = currentUserId(req);
   const params = DeleteClipParams.safeParse(req.params);
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
 
@@ -183,12 +184,28 @@ router.delete("/projects/:id/clips/:clipId", async (req, res): Promise<void> => 
     return;
   }
 
-  // The master and its VP9 mirror, by the same naming convention the worker
-  // wrote them under. Best-effort: a failure here leaves orphan bytes that
-  // deleting the project reclaims, not a lie in the response.
+  /*
+    The master and its VP9 mirror, by the same naming convention the worker
+    wrote them under. Best-effort: a failure here leaves orphan bytes that
+    deleting the project reclaims, not a lie in the response.
+
+    Awaited, though. It was `void deleteObjects(…)`, issued after the row was
+    already gone — on a runtime that can freeze the invocation the moment the
+    response is written. A dropped call there orphans three objects with
+    nothing naming them, and the retention sweep derives clip keys from rows,
+    so it could not see them either. `deleteObjects` answers rather than
+    throwing and this is one call, so awaiting it costs a round trip on a
+    button press and cannot fail the request.
+  */
   const master = removed[0].outputPath;
   const stem = master.replace(/\.mp4$/i, "");
-  void deleteObjects([master, `${stem}.preview.webm`, `${stem}.jpg`]);
+  const swept = await deleteObjects([master, `${stem}.preview.webm`, `${stem}.jpg`]);
+  if (!swept.removed) {
+    req.log?.warn(
+      { master, reason: swept.reason },
+      "a deleted clip's objects stayed behind; deleting the project is what reclaims them",
+    );
+  }
 
   res.status(204).end();
 });
@@ -217,7 +234,7 @@ router.post("/projects/:id/clips/:clipId/open", rateLimit(LIMITS.createProject),
   const userId = currentUserId(req);
   const params = PromoteClipParams.safeParse(req.params);
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
 
@@ -258,7 +275,7 @@ router.post("/projects/:id/clips/:clipId/open", rateLimit(LIMITS.createProject),
   if (sub?.suspendedAt) {
     const stopped = decideRender({
       plan: planKey,
-      usage: { minutesUsed: 0, minutesIncluded: 0, minutesGranted: 0, minutesRemaining: 0, exhausted: false },
+      usage: usageNotConsulted(),
       operations: [],
       suspendedAt: sub.suspendedAt,
     });

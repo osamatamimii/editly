@@ -63,6 +63,7 @@
  * the first real test of whether that seam is a seam.
  */
 import { previewPathFor } from "./preview";
+import { RETENTION as PUBLISHED } from "@workspace/api-zod/processors";
 
 export type SweepMode = "off" | "dry" | "on";
 
@@ -85,20 +86,71 @@ export const DEFAULT_RETENTION: RetentionConfig = {
 };
 
 export function retentionFrom(env: NodeJS.ProcessEnv = process.env): RetentionConfig {
-  const days = (name: string, fallback: number): number => {
+  /*
+    A window has to be a positive number of days, and zero is not one.
+
+    The rule this function is supposed to have is written two lines below the
+    version that did not have it: "a typo in an environment variable must not
+    be able to mean 'delete everything today'." The guard was `raw >= 0`, and
+    zero is exactly that instruction for these two windows — a project created
+    five minutes ago has `coldDays` of 0, and `0 >= 0` selects it.
+
+    Two ways a real deployment reached it, neither of them a typo anybody would
+    notice:
+
+      `Number("") === 0`. An environment variable that is present and empty —
+      `RETENTION_UNUSED_SOURCE_DAYS=` in an env file, a CI template that emits
+      every key whether or not it has a value, `fly secrets set X=""` — is
+      finite and non-negative, so it did not fall back. Only an *absent*
+      variable fell back.
+
+      And the interface taught it. `thumbnailDays: 0` is documented in this
+      same file as meaning **never**, so an operator enabling preview ageing
+      while keeping customer sources writes `RETENTION_UNUSED_SOURCE_DAYS=0` by
+      analogy and gets the opposite of what the other zero means.
+
+    Zero stays valid for thumbnails, where it is a documented sentinel and
+    `chooseRemovals` already guards on it. For the two windows that stand
+    between a customer's irreplaceable upload and a delete, it falls back.
+  */
+  const days = (name: string, fallback: number, zeroMeans: "never" | "nothing"): number => {
     const raw = Number(env[name]);
-    // A negative or non-numeric window falls back rather than being clamped to
-    // zero: zero means "never" for thumbnails and "immediately" would be the
-    // reading for the others, and a typo in an environment variable must not be
-    // able to mean "delete everything today".
-    return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
+    if (!Number.isFinite(raw)) return fallback;
+    if (raw < 0) return fallback;
+    if (raw === 0 && zeroMeans === "nothing") return fallback;
+    return raw;
   };
+  /*
+    And a window may be made longer than what the customer was told, never
+    shorter.
+
+    `/privacy` renders `RETENTION.previewDays` and `RETENTION.unusedSourceDays`
+    — 90 and 30 — and `privacy-test` binds that page to `DEFAULT_RETENTION` in
+    this file. But the *deployed* windows are these environment variables, and
+    nothing reconciled the two: `RETENTION_UNUSED_SOURCE_DAYS=7` deletes
+    customer sources twenty-three days before the page they agreed to says it
+    will, with a green build and no contradiction anywhere.
+
+    The page is a promise about the customer's data, so it is a floor. Setting
+    a longer window is a decision about our storage bill and is honoured;
+    setting a shorter one is a promise nobody kept, and the promise wins.
+  */
+  const atLeastPublished = (chosen: number, published: number): number => Math.max(chosen, published);
+
   const mode = env["RETENTION_SWEEP"];
   return {
     mode: mode === "on" || mode === "off" ? mode : DEFAULT_RETENTION.mode,
-    previewDays: days("RETENTION_PREVIEW_DAYS", DEFAULT_RETENTION.previewDays),
-    unusedSourceDays: days("RETENTION_UNUSED_SOURCE_DAYS", DEFAULT_RETENTION.unusedSourceDays),
-    thumbnailDays: days("RETENTION_THUMBNAIL_DAYS", DEFAULT_RETENTION.thumbnailDays),
+    previewDays: atLeastPublished(
+      days("RETENTION_PREVIEW_DAYS", DEFAULT_RETENTION.previewDays, "nothing"),
+      PUBLISHED.previewDays,
+    ),
+    unusedSourceDays: atLeastPublished(
+      days("RETENTION_UNUSED_SOURCE_DAYS", DEFAULT_RETENTION.unusedSourceDays, "nothing"),
+      PUBLISHED.unusedSourceDays,
+    ),
+    // The one place zero is a real answer, and it is the only window here that
+    // cannot destroy anything a person could not remake.
+    thumbnailDays: days("RETENTION_THUMBNAIL_DAYS", DEFAULT_RETENTION.thumbnailDays, "never"),
   };
 }
 

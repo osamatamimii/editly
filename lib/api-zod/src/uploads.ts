@@ -118,7 +118,20 @@ export const UploadTicket = z.object({
    * was right last quarter.
    */
   maxBytes: z.number().int().positive(),
-  expiresAt: z.string(),
+  /**
+   * When this ticket stops working — on the tickets that have such a moment.
+   *
+   * A signed PUT really does expire, and the signature carries the deadline.
+   * A resumable upload does not: the tus endpoint takes the user's own bearer
+   * token and `x-upsert`, and nothing about it goes stale on a clock. This
+   * field was written on both, computed the same way, and on the resumable
+   * branch it was simply a sentence about a deadline that does not exist —
+   * true-looking, unread, and exactly the kind of thing somebody builds a
+   * countdown out of two years later.
+   *
+   * Absent means there is nothing to expire.
+   */
+  expiresAt: z.string().optional(),
   transfer: z.discriminatedUnion("mode", [SignedTransfer, ResumableTransfer]),
 });
 export type UploadTicket = z.infer<typeof UploadTicket>;

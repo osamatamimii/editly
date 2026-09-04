@@ -12,15 +12,45 @@
  * a panel of every set ever made is an archive, not an editor.
  */
 import { useEffect, useState } from "react";
-import { Scissors, Download, Trash2, ChevronDown, ChevronRight, SquareArrowOutUpRight } from "lucide-react";
+import { Scissors, Download, Trash2, ChevronDown, ChevronRight, SquareArrowOutUpRight, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useListClips, getListClipsQueryKey, type Clip } from "@workspace/api-client-react";
 import { PROJECT_CLIPS_LIMIT } from "@workspace/api-zod/limits";
 import { usePlayableVideo, signedVideoUrl, downloadableVideoUrl } from "@/lib/video-storage";
 import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
+import { loadState } from "@/lib/load-state";
+import { LoadFailed } from "@/components/load-failed";
 import { useLanguage } from "@/lib/language";
 import { PROJECT_CLIPS } from "@/lib/copy/editor";
+import { LOAD } from "@/lib/copy/common";
+import { phrase as p } from "@/lib/landing-copy";
+
+/*
+  The sentences this panel says when something did not work.
+
+  `PROJECT_CLIPS` describes a clip that exists; these describe the three ways
+  one fails to arrive — a signature that could not be fetched, a copy the
+  server refused, and the wait while the list loads. They were written in
+  English with the load-state fix, after the copy table had been split into
+  `lib/copy/`, and they are paired here rather than left bare because `/project`
+  is on `BILINGUAL` and declares the reader's language over everything on it.
+  They belong beside `PROJECT_CLIPS` in `lib/copy/editor.ts` and should move
+  there on the next pass through that file.
+*/
+const CLIP_TROUBLE = {
+  loading: p("نحمّل مقاطعك…", "Loading your clips"),
+  couldNotFetch: p("تعذّر جلب هذا المقطع", "Could not fetch that clip"),
+  stillHere: p("ما زال موجودًا. حاول بعد لحظة.", "It is still here. Please try again in a moment."),
+  couldNotOpen: p("تعذّر فتح هذا المقطع", "Could not open that clip"),
+  inAMoment: p("حاول بعد لحظة.", "Please try again in a moment."),
+  madeButUnnamed: p(
+    "أُنشئ المقطع ولم يصلنا أين وُضع. حاول مرّة أخرى.",
+    "The clip was made and we were not told where. Please try again.",
+  ),
+  checkConnection: p("تحقّق من اتّصالك وحاول مرّة أخرى.", "Check your connection and try again."),
+} as const;
 
 export { getListClipsQueryKey };
 
@@ -46,6 +76,7 @@ function ClipRow({
   onOpen: (clip: Clip) => void;
   opening: boolean;
 }) {
+  const { toast } = useToast();
   const { t, fmt } = useLanguage();
   // The preview.webm mirror is tried first, exactly as the main player does —
   // a browser that cannot decode H.264 should not lose the clips too.
@@ -81,7 +112,16 @@ function ClipRow({
     */
     const filename = `clip-${clip.idx}.mp4`;
     const signed = await downloadableVideoUrl(clip.outputPath, filename);
-    if (!signed) return;
+    if (!signed) {
+      // Silent before. The spinner stopped, no file arrived, and nothing was
+      // said — which reads as a broken button rather than a bad minute.
+      toast({
+        title: t(CLIP_TROUBLE.couldNotFetch),
+        description: t(CLIP_TROUBLE.stillHere),
+        variant: "destructive",
+      });
+      return;
+    }
     const link = document.createElement("a");
     link.href = signed;
     link.download = filename;
@@ -159,12 +199,46 @@ function ClipRow({
 
 export function ProjectClips({ projectId }: { projectId: string }) {
   const { t, fmt } = useLanguage();
-  const { data: clips } = useListClips(projectId);
+  const clipsQuery = useListClips(projectId);
+  const { data: clips } = clipsQuery;
+  const state = loadState(clipsQuery);
   const queryClient = useQueryClient();
   const [showEarlier, setShowEarlier] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
   const [, navigate] = useLocation();
+  const { toast } = useToast();
 
+  /*
+    Three states, not one.
+
+    `if (!clips || clips.length === 0) return null;` collapsed loading, failed
+    and genuinely empty into the same nothing — and the tab that opens this
+    panel is unconditionally available, so pressing it lit the chip, drew the
+    selected ring, and rendered empty space underneath. Indistinguishable from
+    a project with no clips, and from a button that does not work.
+
+    That is the shape of the failure this product had on 12 August, in a
+    component that bypassed `load-state.ts`. `project-library.tsx` had the same
+    bug for assets and was fixed; this one was not.
+
+    Empty stays silent, deliberately: a project nobody has cut clips from does
+    not need a heading saying so. A failure does.
+  */
+  if (state === "failed") {
+    return (
+      <div className="mt-8" data-testid="clips-failed">
+        <LoadFailed what={LOAD.yourClips} onRetry={() => void clipsQuery.refetch()} compact />
+      </div>
+    );
+  }
+  if (state === "loading") {
+    return (
+      <div className="mt-8 flex items-center gap-2 text-sm text-muted-foreground" data-testid="clips-loading">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        {t(CLIP_TROUBLE.loading)}
+      </div>
+    );
+  }
   if (!clips || clips.length === 0) return null;
 
   // Newest set first: the endpoint returns newest-first sets in source order
@@ -192,10 +266,34 @@ export function ProjectClips({ projectId }: { projectId: string }) {
         method: "POST",
         headers: await authHeaders(),
       });
-      if (!res.ok) return;
+      /*
+        A refusal is said, not returned from.
+
+        Both of these `return`s used to be silent: the button un-disabled, the
+        page did not move, and nothing appeared. A control that visibly does
+        nothing, twice, is one a person presses a third time and then stops
+        trusting — and there is no way from the outside to tell it apart from a
+        click that was not registered.
+      */
+      if (!res.ok) {
+        const said = (await res.json().catch(() => ({}))) as { error?: string };
+        toast({
+          title: t(CLIP_TROUBLE.couldNotOpen),
+          description: said.error ?? t(CLIP_TROUBLE.inAMoment),
+          variant: "destructive",
+        });
+        return;
+      }
       const body: unknown = await res.json().catch(() => null);
       const id = (body as { id?: unknown } | null)?.id;
-      if (typeof id !== "string" || id.length === 0) return;
+      if (typeof id !== "string" || id.length === 0) {
+        toast({
+          title: t(CLIP_TROUBLE.couldNotOpen),
+          description: t(CLIP_TROUBLE.madeButUnnamed),
+          variant: "destructive",
+        });
+        return;
+      }
       // `/project/:id`, singular — the path the router actually declares. This
       // said `/projects/` and so every clip opened as its own project landed on
       // Not Found: the POST succeeded, the row was created, the person was told
@@ -203,6 +301,11 @@ export function ProjectClips({ projectId }: { projectId: string }) {
       navigate(`/project/${id}`);
     } catch {
       // Nothing was created on a failure — the row is taken back server-side.
+      toast({
+        title: t(CLIP_TROUBLE.couldNotOpen),
+        description: t(CLIP_TROUBLE.checkConnection),
+        variant: "destructive",
+      });
     } finally {
       setOpening(null);
     }

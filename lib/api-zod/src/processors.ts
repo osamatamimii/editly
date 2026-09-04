@@ -253,6 +253,65 @@ export const PROCESSORS: readonly Processor[] = [
   },
 ];
 
+/**
+ * Where a customer's files actually sit, as a fact the page can print.
+ *
+ * The privacy policy has to answer "where is my video" and the answer has to be
+ * the true one on the day it is read. A sentence typed into a page is a claim
+ * nobody re-checks when infrastructure moves; this is the same string
+ * `fly.toml` deploys the renderer with, and `privacy-test` fails when the two
+ * stop agreeing.
+ *
+ * `fra` is Frankfurt. The Supabase project is `eu-central-1` — Frankfurt too,
+ * which is why the worker is there: pulling and pushing video across a
+ * continent on every render is the kind of cost nobody sees on the bill and
+ * everybody feels in the wait.
+ */
+export const DATA_REGION = {
+  flyRegion: "fra",
+  where: {
+    en: "Frankfurt, Germany",
+    ar: "فرانكفورت، ألمانيا",
+  },
+} as const;
+
+/**
+ * The two windows the retention sweep has, as numbers the policy can print.
+ *
+ * The privacy page said "your files stay until you delete them" and stopped,
+ * which was true only because the sweep ships in `dry` mode and removes
+ * nothing. It is one environment variable away from being false — and a policy
+ * that becomes a lie when a setting changes is a policy nobody can rely on.
+ *
+ * Here rather than in the worker because the page cannot import from the
+ * worker: it is a separate deployment, and this package is what both already
+ * share. `tools/privacy-test.mjs` compares these against `DEFAULT_RETENTION`
+ * in `artifacts/worker/src/sweep.ts`, so the sentence and the sweep cannot
+ * drift apart.
+ *
+ * Masters are deliberately absent from this: they are not swept at any window,
+ * and the page says so in its own sentence above these.
+ */
+/**
+ * How old somebody has to be to hold an account.
+ *
+ * One number, because it appeared in two places and bound in neither. The
+ * privacy page said sixteen; the terms — the document that actually binds —
+ * never mentioned an account age at all, only eighteen in a sentence about
+ * content involving minors, which is a different rule about a different thing.
+ * And the sign-up screen, where the agreement is made, said nothing.
+ *
+ * `tools/privacy-test.mjs` compares all three against this.
+ */
+export const ACCOUNT_MIN_AGE = 16;
+
+export const RETENTION = {
+  /** Days after a project was last opened before the browser-playable mirror goes. */
+  previewDays: 90,
+  /** Days before a source that never produced a render goes. */
+  unusedSourceDays: 30,
+} as const;
+
 /** Everything that receives something on an ordinary render, with no choices made. */
 export function alwaysUsed(): Processor[] {
   return PROCESSORS.filter((p) => p.always);

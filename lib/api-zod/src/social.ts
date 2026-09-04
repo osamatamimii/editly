@@ -257,10 +257,117 @@ export interface PostCandidate {
  * check has to add them back, including the spaces between them. Counting only
  * the caption is how a post that looked like 240 characters is refused at 310.
  */
+/**
+ * The separator between the words and the tags.
+ *
+ * Two characters, because that is what the publishers actually send. This
+ * function counted **one**, and the mismatch is only ever visible at the
+ * boundary: a caption the composer measured at exactly the platform's limit
+ * arrived one character over, and the publisher's own truncation quietly took
+ * the last hashtag off the end. The composer said it fitted, the post went
+ * out, and a tag the person chose was not on it — with nothing anywhere
+ * reporting a difference.
+ */
+const TAG_SEPARATOR = "\n\n";
+
+/**
+ * Exactly the text a platform will receive, built once.
+ *
+ * Both sides used to build it separately: this file joined with one space for
+ * counting, and each publisher joined with a blank line for sending. Two
+ * spellings of "the caption plus its tags" is two answers to "does this fit".
+ */
+export function captionWith(caption: string, hashtags: string[]): string {
+  const tags = hashtags
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0)
+    .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`));
+  const words = caption.trim();
+  return tags.length > 0 ? `${words}${TAG_SEPARATOR}${tags.join(" ")}` : words;
+}
+
+/**
+ * How X counts, which is not how anybody else counts.
+ *
+ * Every URL is **23 characters** to X, whatever its real length, because the
+ * platform rewrites it through `t.co` before it counts. Our check counted the
+ * characters the person typed — so a post carrying two long links measured 340
+ * here and 246 there: refused by us, perfectly postable on X. And in the other
+ * direction a `t.co` link shorter than 23 measured smaller here than there,
+ * which is the half that ends with the platform refusing a post we said fitted.
+ *
+ * Deliberately not the whole of twitter-text: this is the one rule that is
+ * both universal and load-bearing, and pulling a library in for the rest would
+ * be a dependency in the contract package for a case nobody has hit. The URL
+ * pattern is the same one the composer's own preview uses.
+ */
+export const X_URL_WEIGHT = 23;
+
+const URL_PATTERN = /https?:\/\/[^\s]+/g;
+
+/** The length X will measure, for a string already assembled. */
+export function weightedLength(text: string): number {
+  let total = text.length;
+  for (const match of text.matchAll(URL_PATTERN)) {
+    total += X_URL_WEIGHT - match[0].length;
+  }
+  return total;
+}
+
 export function captionLength(caption: string, hashtags: string[]): number {
-  const tags = hashtags.filter((tag) => tag.trim().length > 0);
-  if (tags.length === 0) return caption.length;
-  return caption.length + 1 + tags.map((t) => (t.startsWith("#") ? t : `#${t}`)).join(" ").length;
+  return captionWith(caption, hashtags).length;
+}
+
+/**
+ * The length the *platform* will measure.
+ *
+ * The same as `captionLength` everywhere but X, and the composer has to use
+ * this one or it refuses posts X would have taken.
+ */
+export function captionLengthFor(
+  platform: SocialPlatform,
+  caption: string,
+  hashtags: string[],
+): number {
+  const whole = captionWith(caption, hashtags);
+  return platform === "x" ? weightedLength(whole) : whole.length;
+}
+
+/**
+ * Cut to a length without splitting a character in half.
+ *
+ * `slice` counts UTF-16 code units, so cutting mid-emoji leaves a lone
+ * surrogate: the post ended `…🎬\uFFFD` — a replacement glyph, on somebody's
+ * feed, in the place where their last word should have been. Every publisher
+ * had its own copy of the same `slice`.
+ *
+ * `Intl.Segmenter` is the right tool and is present in every runtime this ships
+ * to; the fallback is only for one that is not, and it at least refuses to end
+ * on a lone high surrogate.
+ */
+export function truncateToGraphemes(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const room = Math.max(1, limit - 1);
+
+  let cut: string;
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    cut = "";
+    for (const { segment } of segmenter.segment(text)) {
+      if (cut.length + segment.length > room) break;
+      cut += segment;
+    }
+  } else {
+    cut = text.slice(0, room);
+    const last = cut.charCodeAt(cut.length - 1);
+    if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
+  }
+
+  // Cut at a word where one is close enough, so the last thing on somebody's
+  // post is not half a word.
+  const lastSpace = cut.lastIndexOf(" ");
+  const atWord = lastSpace > room * 0.6 ? cut.slice(0, lastSpace) : cut;
+  return `${atWord.trimEnd()}…`;
 }
 
 /** Every reason this will not post, or an empty list. */
@@ -270,7 +377,10 @@ export function refusalsFor(candidate: PostCandidate, language: RefusalLanguage 
   const arabic = language === "ar";
   const refusals: PostRefusal[] = [];
 
-  const length = captionLength(candidate.caption, candidate.hashtags);
+  // Measured the way the platform will measure it. See `captionLengthFor`:
+  // X counts every URL as 23 characters, so counting what the person typed
+  // refuses posts X would have taken.
+  const length = captionLengthFor(candidate.platform, candidate.caption, candidate.hashtags);
   if (length > spec.captionLimit) {
     const withTags = candidate.hashtags.length > 0;
     refusals.push({

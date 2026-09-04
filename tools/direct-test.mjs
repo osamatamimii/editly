@@ -38,6 +38,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { order } from "./lib/order.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -386,7 +387,11 @@ const route = await read("artifacts/api-server/src/routes/messages.ts");
 // A direction that runs on every message spends somebody's minutes because they
 // said hello.
 check("the direction runs only when an edit was asked for", /const wantsAnEdit = intent\.operations\.length > 0 \|\| asksForAnEdit\(/.test(route));
-check("before the habits, so a habit can still style what it added", route.indexOf("const decided = wantsAnEdit") < route.indexOf("applyHabits("));
+{
+  // Was `indexOf(a) < indexOf(b)`, true when `a` is absent.
+  const first = order(route, "const decided = wantsAnEdit", "applyHabits(");
+  check("before the habits, so a habit can still style what it added", first.ok, first.why);
+}
 check("and everything it decided is said in the reply", /for \(const said of decided\.willDo\) intent\.willDo\.push\(said\);/.test(route));
 // The comprehension step is best-effort in the worker, and this is the same
 // position on the other side: migration 0038 was written before it was applied,

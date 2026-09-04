@@ -514,6 +514,14 @@ export interface RenderJob {
   /** What the render did, and what it could not do. */
   notes?: string[];
   /**
+   * True when the person stopped this render rather than it failing. A stopped
+   * render is `failed`, because that is what every reader of status understands
+   * as "not going any more", which leaves the screen unable to tell a decision
+   * from a fault - and an apology for a failure that did not happen is worse
+   * than no message. Absent on every other job.
+   */
+  cancelled?: boolean;
+  /**
    * Seconds until this render starts. Present only on a queued job, and null
    * wherever the number would be invented - too few finished renders to have a
    * typical one, no worker to divide by, or nothing ahead in the queue.

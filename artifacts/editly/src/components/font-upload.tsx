@@ -79,11 +79,29 @@ export function FontUpload({
     of unfinished rows — so it starts on upload and stops on its own.
   */
   const waiting = mine.some((face) => face.status === "pending" || face.status === "preparing").valueOf();
+
+  /*
+    And the callback is held in a ref rather than depended on.
+
+    `onChanged` arrives as `onFontsChanged={() => void loadFaces()}` — a new
+    closure on every render of the editor — and it was in the dependency array,
+    so every parent re-render tore the interval down and started a fresh three
+    seconds. Play the video and `onTimeUpdate` re-renders the editor several
+    times a second: the timer was reset about four times per second and never
+    once reached 3000 ms. The row sat on "Measuring it, a few seconds" for as
+    long as the video played, and recovered the moment it was paused — which
+    makes it look like the server rather than the timer.
+
+    The ref keeps the latest callback without making it a reason to restart the
+    clock. `waiting` is the only thing that should start or stop this.
+  */
+  const notify = useRef(onChanged);
+  notify.current = onChanged;
   useEffect(() => {
     if (!waiting) return;
-    const timer = setInterval(onChanged, 3000);
+    const timer = setInterval(() => notify.current(), 3000);
     return () => clearInterval(timer);
-  }, [waiting, onChanged]);
+  }, [waiting]);
 
   async function choose(file: File) {
     if (!accessToken) {

@@ -27,6 +27,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { order } from "./lib/order.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -155,7 +156,7 @@ section("The bytes go before the rows");
   check("every project's storage is visited", log.filter((s) => s.startsWith("objects")).length === 3);
   check(
     "and none of it happens after the rows naming it are gone",
-    log.indexOf("rows") > log.lastIndexOf("objects:p3"),
+    order(log, "objects:p3", "rows").ok,
     JSON.stringify(log),
   );
   check("the count is reported", result.projects === 3, String(result.projects));
@@ -167,7 +168,7 @@ section("The login goes last");
   await deleteAccount(steps);
   check(
     "after the rows, so a failed attempt leaves an account the person can retry from",
-    log.indexOf("login") > log.indexOf("rows"),
+    order(log, "rows", "login").ok,
     JSON.stringify(log),
   );
   check("and it is the final step", log[log.length - 1] === "login", JSON.stringify(log));
@@ -279,13 +280,52 @@ section("The files that belong to the person rather than to a project");
   // them turns a deletion into an orphaning.
   check(
     "before any row is removed",
-    log.indexOf("account-objects") < log.indexOf("rows"),
+    order(log, "account-objects", "rows").ok,
     log.join(" -> "),
   );
   check(
     "and after the projects, so the cheap sweep is not what fails first",
-    log.indexOf("objects:p3") < log.indexOf("account-objects"),
+    order(log, "objects:p3", "account-objects").ok,
     log.join(" -> "),
+  );
+}
+{
+  /*
+    And a font deleted one at a time takes its bytes with it.
+
+    `DELETE /fonts/:id` removed the row and left three objects behind — the
+    upload, the repaired face and the woff2 the picker draws — with a comment
+    saying they "stay until the storage sweep takes them". There is no such
+    sweep: the retention sweep's `owned()` predicate requires the key to start
+    with `${userId}/${projectId}/`, and a font is at `${userId}/fonts/…`,
+    outside every project. So nothing but account deletion ever reclaimed them,
+    on a path a person can repeat as often as they like — twenty-four fonts
+    per account, delete and re-upload without limit.
+  */
+  const route = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/fonts.ts"), "utf8");
+  const del = route.slice(route.indexOf("delete(captionFacesTable)"));
+  check(
+    "the delete reads the keys it is about to orphan",
+    /sourcePath: captionFacesTable\.sourcePath/.test(del) &&
+      /facePath: captionFacesTable\.facePath/.test(del) &&
+      /previewPath: captionFacesTable\.previewPath/.test(del),
+    "the returning clause does not name the three objects",
+  );
+  check(
+    "and removes them",
+    /await deleteObjects\(keys\)/.test(del),
+    "the row still goes without its bytes",
+  );
+  check(
+    "the row goes first, because a picker entry nobody can remove is worse than an orphan",
+    order(del, "delete(captionFacesTable)", "deleteObjects(keys)").ok,
+    "",
+  );
+  check(
+    "and a sweep that will not go is written down rather than reported to the person",
+    /could not be removed and nothing else will reclaim them/.test(del) &&
+      !/res\.status\(5\d\d\)[\s\S]{0,200}deleteObjects/.test(del),
+    "",
   );
 }
 {

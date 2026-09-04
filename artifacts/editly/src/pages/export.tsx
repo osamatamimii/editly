@@ -37,6 +37,21 @@ export default function ExportPage() {
   
   const [platform, setPlatform] = useState<"tiktok" | "reels" | "shorts" | "youtube" | "square">("tiktok");
   const [isExporting, setIsExporting] = useState(false);
+  /*
+    "Export Another Format" had nothing to set.
+
+    `currentStatus` reads `done` whenever the status query says `done`, and that
+    query returns the *most recent* export row forever. So the button set
+    `isExporting` to false (it was already false) and refetched the same row,
+    `currentStatus` recomputed to `done`, and the card re-rendered identically.
+    A person who exported for TikTok could never export for Reels — not by
+    pressing it, not by reloading.
+
+    This is the flag that says "I know the last one finished; show me the
+    picker". It is cleared the moment an export actually starts, so the running
+    and finished views are the query's to decide again.
+  */
+  const [startingAnother, setStartingAnother] = useState(false);
 
   /*
     Where this edit could go, asked for once on arrival.
@@ -105,6 +120,22 @@ export default function ExportPage() {
         if (query.state.data?.status === 'done' || query.state.data?.status === 'failed') {
           return false;
         }
+        /*
+          And stop when there is nothing to poll for.
+
+          A project that has never been exported answers 404 for ever, so
+          `query.state.data` is permanently undefined and neither terminal
+          status can ever arrive — the condition above could not be satisfied
+          and this asked the server every two seconds for as long as the tab
+          was open. On the screen people leave open while deciding on a
+          platform, that is a serverless invocation every two seconds, all day,
+          for an answer that will not change until they press the button. The
+          same shape for any sustained 5xx.
+
+          `isExporting` covers the case that matters: once this page starts a
+          render, the row exists and the poll has something to wait for.
+        */
+        if (query.state.status === 'error' && !isExporting) return false;
         return 2000;
       }
     }
@@ -112,8 +143,27 @@ export default function ExportPage() {
   const { data: exportStatus } = exportQuery;
   const exportState = loadState(exportQuery);
 
-  // A render this page did not start is still a render this page must show.
-  const isRunning = isExporting || exportStatus?.status === 'pending';
+  /*
+    A render this page did not start is still a render this page must show.
+
+    This read `exportStatus?.status === 'pending'`, and the server never sends
+    `pending` for a live render. `exportStatusFor` answers `pending` only when
+    there is **no job row at all** — a legacy export whose `jobId` is null.
+    Anything queued or running is `processing`, and this screen had no branch
+    for that word anywhere.
+
+    So a render produced two wrong screens and neither threw. For the first
+    couple of seconds `exportStatus` was undefined and the progress card drew;
+    the first poll landed, `currentStatus` became `'processing'`, nothing
+    matched it, and the right-hand column went **blank** for the length of the
+    render — a heading, a project title, and empty space. And on a reload
+    mid-render `isExporting` is false, so `'processing'` fell through to
+    `'idle'`: the platform picker and a live "Render & Export" button, which is
+    word for word the failure the paragraph above says was fixed. Removing the
+    `enabled` gate fixed half of it; this comparison was never updated.
+  */
+  const isRunning =
+    isExporting || exportStatus?.status === 'processing' || exportStatus?.status === 'pending';
 
   // The finished file, signed from the key this export reported — not from the
   // project. `project` is a cached copy fetched before this export existed, so
@@ -175,31 +225,57 @@ export default function ExportPage() {
 
   const startExport = useStartExport();
 
-  // Watch export status changes
+  /*
+    A settle, not a state.
+
+    This effect keyed on `exportStatus`, which is an object the query hands back
+    fresh on every fetch — including the one on mount and the one React Query
+    makes when a tab is focused again. So opening the export page of a project
+    exported last week popped "Export Complete! Your video is ready to
+    download", a claim that something had just finished; and for a project whose
+    last export failed, every visit and every refocus popped a destructive
+    "Export Failed" about a failure from days ago.
+
+    The ref holds which settled export has already been announced. The id is
+    part of it, so a *second* export finishing is a second toast, which is the
+    thing worth saying.
+  */
+  const announced = useRef<string | null>(null);
   useEffect(() => {
-    if (exportStatus) {
-      if (exportStatus.status === 'done') {
-        setIsExporting(false);
-        // The project row now points at the new render. Without this the editor
-        // and the preview keep showing the previous cut.
-        queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
-        toast({
-          title: t(EXPORT.complete),
-          description: t(EXPORT.completeDetail)
-        });
-      } else if (exportStatus.status === 'failed') {
-        setIsExporting(false);
-        toast({
-          title: t(EXPORT.failed),
-          description: t(EXPORT.failedDetail),
-          variant: "destructive"
-        });
-      }
+    if (!exportStatus) return;
+    const settled = exportStatus.status === "done" || exportStatus.status === "failed";
+    if (!settled) return;
+
+    const key = `${exportStatus.id}:${exportStatus.status}`;
+    const previous = announced.current;
+    announced.current = key;
+    setIsExporting(false);
+
+    // Nothing had been seen before and this screen did not start it: the export
+    // settled before anybody opened this page, so it is history rather than
+    // news.
+    if (previous === null && !isExporting) return;
+    // Already said. A refetch hands back a new object for the same fact.
+    if (previous === key) return;
+
+    if (exportStatus.status === "done") {
+      // The project row now points at the new render. Without this the editor
+      // and the preview keep showing the previous cut.
+      queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
+      toast({ title: t(EXPORT.complete), description: t(EXPORT.completeDetail) });
+    } else {
+      toast({
+        title: t(EXPORT.failed),
+        description: t(EXPORT.failedDetail),
+        variant: "destructive",
+      });
     }
-  }, [exportStatus, toast, queryClient, id]);
+  }, [exportStatus, toast, queryClient, id, isExporting]);
 
   const handleStartExport = async () => {
     try {
+      // The picker's job is done; from here the query decides what is on screen.
+      setStartingAnother(false);
       setIsExporting(true);
       await startExport.mutateAsync({
         id,
@@ -277,8 +353,12 @@ export default function ExportPage() {
     exportState === "loading" && !exportStatus
       ? 'loading'
       : isRunning
-        ? (exportStatus?.status ?? 'pending')
-        : exportStatus?.status === 'done'
+        // One word for "it is being made", whichever of the two the server
+        // used. `processing` is what a live render actually reports and there
+        // is no block below that draws it, so passing it straight through
+        // rendered nothing at all.
+        ? 'pending'
+        : exportStatus?.status === 'done' && !startingAnother
           ? 'done'
           : 'idle';
 
@@ -311,10 +391,28 @@ export default function ExportPage() {
                 key={shown.preview ?? shown.url}
                 ref={previewRef}
                 className="w-full h-full object-cover"
-                controls
                 /* See the note in project-editor: without this, pressing play
                    on an iPhone hands the screen to the system player. */
                 playsInline
+                /*
+                  The verdict is allowed to change its mind in both directions,
+                  and here it could only change it in one.
+
+                  `playability.ts` is built around that — the editor honours it
+                  with exactly these two handlers — and this screen had neither.
+                  Its polling effect clears the interval on the first non-pending
+                  answer, so once `previewFailed` went true nothing could take it
+                  back except a new URL. On a 4K export over a slow connection,
+                  `readyState` stays 0 past the ceiling, the verdict goes
+                  `failed`, and a black panel drops over the frame reading "This
+                  browser cannot draw it" — and then the file finishes buffering
+                  and plays perfectly underneath an overlay that never comes off.
+                  A confident, specific, false diagnosis, on the one screen where
+                  somebody decides whether the render worked.
+                */
+                onLoadedMetadata={() => setPreviewFailed(false)}
+                onError={() => setPreviewFailed(true)}
+                controls
                 autoPlay
                 loop
                 muted
@@ -534,7 +632,16 @@ export default function ExportPage() {
                   disabled={!exportedUrl || isPreparingDownload}
                   onClick={async () => {
                     if (!exportedUrl) return;
-                    const filename = `${project.title.replace(/\s+/g, '-').toLowerCase()}-${platform}.mp4`;
+                    // The platform this export was actually made for, not the
+                    // picker's local state — which resets to "tiktok" on every
+                    // mount, so reopening a finished Reels export and pressing
+                    // Download saved `my-video-tiktok.mp4`. The card two lines
+                    // up already gets this right; the filename did not, and
+                    // somebody exporting one edit for three platforms ends up
+                    // with three files whose names disagree with their
+                    // contents.
+                    const madeFor = exportStatus?.platform || platform;
+                    const filename = `${project.title.replace(/\s+/g, '-').toLowerCase()}-${madeFor}.mp4`;
 
                     /*
                       Signed for saving, not for playing.
@@ -623,10 +730,17 @@ export default function ExportPage() {
                 ) : null}
 
                 <div className="mt-6 flex gap-4 justify-center">
-                  <Button variant="outline" className="border-hairline" onClick={() => {
-                    setIsExporting(false); // Reset to start another export
-                    queryClient.invalidateQueries({ queryKey: getGetExportStatusQueryKey(id) });
-                  }}>
+                  {/* Back to the picker, and only that. This used to clear
+                      `isExporting` and refetch the status, which asks the
+                      server to say "done" again and puts the finished card
+                      straight back; `startingAnother` is a decision this screen
+                      makes and the status query cannot overrule. */}
+                  <Button
+                    variant="outline"
+                    className="border-hairline"
+                    onClick={() => setStartingAnother(true)}
+                    data-testid="button-export-another"
+                  >
                     {t(EXPORT.anotherFormat)}
                   </Button>
                 </div>

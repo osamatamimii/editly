@@ -35,12 +35,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { VIDEO_UPLOAD_EXTENSIONS } from "@workspace/api-zod/limits";
 import { useToast } from "@/hooks/use-toast";
 import { stashPendingUpload, stashPendingMessage, titleFromFilename } from "@/lib/pending-upload";
 import {
-  ACCEPTED_VIDEO_TYPES,
+  isAcceptableVideo,
+  whyNotAVideo,
+  isHeic,
   formatBytes,
-  uploadCeiling,
+  servedCeiling,
 } from "@/lib/video-storage";
 import { SUGGESTIONS, skipFirstRun } from "@/lib/first-run";
 import { useLanguage } from "@/lib/language";
@@ -86,16 +89,38 @@ export default function Onboarding() {
    * somebody's phone, and they have to go and delete it.
    */
   const accept = (picked: File) => {
-    if (!ACCEPTED_VIDEO_TYPES.includes(picked.type) && !picked.name.match(/\.(mp4|mov|webm)$/i)) {
+    if (!isAcceptableVideo(picked)) {
       toast({
-        title: say("That file is not a video", "هذا الملفّ ليس فيديو"),
-        description: say("Editly takes mp4, mov and webm.", "الصيغ المقبولة: mp4 وmov وwebm."),
+        title: say("We cannot use that file", "لا يمكننا استعمال هذا الملفّ"),
+        /* Named from the one table that decides, not from memory. This
+           sentence said "mp4, mov and webm" while the product also took mkv
+           and m4v, so it was refusing files it would have stored and telling
+           the person the wrong list on the way.
+
+           `whyNotAVideo` carries the English, including the one case that
+           matters most on a first-run screen: an iPhone photo, which is HEIC
+           and which this sentence used to answer with "that is not a video". */
+        description: say(
+          whyNotAVideo(picked),
+          isHeic(picked)
+            ? "هذه صورة HEIC من آيفون ولا نستطيع قراءتها بعد. من الهاتف: الإعدادات، الكاميرا، الصيغ، «الأكثر توافقًا» يحفظ بصيغة JPEG، ومشاركة صورة موجودة عبر البريد أو الملفات تحوّلها أيضًا."
+            : `الصيغ المقبولة: ${VIDEO_UPLOAD_EXTENSIONS.join("، ")}.`,
+        ),
         variant: "destructive",
       });
       return;
     }
-    const ceiling = uploadCeiling(subscription);
-    if (picked.size > ceiling) {
+    /*
+      See `servedCeiling`: nothing is said until the server has said it.
+
+      `uploadCeiling` falls back to 50 MB, which is the free plan's number, and
+      this is the *first-run* screen — so a customer who had just paid for Pro
+      and came straight here was told their file was too large before the
+      subscription query had answered. The one screen where being wrong costs
+      the most.
+    */
+    const ceiling = servedCeiling(subscription);
+    if (ceiling !== null && picked.size > ceiling) {
       toast({
         title: say("That file is too large", "هذا الملفّ أكبر من المسموح"),
         description: say(

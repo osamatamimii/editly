@@ -120,6 +120,34 @@ step that has no CLI shortcut and no rollback of its own. `tools/restore-test.mj
 exists to prove the restore path works before it is needed — run it, do not
 learn its output during an incident.
 
+## If storage has moved to R2
+
+Two settings have no equivalent in the code, and both fail quietly.
+
+**The bucket's CORS must expose `ETag`.** A multipart upload is assembled from
+the etag each part returns, and a cross-origin request cannot read a response
+header the bucket has not exposed. Without it every part uploads perfectly,
+the progress bar reaches the end, and the completion has nothing to assemble
+with — it fails as "the last step does nothing", with no error in any log of
+ours because our server was never called.
+
+```
+[{ "AllowedOrigins": ["https://app.editlyai.io"],
+   "AllowedMethods": ["GET","PUT","POST","DELETE","HEAD"],
+   "AllowedHeaders": ["*"],
+   "ExposeHeaders": ["ETag"] }]
+```
+
+**And abandoned uploads need a lifecycle rule.** A multipart upload nobody
+completed keeps every part it received, billed as storage and invisible to a
+listing — so nothing in this product can see it and no sweep can reclaim it.
+Set the bucket to abort incomplete multipart uploads after 7 days.
+
+The switch itself is `OBJECT_STORE_PROVIDER=r2` plus `R2_ENDPOINT`,
+`R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`. Anything less than all four and
+the store refuses to construct, loudly, rather than falling back to Supabase
+with credentials that are half set.
+
 ## Telling people
 
 Say something before it is fixed. A status note that says "renders are queued

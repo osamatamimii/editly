@@ -8,6 +8,7 @@ import {
   useGetSubscription,
   useStartRender,
   useRenderStatus,
+  useCancelRender,
   useTemplates,
   isRenderInFlight,
   getGetProjectQueryKey,
@@ -16,6 +17,7 @@ import {
   type EditOperation,
   type EditPlan
 } from "@workspace/api-client-react";
+import { MAX_MESSAGE_LENGTH } from "@workspace/api-zod/limits";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,8 +43,10 @@ import {
   uploadReferenceVideo,
   MAX_REFERENCE_BYTES,
   usePlayableVideo,
-  ACCEPTED_VIDEO_TYPES,
-  uploadCeiling,
+  isAcceptableVideo,
+  whyNotAVideo,
+  ACCEPTED_VIDEO_ACCEPT,
+  servedCeiling,
   formatBytes,
   readVideoFacts,
   captureThumbnail,
@@ -62,6 +66,58 @@ import { useLanguage } from "@/lib/language";
 import { COMMON, LOAD } from "@/lib/copy/common";
 import { DASHBOARD } from "@/lib/copy/dashboard";
 import { EDITOR } from "@/lib/copy/editor";
+import { phrase } from "@/lib/landing-copy";
+
+/**
+ * The sentences this screen gained after `lib/copy/editor.ts` was written.
+ *
+ * Same primitives and the same register as that file, kept beside the code
+ * that says them rather than merged into it: every one of them belongs to a
+ * control that did not exist when the copy table was filled in — the stop and
+ * cancel buttons, the two progress bars a screen reader can now read, the
+ * refusal that replaces a canned plan. They move into `lib/copy/editor.ts`
+ * whole, unchanged, the next time that file is opened.
+ *
+ * `uploadProgress`, `renderProgress` and `send` are `aria-label`s, which is to
+ * say they are sentences a screen reader reads aloud. A screen reader set to
+ * Arabic reading "Upload progress" is the same bug as an Arabic page with an
+ * English heading, minus anybody sighted noticing.
+ */
+const MORE = {
+  cannotUseFile: phrase("لا يمكننا استخدام هذا الملف", "We cannot use that file"),
+
+  uploadCancelled: phrase("أُلغي الرفع", "Upload cancelled"),
+  uploadCancelledDetail: phrase(
+    "لم يُحفَظ شيء. اختر ملفًّا آخر متى شئت.",
+    "Nothing was stored. Pick another file when you are ready.",
+  ),
+  cancelUpload: phrase("ألغِ هذا الرفع", "Cancel this upload"),
+  uploadProgress: phrase("تقدّم الرفع", "Upload progress"),
+  /** Without the ceiling, for when the server has not said what it is. */
+  uploadFormatsPlain: phrase("MP4 أو MOV أو WebM", "MP4, MOV or WebM"),
+
+  renderProgress: phrase("تقدّم التنفيذ", "Render progress"),
+  stopThisRender: phrase("أوقف هذا التنفيذ", "Stop this render"),
+  stopping: phrase("يتوقّف…", "Stopping…"),
+  youStoppedThat: phrase("أنت أوقفت هذا التنفيذ.", "You stopped that render."),
+  runItAgain: phrase("شغّله من جديد", "Run it again"),
+  lostSightOfIt: phrase(
+    "غابت عنّا أخبار هذا التنفيذ للحظة. ما زال جاريًا، وتحديث الصفحة يعيد وصله.",
+    "We have lost sight of this render for a moment. It is still going; reloading the page will pick it back up.",
+  ),
+
+  noEditOutOfThat: phrase("لم أخرج بتعديل من ذلك", "I did not get an edit out of that"),
+  noEditOutOfThatDetail: phrase(
+    "قل لي ما الذي أغيّره وأبنيه لك. اكتبها أمرًا، مثل «احذف الصمت وأضف الكابشن».",
+    "Tell me what to change and I will build it. Say it as an instruction, like \u201ccut the silences and caption it\u201d.",
+  ),
+  send: phrase("أرسل", "Send"),
+
+  referenceIsPaid: phrase(
+    "مطابقة أسلوب فيديو آخر متاحة في الخطط المدفوعة. ارفع مقطعًا يعجبك، ويأخذ تنفيذك القادم إيقاعه، ومقدار الصمت الذي يبقيه، ومستوى صوته، وألوانه.",
+    "Matching another video's style is on the paid plans. Upload a clip you like and your next render copies its pace, how much silence it keeps, its level and its colour.",
+  ),
+} as const;
 
 /** m:ss — anything longer than an hour is not what this product is for. */
 function formatTimecode(seconds: number): string {
@@ -113,6 +169,20 @@ export default function ProjectEditor() {
   const [isAttachingReference, setIsAttachingReference] = useState(false);
   /** The plan derived from the conversation, if the assistant understood one. */
   const [chatPlan, setChatPlan] = useState<EditPlan | null>(null);
+  /**
+   * Whether anybody has actually said anything about this edit.
+   *
+   * `chatPlan === null` meant two different things and the button treated them
+   * as one: "nobody has asked for anything yet", where a sensible default is
+   * the whole point of a button; and "what you just asked for produced no
+   * operations", where a default is the opposite of what was asked. The second
+   * is the ordinary shape of a *correction* — "actually drop the captions"
+   * parses to nothing — so pressing Generate Edit after one rendered the
+   * canned plan instead, and the canned plan reframes to a vertical platform.
+   * A 16:9 podcast came back cropped to a phone, after a sentence that had
+   * nothing to do with shape.
+   */
+  const [saidSomething, setSaidSomething] = useState(false);
   /** Set when the browser cannot decode or reach the file behind playbackUrl. */
   const [playbackFailed, setPlaybackFailed] = useState(false);
   /**
@@ -250,8 +320,9 @@ export default function ProjectEditor() {
   const { user } = useAuth();
 
   // The worker is the source of truth for what is happening to this video.
-  const { data: renderJob } = useRenderStatus(id, { enabled: !!id });
+  const { data: renderJob, isError: renderStatusUnreachable } = useRenderStatus(id, { enabled: !!id });
   const isProcessingEdit = isRenderInFlight(renderJob);
+  const cancelRender = useCancelRender();
 
   /**
    * The render settled, so the project row is now out of date. Refetch it.
@@ -569,18 +640,27 @@ export default function ProjectEditor() {
   }, [messages, isProcessingEdit, renderJob?.progress, isNoahThinking]);
 
   const validateAndUpload = async (file: File) => {
-    if (!ACCEPTED_VIDEO_TYPES.includes(file.type) && !file.name.match(/\.(mp4|mov|webm)$/i)) {
+    if (!isAcceptableVideo(file)) {
       toast({
-        title: t(DASHBOARD.badFileType),
-        description: t(DASHBOARD.badFileTypeDetail),
+        title: t(MORE.cannotUseFile),
+        // See `whyNotAVideo`: the sentence that was here named three formats
+        // out of nine and had nothing to say about the single most-refused
+        // file in the product, which is an iPhone photo. `DASHBOARD.badFileType`
+        // — "Invalid file type" — is the title that went with it.
+        description: whyNotAVideo(file),
         variant: "destructive"
       });
       return;
     }
     // Storage's ceiling, served from the subscription, not the one baked into
-    // this bundle at build time.
-    const ceiling = uploadCeiling(subscription);
-    if (file.size > ceiling) {
+    // this bundle at build time — and only when the server has actually said
+    // what it is. `uploadCeiling` falls back to 50 MB, which is the free
+    // plan's order of magnitude, so while this query is in flight or failing
+    // it refused a Pro customer's 1.4 GB file naming a limit that is not
+    // theirs. The signing route enforces the real ceiling before a byte is
+    // sent, so saying nothing costs a round trip and guessing costs a customer.
+    const ceiling = servedCeiling(subscription);
+    if (ceiling !== null && file.size > ceiling) {
       toast({
         title: t(DASHBOARD.fileTooLarge),
         description: fmt(DASHBOARD.fileTooLargeDetail, formatBytes(file.size), formatBytes(ceiling)),
@@ -661,11 +741,24 @@ export default function ProjectEditor() {
         description: t(EDITOR.uploadedDetail)
       });
     } catch (error) {
-      toast({
-        title: t(EDITOR.uploadFailed),
-        description: error instanceof Error ? error.message : undefined,
-        variant: "destructive"
-      });
+      /*
+        A cancellation is not a failure and must not be apologised for.
+
+        The person pressed the button; telling them "Upload failed" for doing
+        what they asked is the same wrong sentence a stopped render used to
+        get. `UploadError` carries `retryable: false` for this case and the
+        message is already the right one.
+      */
+      const message = error instanceof Error ? error.message : "";
+      if (/cancelled/i.test(message)) {
+        toast({ title: t(MORE.uploadCancelled), description: t(MORE.uploadCancelledDetail) });
+      } else {
+        toast({
+          title: t(EDITOR.uploadFailed),
+          description: message || undefined,
+          variant: "destructive",
+        });
+      }
     } finally {
       cancelUploadRef.current = null;
       setIsUploading(false);
@@ -764,8 +857,26 @@ export default function ProjectEditor() {
         // looks broken half the time.
         data: { content, fonts }
       }) as unknown as { plan?: EditPlan | null; render?: { id: string } | null };
-      // Whatever the reply promised is exactly what Generate Edit will build.
-      if (result?.plan) setChatPlan(result.plan);
+      /*
+        Whatever the reply promised is exactly what Generate Edit will build —
+        including when the reply promised nothing.
+
+        This was `if (result?.plan) setChatPlan(result.plan)`, so a `null` plan
+        left the previous one standing. The server returns null whenever a
+        sentence yields zero operations, and the sentence most likely to do
+        that is a *correction*: "cut the silences and caption it" builds a plan,
+        "actually drop the captions" parses to nothing, and the editor still
+        held the first one. Pressing Generate Edit then rendered the captions
+        the person had just asked to remove, and Noah's last reply had not
+        promised them.
+
+        Nothing failed anywhere. The reply was honest, the plan was valid, and
+        they were about different sentences.
+      */
+      setChatPlan(result?.plan ?? null);
+      // Said, whatever came of it. See `saidSomething`: a null plan after a
+      // sentence is a different fact from a null plan before one.
+      setSaidSomething(true);
       queryClient.invalidateQueries({ queryKey: getListMessagesQueryKey(id) });
       // The sentence may have *started the render* — that is the product's
       // promise, one prompt and the work begins. The server already queued it;
@@ -857,13 +968,40 @@ export default function ProjectEditor() {
   };
 
   const handleGenerateEdit = async () => {
-    // Whatever the conversation settled on, falling back to the sensible
-    // default when nobody has said anything specific.
+    /*
+      A correction that produced nothing is not an invitation to invent a plan.
+
+      See `saidSomething`. If they have spoken and there is no plan, the
+      honest move is to say so and let them rephrase — rendering the canned
+      default here means answering a sentence with something the sentence did
+      not ask for, and charging a minute for it.
+    */
+    if (!chatPlan && saidSomething) {
+      toast({
+        title: t(MORE.noEditOutOfThat),
+        description: t(MORE.noEditOutOfThatDetail),
+      });
+      return;
+    }
+
+    /*
+      Whatever the conversation settled on, or the default for a person who
+      has said nothing at all and pressed the button.
+
+      `formatForPlatform` is in that default only when the project already has
+      a platform. It used to fall back to `"tiktok"`, which reframes to 9:16 —
+      so the one-button path took a 16:9 recording from somebody who had never
+      mentioned a platform and returned it cropped to a phone. Reshaping
+      somebody's picture is not a sensible default; it is the most visible
+      change this product can make, and nothing had asked for it.
+    */
+    const platform = project?.platform as
+      | "tiktok" | "reels" | "shorts" | "youtube" | "square" | null | undefined;
     const operations: EditOperation[] = chatPlan
       ? [...chatPlan.operations]
       : [
           { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
-          { type: "formatForPlatform", platform: (project?.platform ?? "tiktok") as "tiktok" | "reels" | "shorts" | "youtube" | "square" },
+          ...(platform ? [{ type: "formatForPlatform" as const, platform }] : []),
         ];
 
     // The mark is not sent from here, and deliberately so. It used to be, with
@@ -1248,6 +1386,33 @@ export default function ProjectEditor() {
             {t(COMMON.remove)}
           </button>
         </div>
+      ) : subscription && subscription.referenceStyle === false ? (
+        /*
+          Said before the upload, not after it.
+
+          The plan check lives on `PATCH /projects/:id`, which is the *last*
+          step: the panel invited a free customer to choose a clip,
+          `uploadReferenceVideo` pushed up to 25 MB into the bucket, the
+          progress finished, and only then did a 402 arrive saying it is a paid
+          feature. The bytes stay in their prefix with no row naming them.
+
+          `referenceStyle` has been on `GET /subscription` the whole time and
+          nothing in the browser read it. The server's refusal stays exactly
+          where it is — this is a screen that stops wasting somebody's upload,
+          not a gate anybody could remove by editing the bundle.
+        */
+        <div data-testid="reference-needs-plan">
+          <p className="text-xs leading-snug text-muted-foreground mb-2">
+            {t(MORE.referenceIsPaid)}
+          </p>
+          <a
+            href="/#pricing"
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-hairline bg-surface-1 px-4 py-2.5 text-xs font-medium transition-all hover:border-primary/40 hover:bg-white/[0.06]"
+            data-testid="link-reference-plans"
+          >
+            {t(COMMON.seePlans)}
+          </a>
+        </div>
       ) : (
         <>
           <p className="text-xs leading-snug text-muted-foreground mb-2">
@@ -1269,7 +1434,7 @@ export default function ProjectEditor() {
             )}
             <input
               type="file"
-              accept={ACCEPTED_VIDEO_TYPES.join(",")}
+              accept={ACCEPTED_VIDEO_ACCEPT}
               className="hidden"
               disabled={isAttachingReference}
               onChange={(e) => {
@@ -1289,7 +1454,7 @@ export default function ProjectEditor() {
   // operations, and a panel that appears only after the upload teaches people
   // the library is an afterthought.
   const library = project && user?.id && (
-    <ProjectLibrary projectId={project.id} ceiling={uploadCeiling(subscription)} />
+    <ProjectLibrary projectId={project.id} ceiling={servedCeiling(subscription)} />
   );
 
   const clipsPanel = (
@@ -1474,8 +1639,19 @@ export default function ProjectEditor() {
             disabled={!hasVideo}
             onClick={() => setLocation(`/export/${project.id}`)}
             data-testid="button-export"
+            /*
+              A name, because below 640px the word is not rendered.
+
+              `hidden sm:inline` removes the text node entirely, so on a phone
+              this control's accessible name was its icon: nothing. A screen
+              reader announced "button", twice in a row, for the two most
+              important actions in the product. The label is stated rather than
+              inferred so it is the same at every width, which is also what the
+              testing surface wants.
+            */
+            aria-label={t(EDITOR.export)}
           >
-            <Download className="w-4 h-4 sm:me-2" />
+            <Download className="w-4 h-4 sm:me-2" aria-hidden="true" />
             <span className="hidden sm:inline">{t(EDITOR.export)}</span>
           </Button>
           <Button
@@ -1487,8 +1663,10 @@ export default function ProjectEditor() {
             disabled={!hasVideo || isProcessingEdit || project.status === 'uploading'}
             onClick={handleGenerateEdit}
             data-testid="button-generate-edit"
+            // Same as Export beside it: the word is not rendered below 640px.
+            aria-label={t(EDITOR.generateEdit)}
           >
-            <Wand2 className="w-4 h-4 sm:me-2" />
+            <Wand2 className="w-4 h-4 sm:me-2" aria-hidden="true" />
             <span className="hidden sm:inline">{t(EDITOR.generateEdit)}</span>
           </Button>
         </div>
@@ -1534,19 +1712,75 @@ export default function ProjectEditor() {
                     <h3 className="text-xl font-semibold mb-2" data-testid="text-upload-heading">
                       {uploadPhase === "finishing" ? t(EDITOR.finishing) : t(EDITOR.uploading)}
                     </h3>
-                    <div className="w-full h-2 bg-surface-2 rounded-full overflow-hidden mb-2">
+                    {/*
+                      A progress bar a screen reader can read.
+
+                      Nothing in this product had `role="progressbar"` or an
+                      `aria-live` region — the two long waits in it, the upload
+                      and the render, were a coloured div growing silently. To
+                      somebody using a screen reader the page went quiet at the
+                      moment they most needed to know whether anything was
+                      happening, for minutes at a time.
+
+                      The bar carries the number; the sentence below it is the
+                      live region, because announcing a percentage on every
+                      change would be unusable — `aria-live="polite"` on the
+                      text lets the reader speak the milestone rather than the
+                      tick.
+                    */}
+                    <div
+                      className="w-full h-2 bg-surface-2 rounded-full overflow-hidden mb-2"
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={uploadProgress}
+                      aria-label={t(MORE.uploadProgress)}
+                    >
                       <div className="h-full bg-primary transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
                     </div>
                     {uploadPhase === "finishing" ? (
-                      <p className="text-sm text-muted-foreground" data-testid="text-upload-progress">
+                      <p className="text-sm text-muted-foreground" data-testid="text-upload-progress" aria-live="polite">
                         {t(EDITOR.finishingDetail)}
                       </p>
                     ) : (
-                      <p className="text-sm text-muted-foreground" data-testid="text-upload-progress">
+                      <p className="text-sm text-muted-foreground" data-testid="text-upload-progress" aria-live="polite">
                         {uploadProgress}%
                         {totalBytes > 0 &&
                           fmt(EDITOR.uploadedOf, formatBytes(uploadedBytes), formatBytes(totalBytes))}
                       </p>
+                    )}
+                    {/*
+                      The button the whole cancel mechanism was waiting for.
+
+                      `video-storage.ts` returns a `cancel` on every upload
+                      handle, aborts the request, refuses to resume, and says
+                      "Upload cancelled." — and `uploadProjectVideo`'s own
+                      comment says "the caller wires `cancel` to a button that
+                      is already on screen". There was no such button. The
+                      handle was stored in a ref, cleared in two places, and
+                      read by nothing: a complete feature, tested at the
+                      library level, unreachable from the product.
+
+                      What that cost is specific. Uploading a 1.4 GB file you
+                      picked by mistake meant closing the tab, and closing the
+                      tab is the one action this screen cannot recover from.
+
+                      Only while bytes are moving: once `uploadPhase` is
+                      "finishing" the file is committed and there is nothing
+                      left to stop.
+                    */}
+                    {uploadPhase !== "finishing" && (
+                      <button
+                        type="button"
+                        className="mt-3 text-xs text-muted-foreground hover:text-destructive underline underline-offset-4"
+                        data-testid="button-cancel-upload"
+                        onClick={() => {
+                          cancelUploadRef.current?.();
+                          cancelUploadRef.current = null;
+                        }}
+                      >
+                        {t(MORE.cancelUpload)}
+                      </button>
                     )}
                   </div>
                 ) : (
@@ -1562,8 +1796,16 @@ export default function ProjectEditor() {
                     </div>
                     <h3 className="text-xl font-semibold mb-2">{t(EDITOR.uploadTitle)}</h3>
                     <p className="text-muted-foreground mb-2">{t(EDITOR.uploadHint)}</p>
+                    {/* The number only when it is this person's number.
+                        `servedCeiling` is null while the subscription query is
+                        in flight or failing, and `uploadCeiling` folded that
+                        into 50 MB — the free plan's order of magnitude — so
+                        this line quoted a Pro customer the wrong limit for as
+                        long as the query took. */}
                     <p className="text-xs text-muted-foreground/60 mb-6">
-                      {fmt(EDITOR.uploadFormats, formatBytes(uploadCeiling(subscription)))}
+                      {servedCeiling(subscription) !== null
+                        ? fmt(EDITOR.uploadFormats, formatBytes(servedCeiling(subscription) as number))
+                        : t(MORE.uploadFormatsPlain)}
                     </p>
                     <Button variant="secondary" className="rounded-full pointer-events-none">
                       {t(EDITOR.selectVideo)}
@@ -2059,7 +2301,20 @@ export default function ProjectEditor() {
                     >
                       {renderJob?.status === "failed" ? (
                         <>
-                          <p className="font-semibold text-destructive mb-1">{t(EDITOR.renderDidNotFinish)}</p>
+                          {/* A render somebody stopped is not a failure, and
+                              telling them it is means apologising for their own
+                              decision. The server settles a stopped render as
+                              `failed` — every reader of `status` means "not
+                              going any more" by it — and marks it `cancelled`,
+                              which is the only thing that can tell the two
+                              apart here. */}
+                          <p
+                            className={`font-semibold mb-1 ${
+                              renderJob.cancelled ? "text-foreground" : "text-destructive"
+                            }`}
+                          >
+                            {renderJob.cancelled ? t(MORE.youStoppedThat) : t(EDITOR.renderDidNotFinish)}
+                          </p>
                           <p dir="auto" className="text-xs text-muted-foreground" data-testid="text-render-error">
                             {renderJob.error ?? t(EDITOR.somethingOnOurSide)}
                           </p>
@@ -2073,7 +2328,11 @@ export default function ProjectEditor() {
                             disabled={startRender.isPending}
                             onClick={handleRetryRender}
                           >
-                            {startRender.isPending ? t(EDITOR.starting) : t(EDITOR.tryRenderAgain)}
+                            {startRender.isPending
+                              ? t(EDITOR.starting)
+                              : renderJob.cancelled
+                                ? t(MORE.runItAgain)
+                                : t(EDITOR.tryRenderAgain)}
                           </Button>
                         </>
                       ) : (
@@ -2094,16 +2353,71 @@ export default function ProjectEditor() {
                               ? (renderJob.stage ?? waitInWords(renderJob.waitSeconds, language))
                               : (renderJob?.stage ?? t(EDITOR.workingOnIt))}
                           </p>
-                          <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
+                          {/* See the upload bar above: the number on the bar,
+                              the sentence below it as the live region. */}
+                          <div
+                            className="h-1.5 bg-surface-2 rounded-full overflow-hidden"
+                            role="progressbar"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={renderJob?.progress ?? 0}
+                            aria-label={t(MORE.renderProgress)}
+                          >
                             <div
                               className="h-full bg-secondary transition-all duration-500"
                               style={{ width: `${renderJob?.progress ?? 0}%` }}
                               data-testid="bar-render-progress"
                             />
                           </div>
-                          <p className="text-xs text-muted-foreground mt-2">
+                          <p className="text-xs text-muted-foreground mt-2" aria-live="polite">
                             {fmt(EDITOR.keepsGoing, renderJob?.progress ?? 0)}
                           </p>
+                          {/*
+                            When the poll itself stops answering.
+
+                            The bar is drawn from the last *successful* answer,
+                            so a 401 on a tab left open overnight, or a
+                            sustained 5xx, left it frozen at whatever it had
+                            reached with nothing on screen to say why. The
+                            render is almost certainly still going — it is on a
+                            machine that does not know this tab exists — so the
+                            honest sentence is that we lost sight of it, not
+                            that it stopped.
+                          */}
+                          {renderStatusUnreachable && (
+                            <p className="text-xs text-muted-foreground mt-1" data-testid="text-render-unreachable">
+                              {t(MORE.lostSightOfIt)}
+                            </p>
+                          )}
+                          {/*
+                            The way out of a render you did not mean to start.
+
+                            Until this existed the only option was to wait —
+                            and one render at a time per project means the
+                            render they *did* want could not start until the
+                            one they did not had finished. On a long source
+                            that is hours.
+
+                            It stays pressed-looking until the poll says
+                            otherwise rather than hiding the panel, because a
+                            running render is stopped by asking a machine that
+                            is inside ffmpeg: it takes a few seconds, and a
+                            screen that claimed it had already stopped would be
+                            wrong for those seconds in a way the person could
+                            see by refreshing.
+                          */}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="mt-3 text-xs text-muted-foreground hover:text-destructive"
+                            data-testid="button-cancel-render"
+                            disabled={cancelRender.isPending || Boolean(renderJob?.cancelled)}
+                            onClick={() => { if (id) cancelRender.mutate({ id }); }}
+                          >
+                            {renderJob?.cancelled || cancelRender.isPending
+                              ? t(MORE.stopping)
+                              : t(MORE.stopThisRender)}
+                          </Button>
                         </>
                       )}
                     </div>
@@ -2128,6 +2442,16 @@ export default function ProjectEditor() {
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
                 placeholder={t(EDITOR.describeYourEdit)}
+                /* The same ceiling the API enforces, said here first.
+
+                   `MAX_MESSAGE_LENGTH` is a real refusal on the server, and a
+                   refusal the browser could have prevented is a worse
+                   experience than one it never allowed: the person finds out
+                   after pressing send, with the sentence gone from the box.
+                   The marks a person places are folded into the same string,
+                   so the ceiling has to leave room for them — see
+                   `handleSendChat`, which is where the two are joined. */
+                maxLength={MAX_MESSAGE_LENGTH}
                 /* `md:h-12` because the Input component sets `md:h-9` for form fields and
                    twMerge keeps both — different breakpoints, no conflict to resolve — so
                    the chat bar quietly became 36px tall on a desktop while the buttons
@@ -2161,8 +2485,12 @@ export default function ProjectEditor() {
                    ring is there at rest, which is the only state a phone has. */
                 className="aura-btn no-default-hover-elevate absolute end-1 top-1 h-10 w-10 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary"
                 data-testid="button-send-message"
+                // An icon-only button at every width, so it never had a name
+                // at all: the one control that submits the sentence the whole
+                // product is built around announced itself as "button".
+                aria-label={t(MORE.send)}
               >
-                <Send className="w-4 h-4" />
+                <Send className="w-4 h-4" aria-hidden="true" />
               </Button>
             </form>
             {voiceError && (

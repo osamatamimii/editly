@@ -71,6 +71,27 @@ for (const parser of bodyParsers()) app.use(parser);
 
 app.use("/api", router);
 
+/*
+  Anything under /api that no route matched, answered in the API's own language.
+
+  Without this, an unmatched path fell to Express's built-in 404 — which sends
+  **HTML**: `<pre>Cannot GET /api/nope</pre>` in a full document. The generated
+  client reads every response as JSON, so a mistyped path, a route removed
+  between deploys, or a client built against a newer API reached the browser as
+  a *parse error* rather than as a 404 anybody could branch on. That is the
+  exact failure `errorHandler` was written to remove, left in place at the one
+  door it does not cover: the handler only sees requests that reached a route.
+
+  Scoped to `/api` on purpose. Everything else this server hosts is not the
+  API, and a 404 there is the platform's to answer.
+
+  Before the error handler, because Express runs middleware in order and an
+  error handler placed first would never see it.
+*/
+app.use("/api", (req, res) => {
+  res.status(404).json({ error: `No API route matches ${req.method} ${req.baseUrl}${req.path}.` });
+});
+
 // Last, and after the routes, because that is how Express finds it. Without one
 // mounted, every throw fell through to Express's default handler: HTML, which
 // the generated client cannot parse, carrying a stack outside production.

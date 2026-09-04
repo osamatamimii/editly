@@ -144,6 +144,15 @@ paths:
       operationId: deleteProject
       tags: [projects]
       summary: Delete a project
+      description: >
+        Removes the project, its conversation, its exports and its bytes.
+        Anything still queued to be posted from it is cancelled with a reason
+        written onto the row — `scheduled_posts` has no foreign key here, so a
+        delete used to leave posts pointing at a project and an export that no
+        longer existed, and they failed silently days later at their scheduled
+        hour. Job rows survive on purpose: minutes that were produced were
+        produced, and cascading them would make deleting projects a way to reset
+        the meter.
       parameters:
         - name: id
           in: path
@@ -152,7 +161,17 @@ paths:
             type: string
       responses:
         "204":
-          description: Deleted
+          description: Deleted, with nothing queued from it
+        "200":
+          description: Deleted, and this many scheduled posts were cancelled with it
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, cancelledPosts]
+                properties:
+                  deleted: { type: boolean }
+                  cancelledPosts: { type: integer, minimum: 1 }
 
   /projects/{id}/messages:
     get:
@@ -257,7 +276,15 @@ paths:
     patch:
       operationId: updateSubscription
       tags: [subscription]
-      summary: Update the current subscription plan
+      summary: Reduce the current plan
+      description: >
+        Downgrades only; an upgrade answers 402 and points at checkout, because
+        this endpoint proves who is asking and not that anybody paid. It changes
+        what the account may do and does **not** stop the card: Freemius is the
+        merchant of record and nothing here can cancel a subscription there. When
+        there was a paid plan behind the change the response carries
+        `billingUnchanged`, which the screen shows, so nobody learns it from a
+        bank statement instead.
       requestBody:
         required: true
         content:
@@ -270,7 +297,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SubscriptionUsage"
+                $ref: "#/components/schemas/UpdateSubscriptionResponse"
+        "402":
+          description: An upgrade, which goes through checkout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /stats/dashboard:
     get:
@@ -624,6 +657,51 @@ paths:
                 oneOf:
                   - $ref: "#/components/schemas/RenderJob"
                   - type: "null"
+
+  /projects/{id}/render/cancel:
+    post:
+      operationId: cancelRender
+      tags: [render]
+      summary: Stop the render that is going
+      description: >
+        Two answers, because a queued render and a running one are different
+        things. A queued render has not been claimed by anybody, so it is
+        stopped here and now and the response is 200. A running one belongs to
+        a machine that is inside ffmpeg: the request is recorded and the worker
+        acts on it at its next progress report, so the response is 202 and the
+        job is still `running` when it is sent. Claiming it had already stopped
+        would be a lie the customer could see through by refreshing.
+
+
+        A stopped render settles as `failed` carrying `cancelled: true` — see
+        RenderJob.cancelled — rather than as a status of its own.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: It was queued, and is now stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelRenderResponse"
+        "202":
+          description: It is being rendered; the machine has been asked to stop
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelRenderResponse"
+        "404":
+          description: No such project, or it has never been rendered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: That render has already finished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /templates:
     get:
@@ -2756,6 +2834,23 @@ components:
     # The meter is minutes of finished video, not videos: counting videos
     # charged the same for a nine-second hook and a ninety-minute episode.
     # maxUploadMinutes is here because it is what actually separates the tiers.
+    UpdateSubscriptionResponse:
+      allOf:
+        - $ref: "#/components/schemas/SubscriptionUsage"
+        - type: object
+          properties:
+            billingUnchanged:
+              description: >-
+                Present when the plan that was reduced was a paid one. The plan
+                here has moved and the card has not, and this says so with
+                somewhere to go about it.
+              type: object
+              required: [was, message, where]
+              properties:
+                was: { type: string }
+                message: { type: string }
+                where: { type: string }
+
     SubscriptionUsage:
       type: object
       properties:
@@ -4139,6 +4234,23 @@ components:
             $ref: "#/components/schemas/EditOperation"
       required: [version, operations]
 
+    CancelRenderResponse:
+      description: >
+        What stopping a render answers with. `status` is the row's status after
+        the request: `failed` when it was queued and stopped outright,
+        `running` when a machine still has it and has only been asked.
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, done, failed]
+        cancelled:
+          type: boolean
+          enum: [true]
+      required: [id, status, cancelled]
+
     RenderJob:
       type: object
       properties:
@@ -4164,6 +4276,15 @@ components:
           type: array
           items:
             type: string
+        cancelled:
+          description: >
+            True when the person stopped this render rather than it failing. A
+            stopped render is `failed`, because that is what every reader of
+            status understands as "not going any more", which leaves the screen
+            unable to tell a decision from a fault - and an apology for a
+            failure that did not happen is worse than no message. Absent on
+            every other job.
+          type: boolean
         waitSeconds:
           description: >
             Seconds until this render starts. Present only on a queued job, and

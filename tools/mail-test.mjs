@@ -39,6 +39,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { resolveTestDatabaseUrl } from "./lib/test-db.mjs";
+import { order } from "./lib/order.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -206,10 +207,14 @@ section("The way out is real, and it is in the letter and in the headers");
   const route = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/mail.ts"), "utf8");
   check("there is a route behind it", /router\.post\("\/mail\/unsubscribe\/:token"/.test(route));
   check("that reads without acting, because scanners follow links", /router\.get\("\/mail\/unsubscribe\/:token"/.test(route));
+  // Both branches wrote this check; the other spelled the ordering half as
+  // `route.indexOf("update mail_settings") > route.indexOf('router.post(...')`,
+  // which passes when the write is missing altogether (-1 is below everything).
+  // `order()` refuses that case, and deploy-test now forbids the old spelling.
   check(
     "and the GET really does not change anything",
     !/update mail_settings[\s\S]{0,400}?\}\);\s*\n\s*\/\*\*[\s\S]{0,200}Stop the news/.test(route) &&
-      route.indexOf("update mail_settings") > route.indexOf('router.post("/mail/unsubscribe'),
+      order(route, 'router.post("/mail/unsubscribe', "update mail_settings").ok,
     "a GET that unsubscribes is a GET that unsubscribes everybody whose mail passes a scanner",
   );
 
@@ -380,13 +385,146 @@ section("What actually goes to the provider");
   check("and no unsubscribe line on an account message", !/unsubscribe|إيقاف رسائل/i.test(call.body.text), call.body.text);
 }
 
+section("A send whose outcome is unknown keeps its claim");
+{
+  /*
+    The `!response.ok` branch releases correctly: a 4xx or 5xx body is a
+    definite non-send, so freeing the claim lets a retry work. The `catch` is
+    not the same thing — it catches a twenty-second abort, an `ECONNRESET`, a
+    socket closed after Resend accepted the POST — and it was releasing too.
+
+    In each of those the message may already be in their queue, and the outcome
+    returned is the one callers retry. So the next attempt found no row,
+    claimed it, and sent a second copy: two identical "your edit is ready" or
+    "your card was declined" letters, on a domain with no reputation to spend.
+
+    `release`'s own comment already had the rule — "Leaving the claim is the
+    safe direction: at worst one message is not sent. The other direction sends
+    two." This is the branch that was not following it.
+  */
+  await reset();
+
+  const thrown = { calls: [], impl: async () => { throw new Error("socket hung up"); } };
+  const first = await mail.send(
+    { userId: ALICE, to: "a@example.test", kind: "account", event: "e", reference: "unknown-1", letter },
+    thrown.impl,
+  );
+  check("an unknown outcome is not reported as sent", first.sent === false, JSON.stringify(first));
+
+  const rows = await pool.query(
+    "SELECT sent_at FROM mail_sends WHERE user_id = $1 AND event = 'e' AND reference = 'unknown-1'",
+    [ALICE],
+  );
+  check("and the claim is still there", rows.rows.length === 1, JSON.stringify(rows.rows));
+  check("unconfirmed, so it reads as what it is", rows.rows[0]?.sent_at === null, JSON.stringify(rows.rows[0]));
+
+  // Which is the point: the retry does not send a second copy.
+  const retry = provider();
+  const second = await mail.send(
+    { userId: ALICE, to: "a@example.test", kind: "account", event: "e", reference: "unknown-1", letter },
+    retry.impl,
+  );
+  check("a retry is refused rather than sending again", second.because === "already-sent", JSON.stringify(second));
+  check("with no request made", retry.calls.length === 0, String(retry.calls.length));
+
+  // And a definite refusal still frees it, because a retry there is the right
+  // thing and the only way to get one.
+  const refusing = { calls: [], impl: async () => new Response("no", { status: 400 }) };
+  await mail.send(
+    { userId: ALICE, to: "a@example.test", kind: "account", event: "e", reference: "refused-1", letter },
+    refusing.impl,
+  );
+  const freed = await pool.query(
+    "SELECT count(*)::int AS n FROM mail_sends WHERE user_id = $1 AND reference = 'refused-1'",
+    [ALICE],
+  );
+  check("a refusal with a body still releases the claim", freed.rows[0].n === 0, JSON.stringify(freed.rows[0]));
+}
+
+section("A marketing message with no way out is not sent at all");
+{
+  /*
+    `unsubscribeToken` answers null on any failure, and null quietly removed
+    both halves of the way out: `withUnsubscribe` returns the body unchanged,
+    and the `List-Unsubscribe` headers are spread on the same value. So the
+    message went out with no footer and no header, and `send` answered
+    `{ sent: true }`.
+
+    Bulk mail with no unsubscribe of any kind is unlawful in most of the places
+    this product is read, and a breach of the Gmail and Yahoo bulk-sender rules
+    the header block argues about at length — and the deliverability it costs is
+    the whole domain's, including the account mail nobody can opt out of.
+
+    `UNSUBSCRIBE_ROUTE_EXISTS` guards the feature existing. This guards *this
+    message* having one.
+  */
+  await reset();
+  // No settings row can be made if the table cannot be written, which is the
+  // real failure this stands in for. Dropping the default forces the insert to
+  // fail the way a locked row or an unmigrated database would.
+  await pool.query("ALTER TABLE mail_settings ALTER COLUMN token DROP DEFAULT");
+  try {
+    const attempted = provider();
+    const result = await mail.send(
+      { userId: BASHIR, to: "b@example.test", kind: "news", event: "newsletter", reference: "no-token", letter },
+      attempted.impl,
+    );
+    check("it is refused", result.sent === false, JSON.stringify(result));
+    check("for the reason that names the missing door", result.because === "no-way-out", result.because);
+    check("and nothing was sent", attempted.calls.length === 0, String(attempted.calls.length));
+
+    // And the claim was never taken, so the message can go the moment the
+    // token can be minted.
+    const claimed = await pool.query(
+      "SELECT count(*)::int AS n FROM mail_sends WHERE user_id = $1 AND reference = 'no-token'",
+      [BASHIR],
+    );
+    check("and no claim was spent on it", claimed.rows[0].n === 0, JSON.stringify(claimed.rows[0]));
+  } finally {
+    await pool.query(
+      "ALTER TABLE mail_settings ALTER COLUMN token SET DEFAULT replace(gen_random_uuid()::text, '-', '')",
+    );
+  }
+}
+
 // ── The wiring ──────────────────────────────────────────────────────────────
 
 section("And the one place that sends today actually calls it");
 {
   const billing = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/billing.ts"), "utf8");
   check("a payment that changed a plan tells the person", /send\(\{/.test(billing) && /planChanged/.test(billing));
-  check("and a declined card gets its own letter", /paymentFailed/.test(billing));
+  /*
+    Reachable, not merely mentioned.
+
+    This check used to be `/paymentFailed/.test(billing)` — a regex over the
+    source text — and it passed for the whole life of the file while the line
+    it matched was unreachable. `planFromEvent` answers null for
+    `payment.failed`, correctly, because the plan must not move on a card
+    Freemius is still retrying; and null landed in the branch that closes the
+    event as `ignored` and returns, twenty lines before the letter. So the one
+    letter this handler calls "the one the product loses a subscription to by
+    staying quiet" could not be sent by any path.
+
+    A check satisfied by a mention is the shape that let it survive. What is
+    asserted now is the ordering: the declined-card branch has to come *before*
+    the return that handles everything else with no plan.
+  */
+  const declinedAt = billing.indexOf('type === "payment.failed"');
+  const noDecisionAt = billing.indexOf("if (!decision) {");
+  check("a declined card gets its own letter", /paymentFailed\(\)/.test(billing));
+  check(
+    "on a branch that runs before the one that files a planless event as nothing to do",
+    declinedAt > 0 && noDecisionAt > 0 && declinedAt < noDecisionAt,
+    `handled at ${declinedAt}, the catch-all returns at ${noDecisionAt}`,
+  );
+  // And the reason the branch is needed: the plan mapper really does answer
+  // null for it, so without a branch of its own it can only fall through.
+  const freemius = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/freemius.ts"), "utf8");
+  check(
+    "which is needed, because the plan mapper does not map it",
+    !/payment\.failed/.test(freemius),
+    "if planFromEvent handled it, the branch above would be dead instead",
+  );
   /*
     Keyed on the event id, which is the same key the rest of this handler uses
     to absorb a redelivery. Anything else — the plan, the user — and a second
@@ -404,7 +542,10 @@ section("And the one place that sends today actually calls it");
   */
   check(
     "and it is sent after the plan is applied, not instead of applying it",
-    billing.indexOf("await setPlan(") < billing.lastIndexOf("planChanged("),
+    // `indexOf(a) < indexOf(b)` answered true when `a` was missing, so this
+    // passed exactly in the case its own name rules out: the letter sent
+    // *instead of* applying the plan.
+    order(billing, "await setPlan(", "planChanged(").ok,
   );
 }
 
@@ -465,8 +606,18 @@ section("And the worker is what sends it, because it is what knows");
   check("the finished render is reported", /tellThemTheEditIsReady\(\{/.test(index));
   // Source order: the job is marked done before anybody is told, so a crash
   // between the two loses the letter and not the render.
-  check("after the job is written, never before", index.indexOf('status: "done"') < index.indexOf("tellThemTheEditIsReady({"));
-  check("and a failure only once it is final", index.indexOf("if (!willRetry) {") < index.indexOf("tellThemItDidNotFinish({"));
+  /*
+    Both of these were `indexOf(a) < indexOf(b)`, which is true when `a` is
+    absent. The second one matters most: without `if (!willRetry)` the worker
+    apologises on every attempt, so one failed render is three letters — in the
+    suite whose stated premise is that it goes out once.
+  */
+  {
+    const written = order(index, 'status: "done"', "tellThemTheEditIsReady({");
+    check("after the job is written, never before", written.ok, written.why);
+    const final = order(index, "if (!willRetry) {", "tellThemItDidNotFinish({");
+    check("and a failure only once it is final", final.ok, final.why);
+  }
   // A mail provider having a bad minute must not turn a completed render into a
   // retried one. Three other things on this same path are written under that
   // rule already.

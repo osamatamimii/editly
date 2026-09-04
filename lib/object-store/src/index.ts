@@ -167,6 +167,50 @@ export interface ObjectStore {
   /** A URL somebody else may write to. Carries no credential of ours. */
   signedPut(key: string, options: SignedPutOptions): Promise<SignedUpload | null>;
 
+  /**
+   * The same thing for a file too big to send in one request.
+   *
+   * `signedPut` is one URL and one PUT. That is right up to a few hundred
+   * megabytes and wrong for what this product is being built to take: a
+   * two-hour podcast is about seven gigabytes, and a single request that
+   * restarts from zero when a train enters a tunnel is not an upload, it is a
+   * lottery. The person who most needs it is the one on the plan that costs
+   * the most.
+   *
+   * Today the large-file path is Supabase's `tus` endpoint, reached by the
+   * browser with the person's own session — which is the one piece of this
+   * product that makes changing storage provider a rewrite rather than a
+   * configuration change, and `routes/uploads.ts` says so where it branches.
+   * S3 multipart is the shape that has an equivalent on both sides of that
+   * change: our server begins the upload and signs one URL per part, the
+   * browser sends the parts, and our server ends it.
+   *
+   * `null` means this provider has no multipart we can sign, and the caller
+   * keeps whatever it was doing — the same contract `signedPut` uses, for the
+   * same reason: a seam that throws on the provider it does not prefer is a
+   * seam nobody dares switch.
+   */
+  beginMultipart(key: string, options: MultipartOptions): Promise<MultipartUpload | null>;
+
+  /**
+   * Assembles the parts into the object.
+   *
+   * The etags are the provider's, read from each part's response, and they are
+   * not decoration: S3 verifies them and refuses the assembly if one does not
+   * match, which is what makes a resumed upload safe to trust.
+   */
+  completeMultipart(key: string, uploadId: string, parts: readonly UploadedPart[]): Promise<void>;
+
+  /**
+   * Throws the parts away.
+   *
+   * Worth having and worth calling. An abandoned multipart upload keeps every
+   * part it received, billed as storage, invisible to a listing and to every
+   * sweep in this product — which is the shape of orphan this codebase has
+   * already been bitten by twice.
+   */
+  abortMultipart(key: string, uploadId: string): Promise<void>;
+
   head(key: string): Promise<StoredObject | null>;
 
   /** Throws `ObjectStoreError` rather than answering an empty page. */
@@ -187,6 +231,48 @@ export interface SignedPutOptions {
   expiresInSeconds: number;
   contentType?: string;
   upsert?: boolean;
+}
+
+/**
+ * The smallest part S3 and R2 accept, for every part but the last.
+ *
+ * Five mebibytes, and it is a provider rule rather than a preference: a
+ * complete with an undersized part in the middle fails with
+ * `EntityTooSmall` *after* every byte has been uploaded, which is the worst
+ * possible moment to find out. Exported so the caller that decides how many
+ * parts to ask for is reading the same number the check enforces.
+ */
+export const MIN_PART_BYTES = 5 * 1024 * 1024;
+
+export interface MultipartOptions {
+  /** How long each part URL stays valid. One window covers the whole upload. */
+  expiresInSeconds: number;
+  /** Total size, so the part count can be checked against the provider's floor. */
+  totalBytes: number;
+  /** How many parts to sign. */
+  parts: number;
+  contentType?: string;
+}
+
+export interface SignedPart {
+  /** One-based, and the order the provider assembles them in. */
+  partNumber: number;
+  url: string;
+}
+
+export interface MultipartUpload {
+  key: string;
+  /** The provider's handle for this upload. Needed to complete or abort it. */
+  uploadId: string;
+  parts: SignedPart[];
+  /** When the part URLs stop working. */
+  expiresAt: string;
+}
+
+export interface UploadedPart {
+  partNumber: number;
+  /** As the provider returned it on that part's response. */
+  etag: string;
 }
 
 /**

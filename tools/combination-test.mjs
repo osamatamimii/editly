@@ -56,7 +56,7 @@ if (built.status !== 0) {
   console.error("could not bundle the ffmpeg module");
   process.exit(1);
 }
-const { renderPlan } = await import(pathToFileURL(modulePath).href);
+const { renderPlan, maxOverlappedPieces } = await import(pathToFileURL(modulePath).href);
 
 // The templates are plans we wrote and ship, and until now nothing rendered
 // one. They are also the first thing a new customer clicks, which makes them
@@ -461,19 +461,20 @@ console.log("\nA cold open with a transition, which used to deadlock");
   }
 }
 
-// ── How many decoders an out-of-order edit is allowed to open ───────────────
+// ── How many pieces an overlapped edit is allowed to hold open ─────────────
 //
-// The fix above costs one decode of the source per piece, and that cost is not
-// linear: measured against a 1080p source, four pieces peak at 776 MB of
-// resident memory and six at 1088 MB, against a worker with 1 GB. So past four
-// the join is dropped rather than the render, because an OOM kill takes the
-// whole job with it and says nothing — which is the deadlock's failure mode
-// again, wearing a different hat.
+// A dissolve costs one open stream per piece, and `xfade` holds them all in
+// lockstep: measured against a 1080p source, four pieces peak at 505 MB of
+// resident memory and eight at 1633 MB, against a worker with 1 GB. Past what
+// fits, the join is dropped rather than the render, because an OOM kill takes
+// the whole job with it and says nothing.
 //
-// A cold open on its own is three pieces and stays under the line. It takes a
-// silence cut as well to go over it. Both sides are pinned here: without this,
-// raising the cap for convenience one day would look free.
-console.log("\nAn out-of-order edit only opens so many decoders");
+// What fits depends on the frame, because the memory does — 62 bytes per pixel
+// per piece — and the cap was a bare 4 for every source. That refused a
+// dissolve to a 320x240 edit whose pieces cost a twenty-seventh of a 1080p
+// one, and allowed a 1080p *in-order* edit any number of them, which was the
+// expensive half and the one over the box.
+console.log("\nAn overlapped edit only holds so many pieces open");
 {
   // Under the cap: a hook, what came before it, what came after.
   const few = await renderPlan(
@@ -526,17 +527,22 @@ console.log("\nAn out-of-order edit only opens so many decoders");
   );
   rendered += 1;
   check(
-    "a plan cut into more of them keeps the hook rather than the join",
-    many.notes.some((n) => /opens on|hook/.test(n)) &&
-      !many.notes.some((n) => /dissolved between the cuts/.test(n)),
+    "nine pieces of a small frame still get their dissolve, because they fit",
+    many.notes.some((n) => /dissolved between the cuts/.test(n)),
     JSON.stringify(many.notes),
   );
-  // Named precisely. Both refusals end in "the cuts stay hard", so matching
-  // that alone would pass on the too-short guard and never touch the cap.
+
+  /*
+    And the cap itself, checked as arithmetic rather than by rendering 1080p
+    nine times. Both ends matter: the number for a full-size frame is the one
+    the measurement above produced, and it has to fall as the frame grows.
+  */
+  check("a 1080p frame holds four pieces open", maxOverlappedPieces(1920, 1080) === 4, String(maxOverlappedPieces(1920, 1080)));
+  check("a 4K frame holds fewer", maxOverlappedPieces(3840, 2160) < maxOverlappedPieces(1920, 1080));
   check(
-    "and says the number of pieces is why, not their length",
-    many.notes.some((n) => /cut into \d+ pieces/.test(n) && /out of order/.test(n)),
-    JSON.stringify(many.notes),
+    "and a small one holds more, up to the limit on the graph itself",
+    maxOverlappedPieces(320, 240) === 12,
+    String(maxOverlappedPieces(320, 240)),
   );
   const measured = Number(ffprobe(many.output, "format=duration")[0]);
   check(

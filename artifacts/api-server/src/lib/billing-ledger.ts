@@ -82,11 +82,45 @@ export function decideApply(event: IncomingEvent, current: CurrentSubscription |
   // the alternative is silently dropping real payments.
   const incomingAt = time(event.eventAt);
   const currentAt = time(current.planSourceAt);
-  if (incomingAt !== null && currentAt !== null && incomingAt < currentAt) {
+
+  /*
+    Same second is not "after".
+
+    Freemius timestamps are second-granularity — this module normalises
+    "2026-08-15 14:02:11" a hundred lines down — and an upgrade emits its
+    grant and the tidy-up of the licence it replaces *in the same second*.
+    So `incomingAt < currentAt` was false for exactly the pair of events the
+    rule was written for, and rule two below had to carry the whole load —
+    which it cannot, because it needs a licence id on both sides and a
+    `subscription.cancelled` payload has no `objects.license` at all.
+
+    The result: customer upgrades Creator → Pro, the cancellation of the old
+    Creator subscription lands second in the same second, and `free` is
+    written over `pro`. They are charged $29 a month for five minutes and a
+    watermark, `PATCH /subscription` refuses upgrades by design, and the
+    billing_events row reads `applied`.
+
+    A real cancellation happens strictly after the grant that set the paid
+    plan; only the upgrade's own tidy-up arrives level with it. So a drop to
+    free must be strictly newer, and everything else keeps the old rule.
+  */
+  const droppingToFree = event.plan === "free" && current.plan !== "free";
+  // Narrowed to the one shape that cannot be told apart any other way: a drop
+  // to free that does not say which licence it is about, against a plan that
+  // does. A cancellation naming the live licence is a real cancellation
+  // however close it lands, and one naming a different licence is already
+  // refused by rule two below. Only the unattributable one needs the clock,
+  // and for it "same second" means the upgrade's own tidy-up.
+  const unattributable = droppingToFree && !event.licenseId && Boolean(current.licenseId);
+  const orderable = incomingAt !== null && currentAt !== null;
+  const notNews = orderable && (unattributable ? incomingAt <= currentAt : incomingAt < currentAt);
+  if (notNews) {
     return {
       apply: false,
       outcome: "stale",
-      reason: "this event is older than the one that set the current plan",
+      reason: unattributable
+        ? "this cancellation names no licence and is not newer than the event that granted the current plan"
+        : "this event is older than the one that set the current plan",
     };
   }
 
@@ -97,7 +131,7 @@ export function decideApply(event: IncomingEvent, current: CurrentSubscription |
   // an event that grants a plan is never refused on this basis, because a new
   // licence naturally carries a new id and refusing it would block every
   // upgrade. And it applies only when both licence ids are known.
-  if (event.plan === "free" && current.plan !== "free") {
+  if (droppingToFree) {
     const incomingLicence = event.licenseId ?? null;
     const currentLicence = current.licenseId ?? null;
     if (incomingLicence && currentLicence && incomingLicence !== currentLicence) {
@@ -110,6 +144,33 @@ export function decideApply(event: IncomingEvent, current: CurrentSubscription |
   }
 
   return { apply: true, outcome: "applied", reason: "current" };
+}
+
+/**
+ * Which licence this event is about, from wherever its shape puts it.
+ *
+ * It was read only from `objects.license`, which a `license.*` event carries
+ * and a `subscription.cancelled` or `payment.refund` does not. So the
+ * superseded-licence rule above — the one that stops a cancelled Creator
+ * licence taking away a Pro plan — was skipped for exactly the events most
+ * likely to need it, because it requires an id on both sides and one side was
+ * always null.
+ *
+ * Freemius does carry the id on those shapes, one level down, under a
+ * different name. Reading all three costs nothing and makes the rule reachable.
+ */
+export function licenceIdFrom(objects: Record<string, Record<string, unknown> | undefined>): string | null {
+  const candidates = [
+    objects["license"]?.["id"],
+    objects["subscription"]?.["license_id"],
+    objects["payment"]?.["license_id"],
+  ];
+  for (const candidate of candidates) {
+    if (candidate == null) continue;
+    const text = String(candidate).trim();
+    if (text !== "") return text;
+  }
+  return null;
 }
 
 /**

@@ -36,6 +36,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { order } from "./lib/order.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -446,10 +447,18 @@ section("The endpoint is behind the auth middleware, like every other per-user r
 {
   const mounted = read("artifacts/api-server/src/routes/index.ts");
   check("it is mounted at all", /uploadsRouter/.test(mounted));
+  /*
+    `indexOf(a) < indexOf(b)` was the old spelling, and it answered true when
+    `a` was missing — because `indexOf` returns -1 for something that is not
+    there, and -1 is less than every real position. So this check passed most
+    loudly in the case it exists to catch: `requireAuth` removed altogether,
+    and a route that mints signed storage URLs reachable with no token.
+  */
+  const ordered = order(mounted, "router.use(requireAuth)", "router.use(uploadsRouter)");
   check(
     "and below requireAuth",
-    mounted.indexOf("router.use(requireAuth)") < mounted.indexOf("router.use(uploadsRouter)"),
-    "a route mounted above it would mint upload URLs for anyone at all",
+    ordered.ok,
+    ordered.why || "a route mounted above it would mint upload URLs for anyone at all",
   );
 }
 
@@ -463,7 +472,16 @@ section("The browser no longer spells a storage path");
     uploaders from `uploadCeiling` — a pure function about a number that also
     happens to start with the word.
   */
-  const uploaders = [...browser.matchAll(/^export (?:async )?function (upload[A-Za-z]+)\(([\s\S]{0,400}?)\)/gm)]
+  /*
+    The window is 1200 characters, not 400, and the number is arbitrary in one
+    direction only: it has to be longer than the longest parameter list in the
+    file, comments and all. At 400 it silently stopped matching
+    `uploadProjectAsset` the day that function's `ceiling` grew a paragraph —
+    and a scan that finds four of five uploaders reports nothing wrong, it just
+    stops covering one of them. Which is this suite's own failure mode, so it
+    is worth over-sizing.
+  */
+  const uploaders = [...browser.matchAll(/^export (?:async )?function (upload[A-Za-z]+)\(([\s\S]{0,1200}?)\)/gm)]
     .filter((m) => m[2].includes("accessToken"))
     .map((m) => m[1]);
   check("the uploaders were found", uploaders.length >= 5, JSON.stringify(uploaders));
@@ -597,6 +615,84 @@ check(
 );
 
 await rm(buildDir, { recursive: true, force: true });
+
+section("The two doors a font goes through agree on how big it may be");
+{
+  /*
+    A font can be registered by a path other than the ticket — the module says
+    the legacy JWT-direct upload still exists — and the register route writes
+    `bytes` straight into `caption_faces.bytes` with no re-check against the
+    ceiling. So the bound on `RegisterFaceBody` *is* the enforcement on that
+    path, and it was `20_000_000` against a real ceiling of 8,388,608: two and a
+    half times wider.
+
+    Nothing failed. The number the picker and the console display was a client's
+    claim validated against the wrong limit.
+  */
+  /*
+    Read from the schema at runtime rather than from its source: the bound is
+    what the parser enforces, and a regex over a file would keep passing if the
+    expression were moved or renamed.
+  */
+  const { RegisterFaceBody } = await import(build("lib/api-zod/src/index.ts", "api-zod.mjs"));
+  const tooBig = RegisterFaceBody.safeParse({
+    path: "u/fonts/f.ttf",
+    label: "f",
+    script: "latin",
+    bytes: policy.MAX_FONT_BYTES + 1,
+    rights: "own",
+  });
+  check(
+    "a font one byte over the enforced ceiling is refused by the register schema",
+    tooBig.success === false,
+    `the ticket door refuses over ${policy.MAX_FONT_BYTES}; the register door took it`,
+  );
+  const exact = RegisterFaceBody.safeParse({
+    path: "u/fonts/f.ttf",
+    label: "f",
+    script: "latin",
+    bytes: policy.MAX_FONT_BYTES,
+    rights: "own",
+  });
+  check("and one exactly at it is accepted", exact.success === true, JSON.stringify(exact.error?.issues?.[0]));
+
+  // And the number is the shared constant rather than one typed twice.
+  check("named rather than retyped", /max\(MAX_FONT_BYTES\)/.test(read("lib/api-zod/src/index.ts")));
+}
+
+console.log("\nA ticket only names a deadline it actually has");
+{
+  /*
+    Both branches wrote `expiresAt`, computed the same way. Only one of them
+    has such a moment: a signed PUT carries its deadline inside the signature,
+    and a resumable upload goes to the tus endpoint with the person's own
+    bearer token and `x-upsert`, which does not go stale on a clock.
+
+    Nothing read the field, so nothing was broken — which is the whole reason
+    it survived. A field that looks like a fact and is not one is a countdown
+    somebody builds two years later.
+  */
+  const contract = read("lib/api-zod/src/uploads.ts");
+  check(
+    "the contract allows a ticket with no deadline",
+    /expiresAt: z\.string\(\)\.optional\(\)/.test(contract),
+    "expiresAt is still required, so the resumable branch has to invent one",
+  );
+
+  const route = read("artifacts/api-server/src/routes/uploads.ts");
+  const at = route.indexOf('mode: "resumable"');
+  const resumable = route.slice(Math.max(0, at - 900), at + 200);
+  check(
+    "and the resumable ticket does not name one",
+    at > 0 && !/expiresAt:/.test(resumable),
+    "the resumable branch still writes an expiry for an upload that has none",
+  );
+  check(
+    "while the signed one still does, because its signature really does expire",
+    /expiresAt: signed\.expiresAt/.test(route),
+    "the signed ticket lost its real deadline",
+  );
+}
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {

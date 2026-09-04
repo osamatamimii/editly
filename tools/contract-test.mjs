@@ -331,6 +331,100 @@ section("Every edit operation the worker can run is in the spec");
   }
 }
 
+section("A rejected request is answered with a sentence, not with our schema");
+{
+  /*
+    `ZodError.message` is `JSON.stringify(issues, null, 2)`.
+
+    Twenty-two routes answered 400 with it, and the generated client hands the
+    string straight to a toast — so somebody who typed a title one character
+    too long was shown a JSON document about `too_big`, `maximum: 200` and
+    `inclusive: true`, in a corner of the screen, for four seconds. It is also
+    a leak of exactly the kind `error-handler.ts` exists to prevent: our field
+    paths and our internal shapes, sent to whoever made the request.
+
+    Checked against errors from the real schemas rather than from hand-built
+    issue objects, because the whole defect was a mismatch between what zod
+    produces and what somebody assumed it produced.
+  */
+  const badRequestBundle = path.join(buildDir, "bad-request.mjs");
+  const builtHelper = spawnSync(
+    require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+    [
+      path.join(repoRoot, "artifacts/api-server/src/lib/bad-request.ts"),
+      "--bundle", "--platform=node", "--format=esm", "--target=node22",
+      `--outfile=${badRequestBundle}`, "--log-level=error",
+    ],
+    { stdio: "inherit" },
+  );
+  check("the helper builds", builtHelper.status === 0);
+  const { sentenceFor, fieldName } = await import(pathToFileURL(badRequestBundle).href);
+
+  /** The error a route would actually be holding, from the schema it parses. */
+  const failing = (schema, value) => schema.safeParse(value).error;
+
+  const cases = [
+    // A body of the wrong shape entirely.
+    [zod.SendMessageBody, {}, /content/],
+    // The one from the audit: a number outside its bounds.
+    [zod.EditPlan, { version: 1, operations: [{ type: "formatForPlatform", platform: "tiktok", maxHeight: 480 }] }, /maxHeight/],
+    // A string past its ceiling, which is where the dump was ugliest: the
+    // toast said `too_big`, `maximum: 200`, `inclusive: true`.
+    [zod.SendMessageBody, { content: "" }, /content/],
+  ];
+
+  for (const [schema, value, mentions] of cases) {
+    const error = failing(schema, value);
+    check(`the schema still refuses ${JSON.stringify(value).slice(0, 40)}`, error !== undefined);
+    if (!error) continue;
+    const sentence = sentenceFor(error);
+
+    check("the answer names the field", mentions.test(sentence), sentence);
+    check("and ends as a sentence", /\.$/.test(sentence) && sentence.length < 300, sentence);
+    /*
+      The three tells of the dump, checked separately because each one is a
+      different kind of leak: the JSON shape, zod's own vocabulary, and the
+      newlines that made a toast four lines tall.
+    */
+    /*
+      Brackets are allowed and braces are not: `operations[0].maxHeight` is
+      how a person refers to the field they sent, while a brace or a quote
+      only ever comes from the serialised issue.
+    */
+    check("with no JSON in it", !/[{}"]/.test(sentence), sentence);
+    check(
+      "no schema vocabulary",
+      !/\b(too_big|too_small|invalid_type|inclusive|origin|expected|received|code)\b/.test(sentence),
+      sentence,
+    );
+    check("and on one line", !sentence.includes("\n"), JSON.stringify(sentence));
+  }
+
+  // The field path a person can act on, rather than an array.
+  check("a nested field reads the way it was sent", fieldName(["operations", 0, "maxHeight"]) === "operations[0].maxHeight", fieldName(["operations", 0, "maxHeight"]));
+  check("and a whole-body failure has a name too", fieldName([]) === "the request");
+
+  /*
+    And the rule, so the shape cannot come back one route at a time.
+
+    This is the check that matters in a year: the twenty-two call sites were
+    not written by somebody who thought the dump was good — they were written
+    by copying the route above.
+  */
+  const routesDir = path.join(repoRoot, "artifacts/api-server/src/routes");
+  const offenders = [];
+  for (const name of readdirSync(routesDir)) {
+    if (!name.endsWith(".ts")) continue;
+    const code = readFileSync(path.join(routesDir, name), "utf8");
+    if (/status\(400\)\.json\(\{\s*error:\s*\w+\.error\.message/.test(code)) offenders.push(name);
+  }
+  check(
+    "no route answers 400 with a ZodError's own message",
+    offenders.length === 0,
+    `${offenders.join(", ")} — that string is the issue array, pretty-printed, and the client puts it in a toast`,
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

@@ -59,7 +59,8 @@ if (built.status !== 0) {
   console.error("could not bundle deadline.ts");
   process.exit(1);
 }
-const { guard, TimedOutError, LIMITS } = await import(pathToFileURL(outfile).href);
+const { guard, TimedOutError, LIMITS, ENCODE_SECONDS_PER_SOURCE_SECOND, deliverableSourceMinutes } =
+  await import(pathToFileURL(outfile).href);
 
 let checks = 0;
 let failures = 0;
@@ -244,6 +245,132 @@ section("The ceilings are the right way round");
 }
 
 await rm(buildDir, { recursive: true, force: true });
+
+console.log("\nWhat the deadline can actually finish, against what is sold");
+{
+  /*
+    The comment above `LIMITS.render` used to assert two things: that "the
+    longest upload any plan allows is well under four hours of output", and
+    that "nothing here encodes slower than realtime by a factor of two".
+
+    Both are now measured rather than assumed, on a 1080p source with a
+    vertical reframe and four punches — one of the simpler plans this product
+    renders. Two cores: 1153 ms per source second. One core: 2073 ms.
+    `fly.toml` is one shared CPU, so the factor of two is not a bound, it is
+    the number.
+
+    This does not assert that every plan fits. It asserts that the arithmetic
+    is written down where the deadline is, and that the gap is named — because
+    the gap is a decision about what to sell and what machine to buy, and a
+    check that quietly picked one of those would be making it.
+  */
+  check(
+    "the encode factor is measured, not a round number somebody liked",
+    ENCODE_SECONDS_PER_SOURCE_SECOND > 2 && ENCODE_SECONDS_PER_SOURCE_SECOND < 2.2,
+    String(ENCODE_SECONDS_PER_SOURCE_SECOND),
+  );
+  const deliverable = deliverableSourceMinutes();
+  check(
+    "and it turns the deadline into a number of minutes",
+    deliverable > 60 && deliverable < 240,
+    `${deliverable} minutes of source fit inside ${LIMITS.render.totalMs / 3600000}h`,
+  );
+  check(
+    "the deadline itself is still the four-hour backstop",
+    LIMITS.render.totalMs === 4 * 60 * 60_000,
+    String(LIMITS.render.totalMs),
+  );
+
+  // And the sold lengths, read from the plans rather than repeated here.
+  const planLimits = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/plan-limits.ts"), "utf8");
+  const sold = [...planLimits.matchAll(/maxUploadMinutes: (\d+)/g)].map((m) => Number(m[1]));
+  check("there are plans to compare against", sold.length === 4, JSON.stringify(sold));
+  const beyond = sold.filter((minutes) => minutes > deliverable);
+
+  /*
+    The property worth holding is not "every plan fits" — whether Pro sells
+    240 minutes is a pricing decision and a check that quietly picked one
+    would be making it. It is that **the ceiling which actually gates uploads
+    never exceeds what the machine can finish.**
+
+    That ceiling is the `videos` bucket's own `file_size_limit`, read live, and
+    `FALLBACK_UPLOAD_BYTES` is what answers when Storage will not. So the
+    constant in the repository is the one thing here that can be checked, and
+    it is the one that turns this from latent into live: raise it past what a
+    render can finish and a customer uploads a file, waits four hours, and
+    watches it be killed.
+  */
+  const storageLimits = readFileSync(
+    path.join(repoRoot, "artifacts/api-server/src/lib/storage-limits.ts"),
+    "utf8",
+  );
+  const fallbackExpr = /FALLBACK_UPLOAD_BYTES =\s*[\s\S]{0,80}?(\d+) \* 1024 \* 1024/.exec(storageLimits);
+  const fallbackMb = Number(fallbackExpr?.[1] ?? 0);
+  check("the upload fallback names a real size", fallbackMb > 0, String(fallbackMb));
+
+  // The product's own assumption about what a minute of video weighs.
+  const deliverableMb = deliverable * 60;
+  check(
+    "and it is inside what a render can finish before the deadline kills it",
+    fallbackMb <= deliverableMb,
+    `${fallbackMb} MB of fallback against ${deliverableMb} MB (${deliverable} minutes) that one shared CPU finishes inside ${LIMITS.render.totalMs / 3600000}h`,
+  );
+
+  if (beyond.length > 0) {
+    console.log(
+      `    · ${JSON.stringify(beyond)}-minute uploads are sold and ${deliverable} is what the deployed machine ` +
+        `finishes inside the deadline. Unreachable while the bucket ceiling is below it; a decision the day it is raised.`,
+    );
+  }
+
+  /*
+    And the part that was missing: somebody reads the number.
+
+    Everything above this point was true before the fix and the product was
+    still wrong, which is the whole shape of the defect. The factor was
+    measured, the function existed, the doc comment named 115 minutes and the
+    gap against the pricing page — and no line of code called it. A constant
+    with a paragraph about what it prevents, preventing nothing.
+
+    The check has to be that a *third* refusal exists, distinct from the two
+    that were already there: the plan ceiling is what the customer bought and
+    the allowance is what is left of their month, and a file can be inside both
+    and still be one this machine cannot finish. That third case is the one
+    whose failure mode is four hours of paid compute followed by "Rendering
+    failed. We are looking into it."
+  */
+  const worker = readFileSync(path.join(repoRoot, "artifacts/worker/src/index.ts"), "utf8");
+  check(
+    "the worker actually asks how long a render it can deliver",
+    /deliverableSourceMinutes\(\)/.test(worker),
+    "a measured constant nothing reads is a comment",
+  );
+  check(
+    "and refuses against it, beside the two ceilings that were already checked",
+    /exceedsDeliverable\(sourceSeconds, deliverable\)/.test(worker),
+    "the plan ceiling and the allowance are different questions from what the hardware can finish",
+  );
+
+  const duration = readFileSync(path.join(repoRoot, "artifacts/worker/src/duration.ts"), "utf8");
+  const sentence = /notDeliverableMessage[\s\S]*?return \(([\s\S]*?)\);/.exec(duration)?.[1] ?? "";
+  /*
+    Three properties of the sentence, because this refusal is the only one of
+    the three that is our fault, and a message that reads like the other two
+    sends the customer to the pricing page to buy something that would not
+    help.
+  */
+  check("the refusal says nothing was charged", /Nothing has been charged/.test(sentence), sentence.slice(0, 120));
+  check(
+    "and does not blame the plan for a limit that is ours",
+    /[Tt]hat is our limit, not your plan's/.test(sentence),
+    sentence.slice(0, 200),
+  );
+  check(
+    "and names a length that does work, so the person has something to do",
+    /\$\{deliverableMinutes\} minutes/.test(sentence),
+    sentence.slice(0, 200),
+  );
+}
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {

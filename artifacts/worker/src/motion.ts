@@ -96,10 +96,24 @@ export interface MotionSceneOptions {
   durationSeconds: number;
 }
 
+/**
+ * Where a title sits, measured against the height it is inset from.
+ *
+ * Percentage padding in CSS resolves against the containing block's *inline*
+ * size — the width — never the height. So these were a constant fraction of
+ * the width and a wildly varying fraction of the height: measured, the same
+ * "bottom" title sat 12.3% up a 9:16 frame and 33.9% up a 16:9 one. A title
+ * placed by the same plan landed in visibly different places depending on the
+ * shape it was exported to, which is the failure the image overlay's own
+ * comment says it avoids.
+ *
+ * `vh` is the frame's height, which is what "12% from the top" was always
+ * meant to mean.
+ */
 const PLACEMENT: Record<MotionTitle["position"], string> = {
-  top: "align-items:flex-start;padding-top:12%",
+  top: "align-items:flex-start;padding-top:12vh",
   center: "align-items:center",
-  bottom: "align-items:flex-end;padding-bottom:18%",
+  bottom: "align-items:flex-end;padding-bottom:18vh",
 };
 
 /**

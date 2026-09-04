@@ -54,6 +54,17 @@ export interface TrackOptions {
   python?: string;
   scriptPath?: string;
   seconds?: number;
+  /**
+   * Where in the recording to start looking, in seconds.
+   *
+   * The tracker read the first ten minutes of the *source* whatever stretch of
+   * it the edit was made of — so a clip taken from 12:00 of a podcast had no
+   * samples inside it at all, and the coverage that decides whether to follow
+   * anybody was measured over material the viewer will never see. A clip where
+   * the speaker is perfectly clear could be refused because the rest of the
+   * recording has nobody in it.
+   */
+  from?: number;
 }
 
 /**
@@ -75,7 +86,8 @@ export async function trackSubject(
   const script = options.scriptPath ?? defaultScriptPath();
 
   try {
-    const lines = await run(file, proxyWidth, proxyHeight, python, script, options.seconds ?? MAX_SECONDS);
+    const from = Math.max(0, options.from ?? 0);
+    const lines = await run(file, proxyWidth, proxyHeight, python, script, options.seconds ?? MAX_SECONDS, from);
     const samples: SubjectSample[] = [];
 
     for (const line of lines) {
@@ -88,7 +100,9 @@ export async function trackSubject(
       }
       if (typeof row.i !== "number") continue;
       samples.push({
-        t: row.i / SAMPLE_FPS,
+        // On the source clock, like every other measurement handed to the
+        // renderer: the seek is an optimisation, not a change of reference.
+        t: from + row.i / SAMPLE_FPS,
         x: typeof row.cx === "number" && row.cx >= 0 && row.cx <= 1 ? row.cx : null,
       });
     }
@@ -136,6 +150,7 @@ function run(
   python: string,
   script: string,
   seconds: number,
+  from: number,
 ): Promise<string[]> {
   return new Promise((resolve, reject) => {
     // ffmpeg decodes and downscales; python only ever sees raw pixels. Two
@@ -143,6 +158,9 @@ function run(
     // another copy of the file and another codec dependency in the image.
     const ffmpeg = spawn("ffmpeg", [
       "-hide_banner", "-nostdin", "-loglevel", "error",
+      // Seek before the input, so a clip from an hour into a recording costs
+      // the same as one from the top of it.
+      ...(from > 0 ? ["-ss", from.toFixed(3)] : []),
       "-t", String(seconds),
       "-i", file,
       "-an",

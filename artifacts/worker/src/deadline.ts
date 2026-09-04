@@ -179,9 +179,28 @@ export const LIMITS = {
    *
    * Stall-led on purpose. ffmpeg prints its `time=` line continuously — the
    * progress bar in the product is built from exactly those bytes — so silence
-   * for ten minutes means it is not rendering. The total is the backstop: the
-   * longest upload any plan allows is well under four hours of *output*, and
-   * nothing here encodes slower than realtime by a factor of two.
+   * for ten minutes means it is not rendering. The total is the backstop.
+   *
+   * ## The sentence that used to be here was an assumption, and it is wrong
+   *
+   * It read: "the longest upload any plan allows is well under four hours of
+   * *output*, and nothing here encodes slower than realtime by a factor of
+   * two." Both halves have now been measured rather than assumed, and neither
+   * survives.
+   *
+   * Measured on a real 1080p source with a vertical reframe and four punches —
+   * one of the *simpler* plans this product renders, with no transcription, no
+   * captions and no VP9 mirror in it:
+   *
+   *   two cores  1153 ms per second of source  (1.15× realtime)
+   *   one core   2073 ms per second of source  (2.07× realtime)
+   *
+   * `fly.toml` is one shared CPU. So the factor of two is not a comfortable
+   * bound, it is the number itself, exceeded by every plan that adds a filter.
+   *
+   * And "well under four hours" is not true of what is sold. See
+   * `ENCODE_SECONDS_PER_SOURCE_SECOND` below for the arithmetic and for which
+   * plans it makes undeliverable.
    */
   render: { stallMs: 10 * 60_000, totalMs: 4 * 60 * 60_000 },
 
@@ -199,4 +218,83 @@ export const LIMITS = {
    * the ceiling is generous.
    */
   preview: { totalMs: 90 * 60_000 },
+
+  /**
+   * Pulling the audio out of a source, and cutting a proxy window out of one.
+   *
+   * Both run at `-loglevel error` straight to a file, so they say nothing while
+   * they work and only the clock can judge them — a stall limit would fire on a
+   * healthy job. Generous against what they are: a four-hour podcast decoded to
+   * 16 kHz mono is minutes, not an hour.
+   *
+   * These three call sites had no deadline of any kind, which is the failure
+   * the top of this file is about: a wedged ffmpeg emits no exit code and no
+   * error, the `await` never returns, and `withLockKeptAlive` goes on renewing
+   * the lock and the heartbeat, so nothing requeues the job and `/healthz`
+   * reports the worker online for as long as it takes somebody to notice the
+   * queue is not moving.
+   */
+  extract: { totalMs: 60 * 60_000 },
+
+  /**
+   * The whole job, from claim to finish.
+   *
+   * Every limit above bounds one *invocation*. Nothing bounded their sum — and
+   * a clips job is `renderPlan` once per window, each with its own fresh
+   * four-hour render ceiling, plus a review, plus a ninety-minute VP9 mirror,
+   * plus a thirty-minute upload, six times over. On paper that is a day and a
+   * half, during which `withLockKeptAlive` renews the lock every twenty
+   * seconds so the stale sweep never looks at it, the heartbeat keeps writing,
+   * `/healthz` answers 200, and — with `WORKER_COUNT` at its default of one —
+   * every other customer's render waits behind it.
+   *
+   * Six hours is well past any job this product can honestly deliver: the
+   * deliverable ceiling from `ENCODE_SECONDS_PER_SOURCE_SECOND` is under two
+   * hours of source on this machine. A job that reaches this has stopped being
+   * a render and become an outage.
+   */
+  job: { totalMs: 6 * 60 * 60_000 },
 } as const;
+
+/**
+ * How long a second of source takes to render, on the machine we deploy.
+ *
+ * Measured, twice, on a 1080p source with a vertical reframe and four zoom
+ * punches — no transcription, no captions, no VP9 mirror, so the real figure
+ * for a full job is higher:
+ *
+ *   two cores  1153 ms   (1.15× realtime)
+ *   one core   2073 ms   (2.07× realtime)
+ *
+ * `artifacts/worker/fly.toml` runs one shared CPU, so 2.07 is the number that
+ * applies to production today, and it is the number `LIMITS.render.totalMs`
+ * has to be read against.
+ *
+ * ## What it decides
+ *
+ * `deliverableSourceMinutes()` turns it into the longest upload a render can
+ * actually finish before the deadline kills it. Against the four-hour backstop
+ * that is **115 minutes** of source on the current machine — and the pricing
+ * page sells 240 minutes on Pro and 600 on Studio.
+ *
+ * That contradiction is not reachable today: the `videos` bucket's own
+ * `file_size_limit` is 50 MB and `uploadCeiling` bounds every plan by it, so
+ * nothing longer than about a minute can be uploaded at all and the refusal
+ * says which bound applied. Raising the bucket ceiling — the first thing
+ * anybody does after upgrading Supabase — is what turns "you cannot upload
+ * this" into "you uploaded it, waited four hours, and it was killed", which is
+ * the worse of the two by a distance.
+ *
+ * Written down here, next to the deadline it is measured against, so that
+ * whoever raises that ceiling meets this first.
+ */
+export const ENCODE_SECONDS_PER_SOURCE_SECOND = 2.073;
+
+/** The longest source a render can finish inside its own deadline. */
+export function deliverableSourceMinutes(
+  encodeFactor = ENCODE_SECONDS_PER_SOURCE_SECOND,
+  totalMs = LIMITS.render.totalMs ?? 0,
+): number {
+  if (!(encodeFactor > 0) || !(totalMs > 0)) return 0;
+  return Math.floor(totalMs / 1000 / encodeFactor / 60);
+}

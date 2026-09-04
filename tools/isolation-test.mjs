@@ -15,6 +15,7 @@ import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { readdirSync, readFileSync } from "node:fs";
+import { order } from "./lib/order.mjs";
 import { resolveTestDatabaseUrl } from "./lib/test-db.mjs";
 
 const require = createRequire(import.meta.url);
@@ -69,6 +70,15 @@ let storageCopyFailsFor = null;
 // prefix nobody seeded gets one source.mp4 on first sight — which is exactly
 // what the old always-one-object stub gave every project.
 const storageObjects = new Set();
+
+/**
+ * What HEAD says about a particular key, when a section needs it to say
+ * something other than "an ordinary video".
+ *
+ * `null` means the object is not there at all — the shape a failed upload
+ * leaves. Anything else is the size and content type the store recorded.
+ */
+const storageObjectFacts = new Map();
 const storageSeeded = new Set();
 let storageDeleteIsALie = false;
 
@@ -144,6 +154,32 @@ const jwksServer = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" }).end("[]");
     });
     return;
+  }
+  /*
+    HEAD, which the real store answers and this stand-in did not.
+
+    `PATCH /projects/:id` now asks whether anything is actually at the path the
+    browser reported, because until it did a project could be marked `ready`
+    pointing at an upload that failed, a zero-byte object, or a `.txt` renamed
+    `.mp4` — and the first thing to find out was the worker, minutes later,
+    failing the render as ours.
+
+    A path ending in `/source.mp4` answers as an ordinary video, the same way
+    the list handler above seeds one: those are the fixtures every other
+    section uses, and making each of them upload a file first would be a lot of
+    noise for a property they are not about. `storageObjectFacts` is how the
+    sections that *are* about it say otherwise.
+  */
+  if (req.method === "HEAD" && req.url?.startsWith("/storage/v1/object/videos/")) {
+    const key = decodeURIComponent(req.url.slice("/storage/v1/object/videos/".length));
+    storageCalls.push({ op: "head", key });
+    const stated = storageObjectFacts.get(key);
+    if (stated === null) return res.writeHead(404).end();
+    const facts = stated ?? (key.endsWith("/source.mp4") ? { bytes: 4096, contentType: "video/mp4" } : null);
+    if (!facts) return res.writeHead(404).end();
+    return res
+      .writeHead(200, { "content-type": facts.contentType, "content-length": String(facts.bytes) })
+      .end();
   }
   res.writeHead(404).end();
 });
@@ -236,6 +272,21 @@ function check(name, condition, detail = "") {
  * database and fails ever after with errors that point at the wrong thing.
  */
 /** One-line SQL against the test database, for setup and cleanup only. */
+/**
+ * Everything this person has in the queue, gone.
+ *
+ * Sections used to be able to leave a queued job behind without consequence:
+ * the meter counted finished video, so an unfinished render was worth nothing
+ * to anything. It is worth something now — it reserves the allowance and it
+ * occupies one of three simultaneous slots — so a section that wants to test
+ * the door has to knock on an unblocked one.
+ */
+function clearQueue(userId) {
+  spawnSync("psql", [process.env.DATABASE_URL, "-c", `delete from jobs where user_id = '${userId}'`], {
+    encoding: "utf8",
+  });
+}
+
 function psqlGlobal(sql) {
   spawnSync("psql", [process.env.DATABASE_URL, "-c", sql], { encoding: "utf8" });
 }
@@ -817,6 +868,11 @@ console.log("\nStorage path ownership");
 
 console.log("\nThe assistant only promises what it can build");
 {
+  // From a quiet queue. Renders in flight now hold the allowance and there is
+  // a cap on how many one account may have going at once, so jobs left behind
+  // by an earlier section are no longer inert fixture — they are three of the
+  // three doors this section needs one of.
+  clearQueue(ALICE);
   const understood = await call(ALICE, `/api/projects/${aliceProjectId}/messages`, "POST", {
     content: "cut the dead air out and make it vertical for tiktok",
   });
@@ -1002,6 +1058,12 @@ console.log("\nNamed looks");
 
   // The one look that makes several files rather than one. Its own project,
   // because the queue allows one render in flight per project.
+  //
+  // And the template render above is settled first, because renders in flight
+  // now hold the allowance: a queued 42-second render reserves a minute, and
+  // a free plan with four minutes left refuses a five-minute clip — correctly,
+  // and for a reason that has nothing to do with what this section is testing.
+  clearQueue(ALICE);
   const clipsLook = await call(ALICE, "/api/projects", "POST", { title: "Clips look check" });
   const clipsLookId = clipsLook.json?.id;
   await call(ALICE, `/api/projects/${clipsLookId}`, "PATCH", {
@@ -1128,8 +1190,60 @@ console.log("\nNamed looks");
   await call(ALICE, `/api/projects/${templateProjectId}`, "DELETE");
 }
 
+console.log("\nDeleting a project is one write, not four");
+{
+  /*
+    The four row writes were four separate awaits on a platform that can end an
+    invocation between any two of them. Every partial outcome is a state
+    nothing reconciles and nothing reports — a project whose conversation is
+    gone but whose exports remain, or whose scheduled posts are still queued
+    against a project that no longer exists and which the worker will reach at
+    its hour and fail.
+
+    Read from the source, because the property is the shape: they have to be
+    inside one transaction, and the project row has to go last within it.
+  */
+  const route = readFileSync(path.join(process.cwd(), "artifacts/api-server/src/routes/projects.ts"), "utf8");
+  const del = route.slice(route.indexOf("router.delete("));
+  check(
+    "the rows go in a transaction",
+    /await db\.transaction\(async \(tx\) =>/.test(del),
+    "the deletes are still separate statements",
+  );
+  for (const table of ["messagesTable", "exportsTable", "scheduledPostsTable", "projectsTable"]) {
+    check(
+      `and ${table} is written through it rather than around it`,
+      new RegExp(`tx\\s*\\n?\\s*\\.(?:delete|update)\\(${table}`).test(del),
+      `${table} is still written on db directly, so it is outside the transaction`,
+    );
+  }
+  check(
+    "the project row goes last, so nothing is orphaned by an early commit",
+    order(del, "delete(exportsTable)", "delete(projectsTable)").ok &&
+      order(del, "update(scheduledPostsTable)", "delete(projectsTable)").ok,
+    "",
+  );
+  check(
+    "and the storage sweep still happens before any of it",
+    order(del, "deleteProjectObjects", "db.transaction").ok,
+    "reversing them turns a deletion into an orphaning",
+  );
+
+  // And the clip delete no longer fires its sweep into the void.
+  const clips = readFileSync(path.join(process.cwd(), "artifacts/api-server/src/routes/clips.ts"), "utf8");
+  check(
+    "a deleted clip's objects are awaited rather than fired and forgotten",
+    /const swept = await deleteObjects\(\[master/.test(clips),
+    "void deleteObjects(...) on a runtime that can freeze at res.end()",
+  );
+}
+
 console.log("\nExports are real renders");
 {
+  // Same reason as above: three renders left in the queue by the looks
+  // sections is the cap, and the cap is enforced before the door this
+  // section is knocking on.
+  clearQueue(ALICE);
   // Its own project: an export queues a render, and the render-queue checks
   // below need a project with nothing already in flight.
   const created = await call(ALICE, "/api/projects", "POST", { title: "Export check" });
@@ -1257,6 +1371,9 @@ console.log("\nExports are real renders");
 
 console.log("\nRender queue");
 {
+  // A clean queue, because this section is about what the queue does with
+  // one render rather than about the ceiling on how many there may be.
+  clearQueue(ALICE);
   const plan = { version: 1, operations: [{ type: "removeSilence" }] };
 
   const bobStart = await call(BOB, `/api/projects/${aliceProjectId}/render`, "POST", { plan });
@@ -1508,6 +1625,134 @@ console.log("\nCascade cleanup");
     "child messages are removed with the project",
     Array.isArray(msgs.json) && msgs.json.length === 0,
     JSON.stringify(msgs.json),
+  );
+}
+
+console.log("\nSwitching to a smaller plan says what it did not do");
+{
+  /*
+    The plan here and the subscription at the merchant of record are two
+    different things, and this endpoint only moves the first.
+
+    Freemius takes the payment and nothing in this codebase can cancel it —
+    there is no Freemius client, only signature verification and the public
+    checkout config. So a Pro subscriber who pressed "Switch to Creator" got
+    Creator's allowance immediately, the page told them Creator was their plan,
+    and the card went on being charged $29 a month until they cancelled it
+    themselves. Nothing failed: the update succeeded and the screen was
+    consistent with the database.
+
+    It is unstable in the other direction too. The Pro licence is still live, so
+    the next renewal webhook writes `pro` back, which reads as the downgrade
+    having been undone by us.
+
+    Cancelling it from here is not something this session can build. Saying so
+    is, and a person who is not told is a person who finds out from their bank.
+  */
+  psqlGlobal(
+    `insert into subscriptions (user_id, plan) values ('${BOB}', 'pro') ` +
+      `on conflict (user_id) do update set plan = 'pro'`,
+  );
+  const down = await call(BOB, "/api/subscription", "PATCH", { plan: "creator" });
+  check("a downgrade is accepted", down.status === 200, `got ${down.status}`);
+  check("and the plan really moves", down.json?.plan === "creator", JSON.stringify(down.json?.plan));
+  check(
+    "and it says the card was not stopped",
+    typeof down.json?.billingUnchanged?.message === "string",
+    JSON.stringify(down.json?.billingUnchanged),
+  );
+  check(
+    "naming the plan that is still being paid for",
+    down.json?.billingUnchanged?.was === "pro",
+    JSON.stringify(down.json?.billingUnchanged),
+  );
+  check(
+    "with somewhere to actually stop it",
+    /^https:\/\//.test(down.json?.billingUnchanged?.where ?? ""),
+    down.json?.billingUnchanged?.where,
+  );
+
+  /*
+    And not on a change with no card behind it. A free account moving between
+    free and free has nothing to cancel, and telling them to go and cancel
+    something is worse than saying nothing.
+  */
+  const fromFree = await call(BOB, "/api/subscription", "PATCH", { plan: "free" });
+  const againFromFree = await call(BOB, "/api/subscription", "PATCH", { plan: "free" });
+  check("moving down to free still says it, because that is the plan being paid for", Boolean(fromFree.json?.billingUnchanged));
+  check(
+    "and moving from free says nothing, because there is nothing to stop",
+    againFromFree.json?.billingUnchanged === undefined,
+    JSON.stringify(againFromFree.json?.billingUnchanged),
+  );
+
+  // An upgrade is still refused here, whatever else changed.
+  const up = await call(BOB, "/api/subscription", "PATCH", { plan: "studio" });
+  check("and an upgrade is still not granted by asking", up.status === 402, `got ${up.status}`);
+
+  psqlGlobal(`delete from subscriptions where user_id = '${BOB}'`);
+}
+
+console.log("\nDeleting a project takes what was queued from it with it");
+{
+  /*
+    `scheduled_posts` has no foreign key on `project_id`, deliberately, so
+    nothing cascaded and this route never named it. A delete returned 204 and
+    left posts sitting at `status = 'scheduled'` pointing at a project and an
+    export whose rows and bytes were both gone. Days later the worker reached
+    each one at its hour, could not resolve a file, and failed it — with no
+    connection in the person's mind to the deletion.
+
+    `DELETE /social/accounts/:id` already cancelled the affected posts and
+    returned the count, on the argument that silently dropping them means the
+    person is never told. The same argument applies here.
+  */
+  const made = await call(ALICE, "/api/projects", "POST", { title: "Queued and deleted" });
+  const projectId = made.json?.id;
+  check("a project to schedule from", Boolean(projectId), JSON.stringify(made.json));
+
+  const seeded = spawnSync(
+    "psql",
+    [
+      process.env.DATABASE_URL,
+      "-c",
+      `insert into social_accounts (id, user_id, platform, external_id, handle, access_token)
+            values ('cascade-acct', '${ALICE}', 'youtube', 'chan-2', '@alice', 'token')
+       on conflict (id) do nothing;
+       insert into scheduled_posts (id, user_id, project_id, account_id, platform, caption, scheduled_for, status)
+            values ('cascade-post', '${ALICE}', '${projectId}', 'cascade-acct', 'youtube', 'hello', now() + interval '2 days', 'scheduled')
+       on conflict (id) do nothing`,
+    ],
+    { encoding: "utf8" },
+  );
+  check("with something queued from it", seeded.status === 0, seeded.stderr?.slice(0, 200));
+
+  const removed = await call(ALICE, `/api/projects/${projectId}`, "DELETE");
+  check("the project is deleted", removed.status === 200, `got ${removed.status}`);
+  check("and it says what went with it", removed.json?.cancelledPosts === 1, JSON.stringify(removed.json));
+
+  const state = spawnSync(
+    "psql",
+    [process.env.DATABASE_URL, "-tAc", "select status, error from scheduled_posts where id = 'cascade-post'"],
+    { encoding: "utf8" },
+  ).stdout.trim();
+  check("the post is cancelled rather than left to fail at its hour", state.startsWith("cancelled"), state);
+  check(
+    "with a reason a person can read on it",
+    /deleted/i.test(state),
+    "a cancelled post with no reason is the same silence one step later",
+  );
+
+  // And a project with nothing queued still answers the way every caller
+  // already expects.
+  const plain = await call(ALICE, "/api/projects", "POST", { title: "Nothing queued" });
+  const quiet = await call(ALICE, `/api/projects/${plain.json?.id}`, "DELETE");
+  check("a delete with nothing queued is still a 204", quiet.status === 204, `got ${quiet.status}`);
+
+  spawnSync(
+    "psql",
+    [process.env.DATABASE_URL, "-c", "delete from scheduled_posts where id = 'cascade-post'; delete from social_accounts where id = 'cascade-acct'"],
+    { encoding: "utf8" },
   );
 }
 
@@ -1934,9 +2179,20 @@ console.log("\nA payment cannot be lost, reordered, or applied twice");
     psql(`SELECT user_id IS NULL FROM billing_events WHERE event_id = 'fs_evt-3'`) === "t",
   );
 
-  // 6. And handed over the moment an account with that address reads its plan.
+  /*
+    6. And handed over the moment an account with that address reads its plan —
+    once it has confirmed the address.
+
+    `email_verified` was not on this token when the section was written, and
+    the claim happened anyway. That was the bug: Supabase issues a session
+    before an address is confirmed, so anybody could sign up with an address
+    somebody else had paid with and collect their plan. It is on the token
+    here now for the same reason the real customer's is: they opened the mail.
+    See the section on confirmed addresses for the other half — that an
+    unconfirmed one gets nothing, and that the receipt stays claimable.
+  */
   psql(`UPDATE auth.users SET email = '${STRANGER_EMAIL}' WHERE id = '${ALICE}'`);
-  const claimingToken = await tokenFor(ALICE, { email: STRANGER_EMAIL });
+  const claimingToken = await tokenFor(ALICE, { email: STRANGER_EMAIL, email_verified: true });
   const claimed = await fetch(`${BASE}/api/subscription`, {
     headers: { Authorization: `Bearer ${claimingToken}` },
   }).then((r) => r.json());
@@ -1947,6 +2203,69 @@ console.log("\nA payment cannot be lost, reordered, or applied twice");
     "and the event stops being unclaimed, so it is not re-examined forever",
     psql(`SELECT user_id FROM billing_events WHERE event_id = 'fs_evt-3'`) === ALICE,
     psql(`SELECT user_id, outcome FROM billing_events WHERE event_id = 'fs_evt-3'`),
+  );
+
+  /*
+    7. A declined card. The one event a person has to act on, and the one that
+       could not reach them.
+
+    `planFromEvent` answers null for `payment.failed` — correctly, since the
+    plan must not move on a card Freemius is still retrying. But null landed in
+    the branch that closes the event as `ignored` and returns, twenty lines
+    before the letter. So the letter this handler's own comment calls "the one
+    the product loses a subscription to by staying quiet" could not be sent by
+    any path.
+
+    Nothing failed: the webhook answered 200 with `ignored: "payment.failed"`,
+    Freemius stopped retrying, and the row read `ignored`, which looks
+    deliberate. `mail-test` passed the whole time, because its check was a
+    regex over the source text and `paymentFailed` was still written there —
+    on a line no execution could reach.
+  */
+  psql(`UPDATE auth.users SET email = '${ALICE_EMAIL}' WHERE id = '${ALICE}'`);
+  psql(`UPDATE subscriptions SET plan = 'pro' WHERE user_id = '${ALICE}'`);
+  const declined = await send({
+    id: "evt-declined",
+    type: "payment.failed",
+    created: "2026-09-03 09:00:00",
+    objects: { license: { id: "L-PRO" }, user: { email: ALICE_EMAIL } },
+  });
+  check("a declined card is accepted", declined.status === 200, JSON.stringify(declined));
+  check(
+    "and reaches the person rather than being filed as nothing to do",
+    declined.json?.notified === true,
+    JSON.stringify(declined.json),
+  );
+  check(
+    "the event says what became of it",
+    psql(`SELECT outcome FROM billing_events WHERE event_id = 'fs_evt-declined'`) === "notified",
+    psql(`SELECT outcome FROM billing_events WHERE event_id = 'fs_evt-declined'`),
+  );
+  check(
+    "and the plan is untouched, because a card is retried and access is not a punishment",
+    planOf(ALICE) === "pro",
+    planOf(ALICE),
+  );
+  /*
+    And a redelivery is absorbed rather than sent again.
+
+    Freemius retries, and the letter is claimed on the event id inside
+    `lib/mail` — but the outcome on the row is what stops this handler doing
+    the work twice, and that column is now written before the response. There
+    is no mail provider configured in this suite, so what is asserted is the
+    handler's own bookkeeping rather than a second email not arriving.
+  */
+  const again = await send({
+    id: "evt-declined",
+    type: "payment.failed",
+    created: "2026-09-03 09:00:00",
+    objects: { license: { id: "L-PRO" }, user: { email: ALICE_EMAIL } },
+  });
+  check("a redelivery is still a 200", again.status === 200, JSON.stringify(again));
+  check(
+    "and the row still says what the first delivery did",
+    psql(`SELECT outcome FROM billing_events WHERE event_id = 'fs_evt-declined'`) === "notified",
+    psql(`SELECT outcome FROM billing_events WHERE event_id = 'fs_evt-declined'`),
   );
 
   psql(`DELETE FROM billing_events`);
@@ -2671,6 +2990,35 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
       `${usageAfter.json?.minutesGranted} vs ${grantedBefore}`,
     );
 
+    /*
+      And the console can see it, which is the screen the grant was made from.
+
+      `usage.ts` defines `minutesIncluded` as the plan's minutes plus anything
+      granted by hand, and says why it is one number: every reader asks the
+      same question, and a grant only some of them know about lets one screen
+      promise minutes another refuses. The accounts list computed it from
+      `PLAN_LIMITS` alone — so the inverse happened, on the one screen built to
+      check it. An operator grants sixty minutes to a stuck customer, reloads,
+      and the row still reads 5 / 5, which invites granting again.
+    */
+    // The console lists accounts out of `auth.users`, which this suite stands
+    // in for. Bob is put there for the length of this check and taken out
+    // again, so the searches and counts elsewhere in the file still describe
+    // the world they were written against.
+    psqlGlobal(
+      `INSERT INTO auth.users (id, email) VALUES ('${BOB}', 'bob@example.test') ` +
+        `ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email`,
+    );
+    const page = await call(ALICE, "/api/admin/accounts?limit=200");
+    const row = (page.json?.accounts ?? []).find((account) => account.userId === BOB);
+    check("the account is listed in the console", Boolean(row), `${(page.json?.accounts ?? []).length} accounts`);
+    check(
+      "and its allowance there includes the grant, not just the plan",
+      (row?.minutesIncluded ?? 0) === (usageAfter.json?.minutesIncluded ?? -1),
+      `console says ${row?.minutesIncluded}, the meter says ${usageAfter.json?.minutesIncluded}`,
+    );
+    psqlGlobal(`DELETE FROM auth.users WHERE id = '${BOB}'`);
+
     const log = await call(ALICE, "/api/admin/actions?limit=5");
     const entry = (log.json?.actions ?? []).find((a) => a.action === "grant_minutes");
     check("the grant is in the log", Boolean(entry), JSON.stringify(log.json?.actions?.slice(0, 2)));
@@ -2786,6 +3134,77 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
       reason: "checking the missing case",
     });
     check("and a job that does not exist is a 404", missingJob.status === 404, `got ${missingJob.status}`);
+
+    /*
+      The job most likely to be requeued is the one that ran out of attempts,
+      and requeueing it used to wedge the project permanently.
+
+      The claim is `WHERE status = 'queued' AND attempts < max_attempts`, so a
+      row put back as queued with attempts at its ceiling is claimed by nobody,
+      ever. Both sweeps require `status = 'running'` and a `locked_at` the
+      requeue has just set to NULL, so neither can reach it either. And
+      `jobs_one_active_per_project` is a unique index over queued and running
+      rows, so every future render and export on that project answers 409
+      "This project is already rendering" — for good.
+    */
+    const wedgeProject = await call(ALICE, "/api/projects", "POST", { title: "Requeue wedge check" });
+    const wedgeId = wedgeProject.json?.id;
+    psqlGlobal(
+      `INSERT INTO jobs (id, user_id, project_id, status, plan, input_path, attempts, max_attempts, error, finished_at)
+       VALUES ('iso-exhausted', '${ALICE}', '${wedgeId}', 'failed', '{"version":1,"operations":[]}', '${ALICE}/${wedgeId}/source.mp4', 3, 3, 'Gave up after repeated failures.', now())`,
+    );
+    const revived = await call(ALICE, "/api/admin/jobs/iso-exhausted/requeue", "POST", {
+      reason: "the storage error that broke it is fixed",
+    });
+    check("an exhausted job can be requeued", revived.status === 204, `got ${revived.status}`);
+    check(
+      "and it comes back with attempts a worker will actually claim",
+      psqlGlobalRead("select attempts from jobs where id = 'iso-exhausted'").trim() === "0",
+      psqlGlobalRead("select status, attempts, max_attempts from jobs where id = 'iso-exhausted'"),
+    );
+    check(
+      "which is the whole test — the claim reads attempts < max_attempts",
+      psqlGlobalRead(
+        "select count(*) from jobs where id = 'iso-exhausted' and status = 'queued' and attempts < max_attempts",
+      ).trim() === "1",
+      psqlGlobalRead("select status, attempts, max_attempts from jobs where id = 'iso-exhausted'"),
+    );
+    check(
+      "and it no longer claims to have finished",
+      psqlGlobalRead("select finished_at is null from jobs where id = 'iso-exhausted'").trim() === "t",
+      psqlGlobalRead("select finished_at from jobs where id = 'iso-exhausted'"),
+    );
+    psqlGlobal("DELETE FROM jobs WHERE id = 'iso-exhausted'");
+    await call(ALICE, `/api/projects/${wedgeId}`, "DELETE");
+
+    /*
+      And a plan set by hand has to survive the next stale webhook.
+
+      `license_id` and `plan_source_at` exist only so the ledger can order what
+      comes next. The manual correction wrote neither, so a redelivered
+      cancellation from before it compared as newer and undid the one action
+      this console has for "Freemius is wrong and the customer is paying for
+      something they do not have".
+    */
+    const corrected = await call(ALICE, `/api/admin/accounts/${BOB}/plan`, "POST", {
+      plan: "pro",
+      reason: "the webhook failed and they are paying for Pro",
+    });
+    check("a plan can be set by hand", corrected.status === 200, `got ${corrected.status}`);
+    check(
+      "and it is stamped, so an older event cannot quietly undo it",
+      psqlGlobalRead(`select plan_source_at is not null from subscriptions where user_id = '${BOB}'`).trim() === "t",
+      psqlGlobalRead(`select plan, plan_source_at from subscriptions where user_id = '${BOB}'`),
+    );
+    check(
+      "with the plan that was asked for",
+      psqlGlobalRead(`select plan from subscriptions where user_id = '${BOB}'`).trim() === "pro",
+      psqlGlobalRead(`select plan from subscriptions where user_id = '${BOB}'`),
+    );
+    await call(ALICE, `/api/admin/accounts/${BOB}/plan`, "POST", {
+      plan: "free",
+      reason: "putting the fixture back where it was",
+    });
   }
 
   // The allowlist itself, on its own. The unset case is the one that matters:
@@ -2954,6 +3373,528 @@ console.log("\nThe waiting list takes anyone, and is the only thing that does");
 
   psqlGlobal(`delete from waitlist where email like '%@iso-test.invalid'`);
   psqlGlobal(`delete from rate_limits where bucket like 'ip:%'`);
+}
+
+console.log("\nA render can be stopped, and stopping it is not a failure");
+{
+  /*
+    There was no way to stop one.
+
+    Somebody who queued the wrong plan, or pointed at the wrong file, or simply
+    changed their mind, could only wait — and `jobs_one_active_per_project`
+    means they could not start the render they *did* want until the one they
+    did not finished. On a long source that is hours. Meanwhile the machine
+    spends that hour on work nobody is waiting for, while the queue behind it
+    holds people who are.
+
+    Two shapes, and this section is about both: a queued render stops here and
+    now, and a running one is a request the worker reads. What must be true of
+    both is that the person is told they stopped it, rather than shown an
+    apology for a failure that did not happen.
+  */
+  clearQueue(ALICE);
+  psqlGlobal(`update subscriptions set plan = 'pro' where user_id = '${ALICE}'`);
+  const made = await call(ALICE, "/api/projects", "POST", { title: "Stoppable" });
+  const id = made.json?.id;
+  await call(ALICE, `/api/projects/${id}`, "PATCH", {
+    videoPath: `${ALICE}/${id}/source.mp4`,
+    duration: 60,
+  });
+
+  // Nothing to stop yet.
+  const nothing = await call(ALICE, `/api/projects/${id}/render/cancel`, "POST");
+  check("stopping a project that is not rendering is a 404", nothing.status === 404, `got ${nothing.status}`);
+
+  const plan = { version: 1, operations: [{ type: "removeSilence" }] };
+  const started = await call(ALICE, `/api/projects/${id}/render`, "POST", { plan });
+  check("a render starts", started.status === 202, `got ${started.status} ${started.text.slice(0, 120)}`);
+  const jobId = started.json?.id;
+
+  const stopped = await call(ALICE, `/api/projects/${id}/render/cancel`, "POST");
+  check("a queued render stops outright", stopped.status === 200, `got ${stopped.status} ${stopped.text.slice(0, 120)}`);
+  check("and says so", stopped.json?.cancelled === true, JSON.stringify(stopped.json));
+
+  const row = psqlGlobalRead(
+    `select status, cancelled_at is not null, error from jobs where id = '${jobId}'`,
+  ).trim();
+  check("the row settles rather than sitting in the queue", row.startsWith("failed|t|"), row);
+  /*
+    The sentence is the feature.
+
+    A stopped render is `failed`, because that is what every reader of `status`
+    in this product understands as "not going any more" — so without the
+    `cancelled_at` column and this sentence, a person who pressed stop was
+    shown "Rendering failed. We are looking into it.": an apology, from us, for
+    something they chose.
+  */
+  check(
+    "and reads as their decision, not as our failure",
+    /You stopped this render/.test(row) && !/We are looking into it/.test(row),
+    row,
+  );
+  check("nothing is charged for it", psqlGlobalRead(`select coalesce(billed_seconds::text, 'none') from jobs where id = '${jobId}'`).trim() === "none");
+
+  // The project is free again — which is the practical half of the feature.
+  const again = await call(ALICE, `/api/projects/${id}/render`, "POST", { plan });
+  check("and the project can be rendered again immediately", again.status === 202, `got ${again.status} ${again.text.slice(0, 140)}`);
+
+  // Asking twice is not an error the second time either.
+  await call(ALICE, `/api/projects/${id}/render/cancel`, "POST");
+  const twice = await call(ALICE, `/api/projects/${id}/render/cancel`, "POST");
+  check("stopping something already stopped says so plainly", twice.status === 409, `got ${twice.status}`);
+
+  /*
+    A running render is a request, and the answer says which it was.
+
+    Nothing in the API can reach into a machine that is inside ffmpeg, so the
+    row stays `running` and the worker reads `cancelled_at` at its next
+    progress report. 202 rather than 200, because "accepted" and "done" are
+    different claims and the customer can tell them apart by refreshing.
+  */
+  clearQueue(ALICE);
+  const third = await call(ALICE, `/api/projects/${id}/render`, "POST", { plan });
+  const runningId = third.json?.id;
+  psqlGlobal(`update jobs set status = 'running', locked_at = now(), locked_by = 'some-worker' where id = '${runningId}'`);
+
+  const asked = await call(ALICE, `/api/projects/${id}/render/cancel`, "POST");
+  check("stopping a running render is accepted, not claimed as done", asked.status === 202, `got ${asked.status}`);
+  const runningRow = psqlGlobalRead(
+    `select status, cancelled_at is not null from jobs where id = '${runningId}'`,
+  ).trim();
+  check(
+    "the row is still running, because a machine still has it",
+    runningRow === "running|t",
+    `${runningRow} — saying it had stopped would be a lie they could see by refreshing`,
+  );
+
+  /*
+    And the half nobody reported, because it produces no symptom anybody could
+    describe: deleting a project left its render going.
+
+    The job kept its lock, its slot in the account's concurrency cap and its
+    place in the queue — encoding a video with nowhere to put it, failing at
+    the upload, retried twice more, and settling as "Rendering failed" against
+    a project that no longer exists.
+  */
+  clearQueue(ALICE);
+  const doomed = await call(ALICE, `/api/projects/${id}/render`, "POST", { plan });
+  const doomedId = doomed.json?.id;
+  psqlGlobal(`update jobs set status = 'running', locked_at = now(), locked_by = 'some-worker' where id = '${doomedId}'`);
+  // Nobody asked to stop this one. The delete is the only thing that could.
+  check(
+    "and it really is going when the project is deleted",
+    psqlGlobalRead(`select cancelled_at is null from jobs where id = '${doomedId}'`).trim() === "t",
+  );
+
+  await call(ALICE, `/api/projects/${id}`, "DELETE");
+  check(
+    "deleting a project stops whatever it was rendering",
+    psqlGlobalRead(`select cancelled_at is not null from jobs where id = '${doomedId}'`).trim() === "t",
+    psqlGlobalRead(`select status, cancelled_at from jobs where id = '${doomedId}'`).trim(),
+  );
+
+  clearQueue(ALICE);
+  psqlGlobal(`update subscriptions set plan = 'free' where user_id = '${ALICE}'`);
+}
+
+console.log("\nA project is not ready because the browser says so");
+{
+  /*
+    `status`, `duration`, `width`, `height` and `videoPath` all arrive from the
+    browser, and the server checked exactly one property of them: that the path
+    sits inside this user's own folder. Whether anything was *at* that path was
+    nobody's question.
+
+    So a project could be recorded `ready`, with a length and a shape, pointing
+    at an upload that failed, at the zero-byte object a cancelled upload
+    leaves, or at a `.txt` renamed `.mp4`. The product then drew a finished
+    project with a Generate button, and the first thing to discover the truth
+    was the worker — minutes later, with somebody watching a progress bar,
+    failing the render as ours: "Rendering failed. We are looking into it."
+
+    One HEAD is not a probe and is not meant to be: there is no ffmpeg on this
+    platform, which is the reason the worker exists. It answers the three
+    questions that can be answered cheaply and honestly, and the worker stays
+    the authority on whether the bytes decode.
+  */
+  const made = await call(ALICE, "/api/projects", "POST", { title: "Upload checks" });
+  const id = made.json?.id;
+  const pathTo = (name) => `${ALICE}/${id}/${name}`;
+
+  // Nothing was ever uploaded — the shape a failed upload leaves behind.
+  storageObjectFacts.set(pathTo("ghost.mp4"), null);
+  const ghost = await call(ALICE, `/api/projects/${id}`, "PATCH", {
+    videoPath: pathTo("ghost.mp4"),
+    status: "ready",
+    duration: 90,
+  });
+  check("a path with no file behind it is refused", ghost.status === 400, `got ${ghost.status}`);
+  check(
+    "and the person is told to upload again rather than that something went wrong",
+    /upload/i.test(ghost.json?.error ?? "") && /again/i.test(ghost.json?.error ?? ""),
+    JSON.stringify(ghost.json),
+  );
+
+  // The other half of the same failure: the object exists and is empty.
+  storageObjectFacts.set(pathTo("empty.mp4"), { bytes: 0, contentType: "video/mp4" });
+  const empty = await call(ALICE, `/api/projects/${id}`, "PATCH", { videoPath: pathTo("empty.mp4") });
+  check("a zero-byte upload is refused too", empty.status === 400, `got ${empty.status}`);
+
+  // A file that is not any kind of media.
+  storageObjectFacts.set(pathTo("notes.mp4"), { bytes: 812, contentType: "text/plain" });
+  const wrong = await call(ALICE, `/api/projects/${id}`, "PATCH", { videoPath: pathTo("notes.mp4") });
+  check("and a text file wearing an .mp4 name is refused", wrong.status === 400, `got ${wrong.status}`);
+  check("naming what it actually is", /text\/plain/.test(wrong.json?.error ?? ""), JSON.stringify(wrong.json));
+
+  /*
+    And the direction the fix must not break.
+
+    A store that records no content type — which is what both providers report
+    for an upload sent without the header — is a missing header, not a wrong
+    file. Refusing it would refuse every client that forgets to set one.
+  */
+  storageObjectFacts.set(pathTo("untyped.mp4"), { bytes: 5_000_000, contentType: "application/octet-stream" });
+  const untyped = await call(ALICE, `/api/projects/${id}`, "PATCH", { videoPath: pathTo("untyped.mp4") });
+  check("a real file with no recorded type still goes through", untyped.status === 200, `got ${untyped.status} ${untyped.text.slice(0, 120)}`);
+
+  const ordinary = await call(ALICE, `/api/projects/${id}`, "PATCH", {
+    videoPath: pathTo("source.mp4"),
+    status: "ready",
+    duration: 90,
+  });
+  check("and so does an ordinary upload", ordinary.status === 200, `got ${ordinary.status} ${ordinary.text.slice(0, 120)}`);
+
+  const stored = psqlGlobalRead(`select video_path from projects where id = '${id}'`).trim();
+  check(
+    "with only the file that exists written to the row",
+    stored === pathTo("source.mp4"),
+    stored,
+  );
+
+  storageObjectFacts.clear();
+  await call(ALICE, `/api/projects/${id}`, "DELETE");
+}
+
+console.log("\nThe table the rate limiter writes to does not grow forever");
+{
+  /*
+    One row per (person, endpoint) and per (address, endpoint), inserted on
+    first use and never removed.
+
+    Nothing failed — the table grew. Every visitor who ever joined the waiting
+    list left a row keyed on their address; every account left one per
+    endpoint it used. On a Supabase free plan the whole database is 500 MB, so
+    a table that only grows is a date on the calendar, and what happens on that
+    date is not a slow rate limiter: it is every write in the product refused
+    at once.
+
+    The sweep rides on the traffic that creates the rows, because this API is
+    one invocation per request and there is no process to hang a timer on.
+  */
+  psqlGlobal(`delete from rate_limits where bucket like 'sweep-test:%'`);
+  // A row from a window that closed weeks ago, and one from a window still open.
+  psqlGlobal(
+    `insert into rate_limits (bucket, window_start, count) values ` +
+      `('sweep-test:ancient', now() - interval '30 days', 7), ` +
+      `('sweep-test:current', now(), 3)`,
+  );
+
+  const before = Number(psqlGlobalRead(`select count(*) from rate_limits where bucket like 'sweep-test:%'`).trim());
+  check("both rows are there to begin with", before === 2, String(before));
+
+  /*
+    Any rate-limited request will do; the sweep is a side effect of `consume`.
+    The waiting-list route is the one that limits by address, so it needs no
+    account and cannot disturb Alice's own buckets.
+  */
+  /*
+    The sweep runs at most once an hour per instance, and this suite has made
+    hundreds of requests already — so this instance has long since spent its
+    one. `RATE_LIMIT_SWEEP_MS` is the seam that exists for exactly this: a
+    property nothing can make happen is a property nothing tests.
+  */
+  const wasEvery = process.env.RATE_LIMIT_SWEEP_MS;
+  process.env.RATE_LIMIT_SWEEP_MS = "0";
+  await fetch(`${BASE}/api/waitlist`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-forwarded-for": "198.51.100.9" },
+    body: JSON.stringify({ email: "sweeper@iso-test.invalid" }),
+  });
+  // Not awaited inside the request, on purpose — a customer must not wait on
+  // our housekeeping — so this gives the delete a moment to land.
+  await new Promise((r) => setTimeout(r, 500));
+
+  const ancient = psqlGlobalRead(`select count(*) from rate_limits where bucket = 'sweep-test:ancient'`).trim();
+  const current = psqlGlobalRead(`select count(*) from rate_limits where bucket = 'sweep-test:current'`).trim();
+  check("a window that closed a month ago is gone", ancient === "0", ancient);
+  /*
+    And the check that stops the fix being worse than the bug.
+
+    Deleting a row whose window is still open resets somebody's count to zero
+    mid-window — which is not a tidier table, it is a rate limit that does not
+    limit.
+  */
+  check("a window still counting is left alone", current === "1", current);
+
+  if (wasEvery === undefined) delete process.env.RATE_LIMIT_SWEEP_MS;
+  else process.env.RATE_LIMIT_SWEEP_MS = wasEvery;
+
+  psqlGlobal(`delete from rate_limits where bucket like 'sweep-test:%'`);
+  psqlGlobal(`delete from waitlist where email like '%@iso-test.invalid'`);
+  psqlGlobal(`delete from rate_limits where bucket like 'ip:%'`);
+}
+
+console.log("\nA plan somebody paid for is handed over on a confirmed address, not a claimed one");
+{
+  /*
+    Somebody buys before they sign up.
+
+    That is an ordinary path — the pricing page takes payment, the account
+    comes after — so an unmatched payment waits in `billing_events` and is
+    handed over on the first page load of an account with that address. The
+    matching key is the `email` claim on the token.
+
+    Supabase issues a session **before** the address is confirmed. So signing
+    up with an address somebody else had paid with, and never opening the
+    confirmation mail, handed over their plan on the next `GET /subscription`.
+    No password, no mailbox, no error, nothing in any log that looks unusual —
+    the address is not a secret, and the receipt was being treated as though
+    it were.
+
+    Both directions are checked here, because the fix has an obvious wrong
+    version: refusing everybody. An account that *has* confirmed must still
+    get what it paid for, on the same page load.
+  */
+  const paidAddress = "paid-before-signup@iso-test.invalid";
+  psqlGlobal(`delete from billing_events where email = '${paidAddress}'`);
+  psqlGlobal(
+    `insert into billing_events (event_id, type, email, plan, event_at) ` +
+      `values ('iso-unclaimed-1', 'purchase', '${paidAddress}', 'pro', now())`,
+  );
+  psqlGlobal(`update subscriptions set plan = 'free' where user_id = '${ALICE}'`);
+
+  // The token Supabase issues the moment somebody signs up: an address, and
+  // nothing saying anybody has proved it is theirs.
+  const unconfirmed = await tokenFor(ALICE, { email: paidAddress });
+  const beforeConfirming = await fetch(`${BASE}/api/subscription`, {
+    headers: { Authorization: `Bearer ${unconfirmed}` },
+  });
+  const unclaimed = await beforeConfirming.json();
+  check(
+    "an unconfirmed address does not collect somebody else's plan",
+    unclaimed?.plan === "free",
+    `${unclaimed?.plan} — the receipt was matched on an address nobody had proved`,
+  );
+  check(
+    "and nothing is marked as applied, so the real customer can still claim it",
+    psqlGlobalRead(`select coalesce(user_id::text, 'null') from billing_events where event_id = 'iso-unclaimed-1'`).trim() === "null",
+    psqlGlobalRead(`select coalesce(user_id::text, 'null') from billing_events where event_id = 'iso-unclaimed-1'`).trim(),
+  );
+
+  // And the same account once the address is confirmed. Nothing else changes.
+  const confirmed = await tokenFor(ALICE, { email: paidAddress, email_verified: true });
+  const afterConfirming = await fetch(`${BASE}/api/subscription`, {
+    headers: { Authorization: `Bearer ${confirmed}` },
+  });
+  const claimed = await afterConfirming.json();
+  check(
+    "a confirmed address gets what it paid for, on the same page load",
+    claimed?.plan === "pro",
+    `${claimed?.plan} — a fix that refuses everybody is not a fix`,
+  );
+
+  // Supabase has put the flag in more than one place over the years, and a
+  // reader that knows one shape refuses real customers the day it moves.
+  psqlGlobal(`update subscriptions set plan = 'free' where user_id = '${ALICE}'`);
+  psqlGlobal(`update billing_events set user_id = null, applied_at = null, outcome = null where event_id = 'iso-unclaimed-1'`);
+  const nested = await tokenFor(ALICE, { email: paidAddress, user_metadata: { email_verified: true } });
+  const viaMetadata = await (
+    await fetch(`${BASE}/api/subscription`, { headers: { Authorization: `Bearer ${nested}` } })
+  ).json();
+  check(
+    "and the flag is read wherever the provider put it",
+    viaMetadata?.plan === "pro",
+    `${viaMetadata?.plan} — user_metadata.email_verified is the shape social sign-ins carry`,
+  );
+
+  psqlGlobal(`delete from billing_events where email = '${paidAddress}'`);
+  psqlGlobal(`update subscriptions set plan = 'free' where user_id = '${ALICE}'`);
+}
+
+console.log("\nEvery answer under /api is JSON, including the one for a path that is not there");
+{
+  /*
+    Express's built-in 404 sends HTML.
+
+    `<pre>Cannot GET /api/nope</pre>` inside a full document, with a
+    `text/html` content type. The generated client reads every response as
+    JSON, so a mistyped path, a route removed between deploys, or a client
+    built against a newer API arrived in the browser as a *parse error* rather
+    than as a 404 anybody could branch on — which is precisely the failure
+    `errorHandler` exists to remove, left standing at the one door it never
+    sees: the handler only runs for requests that reached a route.
+  */
+  const missing = await call(ALICE, "/api/nope");
+  check("an unmatched API path is a 404", missing.status === 404, `got ${missing.status}`);
+  check(
+    "answered as JSON",
+    (missing.headers.get("content-type") ?? "").includes("application/json"),
+    missing.headers.get("content-type") ?? "none",
+  );
+  check("with no HTML in it", !/<[a-z]/i.test(missing.text), missing.text.slice(0, 120));
+  check("and a sentence naming what was asked for", /\/api\/nope/.test(missing.json?.error ?? ""), JSON.stringify(missing.json));
+
+  // A method that exists nowhere, on a path that does.
+  const wrongMethod = await call(ALICE, "/api/projects", "PUT", {});
+  check("and a method no route takes is the same 404, not HTML", wrongMethod.status === 404 && wrongMethod.json !== null, `${wrongMethod.status} ${wrongMethod.text.slice(0, 80)}`);
+}
+
+console.log("\nA duration is a length, and a length is not negative");
+{
+  /*
+    `duration: z.number()` — no floor, no ceiling, while `width` and `height`
+    beside it were bounded from the day they were written.
+
+    `PATCH {"duration": -999999}` was accepted and written to the row, and
+    `usage.ts` subtracts that column from the month. The next render was
+    authorised with `remaining_seconds` reading about a million: eleven days of
+    encoding, on a free account, from one request that returned 200. Nothing
+    logged it, nothing looked odd, and the only trace was a project whose
+    length was negative.
+  */
+  const made = await call(ALICE, "/api/projects", "POST", { title: "Duration bounds" });
+  const id = made.json?.id;
+
+  const negative = await call(ALICE, `/api/projects/${id}`, "PATCH", { duration: -999999 });
+  check("a negative duration is refused", negative.status === 400, `got ${negative.status}`);
+  check(
+    "and the refusal is a sentence naming the field",
+    /duration/.test(negative.json?.error ?? "") && !/[{}"]/.test(negative.json?.error ?? ""),
+    JSON.stringify(negative.json),
+  );
+
+  const absurd = await call(ALICE, `/api/projects/${id}`, "PATCH", { duration: 60 * 60 * 48 });
+  check("and so is a video two days long", absurd.status === 400, `got ${absurd.status}`);
+
+  const fine = await call(ALICE, `/api/projects/${id}`, "PATCH", { duration: 90 });
+  check("while an ordinary length still goes through", fine.status === 200, `got ${fine.status} ${fine.text.slice(0, 100)}`);
+
+  // The title had no ceiling either, on a `text` column.
+  const longTitle = await call(ALICE, `/api/projects/${id}`, "PATCH", { title: "x".repeat(5000) });
+  check("a title the length of a chapter is refused", longTitle.status === 400, `got ${longTitle.status}`);
+
+  const stored = psqlGlobalRead(`select duration from projects where id = '${id}'`).trim();
+  check("and nothing absurd reached the row", stored === "90", stored);
+
+  await call(ALICE, `/api/projects/${id}`, "DELETE");
+}
+
+console.log("\nFive requests in the same millisecond spend the allowance once");
+{
+  /*
+    The read-then-write that costs money.
+
+    `usageFor` subtracts renders already in flight, so the arithmetic was
+    right. The ordering was not: the meter was read on one connection and the
+    job inserted on another, with the whole policy decision in between. Two
+    requests that arrive together both read a meter showing nothing in flight,
+    and both are authorised for the whole allowance.
+
+    The per-project unique index does not help. It is per *project* — it stops
+    a double-click on one project and has nothing to say about five projects
+    belonging to one person, which is the ordinary shape of this: an
+    impatient user, a client retrying, or a script.
+
+    Measured before the fix on this same fixture: **four of five accepted, each
+    carrying `remaining_seconds = 300`** — twenty minutes of encoding
+    authorised against a five-minute plan, with no error anywhere and every
+    individual row defensible.
+
+    The fix is one advisory lock on the user id, held across the meter read and
+    the insert. What this section asserts is not the lock; it is the sum.
+  */
+  clearQueue(ALICE);
+  psqlGlobal(`update subscriptions set plan = 'free' where user_id = '${ALICE}'`);
+
+  /** Free is five minutes a month; each of these is two, so at most two fit. */
+  const SOURCE_SECONDS = 120;
+  const ALLOWANCE_SECONDS = 5 * 60;
+
+  const projects = [];
+  for (let i = 0; i < 5; i += 1) {
+    const made = await call(ALICE, "/api/projects", "POST", { title: `Race ${i}` });
+    const id = made.json?.id;
+    await call(ALICE, `/api/projects/${id}`, "PATCH", {
+      videoPath: `${ALICE}/${id}/source.mp4`,
+      duration: SOURCE_SECONDS,
+    });
+    projects.push(id);
+  }
+  check("five projects to race with", projects.every(Boolean), JSON.stringify(projects));
+
+  const plan = { version: 1, operations: [{ type: "removeSilence" }] };
+  // Fired together, not in sequence: the whole defect lives in the overlap.
+  const answers = await Promise.all(
+    projects.map((id) => call(ALICE, `/api/projects/${id}/render`, "POST", { plan })),
+  );
+  const accepted = answers.filter((a) => a.status === 202);
+  const refused = answers.filter((a) => a.status !== 202);
+
+  check(
+    "some of them are accepted — the door is not simply shut",
+    accepted.length >= 1,
+    JSON.stringify(answers.map((a) => [a.status, a.json?.error ?? ""])).slice(0, 300),
+  );
+  check(
+    "and the rest are refused for the allowance, not with a 500",
+    refused.every((a) => a.status === 402 || a.status === 429 || a.status === 409),
+    JSON.stringify(refused.map((a) => [a.status, a.text.slice(0, 80)])),
+  );
+
+  /*
+    The number that matters, read from the rows rather than from the responses.
+
+    `remaining_seconds` is the balance each job was told it had, and the worker
+    enforces the month against it. Under the race every accepted job carries
+    the *same* number — four rows each saying "you have 300 seconds left",
+    because all four read the meter before any of them wrote. Serialised, they
+    carry a descending series: 300, then 180, because the first is in flight by
+    the time the second is judged.
+
+    So the property is not the sum — a sum of snapshots is not a quantity of
+    anything. It is that no two renders accepted together were told the same
+    thing, which is only possible if each one saw the ones before it.
+  */
+  const balances = psqlGlobalRead(
+    `select remaining_seconds from jobs ` +
+      `where user_id = '${ALICE}' and status in ('queued','running') order by remaining_seconds desc`,
+  )
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map(Number);
+
+  check(
+    "each accepted render was told a balance that accounts for the ones before it",
+    new Set(balances).size === balances.length,
+    `${JSON.stringify(balances)} — repeated numbers mean they all read the meter before any of them wrote`,
+  );
+
+  /*
+    And the arithmetic, said plainly.
+
+    Every render accepted at once will consume the source it names, so what is
+    accepted together has to fit. Before the fix this was four renders of two
+    minutes each against a five-minute plan.
+  */
+  check(
+    "and the work accepted at once fits in the month",
+    accepted.length * SOURCE_SECONDS <= ALLOWANCE_SECONDS,
+    `${accepted.length} renders of ${SOURCE_SECONDS}s each against ${ALLOWANCE_SECONDS}s`,
+  );
+
+  clearQueue(ALICE);
+  for (const id of projects) await call(ALICE, `/api/projects/${id}`, "DELETE");
 }
 
 // Leave the database as we found it.

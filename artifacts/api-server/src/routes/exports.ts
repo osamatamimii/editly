@@ -12,11 +12,12 @@ import {
   type Platform, MAX_PLAN_OPERATIONS } from "@workspace/api-zod";
 import { serializeExport } from "../lib/transformers";
 import { planKeyFrom, referenceForPlan } from "../lib/plan-limits";
-import { usageFor } from "../lib/usage";
+import { usageFor, usageNotConsulted } from "../lib/usage";
 import { decideRender } from "../lib/render-policy";
 import { currentUserId } from "../middlewares/auth";
 import { isDuplicateActiveJob, ALREADY_RENDERING } from "../lib/one-active-job";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
+import { badRequest } from "../lib/bad-request";
 
 const router: IRouter = Router();
 
@@ -123,13 +124,13 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = StartExportParams.safeParse({ id: raw });
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
 
   const parsed = StartExportBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
+    badRequest(res, parsed.error);
     return;
   }
 
@@ -157,7 +158,7 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
   if (sub?.suspendedAt) {
     const stopped = decideRender({
       plan: planKeyFrom(sub.plan),
-      usage: { minutesUsed: 0, minutesIncluded: 0, minutesGranted: 0, minutesRemaining: 0, exhausted: false },
+      usage: usageNotConsulted(),
       operations: [],
       suspendedAt: sub.suspendedAt,
     });
@@ -304,7 +305,7 @@ router.get("/projects/:id/export/status", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = GetExportStatusParams.safeParse({ id: raw });
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
 

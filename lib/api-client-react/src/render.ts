@@ -68,6 +68,39 @@ export function useStartRender(): UseMutationResult<
   });
 }
 
+export const getCancelRenderUrl = (projectId: string) => `/api/projects/${projectId}/render/cancel`;
+
+/** What the server answers: the row's status *after* the request. */
+export interface CancelledRender {
+  id: string;
+  status: RenderJob["status"];
+  cancelled: true;
+}
+
+export async function cancelRender(projectId: string): Promise<CancelledRender> {
+  return customFetch<CancelledRender>(getCancelRenderUrl(projectId), { method: "POST" });
+}
+
+/**
+ * Stop the render that is going.
+ *
+ * Hand-written beside `useStartRender` for the same reason it is: what happens
+ * after the request is part of the contract rather than a caller's choice. In
+ * particular the poll has to be woken immediately — a queued render stops the
+ * moment this returns, and a running one takes up to one of the worker's lock
+ * renewals to notice, so the screen must go on asking rather than deciding for
+ * itself that it is over.
+ */
+export function useCancelRender(): UseMutationResult<CancelledRender, Error, { id: string }> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }) => cancelRender(id),
+    onSuccess: (_answer, { id }) => {
+      void queryClient.invalidateQueries({ queryKey: getRenderStatusQueryKey(id) });
+    },
+  });
+}
+
 /**
  * Polls while a render is in flight and stops once it settles.
  *
@@ -82,11 +115,42 @@ export function useRenderStatus(
     queryKey: getRenderStatusQueryKey(projectId),
     queryFn: ({ signal }) => getRenderStatus(projectId, { signal }),
     enabled: (options.enabled ?? true) && !!projectId,
+    /*
+      A 404 is an answer, not a fault.
+
+      A project that has never been rendered answers 404 for ever. Retrying it
+      is noise on every visit, and this hook is mounted on the editor, which is
+      the screen people leave open.
+    */
+    retry: (count, error) => (isNotFound(error) ? false : count < 2),
     refetchInterval: (query) => {
+      /*
+        Stop on a failure as well as on a finish.
+
+        This read `query.state.data`, which is the last *successful* answer —
+        so on a 401 (an expired session on a tab left open overnight), a 404
+        (a project never rendered), or a sustained 5xx, the data stayed
+        whatever it last was and this went on asking every five seconds for as
+        long as the tab lived. Twelve requests a minute per tab, each one a
+        serverless invocation, for an answer that is not coming; and the
+        progress bar sat frozen at whatever it had reached, because there is no
+        error branch on this screen either. Nothing was reported, by design:
+        the query had data, it simply had old data.
+
+        `query.state.status` is the one that knows. The export page solved the
+        same shape and this hook did not.
+      */
+      if (query.state.status === "error") return false;
       const status = query.state.data?.status;
       return status === "queued" || status === "running" ? 5000 : false;
     },
   });
+}
+
+/** A 404 from `customFetch`, which is the "never rendered" answer. */
+function isNotFound(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return status === 404 || /\b404\b/.test(String((error as Error | null)?.message ?? ""));
 }
 
 export function isRenderInFlight(job: RenderJob | null | undefined): boolean {

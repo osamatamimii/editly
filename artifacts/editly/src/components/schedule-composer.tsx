@@ -27,7 +27,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { CalendarClock, Loader2, AlertTriangle, Check, Send } from "lucide-react";
-import { refusalsFor, captionLength, MIN_LEAD_SECONDS } from "@workspace/api-zod/social";
+import { refusalsFor, captionLength, captionLengthFor, MIN_LEAD_SECONDS } from "@workspace/api-zod/social";
 import type { SocialPlatform } from "@workspace/api-zod/social";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -381,8 +381,15 @@ export function ScheduleComposer({
               className="w-full mt-1 rounded-lg bg-background border border-hairline px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary/40"
               data-testid={`input-caption-${platform}`}
             />
+            {/* Counted the way this platform counts. On X every URL is 23
+                characters whatever its real length, so a counter showing what
+                was typed says 340/280 for a post X would have taken.
+
+                `dir="ltr"` because "128 / 280" is a pair of numbers around a
+                slash, and in an Arabic paragraph the bidi algorithm puts the
+                slash and the second number on the wrong side of the first. */}
             <div dir="ltr" className="text-end text-xs tabular-nums text-muted-foreground mt-0.5">
-              {captionLength(text, hashtags)} / {limit}
+              {captionLengthFor(platform as SocialPlatform, text, hashtags)} / {limit}
             </div>
           </div>
         );

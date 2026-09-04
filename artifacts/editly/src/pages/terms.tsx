@@ -15,6 +15,7 @@
 import { Link } from "wouter";
 import { BackButton } from "@/components/back-button";
 import { PendingDetail, PendingNotice } from "@/components/pending-detail";
+import { ACCOUNT_MIN_AGE } from "@workspace/api-zod/processors";
 
 const UPDATED = "31 August 2026";
 
@@ -74,6 +75,20 @@ export default function Terms() {
         <p>
           We cannot check any of this and do not try to. If somebody tells us a file infringes
           their rights, we will take it down.
+        </p>
+      </Section>
+
+      <Section title="Who may have an account">
+        <p>
+          {/*
+            The contract never said. The privacy page did, the sign-up screen
+            now does, and this is the document that actually binds — so a
+            number in two of the three was a number in none of them.
+            `privacy-test` compares all three.
+          */}
+          You need to be {ACCOUNT_MIN_AGE} or over to have an Editly account. If you are under
+          that, this is not for you yet, and we do not knowingly hold anything belonging to
+          somebody who is.
         </p>
       </Section>
 

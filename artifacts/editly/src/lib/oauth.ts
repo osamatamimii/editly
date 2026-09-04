@@ -64,7 +64,12 @@ export async function signInWithProvider(provider: OAuthProvider): Promise<never
     options: {
       // Land back inside the app, not on the marketing page. `detectSessionInUrl`
       // in the Supabase client picks the session out of the callback URL.
-      redirectTo: `${window.location.origin}/dashboard`,
+      //
+      // And back where they were going, when they were going somewhere: a
+      // protected link bounces to `/login?next=…`, and an OAuth round trip
+      // that always returned to the dashboard threw that away. See
+      // `afterSignIn`.
+      redirectTo: `${window.location.origin}${afterSignIn()}`,
     },
   });
 
@@ -149,4 +154,33 @@ export function takeOAuthError(): string | null {
   const message = captured;
   captured = null;
   return message;
+}
+
+/**
+ * Where a successful sign-in should land.
+ *
+ * `?next=` when a protected route put one there, and the dashboard otherwise.
+ *
+ * The whole reason it exists: `Protected` redirected to a bare `/login` and
+ * this file and `login.tsx` both ended at `/dashboard`, so every link into the
+ * product — a project shared with a collaborator, a bookmark opened after a
+ * session expired — silently meant "the dashboard". The person signed in
+ * correctly, arrived somewhere else, and nothing anywhere said the link had
+ * been to something.
+ *
+ * ## The refusals are the point
+ *
+ * A sign-in page that will send the browser wherever a query parameter says is
+ * an open redirect, and an open redirect on a sign-in page is how a phishing
+ * link is made to start on the real domain. So: one leading slash and not two
+ * (`//evil.example` is protocol-relative and a browser reads it as another
+ * origin), no scheme, no backslashes (some parsers normalise `\` to `/`), and
+ * never back to `/login`, which would be a loop.
+ */
+export function afterSignIn(search = window.location.search): string {
+  const next = new URLSearchParams(search).get("next");
+  if (!next) return "/dashboard";
+  if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return "/dashboard";
+  if (next.includes("\\") || /^\/+login\b/.test(next)) return "/dashboard";
+  return next;
 }

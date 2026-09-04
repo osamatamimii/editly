@@ -38,6 +38,19 @@ declare global {
        * query into `auth.users` on every subscription read.
        */
       userEmail?: string;
+      /**
+       * Whether the token says that address has been confirmed.
+       *
+       * Separate from the address itself because the two are used for
+       * different things and only one of them is a claim about identity.
+       * Showing somebody their own email on the account page needs the
+       * address; handing over a paid plan that was bought with that address
+       * needs to know it is *theirs*.
+       *
+       * Supabase reports it in more than one place depending on the token's
+       * age, so `emailIsConfirmed` reads all of them and defaults to false.
+       */
+      userEmailVerified?: boolean;
     }
   }
 }
@@ -85,6 +98,7 @@ export const requireAuth: RequestHandler = async (
     req.userId = payload.sub;
     if (typeof payload["email"] === "string" && payload["email"]) {
       req.userEmail = payload["email"].trim().toLowerCase();
+      req.userEmailVerified = emailIsConfirmed(payload);
     }
     next();
   } catch {
@@ -99,9 +113,54 @@ export const requireAuth: RequestHandler = async (
  * `requireAuth`. Throwing here means a route was mounted without the
  * middleware — a programming error, not a client error.
  */
-/** The verified address, or null when the token carried none. */
+/**
+ * Does this token say the address on it has been confirmed?
+ *
+ * Supabase has put the flag in three places over the life of the product: a
+ * top-level `email_verified`, the same key inside `user_metadata`, and — for
+ * accounts created through a social provider, where the provider vouched for
+ * it — inside `app_metadata`. A reader that knows about only one of them
+ * refuses a legitimate customer on the day the token shape moves, so all three
+ * are accepted; none of them present is `false`, which is the only safe
+ * default for a question this one gates.
+ */
+export function emailIsConfirmed(payload: Record<string, unknown>): boolean {
+  const nested = (key: string): unknown => {
+    const bag = payload[key];
+    return bag && typeof bag === "object" ? (bag as Record<string, unknown>)["email_verified"] : undefined;
+  };
+  return (
+    payload["email_verified"] === true ||
+    nested("user_metadata") === true ||
+    nested("app_metadata") === true
+  );
+}
+
+/** The address on the token, confirmed or not. For showing somebody their own account. */
 export function currentUserEmail(req: Request): string | null {
   return req.userEmail ?? null;
+}
+
+/**
+ * The address only when the token says it has been confirmed.
+ *
+ * This is the one that may be used to *give something away*.
+ *
+ * `claimPaidEvents` matches an unclaimed payment to an account by address:
+ * somebody buys with `x@example.com` before signing up, then signs up, and the
+ * plan is handed over on their first page load. It read `currentUserEmail`,
+ * which is whatever the token says — and Supabase issues a session before an
+ * address is confirmed, so signing up with an address somebody else had paid
+ * with, and never opening the confirmation mail, handed over their plan. The
+ * address is not a secret; the receipt is.
+ *
+ * Returning null when unconfirmed is deliberately not an error. Nothing is
+ * refused: the claim simply does not happen yet, and the same page load after
+ * confirming does it — which is the behaviour anybody who actually paid sees,
+ * because they confirm.
+ */
+export function verifiedUserEmail(req: Request): string | null {
+  return req.userEmailVerified === true ? (req.userEmail ?? null) : null;
 }
 
 export function currentUserId(req: Request): string {

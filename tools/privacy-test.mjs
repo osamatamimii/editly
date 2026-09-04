@@ -51,7 +51,7 @@ const built = spawnSync(
   { stdio: "inherit" },
 );
 if (built.status !== 0) process.exit(1);
-const { PROCESSORS, knownHosts, alwaysUsed } = await import(pathToFileURL(outfile).href);
+const { PROCESSORS, DATA_REGION, RETENTION, ACCOUNT_MIN_AGE, knownHosts, alwaysUsed } = await import(pathToFileURL(outfile).href);
 
 let checks = 0;
 let failures = 0;
@@ -215,6 +215,171 @@ section("The two pages exist, and nothing is left half-written on them");
     "the privacy page renders the processor list rather than repeating it",
     /PROCESSORS/.test(privacy),
     "a second copy of the list is a second thing to forget",
+  );
+
+  /*
+    The claim about where somebody's video physically is.
+
+    "Your videos are stored and edited in Frankfurt" is the sentence a reader
+    checks the policy for, and it is the one most likely to quietly stop being
+    true: infrastructure moves, and a paragraph typed into a page is not
+    something anybody re-reads when it does. So the page prints the region from
+    the same constant the deploy is compared against, and the comparison is
+    here.
+  */
+  const fly = await readFile(path.join(repoRoot, "artifacts/worker/fly.toml"), "utf8");
+  const deployed = fly.match(/primary_region\s*=\s*"([^"]+)"/)?.[1];
+  check("fly.toml names a region", Boolean(deployed), String(deployed));
+  check(
+    "and the policy's claim about where files are is that region",
+    deployed === DATA_REGION.flyRegion,
+    `the renderer runs in ${deployed}, the page says ${DATA_REGION.flyRegion}`,
+  );
+  check(
+    "the page prints it from there rather than typing it out",
+    /DATA_REGION\.where/.test(privacy),
+    "a region typed into the page is a claim nobody re-checks when infrastructure moves",
+  );
+  // Whitespace flattened first: JSX wraps prose at the column, so "United
+  // States" is routinely split across two lines in the source and a check that
+  // reads the file as written would be testing the formatter.
+  const prose = privacy.replace(/\s+/g, " ");
+  /*
+    And the rendered half on its own, with the comments taken out.
+
+    `prose` is the whole file. Several of the checks below look for a sentence
+    the page is supposed to *say* — and the comments in that file quote those
+    sentences, because they explain what the page used to say instead. So
+    deleting a promise from the page would leave the check green on the
+    strength of the comment describing it, which is exactly the shape of the
+    two vacuous checks found tonight. A positive check reads this; the bracket
+    scan above still reads the whole file, because there a comment can only
+    cause a false *failure*.
+  */
+  const rendered = privacy
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\s+/g, " ");
+  check(
+    "and it says the transfer out exists rather than implying there is none",
+    /United States/.test(rendered) && /transfer/i.test(rendered),
+    "naming EU storage without naming the model providers overstates in the safe direction",
+  );
+
+  /*
+    And the rights section describes rights this product can actually deliver.
+
+    It said "write to us" for a copy, which was true when nothing else existed
+    and became a worse answer than the truth the day the export shipped. A
+    policy that under-describes what the product does is the same failure as one
+    that over-describes it: both are pages nobody can act on.
+  */
+  const route = await readFile(path.join(repoRoot, "artifacts/api-server/src/routes/account.ts"), "utf8");
+  check(
+    "the export the policy points at exists",
+    /account\/export/.test(route),
+    "the page tells somebody to press a button",
+  );
+  check(
+    "and the page points at the button rather than at an inbox",
+    /Download my data/.test(rendered),
+    privacy.includes("write to us for the others") ? "still says write to us for a copy" : "",
+  );
+  check(
+    "it says the export leaves the tokens out, since that is a gap somebody will notice",
+    /access tokens/i.test(rendered),
+  );
+
+  /*
+    The retention sentence, against the sweep that enforces it.
+
+    The page said "your files stay until you delete them" and stopped there,
+    which was true only because `DEFAULT_RETENTION.mode` is `dry` and the sweep
+    removes nothing. It is one environment variable away from being false, and a
+    policy that becomes a lie when a setting changes is a policy nobody can rely
+    on — nor can anybody tell when it stopped being true, because flipping the
+    variable produces no diff on the page.
+
+    So the page prints the windows, and this compares them against the worker's
+    own constants.
+  */
+  const sweep = await readFile(path.join(repoRoot, "artifacts/worker/src/sweep.ts"), "utf8");
+  const defaults = sweep.match(/DEFAULT_RETENTION[^{]*\{([\s\S]*?)\}/)?.[1] ?? "";
+  const dayOf = (name) => Number(defaults.match(new RegExp(`${name}:\\s*(\\d+)`))?.[1]);
+
+  check("the worker states its windows", Number.isFinite(dayOf("previewDays")), defaults.slice(0, 80));
+  check(
+    "and the policy's preview window is that one",
+    dayOf("previewDays") === RETENTION.previewDays,
+    `the sweep uses ${dayOf("previewDays")}, the page says ${RETENTION.previewDays}`,
+  );
+  check(
+    "as is the one for a video that never produced an edit",
+    dayOf("unusedSourceDays") === RETENTION.unusedSourceDays,
+    `the sweep uses ${dayOf("unusedSourceDays")}, the page says ${RETENTION.unusedSourceDays}`,
+  );
+  check(
+    "the page prints them rather than describing them in prose that can go stale",
+    /RETENTION\.previewDays/.test(privacy) && /RETENTION\.unusedSourceDays/.test(privacy),
+  );
+  check(
+    "and it still says the masters are kept, which is the part people are asking about",
+    /stay until you delete them/.test(rendered),
+    "a comment quoting the sentence is not the sentence",
+  );
+  // Poster frames are deliberately not swept. A page that listed a window for
+  // them would be describing a setting nobody has turned on.
+  check(
+    "poster frames are not swept by default, which is why the page says they are kept",
+    dayOf("thumbnailDays") === 0,
+    String(dayOf("thumbnailDays")),
+  );
+
+  /*
+    One age, in the three places it has to be the same.
+
+    The privacy page said sixteen. The terms — the document that actually binds
+    — never mentioned an account age at all, only eighteen in a sentence about
+    content involving minors, which is a different rule about a different thing.
+    And the sign-up screen, where the agreement is made, said nothing. A number
+    in one of three is a number in none of them.
+  */
+  const login = await readFile(path.join(repoRoot, "artifacts/editly/src/pages/login.tsx"), "utf8");
+  for (const [name, source] of [["privacy", privacy], ["terms", terms], ["sign-up", login]]) {
+    check(
+      `${name} states the account age from the shared constant`,
+      /ACCOUNT_MIN_AGE/.test(source),
+      "a number typed into a page is a number that disagrees with the other two",
+    );
+  }
+  check("and it is a real age", Number.isInteger(ACCOUNT_MIN_AGE) && ACCOUNT_MIN_AGE >= 13, String(ACCOUNT_MIN_AGE));
+
+  /*
+    And the fonts, which the paragraph about analytics invites you to forget.
+
+    "No analytics script, no advertising pixel, no third-party cookie" is true
+    and reads as "nothing leaves your browser except to us" — while the page
+    fetches its typefaces from two CDNs that therefore see every visitor's
+    address. Not a tracker, and not nothing.
+  */
+  const html = await readFile(path.join(repoRoot, "artifacts/editly/index.html"), "utf8");
+  const fontHosts = ["fonts.googleapis.com", "api.fontshare.com"].filter((host) => html.includes(host));
+  check("the page really does load fonts from somebody else", fontHosts.length > 0, JSON.stringify(fontHosts));
+  check(
+    "and the policy says so beside the sentence that would otherwise imply it does not",
+    /Google Fonts/.test(rendered) && /Fontshare/.test(rendered),
+    "the no-analytics paragraph is doing work it should not be doing alone",
+  );
+  check(
+    "naming what they receive rather than leaving it to be assumed",
+    /address your browser connects from/.test(rendered),
+  );
+
+  check(
+    "and a person told they can complain is told where",
+    /data protection authority/i.test(rendered),
+    "the right to complain to a supervisory authority is one this page has to name",
   );
 
   check(

@@ -450,11 +450,11 @@ export function templatePreflight(
       ok: false,
       reason:
         `"${template.name}" lifts a clip out of a longer recording, and this one is ` +
-        `${Math.round(context.durationSeconds)}s — it needs at least ${template.needsSeconds}s. ` +
+        `${Math.round(context.durationSeconds)}s, and it needs at least ${template.needsSeconds}s. ` +
         `Try a look built for shorter clips.`,
       reasonAr:
         `«${template.nameAr}» يلتقط مقطعًا من تسجيل أطول، وهذا طوله ` +
-        `${Math.round(context.durationSeconds)} ثانية — يحتاج ${template.needsSeconds} ثانية على الأقل. ` +
+        `${Math.round(context.durationSeconds)} ثانية، ويحتاج ${template.needsSeconds} ثانية على الأقل. ` +
         `جرّب شكلًا مصمَّمًا للمقاطع القصيرة.`,
     };
   }

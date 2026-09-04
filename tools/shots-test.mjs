@@ -444,12 +444,20 @@ let tight = NaN;
   );
 }
 
-console.log("\nAnd the close size is the one that was already being delivered");
+console.log("\nA push on its own does not enlarge anything");
 {
-  // A minimal push, so the render has motion and nothing else: at the first
-  // frame a Ken Burns is still at its base, which is the frame every motion
-  // render starts on. If the close size were an upscale rather than that frame,
-  // these two numbers would not match.
+  /*
+    The overscan is what lets a wide take exist: the reframe crops a window
+    larger than the target, and pulling back shows the margin. A push has no
+    use for it — and without a reframe there is no margin to take, so the same
+    number scaled the frame up by 1.15 and cropped straight back. Measured on a
+    1920x1080 render, "a slow push" put 1671 of the 1920 columns on screen:
+    thirteen per cent of the picture thrown away and every frame softened,
+    before the push started, with nothing said about either.
+
+    At the first frame a Ken Burns is still at its base, so the bar there is
+    the bar the source has.
+  */
   const { output } = await renderPlan(
     source,
     { version: 1, operations: [cut, { type: "kenBurns", to: 1.02 }] },
@@ -457,8 +465,13 @@ console.log("\nAnd the close size is the one that was already being delivered");
   );
   const widths = barWidths(output);
   check(
-    "a motion render with no shot sizes opens at the close size",
-    Number.isFinite(tight) && Math.abs(widths[0] - tight) <= 3,
+    "a push opens on the picture as it was uploaded",
+    Math.abs(widths[0] - BAR) <= 3,
+    `${widths[0]}px against ${BAR}px`,
+  );
+  check(
+    "which is smaller than the enlargement alternateFraming has to make",
+    Number.isFinite(tight) && tight > widths[0] + 3,
     `${widths[0]}px against ${tight}px`,
   );
 }

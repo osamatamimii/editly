@@ -101,6 +101,26 @@ export interface TranscribeOptions {
   expected?: string;
   /** Ask for speaker labels. Costs more at some providers. */
   diarize?: boolean;
+  /**
+   * Which language the *notes* this transcriber returns should be written in.
+   *
+   * Separate from `language` and `expected`, which are both about the audio.
+   * This one is about the person: the notes a transcriber produces go straight
+   * into the render notes and from there, word for word, into their chat under
+   * "here is what I did".
+   *
+   * It exists because they were English. An Arabic customer's summary read
+   * Arabic, then "the second speech model was unavailable (elevenlabs 503),
+   * so the words are as deepgram/nova-3 heard them and were not cross-checked",
+   * then Arabic again — a conversation that changes language halfway through
+   * and back, which is the exact thing `say.ts` was written to end.
+   *
+   * The reason it slipped is worth keeping: `say.ts` makes both halves
+   * *required arguments* precisely so a note cannot be written without its
+   * Arabic. These notes were plain string literals, which is the seam that
+   * rule cannot reach across.
+   */
+  notesIn?: "en" | "ar";
   signal?: AbortSignal;
 }
 

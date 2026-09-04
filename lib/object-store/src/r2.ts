@@ -35,6 +35,10 @@
 import type {
   AddressOptions,
   ListOptions,
+  MultipartOptions,
+  MultipartUpload,
+  SignedPart,
+  UploadedPart,
   ObjectAddress,
   ObjectStore,
   SignedPutOptions,
@@ -42,7 +46,7 @@ import type {
   StoreFacts,
   StoredObject,
 } from "./index";
-import { guardKey, guardPrefix, ObjectStoreError } from "./index";
+import { guardKey, guardPrefix, MIN_PART_BYTES, ObjectStoreError } from "./index";
 import { presign, R2_REGION, type SigningIdentity } from "./sigv4";
 
 export interface R2StoreConfig {
@@ -69,6 +73,23 @@ const METADATA_TIMEOUT_MS = 15_000;
 const LIST_PAGE = 1000;
 
 const MAX_LIST_PAGES = 200;
+
+/**
+ * An etag, safe to put inside the completion document.
+ *
+ * S3 returns it quoted — `"a1b2…"` — and the quotes are part of it, so it is
+ * echoed rather than stripped. It comes back through the browser, which makes
+ * it the one value in this file that did not originate here: a caller that
+ * passed a `<` through would otherwise be writing XML into our request rather
+ * than a part id.
+ */
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 export function createR2Store(config: R2StoreConfig): ObjectStore {
   const identity: SigningIdentity = {
@@ -153,14 +174,192 @@ export function createR2Store(config: R2StoreConfig): ObjectStore {
       return { url: sign(method, key, INTERNAL_SECONDS), method, headers };
     },
 
+    /*
+      Signed, always, and the public base is not a shortcut past that.
+
+      This used to return `${publicBase}/${key}` whenever a custom domain was
+      configured — unsigned, with no expiry, and `expiresInSeconds` dropped on
+      the floor. The reasoning was that a custom domain in front of a bucket
+      serves objects unsigned anyway, so a signature would be noise.
+
+      It is not noise, because of who this URL is handed to. `publisher.ts`
+      passes it to Meta with the comment "signed by the object store,
+      short-lived, and long enough to outlive Meta's own fetch and transcode".
+      On R2-with-a-custom-domain it was neither: a permanent, unauthenticated
+      URL to somebody's finished video, given to a third party and then living
+      in their logs and every proxy between here and there — for good.
+
+      And it changed with no code change and no error. Setting
+      `OBJECT_STORE_PROVIDER=r2` with `R2_PUBLIC_BASE`, which is the documented
+      migration path, was enough.
+
+      A signature costs nothing here, and a bucket that also answers unsigned on
+      a custom domain is a bucket configuration question rather than a reason
+      for this function to stop signing.
+    */
     async signedGet(key: string, expiresInSeconds: number): Promise<string> {
       guardKey(key);
-      // A custom domain in front of the bucket serves objects unsigned, so a
-      // signature there would be noise on a URL that is already public.
-      if (config.publicBase) {
-        return `${config.publicBase.replace(/\/+$/, "")}/${key.split("/").map(encodeURIComponent).join("/")}`;
-      }
       return sign("GET", key, expiresInSeconds);
+    },
+
+    /*
+      Multipart, which is the whole reason a browser can stop talking to
+      Supabase with its own session.
+
+      Three calls, and only the middle one is the browser's. We ask S3 to open
+      an upload, we sign one URL per part and hand them over, the browser PUTs
+      the parts in any order and keeps each response's `ETag`, and we close it
+      with the list. Every one of those signatures is query-string form, which
+      is what makes this possible at all: header signing needs the body's hash,
+      and we never see the body.
+
+      ## The three things that make it fail in the field
+
+      **Part size.** Every part but the last must be at least `MIN_PART_BYTES`.
+      An undersized part in the middle is accepted at upload time and refused
+      at assembly with `EntityTooSmall`, after every byte has been sent — so it
+      is checked here, before anything is signed, against the total the caller
+      declares.
+
+      **The etag has to reach the browser.** It arrives as a response header on
+      each part, and a cross-origin request cannot read a header the bucket has
+      not exposed. Without `Access-Control-Expose-Headers: ETag` in the
+      bucket's CORS rules, every part uploads perfectly and the completion has
+      nothing to assemble with. That is a deployment setting, not code, and it
+      is written down in RUNBOOK.md because it fails as "the last step does
+      nothing" rather than as an error.
+
+      **One window for the whole upload.** The parts share `expiresInSeconds`,
+      so it has to cover the slowest connection that will finish, not the
+      fastest. A seven-gigabyte file on a domestic upstream is hours.
+    */
+    async beginMultipart(key: string, options: MultipartOptions): Promise<MultipartUpload> {
+      guardKey(key);
+
+      const parts = Math.floor(options.parts);
+      if (!(parts >= 1) || !Number.isFinite(parts)) {
+        throw new ObjectStoreError(`a multipart upload needs at least one part, got ${options.parts}`, null);
+      }
+      // 10,000 is S3's own ceiling, and hitting it means the part size was
+      // chosen too small for the file rather than that the file is too big.
+      if (parts > 10_000) {
+        throw new ObjectStoreError(`a multipart upload may have at most 10000 parts, got ${parts}`, null);
+      }
+      if (parts > 1) {
+        const partBytes = Math.floor(options.totalBytes / parts);
+        if (partBytes < MIN_PART_BYTES) {
+          throw new ObjectStoreError(
+            `${parts} parts of ${options.totalBytes} bytes is ${partBytes} per part, below the ${MIN_PART_BYTES}-byte minimum every part but the last must meet`,
+            null,
+          );
+        }
+      }
+
+      // `POST /<key>?uploads`. The content type is declared here, on the
+      // create, and not on the parts: it belongs to the finished object.
+      const createQuery: Record<string, string> = { uploads: "" };
+      if (options.contentType) createQuery["Content-Type"] = options.contentType;
+      const created = await text(
+        presign({ identity, method: "POST", endpoint, bucket, key, query: createQuery, expiresInSeconds: INTERNAL_SECONDS }),
+        "POST",
+      );
+      const uploadId = created.match(/<UploadId>([\s\S]*?)<\/UploadId>/)?.[1];
+      if (!uploadId) {
+        throw new ObjectStoreError("S3 opened a multipart upload and did not say what its id is", null);
+      }
+
+      const signedParts: SignedPart[] = [];
+      for (let partNumber = 1; partNumber <= parts; partNumber += 1) {
+        signedParts.push({
+          partNumber,
+          url: sign("PUT", key, options.expiresInSeconds, {
+            partNumber: String(partNumber),
+            uploadId,
+          }),
+        });
+      }
+
+      return {
+        key,
+        uploadId,
+        parts: signedParts,
+        expiresAt: new Date(Date.now() + options.expiresInSeconds * 1000).toISOString(),
+      };
+    },
+
+    async completeMultipart(key: string, uploadId: string, parts: readonly UploadedPart[]): Promise<void> {
+      guardKey(key);
+      if (parts.length === 0) {
+        throw new ObjectStoreError("a multipart upload cannot be completed with no parts", null);
+      }
+
+      /*
+        Sorted here rather than trusted.
+
+        S3 assembles in the order this document lists and refuses a list that
+        is not ascending. The browser sends parts concurrently and reports them
+        as they finish, so the order they arrive in is the order they completed
+        — which is not the order of the file.
+      */
+      const ordered = [...parts].sort((a, b) => a.partNumber - b.partNumber);
+      const body =
+        "<CompleteMultipartUpload>" +
+        ordered
+          .map(
+            (part) =>
+              `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>${escapeXml(part.etag)}</ETag></Part>`,
+          )
+          .join("") +
+        "</CompleteMultipartUpload>";
+
+      const url = presign({
+        identity, method: "POST", endpoint, bucket, key,
+        query: { uploadId }, expiresInSeconds: INTERNAL_SECONDS,
+      });
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), METADATA_TIMEOUT_MS);
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          body,
+          headers: { "Content-Type": "application/xml" },
+          signal: controller.signal,
+        });
+        const answer = await res.text();
+        if (!res.ok) {
+          throw new ObjectStoreError(`completing the upload of ${key} answered ${res.status}`, res.status);
+        }
+        /*
+          A 200 with an error inside it, which is how S3 refuses this one call.
+
+          CompleteMultipartUpload streams its response while it assembles, so
+          the status line is written before the outcome is known and a failure
+          arrives as an `<Error>` document under a 200. Reading only the status
+          here would report a finished upload for an object that does not
+          exist — and the next thing to touch it is a render.
+        */
+        if (/<Error>/.test(answer)) {
+          const code = answer.match(/<Code>([\s\S]*?)<\/Code>/)?.[1] ?? "unknown";
+          throw new ObjectStoreError(`completing the upload of ${key} failed with ${code}`, null);
+        }
+      } catch (error) {
+        if (error instanceof ObjectStoreError) throw error;
+        throw new ObjectStoreError(`completing the upload of ${key} did not answer: ${String(error)}`, null);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+
+    async abortMultipart(key: string, uploadId: string): Promise<void> {
+      guardKey(key);
+      await text(
+        presign({
+          identity, method: "DELETE", endpoint, bucket, key,
+          query: { uploadId }, expiresInSeconds: INTERNAL_SECONDS,
+        }),
+        "DELETE",
+      );
     },
 
     async signedPut(key: string, options: SignedPutOptions): Promise<SignedUpload> {
@@ -228,6 +427,22 @@ export function createR2Store(config: R2StoreConfig): ObjectStore {
         found.push(...parsed.objects);
         if (!parsed.next) break;
         token = parsed.next;
+        /*
+          A continuation token still in hand on the last pass means there is
+          more and we are about to stop. Throwing rather than returning a short
+          list, for the reason written on the Supabase side of this seam: the
+          caller that matters is the data export, and an inventory that is
+          quietly truncated is a document claiming we hold less than we do.
+
+          The two providers stopped at wildly different totals — twenty thousand
+          against two hundred thousand — so the same account exported two
+          different inventories depending on which store was configured.
+        */
+        if (page === pages - 1 && !options.limit) {
+          throw new Error(
+            `listing "${prefix}" did not finish: ${MAX_LIST_PAGES} pages and still more`,
+          );
+        }
       }
       return found;
     },
@@ -241,12 +456,35 @@ export function createR2Store(config: R2StoreConfig): ObjectStore {
         driver that is never on a person's critical path. Deletions here run in
         a sweep, and a sweep can afford a round trip per object.
       */
+      /*
+        And bounded, like every other call in this driver.
+
+        `remove` was the one that reached `fetch` directly, and `fetch` in Node
+        has no timeout. It is awaited from inside the worker's render loop — the
+        retention sweep runs there, before the claim — so a provider that
+        accepts the connection and goes quiet was a queue that stopped: no
+        claims, no heartbeat, and `/healthz` still answering 200 because it
+        reports whether the process is up rather than whether it is doing
+        anything.
+      */
       for (const key of keys) {
         guardKey(key);
-        const res = await fetch(sign("DELETE", key, INTERNAL_SECONDS), { method: "DELETE" });
-        // 404 is the state the caller asked for, so it is not a failure.
-        if (!res.ok && res.status !== 404) {
-          throw new Error(`delete failed: ${res.status}`);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), METADATA_TIMEOUT_MS);
+        try {
+          const res = await fetch(sign("DELETE", key, INTERNAL_SECONDS), {
+            method: "DELETE",
+            signal: controller.signal,
+          });
+          // 404 is the state the caller asked for, so it is not a failure.
+          if (!res.ok && res.status !== 404) {
+            throw new ObjectStoreError(`DELETE on ${bucket} answered ${res.status}`, res.status);
+          }
+        } catch (error) {
+          if (error instanceof ObjectStoreError) throw error;
+          throw new ObjectStoreError(`DELETE on ${bucket} did not answer: ${String(error)}`, null);
+        } finally {
+          clearTimeout(timer);
         }
       }
     },

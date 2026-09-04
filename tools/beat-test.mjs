@@ -233,6 +233,125 @@ console.log("\nOne punch a bar, and only inside the edit");
   check("every beat is still available when that is what is wanted", everyNth(grid, 1).length === 10);
 }
 
+console.log("\nA length nobody could read is not a length of zero");
+{
+  /*
+    `containerSeconds` exists because the beat-loop correction needs the track's
+    length: a ninety-second edit over a twenty-five-second bed gets punches in
+    the first twenty-five seconds and none after, while the note claims the
+    punches were placed across the whole edit.
+
+    The first version of that fix wrote `.catch(() => 0)`, which turned the
+    throw into a zero, which turned the correction off — and the docblock says
+    so. The guard that replaced it answered `0` for anything unreadable, which
+    is the same value through the front door. `ffprobe` prints `N/A` and exits
+    **0** for a raw elementary stream, `Number("N/A")` is `NaN`, and the
+    correction switched itself off again for those files with the note still
+    saying it had run.
+  */
+  const { containerSeconds } = await import(bundle("artifacts/worker/src/ffmpeg.ts", "ffmpeg.mjs"));
+
+  const measurable = path.join(work, "measurable.m4a");
+  spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "sine=f=440:d=3", "-c:a", "aac", "-y", measurable]);
+  const known = await containerSeconds(measurable);
+  check("a container that knows its length says so", known !== null && Math.abs(known - 3) < 0.5, String(known));
+
+  // Raw H.264: ffprobe answers "N/A" and exits 0, which is the case a numeric
+  // guard cannot tell from a real measurement.
+  const headerless = path.join(work, "headerless.h264");
+  spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=2", "-c:v", "libx264", "-f", "h264", "-y", headerless]);
+  const unknown = await containerSeconds(headerless);
+  check(
+    "one that does not is null rather than zero",
+    unknown === null,
+    `${JSON.stringify(unknown)} — zero is a claim about the file; null is a claim about the measurement, and only one of them is true`,
+  );
+  check("and it is not merely falsy, which a caller can read as either", unknown !== 0, String(unknown));
+}
+
+
+console.log("\nEvery tempo in the range, not every other one");
+{
+  /*
+    A signal that repeats every L frames also repeats every 2L, and the winner
+    used to be chosen by comparing raw integer samples of the autocorrelation.
+    The true lag almost never lands on a whole frame — 128 bpm is 40.37 of them
+    — so whichever multiple happened to fall closest to one won: `scores[40]`
+    was 0.837 and `scores[81]`, the double, was 0.866, and the detector
+    reported 64 bpm for a 128 bpm track. Nineteen of the seventy-one even
+    tempos between 60 and 200 came back as an integer sub-multiple, 128, 160
+    and 170 among them.
+
+    The consequence was not a wrong number in a note. `everyNth(grid, 4)` means
+    "one a bar", so half the tempo is half the punches: an edit half as active
+    as the sentence describing it.
+  */
+  const missed = [];
+  for (let bpm = 60; bpm <= 200; bpm += 4) {
+    const track = await clickTrack(`sweep-${bpm}.wav`, bpm, 12);
+    const grid = await beatsOf(track.file);
+    if (!grid || Math.abs(grid.bpm - bpm) > 2) missed.push(`${bpm}→${grid ? grid.bpm.toFixed(1) : "null"}`);
+  }
+  check("every tempo from 60 to 200 comes back as itself", missed.length === 0, missed.join(" "));
+}
+
+console.log("\nA chord held for twenty seconds is not a beat");
+{
+  /*
+    The confidence is a claim that the envelope repeats, and a held chord
+    repeats: two partials that are not bin-centred beat against each other at a
+    steady rate, and the flux follows. Measured, a static A-minor triad scored
+    **0.947** — higher than the click track this detector was tuned against —
+    and produced twenty zoom punches on a track with nothing struck in it,
+    under a note naming a tempo that does not exist.
+
+    The suite could not catch it because its only negative fixtures were a
+    single sine and white noise, both of which pass for a different reason.
+    These are the beds people actually put under a video: pads, lofi, ambience.
+  */
+  const seconds = 20;
+  const n = Math.round(SR * seconds);
+  const sustained = (name, partials) => {
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i += 1) {
+      const t = i / SR;
+      let v = 0;
+      for (const f of partials) v += Math.sin(2 * Math.PI * f * t);
+      out[i] = (0.9 * v) / partials.length;
+    }
+    return wav(name, out);
+  };
+
+  const triad = await sustained("triad.wav", [110, 130.81, 164.81]);
+  check("a held A minor triad has no beat in it", (await beatsOf(triad)) === null);
+
+  const seventh = await sustained("fmaj7.wav", [87.31, 110, 130.81, 164.81]);
+  check("neither does a held Fmaj7", (await beatsOf(seventh)) === null);
+
+  // A pad with vinyl crackle over it: the lofi bed, which is most of what
+  // gets uploaded as "quiet music".
+  const lofi = new Float32Array(n);
+  let seed = 11;
+  const rand = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return (seed / 0x7fffffff) * 2 - 1;
+  };
+  for (let i = 0; i < n; i += 1) {
+    const t = i / SR;
+    lofi[i] = 0.3 * Math.sin(2 * Math.PI * 196 * t) + 0.3 * Math.sin(2 * Math.PI * 246.94 * t) + 0.05 * rand();
+  }
+  check("nor a pad with crackle over it", (await beatsOf(await wav("lofi.wav", lofi))) === null);
+
+  // And the thing that must still pass: a bed with something struck in it.
+  const real = await drumTrack("still-music.wav", 100, 20);
+  const grid = await beatsOf(real.file);
+  check(
+    "while a bed with a kick in it is still a beat",
+    grid !== null && Math.abs(grid.bpm - 100) < 3,
+    grid ? String(grid.bpm) : "null",
+  );
+}
+
 await rm(work, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });
 

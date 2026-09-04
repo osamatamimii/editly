@@ -296,6 +296,55 @@ section("A token is refreshed before the send, not after a 401");
   );
 }
 
+section("A 200 from YouTube is not the same as a video anybody can watch");
+{
+  /*
+    Only `id` was read out of the upload's response.
+
+    The request asks for `privacyStatus: "public"`, and an **unaudited Google
+    project silently overrides it**: every upload from an API client that has
+    not been through Google's verification is locked to `private`, the response
+    is an ordinary 200, and the id is real. So the row was written as
+    `published`, with a watch URL, and the only person on earth who could open
+    that URL was the account owner. Their audience saw nothing, the product
+    said it had gone out, and nothing in the sequence was an error.
+
+    It is the most likely thing to be wrong on the day this is switched on,
+    because verification takes weeks and everything else works without it — and
+    it is the same failure `publish-tiktok.ts` already refuses from the other
+    end.
+
+    Read from the source rather than run: a real upload needs a Google account
+    and a network, and what is being asserted is that the answer is looked at.
+  */
+  const youtube = readFileSync(path.join(repoRoot, "artifacts/worker/src/publish-youtube.ts"), "utf8");
+  check(
+    "the response's privacy is read, not just its id",
+    /video\.status\?\.privacyStatus/.test(youtube),
+    "asking for public and never checking is how a private video is recorded as posted",
+  );
+  check(
+    "anything but public is a failure rather than a quiet success",
+    /privacy && privacy !== "public"/.test(youtube) && /throw new PublishError\(\s*`YouTube accepted the video and made it/.test(youtube),
+    "the row's whole meaning is 'this is on their channel'; a private video is not",
+  );
+  check(
+    "and the sentence says why it happened, because it is fixable",
+    /has not been verified yet/.test(youtube),
+    "'it went private' with no cause sends somebody to support; naming verification sends them to the console",
+  );
+  check(
+    "the video is still named, because it does exist",
+    /The video is on your channel: `[\s\S]{0,80}watch\?v=\$\{video\.id\}/.test(youtube),
+    "it was uploaded; hiding the link would make them upload it twice",
+  );
+  check(
+    "and a rejection after acceptance is read too",
+    /uploadStatus === "rejected"/.test(youtube) && /rejectionReason/.test(youtube),
+    "YouTube takes the bytes and refuses to show them for a copyright claim, with a 200",
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);

@@ -184,6 +184,54 @@ section("A dissolve moves the clock, and the critic moves with it");
   );
 }
 
+section("A punch is cleared of the dissolve, not of the second before it");
+{
+  /*
+    The window was computed from where the join *begins* rather than from where
+    it ends — the renderer's own `offset` for that xfade — so it sat one whole
+    overlap early. It cleared punches out of the stretch before the dissolve,
+    which needed no clearing, and left the dissolve itself open: a punch
+    opening inside one is a zoom on two shots at once, which is the thing this
+    guard exists to prevent, and with a quarter-second dissolve it landed there
+    by construction.
+
+    Two pieces of four seconds each with a 0.4s dissolve: the join runs from
+    3.6s to 4.0s on the edited clock.
+  */
+  const kept = [
+    { start: 0, end: 4 },
+    { start: 10, end: 14 },
+  ];
+  const OVERLAP = 0.4;
+  const effective = 8 - OVERLAP;
+  const inside = criticise({
+    operations: [{ type: "zoomPunch", at: [10.2], amount: 1.1, holdMs: 300 }],
+    kept,
+    effectiveDuration: effective,
+    overlap: OVERLAP,
+  });
+  const landed = inside.operations.find((o) => o.type === "zoomPunch")?.at ?? [];
+  check("a punch that would open inside the dissolve is moved past it", landed.length === 1 && landed[0] >= 4 - 1e-6, JSON.stringify(landed));
+
+  /*
+    And the stretch a whole overlap earlier is not a join at all: a punch there
+    is on one shot, by itself, and moving it would put the emphasis on a
+    different word.
+  */
+  const before = criticise({
+    operations: [{ type: "zoomPunch", at: [3.0], amount: 1.1, holdMs: 300 }],
+    kept,
+    effectiveDuration: effective,
+    overlap: OVERLAP,
+  });
+  const kept3 = before.operations.find((o) => o.type === "zoomPunch")?.at ?? [];
+  check(
+    "a punch a full dissolve before the join is left where it was",
+    kept3.length === 1 && Math.abs(kept3[0] - remapTime(3.0, kept, OVERLAP)) < 1e-6,
+    JSON.stringify(kept3),
+  );
+}
+
 section("A punch sitting on a splice is nudged forward, never back");
 {
   // 7.95s source → 7.95s edited, and the first splice is at 8s.
@@ -587,6 +635,97 @@ section("A quiet stretch that something is happening in is not a cut");
   check(
     "and the old three-argument call still means what it did",
     JSON.stringify(keepSegmentsFrom(30, silences, 0)) === JSON.stringify(both),
+  );
+}
+
+section("A note names what actually moved");
+{
+  /*
+    `capZoom` returned one fixed string — "the push and the punches together …
+    so both were eased back" — and its two inputs are independently nullable.
+    The schema allows `kenBurns.to` up to 1.5 and `zoomPunch.amount` up to 0.6,
+    so either one exceeds the ceiling on its own, and either one alone was told
+    the other had been eased back too.
+  */
+  const noted = (result) => (result.notes ?? []).join(" | ");
+
+  const pushOnly = criticise({
+    operations: [{ type: "kenBurns", to: 1.4 }],
+    kept: null,
+    effectiveDuration: EFFECTIVE,
+  });
+  check("a push alone can exceed the ceiling", /eased back/.test(noted(pushOnly)), noted(pushOnly));
+  check(
+    "and is not told its punches were eased back, on a render with none",
+    !/punches/.test(noted(pushOnly)),
+    noted(pushOnly),
+  );
+
+  const punchOnly = criticise({
+    operations: [punch([4]), ...[]].map((op) => ({ ...op, amount: 0.5 })),
+    kept: null,
+    effectiveDuration: EFFECTIVE,
+  });
+  check("a punch alone can exceed it too", /eased back/.test(noted(punchOnly)), noted(punchOnly));
+  check(
+    "and is not told about a push it does not have",
+    !/\bpush\b/.test(noted(punchOnly)),
+    noted(punchOnly),
+  );
+
+  const both = criticise({
+    operations: [{ type: "kenBurns", to: 1.4 }, { ...punch([4]), amount: 0.5 }],
+    kept: null,
+    effectiveDuration: EFFECTIVE,
+  });
+  check("and when both moved, both are named", /together/.test(noted(both)), noted(both));
+
+  const neither = criticise({
+    operations: [{ type: "kenBurns", to: 1.05 }, { ...punch([4]), amount: 0.05 }],
+    kept: null,
+    effectiveDuration: EFFECTIVE,
+  });
+  check("nothing is said when nothing moved", !/eased back/.test(noted(neither)), noted(neither));
+}
+
+section("Two silences that were sharing one sentence");
+{
+  /*
+    "No punch survived the cut" is a claim about a cut. It was printed whenever
+    the list ended up empty — including when it started empty, which is what
+    `enrich` leaves behind when there is no transcript to read emphasis from.
+    The reachable case is ordinary: no speech key, or a provider answering 500.
+    The customer read "we could not hear the words in this clip" and then "no
+    punch survived the cut", on a render containing no cut at all.
+  */
+  const nothingToRead = criticise({
+    operations: [punch([])],
+    kept: null,
+    effectiveDuration: EFFECTIVE,
+  });
+  const said = (result) => (result.notes ?? []).join(" | ");
+  check(
+    "an empty punch list with nothing cut says the words were missing",
+    /no moment to punch on/.test(said(nothingToRead)),
+    said(nothingToRead),
+  );
+  check(
+    "and does not claim a cut that never happened",
+    !/survived the cut/.test(said(nothingToRead)),
+    said(nothingToRead),
+  );
+
+  // 10 and 21 both land inside removed silence in KEPT, so these were asked
+  // for and did not survive — which is the sentence that was being borrowed.
+  const reallyCut = criticise({
+    operations: [punch([10, 21])],
+    kept: KEPT,
+    effectiveDuration: EFFECTIVE,
+  });
+  check(
+    "while punches that really were cut still say so",
+    /survived the cut/.test(said(reallyCut)) || /fell in silence/.test(said(reallyCut)),
+    said(reallyCut),
   );
 }
 

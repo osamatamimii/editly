@@ -30,6 +30,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { order } from "./lib/order.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -175,7 +176,22 @@ section("The screen can always be left, and never traps anybody");
     "the sentence is stashed for the editor, not rendered here",
     /stashPendingMessage/.test(page) && !/startRender|useStartRender/.test(page),
   );
-  check("a file is checked before a project row exists", /uploadCeiling/.test(page) && /ACCEPTED_VIDEO_TYPES/.test(page));
+  /*
+    Both halves moved, and both for the same reason.
+
+    `ACCEPTED_VIDEO_TYPES` became `isAcceptableVideo`: three doors each kept a
+    copy of a three-format list while the server's table had taken nine, so
+    this screen refused files the product would have stored.
+
+    `uploadCeiling` became `servedCeiling`: the former folds "the server has
+    not answered yet" into the build-time 50 MB, which is the *free* plan's
+    number — on the first-run screen, where a customer who has just paid for
+    Pro is most likely to be standing.
+  */
+  check(
+    "a file is checked before a project row exists",
+    /servedCeiling/.test(page) && /isAcceptableVideo/.test(page),
+  );
   check("and a project can be started without one", !/disabled=\{!file/.test(page));
 }
 
@@ -228,7 +244,7 @@ section("The dashboard sends people there only when it is sure");
   */
   check(
     "with failure ruled out before emptiness, in the source and not only in the semantics",
-    dashboard.indexOf('projectsState === "failed"') < dashboard.indexOf('projectsState === "empty"'),
+    order(dashboard, 'projectsState === "failed"', 'projectsState === "empty"').ok,
   );
 }
 

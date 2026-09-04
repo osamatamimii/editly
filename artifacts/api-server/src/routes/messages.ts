@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { eq, asc, and } from "drizzle-orm";
+import { eq, asc, desc, and } from "drizzle-orm";
 import { db, messagesTable, projectsTable, renderFollowupsTable, comprehensionsTable } from "@workspace/db";
 import {
   SendMessageBody,
@@ -8,6 +8,7 @@ import {
   ListMessagesParams,
   ListMessagesResponse,
 } from "@workspace/api-zod";
+import { PROJECT_MESSAGES_LIMIT } from "@workspace/api-zod/limits";
 import { serializeMessage, serializeJob } from "../lib/transformers";
 import { currentUserId } from "../middlewares/auth";
 import { replyFor } from "../lib/plan-from-text";
@@ -20,6 +21,7 @@ import { plannerAssets } from "../lib/planner-assets";
 import { startRenderForProject } from "../lib/start-render";
 import { ALREADY_RENDERING } from "../lib/one-active-job";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
+import { badRequest } from "../lib/bad-request";
 
 const router: IRouter = Router();
 
@@ -35,11 +37,21 @@ router.get("/projects/:id/messages", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = ListMessagesParams.safeParse({ id: raw });
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
 
-  const messages = await db
+  /*
+    The newest of the conversation, returned oldest-first.
+
+    This had no `LIMIT`, and the obvious way to add one is wrong: `asc` with a
+    `limit` keeps the *oldest* messages and drops everything recent, so a long
+    conversation would open on its own beginning and the last thing anybody
+    said would be missing. So the query takes the newest by `desc` and the
+    array is turned back around before it is sent, which leaves the shape the
+    client already expects.
+  */
+  const newest = await db
     .select()
     .from(messagesTable)
     .where(
@@ -48,9 +60,10 @@ router.get("/projects/:id/messages", async (req, res): Promise<void> => {
         eq(messagesTable.userId, userId),
       ),
     )
-    .orderBy(asc(messagesTable.createdAt));
+    .orderBy(desc(messagesTable.createdAt))
+    .limit(PROJECT_MESSAGES_LIMIT);
 
-  res.json(ListMessagesResponse.parse(messages.map(serializeMessage)));
+  res.json(ListMessagesResponse.parse(newest.reverse().map(serializeMessage)));
 });
 
 router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): Promise<void> => {
@@ -58,13 +71,13 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const params = SendMessageParams.safeParse({ id: raw });
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
 
   const parsed = SendMessageBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
+    badRequest(res, parsed.error);
     return;
   }
 

@@ -101,8 +101,89 @@ export async function consume(
   );
 
   const row = rows[0];
+  void sweepExpired();
   if (!row) return { allowed: true, remaining: limit, retryAfterSeconds: 1 };
   return verdictFor(Number(row.count), row.window_start, limit, windowMs);
+}
+
+/**
+ * Rows whose window closed long ago, deleted.
+ *
+ * `rate_limits` is one row per (person, endpoint) and per (address, endpoint),
+ * inserted on first use and **never removed**. Nothing failed: the table just
+ * grew. Every visitor who ever joined the waiting list left a row keyed on
+ * their IP; every account that ever sent a message left one per endpoint. On a
+ * database whose whole plan is 500 MB, a table that only grows is a date, and
+ * the failure when it arrives is not a slow rate limiter — it is every write
+ * in the product refused at once.
+ *
+ * ## Why here and not on a schedule
+ *
+ * This API runs on Vercel, one invocation per request: there is no process to
+ * hang a timer on. The worker has one, but the worker does not own this table
+ * and reaching across for it would put a cleanup in the one place that must
+ * never be blocked by anything — the render loop.
+ *
+ * So the sweep rides on the traffic that creates the rows, at most once an
+ * hour per warm instance. A cold start sweeps on its first request; a busy
+ * instance sweeps once and then not again for an hour. It is deliberately not
+ * awaited: a customer's request must not wait on our housekeeping, and a
+ * failure here is invisible by design because there is nothing for them to do
+ * about it.
+ *
+ * ## What is safe to delete
+ *
+ * A row whose window closed is worth nothing to anybody: `consume` resets an
+ * expired row to a fresh window anyway, so a missing row and an expired row
+ * produce exactly the same verdict. The threshold is a day rather than the
+ * longest window, which is minutes — large enough that no clock skew or long
+ * window can make this delete a row that is still counting.
+ */
+const SWEEP_EVERY_MS = 60 * 60_000;
+
+/**
+ * How often this instance is willing to sweep, read at call time.
+ *
+ * Read from the environment rather than fixed so the property can be tested
+ * on a live server: a suite that has already made a hundred requests has long
+ * since spent this instance's one sweep, and a test that cannot make the
+ * sweep happen is a test of nothing. Unset in every deployment, which is the
+ * hour above.
+ */
+function sweepEveryMs(): number {
+  const configured = Number(process.env["RATE_LIMIT_SWEEP_MS"]);
+  return Number.isFinite(configured) && configured >= 0 ? configured : SWEEP_EVERY_MS;
+}
+
+/** Rows older than this have not been consulted for a very long time. */
+const KEEP_FOR_MS = 24 * 60 * 60_000;
+
+let sweptAt = 0;
+
+/** Test seam: makes the next call sweep. */
+export function forgetSweep(): void {
+  sweptAt = 0;
+}
+
+export async function sweepExpired(now: number = Date.now()): Promise<number> {
+  if (now - sweptAt < sweepEveryMs()) return 0;
+  // Claimed before the query, not after: two requests landing together on the
+  // same warm instance would otherwise both sweep.
+  sweptAt = now;
+  try {
+    const { pool } = await import("@workspace/db");
+    const { rowCount } = await pool.query(
+      `DELETE FROM rate_limits WHERE window_start < now() - ($1 || ' milliseconds')::interval`,
+      [String(KEEP_FOR_MS)],
+    );
+    return rowCount ?? 0;
+  } catch (error) {
+    // Nothing to tell anybody. The next warm instance, or the next hour, tries
+    // again — and a rate limiter that refused a request because it could not
+    // tidy up would be a worse product than one with a large table.
+    logger.warn({ err: error }, "could not sweep expired rate limit rows");
+    return 0;
+  }
 }
 
 export interface LimitOptions {

@@ -35,6 +35,16 @@ export function serializeJob(job: Record<string, unknown>) {
     // point of having written them; they used to stop at a log line.
     notes: Array.isArray(job.notes) ? job.notes : [],
     /*
+      Only when it is true, so an ordinary render's shape does not change.
+
+      A stopped render is `failed` — see the migration for why it is not a
+      fourth status — which leaves the screen unable to tell a decision from a
+      fault. This is the flag that lets it, and it is the difference between
+      "You stopped this render" and an apology for a failure that never
+      happened.
+    */
+    ...(job.cancelledAt ? { cancelled: true as const } : {}),
+    /*
       Absent unless somebody is actually waiting. `null` is a real answer here —
       "queued, and we cannot honestly say how long" — and it is a different
       answer from the field not being there at all, which is what a running or

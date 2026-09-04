@@ -189,7 +189,26 @@ export async function habitsFor(userId: string): Promise<Habit[]> {
   const rows = await db
     .select({ plan: jobsTable.plan })
     .from(jobsTable)
-    .where(and(eq(jobsTable.userId, userId), eq(jobsTable.status, "succeeded")))
+    /*
+      `done`, which is the status this product writes.
+
+      It said `"succeeded"`, and nothing in this repository has ever written
+      that word to `jobs.status` — the vocabulary is `queued → running → done |
+      failed`, stated in the schema, in `JobStatus`, and in the worker. So the
+      query was valid SQL that matched zero rows, `habitsIn([])` returned an
+      empty list, and `applyHabits` took its early return on every call this
+      module has ever served.
+
+      Nothing failed. There is no error and no log line, and the reply simply
+      never mentions a fill — which is indistinguishable from "you have not
+      built enough of a habit yet". A person who has made forty vertical TikTok
+      cuts with karaoke captions in Cairo Black still had to type all of it on
+      the forty-first, which is the exact thing this file was written to stop.
+
+      `routes/admin.ts` documents this class at length ("a status nothing writes
+      simply matches nothing") after paying for it once already.
+    */
+    .where(and(eq(jobsTable.userId, userId), eq(jobsTable.status, "done")))
     .orderBy(desc(jobsTable.createdAt))
     .limit(RENDERS_READ);
   return habitsIn(rows.map((row) => row.plan as EditPlan));

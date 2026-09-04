@@ -32,6 +32,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
+import { order } from "./lib/order.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -114,8 +115,17 @@ section("The request the screen writes for somebody has to be one the product un
 
 section("A file is refused before a project row is made for it");
 {
-  const accepted = ["video/mp4", "video/quicktime", "video/webm"];
-  const gate = (file, ceilingBytes = 100 * 1024 * 1024) => G.videoRejection(file, { accepted, ceilingBytes });
+  /*
+    No `accepted` list to pass in any more, and that is the fix.
+
+    `videoRejection` took one and this suite supplied `["video/mp4",
+    "video/quicktime", "video/webm"]` — the same three formats the two screens
+    each kept a copy of, while the server's own table has taken nine for a long
+    time, `.mkv` (OBS's default container) and `.m4v` among them. The list is
+    derived from that table now, inside `isAcceptableVideo`, so there is
+    nothing left for a caller to get wrong.
+  */
+  const gate = (file, ceilingBytes = 100 * 1024 * 1024) => G.videoRejection(file, { ceilingBytes });
 
   check("an mp4 goes through", gate({ type: "video/mp4", name: "ep14.mp4", size: 10 }) === null);
   check("a spreadsheet does not", gate({ type: "text/csv", name: "budget.csv", size: 10 }) === "type");
@@ -135,6 +145,32 @@ section("A file is refused before a project row is made for it");
   const dashboard = read("artifacts/editly/src/pages/dashboard.tsx");
   const page = read("artifacts/editly/src/pages/clips.tsx");
   check("both screens gate through it", /videoRejection\(file, \{/.test(dashboard) && /videoRejection\(file, \{/.test(page));
+
+  /*
+    And the formats the server takes are the formats the browser offers.
+
+    Both screens used to hand `videoRejection` a three-format list and set
+    `accept` to the same three, so `.mkv` was not even offered by the file
+    picker — a refusal the person never got to read because the file could not
+    be chosen. `ACCEPTED_VIDEO_ACCEPT` names the media types *and* the
+    extensions, because browsers disagree about what an `.mkv` is.
+  */
+  check(
+    "a container the server takes is one the picker offers",
+    gate({ type: "video/x-matroska", name: "stream.mkv", size: 10 }) === null,
+    "OBS writes .mkv by default",
+  );
+  check("and .m4v, which is the same file with another name", gate({ type: "", name: "ep.m4v", size: 10 }) === null);
+  check(
+    "an iPhone photo is still refused, because the renderer cannot read it",
+    gate({ type: "image/heic", name: "IMG_0421.HEIC", size: 10 }) === "type",
+    "accepting it would move the failure to a render that dies while somebody watches",
+  );
+  check(
+    "and neither screen hardcodes a format list in its file input",
+    /ACCEPTED_VIDEO_ACCEPT/.test(page),
+    "clips.tsx",
+  );
   check(
     "and neither keeps a second copy of the rule",
     !/ACCEPTED_VIDEO_TYPES\.includes\(file\.type\)/.test(dashboard) && !/ACCEPTED_VIDEO_TYPES\.includes\(file\.type\)/.test(page),
@@ -157,7 +193,7 @@ section("Adding an episode is the first thing on the screen");
   check("and a chosen one", /data-testid="clips-add-input"/.test(page));
   check(
     "the project is created before the file is stashed against it",
-    page.indexOf("createProject.mutateAsync") < page.indexOf("stashPendingUpload(project.id, file)"),
+    order(page, "createProject.mutateAsync", "stashPendingUpload(project.id, file)").ok,
     "a failed create must not leave a file waiting for a project that was never made",
   );
   check(
@@ -171,7 +207,7 @@ section("Adding an episode is the first thing on the screen");
   );
   check(
     "the recordings already here are offered second, and hidden when there are none",
-    page.indexOf("clips-add-episode") < page.indexOf("CLIPS.startTitle") && /recordings\.length > 0 \? \(/.test(page),
+    order(page, "clips-add-episode", "CLIPS.startTitle").ok && /recordings\.length > 0 \? \(/.test(page),
   );
 }
 

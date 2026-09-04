@@ -435,6 +435,57 @@ export function linesFor(text: string, widthInCapsAllowed: number, widthScale = 
   return lines;
 }
 
+/**
+ * The same break, made even.
+ *
+ * `linesFor` is greedy: it fills each line to the last word that fits. That is
+ * the right way to *find* how many lines a caption needs and the wrong shape to
+ * draw — it produces a full line over a short one, which on a centred caption
+ * block reads as ragged rather than as typeset. Rendered, an ordinary sentence
+ * came out as
+ *
+ *     This is the part
+ *     nobody ever tells you
+ *
+ * with the two lines a third apart in width. Every caption in the product had
+ * that shape, and nothing about it fails: the words are all there, inside the
+ * safe area, correctly timed.
+ *
+ * The even break is the narrowest allowance that still fits in the same number
+ * of lines, found by bisection over the width and re-using the greedy wrapper
+ * rather than a second breaking algorithm that could disagree with it. Same
+ * words, same order, same line count — so it cannot introduce an overflow or
+ * an extra line, which is what makes it safe to apply to every caption.
+ */
+export function balancedLines(text: string, widthInCapsAllowed: number, widthScale = 1): string[] {
+  const greedy = linesFor(text, widthInCapsAllowed, widthScale);
+  if (greedy.length < 2) return greedy;
+
+  // The widest single word is a hard floor: no allowance below it can produce
+  // this many lines, and bisecting past it would loop.
+  const longestWord = Math.max(
+    ...text.split(/\s+/).filter(Boolean).map((word) => widthInCaps(word, widthScale)),
+  );
+
+  let low = longestWord;
+  let high = widthInCapsAllowed;
+  let best = greedy;
+  // Twenty halvings takes the interval to a millionth of its width, which is
+  // far below one glyph. A fixed count rather than a convergence test, because
+  // a loop that decides when to stop is a loop that can decide not to.
+  for (let step = 0; step < 20; step += 1) {
+    const middle = (low + high) / 2;
+    const attempt = linesFor(text, middle, widthScale);
+    if (attempt.length <= greedy.length) {
+      best = attempt;
+      high = middle;
+    } else {
+      low = middle;
+    }
+  }
+  return best;
+}
+
 /** How wide this string draws, in cap heights. */
 export function widthInCaps(text: string, widthScale = 1): number {
   let total = 0;

@@ -17,14 +17,17 @@ import { sql, eq, and } from "drizzle-orm";
 import pino from "pino";
 import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, comprehensionsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
 import { EditPlan, type EditOperation } from "@workspace/api-zod";
-import { downloadObject, uploadObject, bytesPulled, StorageTransferError } from "./storage";
+import { CANCELLED_MID_RENDER_MESSAGE } from "@workspace/api-zod/limits";
+import { downloadObject, uploadObject, bytesPulled, objectBytes, StorageTransferError } from "./storage";
+import { roomFor, noRoomMessage, sweepStaleWork } from "./disk";
 import { renderPlan, probeDuration, probeSource, grabPosterFrame, shapeFor, frameFor, defaultHeightFor, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
+import { LIMITS, deliverableSourceMinutes } from "./deadline";
 import { reviewOutput } from "./review";
 import { chooseClips } from "./highlight";
 import { chooseConversationClips, type Reading } from "./conversation";
 import { snapToSpeechBreaks } from "./timeline";
-import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, overAllowanceMessage } from "./duration";
+import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, allowanceNow, overAllowanceMessage, exceedsDeliverable, notDeliverableMessage } from "./duration";
 import { enrichPlan } from "./enrich";
 import { comprehend, transcriptDigest, wordsOf, COMPREHENSION_VERSION } from "./comprehend";
 import { resolveProviders } from "./providers";
@@ -39,6 +42,14 @@ import { buildStillsReel, imageSize } from "./stills";
 
 const WORKER_ID = `${hostname()}-${randomUUID().slice(0, 8)}`;
 const POLL_INTERVAL_MS = Number(process.env["POLL_INTERVAL_MS"] ?? 5000);
+
+/**
+ * How long a machine that has run out of disk stops asking.
+ *
+ * Long enough that it is not spinning, short enough that it rejoins as soon
+ * as a finished render frees its work directory. See `NoRoomHereError`.
+ */
+const NO_ROOM_PAUSE_MS = 60_000;
 /** A render that has held its lock this long is assumed dead, not slow. */
 const STALE_LOCK_MINUTES = Number(process.env["STALE_LOCK_MINUTES"] ?? 30);
 
@@ -76,6 +87,34 @@ class PlanEmptiedError extends Error {}
 class SourceTooLongError extends Error {}
 
 /**
+ * This machine has no room for this render; another one will.
+ *
+ * Not a failure of the job and not the customer's problem, so it is neither
+ * reported to them nor counted against their attempts: `processJob` throws it
+ * before touching anything, and the loop hands the row straight back to the
+ * queue. If every machine is full the job waits, which is the correct thing
+ * for it to do — the wrong thing, and what happened before this existed, is
+ * three attempts burned on `No space left on device` inside a stderr tail
+ * nobody reads, ending at "this project could not be rendered".
+ */
+class NoRoomHereError extends Error {}
+
+/**
+ * The person asked us to stop, and we did.
+ *
+ * Not a failure of anything: no retry, no apology mail, no "we are looking
+ * into it". The row is settled as `failed` because that is what every reader
+ * of `status` in this codebase understands as "not going any more", and
+ * `cancelled_at` — already set by whoever asked — is what makes the difference
+ * legible to the three places that need it.
+ *
+ * Thrown from `reportProgress`, which is called from every stage of the
+ * render, so the request is acted on at whatever the renderer is doing rather
+ * than at some checkpoint it might not reach.
+ */
+class CancelledError extends Error {}
+
+/**
  * Takes the oldest queued job, atomically. SKIP LOCKED is what makes this safe
  * to run in parallel: a row another worker is already claiming is stepped over
  * rather than waited on.
@@ -103,7 +142,34 @@ async function claimJob(): Promise<Job | null> {
     [WORKER_ID],
   );
   if (rows.length === 0) return null;
-  return toJob(rows[0] as Record<string, unknown>);
+  const row = rows[0] as Record<string, unknown>;
+  assertRowIsUnderstood(row);
+  return toJob(row);
+}
+
+/**
+ * What this person has been billed for since this job was queued.
+ *
+ * Only rows that reached `done`, only this month, only strictly after the
+ * moment this row was written, and never this row itself. That is exactly the
+ * amount the snapshot on the row has stopped accounting for.
+ */
+async function spentSinceQueued(job: Job): Promise<number> {
+  const { rows } = await pool.query<{ seconds: string }>(
+    `SELECT coalesce(sum(coalesce(billed_seconds, output_seconds)), 0)::float8 AS seconds
+       FROM jobs
+      WHERE user_id = $1
+        AND id <> $2
+        AND status = 'done'
+        AND finished_at >= greatest($3::timestamptz, date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`,
+    [job.userId, job.id, job.createdAt.toISOString()],
+  );
+  return Number(rows[0]?.seconds ?? 0);
+}
+
+/** Was this row written before the allowance it is carrying was reset? */
+function queuedBeforeThisMonth(job: Job, now = new Date()): boolean {
+  return job.createdAt.getTime() < Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
 }
 
 /**
@@ -131,7 +197,47 @@ function toJob(row: Record<string, unknown>): Job {
     remainingSeconds: row["remaining_seconds"] as number | null,
     priority: row["priority"] as number,
     maxAttempts: row["max_attempts"] as number,
+    // Read by the live allowance check, which asks what has been billed since
+    // this row was written. It arrived through the spread above as
+    // `row.createdAt`, which does not exist — the driver returns `created_at`
+    // — so the comparison was against `undefined` and the cast above made it
+    // typecheck. Exactly the failure this docblock describes, found by walking
+    // into it.
+    createdAt: row["created_at"] as Date,
+    startedAt: (row["started_at"] as Date | null) ?? null,
+    finishedAt: (row["finished_at"] as Date | null) ?? null,
+    lockedAt: (row["locked_at"] as Date | null) ?? null,
+    lockedBy: (row["locked_by"] as string | null) ?? null,
+    updatedAt: row["updated_at"] as Date,
   };
+}
+
+/**
+ * The columns `toJob` renames, checked against the row it was handed.
+ *
+ * The mapping is by hand and the cast in `toJob` makes a missing rename
+ * typecheck perfectly — the field simply arrives `undefined`, and what happens
+ * next depends entirely on which field it was. For `maxSourceSeconds` it is
+ * the upload ceiling silently switching off; for `createdAt` it was a date
+ * comparison against `undefined`, which is false, every time.
+ *
+ * So the claim asserts it once, loudly, at the only moment it can be checked:
+ * a row is in front of us and we know what we asked for. A worker that boots
+ * against a schema it does not understand should say so and stop, not render
+ * ten thousand videos with one rule turned off.
+ */
+const RENAMED_COLUMNS = [
+  "user_id", "project_id", "input_path", "output_path", "reference_path",
+  "output_seconds", "output_seconds_source", "source_seconds",
+  "max_source_seconds", "remaining_seconds", "priority", "max_attempts",
+  "created_at", "started_at", "finished_at", "locked_at", "locked_by", "updated_at",
+] as const;
+
+function assertRowIsUnderstood(row: Record<string, unknown>): void {
+  const missing = RENAMED_COLUMNS.filter((column) => !(column in row));
+  if (missing.length > 0) {
+    throw new Error(`the jobs row is missing columns this worker reads: ${missing.join(", ")}`);
+  }
 }
 
 /**
@@ -168,16 +274,126 @@ async function heartbeat(now = Date.now()): Promise<void> {
     });
 }
 
+/**
+ * Forget the workers that are not coming back.
+ *
+ * `WORKER_ID` carries a random suffix, so every restart, every deploy and every
+ * OOM writes a new row and nothing ever removed one — a table that grows for
+ * the life of the product, read in full by `renderCapacity` on every wait
+ * estimate. A day is far longer than any window that treats a worker as
+ * present (`workerOnline` uses minutes), so anything older than that is a
+ * machine that no longer exists.
+ */
+async function forgetDepartedWorkers(): Promise<void> {
+  await pool.query(`DELETE FROM worker_heartbeats WHERE last_seen_at < now() - interval '1 day'`);
+}
+
+/**
+ * A ceiling on the whole job, not on one invocation of ffmpeg.
+ *
+ * Every limit in `LIMITS` bounds a single subprocess. Their *sum* was
+ * unbounded, and a clips job is `renderPlan` once per window — each with its
+ * own fresh four-hour render ceiling — plus a review, a ninety-minute VP9
+ * mirror and a thirty-minute upload, six times over. While that runs, the lock
+ * is renewed every twenty seconds so the stale sweep never looks at it, the
+ * heartbeat keeps writing, `/healthz` answers 200, and with one worker every
+ * other customer waits behind it.
+ *
+ * The work is not cancellable — it is awaiting a subprocess this function
+ * cannot see — so what this does is stop *waiting* for it and let the job fail
+ * as a job. The process exits afterwards rather than continuing with an
+ * abandoned render still running beside it: a machine in that state has an
+ * ffmpeg it does not know about holding memory the next render needs, and Fly
+ * starts a clean one within seconds.
+ */
+async function withinJobDeadline<T>(jobId: string, work: () => Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const ceiling = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        new Error(
+          `This job ran for over ${Math.round(LIMITS.job.totalMs / 60_000)} minutes without finishing, which is longer than any edit this can deliver.`,
+        ),
+      );
+    }, LIMITS.job.totalMs);
+    timer.unref();
+  });
+  try {
+    return await Promise.race([work(), ceiling]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** Returns jobs abandoned by a dead worker to the queue. */
 async function requeueStaleJobs(): Promise<number> {
   const { rowCount } = await pool.query(
-    `UPDATE jobs SET status = 'queued', locked_at = NULL, locked_by = NULL, updated_at = now()
+    /*
+      The progress goes back with the job.
+
+      `progress` and `stage` were left where the dead worker put them, so a job
+      that died at 62% sat in the queue still saying "Clip 3 of 6: encoding" and
+      "62% — you can close this page, it keeps going". The bar does not move
+      because nothing is rendering, and the sentence under it says the opposite.
+      Worse, a non-null `stage` is what the editor shows *instead* of the wait
+      estimate, so the one honest number available to a queued job was hidden by
+      a stale one from the render that died.
+    */
+    `UPDATE jobs SET status = 'queued', locked_at = NULL, locked_by = NULL,
+       progress = 0, stage = NULL, updated_at = now()
      WHERE status = 'running'
        AND locked_at < now() - ($1 || ' minutes')::interval
        AND attempts < max_attempts`,
     [String(STALE_LOCK_MINUTES)],
   );
   return rowCount ?? 0;
+}
+
+/**
+ * The job this worker is holding, if any.
+ *
+ * Only read by the shutdown path. A render is not interruptible — it is one
+ * ffmpeg invocation that runs for as long as it runs — so the useful thing to
+ * do when the platform says "stop" is to put the work back where somebody else
+ * can pick it up, not to hope for time that is not coming.
+ */
+let heldJobId: string | null = null;
+
+/**
+ * Hand the job back, and do not charge it for our departure.
+ *
+ * Fly sends SIGTERM and, five seconds later by default, SIGKILL. A render
+ * takes minutes to hours, so "finish the current job before exiting" was a
+ * sentence the platform never honoured: the process died mid-encode, the row
+ * stayed `running` with a fresh `locked_at`, and `requeueStaleJobs` would not
+ * look at it for thirty minutes — during which the project is locked by the
+ * one-active-per-project index and the job still counts against the customer's
+ * in-flight limit. Then it came back with `attempts` already spent. Three
+ * deploys in the life of one long render and the customer is told "Gave up
+ * after repeated failures" about a render that never failed.
+ *
+ * `attempts` is decremented because the attempt did not happen. Nothing about
+ * this job caused it, and the counter exists to stop *this job* from being
+ * retried forever.
+ */
+async function releaseHeldJob(): Promise<void> {
+  const id = heldJobId;
+  if (!id) return;
+  heldJobId = null;
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE jobs SET status = 'queued', locked_at = NULL, locked_by = NULL,
+         attempts = GREATEST(0, attempts - 1),
+         progress = 0, stage = NULL, updated_at = now()
+       WHERE id = $1 AND status = 'running' AND locked_by = $2`,
+      [id, WORKER_ID],
+    );
+    if ((rowCount ?? 0) > 0) logger.warn({ jobId: id }, "handed the job back before exiting");
+  } catch (error) {
+    // Nothing to do about it here, and the stale sweep is the backstop: the
+    // job returns in thirty minutes rather than immediately.
+    logger.error({ err: error, jobId: id }, "could not hand the job back");
+  }
 }
 
 /** Jobs that have burned through every attempt should stop looking pending. */
@@ -211,7 +427,16 @@ async function failExhaustedJobs(): Promise<number> {
  * A lock is now a statement about the last few seconds rather than about the
  * moment work began, so the staleness rule above finally means what it says.
  */
-const LOCK_RENEW_EVERY_MS = 20_000;
+/*
+  Configurable only so a suite can watch the thing it decides.
+
+  This timer is also where a stop request is read — see `renew` — so the worst
+  case for noticing a cancellation is one interval. Twenty seconds against a
+  render measured in minutes is right in production and useless in a test,
+  which would otherwise have to wait twenty seconds to prove a property that
+  takes one query.
+*/
+const LOCK_RENEW_EVERY_MS = Number(process.env["LOCK_RENEW_EVERY_MS"]) || 20_000;
 
 /**
  * Renews the lock and the worker's heartbeat for as long as `work` runs.
@@ -225,10 +450,23 @@ async function withLockKeptAlive<T>(jobId: string, work: () => Promise<T>): Prom
     try {
       // `locked_by` in the WHERE clause matters: if this job was taken from us
       // anyway, we must not reach back in and touch the new holder's row.
-      await pool.query(`UPDATE jobs SET locked_at = now(), updated_at = now() WHERE id = $1 AND locked_by = $2`, [
-        jobId,
-        WORKER_ID,
-      ]);
+      /*
+        The renewal is also where the stop request is read.
+
+        One query rather than two, and on the timer rather than on the progress
+        tick: ffmpeg reports several times a second and a `SELECT` on each of
+        those would be the same hot-row problem `lastReported` exists to
+        prevent. Twenty seconds is the worst case for noticing, against a
+        render measured in minutes, and it costs nothing — the renewal was
+        already writing this row.
+      */
+      const { rows } = await pool.query<{ cancelled_at: Date | null }>(
+        `UPDATE jobs SET locked_at = now(), updated_at = now()
+          WHERE id = $1 AND locked_by = $2
+        RETURNING cancelled_at`,
+        [jobId, WORKER_ID],
+      );
+      if (rows[0]?.cancelled_at) stopRequestedFor = jobId;
       await heartbeat();
     } catch (error) {
       // A failed renewal is not a reason to abandon a render that is going
@@ -245,11 +483,63 @@ async function withLockKeptAlive<T>(jobId: string, work: () => Promise<T>): Prom
   }
 }
 
+/**
+ * The last percentage written for a job, so the same one is not written twice.
+ *
+ * ffmpeg reports its own timestamp several times a second, and every one of
+ * those became an UPDATE on the hottest row in the schema — measured at 2.2 a
+ * second, about eight thousand over an hour-long render, writing roughly ninety
+ * distinct values. The pool holds three connections, so those updates queue
+ * ahead of the lock renewal and the heartbeat, which are the two queries that
+ * decide whether this worker still owns its job.
+ */
+let lastReported: { jobId: string; progress: number; stage: string | null } | null = null;
+
+/**
+ * The job this worker has been asked to stop, once it has noticed.
+ *
+ * Written by the lock renewal, read by `reportProgress`. A job id rather than
+ * a boolean so a stale request cannot stop the *next* render: this worker
+ * takes one job at a time, and the id is what says which one the answer was
+ * about.
+ */
+let stopRequestedFor: string | null = null;
+
 async function reportProgress(jobId: string, progress: number, stage: string): Promise<void> {
-  await db
-    .update(jobsTable)
-    .set({ progress: Math.max(0, Math.min(99, Math.round(progress))), stage })
-    .where(eq(jobsTable.id, jobId));
+  /*
+    Every stage of the render passes through here, which is why the stop is
+    checked here.
+
+    A checkpoint of its own would have to be placed by hand at each step and
+    would be missed at the one that takes longest. This is called from the
+    transcript, the beat read, the subject search, the encode and the review —
+    so "stop" means "at whatever you are doing", not "at the next thing you
+    finish".
+  */
+  if (stopRequestedFor === jobId) throw new CancelledError(CANCELLED_MID_RENDER_MESSAGE);
+
+  const rounded = Math.max(0, Math.min(99, Math.round(progress)));
+  /*
+    Only when it changed, and never backwards.
+
+    The percentage the customer sees is a whole number, and ffmpeg reports its
+    own timestamp several times a second — so most of these updates wrote the
+    number that was already there. Skipping them is free.
+
+    Backwards is the other half. The stages are reported in the order they are
+    reached in the file, and the file does not do them in that order: the beat
+    was read at 0.42 while the subject search that runs later was 0.08, so on a
+    plan with music and a reframe the bar went to 44%, then to 16%, then climbed
+    again. The two are reordered now, and this is the guard that keeps them so —
+    a percentage is a promise about how much is left, and one that goes back on
+    itself is worse than a spinner.
+  */
+  if (lastReported && lastReported.jobId === jobId) {
+    if (rounded < lastReported.progress) return;
+    if (rounded === lastReported.progress && stage === lastReported.stage) return;
+  }
+  lastReported = { jobId, progress: rounded, stage };
+  await db.update(jobsTable).set({ progress: rounded, stage }).where(eq(jobsTable.id, jobId));
   // Progress is also proof of life. The renewal timer covers the silent
   // stretches; this covers everything else without waiting for the next tick.
   await heartbeat();
@@ -284,6 +574,30 @@ async function processJob(job: Job): Promise<void> {
     const plan = EditPlan.parse(job.plan);
 
     log.info({ operations: plan.operations.map((o) => o.type) }, "claimed job");
+
+    /*
+      Room to work, asked before anything is spent.
+
+      One HEAD against the store, and the answer decides whether this machine
+      starts the render or hands the row back for one that can. The check is
+      cheap and it is the only one there is: nothing downstream of here reads
+      free disk, so a machine whose `/tmp` is already two-thirds full will
+      begin a render it cannot finish and discover it at the encode — after the
+      download, after the transcription, after the minutes are gone.
+
+      For a stills reel `input_path` names the first photograph, so this asks
+      about that file rather than about the reel it becomes. Deliberately kept
+      anyway: it is still one machine's honest answer to "have I any room at
+      all", and the alternative is no check on the path that writes the most.
+    */
+    const sourceBytes = await objectBytes(job.inputPath);
+    if (sourceBytes !== null) {
+      const room = await roomFor(sourceBytes, workDir);
+      if (!room.enough) {
+        log.warn({ freeBytes: room.freeBytes, neededBytes: room.neededBytes }, noRoomMessage(room));
+        throw new NoRoomHereError(noRoomMessage(room));
+      }
+    }
 
     // ── The source, which may not exist yet ───────────────────────────────
     //
@@ -332,9 +646,38 @@ async function processJob(job: Job): Promise<void> {
     // the allowance whenever the browser omitted a duration, which is the one
     // case where the file could be anything at all — so the check lands here,
     // against a length that was measured, and before the encode is paid for.
-    if (exceedsAllowance(sourceSeconds, job.remainingSeconds)) {
+    //
+    // Against the balance *now*, not the balance when the row was written. The
+    // snapshot is per-job and every job fired in the same second carries the
+    // same one, so thirty of them each saw a full allowance and thirty of them
+    // were allowed. See `allowanceNow`.
+    const balance = allowanceNow(job.remainingSeconds, await spentSinceQueued(job), queuedBeforeThisMonth(job));
+    if (exceedsAllowance(sourceSeconds, balance)) {
       await db.update(jobsTable).set({ sourceSeconds }).where(eq(jobsTable.id, job.id));
-      throw new SourceTooLongError(overAllowanceMessage(sourceSeconds, job.remainingSeconds as number));
+      throw new SourceTooLongError(overAllowanceMessage(sourceSeconds, balance as number));
+    }
+    /*
+      And the third ceiling, which is ours rather than theirs.
+
+      `deliverableSourceMinutes()` has existed, measured and documented, since
+      the deadline was written, and nothing read it. It is what this machine
+      can finish before `LIMITS.render.totalMs` kills the job — 115 minutes of
+      source at the measured 2.07× — against a pricing page that sells 240 on
+      Pro and 600 on Studio.
+
+      Unreachable while the bucket refuses anything over 50 MB, and live the
+      morning that changes. The failure it replaces is the worst one available:
+      a file the plan allows, four hours of paid compute, and "Rendering
+      failed. We are looking into it." — three times over.
+    */
+    const deliverable = deliverableSourceMinutes();
+    if (exceedsDeliverable(sourceSeconds, deliverable)) {
+      await db.update(jobsTable).set({ sourceSeconds }).where(eq(jobsTable.id, job.id));
+      log.error(
+        { sourceSeconds, deliverableMinutes: deliverable },
+        "refused a file inside its plan that this machine cannot render in time",
+      );
+      throw new SourceTooLongError(notDeliverableMessage(sourceSeconds, deliverable));
     }
     // Written back to the project as well, so the next render's ceiling check
     // and the next template's punch placement start from the truth. A lie told
@@ -457,6 +800,8 @@ async function processJob(job: Job): Promise<void> {
       ),
     ];
     const assets = new Map<string, { file: string; kind: "video" | "image" | "audio" }>();
+    /** Assets this project really has and this render could not fetch. */
+    const unreachableAssetIds = new Set<string>();
     if (wantedAssetIds.length > 0) {
       await reportProgress(job.id, 9, "Fetching the files you added");
       const rows = await db
@@ -464,6 +809,9 @@ async function processJob(job: Job): Promise<void> {
         .from(assetsTable)
         .where(and(eq(assetsTable.projectId, job.projectId), eq(assetsTable.userId, job.userId)));
       const byId = new Map(rows.map((row) => [row.id, row]));
+      // Named, so "we could not fetch it" is not reported as "you do not have
+      // it". See the catch below.
+
       for (const id of wantedAssetIds) {
         const row = byId.get(id);
         if (!row) {
@@ -475,8 +823,21 @@ async function processJob(job: Job): Promise<void> {
           await downloadObject(row.path, file);
           assets.set(row.id, { file, kind: row.kind as "video" | "image" | "audio" });
         } catch (error) {
-          // One missing overlay is a worse render, not a failed one.
+          /*
+            One missing overlay is a worse render, not a failed one — and the
+            renderer must be able to say which of the two happened.
+
+            Both this and "the row is not there" used to leave the id out of
+            the map and nothing else, so the renderer wrote the same sentence
+            for both: "skipped the music: asset 4f1c… is not in this project."
+            On a transient storage error the track *is* in the project, and the
+            customer was sent to look for a file that is sitting there, found
+            it, and re-uploaded it.
+
+            Recorded rather than inferred, so the note can tell the truth.
+          */
           log.warn({ err: error, assetId: id }, "could not fetch an asset");
+          unreachableAssetIds.add(id);
         }
       }
     }
@@ -520,6 +881,7 @@ async function processJob(job: Job): Promise<void> {
         reading,
         words,
         assets,
+        unreachableAssetIds,
         pulledAtStart,
         workDir,
         inputFile,
@@ -540,6 +902,7 @@ async function processJob(job: Job): Promise<void> {
       // keeps. Everything else in there is arithmetic on this file.
       reading,
       assets,
+      unreachableAssetIds,
       ...(faces ? { faces } : {}),
       onProgress: (fraction, stage) => {
         // Download and upload bracket the render; the middle 80% is ffmpeg.
@@ -705,6 +1068,65 @@ async function processJob(job: Job): Promise<void> {
 
     log.info({ outputPath, outputSeconds: measured.seconds, how: measured.how, notes }, "render complete");
   } catch (error) {
+    /*
+      One failure that is not a failure, handled before any of the rest.
+
+      There is nothing wrong with this job, so nothing is written about it: no
+      error for the person, no attempt spent, no `failed` on the project. The
+      row goes back exactly as it was claimed and another machine — or this one
+      after the sweep has room — takes it.
+
+      The pause matters as much as the requeue. Without it this worker claims
+      the same row again on the next poll, finds the same full disk, and spins
+      through the queue rejecting every job several times a second while
+      writing a warning each time. `roomFor` is not going to answer differently
+      within a poll interval.
+    */
+    /*
+      Stopped on purpose, which is not a failure of anything.
+
+      Settled here rather than left to the reaper, and settled as `failed`
+      because that is what every reader of `status` understands as "not going
+      any more" — `cancelled_at` was already written by whoever asked, and it
+      is what tells the product, the mail and the retry logic that this was a
+      decision rather than a fault. Nothing is retried, nothing is apologised
+      for, and the project is not marked failed: a project whose render was
+      stopped is a project waiting to be rendered again.
+    */
+    if (error instanceof CancelledError) {
+      log.info({ progress: lastReported?.progress ?? null }, "stopped at the customer's request");
+      await db
+        .update(jobsTable)
+        .set({
+          status: "failed",
+          error: CANCELLED_MID_RENDER_MESSAGE,
+          errorDetail: null,
+          stage: null,
+          lockedAt: null,
+          lockedBy: null,
+          finishedAt: new Date(),
+        })
+        .where(eq(jobsTable.id, job.id));
+      return;
+    }
+
+    if (error instanceof NoRoomHereError) {
+      await db
+        .update(jobsTable)
+        .set({
+          status: "queued",
+          stage: null,
+          progress: 0,
+          lockedAt: null,
+          lockedBy: null,
+          attempts: Math.max(0, job.attempts - 1),
+        })
+        .where(eq(jobsTable.id, job.id));
+      await rm(workDir, { recursive: true, force: true });
+      await sleep(NO_ROOM_PAUSE_MS);
+      return;
+    }
+
     // ffmpeg's complaints are specific enough to be worth showing; anything
     // else is infrastructure and the user can do nothing with the detail.
     //
@@ -742,7 +1164,21 @@ async function processJob(job: Job): Promise<void> {
       error instanceof Error ? `${error.name}: ${error.message}` : String(error)
     ).slice(0, 2000);
 
-    const final = error instanceof PlanEmptiedError || error instanceof SourceTooLongError;
+    /*
+      Which failures are worth a second run.
+
+      `StorageTransferError` is mostly retryable — a stalled download, an upload
+      that timed out — which is why it is not on the list wholesale. The
+      exception is a 413 from the bucket, which it now carries as `final`: the
+      same plan on the same source produces the same oversize file, so the two
+      further attempts were hours of paid compute spent to be refused twice
+      more, while the person waited for a verdict the first attempt already gave
+      them in words.
+    */
+    const final =
+      error instanceof PlanEmptiedError ||
+      error instanceof SourceTooLongError ||
+      (error instanceof StorageTransferError && error.final);
     const willRetry = !final && job.attempts < job.maxAttempts;
 
     log.error({ err: error, attempt: job.attempts, willRetry }, "render failed");
@@ -941,6 +1377,54 @@ async function readMaterial(
  * clip (a job that made files should say so); the project's pointer is left
  * alone, because it means "the latest whole-video render" and none happened.
  */
+/**
+ * Six clips' worth of render notes, said once each.
+ *
+ * A clips job runs the whole renderer per clip, so most of what it has to say
+ * is the same sentence six times over — "skipped the music: that asset is not
+ * in this project" does not become more true for being repeated. Printing them
+ * straight would bury the six lines that say what was actually kept under
+ * thirty that do not.
+ *
+ * So: a note every clip produced is stated once, plainly, because it is a fact
+ * about the render rather than about a clip. A note only some clips produced
+ * is stated with their numbers, because *which* ones is the whole information
+ * — "clips 2 and 5: the sound did not survive this edit" is a different
+ * sentence from the same words without the numbers.
+ *
+ * Order is first-appearance, so the sequence a person reads is the sequence
+ * the renderer produced.
+ */
+export function insideEachClip(perClip: readonly (readonly string[])[], language: Language): string[] {
+  const total = perClip.length;
+  if (total === 0) return [];
+  const t = sayIn(language);
+
+  // First appearance wins the position; the set records which clips said it.
+  const order: string[] = [];
+  const clipsSaying = new Map<string, number[]>();
+  perClip.forEach((notesForClip, index) => {
+    // Deduplicated within a clip too: one clip repeating itself is one fact.
+    for (const note of new Set(notesForClip)) {
+      const seen = clipsSaying.get(note);
+      if (seen) seen.push(index + 1);
+      else {
+        clipsSaying.set(note, [index + 1]);
+        order.push(note);
+      }
+    }
+  });
+
+  return order.map((note) => {
+    const clips = clipsSaying.get(note)!;
+    if (clips.length === total) return note;
+    const numbers = clips.join(", ");
+    return clips.length === 1
+      ? t(`clip ${numbers}: ${note}`, `القصاصة ${numbers}: ${note}`)
+      : t(`clips ${numbers}: ${note}`, `القصاصات ${numbers}: ${note}`);
+  });
+}
+
 async function renderClipSet(args: {
   job: Job;
   clipsOp: Extract<EditOperation, { type: "extractClips" }>;
@@ -949,6 +1433,7 @@ async function renderClipSet(args: {
   reading: Reading | null;
   words: Array<{ start: number; end: number; filler: boolean; text?: string; speaker?: number }>;
   assets: Map<string, { file: string; kind: "video" | "image" | "audio" }>;
+  unreachableAssetIds: ReadonlySet<string>;
   /** Where the job's download counter stood when it started. See `bytesIn`. */
   pulledAtStart: number;
   workDir: string;
@@ -958,13 +1443,43 @@ async function renderClipSet(args: {
   language: Language;
   log: pino.Logger;
 }): Promise<void> {
-  const { job, clipsOp, enriched, reading, words, assets, pulledAtStart, workDir, inputFile, sourceSeconds, sourceHadAudio, log } = args;
+  const { job, clipsOp, enriched, reading, words, assets, unreachableAssetIds, pulledAtStart, workDir, inputFile, sourceSeconds, sourceHadAudio, log } = args;
   const t = sayIn(args.language);
 
   await reportProgress(job.id, 9, "Choosing the clips");
 
-  // A retry must produce a fresh set, not a second copy of half of one.
-  await db.delete(clipsTable).where(eq(clipsTable.jobId, job.id));
+  /*
+    A retry must produce a fresh set, not a second copy of half of one — and it
+    must not destroy the set it has before it can produce one.
+
+    This delete used to be here, at 9%, before a window had been chosen or a
+    frame encoded. Everything after it can throw: `chooseClips` answers
+    `PlanEmptiedError` on a source that now reads short, a provider goes down,
+    an upload takes a 413, the machine is OOM-killed mid-encode. When it did,
+    the job ended `failed` and the person's clips panel — which had six
+    playable clips a minute earlier — was empty. The six objects were still in
+    the bucket with no row naming them, invisible to the product and to the
+    retention sweep, which only derives clip keys from rows it can read.
+
+    So the old set is read here and removed *after* the first replacement has
+    been rendered and uploaded, which is the last moment before an insert could
+    make the two sets visible at once. The likeliest failures — choosing
+    nothing, and the first clip — now leave the previous clips exactly where
+    they were.
+  */
+  const previous = await db
+    .select({ id: clipsTable.id, idx: clipsTable.idx, outputPath: clipsTable.outputPath })
+    .from(clipsTable)
+    .where(eq(clipsTable.jobId, job.id));
+  let previousCleared = false;
+  const clearPrevious = async (): Promise<void> => {
+    if (previousCleared || previous.length === 0) {
+      previousCleared = true;
+      return;
+    }
+    await db.delete(clipsTable).where(eq(clipsTable.jobId, job.id));
+    previousCleared = true;
+  };
 
   /*
     Where the clips come from, and why there are now two answers.
@@ -1010,6 +1525,32 @@ async function renderClipSet(args: {
     (op) => op.type !== "extractClips" && op.type !== "extractHighlight" && op.type !== "extractRange",
   );
   const notes: string[] = [...enriched.notes];
+
+  /*
+    What ffmpeg and the review said about each clip, which used to be computed
+    and thrown away.
+
+    `renderPlan` returns notes and `reviewOutput` returns more, and on this
+    path they were destructured into `renderNotes`, appended to, and never
+    merged into anything. The single-render path two hundred lines up does
+    `[...enriched.notes, ...renderNotes]`; this one did not, and nothing
+    failed — the job finished, the clips played, and the honesty layer was
+    simply absent from every clips render this product has ever made.
+
+    What was being discarded is not decoration. "skipped the music: that asset
+    is not in this project", "3 punches fell in silence that was cut", "burned
+    42 captions, but the words came back without their own timings", and — from
+    the review — "the sound did not survive this edit. That is a fault on our
+    side." A customer was told six clips were made and nothing about what
+    happened inside them, including known faults.
+
+    The tell that it had been overlooked rather than decided: the comment at
+    the `renderPlan` call below explains that the job's language was threaded
+    into these notes and into the review, "so an Arabic clips job came back
+    with its own summary in Arabic and every render and review note inside it
+    in English". Somebody fixed the language of notes nobody could read.
+  */
+  const perClipNotes: string[][] = [];
   if (rest.length !== enriched.plan.operations.length - 1) {
     notes.push(
       t("the plan asked for clips and another cut at once. The clips won", "طلبت الخطّة قصاصات وقصًّا آخر معًا، والقصاصات فازت"),
@@ -1143,6 +1684,7 @@ async function renderClipSet(args: {
       language: args.language,
       words,
       assets,
+      unreachableAssetIds,
       onProgress: (fraction, stage) => {
         void reportProgress(
           job.id,
@@ -1173,8 +1715,16 @@ async function renderClipSet(args: {
       log.warn({ err: error, clip: i + 1 }, "clip review failed; delivering unreviewed");
     }
 
+    // Kept, because the whole point of them is that somebody reads them. See
+    // `insideEachClip` below for why they are not pushed straight onto `notes`.
+    perClipNotes.push(renderNotes);
+
     const outputPath = `${job.userId}/${job.projectId}/clip-${job.id}-${i + 1}.mp4`;
     await uploadObject(outputPath, output);
+    // The previous set goes now: a replacement exists, and the next statement
+    // in this loop is the insert that would otherwise put two sets in front of
+    // the person at once. See `clearPrevious`.
+    await clearPrevious();
     firstClipPath ??= outputPath;
 
     // The same VP9 mirror every master gets, same naming convention, same
@@ -1252,7 +1802,36 @@ async function renderClipSet(args: {
     );
   }
 
+  notes.push(...insideEachClip(perClipNotes, args.language));
+
   await reportProgress(job.id, 95, "Saving the clips");
+
+  /*
+    And the tail of a longer previous set, which no row names any more.
+
+    The keys carry the index — `clip-<job>-1.mp4` … `clip-<job>-6.mp4` — so a
+    retry that chooses four windows overwrites 1..4 and leaves 5 and 6 in the
+    bucket with nothing pointing at them. They are invisible to the product and
+    to the retention sweep, which derives clip keys from rows, so they would
+    have been reclaimed only when the whole project was deleted.
+  */
+  const surplus = previous
+    .map((row) => row.idx)
+    .filter((idx) => typeof idx === "number" && idx > chosen.windows.length);
+  if (surplus.length > 0) {
+    const keys = surplus.flatMap((idx) => {
+      const master = `${job.userId}/${job.projectId}/clip-${job.id}-${idx}.mp4`;
+      return [master, previewPathFor(master), master.replace(/\.mp4$/i, "") + ".jpg"];
+    });
+    try {
+      await objectStoreFrom().remove(keys);
+      log.info({ clips: surplus.length }, "removed the tail of a longer previous clip set");
+    } catch (error) {
+      // Orphaned bytes are a bill, not a broken render. The set that exists is
+      // correct either way.
+      log.warn({ err: error, clips: surplus.length }, "could not remove the tail of the previous clip set");
+    }
+  }
 
   await db
     .update(jobsTable)
@@ -1429,6 +2008,15 @@ const retention = retentionFrom();
  * first run against a database migrated some other way, decide that every
  * project in it had been cold since its creation.
  */
+/**
+ * The largest share of the estate one sweep may take before it refuses.
+ *
+ * Half, which is far above anything a working sweep produces — ageing is a
+ * trickle by construction — and far below what every failure mode this file
+ * has looks like, all of which select everything at once.
+ */
+const MAX_SWEEP_SHARE = 0.5;
+
 async function sweepAgedFiles(): Promise<void> {
   const now = Date.now();
   if (retention.mode === "off") return;
@@ -1436,10 +2024,31 @@ async function sweepAgedFiles(): Promise<void> {
   lastRetentionSweep = now;
 
   try {
-    const { rows: floorRows } = await pool.query<{ applied_at: Date }>(
-      "SELECT applied_at FROM schema_migrations WHERE filename = '0040_last_opened.sql'",
+    /*
+      The database's clock, not this machine's.
+
+      Every timestamp in the comparison — `last_opened_at`, `updated_at`, the
+      migration floor — is written by Postgres `now()`, and `coldDays` was
+      measured against `Date.now()` on a Fly VM. `chooseRemovals` guards the
+      backwards direction, which is the harmless one: a negative age is skipped.
+      There was no ceiling in the other direction, and no ceiling on how much
+      one pass may remove.
+
+      So a machine that resumed from a snapshot, or came up before chronyd
+      settled, or took an NTP step forward, computed `coldDays` in the hundreds
+      for every row at once — and in `on` mode that is every preview and every
+      never-rendered source in the estate, in a single pass, with per-key
+      retries that a healthy store answers happily.
+
+      Asking Postgres for its own clock removes the whole class rather than
+      bounding it: the two sides of the subtraction now come from the same
+      clock, which is what "days since it was last opened" always meant.
+    */
+    const { rows: floorRows } = await pool.query<{ applied_at: Date; server_now: Date }>(
+      "SELECT applied_at, now() AS server_now FROM schema_migrations WHERE filename = '0040_last_opened.sql'",
     );
     const floor = floorRows[0]?.applied_at;
+    const serverNow = floorRows[0]?.server_now ?? new Date(now);
     if (!floor) {
       logger.warn(
         "the retention sweep found no ledger row for migration 0040, so it has no floor to age from and did nothing",
@@ -1466,11 +2075,30 @@ async function sweepAgedFiles(): Promise<void> {
     const removals = chooseRemovals({
       projects: projects as SweepableProject[],
       clips: clips as SweepableClip[],
-      now: new Date(now),
+      now: serverNow,
       floor,
       config: retention,
     });
     if (removals.length === 0) return;
+
+    /*
+      And a pass that wants to remove most of the estate is a bug, not a sweep.
+
+      Nothing here is urgent — a file that ages out today can age out tomorrow —
+      so refusing a suspiciously large pass costs a day and catches every
+      remaining way this could go wrong at once: a clock this check could not
+      anticipate, a floor read from a restored ledger, a window that somehow
+      arrived as zero. It is the difference between losing a night's uploads and
+      losing the estate.
+    */
+    const estate = projects.length + clips.length;
+    if (estate > 0 && removals.length > estate * MAX_SWEEP_SHARE) {
+      logger.error(
+        { removals: removals.length, estate, share: MAX_SWEEP_SHARE },
+        "the retention sweep wanted to remove most of the estate in one pass and refused; something is wrong with a clock or a window",
+      );
+      return;
+    }
 
     // Through the seam, never through an address built here. This is the first
     // caller in the product that deletes, which makes it the first real test of
@@ -1522,6 +2150,88 @@ async function titleOf(projectId: string, userId: string): Promise<string | null
 const health = serveHealth(HEALTH_PORT, (error) =>
   logger.error({ err: String(error), port: HEALTH_PORT }, "health listener could not start"),
 );
+
+/**
+ * How often the work somebody is waiting on is looked at.
+ *
+ * Independent of the render loop, which is the whole point of it. These two
+ * sweeps used to sit at the top of that loop with a comment saying that
+ * putting them before `claimJob()` "bounds the lateness by the poll interval
+ * rather than by the longest render in the queue".
+ *
+ * It does not. It bounds the lateness *within one iteration*, and the next
+ * iteration begins when `processJob` returns — which is minutes later, and up
+ * to four hours later at the render ceiling. So the sweep ran, then the loop
+ * blocked for the length of a render, and a post due in the middle of that
+ * went out whenever the render finished.
+ *
+ * Worse, being late is terminal: `TOO_LATE_MINUTES` is twenty, and past it the
+ * row is written `missed` with a sentence explaining that posting it now would
+ * put it in front of people at a time nobody chose. Nothing retries a missed
+ * row. So a 25-minute render starting at 20:44 did not delay a 21:00 post — it
+ * cancelled it, silently, and the only log line was the sweep reporting it had
+ * claimed nothing.
+ *
+ * A timer works because none of this is CPU-bound: a render is spent awaiting
+ * ffmpeg subprocesses and network, so the event loop is free the entire time.
+ * The guard is re-entrancy, not concurrency — one sweep at a time, and a slow
+ * one is skipped rather than stacked.
+ */
+const ATTEND_EVERY_MS = 15_000;
+let attendingNow = false;
+
+async function attendToWaitingWork(): Promise<void> {
+  if (attendingNow || shuttingDown) return;
+  /*
+    Not while a render is in the machine.
+
+    `fly.toml` sizes this box on one measurement — one render fills most of a
+    gigabyte, and a second thing inside it is not slower, it is OOM-killed —
+    and then this timer ran font preparation (python plus an ffmpeg pass) and
+    the social publisher (which downloads a finished master and buffers chunks
+    of it) *beside* the render. The invariant was enforced against renders and
+    against nothing else.
+
+    A render takes minutes; these two are checked every fifteen seconds. The
+    person waiting for their font waits for the current render rather than for
+    a machine that was killed halfway through somebody else's.
+  */
+  if (heldJobId !== null) return;
+  attendingNow = true;
+  try {
+    /*
+      Both, whatever happens to either.
+
+      They ran in sequence with a single `await` chain — `sendDuePosts()` then
+      `prepareFonts()` — and a send takes up to `PUBLISH_TIMEOUT_MS`, fifteen
+      minutes, plus the download of the master before it. So a slow or hung
+      upload to one platform held the font in front of somebody who is looking
+      at the screen *right now* for the whole of it, which is the exact wait
+      the comment below was written about: they conclude it is broken and
+      upload it again.
+
+      `allSettled` rather than two awaits: these are unrelated pieces of work
+      that share only a timer, and one of them failing is not a reason for the
+      other not to run. The catch below still exists for anything thrown
+      outside them.
+
+      A post due at 21:00 still goes out at 21:00, and the font is prepared in
+      the same pass rather than after it.
+    */
+    const done = await Promise.allSettled([sendDuePosts(), prepareFonts()]);
+    for (const outcome of done) {
+      if (outcome.status === "rejected") {
+        logger.error({ err: outcome.reason }, "one half of the sweep for waiting work failed");
+      }
+    }
+  } catch (error) {
+    // Never allowed to take the process down: this runs on a timer, outside
+    // the loop's own try, so an unhandled rejection here is an exit.
+    logger.error({ err: error }, "the sweep for work people are waiting on failed");
+  } finally {
+    attendingNow = false;
+  }
+}
 
 /**
  * A video from photographs, for a project that has none.
@@ -1687,10 +2397,36 @@ async function main(): Promise<void> {
     "worker ready",
   );
 
+  /*
+    What the last machine to live here left behind.
+
+    On Fly a restarted machine keeps its filesystem, and a copy that was
+    OOM-killed or SIGKILLed mid-render never reached the `finally` that removes
+    its work directory. Each of those is the size of a render — source,
+    intermediates and output — so two of them is a machine with no room for a
+    third, failing every job it claims for a reason that is nowhere in its own
+    logs.
+
+    Only at boot, and only directories older than an hour, because a rolling
+    deploy has two copies running at once and taking the other one's work
+    mid-render would be a far worse bug than this one.
+  */
+  const reclaimed = await sweepStaleWork();
+  if (reclaimed > 0) {
+    logger.warn(
+      { bytes: reclaimed },
+      "cleared work left by a machine that did not shut down cleanly",
+    );
+  }
+
   // After the log line and not before it: everything above this point can
   // throw, and a machine that fails here should fail its check rather than be
   // promoted and then die.
   health.ready();
+
+  // The work people are waiting on, on a clock of its own.
+  const attending = setInterval(() => void attendToWaitingWork(), ATTEND_EVERY_MS);
+  await attendToWaitingWork();
 
   while (!shuttingDown) {
     try {
@@ -1699,26 +2435,18 @@ async function main(): Promise<void> {
       // watching a queue that is not moving.
       await heartbeat();
 
+      await forgetDepartedWorkers();
       const requeued = await requeueStaleJobs();
       if (requeued > 0) logger.warn({ requeued }, "returned abandoned jobs to the queue");
       await failExhaustedJobs();
 
-      // Before claiming a render, not after. A render takes minutes and this
-      // process is single-threaded, so a post due at 21:00 behind a job that
-      // started at 20:58 goes out whenever that job finishes — which is the
-      // one thing a scheduler may not do. Sweeping first bounds the lateness
-      // by the poll interval rather than by the longest render in the queue.
-      await sendDuePosts();
-
-      // For the same reason, and more so: the person who uploaded a font is
-      // looking at the screen right now. Ten seconds is the wait; behind a
-      // render it would be twenty minutes, and they would have concluded it
-      // was broken and uploaded it again.
-      await prepareFonts();
-
-      // After the two sweeps people are waiting on and before claiming a
-      // render, because it is the opposite of both: nothing it does is urgent,
-      // and the one thing it must never do is delay something that is.
+      // The two sweeps people are waiting on are not here any more; they run
+      // on their own timer. See `attendToWaitingWork`.
+      //
+      // This one stays, because it is the opposite of both: nothing it does is
+      // urgent, and the one thing it must never do is delay something that is.
+      // It is also the only sweep that deletes, and between renders is the
+      // right time to delete.
       await sweepAgedFiles();
 
       const job = await claimJob();
@@ -1726,7 +2454,19 @@ async function main(): Promise<void> {
         await sleep(POLL_INTERVAL_MS);
         continue;
       }
-      await withLockKeptAlive(job.id, () => processJob(job));
+      heldJobId = job.id;
+      // A new job starts from nothing, whatever the last one reached — and
+      // whatever the last one was asked to do. `stopRequestedFor` holds a job
+      // id rather than a flag for this reason, and clearing it here as well
+      // means a request that arrived as the previous job settled cannot follow
+      // the machine into the next one.
+      lastReported = null;
+      stopRequestedFor = null;
+      try {
+        await withLockKeptAlive(job.id, () => withinJobDeadline(job.id, () => processJob(job)));
+      } finally {
+        heldJobId = null;
+      }
     } catch (error) {
       // The loop must survive anything, including the database going away.
       logger.error({ err: error }, "worker loop error");
@@ -1734,6 +2474,7 @@ async function main(): Promise<void> {
     }
   }
 
+  clearInterval(attending);
   logger.info("shutting down");
   // Its row stays — the timestamp on it is what says when this copy went, which
   // is more useful than a gap where a worker used to be.
@@ -1747,11 +2488,21 @@ function sleep(ms: number): Promise<void> {
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
     if (shuttingDown) process.exit(1);
-    logger.info({ signal }, "finishing the current job before exiting");
+    logger.info({ signal }, "stopping: handing back anything in flight");
     shuttingDown = true;
     // Said out loud, so a rolling deploy stops routing checks at this copy
-    // while it finishes the render it is holding.
+    // while it puts down what it is holding.
     health.leaving();
+    /*
+      A render cannot be finished on demand and the platform is not waiting.
+      See `releaseHeldJob`: the job goes back to the queue, uncharged, and this
+      copy leaves. `kill_timeout` in fly.toml is what buys the seconds this
+      takes — without it the default is five, and this query would sometimes
+      not land.
+    */
+    void releaseHeldJob().finally(() => {
+      process.exit(0);
+    });
   });
 }
 

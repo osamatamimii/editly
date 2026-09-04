@@ -17,7 +17,7 @@ import { writeFile, access } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { criticise } from "./critic";
+import { criticise, settlePunches } from "./critic";
 import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle } from "./motion";
 import { beatsOf, everyNth } from "./beats";
 import type { EditOperation, EditPlan, GradeLook, TransitionStyle } from "@workspace/api-zod";
@@ -26,6 +26,7 @@ import {
   nominalSizeFor,
   widthInCaps,
   linesFor,
+  balancedLines,
   CAPTION_FACES,
   facePair,
   type CaptionFace,
@@ -38,6 +39,7 @@ import {
   coverScale,
   cropExpression,
   cropOffsetX,
+  pathWithinCut,
   measureInterest,
   subjectPath,
   MIN_SUBJECT_COVERAGE,
@@ -46,10 +48,11 @@ import { trackSubject, trackNote } from "./subject";
 import { overscanFor, scaleFor, takesFrom } from "./shots";
 import { keepSegmentsFrom, mergeSpans, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, MOTION_OVERSCAN, type RemovableSpan, type Segment, type SpokenWord } from "./timeline";
 import { tighten, type TightenResult } from "./tighten";
-import { placeSoundEffects, joinTimes, type SfxPalette } from "./sfx";
+import { placeSoundEffects, joinTimes, MIN_EDIT_SECONDS as SFX_MIN_EDIT_SECONDS, type SfxPalette } from "./sfx";
 import { chooseHighlight } from "./highlight";
 import { chooseConversationClips, type Reading } from "./conversation";
 import { sayIn, type Language } from "./say";
+import { threadArgs } from "./cores";
 export { chooseHighlight, chooseClips } from "./highlight";
 
 // These moved to `timeline.ts` so the critic could share them without importing
@@ -61,8 +64,29 @@ export interface SourceInfo {
   width: number;
   height: number;
   fps: number;
+  /**
+   * How long the *picture* runs.
+   *
+   * Was the container's duration, which is the longest stream in the file —
+   * and a screen recorder, or anything remuxed, routinely writes audio that
+   * outlasts its video. Every end-anchored decision is computed from this: the
+   * fade-out never ran on such a file while the note said it had, a ken burns
+   * push stopped at four fifths of the way with nothing said, and the meter
+   * billed for seconds of picture that do not exist. The video stream's own
+   * duration is the one the frames end at.
+   */
   duration: number;
   hasAudio: boolean;
+  /**
+   * Degrees of rotation the container asks for, if any.
+   *
+   * A phone shooting portrait stores a landscape frame plus a display matrix,
+   * and ffmpeg rotates on decode — so the filter graph receives a frame the
+   * *reported* width and height describe transposed. Nothing read this, so a
+   * portrait clip with any motion operation was scaled to an exact 1920x1080
+   * and came out stretched to three times its proper width.
+   */
+  rotation: number;
 }
 
 /**
@@ -99,15 +123,33 @@ function run(
     // unqualified call in this file is the render.
     const deadline = guard(child, { ...(options.limits ?? LIMITS.render), what: bin });
     let stdout = "";
+    /*
+      The last few kilobytes of stderr, not all of it.
+
+      Only `tail.slice(-10)` is ever read, and only on failure — but the whole
+      stream was retained. The render is spawned at ffmpeg's default log level,
+      so every progress rewrite and every per-frame warning accumulated: at 30
+      fps over a three-hour encode that is hundreds of thousands of lines, tens
+      to hundreds of megabytes of UTF-16, on the one box in this system where an
+      OOM kill is documented as "the job dies with no note and no output while
+      the customer's minute is spent either way".
+
+      Sixteen kilobytes is far more than the ten lines that get read and small
+      enough to be free.
+    */
+    const STDERR_KEPT_BYTES = 16 * 1024;
     let stderr = "";
     child.stdout.on("data", (d) => {
       deadline.touch();
+      // Not capped: the only things read from stdout here are ffprobe answers,
+      // which are a handful of lines, and truncating one would corrupt it.
       stdout += d.toString();
     });
     child.stderr.on("data", (d) => {
       deadline.touch();
       const text = d.toString();
       stderr += text;
+      if (stderr.length > STDERR_KEPT_BYTES) stderr = stderr.slice(-STDERR_KEPT_BYTES);
       options.onStderr?.(text);
     });
     child.on("error", (err) => {
@@ -132,9 +174,28 @@ function run(
         // name and a number, with the actual complaint sitting on the lines
         // below where nobody looked. Put the complaint first and the exit code
         // where it belongs, which is after it.
-        const tail = stderr.trim().split("\n").filter(Boolean);
-        const complaint = tail[tail.length - 1] ?? `${bin} exited ${code}`;
-        reject(new FfmpegError(`${complaint}\n${bin} exited ${code}\n${tail.slice(-10).join("\n")}`));
+        /*
+          Split on carriage returns too, and skip the progress it writes with
+          them.
+
+          ffmpeg reports progress by rewriting one line — `frame= 120 fps=30
+          q=28.0 size=...` terminated with `\r`, not `\n` — so on a render
+          that got as far as encoding, the whole progress stream is a single
+          "line" and it is the last one. The complaint that was meant to lead
+          the message ended up underneath a block of counters, and the sentence
+          the product showed was the counters.
+
+          And a killed child closes with `code === null`, which read as
+          "ffmpeg exited null" — a sentence that names neither what happened
+          nor what to do about it.
+        */
+        const tail = stderr
+          .split(/[\r\n]+/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0 && !/^(frame|size)=/.test(line));
+        const ended = code === null ? `${bin} was stopped before it finished` : `${bin} exited ${code}`;
+        const complaint = tail[tail.length - 1] ?? ended;
+        reject(new FfmpegError(`${complaint}\n${ended}\n${tail.slice(-10).join("\n")}`));
       }
     });
   });
@@ -146,7 +207,9 @@ export async function probeSource(file: string): Promise<SourceInfo> {
   const { stdout } = await run(FFPROBE, [
     "-v", "error",
     "-select_streams", "v:0",
-    "-show_entries", "stream=width,height,avg_frame_rate",
+    "-show_entries", "stream=width,height,avg_frame_rate,duration",
+    "-show_entries", "stream_side_data=rotation",
+    "-show_entries", "stream_tags=rotate",
     "-show_entries", "format=duration",
     "-of", "default=noprint_wrappers=1",
     file,
@@ -155,18 +218,42 @@ export async function probeSource(file: string): Promise<SourceInfo> {
   const read = (key: string): string | undefined =>
     stdout.split("\n").find((l) => l.startsWith(`${key}=`))?.split("=")[1]?.trim();
 
-  const width = Number.parseInt(read("width") ?? "", 10);
-  const height = Number.parseInt(read("height") ?? "", 10);
-  const duration = Number.parseFloat(read("duration") ?? "");
+  const rotationText = read("rotation") ?? read("TAG:rotate") ?? read("rotate");
+  const turned = Number.parseFloat(rotationText ?? "");
+  // ffmpeg reports the matrix as a negative angle where the tag is positive;
+  // only the quarter turns matter here, and only whether they transpose.
+  const rotation = Number.isFinite(turned) ? ((Math.round(turned / 90) * 90) % 360 + 360) % 360 : 0;
+  const transposed = rotation === 90 || rotation === 270;
 
-  const [num, den] = (read("avg_frame_rate") ?? "30/1").split("/").map(Number);
-  const fps = den > 0 && num > 0 ? num / den : 30;
+  const codedWidth = Number.parseInt(read("width") ?? "", 10);
+  const codedHeight = Number.parseInt(read("height") ?? "", 10);
+  const width = transposed ? codedHeight : codedWidth;
+  const height = transposed ? codedWidth : codedHeight;
+
+  /*
+    The picture's own length, falling back to the container's.
+
+    `format=duration` is the longest stream in the file. A screen recorder, or
+    anything remuxed, writes audio that outlasts its video — and every
+    end-anchored decision in the render is computed from this number, so the
+    fade-out was written past the last frame and never ran while its note said
+    it had. Some containers do not carry a per-stream duration; for those the
+    old answer is still the best one available.
+  */
+  const streamSeconds = Number.parseFloat(read("duration") ?? "");
+  const containerSeconds = Number.parseFloat(
+    stdout.split("\n").filter((l) => l.startsWith("duration=")).pop()?.split("=")[1]?.trim() ?? "",
+  );
+  const duration = Number.isFinite(streamSeconds) && streamSeconds > 0 ? streamSeconds : containerSeconds;
 
   if (!Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(duration) || duration <= 0) {
     throw new FfmpegError(`Could not read ${path.basename(file)} as a video. Is the file complete?`);
   }
 
-  return { width, height, fps, duration, hasAudio: await hasAudioStream(file) };
+  const [num, den] = (read("avg_frame_rate") ?? "30/1").split("/").map(Number);
+  const fps = den > 0 && num > 0 ? num / den : 30;
+
+  return { width, height, fps, duration, rotation, hasAudio: await hasAudioStream(file) };
 }
 
 export async function probeDuration(file: string): Promise<number> {
@@ -182,8 +269,21 @@ export async function probeDuration(file: string): Promise<number> {
  * version of the beat-loop fix called `probeDuration(musicAsset.file)` with a
  * `.catch(() => 0)` on it, which turned the throw into a zero, which turned the
  * fix off. The catch hid the bug it was written to work around.
+ *
+ * ## And `0` was the same bug through the front door
+ *
+ * The guard below used to answer `0` for anything it could not read, which the
+ * caller compared against and treated as "no loop to correct for" — the exact
+ * state the catch produced. `ffprobe` answers `N/A` for a headerless MP3 or
+ * ADTS stream and for some streamed containers, `Number("N/A")` is `NaN`, and
+ * the correction switched itself off for those files while the note went on
+ * saying the punches had been placed across the whole edit.
+ *
+ * `null` is "nobody could measure this", which is a different claim from "this
+ * is zero seconds long" and is the one that is true. The caller has to decide
+ * what to do about it, which is the point.
  */
-export async function containerSeconds(file: string): Promise<number> {
+export async function containerSeconds(file: string): Promise<number | null> {
   const { stdout } = await run(FFPROBE, [
     "-v", "error",
     "-show_entries", "format=duration",
@@ -191,7 +291,7 @@ export async function containerSeconds(file: string): Promise<number> {
     file,
   ], { limits: LIMITS.probe });
   const seconds = Number(stdout.trim());
-  return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
 }
 
 export async function hasAudioStream(file: string): Promise<boolean> {
@@ -211,6 +311,50 @@ export async function hasAudioStream(file: string): Promise<boolean> {
  * Finds stretches of near-silence using ffmpeg's silencedetect filter, which
  * reports them on stderr as it scans. Returns them in order.
  */
+/**
+ * The loudest the recording gets, in dBFS, or null if nothing could be read.
+ *
+ * `silencedetect` takes an absolute level, and an absolute level is only
+ * meaningful against a recording made at an ordinary one. A phone held at
+ * arm's length, a lavalier with its gain down, a Zoom call recorded at the
+ * default: these arrive peaking at -30 dBFS and below, and every one of them
+ * read as silence from end to end. The render then threw "The whole clip reads
+ * as silence at this threshold: nothing would be left" and the job failed for
+ * good — on a file every other editor handles by looking at the level first.
+ *
+ * Audio only, so it costs a fraction of a second even on a long file.
+ */
+export async function peakDb(file: string): Promise<number | null> {
+  let buffer = "";
+  await run(FFMPEG, ["-hide_banner", "-vn", "-i", file, "-af", "volumedetect", "-f", "null", "-"], {
+    onStderr: (chunk) => {
+      buffer += chunk;
+    },
+  });
+  const found = buffer.match(/max_volume:\s*(-?[\d.]+) dB/);
+  const value = found ? Number.parseFloat(found[1]!) : NaN;
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * How far under the loudest moment the silence threshold has to sit.
+ *
+ * Only a floor, and only ever moves the threshold down. A recording made at an
+ * ordinary level peaks well above the plan's -32 dBFS and nothing changes; a
+ * recording that peaks at -34 has no sample anywhere above the threshold, so
+ * every second of it reads as silence and the render fails outright. Twelve
+ * decibels is a healthy gap between where a person's voice peaks and where the
+ * pauses between their words sit.
+ */
+const QUIET_HEADROOM_DB = 12;
+
+/**
+ * How far the threshold may be moved. Past thirty decibels there is no signal
+ * left to find, only the noise floor, and cutting against a noise floor
+ * removes the room rather than the pauses.
+ */
+const MAX_THRESHOLD_SHIFT_DB = 30;
+
 export async function detectSilences(
   file: string,
   thresholdDb: number,
@@ -219,7 +363,13 @@ export async function detectSilences(
   let buffer = "";
   await run(
     FFMPEG,
-    ["-hide_banner", "-i", file, "-af", `silencedetect=noise=${thresholdDb}dB:d=${minSilenceSeconds}`, "-f", "null", "-"],
+    // `-vn` because this reads the sound and nothing else. Without it ffmpeg
+    // decodes the picture too and throws every frame away: measured on a
+    // forty-second 1080p clip, 2.29s with the video stream and 0.16s without —
+    // fourteen times the work for nothing. On a ninety-minute podcast that is
+    // five minutes of decoding per scan, and the clips path scans the whole
+    // source once per clip.
+    ["-hide_banner", "-vn", "-i", file, "-af", `silencedetect=noise=${thresholdDb}dB:d=${minSilenceSeconds}`, "-f", "null", "-"],
     { onStderr: (chunk) => { buffer += chunk; } },
   );
 
@@ -559,6 +709,18 @@ const EMPHASIS_COLOUR: Record<string, string> = {
   "karaoke-box": "&H00E5FF&",
 };
 
+/**
+ * A style colour as an override tag takes it.
+ *
+ * The table stores `&HAABBGGRR` because that is what a Style row wants; `\c`
+ * and `\1c` want `&HBBGGRR&`, with no alpha and a trailing ampersand. Two
+ * spellings of the same colour, and getting it wrong is silent: libass ignores
+ * a tag it cannot parse, so the word simply never changes colour.
+ */
+function bareColour(colour: string): string {
+  return `&H${colour.replace(/^&H/i, "").replace(/&$/, "").slice(-6)}&`;
+}
+
 function animateCue(
   cue: CaptionCue,
   animation: string,
@@ -572,6 +734,11 @@ function animateCue(
     .split(/\r?\n/)
     .filter((line) => line.length > 0);
   const body = lines.map(isolate).join("\\N");
+
+  // The style's own colours and border, needed by two of the three animations:
+  // karaoke reads the pair it transitions between, and kinetic reads whether
+  // there is a box it must not hide along with the letters.
+  const colours = CAPTION_COLOURS[style] ?? CAPTION_COLOURS["bold-white"]!;
 
   if (animation === "karaoke" && cue.words && cue.words.length > 0) {
     // \kf wipes the fill across each word for exactly its own duration, so the
@@ -611,23 +778,78 @@ function animateCue(
         // and the timing degrades before the words do. One centisecond rather
         // than none: `\kf0` is a degenerate tag, and the whole file already
         // holds every wipe above zero for that reason.
-        if (!word) return { text: token, cs: 1 };
+        if (!word) return { text: token, startMs: null, endMs: null };
         // `wrapToLayout` marks a truncated cue by appending the ellipsis to the
         // last token it kept. That mark belongs to the caption, not to the
         // word, so it is carried over rather than lost with the tail.
         const text = token.endsWith("…") && !word.text.endsWith("…") ? `${word.text}…` : word.text;
-        return { text, cs: Math.max(1, Math.round((word.endMs - word.startMs) / 10)) };
+        return { text, startMs: word.startMs, endMs: word.endMs };
       });
-      // Per line, not per cue: lines stack top to bottom in every language, and
-      // only the order *within* a line follows the direction of its script.
-      const ordered = rtl ? [...runs].reverse() : runs;
-      return ordered
-        // Each word is isolated too: the run boundary the tag creates is also
-        // a boundary the line's own isolate cannot reach across, so a word
-        // carrying its sentence's full stop needs its own.
-        .map((run) => `{\\kf${run.cs}}${isolate(run.text.replace(/[{}]/g, ""))} `)
-        .join("")
-        .trimEnd();
+
+      /*
+        Right to left, the highlight is a colour and not a wipe. Measured, and
+        it had to be.
+
+        `\kf` sweeps in **visual** order, left to right, whatever the script.
+        The runs above are laid down in reverse for a right-to-left line — see
+        the note at the top of this branch, which is correct and was verified
+        again here with libass — so the leftmost run is the *last* word. Put
+        those two facts together and the wipe on every Arabic caption this
+        product has ever rendered started on the last word of the line and
+        travelled to the first: legible, timed to something, and running
+        backwards through the sentence.
+
+        There is no spelling of `\kf` that fixes it, because the sweep is a
+        property of the geometry. So right-to-left gets the same highlight by
+        another mechanism: each word starts in the secondary colour and
+        transitions to the primary over its own interval, timed with `\t`,
+        which is anchored to the line and does not care where the word sits.
+        Same two colours, same moment, correct order.
+      */
+      if (rtl) {
+        const ordered = [...runs].reverse();
+        return ordered
+          .map((run) => {
+            const body = isolate(run.text.replace(/[{}]/g, ""));
+            if (run.startMs === null || run.endMs === null) return `${body} `;
+            const from = Math.max(0, Math.round(run.startMs - cue.startMs));
+            const to = Math.max(from + 1, Math.round(run.endMs - cue.startMs));
+            return `{\\c${bareColour(colours.secondary)}\\t(${from},${to},\\c${bareColour(colours.primary)})}${body} `;
+          })
+          .join("")
+          .trimEnd();
+      }
+
+      /*
+        And left to right, the gaps between words are part of the wipe.
+
+        `\kf` durations are cumulative from the start of the line, so emitting
+        only each word's own length silently shifts everything after it earlier
+        by the silence in front of it. A cue is only broken at a pause of half
+        a second (`breakOnPauseMs`), so it legitimately contains gaps of up to
+        499 ms each — and by the last word of a three-second cue the highlight
+        could be the better part of a second ahead of the voice. Which is the
+        one thing a karaoke caption is for.
+
+        The gap is carried on the space that separates the words: `{\k<gap>}`
+        on a space consumes that time without colouring anything, which is how
+        a karaoke script has always written a rest. Checked against libass
+        rather than reasoned about: without it the sweep on a
+        `So … anyway … listen` cue finished 850 ms early.
+      */
+      let cursorMs = cue.startMs;
+      const pieces = runs.map((run) => {
+        const body = isolate(run.text.replace(/[{}]/g, ""));
+        if (run.startMs === null || run.endMs === null) return `{\\kf1}${body}`;
+        const gapCs = Math.round((run.startMs - cursorMs) / 10);
+        const wipeCs = Math.max(1, Math.round((run.endMs - run.startMs) / 10));
+        cursorMs = run.endMs;
+        const rest = gapCs > 0 ? `{\\k${gapCs}}` : "";
+        return `${rest}{\\kf${wipeCs}}${body}`;
+      });
+      // The separator carries the next word's rest, so it is written between
+      // the pieces rather than appended to each of them.
+      return pieces.reduce((line_, piece, at) => (at === 0 ? piece : `${line_} ${piece}`), "");
     });
     return drawn.join("\\N");
   }
@@ -699,7 +921,27 @@ function animateCue(
         // Clamped at zero: a word whose timing starts a hair before its cue
         // would otherwise be given a negative transform and never appear.
         const inMs = Math.max(0, Math.round(word.startMs - cue.startMs));
-        let tags = `\\alpha&HFF&\\t(${inMs},${inMs + 1},\\alpha&H00&`;
+        /*
+          Which alphas are hidden depends on whether the style draws a box.
+
+          `\alpha` sets all four at once — fill, secondary, border and shadow —
+          and with `BorderStyle: 3` the border *is* the box behind the line. So
+          on the box styles a word that had not been spoken yet took its box
+          with it, and the box grew word by word: at half a second it was a
+          small black rectangle around one word floating in the middle of the
+          frame, and by two seconds it had inflated into two full-width bars.
+          The caption appeared to change size and position while it was being
+          read, which reads as broken rather than as animated.
+
+          `\1a` and `\4a` hide the letters and their shadow and leave `\3a`
+          alone, so the box is full width from the first frame and the words
+          arrive inside it. On an outline style the box does not exist and
+          hiding everything is still right — leaving `\3a` visible there would
+          draw a ghost outline of words nobody has said yet.
+        */
+        const hide = colours.borderStyle === 3 ? "\\1a&HFF&\\4a&HFF&" : "\\alpha&HFF&";
+        const show = colours.borderStyle === 3 ? "\\1a&H00&\\4a&H00&" : "\\alpha&H00&";
+        let tags = `${hide}\\t(${inMs},${inMs + 1},${show}`;
         if (at === stressed) tags += `\\c${accent}`;
         tags += ")";
         if (at === stressed && roomToPop) {
@@ -797,10 +1039,19 @@ export function wrapToLayout(
       that chooses the style row, so the two cannot disagree about a cue.
     */
     const face = readsRightToLeft(cue.text) ? faces.arabic : faces.latin;
+    /*
+      And broken evenly rather than greedily.
+
+      Greedy filling answers "how many lines" correctly and draws them in the
+      wrong shape: a full line over a short one, which on a centred block reads
+      as ragged. `balancedLines` finds the narrowest allowance that still fits
+      in the same number of lines, so the words, their order and the line count
+      are all unchanged and only the break moves.
+    */
     const lines =
       allowed === null
         ? countedLines(cue.text, layout.maxCharsPerLine)
-        : linesFor(cue.text, allowed, face.widthScale);
+        : balancedLines(cue.text, allowed, face.widthScale);
 
     // Beyond the allowed number of lines the caption would climb over the
     // speaker's face. Ending on an ellipsis is honest; silently spilling is not.
@@ -988,7 +1239,222 @@ export function videoEncodeFor(frameHeight: number, fps: number): string[] {
  * with room to spare. It takes a cold open *and* a silence cut to make more,
  * and on that plan the join is dropped rather than the render.
  */
-const MAX_SEPARATE_DECODES = 4;
+/**
+ * The most punches one operation may carry, from the contract.
+ *
+ * `ZoomPunchOperation.at` is `.max(40)`, and the beat placer can produce far
+ * more than that: one a bar at 120 bpm is one every two seconds. Named here
+ * rather than written as a literal beside a `.slice`, because the number is a
+ * fact about the schema and the *behaviour* when it is reached is a decision.
+ */
+/**
+ * How long before the first title the layer starts.
+ *
+ * Enough for the animation's own run-up — a title that slides in begins
+ * moving before it is legible — and short enough that the frames drawn to get
+ * there are counted in tens rather than in thousands.
+ */
+const MOTION_LEAD_SECONDS = 0.5;
+
+/**
+ * The level every sound effect file is normalised to, in dBFS.
+ *
+ * `make-sfx.mjs` peak-normalises the catalogue to -3 so that one `gainDb` in
+ * the plan means the same thing whichever file the rotation picks. It is also
+ * what makes the layer's level a claim about the *file* rather than about the
+ * edit, which is why the renderer has to put it back against the programme.
+ */
+const SFX_FILE_PEAK_DB = -3;
+
+/**
+ * How far to move the effects layer so `gainDb` means what the contract says.
+ *
+ * `SoundEffectsOperation.gainDb` is "how far under the programme the layer
+ * sits", and the renderer applied it as a plain attenuation of a file that is
+ * always normalised to the same peak — so the layer's level was a fact about
+ * the catalogue rather than about the edit. A recording peaking at -17.7 dBFS
+ * put the whoosh a decibel *above* the speech it was meant to sit twelve
+ * under, while a recording at full scale put it fifteen under: the same take
+ * at two distances from the microphone, two completely different mixes, and
+ * the same sentence in the notes.
+ *
+ * Never a boost, and never more than thirty decibels of pull-down: past that
+ * there is nothing under the noise floor left to be quieter than.
+ */
+/**
+ * The threshold for a recording that peaks at full scale — the number this was
+ * before it was scaled, and the one it still answers for such a file.
+ */
+const DUCK_THRESHOLD_AT_FULL_SCALE = 0.02;
+
+/**
+ * `sidechaincompress` refuses anything under 1/1024, so a very quiet recording
+ * keys here rather than lower. Below this the compressor would be listening to
+ * the room anyway.
+ */
+const DUCK_THRESHOLD_FLOOR = 0.001;
+
+/**
+ * Where the bed's ducking starts listening, as a linear amplitude.
+ *
+ * `sidechaincompress` takes an absolute threshold, and 0.02 — about -34 dBFS —
+ * is a number written against a recording made at an ordinary level. It is not
+ * a claim about the speech at all: a take peaking near full scale crosses it on
+ * every syllable, and a take peaking at -29 dBFS RMS never crosses it, so the
+ * bed simply never moved while the note said it did. Held to the same distance
+ * under this recording's own peak, and floored so a very quiet file keys on the
+ * voice rather than on the room behind it.
+ */
+export function duckThreshold(programmePeakDb: number | null): number {
+  if (programmePeakDb === null) return DUCK_THRESHOLD_AT_FULL_SCALE;
+  const scaled = DUCK_THRESHOLD_AT_FULL_SCALE * 10 ** (programmePeakDb / 20);
+  return Math.max(DUCK_THRESHOLD_FLOOR, Math.min(0.05, scaled));
+}
+
+export function sfxLayerOffsetDb(programmePeakDb: number | null): number {
+  if (programmePeakDb === null) return 0;
+  return Math.max(-30, Math.min(0, programmePeakDb - SFX_FILE_PEAK_DB));
+}
+
+const MAX_PUNCHES = 40;
+
+/**
+ * The shortest join the contract admits, in seconds.
+ *
+ * `TransitionOperation.durationMs` is `.min(80)`, so eighty milliseconds is
+ * the shortest dissolve anybody can ask for. Named here because the renderer
+ * has to decide what to do when the pieces cannot hold even that, and the
+ * answer has to be the same number the contract uses.
+ */
+const MIN_TRANSITION_SECONDS = 0.08;
+
+/**
+ * How many pieces an overlapped edit may be cut into on this machine.
+ *
+ * `xfade` reads two streams in lockstep and the chain holds every piece open
+ * at once, so the cost is the frame size times the number of pieces. Measured
+ * on a 1080p source with a 0.25s dissolve, peak resident memory for the whole
+ * ffmpeg process: 505 MB for four pieces, 1633 MB for eight — about 130 MB per
+ * piece, which is 62 bytes for every pixel in a frame.
+ *
+ * The worker has 1 GB (fly.toml) and shares it with Node, so the budget here
+ * is 600 MB of xfade. That puts 1080p at four pieces, which is what the number
+ * was when it was a constant — and lets a small frame have as many joins as it
+ * can pay for, because a 320x240 piece costs a twenty-seventh of a 1080p one
+ * and refusing it a dissolve was arithmetic that had never been done.
+ *
+ * The ceiling is a limit on the graph rather than on the memory: a chain of
+ * fifty xfades is its own problem.
+ */
+const XFADE_BUDGET_BYTES = 600_000_000;
+const XFADE_BYTES_PER_PIXEL_PER_PIECE = 62;
+const MAX_OVERLAPPED_PIECES = 12;
+
+export function maxOverlappedPieces(width: number, height: number): number {
+  const perPiece = Math.max(1, width * height) * XFADE_BYTES_PER_PIXEL_PER_PIECE;
+  return Math.max(2, Math.min(MAX_OVERLAPPED_PIECES, Math.floor(XFADE_BUDGET_BYTES / perPiece)));
+}
+
+/**
+ * The grid a cut lands on, and the audio frame that matches it exactly.
+ *
+ * ## Why a grid at all
+ *
+ * `outputDuration` models the edit as the exact sum of the kept spans. The
+ * render was not that. A video piece is a whole number of frames and an audio
+ * piece is a whole number of samples, so `concat` advanced the output by the
+ * *longer* of the two — on average half a frame more than the model, at every
+ * join. Measured on a 92s source cut in thirty places: the model said 66.726s
+ * and the file was 66.900s. Every caption, punch, overlay and title is placed
+ * through `remapTime`, which shares the model, so all of them drifted ahead of
+ * the picture — a caption led its own words by four frames after thirty cuts,
+ * and by 1.36s after a hundred and seventy-six. The fade-out and the music trim
+ * are computed from the same number and both ended early.
+ *
+ * Rounding every cut onto the frame grid removes the disagreement at the
+ * source: a piece is then a whole number of frames *and* a whole number of
+ * samples of the same length, the model is exact, and nothing downstream has
+ * to know. A boundary moves by at most half a frame, which is under any
+ * threshold that matters for a cut placed by amplitude.
+ *
+ * ## Why the audio has a cell size
+ *
+ * The cut is built by *selecting* frames out of one decode rather than by
+ * trimming a branch per piece — see the cut chain for the memory measurement
+ * that forced it — and selection keeps whole frames. So the audio has to be
+ * re-framed onto cells that divide a video frame evenly, or the two streams
+ * round differently and walk apart. Twenty cells per frame is small enough
+ * that a declick ramp still has resolution to be a ramp, and 48000 divided by
+ * twenty times any rate in the list below is a whole number of samples.
+ *
+ * A source whose rate is not on the list — 29.97 and its family, and every
+ * variable-frame-rate screen recording — is retimed onto the nearest rate that
+ * is. That is a tenth of a percent of frame timing on an NTSC file, invisible
+ * and re-encoded by every platform anyway, and it is the only thing that makes
+ * an exact grid possible for them.
+ */
+const CUT_GRID_RATES = [12, 15, 20, 24, 25, 30, 40, 48, 50, 60];
+const CUT_AUDIO_RATE = 48_000;
+const CUT_CELLS_PER_FRAME = 20;
+
+interface CutGrid {
+  /** Frames per second the cut is rounded onto. */
+  fps: number;
+  /** Whether the video has to be resampled onto that rate first. */
+  retime: boolean;
+  /** Samples in one audio cell; twenty cells make one frame. */
+  samplesPerCell: number;
+}
+
+export function cutGridFor(fps: number): CutGrid {
+  const nearest = CUT_GRID_RATES.reduce(
+    (best, rate) => (Math.abs(rate - fps) < Math.abs(best - fps) ? rate : best),
+    CUT_GRID_RATES[0]!,
+  );
+  const samplesPerCell = CUT_AUDIO_RATE / (nearest * CUT_CELLS_PER_FRAME);
+  // A source already on the list keeps its own rate; everything else is moved
+  // onto the nearest one. The tolerance is a thousandth of a frame, which
+  // separates "30" from "30000/1001" without arguing about float arithmetic.
+  return { fps: nearest, retime: Math.abs(nearest - fps) > 1e-3, samplesPerCell };
+}
+
+/**
+ * Every boundary onto the grid, and nothing left that is shorter than a frame.
+ *
+ * Rounding is monotone, so two pieces that did not overlap cannot start to.
+ * A piece under a frame long after rounding is not a piece — it is a boundary
+ * that moved onto itself — and passing one to `select` would ask for zero
+ * frames and a length the model would still count.
+ */
+export function snapCutsToGrid(kept: Segment[], fps: number): Segment[] {
+  const cell = 1 / fps;
+  return kept
+    .map((segment) => ({
+      start: Math.round(segment.start * fps) * cell,
+      end: Math.round(segment.end * fps) * cell,
+    }))
+    .filter((segment) => segment.end - segment.start >= cell - 1e-9);
+}
+
+/**
+ * The kept list split into runs that each play forwards.
+ *
+ * `select` reads the file once, in order, so it can express any edit that only
+ * removes material — which is all of them except a cold open, where the hook
+ * comes from the middle and plays first. Splitting at the one place the order
+ * goes backwards gives each direction its own decode and lets both be
+ * streamed: two decoders for a cold open instead of one decoder buffering
+ * every frame between the top of the file and the hook.
+ */
+function orderedRuns(kept: Segment[]): Segment[][] {
+  const runs: Segment[][] = [];
+  for (const segment of kept) {
+    const run = runs[runs.length - 1];
+    if (run && segment.start >= run[run.length - 1]!.end - 1e-9) run.push(segment);
+    else runs.push([segment]);
+  }
+  return runs;
+}
 
 /**
  * Do these pieces play in the order they appear in the file?
@@ -1241,24 +1707,40 @@ export function frameFor(height: number, shape: FrameShape = "vertical"): { w: n
 const HONEST_UPSCALE = 2;
 
 /**
+ * How far from the edge anything laid over the picture sits.
+ *
+ * A share of the frame's width rather than a count of pixels. The halves in
+ * these expressions — `(W-w)/2` — really are shape-independent, and the margin
+ * beside them was the literal 40, which is 3.7% of the width at 1080 and 1.85%
+ * at 2160: the same overlay tucked twice as far into the corner on a 4K export
+ * as on an ordinary one, in a table whose comment says a pixel offset is
+ * exactly what it avoids. Thirty-seven thousandths is the 40 the table has
+ * always used, at the width it was chosen for.
+ */
+const OVERLAY_MARGIN = "(W*0.037)";
+const WATERMARK_MARGIN = "(w*0.037)";
+
+/**
  * Where an overlay sits. `W`/`H` are the frame, `w`/`h` the thing being laid on
  * it, so the same expression is right at 1080×1920 and at 1080×1350 — which a
  * pixel offset would not be.
  */
 const OVERLAY_POSITION: Record<string, string> = {
-  "top-left": "40:40",
-  "top-center": "(W-w)/2:40",
-  "top-right": "W-w-40:40",
+  "top-left": `${OVERLAY_MARGIN}:${OVERLAY_MARGIN}`,
+  "top-center": `(W-w)/2:${OVERLAY_MARGIN}`,
+  "top-right": `W-w-${OVERLAY_MARGIN}:${OVERLAY_MARGIN}`,
   center: "(W-w)/2:(H-h)/2",
-  "bottom-left": "40:H-h-40",
-  "bottom-center": "(W-w)/2:H-h-40",
-  "bottom-right": "W-w-40:H-h-40",
+  "bottom-left": `${OVERLAY_MARGIN}:H-h-${OVERLAY_MARGIN}`,
+  "bottom-center": `(W-w)/2:H-h-${OVERLAY_MARGIN}`,
+  "bottom-right": `W-w-${OVERLAY_MARGIN}:H-h-${OVERLAY_MARGIN}`,
 };
 
+// `drawtext` names the frame `w`/`h` and the text `tw`/`th`, where `overlay`
+// names them `W`/`H` and `w`/`h`. Same margin, different alphabet.
 const WATERMARK_POSITION: Record<string, string> = {
-  "bottom-right": "x=w-tw-40:y=h-th-40",
-  "bottom-center": "x=(w-tw)/2:y=h-th-40",
-  "top-right": "x=w-tw-40:y=40",
+  "bottom-right": `x=w-tw-${WATERMARK_MARGIN}:y=h-th-${WATERMARK_MARGIN}`,
+  "bottom-center": `x=(w-tw)/2:y=h-th-${WATERMARK_MARGIN}`,
+  "top-right": `x=w-tw-${WATERMARK_MARGIN}:y=${WATERMARK_MARGIN}`,
 };
 
 export interface RenderContext {
@@ -1270,6 +1752,17 @@ export interface RenderContext {
    */
   language?: Language;
   onProgress?: (fraction: number, stage: string) => void;
+  /**
+   * The command the render is about to run, before it runs.
+   *
+   * The shape of the filter graph is a decision with consequences that do not
+   * show up in the output file: the cut used to be built as a branch per kept
+   * piece, which produces exactly the right video and holds every frame of the
+   * source span in memory while it does it. A test that renders a 320x240
+   * fixture cannot tell the two shapes apart — the bad one costs 35 MB there
+   * and 3.4 GB on a real upload — so the shape itself has to be inspectable.
+   */
+  onCommand?: (args: string[]) => void;
   /**
    * Where the words are, on the source clock.
    *
@@ -1300,6 +1793,15 @@ export interface RenderContext {
    * project.
    */
   assets?: Map<string, { file: string; kind: "video" | "image" | "audio" }>;
+  /**
+   * Assets the project really has and this render could not fetch.
+   *
+   * Absence from `assets` used to mean both "you do not have this" and "we
+   * could not get it", and the notes said the first for both — so a transient
+   * storage error told somebody their music was not in the project, and they
+   * went and looked, and it was.
+   */
+  unreachableAssetIds?: ReadonlySet<string>;
   /**
    * Faces this person uploaded, already downloaded, already measured.
    *
@@ -1415,6 +1917,20 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const grade = find("grade");
   const fade = find("fade");
   const transition = find("transition");
+  /**
+   * The loudest the recording gets, measured once and shared.
+   *
+   * Two decisions need it — where to listen for silence, and how far under the
+   * programme the effects layer sits — and it costs an audio-only pass, so it
+   * is measured on demand and remembered. `null` is "nobody could read this",
+   * which both callers treat as "change nothing".
+   */
+  let measuredPeak: number | null | undefined;
+  const sourcePeakDb = async (): Promise<number | null> => {
+    if (measuredPeak === undefined) measuredPeak = source.hasAudio ? await peakDb(input) : null;
+    return measuredPeak;
+  };
+
   const coldOpen = find("coldOpen");
   const music = find("addMusic");
   /**
@@ -1501,7 +2017,30 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       let silences: RemovableSpan[] = [];
       if (silence && source.hasAudio) {
         ctx.onProgress?.(0.06, "Finding the silences");
-        silences = await detectSilences(input, silence.thresholdDb, silence.minSilenceMs / 1000);
+        /*
+          The threshold, moved to where this recording actually sits.
+
+          See `peakDb`: an absolute level is a claim about a recording made at
+          an ordinary one, and a quiet upload — a phone at arm's length, a
+          lavalier with its gain down — read as silence from end to end and
+          failed the job outright. Shifted rather than replaced, so the number
+          in the plan still means what it meant: this far under the loud parts.
+        */
+        const peak = await sourcePeakDb();
+        const shift =
+          peak === null
+            ? 0
+            : Math.max(-MAX_THRESHOLD_SHIFT_DB, Math.min(0, peak - QUIET_HEADROOM_DB - silence.thresholdDb));
+        const threshold = silence.thresholdDb + shift;
+        if (shift < -1) {
+          notes.push(
+            t(
+              `this recording is quiet: it peaks at ${peak!.toFixed(0)}dB, so I listened for silence ${Math.round(-shift)}dB further down to match it`,
+              `هذا التسجيل هادئ: ذروته ${peak!.toFixed(0)} ديسيبل، فاستمعت للصمت عند مستوى أخفض بـ ${Math.round(-shift)} ديسيبل ليناسبه`,
+            ),
+          );
+        }
+        silences = await detectSilences(input, threshold, silence.minSilenceMs / 1000);
       }
       const protect = (silence?.protect ?? []).map((r) => ({ start: r.startMs / 1000, end: r.endMs / 1000 }));
 
@@ -1557,10 +2096,29 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       } else {
         kept = candidate;
         if (silence && silences.length > 0) {
+          /*
+            The silence, not everything that was removed.
+
+            This said `source.duration - keptDuration`, which is the total the
+            edit lost — and `candidate` is built from `mergeSpans([...silences,
+            ...wordCuts])`, so the hesitations `tighten` found are inside that
+            number. The comment ten lines down says the two are counted
+            separately; the arithmetic did not separate them, and the next note
+            then reported the same seconds again.
+
+            A sixty-second clip with 3.0s of silence in two gaps and 2.0s of
+            hesitations elsewhere read: "removed 5.0s of silence across 2 gaps"
+            followed by "and cut 5 hesitations, 2.0s that was not silent" — the
+            first sentence wrong by exactly the amount the second one names,
+            and contradicted by it on the same screen.
+
+            Summed from the detected spans, which is what "of silence" means.
+          */
+          const silentSeconds = silences.reduce((sum, span) => sum + Math.max(0, span.end - span.start), 0);
           notes.push(
             t(
-              `removed ${(source.duration - keptDuration).toFixed(1)}s of silence across ${silences.length} gaps`,
-              `أزلت ${(source.duration - keptDuration).toFixed(1)} ثانية من الصمت موزّعة على ${silences.length} فجوة`,
+              `removed ${silentSeconds.toFixed(1)}s of silence across ${silences.length} gaps`,
+              `أزلت ${silentSeconds.toFixed(1)} ثانية من الصمت موزّعة على ${silences.length} فجوة`,
             ),
           );
         }
@@ -1719,20 +2277,42 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       // A window that somehow swallowed every kept stretch would render
       // nothing; the window alone is the least-wrong recovery.
       kept = inside.length > 0 ? inside : [window];
+      /*
+        Two numbers, because they are two different facts and only one of them
+        is what the person receives.
+
+        The window is a stretch of the *recording*; the silence pass then takes
+        the dead air out of it. This note reported the window and called it
+        what was kept, so somebody who asked for twenty seconds and received
+        seventeen was told twenty-two. Both templates that use a highlight pair
+        it with `removeSilence`, and so does the one-tap plan, so the shortfall
+        was the normal case rather than the exception.
+      */
+      const windowSeconds = window.end - window.start;
+      const delivered = kept.reduce((sum, s) => sum + (s.end - s.start), 0);
+      const shortfall = windowSeconds - delivered > 0.2;
       notes.push(
         choice.how === "conversation"
           ? t(
-              `kept ${Math.round(window.end - window.start)}s chosen from what was said, ${window.start.toFixed(1)}s to ${window.end.toFixed(1)}s: ${read?.why.en ?? ""}`,
-              `أبقيت ${Math.round(window.end - window.start)} ثانية مختارة ممّا قيل، من ${window.start.toFixed(1)} إلى ${window.end.toFixed(1)}: ${read?.why.ar ?? ""}`,
+              `kept ${Math.round(windowSeconds)}s chosen from what was said, ${window.start.toFixed(1)}s to ${window.end.toFixed(1)}s` +
+                (shortfall ? `, ${delivered.toFixed(1)}s once the quiet inside it is cut` : "") +
+                `: ${read?.why.en ?? ""}`,
+              `أبقيت ${Math.round(windowSeconds)} ثانية مختارة ممّا قيل، من ${window.start.toFixed(1)} إلى ${window.end.toFixed(1)}` +
+                (shortfall ? `، وتصير ${delivered.toFixed(1)} ثانية بعد قصّ الهدوء داخلها` : "") +
+                `: ${read?.why.ar ?? ""}`,
             )
           : choice.how === "speech"
             ? t(
-                `kept the strongest ${Math.round(window.end - window.start)}s, ${window.start.toFixed(1)}s to ${window.end.toFixed(1)}s, where the speech runs densest`,
-                `أبقيت أقوى ${Math.round(window.end - window.start)} ثانية، من ${window.start.toFixed(1)} إلى ${window.end.toFixed(1)}، حيث الكلام أكثف`,
+                `kept the strongest ${Math.round(windowSeconds)}s, ${window.start.toFixed(1)}s to ${window.end.toFixed(1)}s, where the speech runs densest` +
+                  (shortfall ? `, which comes to ${delivered.toFixed(1)}s once the quiet inside it is cut` : ""),
+                `أبقيت أقوى ${Math.round(windowSeconds)} ثانية، من ${window.start.toFixed(1)} إلى ${window.end.toFixed(1)}، حيث الكلام أكثف` +
+                  (shortfall ? `، وتصير ${delivered.toFixed(1)} ثانية بعد قصّ الهدوء داخلها` : ""),
               )
             : t(
-                `we could not hear the words in this clip, so the highlight is its middle ${Math.round(window.end - window.start)}s`,
-                `لم نستطع سماع الكلام في هذا المقطع، فالهايلايت هو ${Math.round(window.end - window.start)} ثانية من وسطه`,
+                `we could not hear the words in this clip, so the highlight is its middle ${Math.round(windowSeconds)}s` +
+                  (shortfall ? `, which comes to ${delivered.toFixed(1)}s once the quiet inside it is cut` : ""),
+                `لم نستطع سماع الكلام في هذا المقطع، فالهايلايت هو ${Math.round(windowSeconds)} ثانية من وسطه` +
+                  (shortfall ? `، وتصير ${delivered.toFixed(1)} ثانية بعد قصّ الهدوء داخلها` : ""),
               ),
       );
     }
@@ -1761,7 +2341,11 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         ),
       );
     } else {
-      const choice = chooseHighlight(source.duration, coldOpen.seconds, ctx.words);
+      // Inside what the edit still holds, not inside the whole recording. See
+      // `chooseHighlight`'s `within` for what searching the whole recording did
+      // to a named range and to every clip in a set.
+      const held = { start: base[0]!.start, end: base[base.length - 1]!.end };
+      const choice = chooseHighlight(source.duration, coldOpen.seconds, ctx.words, held);
       let window = choice.window;
       if (ctx.words && ctx.words.length > 0) {
         const snapped = snapToWords([window], ctx.words);
@@ -1770,8 +2354,27 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         // anybody hears, and half a sentence is not a hook.
         window = snapToSpeechBreaks(window, ctx.words, {
           driftSeconds: breathingRoom(coldOpen.seconds),
-          duration: source.duration,
+          duration: held.end,
+          notBefore: held.start,
         });
+      }
+
+      /*
+        A hook that starts a fraction of a second in starts at the beginning.
+
+        Snapping to a word or to a pause routinely puts the window's start a
+        tenth or two after the material begins, and splitting there leaves a
+        crumb: the edit played 0.2s–3.0s, then jumped back for two tenths of a
+        second, then carried on. That is not a cold open, it is a glitch — and
+        it turned one piece into three, which is enough for a requested
+        dissolve to cross fade a shot into itself twice.
+
+        Under a second of lead is nothing to lift the hook over, so the hook
+        simply starts where the material does.
+      */
+      const COLD_OPEN_MIN_LEAD = 1;
+      if (window.start - base[0]!.start < COLD_OPEN_MIN_LEAD) {
+        window = { start: base[0]!.start, end: window.end };
       }
 
       // The hook is whatever of that window survived the earlier cuts; the
@@ -1800,7 +2403,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
             "لم أجد لحظة قويّة بما يكفي لأفتح عليها، فيُعرض بترتيبه",
           ),
         );
-      } else {
+      } else if (body.length > 0 && body[0]!.start < hook[0]!.start - 0.05) {
         kept = [...hook, ...body];
         const hookSeconds = hook.reduce((sum, s) => sum + (s.end - s.start), 0);
         notes.push(
@@ -1814,12 +2417,39 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
                 `لم نستطع سماع الكلام، ففُتح على ${hookSeconds.toFixed(1)} ثانية من الوسط ويُعرض الباقي من البداية`,
               ),
         );
+      } else {
+        /*
+          The strongest moment is already the opening one.
+
+          `chooseHighlight` breaks ties toward the earliest window, and a clip
+          that genuinely opens strongly picks its own first seconds — so hook
+          and body concatenate back into the original, in the original order,
+          and nothing has been moved. The note said "opened on the strongest
+          3.0s, from 0.0s, then the rest plays from the top without it", which
+          describes a reordering that did not happen.
+
+          Left as it was rather than forced: the plan asked for the strongest
+          moment first and it already is. Splitting it anyway would also turn
+          one piece into two, which is enough for a requested dissolve to cross
+          fade a shot into itself and shorten the video by the overlap.
+        */
+        notes.push(
+          t(
+            "the strongest moment is already where this starts, so nothing was moved",
+            "أقوى لحظة هي بداية المقطع أصلًا، فلم أنقل شيئًا",
+          ),
+        );
       }
     }
   }
 
   const videoParts: string[] = [];
   const audioParts: string[] = [];
+  /**
+   * Whether the plan asked for the room to be filtered out from under the
+   * voice. Acted on where the speech is still on its own — see the music block.
+   */
+  let filterTheRoomOut = false;
   let graphPrefix = "";
   let vLabel = "0:v";
   let aLabel = "0:a";
@@ -1845,6 +2475,17 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     extraInputs.push(...args);
     return nextInput++;
   };
+
+  /*
+    The cut, rounded onto one grid before anything is decided against it.
+
+    `overlap`, `effectiveDuration`, the critic's remapping, the caption clock,
+    the fade and the music trim are all computed from `kept` below. Rounding
+    here — once, before any of them — is what makes the model and the file the
+    same length. See `cutGridFor` for the measurement that made it necessary.
+  */
+  const grid = cutGridFor(source.fps);
+  if (kept) kept = snapCutsToGrid(kept, grid.fps);
 
   // ── The join ──────────────────────────────────────────────────────────────
   //
@@ -1878,23 +2519,32 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       // is never on screen alone, which is not a transition, it is a smear.
       const shortest = Math.min(...kept!.map((segment) => segment.end - segment.start));
       const room = shortest * 0.4;
-      if (room < 0.05) {
+      /*
+        The floor is the shortest transition the contract admits.
+
+        It was 0.05, which is under `TransitionOperation.durationMs`'s own
+        minimum of 80 — so a single short piece anywhere in the edit produced a
+        sixty-millisecond dissolve nobody could have asked for and nobody would
+        read as a dissolve. Below the contract's minimum there is no transition
+        worth making, and saying the cuts stayed hard is the truthful answer.
+      */
+      if (room < MIN_TRANSITION_SECONDS) {
         notes.push(
           t(
             "the pieces this edit is cut into are too short to put a transition between, so the cuts stay hard",
             "القطع التي قُسّم إليها هذا التعديل أقصر من أن أضع بينها انتقالًا، فتبقى القصّات حادّة",
           ),
         );
-      } else if (!inSourceOrder(kept!) && kept!.length > MAX_SEPARATE_DECODES) {
+      } else if (kept!.length > maxOverlappedPieces(source.width, source.height)) {
         // Overlapping the joins of an out-of-order edit costs one decoder per
         // piece, and past four of them on a 1080p source that is more memory
         // than the worker has. Trading a missing dissolve for an OOM kill is
         // not a trade: the kill takes the whole render with it and says
-        // nothing. See MAX_SEPARATE_DECODES for the measurements.
+        // nothing. See `maxOverlappedPieces` for the measurements.
         notes.push(
           t(
-            `this edit opens on a hook and is cut into ${kept!.length} pieces, too many to overlap the joins of an edit that plays out of order, so the cuts stay hard and the hook stands`,
-            `هذا التعديل يفتح على خطّاف ومقسوم إلى ${kept!.length} قطعة، أكثر من أن أراكب وصلات تعديل يُعرض بغير ترتيبه، فتبقى القصّات حادّة ويبقى الخطّاف`,
+            `this edit is cut into ${kept!.length} pieces, too many to overlap the joins of on this machine, so the cuts stay hard`,
+            `هذا التعديل مقسوم إلى ${kept!.length} قطعة، أكثر من أن أراكب وصلاتها على هذه الماكينة، فتبقى القصّات حادّة`,
           ),
         );
       } else {
@@ -1917,84 +2567,83 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     const pieces: string[] = [];
     const withAudio = source.hasAudio;
     const last = kept.length - 1;
+    /** Whether the finished soundtrack passed through the seam declick. */
+    let declicked = false;
 
-    /**
-     * Does each piece get its own decode of the source, instead of being a
-     * `trim` branch off one shared one?
-     *
-     * Normally not, and normally it would be waste: one decode feeding several
-     * trims is exactly what a filter graph is for. But ffmpeg feeds those
-     * branches in the order the decoder produces frames, and a cold open is
-     * the one thing here that *reorders* the cut list rather than shortening
-     * it — the hook comes from the middle of the file and plays first. Chained
-     * `acrossfade` over branches that want the file out of order does not come
-     * out wrong, it **deadlocks**: measured, three out-of-order pieces never
-     * finish at all, and two produce a file with almost no audio in it. That
-     * is a job that burns to the worker's timeout with the customer's minute
-     * already spent.
-     *
-     * Seeking each piece on its own input removes the shared decoder, and with
-     * it the ordering constraint. It costs one extra seek per piece, which on
-     * an input-level `-ss` is close to free, and it is only paid on the plans
-     * that need it: an edit that only removes material still reads the file
-     * once, forwards, exactly as before.
-     */
-    const perPieceInput = overlap > 0 && !inSourceOrder(kept);
+    if (overlap > 0) {
+      /**
+       * Every piece decoded on its own, because the joins overlap.
+       *
+       * `xfade` reads two streams in lockstep, so the pieces have to exist as
+       * separate streams however they are made — and made as `trim` branches
+       * off one shared decode they are ruinous: ffmpeg feeds those branches in
+       * the order the decoder produces frames, so the frames of every later
+       * piece pile up in memory while the first join is still being made.
+       * Measured on a 1080p source with a 0.25s dissolve, peak resident memory
+       * for the whole process:
+       *
+       *      pieces   trim branches   own input
+       *           4         1170 MB      505 MB
+       *           8         2802 MB     1633 MB
+       *          12         4211 MB     3196 MB
+       *
+       * The worker has 1 GB (fly.toml). So an input each, always — and the cap
+       * below applies to every overlapped edit rather than only to the ones
+       * that play out of order, which is what it always should have been: the
+       * in-order path was the cheaper-looking one and was in fact the one over
+       * the box.
+       *
+       * A cold open additionally *cannot* share a decode: chained `acrossfade`
+       * over branches that want the file out of order does not come out wrong,
+       * it deadlocks — three out-of-order pieces measured never finishing at
+       * all. Seeking each piece on its own input removes both problems at once.
+       */
+      kept.forEach((segment, i) => {
+        // Forced onto the grid: xfade walks two streams frame by frame and a
+        // variable frame rate walks them out of step.
+        const cadence = `,fps=${grid.fps.toFixed(4)}`;
+        // `-ss` before `-i` is an input seek: ffmpeg lands on the keyframe
+        // before the mark and decodes forward to it, so the piece is
+        // frame-accurate and the reading is cheap. `-t` bounds it.
+        const idx = addInput(
+          "-ss", segment.start.toFixed(4),
+          "-t", (segment.end - segment.start).toFixed(4),
+          "-i", input,
+        );
+        pieces.push(`[${idx}:v]setpts=PTS-STARTPTS${cadence}[cv${i}]`);
+        if (!withAudio) return;
+        // Every audio edge gets a blink-long ramp (15ms — under any perceptual
+        // threshold for a fade, well over the one for a click). A cut lands
+        // wherever the detector put it, which is rarely a zero crossing, and a
+        // waveform that jumps mid-cycle is a broadband click stitched into the
+        // join.
+        //
+        // An edge that a dissolve is about to cross fade over does not get
+        // one: the crossfade already ramps it, over a hundred times longer,
+        // and two ramps stacked on one edge is an audible dip in the middle of
+        // the transition. The outer two edges are still hard cuts out of the
+        // source and still get theirs.
+        const len = segment.end - segment.start;
+        const ramp = Math.min(DECLICK_SECONDS, len / 4);
+        const rampIn = i > 0 ? 0 : ramp;
+        const rampOut = i < last ? 0 : ramp;
+        const fades = [
+          rampIn > 0 ? `afade=t=in:st=0:d=${rampIn.toFixed(4)}` : null,
+          rampOut > 0 ? `afade=t=out:st=${Math.max(0, len - rampOut).toFixed(4)}:d=${rampOut.toFixed(4)}` : null,
+        ].filter((part): part is string => part !== null);
+        pieces.push(
+          `[${idx}:a]asetpts=PTS-STARTPTS` +
+            (fades.length > 0 ? `,${fades.join(",")}` : "") +
+            `[ca${i}]`,
+        );
+      });
 
-    kept.forEach((segment, i) => {
-      // `fps` is only forced when the joins overlap: xfade reads two streams in
-      // lockstep and a variable frame rate walks them out of it, where concat
-      // simply plays one after the other and never has to care.
-      const cadence = overlap > 0 ? `,fps=${source.fps.toFixed(4)}` : "";
-
-      // `-ss` before `-i` is an input seek: ffmpeg lands on the keyframe before
-      // the mark and decodes forward to it, so the piece is frame-accurate and
-      // the reading is cheap. `-t` bounds it, which is what `trim` did before.
-      const idx = perPieceInput
-        ? addInput("-ss", segment.start.toFixed(4), "-t", (segment.end - segment.start).toFixed(4), "-i", input)
-        : 0;
-      const vSource = perPieceInput
-        ? `[${idx}:v]setpts=PTS-STARTPTS${cadence}[cv${i}]`
-        : `[0:v]trim=start=${segment.start}:end=${segment.end},setpts=PTS-STARTPTS${cadence}[cv${i}]`;
-      pieces.push(vSource);
-      if (!withAudio) return;
-      // Every audio edge gets a blink-long ramp (15ms — under any perceptual
-      // threshold for a fade, well over the one for a click). A cut lands
-      // wherever the detector put it, which is rarely a zero crossing, and a
-      // waveform that jumps mid-cycle is a broadband click stitched into the
-      // join. This is the audio analogue of lanczos on the downscale: not a
-      // decision anyone is told about, just the cut done properly — so no
-      // note, and no way to turn it off.
-      //
-      // An edge that a dissolve is about to cross fade over does not get one:
-      // the crossfade already ramps it, over a hundred times longer, and two
-      // ramps stacked on one edge is an audible dip in the middle of the
-      // transition. The outer two edges are still hard cuts out of the source
-      // and still get theirs.
-      const len = segment.end - segment.start;
-      const ramp = Math.min(DECLICK_SECONDS, len / 4);
-      const rampIn = overlap > 0 && i > 0 ? 0 : ramp;
-      const rampOut = overlap > 0 && i < last ? 0 : ramp;
-      const fades = [
-        rampIn > 0 ? `afade=t=in:st=0:d=${rampIn.toFixed(4)}` : null,
-        rampOut > 0 ? `afade=t=out:st=${Math.max(0, len - rampOut).toFixed(4)}:d=${rampOut.toFixed(4)}` : null,
-      ].filter((part): part is string => part !== null);
-      pieces.push(
-        (perPieceInput
-          ? `[${idx}:a]asetpts=PTS-STARTPTS`
-          : `[0:a]atrim=start=${segment.start}:end=${segment.end},asetpts=PTS-STARTPTS`) +
-          (fades.length > 0 ? `,${fades.join(",")}` : "") +
-          `[ca${i}]`,
-      );
-    });
-
-    if (overlap > 0 && kept.length > 1) {
       // Chained pairwise, because that is the only shape xfade has. Each join
       // starts `overlap` before the end of everything already stitched — and
       // everything already stitched is shorter than the sum of its parts by one
       // overlap per join made so far, which is the whole reason the output
       // clock needs correcting downstream.
-      let elapsed = kept[0].end - kept[0].start;
+      let elapsed = kept[0]!.end - kept[0]!.start;
       let vPrevious = "cv0";
       let aPrevious = "ca0";
       for (let i = 1; i < kept.length; i += 1) {
@@ -2007,20 +2656,147 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         vPrevious = vOut;
         if (withAudio) {
           const aOut = i === last ? "cuta" : `xa${i}`;
-          pieces.push(`[${aPrevious}][ca${i}]acrossfade=d=${overlap.toFixed(4)}:c1=tri:c2=tri[${aOut}]`);
+          // `qsin` and not `tri`: two triangular ramps crossing sum to 0.71 of
+          // either one at the midpoint, which is a 2.9 dB hole measured in the
+          // middle of every dissolve. Equal-power curves sum to 1.
+          pieces.push(`[${aPrevious}][ca${i}]acrossfade=d=${overlap.toFixed(4)}:c1=qsin:c2=qsin[${aOut}]`);
           aPrevious = aOut;
         }
-        elapsed += kept[i].end - kept[i].start;
+        elapsed += kept[i]!.end - kept[i]!.start;
+      }
+      if (kept.length === 1) {
+        // One piece and an overlap is not a state the join block produces, but
+        // the labels have to exist for the rest of the graph either way.
+        pieces.push(`[cv0]null[cutv]`);
+        if (withAudio) pieces.push(`[ca0]anull[cuta]`);
       }
     } else {
-      pieces.push(
-        `${kept.map((_, i) => (withAudio ? `[cv${i}][ca${i}]` : `[cv${i}]`)).join("")}` +
-          `concat=n=${kept.length}:v=1:a=${withAudio ? 1 : 0}[cutv]${withAudio ? "[cuta]" : ""}`,
-      );
+      /**
+       * The cut as a selection, not as a piece per branch.
+       *
+       * A hard cut used to be built the way a filter graph invites you to build
+       * it: one `trim` branch per kept piece off a single decode, concatenated.
+       * That shape buffers. `concat` drains its inputs in order, the decoder
+       * produces frames in time order, and every frame belonging to a later
+       * piece waits in memory until its turn — so the cost is not the length of
+       * the edit, it is the **span of source the edit reaches across**, at one
+       * uncompressed frame per frame. Measured, 1080p30:
+       *
+       *      span    peak resident
+       *       5s          463 MB
+       *      10s          946 MB
+       *      20s         1826 MB
+       *      35s         3229 MB
+       *
+       * — about 92 MB per second of source. `renderPlan` cutting the silence
+       * out of a forty-second 1080p clip peaked at 3403 MB on a machine with
+       * 1024. That is the default plan on the default upload, and the failure
+       * is an OOM kill: no note, no output, the minute spent either way. It
+       * survived because every fixture in the suite is 320x240 or 640x360,
+       * where the same shape costs 35 MB.
+       *
+       * `select` keeps the frames whose timestamps fall inside a kept span and
+       * drops the rest, streaming, out of one decode, with nothing queued
+       * behind anything. Same cut, same frames, same lengths — measured
+       * identical to the old graph on a thirty-piece edit, to the frame and to
+       * the millisecond — for 98 MB instead of 3252 MB.
+       *
+       * The audio is re-framed onto cells that divide a frame exactly (see
+       * `cutGridFor`) so that `aselect` rounds where `select` rounds. Without
+       * that the two streams pick their own boundaries and walk apart: the same
+       * edit built with a naive `aselect` came out with the audio 0.9s short of
+       * the picture and the clicks nine seconds adrift by the end.
+       *
+       * An edit that plays out of order — a cold open — is split into runs that
+       * each play forwards, and each run gets its own decode. Two decoders for
+       * a cold open, streaming, instead of one decoder holding every frame
+       * between the top of the file and the hook.
+       */
+      const runs = orderedRuns(kept);
+      const halfFrame = 0.5 / grid.fps;
+      const halfCell = (0.5 * grid.samplesPerCell) / CUT_AUDIO_RATE;
+      const within = (spans: Segment[], shift: number): string =>
+        spans.map((s) => `between(t,${(s.start - shift).toFixed(6)},${(s.end - shift).toFixed(6)})`).join("+");
+
+      runs.forEach((run, r) => {
+        // The first run reads the source as it was opened. A later one is a
+        // second opening of the same file, seeked to where it begins —
+        // `-copyts` so the timestamps stay on the source clock and one
+        // expression can be written in the times the plan already speaks.
+        const idx = r === 0 ? 0 : addInput("-ss", run[0]!.start.toFixed(4), "-copyts", "-i", input);
+        // A source whose rate is not on the grid is moved onto it first. This
+        // is also the only thing that makes a variable-frame-rate recording —
+        // every OBS and QuickTime screen capture — come out in step with its
+        // own sound.
+        const cadence = grid.retime ? `fps=${grid.fps.toFixed(4)},` : "";
+        pieces.push(
+          `[${idx}:v]${cadence}select='${within(run, halfFrame)}',setpts=N/FRAME_RATE/TB[rv${r}]`,
+        );
+        if (!withAudio) return;
+        pieces.push(
+          // `aformat` and not `aresample`: both put the stream on the rate the
+          // cells are measured in, and only one of them leaves the level
+          // alone. `aresample` converts eagerly, so a mono recording is
+          // converted a second time when a stereo effects bus joins it later
+          // — and that second conversion halves the power per channel, so the
+          // programme came out 3 dB quieter for no reason but the presence of
+          // sound effects. `aformat` states the requirement and lets the one
+          // conversion the graph needs do all of it at once.
+          `[${idx}:a]aformat=sample_rates=${CUT_AUDIO_RATE},asetnsamples=n=${grid.samplesPerCell}:p=0,` +
+            `aselect='${within(run, halfCell)}',asetpts=N/SR/TB[ra${r}]`,
+        );
+      });
+
+      if (runs.length === 1) {
+        pieces.push(`[rv0]null[cutv]`);
+        if (withAudio) pieces.push(`[ra0]anull[cuta]`);
+      } else {
+        pieces.push(
+          `${runs.map((_, r) => (withAudio ? `[rv${r}][ra${r}]` : `[rv${r}]`)).join("")}` +
+            `concat=n=${runs.length}:v=1:a=${withAudio ? 1 : 0}[cutv]${withAudio ? "[cuta]" : ""}`,
+        );
+      }
+
+      if (withAudio) {
+        /*
+          The declick, moved from the pieces to the seam.
+
+          Every join used to get a 15ms ramp out and a 15ms ramp in, written on
+          the two pieces either side of it. There are no pieces here, so the
+          same shape is written once on the finished stream: a notch at each
+          join on the output clock, which is exact because the cut is on the
+          grid. The outer two edges are still hard cuts out of the source and
+          still get their own fade.
+
+          Not a decision anyone is told about — just the cut done properly, so
+          no note and no way to turn it off.
+        */
+        const lengths = kept.map((segment) => segment.end - segment.start);
+        const notches: string[] = [];
+        let elapsed = 0;
+        for (let i = 0; i < kept.length - 1; i += 1) {
+          elapsed += lengths[i]!;
+          const ramp = Math.min(DECLICK_SECONDS, Math.min(lengths[i]!, lengths[i + 1]!) / 4);
+          if (ramp <= 0) continue;
+          notches.push(`max(0,1-abs(t-${elapsed.toFixed(5)})/${ramp.toFixed(5)})`);
+        }
+        const total = lengths.reduce((sum, len) => sum + len, 0);
+        const edge = Math.min(DECLICK_SECONDS, total / 4);
+        const chain = [
+          notches.length > 0 ? `volume=eval=frame:volume='1-(${notches.join("+")})'` : null,
+          edge > 0 ? `afade=t=in:st=0:d=${edge.toFixed(4)}` : null,
+          edge > 0 ? `afade=t=out:st=${Math.max(0, total - edge).toFixed(4)}:d=${edge.toFixed(4)}` : null,
+        ].filter((part): part is string => part !== null);
+        if (chain.length > 0) {
+          pieces.push(`[cuta]${chain.join(",")}[cutd]`);
+          declicked = true;
+        }
+      }
     }
+
     graphPrefix = `${pieces.join(";")};`;
     vLabel = "cutv";
-    if (withAudio) aLabel = "cuta";
+    if (withAudio) aLabel = declicked ? "cutd" : "cuta";
   }
 
   const effectiveDuration = kept ? outputDuration(kept, overlap) : source.duration;
@@ -2068,6 +2844,25 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // And a beat plan with no bed does not quietly become an emphasis plan. Those
   // are different edits, and doing the other one without saying so is the
   // failure this pipeline's notes exist to prevent.
+  /*
+    A plan that names moments *and* asks for the beat gets the moments, and is
+    told so.
+
+    The planner deliberately keeps both — its own comment says "the renderer's
+    notes say what was done either way" — and the renderer said nothing: the
+    gate below needs an empty list, so "punch on 'this' and on 'that', on the
+    beat" quietly became an ordinary emphasis edit with no mention of the beat
+    anywhere in the notes.
+  */
+  if (zoomPunch && zoomPunch.on === "beat" && zoomPunch.at.length > 0) {
+    notes.push(
+      t(
+        `this plan named ${zoomPunch.at.length} moment${zoomPunch.at.length === 1 ? "" : "s"} and also asked for the beat. The moments won: they are the more specific instruction`,
+        `سمّت هذه الخطّة ${zoomPunch.at.length} لحظة وطلبت الإيقاع أيضًا، فاللحظات هي التي فازت لأنّها التعليمة الأدقّ`,
+      ),
+    );
+  }
+
   if (zoomPunch && zoomPunch.on === "beat" && zoomPunch.at.length === 0) {
     if (!musicUsable) {
       notes.push(
@@ -2077,7 +2872,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         ),
       );
     } else {
-      ctx.onProgress?.(0.42, "Listening for the beat");
+      ctx.onProgress?.(0.10, "Listening for the beat");
       const grid = await beatsOf(musicAsset.file);
       if (!grid) {
         notes.push(
@@ -2116,8 +2911,12 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
          * does not end on a bar has that seam in it. Following the seam is more
          * honest than hiding it.
          */
-        const trackSeconds = music!.loop ? await containerSeconds(musicAsset.file) : 0;
-        const loopPeriod = Math.max(0, trackSeconds - music!.fromSeconds);
+        const trackSeconds = music!.loop ? await containerSeconds(musicAsset.file) : null;
+        // Null means the container would not say how long the track is, not
+        // that it is zero seconds long. The correction cannot run without a
+        // period — but the note must not then claim it did. See below.
+        const loopLengthUnknown = Boolean(music!.loop) && trackSeconds === null;
+        const loopPeriod = trackSeconds === null ? 0 : Math.max(0, trackSeconds - music!.fromSeconds);
         const onEdit: number[] = [];
         if (loopPeriod > 1 && effectiveDuration > loopPeriod && firstPass.length > 0) {
           for (let pass = 0; pass * loopPeriod <= effectiveDuration; pass += 1) {
@@ -2130,7 +2929,47 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         } else {
           onEdit.push(...firstPass);
         }
-        const at = everyNth({ ...grid, beats: onEdit }, 4, { from: 0, to: effectiveDuration }).slice(0, 40);
+        /*
+          Forty is the schema's ceiling, and taking the first forty is the same
+          bug the loop fix above was written against.
+
+          `ZoomPunchOperation.at` is `.max(40)`, so a long edit over a fast bed
+          produces more bars than may be carried. `.slice(0, 40)` kept the
+          first forty — one punch a bar at 120 bpm is a punch every two
+          seconds, so a three-minute edit got its punches in the first eighty
+          seconds and none in the remaining hundred, with the note underneath
+          saying they were put on the beat. True of the first 44% of the video
+          and false of the rest, and audible: the pulse keeps going and the
+          picture stops answering it.
+
+          Spread across the whole edit instead, taking every Nth bar so the
+          forty that survive are distributed rather than crowded at the front.
+          The phase is still the music's; only the density changes, and the
+          note below says so when it happens.
+        */
+        const everyBar = everyNth({ ...grid, beats: onEdit }, 4, { from: 0, to: effectiveDuration });
+        const thinnedBy = everyBar.length > MAX_PUNCHES ? Math.ceil(everyBar.length / MAX_PUNCHES) : 1;
+        const chosen = thinnedBy > 1
+          ? everyBar.filter((_, index) => index % thinnedBy === 0).slice(0, MAX_PUNCHES)
+          : everyBar;
+        /*
+          And through the same guards every other punch goes through.
+
+          The critic runs before this, because the times do not exist until the
+          music has been read — so it passed an empty beat operation straight
+          through, correctly, and nothing applied its rules afterwards. A beat
+          punch could open half a second before the end and leave the video
+          ending mid-zoom (measured: hand-placed at the same moment, the critic
+          drops it and says so; placed on the beat, it renders), and it could
+          land inside a dissolve, which the critic clears every other punch out
+          of by construction.
+        */
+        const at = settlePunches(chosen, {
+          kept,
+          effectiveDuration,
+          overlap,
+          holdSeconds: (zoomPunch.holdMs ?? 1200) / 1000,
+        }).at;
         if (at.length === 0) {
           notes.push(
             t(
@@ -2142,11 +2981,35 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           zoomPunch = { ...zoomPunch, at };
           const bpm = Math.round(grid.bpm);
           notes.push(
-            t(
-              `put ${at.length} punch${at.length === 1 ? "" : "es"} on the beat, one a bar at ${bpm} bpm`,
-              `وضعت ${at.length} تقريبة على الإيقاع، واحدة كل مازورة عند ${bpm} نبضة في الدقيقة`,
-            ),
+            thinnedBy > 1
+              ? t(
+                  `put ${at.length} punch${at.length === 1 ? "" : "es"} on the beat at ${bpm} bpm, one every ${thinnedBy} bars, because a punch a bar is more than this edit can carry`,
+                  `وضعت ${at.length} تقريبة على الإيقاع عند ${bpm} نبضة في الدقيقة، واحدة كل ${thinnedBy} مازورات، لأنّ واحدة كل مازورة أكثر ممّا يحتمله هذا التعديل`,
+                )
+              : t(
+                  `put ${at.length} punch${at.length === 1 ? "" : "es"} on the beat, one a bar at ${bpm} bpm`,
+                  `وضعت ${at.length} تقريبة على الإيقاع، واحدة كل مازورة عند ${bpm} نبضة في الدقيقة`,
+                ),
           );
+          /*
+            And where they stop, when the track loops and we could not read
+            how long it is.
+
+            The note above is a claim about the whole edit. With a bed that
+            repeats and a length the container would not give up, the punches
+            only ever cover the first pass of the music — the picture answers
+            the pulse at the start and stops answering it after that, which is
+            audible, and which the sentence above would otherwise deny.
+          */
+          const lastPunch = at[at.length - 1] ?? 0;
+          if (loopLengthUnknown && effectiveDuration - lastPunch > 2) {
+            notes.push(
+              t(
+                "that music repeats and its length could not be read, so the punches stop where its first pass does rather than carrying on to the end",
+                "تلك الموسيقى تتكرّر ولم يُمكن قراءة طولها، لذلك تتوقّف التقريبات عند نهاية الدورة الأولى بدل أن تستمرّ حتى النهاية",
+              ),
+            );
+          }
         }
       }
     }
@@ -2184,7 +3047,35 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     grows the crop instead of upscaling anything, and the price is paid once, in
     scaling the source further, rather than on every wide frame.
   */
-  const overscan = hasMotion ? overscanFor(MOTION_OVERSCAN, takes.length > 0 ? framingAmount : 0) : 1;
+  /*
+    And only where there is a wider source to take it out of.
+
+    The overscan exists so the base zoom is a *downscale*: the reframe crops a
+    window 15% larger than the target out of the source, and the zoom then
+    brings it back to exactly the target, so an unmoved frame is real pixels
+    and a punch has somewhere to expand into. That argument needs the reframe.
+
+    Without one there is no wider source, so the same number scaled the frame
+    *up* by 1.15 and cropped straight back — measured on a 1920x1080 render,
+    "a slow push" put 1671 of the 1920 columns on screen. Thirteen per cent of
+    the picture thrown away and every frame softened, before the push starts,
+    with nothing said about either. `zoomPunch` and `kenBurns` did it too, and
+    `direct.ts` adds `alternateFraming` to any cut edit over a minute whether a
+    platform was named or not.
+
+    So: no reframe, no overscan — the push zooms into the frame the person
+    uploaded, which is what a push is.
+
+    `alternateFraming` is the exception, and a deliberate one. Its wide take is
+    a zoom of *less* than one, which only exists if there is margin outside the
+    frame to pull back into; without a reframe the overscan is the only way to
+    manufacture any, and the trade — a softer picture for a second shot size —
+    is the whole point of the operation. Nothing else in the file gets to make
+    that trade by accident.
+  */
+  const needsMargin = Boolean(reframe) || takes.length > 0;
+  const overscan =
+    hasMotion && needsMargin ? overscanFor(MOTION_OVERSCAN, takes.length > 0 ? framingAmount : 0) : 1;
   const takeScales = takes.map((take) => ({
     from: take.from,
     to: take.to,
@@ -2232,14 +3123,19 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     let cropXExpr = String(cropX);
 
     if (scaledWidth > cropW + 2) {
-      ctx.onProgress?.(0.08, "Finding your subject in the frame");
+      ctx.onProgress?.(0.12, "Finding your subject in the frame");
       const windowFraction = cropW / scaledWidth;
 
       // Faces first: "where is the person" is the question, and everything else
       // here is a proxy for it. The tracker answers with null rather than
       // throwing, so a missing python, a screen recording, or a clip nobody
       // appears in all land in the same place.
-      const track = await trackSubject(input, source.width, source.height);
+      // From where the edit begins, not from the top of the recording. See
+      // `TrackOptions.from`: a clip taken out of the middle of a podcast had
+      // no samples inside it at all.
+      const track = await trackSubject(input, source.width, source.height, {
+        from: kept ? Math.min(...kept.map((segment) => segment.start)) : 0,
+      });
       const note = trackNote(track, t);
       if (note) notes.push(note);
 
@@ -2275,11 +3171,31 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
          * Keeping the first of each cluster leaves the move on the seam, where
          * the cut already is.
          */
-        const keyframes = kept
-          ? path.keyframes
-              .map((frame) => ({ ...frame, t: remapTime(frame.t, kept, overlap) }))
-              .filter((frame, i, all) => i === 0 || frame.t > all[i - 1].t + 0.001)
-          : path.keyframes;
+        /*
+          And only the part of the path this edit is made of.
+
+          `remapTime` pins a moment outside the kept material onto a seam: a
+          keyframe before the first kept stretch lands at 0, one after the last
+          lands at the end. Nothing dropped them, so a clip taken out of the
+          middle of a recording kept both — the opening hold became the
+          speaker's position at 0:00 of the *recording*, and one surviving
+          keyframe from after the window carried their position at the end of
+          it, with `cropExpression` ramping linearly between the two across the
+          whole clip.
+
+          Measured on a four-second clip cut from 8s of a twenty-second file:
+          the window opened 660px away from the speaker, lost them entirely for
+          the first 0.7s, and panned for three of the four seconds — while the
+          note said "followed the speaker, moving the frame 2 times where they
+          moved". The right answer was a still window.
+
+          So the path is cut to the window first: everything before it collapses
+          into one hold at the position the speaker was last seen in, and
+          everything after it is dropped. `extractHighlight`, `extractRange`,
+          `extractClips` and `coldOpen` all take this path, and `direct.ts` puts
+          a highlight and a reframe in the same plan by default.
+        */
+        const keyframes = kept ? pathWithinCut(path.keyframes, kept, overlap) : path.keyframes;
         cropXExpr = cropExpression(keyframes, scaledWidth, cropW);
         const moves = (keyframes.length - 1) / 2;
         notes.push(
@@ -2295,7 +3211,9 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         );
       } else {
         try {
-          const choice = chooseCropCenter(await measureInterest(input), windowFraction);
+          // From where the edit begins, for the same reason the tracker does.
+          const editBegins = kept ? Math.min(...kept.map((segment) => segment.start)) : 0;
+          const choice = chooseCropCenter(await measureInterest(input, undefined, editBegins), windowFraction);
           cropX = cropOffsetX(choice, scaledWidth, cropW);
           cropXExpr = String(cropX);
           notes.push(
@@ -2325,10 +3243,36 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     notes.push(
       t(`reframed to ${target.w}x${target.h} for ${reframe.platform}`, `أُعيد التأطير إلى ${target.w}x${target.h} لـ${reframe.platform}`),
     );
+    /*
+      And when nothing was framed, say that too.
+
+      All of the framing machinery here is horizontal: the vertical offset is
+      the constant `(ih-oh)/2`, and the search above only runs when the scaled
+      source is wider than the window. Going the other way — a phone clip
+      exported for YouTube — is therefore a centre crop of the height with no
+      subject search at all, and it was the one reframe that emitted no framing
+      note. Every other path says where it framed; this one said nothing, so a
+      customer could not tell that no framing decision had been made. Forty-four
+      per cent of the height is kept from the geometric middle, and a clip shot
+      head-in-the-upper-third loses the head.
+    */
+    if (scaledWidth <= cropW + 2) {
+      notes.push(
+        t(
+          "this clip is taller than the shape asked for, so the middle of the picture was kept, and the framing here only looks left and right",
+          "هذا المقطع أطول من الشكل المطلوب، فأُبقي وسط الصورة، والتأطير هنا ينظر يمينًا ويسارًا فقط",
+        ),
+      );
+    }
   } else if (hasMotion) {
+    // Even dimensions for the encoder, and nothing else: `overscan` is 1 here
+    // (see above), so this neither grows nor shrinks the picture.
     const cropW = Math.round((source.width * overscan) / 2) * 2;
     const cropH = Math.round((source.height * overscan) / 2) * 2;
-    videoParts.push(`scale=${cropW}:${cropH}:flags=lanczos`, "setsar=1");
+    if (cropW !== source.width || cropH !== source.height) {
+      videoParts.push(`scale=${cropW}:${cropH}:flags=lanczos`);
+    }
+    videoParts.push("setsar=1");
   }
 
   // ── Motion ────────────────────────────────────────────────────────────────
@@ -2373,11 +3317,26 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       // watching the video could point at.
       const changes = takes.length - 1;
       const tight = takes.filter((take) => take.size === "tight").length;
+      /*
+        The claim about the pixels is only true where the margin is real.
+
+        With a reframe the wide size is the margin the crop already had and
+        both sizes are native. Without one there is no margin — the frame is
+        the whole picture — so the margin is manufactured by scaling up, and
+        the close size is a fifteen per cent upscale. Both sentences were the
+        first one, which told somebody their footage was untouched while every
+        close shot in it had been enlarged.
+      */
       notes.push(
-        t(
-          `cut between a wide and a tight version of the frame, changing size ${changes} time${changes === 1 ? "" : "s"} across ${takes.length} shots. ${tight} of them are the close one, and both sizes are native: the wide one is the margin the crop already had`,
-          `قطعت بين نسخة واسعة وأخرى ضيّقة من الكادر، وغيّرت الحجم ${changes} ${changes === 1 ? "مرّة" : "مرّات"} عبر ${takes.length} لقطات، منها ${tight} قريبة. والحجمان بدقّة أصلية، فالواسع هو الهامش الذي كان القصّ يأخذه أصلًا`,
-        ),
+        reframe
+          ? t(
+              `cut between a wide and a tight version of the frame, changing size ${changes} time${changes === 1 ? "" : "s"} across ${takes.length} shots. ${tight} of them are the close one, and both sizes are native: the wide one is the margin the crop already had`,
+              `قطعت بين نسخة واسعة وأخرى ضيّقة من الكادر، وغيّرت الحجم ${changes} ${changes === 1 ? "مرّة" : "مرّات"} عبر ${takes.length} لقطات، منها ${tight} قريبة. والحجمان بدقّة أصلية، فالواسع هو الهامش الذي كان القصّ يأخذه أصلًا`,
+            )
+          : t(
+              `cut between a wide and a tight version of the frame, changing size ${changes} time${changes === 1 ? "" : "s"} across ${takes.length} shots. ${tight} of them are the close one, which is a slight enlargement: this clip is not being reframed, so there is no margin outside the picture to pull back into`,
+              `قطعت بين نسخة واسعة وأخرى ضيّقة من الكادر، وغيّرت الحجم ${changes} ${changes === 1 ? "مرّة" : "مرّات"} عبر ${takes.length} لقطات، منها ${tight} قريبة، وهي تكبير طفيف، فهذا المقطع لا يُعاد تأطيره، ولا هامش خارج الصورة أتراجع إليه`,
+            ),
       );
     }
   }
@@ -2589,7 +3548,22 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       its own sake: the same filter is exactly wrong for music, where the
       bottom octave of a kick drum is the part it would take.
     */
-    if (loudness.voice) audioParts.push("highpass=f=80");
+    /*
+      And on the *speech*, not on the finished mix.
+
+      `audioParts` is applied to the programme after the bed and the effects
+      have been mixed into it, so `voice: true` on a plan that also lays music
+      took the bottom octave out of the music — which the paragraph above says
+      in as many words is exactly wrong. Measured with a kick under it: 3.3 dB
+      off the bed below 120 Hz, a 5.5 dB tilt across the track, and the note
+      said "the room tone under the voice was filtered out". `plan-from-text`
+      guards against emitting the pair; `direct.ts` does not, so any project
+      holding an audio file gets it.
+
+      Flagged here rather than filtered here: the music block below puts it on
+      the speech leg before the mix.
+    */
+    if (loudness.voice) filterTheRoomOut = true;
     // -14 LUFS is what every one of these platforms normalises to. Arriving at
     // the right level means they leave the audio alone.
     audioParts.push(`loudnorm=I=${loudness.targetLufs}:TP=-1.5:LRA=11`);
@@ -2619,6 +3593,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // to fail a render that is otherwise finished.
   const titleOps = plan.operations.filter((o): o is Op<"motionTitle"> => o.type === "motionTitle");
   let motionLayer: { pattern: string; frames: number; fps: number } | null = null;
+  /** Where the layer's own clock sits on the edit's. */
+  let motionFrom = 0;
   if (titleOps.length > 0) {
     const titles: MotionTitle[] = [];
     for (const op of titleOps) {
@@ -2639,9 +3615,32 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       });
     }
     if (titles.length > 0) {
+      /*
+        Only the stretch the titles are actually on screen for.
+
+        The layer was always rendered from zero, so its cost was the *end* time
+        of the last title rather than its length — and every frame before the
+        first one is fully transparent. A title placed at 8:30 of a podcast
+        asked Chromium for 51,110 screenshots: measured at 102ms each and 12 KB
+        per empty frame, that is eighty-five minutes and six hundred megabytes
+        to draw two and a half seconds of text, on a box with 1 GB, with no
+        deadline on it and no progress reported while it ran. The job looked
+        hung because it was.
+
+        So the layer starts a little before the first title and ends a little
+        after the last, and the overlay puts it back where it belongs.
+      */
+      const from = Math.max(0, Math.min(...titles.map((title) => title.at)) - MOTION_LEAD_SECONDS);
       const until = Math.max(...titles.map((t) => t.at + t.durationSeconds)) + 0.6;
+      motionFrom = from;
       motionLayer = await renderMotionLayer(
-        { width: frameWidth, height: frameHeight, fps: source.fps, titles, durationSeconds: until },
+        {
+          width: frameWidth,
+          height: frameHeight,
+          fps: source.fps,
+          titles: titles.map((title) => ({ ...title, at: title.at - from })),
+          durationSeconds: until - from,
+        },
         path.join(ctx.workDir, "motion"),
       );
       if (motionLayer) {
@@ -2677,11 +3676,17 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     for (const op of overlayOps) {
       const asset = ctx.assets?.get(op.assetId);
       if (!asset) {
+        // Which of the two silences this is. See `unreachableAssetIds`.
         notes.push(
-          t(
-            `skipped an overlay: asset ${op.assetId} is not in this project`,
-            `تخطّيت تراكبًا: الملفّ ${op.assetId} ليس في هذا المشروع`,
-          ),
+          ctx.unreachableAssetIds?.has(op.assetId)
+            ? t(
+                "skipped an overlay: that file is in your project and we could not fetch it this time",
+                "تخطّيت تراكبًا: الملفّ موجود في مشروعك ولم نتمكّن من جلبه هذه المرّة",
+              )
+            : t(
+                "skipped an overlay: that file is not in this project",
+                "تخطّيت تراكبًا: ذلك الملفّ ليس في هذا المشروع",
+              ),
         );
         continue;
       }
@@ -2737,6 +3742,24 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         // is kept underneath, which is what a cutaway is — the picture changes
         // and the person keeps talking.
         /*
+          `keepSourceAudio: false` is in the contract and is not implemented.
+
+          Nothing in this file has ever read the field: the b-roll's own audio
+          stream is never referenced, so the answer is always "yes, keep the
+          speech" whatever the plan says. Both producers hard-code `true`, so
+          nobody has met it — but a contract field that silently means one
+          thing is a promise, and the honest cost of not keeping it is one
+          sentence.
+        */
+        if (op.keepSourceAudio === false) {
+          notes.push(
+            t(
+              "kept the speech under the b-roll: playing the b-roll's own sound instead is not something this can do yet",
+              "أبقيت الكلام تحت اللقطة المساندة: تشغيل صوت اللقطة نفسها بدلًا منه ليس ممّا أستطيعه بعد",
+            ),
+          );
+        }
+        /*
           A photograph is a legal cutaway, and it used to render as nothing.
 
           `addInput("-i", file)` on a still gives an input of exactly one frame.
@@ -2757,8 +3780,26 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           what the file *is*, not what the plan called it.
         */
         const still = asset.kind === "image";
+        /*
+          And a moving cutaway is only as long as the clip really is, with the
+          note saying which.
+
+          `trim` cannot invent frames and `eof_action=pass` lets the main
+          picture back through, so a one-second clip asked to cover three
+          seconds simply stopped after one — and the note said "cut to b-roll
+          for 3.0s". The cutaway was a third of what was asked for and a third
+          of what was reported, with nothing anywhere saying so.
+
+          A still is exempt, and has to be: `-loop 1 -t` gives it exactly the
+          duration asked for, so there is no length to fall short of and
+          probing a single-frame input for one would only invent a shortfall.
+        */
+        const wanted = end - start;
+        const held = still ? null : await probeDuration(asset.file).catch(() => null);
+        const covered = held !== null && held > 0.05 ? Math.min(wanted, held) : wanted;
+        const shortAsset = covered < wanted - 0.05;
         idx = still
-          ? addInput("-loop", "1", "-t", (end - start + 0.5).toFixed(3), "-i", asset.file)
+          ? addInput("-loop", "1", "-t", (covered + 0.5).toFixed(3), "-i", asset.file)
           : addInput("-i", asset.file);
         const fit =
           op.fit === "cover"
@@ -2766,17 +3807,22 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
             : `scale=${frameWidth}:${frameHeight}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${frameWidth}:${frameHeight}:(ow-iw)/2:(oh-ih)/2:black`;
         const rate = still ? `,fps=${source.fps.toFixed(4)}` : "";
         overlayLinks.push(
-          `[${idx}:v]${fit},setsar=1${rate},trim=0:${(end - start).toFixed(3)},setpts=PTS-STARTPTS+${start.toFixed(3)}/TB[br${idx}]`,
+          `[${idx}:v]${fit},setsar=1${rate},trim=0:${covered.toFixed(3)},setpts=PTS-STARTPTS+${start.toFixed(3)}/TB[br${idx}]`,
         );
         overlayLinks.push(
           `[${inLabel}][br${idx}]overlay=0:0:` +
-            `enable='between(t,${start.toFixed(3)},${end.toFixed(3)})':eof_action=pass[${outLabel}]`,
+            `enable='between(t,${start.toFixed(3)},${(start + covered).toFixed(3)})':eof_action=pass[${outLabel}]`,
         );
         notes.push(
-          t(
-            `cut to b-roll at ${start.toFixed(1)}s for ${(end - start).toFixed(1)}s`,
-            `قطعت إلى لقطة مساندة عند الثانية ${start.toFixed(1)} لمدّة ${(end - start).toFixed(1)} ثانية`,
-          ),
+          shortAsset
+            ? t(
+                `cut to b-roll at ${start.toFixed(1)}s for ${covered.toFixed(1)}s. That clip is only ${covered.toFixed(1)}s long, and ${wanted.toFixed(1)}s was asked for`,
+                `قطعت إلى لقطة مساندة عند الثانية ${start.toFixed(1)} لمدّة ${covered.toFixed(1)} ثانية. طول ذلك المقطع ${covered.toFixed(1)} ثانية فقط، والمطلوب كان ${wanted.toFixed(1)}`,
+              )
+            : t(
+                `cut to b-roll at ${start.toFixed(1)}s for ${covered.toFixed(1)}s`,
+                `قطعت إلى لقطة مساندة عند الثانية ${start.toFixed(1)} لمدّة ${covered.toFixed(1)} ثانية`,
+              ),
         );
       }
     }
@@ -2793,7 +3839,11 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     // comes back to the output rate instead of four times it.
     overlayLinks.push(
       `[${idx}:v]tmix=frames=${MOTION_SUBSAMPLES}:weights='${Array(MOTION_SUBSAMPLES).fill(1).join(" ")}',` +
-        `select='not(mod(n\\,${MOTION_SUBSAMPLES}))',setpts=N/${source.fps.toFixed(4)}/TB,` +
+        `select='not(mod(n\\,${MOTION_SUBSAMPLES}))',` +
+        // Back to the output rate, and then forward to where the titles are.
+        // The layer covers its own stretch and nothing else; `eof_action=pass`
+        // lets the picture through on both sides of it.
+        `setpts=N/${source.fps.toFixed(4)}/TB+${motionFrom.toFixed(4)}/TB,` +
         `scale=${frameWidth}:${frameHeight}[mot]`,
     );
     overlayLinks.push(`[${inLabel}][mot]overlay=0:0:eof_action=pass[${outLabel}]`);
@@ -2829,7 +3879,19 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           onOpen: soundEffects.onOpen,
         })
       : null;
-  const riserCue = sfxPlan?.cues.find((c) => c.reason === "open") ?? null;
+  /*
+    The riser the render will actually lay, not the one the plan chose.
+
+    The bed dips under it, and the dip is built here — before the effects are
+    turned into inputs, which is where a missing file is noticed. So an image
+    without the sound assets pulled the music down 7.3 dB (measured) for a
+    riser that was not in the file, and said so, immediately above the note
+    saying it could not find the sound effect files in this build. Music
+    stepping out of the way of nothing is the most audible way a soundtrack can
+    be wrong.
+  */
+  const plannedRiser = sfxPlan?.cues.find((c) => c.reason === "open") ?? null;
+  const riserCue = plannedRiser && (await sfxFile(plannedRiser.sound)) ? plannedRiser : null;
 
   // ── The bed ───────────────────────────────────────────────────────────────
   //
@@ -2849,15 +3911,32 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // The third is why `hasAudioOut` exists. A silent phone clip with a track
   // under it used to come out silent, because every audio decision in here
   // asked whether the *source* had audio.
+  /*
+    The de-rumble goes on the speech, before anything is mixed into it. See the
+    loudness block for why it must not reach the bed.
+  */
+  const speechParts: string[] = [];
+  if (filterTheRoomOut && source.hasAudio) {
+    speechParts.push(`[${aLabel}]highpass=f=80[spdry]`);
+    aLabel = "spdry";
+  }
+
   const musicParts: string[] = [];
   let musicMixed = false;
   if (music) {
     if (!musicAsset) {
+      // Same distinction as the overlay above, and it matters more here: the
+      // music is the thing somebody notices missing.
       notes.push(
-        t(
-          `skipped the music: asset ${music.assetId} is not in this project`,
-          `تخطّيت الموسيقى: الملفّ ${music.assetId} ليس في هذا المشروع`,
-        ),
+        ctx.unreachableAssetIds?.has(music.assetId)
+          ? t(
+              "skipped the music: that track is in your project and we could not fetch it this time",
+              "تخطّيت الموسيقى: ذلك المقطع موجود في مشروعك ولم نتمكّن من جلبه هذه المرّة",
+            )
+          : t(
+              "skipped the music: that track is not in this project",
+              "تخطّيت الموسيقى: ذلك المقطع ليس في هذا المشروع",
+            ),
       );
     } else if (!musicUsable) {
       // The kind is re-derived from the bytes on upload, so this is a plan
@@ -2866,27 +3945,123 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         t("skipped the music: that asset is not an audio file", "تخطّيت الموسيقى: ذلك الملفّ ليس ملفًّا صوتيًّا"),
       );
     } else {
+      /*
+        The intro, actually removed, when the bed both starts late and repeats.
+
+        `-ss` before `-i` seeks the *first* pass; `-stream_loop` then replays
+        the decoded stream from its beginning, so every repeat after the first
+        played the intro the person asked to skip. Measured with a track whose
+        every second is a different tone, laid with `fromSeconds: 4` under a
+        thirty-second clip: seconds 4,5,6,7 then 0,1,2,3 then 4,5,6,7 again.
+        The repeat period on the edit clock is therefore the track's whole
+        length, not the length past the seek — so `loopPeriod` was wrong too,
+        and beat punches drifted by `fromSeconds` per pass, measured at 60 to
+        240ms out on a 120 bpm bed.
+
+        Cutting the intro off once, into a copy, makes the loop the loop the
+        person asked for. A stream copy, so it costs a remux rather than an
+        encode.
+      */
+      let bedFile = musicAsset.file;
+      let seekApplied = false;
+      /*
+        A looped AAC bed drops out for twenty milliseconds at every seam.
+
+        `-stream_loop` repeats the *decoded* stream, and an AAC decode carries
+        the encoder's priming and padding with it: measured on an 8-second
+        m4a laid under a 30-second edit, the level falls to digital silence
+        from 8.012s to 8.020s, once per pass. mp3 (which carries a gapless
+        tag), wav and ogg are all seamless; `audio/mp4`, `audio/x-m4a` and
+        `audio/aac` are all accepted uploads, so this is a hole in the bed of
+        every second video whose music came off a phone.
+
+        Decoding once to PCM removes the padding along with the codec. The
+        cost is disk for the length of the track and a few seconds of decode.
+      */
+      const bedIsAac = /\.(m4a|aac|mp4)$/i.test(musicAsset.file);
+      if (music.loop && bedIsAac) {
+        const flat = path.join(ctx.workDir, "bed-flat.wav");
+        // The container's own length is the track's length; the decode is
+        // longer than that by exactly the padding, so `-t` is what removes it.
+        // Measured: an 8.000s m4a decodes to 8.0109s, and the last 11ms are
+        // the near-silence that became the hole.
+        const nominal = await containerSeconds(musicAsset.file);
+        try {
+          await run(FFMPEG, [
+            "-hide_banner", "-y",
+            ...(music.fromSeconds > 0 ? ["-ss", music.fromSeconds.toFixed(3)] : []),
+            "-i", musicAsset.file,
+            ...(nominal !== null && nominal > music.fromSeconds
+              ? ["-t", (nominal - music.fromSeconds).toFixed(3)]
+              : []),
+            "-vn", "-c:a", "pcm_s16le", "-ar", "48000",
+            flat,
+          ], { limits: LIMITS.analysis });
+          bedFile = flat;
+          seekApplied = music.fromSeconds > 0;
+        } catch {
+          // A track that will not decode to PCM here will not decode in the
+          // graph either, and the graph's failure is the one with a message.
+        }
+      }
+      if (music.loop && music.fromSeconds > 0 && !seekApplied) {
+        const trimmed = path.join(ctx.workDir, `bed-from${Math.round(music.fromSeconds)}${path.extname(musicAsset.file) || ".m4a"}`);
+        try {
+          await run(FFMPEG, [
+            "-hide_banner", "-y",
+            "-ss", music.fromSeconds.toFixed(3),
+            "-i", musicAsset.file,
+            "-vn", "-c:a", "copy",
+            trimmed,
+          ], { limits: LIMITS.probe });
+          bedFile = trimmed;
+          seekApplied = true;
+        } catch {
+          // A container a stream copy cannot rewrite is not a reason to drop
+          // the music: fall back to seeking the first pass, which is what this
+          // did before, and the repeats bring the intro back.
+        }
+      }
+
       const inputArgs: string[] = [];
       // `-stream_loop` before `-i` repeats the decoded input; the trim below
       // is what makes the repetition finite. Without the trim a looped bed is
       // an input that never ends and a render that never returns.
       if (music.loop) inputArgs.push("-stream_loop", "-1");
-      // Seeking the input rather than trimming the filter means each repeat
-      // also starts past the intro, which is the point of asking for it.
-      if (music.fromSeconds > 0) inputArgs.push("-ss", music.fromSeconds.toFixed(3));
-      inputArgs.push("-i", musicAsset.file);
+      // Seeking the input rather than trimming the filter means the first pass
+      // starts past the intro. Where the bed repeats, the copy above has
+      // already removed it and there is nothing left to seek.
+      if (music.fromSeconds > 0 && !seekApplied) inputArgs.push("-ss", music.fromSeconds.toFixed(3));
+      inputArgs.push("-i", bedFile);
       const idx = addInput(...inputArgs);
 
       // The fades are the bed's own, not the edit's: `fade` ramps the finished
       // picture and mix together, and a bed that snapped in under a fade-in
       // would announce itself as an edit. Clamped to a third of the output so
       // the two never meet in the middle of a short clip.
+      /*
+        How much of the edit the bed actually covers.
+
+        With `loop: false` and a track shorter than the edit, everything
+        end-anchored was written past the end of the bed's own stream: the
+        fade-out never ran, so the music played at full level and stopped dead;
+        `atrim` left the output's audio stream shorter than its picture — 8
+        seconds of sound under 30 seconds of video, with `hasAudioOut` true —
+        and the note still said the music was laid "under the whole edit".
+      */
+      const bedSeconds = music.loop ? null : await containerSeconds(bedFile);
+      const covered =
+        bedSeconds === null
+          ? effectiveDuration
+          : Math.max(0, Math.min(effectiveDuration, bedSeconds - (seekApplied ? 0 : music.fromSeconds)));
+      const bedRunsShort = covered < effectiveDuration - 0.2;
+
       const askedFade = music.fadeSeconds;
       const fadeSeconds = Math.min(askedFade, effectiveDuration / 3);
       const fadeChain =
         fadeSeconds > 0.01
           ? `,afade=t=in:st=0:d=${fadeSeconds.toFixed(3)}` +
-            `,afade=t=out:st=${Math.max(0, effectiveDuration - fadeSeconds).toFixed(3)}:d=${fadeSeconds.toFixed(3)}`
+            `,afade=t=out:st=${Math.max(0, covered - fadeSeconds).toFixed(3)}:d=${fadeSeconds.toFixed(3)}`
           : "";
 
       /*
@@ -2917,6 +4092,9 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       musicParts.push(
         `[${idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,` +
           `atrim=0:${effectiveDuration.toFixed(3)},asetpts=PTS-STARTPTS,` +
+          // Padded to the length of the edit, so a bed that runs out does not
+          // take the output's audio stream with it.
+          `apad=whole_dur=${effectiveDuration.toFixed(3)},atrim=0:${effectiveDuration.toFixed(3)},` +
           `volume=${music.gainDb.toFixed(1)}dB${fadeChain}${dipChain}[mus]`,
       );
 
@@ -2927,8 +4105,26 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           // has to be both the thing you hear and the thing the compressor
           // listens to — ffmpeg will not read one link twice.
           musicParts.push(`[${aLabel}]asplit=2[spmain][spkey]`);
+          /*
+            The threshold, put where this recording's speech actually is.
+
+            0.02 is -34 dBFS, and it was written against a recording made at an
+            ordinary level: a take peaking near full scale crosses it on every
+            syllable. A take peaking at -29 dBFS RMS never crosses it at all —
+            measured, 0.0 dB of ducking across the whole file, while the note
+            said "ducking under the speech". The reduction was a function of how
+            close the person held the microphone, not of how loud they were
+            against the bed, and the same content recorded 12 dB hotter ducked
+            by 10 to 14 dB. `loudnorm` runs after this mix, so nothing
+            downstream could recover it either.
+
+            Scaled by the same peak the effects layer is placed against, and
+            floored so a very quiet file keys on speech rather than on its own
+            noise.
+          */
+          const key = duckThreshold(await sourcePeakDb());
           musicParts.push(
-            `[mus][spkey]sidechaincompress=threshold=0.02:ratio=6:attack=15:release=350[musduck]`,
+            `[mus][spkey]sidechaincompress=threshold=${key.toFixed(5)}:ratio=6:attack=15:release=350[musduck]`,
           );
           // `normalize=0` is not a detail. amix averages its inputs by default,
           // so mixing a bed in at -18dB would also drop the voice 6dB — the
@@ -2954,20 +4150,27 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         );
       }
 
+      /*
+        How far it reaches, in both languages. A bed that runs out is a fact
+        about the file the person uploaded, and the sentence that said "under
+        the whole edit" was the same sentence whether it did or not.
+      */
+      const reach = bedRunsShort ? `under the first ${covered.toFixed(1)}s of the edit` : "under the whole edit";
+      const reachAr = bedRunsShort ? `تحت أوّل ${covered.toFixed(1)} ثانية من التعديل` : "تحت التعديل كلّه";
       notes.push(
         !source.hasAudio
           ? t(
-              `laid music under the whole edit at ${music.gainDb.toFixed(0)}dB. This clip had no sound of its own, so the music is all of it`,
-              `وضعت الموسيقى تحت التعديل كلّه عند ${music.gainDb.toFixed(0)}dB. هذا المقطع لا صوت له أصلًا، فالموسيقى هي صوته كلّه`,
+              `laid music ${reach} at ${music.gainDb.toFixed(0)}dB. This clip had no sound of its own, so the music is all of it`,
+              `وضعت الموسيقى ${reachAr} عند ${music.gainDb.toFixed(0)}dB. هذا المقطع لا صوت له أصلًا، فالموسيقى هي صوته كلّه`,
             )
           : wantsDuck
             ? t(
-                `laid music under the whole edit at ${music.gainDb.toFixed(0)}dB, ducking under the speech`,
-                `وضعت الموسيقى تحت التعديل كلّه عند ${music.gainDb.toFixed(0)}dB، تنخفض تحت الكلام`,
+                `laid music ${reach} at ${music.gainDb.toFixed(0)}dB, ducking under the speech`,
+                `وضعت الموسيقى ${reachAr} عند ${music.gainDb.toFixed(0)}dB، تنخفض تحت الكلام`,
               )
             : t(
-                `laid music under the whole edit at ${music.gainDb.toFixed(0)}dB`,
-                `وضعت الموسيقى تحت التعديل كلّه عند ${music.gainDb.toFixed(0)}dB`,
+                `laid music ${reach} at ${music.gainDb.toFixed(0)}dB`,
+                `وضعت الموسيقى ${reachAr} عند ${music.gainDb.toFixed(0)}dB`,
               ),
       );
       if (fadeSeconds < askedFade - 0.001 && askedFade > 0) {
@@ -3000,21 +4203,59 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   let sfxMixed = false;
   if (soundEffects && sfxPlan) {
     if (sfxPlan.cues.length === 0) {
+      /*
+        Why there was nowhere to put one, rather than one reason for every
+        case. An edit under `MIN_EDIT_SECONDS` has no room for a layer at all
+        — including a two-second clip with a cut in the middle of it, which was
+        being told it had no cuts. That is the normal shape on the clips path,
+        where a short trailing clip is its own render.
+      */
       notes.push(
-        t(
-          "left the sound effects out: this edit has no cuts and no punch-ins for one to land on",
-          "تركت المؤثّرات الصوتية: هذا التعديل لا قصّات فيه ولا تقريبات تقع عليها",
-        ),
+        effectiveDuration < SFX_MIN_EDIT_SECONDS
+          ? t(
+              `left the sound effects out: at ${effectiveDuration.toFixed(1)}s this edit is too short for one to land in`,
+              `تركت المؤثّرات الصوتية: بطول ${effectiveDuration.toFixed(1)} ثانية هذا التعديل أقصر من أن يقع فيه مؤثّر`,
+            )
+          : t(
+              "left the sound effects out: this edit has no cuts and no punch-ins for one to land on",
+              "تركت المؤثّرات الصوتية: هذا التعديل لا قصّات فيه ولا تقريبات تقع عليها",
+            ),
       );
     } else {
       const labels: string[] = [];
+      /** The cues that became inputs, which is what the note has to count. */
+      const laid: typeof sfxPlan.cues = [];
       let missing = 0;
+
+      /*
+        `gainDb` is a level *relative to the programme*, so the programme has
+        to be measured.
+
+        The contract says so in as many words — "how far under the programme
+        the layer sits; -12 dB is an accent you feel on a cut and would not be
+        able to point at afterwards" — and the renderer treated it as an
+        absolute attenuation. Every file ships peak-normalised to -3 dBFS, so
+        the layer's peak was -3 + trimDb + gainDb whatever the recording was.
+        Measured on a source peaking at -17.7 dBFS, which is an ordinary
+        unnormalised phone or call recording: the whoosh came out at -16.5, a
+        decibel *above* the speech it was meant to sit twelve under. The mix is
+        deliberately upstream of `loudnorm`, so levelling could not recover the
+        ratio either — the same take recorded further from the mic got a
+        completely different mix and the same sentence.
+
+        Shifting the layer by however far the recording falls short of the
+        normalisation the files were built to restores the relationship the
+        number describes. Never a boost: a recording already at full scale
+        changes nothing.
+      */
+      const layerOffsetDb = sfxLayerOffsetDb(await sourcePeakDb());
       for (const cue of sfxPlan.cues) {
         const file = await sfxFile(cue.sound);
         if (!file) {
           missing += 1;
           continue;
         }
+        laid.push(cue);
         const idx = addInput("-i", file);
         const label = `sfx${labels.length}`;
         // Trimmed to the room left before the end. A file that would run past
@@ -3022,11 +4263,26 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         // waveform, which is a click on the last thing anybody hears.
         const room = Math.max(0.05, effectiveDuration - cue.at);
         const length = Math.min(cue.seconds, room);
+        /*
+          A trimmed cue is ramped out, because `atrim` is a step.
+
+          The comment above is right about why the trim exists and wrong that
+          it removes the click: cutting the file short *is* the mid-waveform
+          cut. Measured at the trim point, `whoosh-soft` is at -7.6 dBFS,
+          `whoosh-air` at -7.8 and `impact-deep` at -9.4 — a near-full-amplitude
+          step to digital silence on the final frame, which short-form
+          platforms play again immediately, so it is a click on every loop. Six
+          milliseconds is under any threshold for a fade and well over the one
+          for a step.
+        */
+        const clipped = length < cue.seconds - 1e-3;
+        const ramp = Math.min(0.006, length / 4);
         const delayMs = Math.round(cue.at * 1000);
         sfxParts.push(
           `[${idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,` +
             `atrim=0:${length.toFixed(3)},asetpts=PTS-STARTPTS,` +
-            `volume=${(soundEffects.gainDb + cue.trimDb).toFixed(1)}dB` +
+            (clipped ? `afade=t=out:st=${(length - ramp).toFixed(4)}:d=${ramp.toFixed(4)},` : "") +
+            `volume=${(soundEffects.gainDb + cue.trimDb + layerOffsetDb).toFixed(1)}dB` +
             `${delayMs > 0 ? `,adelay=${delayMs}:all=1` : ""}[${label}]`,
         );
         labels.push(label);
@@ -3084,8 +4340,12 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           );
         }
 
-        const cuts = sfxPlan.cues.filter((c) => c.reason === "cut").length;
-        const hits = sfxPlan.cues.filter((c) => c.reason === "punch").length;
+        // Counted off what was laid, not off what was planned. The headline
+        // used `labels.length` and the breakdown used the plan, so a build
+        // missing one file said "laid 2 sound effects: 3 on the cuts".
+        const cuts = laid.filter((c) => c.reason === "cut").length;
+        const hits = laid.filter((c) => c.reason === "punch").length;
+        const riserLaid = laid.some((c) => c.reason === "open");
         const parts: string[] = [];
         const partsAr: string[] = [];
         if (cuts > 0) {
@@ -3096,7 +4356,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           parts.push(`${hits} under the punch-ins`);
           partsAr.push(`${hits} تحت التقريبات`);
         }
-        if (riserCue) {
+        if (riserLaid) {
           parts.push("and a riser into the first seam");
           partsAr.push("ولفتة صاعدة إلى أوّل وصلة");
         }
@@ -3147,6 +4407,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   if (videoParts.length > 0) graphParts.push(`[${vLabel}]${videoParts.join(",")}[${mainVideoOut}]`);
   else if (hasOverlays) graphParts.push(`[${kept ? vLabel : "0:v"}]null[OVBASE]`);
   graphParts.push(...overlayLinks);
+  graphParts.push(...speechParts);
   graphParts.push(...musicParts);
   graphParts.push(...sfxParts);
   if (hasAudioOut && audioParts.length > 0) graphParts.push(`[${aLabel}]${audioParts.join(",")}[aout]`);
@@ -3196,7 +4457,18 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
   const graph = graphPrefix + graphParts.join(";");
 
-  const args = ["-hide_banner", "-y", "-i", input, ...extraInputs];
+  /*
+    Thread counts stated rather than left to ffmpeg's own guess.
+
+    See `cores.ts`: what ffmpeg counts is the host's CPUs, not this machine's,
+    so on Fly it starts dozens of frame threads on a box with one core — and
+    each in-flight thread holds a decoded frame, which makes the count a
+    multiplier on the peak memory the table above this function is about.
+
+    Before the inputs, because `-threads` is a global option and ffmpeg reads
+    an option as belonging to the next file when it comes after one.
+  */
+  const args = ["-hide_banner", "-y", ...threadArgs(), "-i", input, ...extraInputs];
   if (graph.length > 0) args.push("-filter_complex", graph);
 
   args.push("-map", finalV);
@@ -3207,6 +4479,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   args.push(...FASTSTART, output);
 
   ctx.onProgress?.(0.15, describeWork(plan));
+  ctx.onCommand?.(args);
 
   // Progress from ffmpeg's own reported timestamp, not from a guess.
   await run(FFMPEG, args, {

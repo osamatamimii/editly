@@ -16,12 +16,12 @@
  * refusals is how two doors drift apart.
  */
 import { randomUUID } from "crypto";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { db, projectsTable, jobsTable, subscriptionsTable, renderFollowupsTable } from "@workspace/db";
 import type { EditOperation } from "@workspace/api-zod";
 import { evenlySpacedPunches } from "./templates";
 import { planKeyFrom, referenceForPlan } from "./plan-limits";
-import { usageFor } from "./usage";
+import { usageFor, usageNotConsulted } from "./usage";
 import { decideRender } from "./render-policy";
 import { isDuplicateActiveJob, ALREADY_RENDERING } from "./one-active-job";
 
@@ -69,7 +69,7 @@ export async function startRenderForProject(
   if (sub?.suspendedAt) {
     const stopped = decideRender({
       plan: planKeyFrom(sub.plan),
-      usage: { minutesUsed: 0, minutesIncluded: 0, minutesRemaining: 0, exhausted: false, minutesGranted: 0 },
+      usage: usageNotConsulted(),
       operations: [],
       suspendedAt: sub.suspendedAt,
     });
@@ -118,55 +118,118 @@ export async function startRenderForProject(
   // Everything above this line is what the caller *asked for*. Everything
   // below is what the plan they pay for actually allows.
   const planKey = planKeyFrom(sub?.plan);
-  const decision = decideRender({
-    plan: planKey,
-    usage: await usageFor(userId, planKey),
-    sourceDurationSeconds: project.duration,
-    operations: requested,
-    suspendedAt: sub?.suspendedAt,
-  });
 
-  if (!decision.allowed) {
-    return { ok: false, status: decision.status, body: decision.body };
-  }
+  /*
+    The allowance is read and spent inside one lock on this person.
 
-  if (decision.corrections.length) {
-    log?.info({ userId, plan: planKey, corrections: decision.corrections }, "render plan corrected by policy");
-  }
+    `usageFor` subtracts work in flight, so the arithmetic was right; the
+    ordering was not. Reading the meter and inserting the job were two separate
+    statements on two separate connections, and between them is a window in
+    which another request reads the same meter. The per-project unique index
+    does not help — it is per *project*, and this is the account.
 
-  const plan = { version: 1 as const, operations: decision.operations };
+    Measured on the real server against Postgres: five simultaneous
+    `POST /render` on five projects of a free account with 300 seconds left
+    produced **four accepted jobs, each carrying `remaining_seconds = 300`** —
+    twenty minutes of encoding authorised against a five-minute plan. Nothing
+    failed. Each job was individually correct, each row was individually
+    defensible, and the meter only discovered it afterwards, on renders already
+    produced and already paid for in machine time.
 
-  // The SELECT above is the friendly check; this is the one that holds.
-  // Between the two there is a window in which a second request also sees
-  // "nothing pending", and what it costs is the customer's month — two
-  // encodes of one clip, both billed, one of them invisible.
-  let job: JobRow;
+    An advisory lock rather than `SELECT … FOR UPDATE` because there is no one
+    row to lock: the quantity being reserved is a sum over the person's jobs
+    and grants, and there is no "account balance" row to hold. The lock is
+    taken on the user id and released when the transaction ends, either way.
+    It serialises one person's render starts against each other and nobody
+    else's — two customers pressing the button in the same millisecond never
+    meet.
+
+    `hashtextextended` because advisory locks are keyed by bigint and the user
+    id is a uuid. A collision between two users costs one of them a few
+    milliseconds of waiting, which is why a hash is acceptable here and would
+    not be if this were a correctness boundary between accounts.
+  */
+  /**
+   * What the reservation came back with: a job, or a refusal to pass on.
+   *
+   * Modelled as a value rather than thrown, because a refusal here is an
+   * ordinary answer — "you have no minutes left" is not an error, and throwing
+   * it would roll back a transaction that has nothing to roll back.
+   */
+  type Reserved =
+    | { accepted: true; job: JobRow; corrections: readonly string[] }
+    | { accepted: false; status: number; body: Record<string, unknown> };
+
+  let reserved: Reserved;
   try {
-    [job] = await db
-      .insert(jobsTable)
-      .values({
-        id: randomUUID(),
-        userId,
-        projectId: project.id,
-        status: "queued",
-        plan,
-        inputPath: project.videoPath,
-        // Snapshotted so that changing or clearing the reference while this
-        // sits in the queue cannot quietly alter a render already accepted —
-        // and gated on the plan, so a reference set while paying is not still
-        // applied after a downgrade to a plan that does not include it.
-        referencePath: referenceForPlan(planKey, project.referenceVideoPath),
-        // Snapshotted for the same reason, one line up: a render already
-        // accepted must not change language because the next thing they typed
-        // was in the other one.
-        language,
-        // The worker re-checks this against the file it actually downloads.
-        maxSourceSeconds: decision.maxSourceSeconds,
-        remainingSeconds: decision.remainingSeconds,
-        priority: decision.priority,
-      })
-      .returning();
+    reserved = await db.transaction(async (tx): Promise<Reserved> => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`);
+
+      const decision = decideRender({
+        plan: planKey,
+        // Read through `tx`, so the meter is read inside the lock rather than
+        // beside it. This is the line the whole transaction exists for.
+        usage: await usageFor(userId, planKey, tx),
+        sourceDurationSeconds: project.duration,
+        operations: requested,
+        suspendedAt: sub?.suspendedAt,
+      });
+
+      if (!decision.allowed) {
+        return { accepted: false, status: decision.status, body: decision.body };
+      }
+
+      const plan = { version: 1 as const, operations: decision.operations };
+
+      // Decided here, next to the rest of the decision and inside the lock,
+      // rather than at the insert: which reference a job carries is part of
+      // what the plan allows, exactly like the minutes read a few lines up.
+      // Both are read off `planKey` at the same instant, so a job can never be
+      // written with one plan's allowance and another plan's reference. It
+      // costs nothing to hold — it is arithmetic, not a query — and keeping it
+      // beside `decision` means the transaction contains the whole judgement.
+      const referencePath = referenceForPlan(planKey, project.referenceVideoPath);
+
+      // The insert is inside the lock too, and that is not an optimisation.
+      // A lock released before the write leaves exactly the window it was
+      // taken to close: the next request would acquire it, read a meter that
+      // still shows nothing in flight, and authorise the same minutes again.
+      const [created] = await tx
+        .insert(jobsTable)
+        .values({
+          id: randomUUID(),
+          userId,
+          projectId: project.id,
+          status: "queued",
+          plan,
+          inputPath: project.videoPath as string,
+          // Snapshotted so that changing or clearing the reference while this
+          // sits in the queue cannot quietly alter a render already accepted —
+          // and gated on the plan above, so a reference set while paying is not
+          // still applied after a downgrade to a plan that does not include it.
+          referencePath,
+          // Snapshotted for the same reason, one line up: a render already
+          // accepted must not change language because the next thing they typed
+          // was in the other one.
+          language,
+          // The worker re-checks this against the file it actually downloads.
+          maxSourceSeconds: decision.maxSourceSeconds,
+          remainingSeconds: decision.remainingSeconds,
+          priority: decision.priority,
+        })
+        .returning();
+
+      return { accepted: true, job: created as JobRow, corrections: decision.corrections };
+    });
   } catch (error) {
+    /*
+      The other race, caught outside the transaction because it aborts one.
+
+      `jobs_one_active_per_project` is what makes a double-click on a single
+      project a refusal rather than two renders. Its violation rolls the whole
+      transaction back — including the reservation — which is correct: nothing
+      was reserved because nothing was inserted.
+    */
     if (!isDuplicateActiveJob(error)) throw error;
     const [existing] = await db
       .select({ id: jobsTable.id })
@@ -180,6 +243,15 @@ export async function startRenderForProject(
       )
       .limit(1);
     return { ok: false, status: 409, body: { error: ALREADY_RENDERING, ...(existing ? { jobId: existing.id } : {}) } };
+  }
+
+  if (!reserved.accepted) {
+    return { ok: false, status: reserved.status, body: reserved.body };
+  }
+  const job = reserved.job;
+
+  if (reserved.corrections.length) {
+    log?.info({ userId, plan: planKey, corrections: reserved.corrections }, "render plan corrected by policy");
   }
 
   await db

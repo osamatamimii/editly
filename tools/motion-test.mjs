@@ -84,6 +84,21 @@ if (!process.env.CHROMIUM_PATH) {
 
 const { spring, sceneHtml, renderMotionLayer, wordsOf } = await import(pathToFileURL(modulePath).href);
 
+// The renderer too, because the cost of the layer is decided at its call site:
+// the module draws whatever window it is given, and the bug was in what it was
+// given.
+const renderModulePath = path.join(buildDir, "ffmpeg.mjs");
+spawnSync(
+  require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/worker"] }),
+  [
+    path.join(process.cwd(), "artifacts/worker/src/ffmpeg.ts"),
+    "--bundle", "--platform=node", "--format=esm", "--target=node22",
+    `--outfile=${renderModulePath}`, "--log-level=error",
+  ],
+  { stdio: "inherit" },
+);
+const { renderPlan } = await import(pathToFileURL(renderModulePath).href);
+
 let checks = 0;
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -502,6 +517,63 @@ if (!first) {
 await rm(outA, { recursive: true, force: true });
 await rm(outB, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });
+
+console.log("\nThe layer is drawn for the titles, not for the video");
+{
+  /*
+    The layer was always rendered from zero, so its cost was the *end* time of
+    the last title rather than its length — and every frame before the first
+    one is fully transparent. A title at 8:30 of a podcast asked Chromium for
+    51,110 screenshots: measured at 102ms each and 12 KB per empty frame, that
+    is eighty-five minutes and six hundred megabytes to draw two and a half
+    seconds of text, on a box with 1 GB, with no deadline and no progress
+    reported while it ran. The job looked hung because it was.
+  */
+  const late = {
+    width: 160,
+    height: 284,
+    fps: 25,
+    titles: [{ text: "Chapter two", at: 0.5, durationSeconds: 1.5, style: "card", position: "bottom" }],
+    durationSeconds: 2.6,
+  };
+  if (process.env.CHROMIUM_PATH) {
+    const dir = await mkdtemp(path.join(tmpdir(), "editly-motion-window-"));
+    const layer = await renderMotionLayer(late, dir);
+    check("a short title is a short layer", layer !== null && layer.frames <= 2.6 * 25 * 4 + 4, String(layer?.frames));
+    await rm(dir, { recursive: true, force: true });
+
+    // And the render asks for that window rather than for everything up to it.
+    const work = await mkdtemp(path.join(tmpdir(), "editly-motion-render-"));
+    const clip = path.join(work, "v.mp4");
+    spawnSync("ffmpeg", [
+      "-y", "-loglevel", "error",
+      "-f", "lavfi", "-i", "color=c=navy:s=160x284:r=25:d=20",
+      "-f", "lavfi", "-i", "sine=frequency=300:duration=20",
+      "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+      clip,
+    ]);
+    let command = [];
+    await renderPlan(
+      clip,
+      { version: 1, operations: [{ type: "motionTitle", text: "Chapter two", at: 15, durationSeconds: 2.5, style: "card", position: "bottom" }] },
+      { workDir: work, onCommand: (args) => { command = args; } },
+    );
+    const drawn = (await readdir(path.join(work, "motion"))).filter((f) => f.endsWith(".png")).length;
+    check(
+      "a title fifteen seconds in does not cost fifteen seconds of screenshots",
+      drawn > 0 && drawn < 20 * 25 * 4 * 0.3,
+      `${drawn} frames against ${20 * 25 * 4} for the whole video`,
+    );
+    check(
+      "and the layer is put back where the title belongs",
+      /setpts=N\/[\d.]+\/TB\+14\.5/.test(command.join(" ")),
+      command.join(" ").slice(0, 300),
+    );
+    await rm(work, { recursive: true, force: true });
+  } else {
+    check("a short title is a short layer (skipped: no browser)", true);
+  }
+}
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {

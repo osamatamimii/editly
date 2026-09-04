@@ -347,6 +347,81 @@ section("Dry is the default, and dry deletes nothing");
       S.retentionFrom({ RETENTION_UNUSED_SOURCE_DAYS: "-4" }).unusedSourceDays === 30,
   );
 
+  /*
+    And zero is not a number of days either, for the two windows that delete
+    something irreplaceable.
+
+    The guard was `raw >= 0`, and the comment two lines above it said a typo
+    "must not be able to mean 'delete everything today'". Zero is exactly that
+    instruction: a project created five minutes ago has `coldDays` of 0, and
+    `0 >= 0` selects it. Two ways a real deployment reached it —
+    `Number("") === 0`, so a variable that is present and empty did **not**
+    fall back; and this same file documents `thumbnailDays: 0` as meaning
+    *never*, so an operator writes zero by analogy and gets the opposite.
+  */
+  check(
+    "an empty variable falls back rather than meaning today",
+    S.retentionFrom({ RETENTION_UNUSED_SOURCE_DAYS: "" }).unusedSourceDays === 30 &&
+      S.retentionFrom({ RETENTION_PREVIEW_DAYS: "" }).previewDays === 90,
+    JSON.stringify(S.retentionFrom({ RETENTION_UNUSED_SOURCE_DAYS: "" })),
+  );
+  check(
+    "and so does a literal zero, which is the one value that means 'delete it today'",
+    S.retentionFrom({ RETENTION_UNUSED_SOURCE_DAYS: "0" }).unusedSourceDays === 30 &&
+      S.retentionFrom({ RETENTION_PREVIEW_DAYS: "0" }).previewDays === 90,
+    JSON.stringify(S.retentionFrom({ RETENTION_UNUSED_SOURCE_DAYS: "0" })),
+  );
+  check(
+    "while zero still means never for the poster frames, where it is documented and harmless",
+    S.retentionFrom({ RETENTION_THUMBNAIL_DAYS: "0" }).thumbnailDays === 0,
+    String(S.retentionFrom({ RETENTION_THUMBNAIL_DAYS: "0" }).thumbnailDays),
+  );
+
+  /*
+    A window may be made longer than what the customer was told, never shorter.
+
+    `/privacy` renders `RETENTION.previewDays` and `RETENTION.unusedSourceDays`
+    and this suite's neighbour binds that page to `DEFAULT_RETENTION`. The
+    deployed windows are environment variables, and nothing reconciled the two:
+    `RETENTION_UNUSED_SOURCE_DAYS=7` deleted customer sources twenty-three days
+    before the page they agreed to said it would, with a green build.
+  */
+  check(
+    "a window shorter than the published policy is refused in favour of the promise",
+    S.retentionFrom({ RETENTION_UNUSED_SOURCE_DAYS: "7" }).unusedSourceDays === 30 &&
+      S.retentionFrom({ RETENTION_PREVIEW_DAYS: "10" }).previewDays === 90,
+    JSON.stringify(S.retentionFrom({ RETENTION_UNUSED_SOURCE_DAYS: "7", RETENTION_PREVIEW_DAYS: "10" })),
+  );
+  check(
+    "a longer one is honoured, because keeping something longer breaks no promise",
+    S.retentionFrom({ RETENTION_UNUSED_SOURCE_DAYS: "120" }).unusedSourceDays === 120,
+    String(S.retentionFrom({ RETENTION_UNUSED_SOURCE_DAYS: "120" }).unusedSourceDays),
+  );
+
+  /*
+    And the shape of the thing all of that protects: a file uploaded today is
+    not sweepable, whatever a window says. Asked directly, because the question
+    "prove the age computation cannot select a file uploaded today" is the one
+    this module exists to be able to answer yes to.
+  */
+  const today = new Date();
+  const uploadedToday = S.chooseRemovals({
+    projects: [{
+      id: "p-fresh", userId: USER,
+      editedVideoPath: null, videoPath: `${USER}/p-fresh/source.mp4`, thumbnailPath: null,
+      lastOpenedAt: today, updatedAt: today, renders: 0,
+    }],
+    clips: [],
+    now: today,
+    floor: today,
+    config: S.retentionFrom({ RETENTION_SWEEP: "on", RETENTION_UNUSED_SOURCE_DAYS: "0" }),
+  });
+  check(
+    "a source uploaded minutes ago is never selected, whatever the window says",
+    uploadedToday.length === 0,
+    JSON.stringify(uploadedToday),
+  );
+
   const calls = [];
   const result = await S.applyRemovals(
     [{ key: `${USER}/p1/edited.preview.webm`, kind: "preview", why: "cold" }],

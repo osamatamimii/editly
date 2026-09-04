@@ -507,6 +507,17 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
   let measuredLufs: number | null = null;
 
   const probe = await probeStreams(file);
+  /*
+    An unreadable probe is a fact about our tooling, not about the render.
+
+    It goes to the log, where somebody can act on it, and never to the notes:
+    the person's file is almost certainly fine, and the checks below simply
+    cannot be made. Every one of them is now guarded on `readable`, so the
+    review reports nothing rather than reporting failure.
+  */
+  if (!probe.readable) {
+    warnings.push("could not read the output's own header, so nothing below was checked");
+  }
   /** What the render intended to produce, not what arrived with the footage. */
   const expectedAudio = ctx.expectedAudio ?? ctx.sourceHadAudio;
 
@@ -527,7 +538,15 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
   // The renderer maps an audio stream whenever the source has one, so a source
   // with sound and an output without it means the graph dropped a link on the
   // floor. Deterministic, so not retried — but said out loud.
-  if (expectedAudio && !probe.hasAudio) {
+  /*
+    Only when we actually read the file.
+
+    "The header says there is no audio stream" and "we could not read the
+    header" are the same value in a boolean and completely different facts to
+    the person. Claiming the first when the second happened is an apology for a
+    bug that did not occur.
+  */
+  if (probe.readable && expectedAudio && !probe.hasAudio) {
     warnings.push(
       ctx.sourceHadAudio
         ? "source had an audio track and the output does not"
@@ -568,8 +587,8 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
           notes.push(
             corrected.compressedDynamics
               ? t(
-                  `the levelling missed on the first pass. The mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected — the range was compressed to bring it up without clipping, rather than a clean level shift`,
-                  `أخطأت التسوية في التمريرة الأولى: خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقيس وصُحّح — وضُغط المدى الديناميكي لرفعه دون قصّ القمم، لا بإزاحة مستوى نظيفة`,
+                  `the levelling missed on the first pass. The mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected. The range was compressed to bring it up without clipping, rather than by a clean level shift`,
+                  `أخطأت التسوية في التمريرة الأولى: خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقيس وصُحّح، وضُغط المدى الديناميكي لرفعه دون قصّ القمم، لا بإزاحة مستوى نظيفة`,
                 )
               : t(
                   `the levelling missed on the first pass. The mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected`,
@@ -869,7 +888,33 @@ function lastJsonBlock(text: string): Record<string, unknown> | null {
   }
 }
 
-async function probeStreams(file: string): Promise<{ duration: number; hasAudio: boolean; hasVideo: boolean }> {
+/**
+ * What the output file says about itself, and whether we could read it at all.
+ *
+ * `readable` is the field this function grew, and the reason is the sentence it
+ * used to cause. A probe that could not be parsed returned
+ * `{duration: 0, hasAudio: false, hasVideo: false}` — and every one of those
+ * falses was then read as a fact. `hasAudio: false` on a render whose source
+ * had sound produces, word for word, "the sound did not survive this edit.
+ * That is a fault on our side, not in your footage", written into the person's
+ * chat about a file that plays perfectly.
+ *
+ * An apology for a bug that did not happen is worse than silence: it teaches
+ * somebody to distrust a render that is fine, and it sends them to support
+ * about a file they should have posted.
+ *
+ * `duration: 0` from the same return also skipped the length check and the
+ * whole vision review, quietly, on the path where those matter most.
+ */
+interface OutputProbe {
+  /** False when ffprobe could not be read. Every other field is then meaningless. */
+  readable: boolean;
+  duration: number;
+  hasAudio: boolean;
+  hasVideo: boolean;
+}
+
+async function probeStreams(file: string): Promise<OutputProbe> {
   const out = await new Promise<string>((resolve, reject) => {
     const child = spawn(FFPROBE, [
       "-v", "error",
@@ -898,11 +943,12 @@ async function probeStreams(file: string): Promise<{ duration: number; hasAudio:
       streams?: Array<{ codec_type?: string }>;
     };
     return {
+      readable: true,
       duration: Number(parsed.format?.duration) || 0,
       hasAudio: (parsed.streams ?? []).some((s) => s.codec_type === "audio"),
       hasVideo: (parsed.streams ?? []).some((s) => s.codec_type === "video"),
     };
   } catch {
-    return { duration: 0, hasAudio: false, hasVideo: false };
+    return { readable: false, duration: 0, hasAudio: false, hasVideo: false };
   }
 }

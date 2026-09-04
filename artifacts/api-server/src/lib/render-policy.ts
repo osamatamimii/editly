@@ -20,7 +20,7 @@
  */
 import { MAX_PLAN_OPERATIONS } from "@workspace/api-zod";
 import type { EditOperation } from "@workspace/api-zod";
-import { exhaustedMessage, minutesFrom, PLAN_LIMITS, type PlanKey } from "./plan-limits";
+import { exhaustedMessage, inFlightMessage, minutesFrom, PLAN_LIMITS, type PlanKey } from "./plan-limits";
 // Type-only: this module must not pull the database driver into a decision that
 // needs nothing but numbers, or its tests would need a Postgres to run.
 import type { Usage } from "./usage";
@@ -109,6 +109,9 @@ export interface PolicyInput {
   suspendedAt?: Date | string | null;
 }
 
+/** See the refusal in `decideRender`. */
+export const MAX_RENDERS_IN_FLIGHT = 3;
+
 export function decideRender(input: PolicyInput): PolicyResult {
   const limits = PLAN_LIMITS[input.plan];
 
@@ -132,18 +135,52 @@ export function decideRender(input: PolicyInput): PolicyResult {
     };
   }
 
-  // The allowance next, because it is the only refusal the user can fix by
-  // waiting rather than by changing the request.
-  if (input.usage.exhausted) {
+  // How many of this person's renders may be going at once.
+  //
+  // Not a plan feature and not on the pricing page: it is a fairness rule and
+  // a backstop. The allowance gate above reserves work in flight by the
+  // project's own duration, and a project whose duration the browser never
+  // sent reserves nothing — so without a hard count on the number of doors a
+  // single account can hold open, an allowance can still be spent several
+  // times over by simply omitting a field.
+  //
+  // Three, because the queue is one worker deep. A fourth simultaneous render
+  // does not finish any sooner for being accepted; it only makes the estimate
+  // on the other three wrong.
+  if (input.usage.jobsInFlight >= MAX_RENDERS_IN_FLIGHT) {
     return {
       allowed: false,
       status: 429,
       body: {
-        error: exhaustedMessage(input.plan, input.usage.minutesIncluded),
+        error: `You already have ${input.usage.jobsInFlight} renders going. They run one at a time, so start this one when one of them finishes.`,
+        tooManyInFlight: true,
+        plan: input.plan,
+        jobsInFlight: input.usage.jobsInFlight,
+      },
+    };
+  }
+
+  // The allowance next, because it is the only refusal the user can fix by
+  // waiting rather than by changing the request.
+  if (input.usage.exhausted) {
+    // Which of the two sentences depends on what is actually holding the
+    // allowance. Work in flight is not spend — nobody has been charged for it,
+    // and it clears without anybody doing anything — so saying "you have used
+    // all your minutes" beside a meter reading zero would be a contradiction
+    // the person is right to disbelieve.
+    const heldByFlight = input.usage.minutesUsed < input.usage.minutesIncluded && input.usage.minutesInFlight > 0;
+    return {
+      allowed: false,
+      status: 429,
+      body: {
+        error: heldByFlight
+          ? inFlightMessage(input.plan, input.usage.minutesIncluded, input.usage.minutesInFlight)
+          : exhaustedMessage(input.plan, input.usage.minutesIncluded, input.usage.minutesUsed),
         limitReached: true,
         plan: input.plan,
         minutesUsed: input.usage.minutesUsed,
         minutesIncluded: input.usage.minutesIncluded,
+        minutesInFlight: input.usage.minutesInFlight,
       },
     };
   }
@@ -250,7 +287,12 @@ export function decideRender(input: PolicyInput): PolicyResult {
     operations,
     corrections,
     maxSourceSeconds: limits.maxUploadMinutes * 60,
-    remainingSeconds: input.usage.minutesRemaining * 60,
+    // The seconds balance, not the shown one multiplied back up. `minutes`
+    // here is ceiled on the used side, so `* 60` handed the worker a budget
+    // that could be up to 59 seconds short of what the customer actually had
+    // — and the worker enforces it exactly, so the refusal quoted a number
+    // that was wrong in our favour.
+    remainingSeconds: input.usage.secondsRemaining,
     // Two bands, not four. Priority is worth having as "paid work goes first"
     // and worth nothing as a ladder between paying customers — a Studio
     // subscriber jumping a Pro one buys us nothing and costs the Pro one the

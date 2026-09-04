@@ -209,6 +209,11 @@ jobs:
       # deadline wrapper, and the publish loop is sequential, so one wedged
       # socket stalled every post behind it.
       - run: node tools/publish-deadline-test.mjs
+      # The other two ways this box runs out. Memory has a table, a piece cap
+      # and a paragraph in fly.toml; disk and cores had nothing, and both fail
+      # without an error anybody can read — `No space left on device` inside a
+      # capped stderr tail, and the OOM killer, which leaves nothing at all.
+      - run: node tools/machine-test.mjs
       - run: node tools/planner-test.mjs
       # Beside the planner, because the sentence is half of it: cutting a word
       # somebody meant is worse than leaving one they did not, so the checks
@@ -348,13 +353,6 @@ jobs:
       # layout that is right in one and broken in the other is invisible to
       # everyone on the team who only reads it in the direction they use.
       - run: node tools/landing-test.mjs
-      # The screen that takes clips out of a recording, held to the thing it
-      # now claims: that it is a clip-extraction section and not where a
-      # podcast gets edited. Half the suite is the words and half is the screen
-      # being able to do what they say, because a heading promising an action
-      # the page cannot perform is the same lie as a filter that reads
-      # correctly and does nothing.
-      - run: node tools/clip-section-test.mjs
       # And beside it, the question landing-test cannot ask, because it only
       # ever opens the landing page: whether the *rest* of the product declares
       # the language it is actually written in. `index.html` said Arabic for
@@ -362,6 +360,14 @@ jobs:
       # sentence ended with a leading full stop. Nothing failed; it just looked
       # like carelessness on the screen where somebody decides whether to pay.
       - run: node tools/language-test.mjs
+      # The last of the suites that read the built `dist/`, and kept after the
+      # landing/language pair so that pair stays adjacent: the screen that takes
+      # clips out of a recording, held to the thing it now claims — that it is a
+      # clip-extraction section and not where a podcast gets edited. Half the
+      # suite is the words and half is the screen being able to do what they
+      # say, because a heading promising an action the page cannot perform is
+      # the same lie as a filter that reads correctly and does nothing.
+      - run: node tools/clip-section-test.mjs
       - run: node tools/worker-test.mjs
       # Beside the worker because that is where it runs, and separate because
       # of what it is: the only thing in this product that deletes. Its checks

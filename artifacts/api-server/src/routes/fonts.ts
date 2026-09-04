@@ -25,8 +25,9 @@ import { and, desc, eq } from "drizzle-orm";
 import { db, captionFacesTable } from "@workspace/db";
 import { RegisterFaceBody, DeleteFaceParams } from "@workspace/api-zod";
 import { currentUserId } from "../middlewares/auth";
-import { isOwnedFontPath } from "../lib/storage";
+import { isOwnedFontPath, deleteObjects } from "../lib/storage";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
+import { badRequest } from "../lib/bad-request";
 
 const router: IRouter = Router();
 
@@ -83,7 +84,7 @@ router.post("/fonts", rateLimit(LIMITS.registerFont), async (req, res): Promise<
   const userId = currentUserId(req);
   const body = RegisterFaceBody.safeParse(req.body);
   if (!body.success) {
-    res.status(400).json({ error: body.error.message });
+    badRequest(res, body.error);
     return;
   }
 
@@ -143,27 +144,55 @@ router.delete("/fonts/:id", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const params = DeleteFaceParams.safeParse(req.params);
   if (!params.success) {
-    res.status(400).json({ error: params.error.message });
+    badRequest(res, params.error);
     return;
   }
   const deleted = await db
     .delete(captionFacesTable)
     .where(and(eq(captionFacesTable.id, params.data.id), eq(captionFacesTable.userId, userId)))
-    .returning({ id: captionFacesTable.id });
+    .returning({
+      id: captionFacesTable.id,
+      sourcePath: captionFacesTable.sourcePath,
+      facePath: captionFacesTable.facePath,
+      previewPath: captionFacesTable.previewPath,
+    });
 
   if (deleted.length === 0) {
     res.status(404).json({ error: "Font not found." });
     return;
   }
-  /*
-    The row goes; the objects stay until the storage sweep takes them.
 
-    Deleting them here would mean three calls that can each fail halfway, on a
-    path a person triggers by pressing a small × — and an edit already rendered
-    with this face is not re-rendered, so nothing is served from these bytes
-    after the row is gone. A file nobody references costs a few hundred
-    kilobytes; a half-deleted face costs a picker entry that cannot be removed.
+  /*
+    The row first, then the bytes — and the bytes really do go.
+
+    This used to say "the objects stay until the storage sweep takes them".
+    There is no such sweep. The retention sweep's `owned()` predicate requires
+    the key to start with `${userId}/${projectId}/`, and a font lives at
+    `${userId}/fonts/…`, outside every project — so it is unreachable by the
+    only thing in this product that reclaims storage. Three objects leaked per
+    deleted font, twenty-four fonts per account, deletable and re-uploadable
+    without limit, and nothing but account deletion ever took them back. The
+    comment's own cost model — "a file nobody references costs a few hundred
+    kilobytes" — was describing a bounded cost for something unbounded.
+
+    The other half of that comment is still right and is why the order is this
+    way round: a half-deleted face would leave a picker entry nobody can
+    remove, which is worse than an orphaned file. So the row goes first and is
+    already gone by the time this runs, `deleteObjects` answers rather than
+    throwing, and a failure here is logged and reported to nobody — the font is
+    deleted as far as the person is concerned, because it is.
   */
+  const keys = [deleted[0]!.sourcePath, deleted[0]!.facePath, deleted[0]!.previewPath].filter(
+    (key): key is string => typeof key === "string" && key.length > 0,
+  );
+  const swept = await deleteObjects(keys);
+  if (!swept.removed) {
+    req.log?.warn(
+      { face: params.data.id, keys, reason: swept.reason },
+      "a deleted font's objects could not be removed and nothing else will reclaim them",
+    );
+  }
+
   res.status(204).end();
 });
 

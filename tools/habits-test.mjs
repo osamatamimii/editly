@@ -35,6 +35,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -289,6 +290,51 @@ section("A plan that already has the thing is not given it twice");
   check(
     "and one caption track",
     operations.filter((o) => o.type === "autoCaptions").length === 1,
+  );
+}
+
+section("The renders it reads from are ones this product actually writes");
+{
+  /*
+    Everything above tests `habitsIn`, which is pure and was always right.
+    `habitsFor` is what feeds it, and it asked the database for
+    `status = 'succeeded'`.
+
+    Nothing in this repository has ever written that word to `jobs.status`. The
+    vocabulary is `queued → running → done | failed`, stated in the schema, in
+    `JobStatus`, and in the worker. So the query was valid SQL that matched
+    zero rows, `habitsIn([])` returned an empty list, and `applyHabits` took its
+    early return on every call this module has ever served.
+
+    There is no error and no log line, and the reply simply never mentions a
+    fill — which is indistinguishable from "you have not built enough of a
+    habit yet". A person who had made forty vertical TikTok cuts with karaoke
+    captions in Cairo Black still had to type all of it on the forty-first,
+    which is the thing this whole file exists to stop.
+
+    `routes/admin.ts` documents this class at length after paying for it once
+    already: a status nothing writes simply matches nothing.
+  */
+  const source = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/habits.ts"), "utf8");
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  const asked = [...code.matchAll(/jobsTable\.status,\s*"([^"]+)"/g)].map((m) => m[1]);
+  check("it filters on a job status at all", asked.length > 0, JSON.stringify(asked));
+
+  // The vocabulary, read from the schema rather than written down here.
+  const schema = readFileSync(path.join(repoRoot, "lib/db/src/schema/jobs.ts"), "utf8");
+  const vocabulary = (schema.match(/queued\s*→\s*running\s*→\s*([a-z |]+)/)?.[1] ?? "")
+    .split("|")
+    .map((word) => word.trim())
+    .filter(Boolean)
+    .concat(["queued", "running"]);
+  check("the schema still states its statuses", vocabulary.length >= 3, JSON.stringify(vocabulary));
+
+  const unknown = asked.filter((status) => !vocabulary.includes(status));
+  check(
+    "and every status it asks for is one the product writes",
+    unknown.length === 0,
+    `${unknown.join(", ")} is never written, so the query matches nothing and the feature is off`,
   );
 }
 

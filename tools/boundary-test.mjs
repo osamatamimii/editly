@@ -42,6 +42,7 @@ import http from "node:http";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { order } from "./lib/order.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
@@ -400,7 +401,7 @@ section("And it is wrapped around the real app, not only around the harness");
   */
   check(
     "and the boundary is outside the providers, so it can catch them too",
-    app.indexOf("<ErrorBoundary>") < app.indexOf("<QueryClientProvider"),
+    order(app, "<ErrorBoundary>", "<QueryClientProvider").ok,
     "a boundary inside the providers cannot catch the providers",
   );
   check("and the two listeners a boundary cannot see are installed", /watchForCrashes\(\)/.test(app));

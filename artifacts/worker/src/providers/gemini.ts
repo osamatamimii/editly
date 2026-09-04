@@ -32,6 +32,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { SceneRead, SceneReadOptions, SceneReader } from "./types";
 import { withDeadline } from "./deadline";
+import { guard, LIMITS } from "../deadline";
+
+/** The same overrides the renderer honours, so a deployment sets them once. */
+const FFMPEG = process.env["FFMPEG_PATH"] ?? "ffmpeg";
+const FFPROBE = process.env["FFPROBE_PATH"] ?? "ffprobe";
 
 const API_ROOT = "https://generativelanguage.googleapis.com";
 const DEFAULT_MODEL = "gemini-flash-lite-latest";
@@ -112,6 +117,18 @@ export function createGeminiSceneReader(options: GeminiOptions): SceneReader {
 
     async read(mediaPath: string, opts: SceneReadOptions = {}): Promise<SceneRead[]> {
       const duration = await probeDuration(mediaPath);
+      /*
+        Thrown, not swallowed into an empty answer.
+
+        `enrich.ts` catches this and writes a sentence the person reads: the
+        cut was made from the audio alone, because we could not watch the
+        video. That is a worse edit honestly reported, which is the whole
+        contract of this provider. Returning `[]` here instead reports a better
+        edit that did not happen.
+      */
+      if (duration === null) {
+        throw new Error("could not read how long this clip is, so there was nothing to watch");
+      }
       const from = opts.fromMs ?? 0;
       const to = Math.min(opts.toMs ?? duration * 1000, duration * 1000);
       const scenes: SceneRead[] = [];
@@ -281,7 +298,7 @@ export async function makeProxy(mediaPath: string, fromMs: number, durationMs: n
   const out = path.join(dir, "proxy.mp4");
 
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("ffmpeg", [
+    const child = spawn(FFMPEG, [
       "-hide_banner", "-nostdin", "-loglevel", "error",
       "-ss", (fromMs / 1000).toFixed(3),
       "-t", (durationMs / 1000).toFixed(3),
@@ -292,13 +309,21 @@ export async function makeProxy(mediaPath: string, fromMs: number, durationMs: n
       "-movflags", "+faststart",
       "-y", out,
     ]);
+    // Guarded, like every other child process in this worker except the three
+    // that were not. See LIMITS.extract for what a missing one costs.
+    const deadline = guard(child, { ...LIMITS.extract, what: "cutting the proxy window to watch" });
     let err = "";
     child.stderr.on("data", (d) => {
       err += d.toString();
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      deadline.clear();
+      reject(error);
+    });
     child.on("close", (code) => {
-      if (code === 0) resolve();
+      deadline.clear();
+      if (deadline.expired) reject(deadline.error);
+      else if (code === 0) resolve();
       else reject(new Error(`could not build a proxy for scene reading: ${err.slice(0, 300)}`));
     });
   });
@@ -306,20 +331,47 @@ export async function makeProxy(mediaPath: string, fromMs: number, durationMs: n
   return out;
 }
 
-function probeDuration(file: string): Promise<number> {
+/**
+ * How long the clip is, or `null` when we could not find out.
+ *
+ * `null` rather than `0`, and that distinction is the whole of this function.
+ *
+ * It used to answer `0` for a spawn that failed, an ffprobe that was not on
+ * the path, and output that would not parse. The caller then computed a window
+ * of `0` to `0`, the loop never ran once, and `read()` returned an empty array
+ * — which `enrich.ts` reads as "the model watched this video and found nothing
+ * worth protecting". So the `catch` that would have told the person "we could
+ * not watch this clip, so the cut is from the audio alone" was never reached,
+ * and their demo, their screen share or their held beat was cut out of the
+ * middle by silence removal with the notes claiming nothing went wrong.
+ *
+ * A duration this cannot read is a fact, and the honest shape for a fact we do
+ * not have is not zero.
+ */
+function probeDuration(file: string): Promise<number | null> {
   return new Promise((resolve) => {
-    const child = spawn("ffprobe", [
+    const child = spawn(FFPROBE, [
       "-v", "error",
       "-show_entries", "format=duration",
       "-of", "default=nw=1:nk=1",
       file,
     ]);
+    // Guarded like every other child in this worker: an ffprobe that never
+    // answers would otherwise hold the render loop open forever.
+    const deadline = guard(child, { ...LIMITS.probe, what: "reading the clip's length before watching it" });
     let out = "";
     child.stdout.on("data", (d) => {
       out += d.toString();
     });
-    child.on("error", () => resolve(0));
-    child.on("close", () => resolve(Number(out.trim()) || 0));
+    child.on("error", () => {
+      deadline.clear();
+      resolve(null);
+    });
+    child.on("close", () => {
+      deadline.clear();
+      const seconds = Number(out.trim());
+      resolve(Number.isFinite(seconds) && seconds > 0 ? seconds : null);
+    });
   });
 }
 

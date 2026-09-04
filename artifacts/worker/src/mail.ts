@@ -1,4 +1,4 @@
-import { addressFor, renderFailed, renderFinished, send, logMailWith, type MailLog, type Letter } from "@workspace/mail";
+import { addressFor, renderFailed, renderFinished, postFailed, send, logMailWith, type MailLog, type Letter } from "@workspace/mail";
 
 /**
  * Telling somebody their render is done, from the only process that knows.
@@ -69,6 +69,40 @@ export async function tellThemItDidNotFinish(input: {
 }
 
 /**
+ * And once per scheduled post that did not go out.
+ *
+ * Nothing told anybody at all before this. The console counted every failure;
+ * the person whose post it was found out by looking at their own feed, or did
+ * not. The shape of it is what makes a letter the right surface rather than a
+ * badge: somebody schedules a week and closes the tab, and an account whose
+ * authorisation was revoked then fails thirty posts one at a time, at their
+ * hours, over seven days — thirty slots on a content calendar that quietly did
+ * not happen, and no screen they were ever going to be looking at.
+ *
+ * Deduplicated by post id, like everything else here: a post retried is not a
+ * post apologised for twice.
+ *
+ * `missed` is deliberately included. "It was 40 minutes late so it was not
+ * sent" is the same fact from the person's side — the slot passed and nothing
+ * went out — and it is the one they are most likely to want to act on today.
+ */
+export async function tellThemAPostDidNotGoOut(input: {
+  userId: string;
+  postId: string;
+  projectId: string;
+  platform: string;
+  handle: string | null;
+  reason: string;
+}): Promise<void> {
+  await tell(
+    input.userId,
+    "post.failed",
+    input.postId,
+    postFailed(input.platform, input.handle, input.reason, input.projectId),
+  );
+}
+
+/**
  * Find the address, hand the letter over, and never throw.
  *
  * `send` already returns an outcome rather than raising, and it chooses the
@@ -87,7 +121,7 @@ async function tell(userId: string, event: string, reference: string, letter: Le
     if (!to) return;
     const outcome = await send({ userId, to, kind: "account", event, reference, letter });
     if (!outcome.sent && outcome.because !== "already-sent" && outcome.because !== "not-configured") {
-      log.warn({ event, reference, because: outcome.because }, "could not tell them about a render");
+      log.warn({ event, reference, because: outcome.because }, "could not tell them what happened");
     }
   } catch (error) {
     log.warn({ err: error, event, reference }, "could not tell them about a render");
