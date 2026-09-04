@@ -111,6 +111,118 @@ const FFPROBE = process.env["FFPROBE_PATH"] ?? "ffprobe";
 
 export class FfmpegError extends Error {}
 
+/**
+ * What `loudnorm` measured about a programme, in the shape its second pass wants.
+ *
+ * Every field is the filter's own: `ebur128` could give the integrated number,
+ * but a linear pass also needs loudnorm's idea of the threshold and the offset,
+ * and the only honest place to get those is the filter that will use them.
+ */
+export interface LoudnessMeasurement {
+  inputI: number;
+  inputTp: number;
+  inputLra: number;
+  inputThresh: number;
+  targetOffset: number;
+}
+
+/** The last `{...}` in a stream of ffmpeg chatter, parsed. loudnorm prints its
+ *  JSON at the very end of stderr, after the progress lines. */
+function lastJson(text: string): Record<string, unknown> | null {
+  const open = text.lastIndexOf("{");
+  const close = text.lastIndexOf("}");
+  if (open < 0 || close <= open) return null;
+  try {
+    return JSON.parse(text.slice(open, close + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A number loudnorm printed, or null when it printed something a pass cannot use.
+ *
+ * `-inf` is what it writes for silence, and `Number("-inf")` is `NaN` — which
+ * reads exactly like "the filter printed nothing". Both mean *do not build a
+ * correction from this*, so both come back null here; the difference between a
+ * silent mix and an unreadable one is a question for the reviewer, which has
+ * the file and a sentence to write about it.
+ */
+function loudnormNumber(json: Record<string, unknown>, name: string): number | null {
+  const raw = json[name];
+  if (typeof raw === "string" && /^-?(inf|infinity)$/i.test(raw.trim())) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Run the audio half of a render's graph to the null muxer, and read the level.
+ *
+ * The picture is not in this graph at all — that is the whole point. A
+ * measuring pass over the full graph would scale, crop, track, caption and
+ * encode every frame to arrive at a number about the sound, which costs as
+ * much as the render it is meant to improve. The audio legs are separable
+ * because every one of them is written that way; see `audioPieces`.
+ *
+ * Never throws. A measurement is an improvement to have, not a thing to fail a
+ * render over: `null` means the levelling goes in uninformed, which is what it
+ * did for the whole life of this file before now.
+ */
+async function measureAudioGraph(spec: {
+  input: string;
+  extraInputs: string[];
+  graph: string;
+}): Promise<LoudnessMeasurement | null> {
+  try {
+    const { stderr } = await run(FFMPEG, [
+      "-hide_banner",
+      ...threadArgs(),
+      "-i", spec.input,
+      ...spec.extraInputs,
+      "-filter_complex", spec.graph,
+      "-map", "[lvl]",
+      "-vn", "-sn", "-f", "null", "-",
+    ], { limits: LIMITS.probe });
+    const json = lastJson(stderr);
+    if (!json) return null;
+    const inputI = loudnormNumber(json, "input_i");
+    const inputTp = loudnormNumber(json, "input_tp");
+    const inputLra = loudnormNumber(json, "input_lra");
+    const inputThresh = loudnormNumber(json, "input_thresh");
+    if (inputI == null || inputTp == null || inputLra == null || inputThresh == null) return null;
+    return {
+      inputI,
+      inputTp,
+      inputLra,
+      inputThresh,
+      targetOffset: loudnormNumber(json, "target_offset") ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The levelling filter, informed where it can be.
+ *
+ * `linear=true` is a request rather than a guarantee, and loudnorm refuses it
+ * in two cases that both matter here: when the range it measured is wider than
+ * the target range, and when the gain the measurements call for would push the
+ * true peak past the ceiling. In both it falls back to riding the gain. That
+ * is still better than doing it twice — the fallback happens once, on the real
+ * numbers — and the filter says which it did in the JSON it prints at the end
+ * of the render, which is read back and turned into a note rather than assumed.
+ */
+function loudnormFilter(target: number, measured: LoudnessMeasurement | null): string {
+  const base = `loudnorm=I=${target}:TP=-1.5:LRA=11`;
+  if (!measured) return base;
+  return (
+    `${base}:measured_I=${measured.inputI}:measured_TP=${measured.inputTp}` +
+    `:measured_LRA=${measured.inputLra}:measured_thresh=${measured.inputThresh}` +
+    `:offset=${measured.targetOffset}:linear=true:print_format=json`
+  );
+}
+
 function run(
   bin: string,
   args: string[],
@@ -1903,6 +2015,21 @@ export interface RenderResult {
    * reviewer levels only what was levelled.
    */
   levelled: boolean;
+  /**
+   * Whether that levelling was a clean level shift or a compressor.
+   *
+   * Absent when the level was set without a measurement to build a linear pass
+   * from — which is the uninformed case, and dynamic by definition. Present and
+   * `true` means the whole programme moved by one number; present and `false`
+   * means loudnorm refused the linear pass and rode the gain instead, which it
+   * does when the measured range is wider than the target or when the shift
+   * would breach the peak ceiling.
+   *
+   * The reviewer reads it for one reason: a mix that is already on target after
+   * a measured pass must not be handed to a second normaliser. Two compressors
+   * in series was the defect this field exists to keep closed.
+   */
+  levelWasLinear?: boolean;
 }
 
 type Op<T extends EditOperation["type"]> = Extract<EditOperation, { type: T }>;
@@ -2492,11 +2619,21 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const videoParts: string[] = [];
   const audioParts: string[] = [];
   /**
+   * The level this render owes, once there is a mix to measure.
+   *
+   * Null when nothing asked for levelling. Set by the loudness block and read
+   * after the bed and the effects have been mixed in, because those are what
+   * the level is *of*.
+   */
+  let levelTo: number | null = null;
+  /**
    * Whether the plan asked for the room to be filtered out from under the
    * voice. Acted on where the speech is still on its own — see the music block.
    */
   let filterTheRoomOut = false;
   let graphPrefix = "";
+  /** The audio half of `graphPrefix`, for the measuring pass. See `audioPieces`. */
+  let audioPrefix = "";
   let vLabel = "0:v";
   let aLabel = "0:a";
 
@@ -2611,6 +2748,21 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
   if (kept) {
     const pieces: string[] = [];
+    /*
+      The same cut, audio only.
+
+      Written alongside rather than derived, because the loudness block below
+      needs to *measure* the programme before it levels it, and a measurement
+      pass that ran the whole graph would decode and filter every frame of
+      video to arrive at a number about the sound. Every push into `pieces`
+      here is either a video line or an audio line — the one exception is the
+      `concat` in the select branch, which carries both, and which is written
+      out a second time as an audio-only concat.
+
+      `pieces` is unchanged in content and order, so the render's own graph is
+      byte-for-byte what it was.
+    */
+    const audioPieces: string[] = [];
     const withAudio = source.hasAudio;
     const last = kept.length - 1;
     /** Whether the finished soundtrack passed through the seam declick. */
@@ -2677,11 +2829,12 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           rampIn > 0 ? `afade=t=in:st=0:d=${rampIn.toFixed(4)}` : null,
           rampOut > 0 ? `afade=t=out:st=${Math.max(0, len - rampOut).toFixed(4)}:d=${rampOut.toFixed(4)}` : null,
         ].filter((part): part is string => part !== null);
-        pieces.push(
+        const cutAudio =
           `[${idx}:a]asetpts=PTS-STARTPTS` +
-            (fades.length > 0 ? `,${fades.join(",")}` : "") +
-            `[ca${i}]`,
-        );
+          (fades.length > 0 ? `,${fades.join(",")}` : "") +
+          `[ca${i}]`;
+        pieces.push(cutAudio);
+        audioPieces.push(cutAudio);
       });
 
       // Chained pairwise, because that is the only shape xfade has. Each join
@@ -2705,7 +2858,9 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           // `qsin` and not `tri`: two triangular ramps crossing sum to 0.71 of
           // either one at the midpoint, which is a 2.9 dB hole measured in the
           // middle of every dissolve. Equal-power curves sum to 1.
-          pieces.push(`[${aPrevious}][ca${i}]acrossfade=d=${overlap.toFixed(4)}:c1=qsin:c2=qsin[${aOut}]`);
+          const cross = `[${aPrevious}][ca${i}]acrossfade=d=${overlap.toFixed(4)}:c1=qsin:c2=qsin[${aOut}]`;
+          pieces.push(cross);
+          audioPieces.push(cross);
           aPrevious = aOut;
         }
         elapsed += kept[i]!.end - kept[i]!.start;
@@ -2714,7 +2869,10 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         // One piece and an overlap is not a state the join block produces, but
         // the labels have to exist for the rest of the graph either way.
         pieces.push(`[cv0]null[cutv]`);
-        if (withAudio) pieces.push(`[ca0]anull[cuta]`);
+        if (withAudio) {
+          pieces.push(`[ca0]anull[cuta]`);
+          audioPieces.push(`[ca0]anull[cuta]`);
+        }
       }
     } else {
       /**
@@ -2779,7 +2937,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           `[${idx}:v]${cadence}select='${within(run, halfFrame)}',setpts=N/FRAME_RATE/TB[rv${r}]`,
         );
         if (!withAudio) return;
-        pieces.push(
+        const runAudio =
           // `aformat` and not `aresample`: both put the stream on the rate the
           // cells are measured in, and only one of them leaves the level
           // alone. `aresample` converts eagerly, so a mono recording is
@@ -2789,18 +2947,29 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           // sound effects. `aformat` states the requirement and lets the one
           // conversion the graph needs do all of it at once.
           `[${idx}:a]aformat=sample_rates=${CUT_AUDIO_RATE},asetnsamples=n=${grid.samplesPerCell}:p=0,` +
-            `aselect='${within(run, halfCell)}',asetpts=N/SR/TB[ra${r}]`,
-        );
+          `aselect='${within(run, halfCell)}',asetpts=N/SR/TB[ra${r}]`;
+        pieces.push(runAudio);
+        audioPieces.push(runAudio);
       });
 
       if (runs.length === 1) {
         pieces.push(`[rv0]null[cutv]`);
-        if (withAudio) pieces.push(`[ra0]anull[cuta]`);
+        if (withAudio) {
+          pieces.push(`[ra0]anull[cuta]`);
+          audioPieces.push(`[ra0]anull[cuta]`);
+        }
       } else {
         pieces.push(
           `${runs.map((_, r) => (withAudio ? `[rv${r}][ra${r}]` : `[rv${r}]`)).join("")}` +
             `concat=n=${runs.length}:v=1:a=${withAudio ? 1 : 0}[cutv]${withAudio ? "[cuta]" : ""}`,
         );
+        // The one line that carries both streams, said again for audio alone.
+        // `concat` with `v=0:a=1` over the same pads is the same join.
+        if (withAudio) {
+          audioPieces.push(
+            `${runs.map((_, r) => `[ra${r}]`).join("")}concat=n=${runs.length}:v=0:a=1[cuta]`,
+          );
+        }
       }
 
       if (withAudio) {
@@ -2835,12 +3004,14 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         ].filter((part): part is string => part !== null);
         if (chain.length > 0) {
           pieces.push(`[cuta]${chain.join(",")}[cutd]`);
+          audioPieces.push(`[cuta]${chain.join(",")}[cutd]`);
           declicked = true;
         }
       }
     }
 
     graphPrefix = `${pieces.join(";")};`;
+    if (withAudio && audioPieces.length > 0) audioPrefix = `${audioPieces.join(";")};`;
     vLabel = "cutv";
     if (withAudio) aLabel = declicked ? "cutd" : "cuta";
   }
@@ -3610,9 +3781,17 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       the speech leg before the mix.
     */
     if (loudness.voice) filterTheRoomOut = true;
-    // -14 LUFS is what every one of these platforms normalises to. Arriving at
-    // the right level means they leave the audio alone.
-    audioParts.push(`loudnorm=I=${loudness.targetLufs}:TP=-1.5:LRA=11`);
+    /*
+      Noted here, applied after the mix is assembled.
+
+      -14 LUFS is what every one of these platforms normalises to; arriving at
+      the right level means they leave the audio alone. What changed is *when*
+      the filter is written: the effects bus and the music bed are built a
+      thousand lines below this one, and the level has to be measured on the
+      programme those produce, not on this point in the file. See where
+      `levelTo` is read.
+    */
+    levelTo = loudness.targetLufs;
     // The render levelled. The reviewer measures and corrects only what this
     // says it did, so an effects-only mix the render left alone is not "fixed".
     levelled = true;
@@ -4456,6 +4635,54 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   graphParts.push(...speechParts);
   graphParts.push(...musicParts);
   graphParts.push(...sfxParts);
+
+  /*
+    The level, measured before it is applied.
+
+    `loudnorm` in one pass is a **dynamic** normaliser: it does not know what
+    is coming, so it rides the gain, and riding the gain is compression. Given
+    the filter's own measurements up front it can instead work out a single
+    number and shift the whole programme by it, which is what `linear=true`
+    asks for.
+
+    The old shape was one uninformed pass here and, when that landed more than
+    a lousy 1 LU from the target — which it usually did, because a normaliser
+    with no lookahead cannot hit a target it has not heard yet — a **second**
+    pass in `review.ts` on top of the first. Two compressors in series, and the
+    second one working on audio whose peaks the first had already pushed to the
+    ceiling, so it too fell back to dynamic. Measured on a thirty-second file
+    with an ordinary speech range:
+
+        source                                   LRA 17.5
+        one pass, then the reviewer's correction  LRA  5.9   (two AAC encodes)
+        measured, then one pass                   LRA 11.7   (one AAC encode)
+
+    Both land on the target. One of them keeps twice the dynamic range of the
+    other. Nothing failed in either: the note said "levelled to -14 LUFS" and
+    it was true, and everything came out uniformly, tiringly loud.
+
+    The measuring pass is the audio graph and nothing else — `audioPrefix` and
+    the three audio leg arrays, ending where `loudnorm` would go — written to
+    the null muxer. It decodes the sound and none of the picture, which is why
+    it is affordable at all: seconds, against a render that is minutes.
+
+    A measurement that cannot be taken is not a failure. The filter goes in
+    uninformed, exactly as before, and `review.ts` remains the safety net it
+    already was.
+  */
+  let measured: LoudnessMeasurement | null = null;
+  if (hasAudioOut && levelTo != null) {
+    const audioLegs = [...speechParts, ...musicParts, ...sfxParts];
+    measured = await measureAudioGraph({
+      input,
+      extraInputs,
+      graph:
+        audioPrefix +
+        [...audioLegs, `[${aLabel}]loudnorm=I=${levelTo}:TP=-1.5:LRA=11:print_format=json[lvl]`].join(";"),
+    });
+    audioParts.push(loudnormFilter(levelTo, measured));
+  }
+
   if (hasAudioOut && audioParts.length > 0) graphParts.push(`[${aLabel}]${audioParts.join(",")}[aout]`);
 
   // A bracketed name is a filter label; a bare one is an input stream. Mixing
@@ -4539,7 +4766,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   ctx.onCommand?.(args);
 
   // Progress from ffmpeg's own reported timestamp, not from a guess.
-  await run(FFMPEG, args, {
+  const rendered = await run(FFMPEG, args, {
     onStderr: (chunk) => {
       const m = chunk.match(/time=(\d+):(\d+):(\d+\.\d+)/);
       if (!m) return;
@@ -4549,9 +4776,67 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     },
   });
 
+  /*
+    What the filter actually did, read back rather than assumed.
+
+    `linear=true` is a request. loudnorm refuses it when the measured range is
+    wider than the target range, or when the single gain the measurements call
+    for would push the true peak past the ceiling — and in both cases it rides
+    the gain instead, which is compression. It says so in the JSON it prints at
+    the end of its run, and that field went unread for the whole life of this
+    path: the note said the level had been set, and whether somebody's dynamics
+    had been squeezed to get there was not written down anywhere.
+
+    Only reachable when the pass was informed, because an uninformed pass is
+    dynamic by definition and the note above it does not claim otherwise.
+  */
+  let levelWasLinear: boolean | undefined;
+  if (measured && levelTo != null) {
+    const type = lastJson(rendered.stderr)?.["normalization_type"];
+    if (typeof type === "string") {
+      levelWasLinear = type.toLowerCase() === "linear";
+      /*
+        And *why*, from the measurements rather than from a guess.
+
+        loudnorm refuses a linear pass for two different reasons and reports
+        neither: the range it measured is wider than the target range, or the
+        single gain the target needs would put the peaks past the ceiling.
+        Those are different facts about somebody's recording, and one sentence
+        covering both would be wrong half the time — a quiet, even take
+        refused for headroom is not a take with a wide range. Both numbers are
+        in hand here, so the note says which.
+      */
+      const wouldClip = measured.inputTp + (levelTo - measured.inputI) > -1.5;
+      notes.push(
+        levelWasLinear
+          ? t(
+              "the level was set by one shift, so the quiet and loud parts are as far apart as you recorded them",
+              "ضُبط المستوى بإزاحة واحدة، فبقي الفرق بين الخافت والعالي كما سجّلته",
+            )
+          : wouldClip
+            ? t(
+                "bringing this up to the target in one step would have clipped its loudest moments, so those were held back while the rest came up",
+                "رفع هذا إلى الهدف دفعة واحدة كان سيقصّ أعلى لحظاته، فأُمسكت تلك بينما ارتفع الباقي",
+              )
+            : t(
+                "your recording's range was wider than one shift could hold at this level, so it was closed up a little rather than clipped",
+                "مدى تسجيلك أوسع من أن تحمله إزاحة واحدة عند هذا المستوى، فضُيّق قليلًا بدل أن تُقصّ قممه",
+              ),
+      );
+    }
+  }
+
   if (notes.length === 0) notes.push(t("re-encoded with no changes requested", "أُعيد الترميز بلا أي تغيير مطلوب"));
   ctx.onProgress?.(1, "finishing");
-  return { output, notes, sourceSeconds: source.duration, estimatedSeconds: effectiveDuration, hasAudioOut, levelled };
+  return {
+    output,
+    notes,
+    sourceSeconds: source.duration,
+    estimatedSeconds: effectiveDuration,
+    hasAudioOut,
+    levelled,
+    ...(levelWasLinear === undefined ? {} : { levelWasLinear }),
+  };
 }
 
 /**

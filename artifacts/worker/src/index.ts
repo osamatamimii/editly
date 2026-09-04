@@ -912,7 +912,7 @@ async function processJob(job: Job): Promise<void> {
       return;
     }
 
-    const { output, notes: renderNotes, estimatedSeconds, hasAudioOut, levelled } = await renderPlan(inputFile, enriched.plan, {
+    const { output, notes: renderNotes, estimatedSeconds, hasAudioOut, levelled, levelWasLinear } = await renderPlan(inputFile, enriched.plan, {
       workDir,
       language: say.language,
       words,
@@ -949,6 +949,7 @@ async function processJob(job: Job): Promise<void> {
         sourceHadAudio: sourceProbe.hasAudio,
         expectedAudio: hasAudioOut,
         levelled,
+        levelWasLinear,
         expectedSeconds: estimatedSeconds,
         workDir,
       });
@@ -1710,7 +1711,7 @@ async function renderClipSet(args: {
         ...rest,
       ],
     };
-    const { output, notes: renderNotes, estimatedSeconds, hasAudioOut, levelled } = await renderPlan(inputFile, subPlan, {
+    const { output, notes: renderNotes, estimatedSeconds, hasAudioOut, levelled, levelWasLinear } = await renderPlan(inputFile, subPlan, {
       workDir: subDir,
       // `renderClipSet` takes the job's language and uses it for its own notes
       // three lines down, and then dropped it here and at the review below —
@@ -1739,6 +1740,7 @@ async function renderClipSet(args: {
         sourceHadAudio,
         expectedAudio: hasAudioOut,
         levelled,
+        levelWasLinear,
         expectedSeconds: estimatedSeconds,
         workDir: subDir,
       });

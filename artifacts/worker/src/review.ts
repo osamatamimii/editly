@@ -96,6 +96,23 @@ export interface ReviewContext {
    * fall back to the plan, which is what every caller predating the field means.
    */
   levelled?: boolean;
+  /**
+   * Whether the render's levelling was a clean shift or a compressor, and
+   * whether it was informed at all.
+   *
+   * Undefined means the render levelled without measuring first — the old
+   * shape, still reachable when the measuring pass could not be taken — and
+   * then a second loudnorm here is the right correction, because the first one
+   * was a guess.
+   *
+   * Defined means the render measured the programme and applied one informed
+   * pass. A second normaliser on top of that can only compress what has
+   * already been compressed, which was the defect: measured on an ordinary
+   * speech file, source LRA 17.5 became 5.9 through the pair, against 11.7
+   * through the single measured pass. So when this is defined the correction
+   * below is a *gain*, never another normaliser.
+   */
+  levelWasLinear?: boolean;
   /** Seconds the cut map said the edit should run, or null when unknown. */
   expectedSeconds: number | null;
   workDir: string;
@@ -141,6 +158,17 @@ export interface ReviewResult {
  * perceive.
  */
 const LOUDNESS_TOLERANCE_LU = 1.0;
+
+/**
+ * The true-peak ceiling every stage of this pipeline works to.
+ *
+ * -1.5 dBTP is what the renderer asks `loudnorm` for, and a correction that
+ * quietly went past it would undo the headroom the render left for the lossy
+ * encoders every platform re-encodes with. Named here because two files now
+ * enforce it and a number written twice is a number that will disagree with
+ * itself.
+ */
+const PEAK_CEILING_DBTP = -1.5;
 
 /** Quieter than this and the mix is silence, not a level to be corrected. */
 const SILENT_MIX_LUFS = -55;
@@ -582,7 +610,27 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
         // nothing in it, and gain would only raise the noise floor.
         warnings.push(`output mix measures ${measured.inputI.toFixed(1)} LUFS, effectively silent`);
       } else if (Math.abs(measured.inputI - target) > LOUDNESS_TOLERANCE_LU) {
-        const corrected = await correctLoudness(file, target, measured, ctx.workDir);
+        /*
+          A shift when the render already measured; a normaliser only when it did not.
+
+          `correctLoudness` is a second `loudnorm`, and a `loudnorm` that cannot
+          make its target with one gain rides the gain instead — which is
+          compression. Running it on a mix a *measured* pass has already
+          produced puts two compressors in series, the second working on audio
+          whose peaks the first pushed to the ceiling, so it falls back to
+          dynamic every time. Measured on an ordinary speech file: source LRA
+          17.5, through the pair 5.9, through the single measured pass 11.7.
+          Both hit the target. One of them keeps twice the range.
+
+          When the render measured, the range is already where one deliberate
+          decision put it, and the only thing left to fix is the level. A level
+          is fixed by a gain. `shiftLoudness` applies one and refuses when it
+          would breach the peak ceiling, because the alternative to a refusal
+          there is exactly the compressor this branch exists to avoid.
+        */
+        const corrected = ctx.levelWasLinear === undefined
+          ? await correctLoudness(file, target, measured, ctx.workDir)
+          : await shiftLoudness(file, target, measured, ctx.workDir);
         if (corrected != null) {
           repaired = true;
           measuredLufs = corrected.lufs;
@@ -596,6 +644,23 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
                   `the levelling missed on the first pass. The mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected`,
                   `أخطأت التسوية في التمريرة الأولى: خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقيس وصُحّح`,
                 ),
+          );
+        } else if (ctx.levelWasLinear !== undefined) {
+          /*
+            The measured render's own answer, left alone and said out loud.
+
+            Not a failure. A mix that measures a little under the target after a
+            measured pass is a mix whose peaks have no room for the difference,
+            and the two ways to make up that difference are clipping it or
+            compressing it. Neither is worth one LU: every platform this
+            product posts to normalises on the way in, so it will make up the
+            gap itself, with gain, for free.
+          */
+          notes.push(
+            t(
+              `the mix came out at ${measured.inputI.toFixed(1)} LUFS rather than ${target}. Lifting it the rest of the way would have clipped the loudest moments, and the platforms make up a difference this small themselves`,
+              `خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}. رفعه بقيّة الطريق كان سيقصّ أعلى اللحظات، والمنصّات تعوّض فرقًا بهذا الصغر بنفسها`,
+            ),
           );
         } else {
           warnings.push(
@@ -726,6 +791,61 @@ async function measureLoudness(file: string, target: number): Promise<LoudnessRe
   if (inputLra == null || inputLra === -Infinity) return null;
   if (inputThresh == null || inputThresh === -Infinity) return null;
   return { inputI, inputTp, inputLra, inputThresh, targetOffset: numberField("target_offset") ?? 0 };
+}
+
+/**
+ * The whole programme moved by one number, when that is all it needs.
+ *
+ * The correction for a render that already measured itself. `loudnorm` chose
+ * the dynamics once, deliberately, from real measurements; what is left is a
+ * level, and a level is a gain. `volume` cannot compress, cannot pump and
+ * cannot change the distance between the quiet parts and the loud ones — which
+ * is exactly why it is the only correction allowed on a measured mix.
+ *
+ * Refused rather than clipped. If the shift would put the true peak past the
+ * same -1.5 dBTP ceiling the render worked to, nothing is written: the
+ * alternatives are a clipped master or a second compressor, and the caller
+ * writes a sentence instead. One LU is not worth either.
+ *
+ * The measured peak is the one read off the finished file, so it already
+ * includes whatever the AAC encoder overshot by — which is the number that
+ * matters, because that file is the deliverable.
+ */
+async function shiftLoudness(
+  file: string,
+  target: number,
+  measured: LoudnessReading,
+  workDir: string,
+): Promise<{ lufs: number; compressedDynamics: boolean } | null> {
+  const gain = target - measured.inputI;
+  // A ceiling breach, or a shift too small to be worth a re-encode.
+  if (measured.inputTp + gain > PEAK_CEILING_DBTP) return null;
+  if (Math.abs(gain) < 0.1) return null;
+
+  const shifted = path.join(workDir, "shifted.mp4");
+  try {
+    await ffmpegOrThrow([
+      "-y", "-i", file,
+      "-map", "0:v?", "-map", "0:a",
+      "-c:v", "copy",
+      "-af", `volume=${gain.toFixed(2)}dB`,
+      ...audioEncodeFor(await audioChannels(file)),
+      "-movflags", "+faststart",
+      shifted,
+    ]);
+    const again = await measureLoudness(shifted, target);
+    if (!again) return null;
+    // The same rule the normaliser's correction is held to: a correction is not
+    // taken on faith from the thing that just applied it.
+    if (Math.abs(again.inputI - target) >= Math.abs(measured.inputI - target)) return null;
+    await rename(shifted, file);
+    // A gain is a gain. It never compressed anything, and saying so is the
+    // point of the field.
+    return { lufs: again.inputI, compressedDynamics: false };
+  } catch {
+    await unlink(shifted).catch(() => {});
+    return null;
+  }
 }
 
 /**

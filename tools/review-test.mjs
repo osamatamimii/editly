@@ -508,6 +508,145 @@ section("A correction that had to compress the range says so");
   );
 }
 
+section("A render that measured itself is never handed to a second compressor");
+{
+  /*
+    The correction that used to undo the render.
+
+    `correctLoudness` is a second `loudnorm`, and a `loudnorm` that cannot make
+    its target with one gain rides the gain instead — which is compression. Run
+    on a mix a *measured* pass has already produced, that puts two compressors
+    in series, the second working on audio whose peaks the first pushed to the
+    ceiling, so it falls back to dynamic every time. Measured end to end on a
+    stepped tone: source LRA 8.5, through the pair 5.7, through the single
+    measured pass 8.5. Both hit -14. One of them keeps the whole range.
+
+    `levelWasLinear` is the render's own word for "I measured before I
+    levelled". Defined means the range is already where one deliberate decision
+    put it and the only thing left to fix is a level — and a level is fixed by a
+    gain, which cannot compress anything. Undefined means the render levelled
+    blind, and then a second normaliser is the right correction because the
+    first one was a guess.
+
+    The fixture is the same peaky file the section above uses: quiet on average
+    with rare full-scale peaks, so a gain large enough to reach the target would
+    breach the ceiling. That is the case where the two paths differ most
+    visibly — the normaliser compresses to get there, and the gain refuses and
+    says so.
+  */
+  const peaky = encodeAV(
+    "peaky-measured.mp4",
+    "testsrc=size=320x240:rate=25:duration=6",
+    "aevalsrc='0.03*sin(2*PI*200*t)+sin(2*PI*1000*t)*lt(mod(t\\,1.5)\\,0.008)':s=48000:d=6",
+  );
+  const before = spawnSync(FFMPEG, [
+    "-hide_banner", "-i", peaky,
+    "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json", "-vn", "-sn", "-f", "null", "-",
+  ], { encoding: "utf8" }).stderr;
+  const rangeBefore = Number.parseFloat(
+    JSON.parse(before.slice(before.lastIndexOf("{"), before.lastIndexOf("}") + 1)).input_lra,
+  );
+
+  const result = await reviewOutput(
+    peaky,
+    baseContext({
+      operations: [{ type: "normalizeLoudness", targetLufs: -14 }],
+      expectedAudio: true,
+      sourceHadAudio: true,
+      // The render measured. Whether it managed a linear pass or had to
+      // compress is beside the point here; either way it decided the dynamics
+      // once, on real numbers.
+      levelWasLinear: false,
+    }),
+  );
+  const all = [...result.warnings, ...result.notes];
+
+  const after = spawnSync(FFMPEG, [
+    "-hide_banner", "-i", peaky,
+    "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json", "-vn", "-sn", "-f", "null", "-",
+  ], { encoding: "utf8" }).stderr;
+  const rangeAfter = Number.parseFloat(
+    JSON.parse(after.slice(after.lastIndexOf("{"), after.lastIndexOf("}") + 1)).input_lra,
+  );
+
+  check(
+    "the range is not touched a second time",
+    Math.abs(rangeAfter - rangeBefore) < 0.3,
+    `${rangeBefore} before the review, ${rangeAfter} after`,
+  );
+  check(
+    "and nothing claims a range was compressed, because nothing compressed one",
+    !result.notes.some((n) => /range was compressed|compressed to bring|ضُغط المدى/.test(n)),
+    all.join(" | "),
+  );
+  check(
+    "the miss is named rather than hidden",
+    result.notes.some((n) => /LUFS/.test(n)),
+    all.join(" | "),
+  );
+  check(
+    "and the sentence says why it was left alone, in words about the person's file",
+    result.notes.some((n) => /would have clipped|كان سيقصّ/.test(n)),
+    all.join(" | "),
+  );
+
+  /*
+    And the direction that *can* be fixed, so the gain path is not dead code.
+
+    A mix that came out too loud needs a shift downward, and a downward shift
+    takes the peaks with it — there is no ceiling to breach. This is the common
+    case in practice: `loudnorm` overshoots more often than it undershoots, and
+    a render 1.5 LU hot is a render that can be put exactly on target by
+    subtracting 1.5 dB from every sample and doing nothing else to it.
+  */
+  const hot = encodeAV(
+    "hot-measured.mp4",
+    "testsrc=size=320x240:rate=25:duration=6",
+    "aevalsrc='0.36*sin(2*PI*220*t)+0.18*sin(2*PI*370*t)':s=48000:d=6",
+  );
+  const readLra = (f) => {
+    const said = spawnSync(FFMPEG, [
+      "-hide_banner", "-i", f,
+      "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json", "-vn", "-sn", "-f", "null", "-",
+    ], { encoding: "utf8" }).stderr;
+    const json = JSON.parse(said.slice(said.lastIndexOf("{"), said.lastIndexOf("}") + 1));
+    return { lra: Number.parseFloat(json.input_lra), i: Number.parseFloat(json.input_i) };
+  };
+  const hotBefore = readLra(hot);
+  check(
+    "the fixture really is too loud, with room to come down",
+    hotBefore.i > -13,
+    `${hotBefore.i} LUFS`,
+  );
+
+  const shifted = await reviewOutput(
+    hot,
+    baseContext({
+      operations: [{ type: "normalizeLoudness", targetLufs: -14 }],
+      expectedAudio: true,
+      sourceHadAudio: true,
+      levelWasLinear: true,
+    }),
+  );
+  const hotAfter = readLra(hot);
+  check(
+    "a measured render that came out hot is brought down",
+    Math.abs(hotAfter.i + 14) < Math.abs(hotBefore.i + 14),
+    `${hotBefore.i} then ${hotAfter.i}`,
+  );
+  check(
+    "by a gain, so the range is exactly what it was",
+    Math.abs(hotAfter.lra - hotBefore.lra) < 0.3,
+    `${hotBefore.lra} then ${hotAfter.lra}`,
+  );
+  check(
+    "and the correction is reported without claiming a compressor did it",
+    shifted.notes.some((n) => /LUFS/.test(n)) &&
+      !shifted.notes.some((n) => /range was compressed|ضُغط المدى/.test(n)),
+    [...shifted.warnings, ...shifted.notes].join(" | "),
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 await rm(workRoot, { recursive: true, force: true });
 console.log(`\n${checks - failures}/${checks} checks passed`);

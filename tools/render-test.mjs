@@ -131,6 +131,28 @@ function measureLoudness(file) {
   }
 }
 
+/** Everything loudnorm measures about a file, as numbers. */
+function measureLoudnessFull(file) {
+  const r = spawnSync(
+    "ffmpeg",
+    ["-hide_banner", "-i", file, "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json", "-vn", "-sn", "-f", "null", "-"],
+    { encoding: "utf8" },
+  );
+  const json = r.stderr.slice(r.stderr.lastIndexOf("{"), r.stderr.lastIndexOf("}") + 1);
+  try {
+    const read = JSON.parse(json);
+    return {
+      i: Number.parseFloat(read.input_i),
+      tp: Number.parseFloat(read.input_tp),
+      lra: Number.parseFloat(read.input_lra),
+      thresh: Number.parseFloat(read.input_thresh),
+      offset: Number.parseFloat(read.target_offset),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Mean volume of one stretch of a file's audio, in dB. */
 function segmentMeanVolume(file, from, to) {
   const r = spawnSync(
@@ -883,6 +905,82 @@ console.log("\nAudio levelling");
   const after = measureLoudness(output);
   check("levelling lands within 2 LU of the target", Math.abs(after + 14) < 2, `${after} LUFS`);
   check("and says so", notes.some((n) => /-14 LUFS/.test(n)), JSON.stringify(notes));
+
+  /*
+    And the range the recording arrived with is still in it.
+
+    `loudnorm` in one pass is a **dynamic** normaliser: it has not heard the
+    file yet, so it rides the gain, and riding the gain is compression. Given
+    its own measurements up front it can work out one number and shift the
+    whole programme by it instead — which is what the two-pass workflow in its
+    own documentation is for, and which this renderer never did.
+
+    What it did instead was one uninformed pass here and, whenever that landed
+    more than a lousy 1 LU off target (which is most of the time, because a
+    normaliser cannot hit a target it has not heard), a **second** pass in
+    `review.ts` on top of the first. Two compressors in series — and the second
+    one working on audio whose peaks the first had already pushed to the
+    ceiling, so it fell back to dynamic too.
+
+    Measured on this fixture, a quiet tone stepped through three levels:
+
+        the source                                  LRA 8.50
+        one pass, then the reviewer's correction    LRA 5.70   two AAC encodes
+        measured, then one pass                     LRA 8.50   one AAC encode
+
+    Both land on -14. One of them keeps the distance between the quiet parts
+    and the loud ones exactly as it was recorded, and the other closes a third
+    of it. Nothing failed in either: the note said "levelled to -14 LUFS" and
+    it was true, and everything came out uniformly, tiringly loud.
+
+    The fixture is a tone rather than noise on purpose. Pink noise has a crest
+    factor high enough that the gain needed here would breach the peak ceiling,
+    at which point loudnorm is *right* to compress and the check would be
+    asserting the wrong thing — it would pass whether or not the measurement
+    happened.
+  */
+  const stepped = path.join(dir, "stepped.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=24:sample_rate=48000",
+    "-f", "lavfi", "-i", "color=c=black:s=320x240:r=25:d=24",
+    "-filter_complex", "[0:a]volume='if(lt(t,8),0.03,if(lt(t,16),0.08,0.05))':eval=frame[a]",
+    "-map", "[a]", "-map", "1:v", "-shortest",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", stepped,
+  ]);
+  const source = measureLoudnessFull(stepped);
+  check(
+    "the stepped fixture has a range worth preserving, and headroom to do it in",
+    source != null && source.lra > 6 && source.tp + (-14 - source.i) < -1.5,
+    source ? `LRA ${source.lra}, peak would land at ${(source.tp + (-14 - source.i)).toFixed(1)} dBTP` : "unmeasurable",
+  );
+
+  const level = await renderPlan(
+    stepped,
+    { version: 1, operations: [{ type: "normalizeLoudness", targetLufs: -14 }] },
+    { workDir: dir },
+  );
+  const levelled = measureLoudnessFull(level.output);
+  check(
+    "a measured render says whether it shifted the level or compressed it",
+    level.levelWasLinear === true,
+    `levelWasLinear ${String(level.levelWasLinear)}`,
+  );
+  check(
+    "it still lands on the target",
+    levelled != null && Math.abs(levelled.i + 14) < 1,
+    levelled ? `${levelled.i} LUFS` : "unmeasurable",
+  );
+  check(
+    "and the range came through the level unchanged",
+    levelled != null && source != null && Math.abs(levelled.lra - source.lra) < 0.5,
+    levelled && source ? `${source.lra} in, ${levelled.lra} out` : "unmeasurable",
+  );
+  check(
+    "and the note says which of the two it did, because they are different things to have done to somebody's audio",
+    level.notes.some((n) => /as far apart as you recorded them/.test(n)),
+    JSON.stringify(level.notes),
+  );
 
   /*
     And the room under the voice, when the plan says the clip is speech.
