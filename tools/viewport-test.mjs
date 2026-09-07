@@ -35,7 +35,29 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const root = path.join(repoRoot, "dist");
 const SHOTS = process.env.MOBILE_SHOTS ?? "/tmp/mobile-shots";
-const PROJECT_REF = "jszalanebxdshrwwegmg";
+/**
+ * Which Supabase project the *built bundle* names, read out of the bundle.
+ *
+ * This was the production project reference, written here by hand. That made
+ * the check depend on which project somebody happened to build `dist/` against:
+ * a bundle built with any other — or, in the workflow, with the variable unset
+ * entirely — plants its session under a key the app never reads, every screen
+ * behind sign-in redirects to `/login`, and the failure reads as a layout
+ * problem. `language-test` already derives it from the bundle; two answers to
+ * one question is one answer too many.
+ *
+ * Null when the bundle names no project, which the first check below says out
+ * loud rather than letting twenty screen checks fail one at a time.
+ */
+const PROJECT_REF = (() => {
+  const assets = path.join(root, "assets");
+  if (!existsSync(assets)) return null;
+  for (const file of readdirSync(assets).filter((f) => f.endsWith(".js"))) {
+    const found = readFileSync(path.join(assets, file), "utf8").match(/https:\/\/([a-z0-9]{16,})\.supabase\.co/);
+    if (found) return found[1];
+  }
+  return null;
+})();
 const USER_ID = "00000000-0000-4000-8000-00000000beef";
 
 if (!existsSync(root)) {
@@ -1699,7 +1721,9 @@ for (const viewport of VIEWPORTS) {
       check(
         "the planted session was accepted, so this is the page and not the sign-in screen",
         signInScreen === 0,
-        `redirected to sign in — dist/ was probably built without VITE_SUPABASE_URL=https://${PROJECT_REF}.supabase.co`,
+        PROJECT_REF === null
+          ? "the built bundle names no Supabase project, so no session can be planted: dist/ was built without VITE_SUPABASE_URL"
+          : `redirected to sign in — the session was planted for ${PROJECT_REF}, which is the project this bundle names`,
       );
     }
     check(

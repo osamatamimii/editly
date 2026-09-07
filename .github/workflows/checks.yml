@@ -134,7 +134,25 @@ jobs:
       # quiet in the worst way: production keeps serving the previous commit,
       # so `main` is green, the dashboard says shipped, and the change is not
       # live. Twelve seconds to find that out here instead.
+      #
+      # The two Vite variables are set here, and they are not decoration. The
+      # browser suites plant a signed-in session in `localStorage` under
+      # `sb-<project-ref>-auth-token`, and the reference has to be the one the
+      # bundle names or the app reads a key that is not there and every screen
+      # behind sign-in redirects to `/login`. With the variables unset the
+      # bundle names no project at all, so `viewport-test` and `language-test`
+      # cannot pass here however correct the product is — they were green only
+      # on machines where somebody had exported the variables by hand.
+      #
+      # Deliberately not the production project. Nothing in this job reaches
+      # Supabase — every request to it is stubbed by the suites — so what is
+      # needed is a well-formed reference the bundle can carry, and naming the
+      # real one here would put a live project in a file that does not need it.
+      # The key is a placeholder for the same reason: the suites never send it.
       - run: pnpm run vercel:build
+        env:
+          VITE_SUPABASE_URL: https://checksuitefixture000.supabase.co
+          VITE_SUPABASE_ANON_KEY: check-suite-placeholder-not-a-real-key
 
       # Three migrations touch `storage.buckets`, `auth.uid()` and the roles a
       # managed Supabase project provides. A plain Postgres has none of them, so
