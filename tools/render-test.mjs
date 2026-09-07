@@ -2391,6 +2391,166 @@ console.log("\nMixed overlay inputs");
 // off the pixels that came out, against the same clip rendered with no grade
 // at all — U and V are the colour-difference planes, so "warmer" is a real
 // number (V up, U down) rather than a word.
+console.log("\nHDR footage is brought into the range this encoder writes");
+{
+  /*
+    Every iPhone since the 12 films HLG by default, and this pipeline encodes
+    eight-bit bt709.
+
+    What used to come out of it was the HDR curve truncated to eight bits and
+    **still tagged HDR** — because x264 copies the input's colour metadata
+    through, and nothing said otherwise. Measured on this fixture before the
+    fix: `pix_fmt=yuv420p`, `color_transfer=arib-std-b67`,
+    `color_primaries=bt2020`.
+
+    That file is wrong in two different ways depending on who opens it. A
+    player that honours the tags applies an HDR-to-display transform to eight
+    bits of a curve that needed ten: banding across every sky and every skin
+    gradient. A player that ignores them — most social apps, most browsers —
+    draws the HLG curve as if it were bt709, which is washed out and flat.
+
+    Nothing failed. The render succeeded, every note was accurate about
+    everything else, and the person got back a duller version of what they
+    filmed with no explanation available anywhere.
+
+    The fixture is tagged rather than truly encoded in ten bits: the filters
+    read the tags, and an eight-bit HLG-tagged frame exercises exactly the path
+    that matters without needing an HEVC encoder wherever this suite runs.
+  */
+  const dir = await scratch();
+  const tagged = (name, extra) => {
+    const file = path.join(dir, name);
+    spawnSync("ffmpeg", [
+      "-hide_banner", "-y", "-loglevel", "error",
+      "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=2",
+      "-pix_fmt", "yuv420p", ...extra,
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", file,
+    ]);
+    return file;
+  };
+  const colourOf = (file) =>
+    ffprobe(file, "stream=pix_fmt,color_primaries,color_transfer,color_space", ["-select_streams", "v:0"]);
+  /** Mean luma and mean saturation of the first frame. */
+  const look = (file) => {
+    const r = spawnSync("ffprobe", [
+      "-v", "error", "-f", "lavfi", "-i", `movie=${file},signalstats`,
+      "-show_entries", "frame_tags=lavfi.signalstats.YAVG,lavfi.signalstats.SATAVG",
+      "-of", "csv=p=0",
+    ], { encoding: "utf8" });
+    const [y, sat] = r.stdout.trim().split("\n")[0].split(",").map(Number);
+    return { y, sat };
+  };
+
+  const hlg = tagged("hlg.mp4", [
+    "-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc",
+  ]);
+  const hlgLook = look(hlg);
+  const hlgRender = await renderPlan(hlg, { version: 1, operations: [] }, { workDir: dir });
+  const rendered = colourOf(hlgRender.output);
+
+  check(
+    "the file no longer claims to be HDR after it has stopped being HDR",
+    rendered.includes("bt709") && !rendered.some((v) => /2020|b67|2084/.test(v)),
+    rendered.join(" "),
+  );
+  check(
+    "and the picture was actually converted, not just relabelled",
+    Math.abs(look(hlgRender.output).y - hlgLook.y) > 5,
+    `${hlgLook.y} before, ${look(hlgRender.output).y} after`,
+  );
+  check(
+    "and the person is told, because the colour they filmed is not the colour they get",
+    hlgRender.notes.some((n) => /HDR|arib-std-b67/.test(n)),
+    JSON.stringify(hlgRender.notes),
+  );
+
+  /*
+    And the half-tagged file, which is the one that kills a render.
+
+    `zscale` linearises from the frame's own tags, and a frame carrying a
+    transfer and nothing else has no path to anywhere: the filter fails with
+    "no path between colorspaces" and takes the whole job with it. Measured —
+    that is not a hypothesis, it is what the first version of this fix did to
+    a file tagged `arib-std-b67` with unknown primaries and unknown matrix,
+    which is an ordinary shape for a file to have.
+
+    A dead render is worse than a dull one. It costs the person their minutes
+    and returns nothing, where the bug being fixed here only cost them some
+    contrast. So the gaps are filled before the conversion starts, and this is
+    the check that says they are.
+  */
+  const partial = tagged("trc-only.mp4", ["-color_trc", "arib-std-b67"]);
+  /*
+    Caught rather than thrown, because the failure this guards against is a
+    *throw*. Without the gap-fill `renderPlan` raises `Conversion failed!` and
+    takes the whole suite down with it — which is a failing run that names no
+    check, and a check nobody can read is worth less than one that says which
+    property broke.
+  */
+  let partialRender = null;
+  let partialError = "";
+  try {
+    partialRender = await renderPlan(partial, { version: 1, operations: [] }, { workDir: dir });
+  } catch (error) {
+    partialError = String(error).split("\n")[0];
+  }
+  check(
+    "a file that names its curve and nothing else still renders at all",
+    partialRender != null,
+    partialError || "rendered",
+  );
+  const partialTags = partialRender ? colourOf(partialRender.output) : [];
+  check(
+    "and comes out in the space this encoder writes",
+    partialTags.includes("bt709"),
+    partialTags.join(" ") || partialError,
+  );
+  check(
+    "and is tone-mapped rather than skipped",
+    partialRender != null && Math.abs(look(partialRender.output).y - look(partial).y) > 5,
+    partialRender ? `${look(partial).y} before, ${look(partialRender.output).y} after` : partialError,
+  );
+
+  /*
+    And every kind of file that is *not* HDR comes through untouched.
+
+    This is the half that matters more, because tone-mapping correct footage
+    flattens it — the same damage, applied to everybody instead of to phone
+    HDR. The transfer curve is what decides, so a wide-gamut file on an
+    ordinary curve is left alone even though its primaries say bt2020: that is
+    a wide-gamut SDR file, and converting its gamut is a different job from
+    compressing its dynamic range.
+
+    An untagged file is treated as bt709, because that is what an untagged file
+    has always meant, and guessing otherwise would tone-map footage that never
+    needed it.
+  */
+  const untouched = [
+    ["an ordinary bt709 file", tagged("sdr.mp4", [
+      "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
+    ])],
+    ["a wide-gamut file on an ordinary curve", tagged("wide.mp4", [
+      "-color_primaries", "bt2020", "-color_trc", "bt709", "-colorspace", "bt2020nc",
+    ])],
+    ["a file that says nothing about its colour at all", tagged("untagged.mp4", [])],
+  ];
+  for (const [what, file] of untouched) {
+    const before = look(file);
+    const out = await renderPlan(file, { version: 1, operations: [] }, { workDir: dir });
+    const after = look(out.output);
+    check(
+      `${what} keeps its own picture`,
+      Math.abs(after.y - before.y) < 1 && Math.abs(after.sat - before.sat) < 1,
+      `Y ${before.y} then ${after.y}, saturation ${before.sat} then ${after.sat}`,
+    );
+    check(
+      "and is not told anything about HDR",
+      !out.notes.some((n) => /HDR/.test(n)),
+      JSON.stringify(out.notes),
+    );
+  }
+}
+
 console.log("\nColour looks are measured on the pixels, not on the filter");
 {
   const dir = await scratch();

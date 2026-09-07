@@ -141,6 +141,52 @@ RUN set -eu; \
       print "arabic captions ready: joined " j " against " a " unjoined" }'; \
     rm -f /tmp/probe.ass /tmp/probe.png
 
+# The tone-map, proven on a frame rather than trusted to a flag.
+#
+# Every iPhone since the 12 films HLG by default, and this pipeline encodes
+# eight-bit bt709. Without a tone-map that footage comes out as the HDR curve
+# truncated to eight bits and still *tagged* HDR: banding wherever a player
+# honours the tag, washed-out and flat wherever it does not — which is most
+# feeds and most browsers. `ffmpeg.ts` reaches for `zscale` and `tonemap` to fix
+# it, and both of those are libzimg, which Debian's ffmpeg carries and a rebuild
+# on some other base might not.
+#
+# A missing filter there is not a crash. `ffmpeg.ts` asks first and degrades to
+# a note, which is the right behaviour on somebody's laptop and the wrong thing
+# to discover in production — so the image is required to have it, and required
+# *by the frame*, like the Arabic shaping above. A flag is a claim about how
+# something was built; a changed pixel is a fact about what it does.
+#
+# The fixture is tagged rather than truly encoded in ten bits: the filters read
+# the tags, and an eight-bit HLG-tagged frame exercises exactly the path that
+# matters here without needing an HEVC encoder in the image.
+RUN set -eu; \
+    ffmpeg -hide_banner -filters | grep -qE '^ *[[:alnum:].]+ +zscale +' \
+      || { echo "ffmpeg in this image has no zscale; HDR footage would ship flat and mistagged"; exit 1; }; \
+    ffmpeg -hide_banner -filters | grep -qE '^ *[[:alnum:].]+ +tonemap +' \
+      || { echo "ffmpeg in this image has no tonemap; HDR footage would ship flat and mistagged"; exit 1; }; \
+    ffmpeg -hide_banner -loglevel error -y \
+      -f lavfi -i "testsrc2=size=320x180:rate=25:duration=1" \
+      -pix_fmt yuv420p -color_primaries bt2020 -color_trc arib-std-b67 -colorspace bt2020nc \
+      -c:v libx264 -crf 20 /tmp/hlg.mp4; \
+    luma() { \
+      ffprobe -v error -f lavfi -i "movie=$1,signalstats" \
+        -show_entries frame_tags=lavfi.signalstats.YAVG -of default=nw=1:nk=1 | head -1; \
+    }; \
+    ffmpeg -hide_banner -loglevel error -y -i /tmp/hlg.mp4 \
+      -vf "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p" \
+      -color_primaries bt709 -color_trc bt709 -colorspace bt709 \
+      -c:v libx264 -crf 20 /tmp/hlg-mapped.mp4; \
+    before=$(luma /tmp/hlg.mp4); after=$(luma /tmp/hlg-mapped.mp4); \
+    tagged=$(ffprobe -v error -select_streams v:0 -show_entries stream=color_transfer -of default=nw=1:nk=1 /tmp/hlg-mapped.mp4); \
+    [ "$tagged" = "bt709" ] \
+      || { echo "the tone-mapped file is still tagged $tagged; every player would apply the transform twice"; exit 1; }; \
+    awk -v b="$before" -v a="$after" 'BEGIN { \
+      if (b == "" || a == "") { print "could not measure the frames; the chain did not run"; exit 1 } \
+      if ((b - a) < 5 && (a - b) < 5) { print "the tone-map changed nothing (" b " then " a "): the filters exist and do not work"; exit 1 } \
+      print "tone-map ready: HLG luma " b " becomes " a }'; \
+    rm -f /tmp/hlg.mp4 /tmp/hlg-mapped.mp4
+
 # The caption faces, from the repository rather than from packages.
 #
 # Twelve of them now, six per script, and every one is a *built* file rather

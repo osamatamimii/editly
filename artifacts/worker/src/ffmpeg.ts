@@ -87,6 +87,64 @@ export interface SourceInfo {
    * and came out stretched to three times its proper width.
    */
   rotation: number;
+  /**
+   * What the file says its colour is, verbatim from the container.
+   *
+   * Read because a phone does not record the colour space this renderer
+   * encodes in. Every iPhone since the 12 films HLG by default and every recent
+   * Android has an HDR mode, and what comes out is ten-bit samples on a
+   * high-dynamic-range transfer curve inside a bt2020 container. This pipeline
+   * decodes that, throws away the two extra bits at `-pix_fmt yuv420p`, and
+   * writes the file out **still carrying the HDR tags** — because x264 copies
+   * them through and nobody said otherwise.
+   *
+   * That file is wrong in two different ways depending on who opens it. A
+   * player that honours the tags applies an HDR-to-display transform to eight
+   * bits of a curve that needed ten, which is banding across every sky and
+   * every skin gradient. A player that ignores them — which is most social
+   * apps and most browsers — draws the HLG curve as if it were bt709, and HLG
+   * shown as bt709 is washed out and flat: greys where the blacks were,
+   * desaturated everywhere.
+   *
+   * Nothing fails. The render succeeds, the notes are accurate about
+   * everything else, and the person gets back a duller version of what they
+   * filmed with no explanation available anywhere.
+   *
+   * `null` where the container does not say, which is common and is not the
+   * same as "not HDR": an untagged file is treated as bt709, because that is
+   * what an untagged file has always meant and guessing otherwise would
+   * tone-map footage that never needed it.
+   */
+  colorTransfer: string | null;
+  colorPrimaries: string | null;
+  colorSpace: string | null;
+}
+
+/**
+ * Transfer curves that mean high dynamic range, by their ffprobe spellings.
+ *
+ * Two of them in practice. `smpte2084` is PQ, what a cinema camera and an
+ * iPhone's ProRes Log write; `arib-std-b67` is HLG, the default for ordinary
+ * phone video. ffprobe also spells PQ `smpte2084` and, on some builds,
+ * `smpte-st-2084`, so both are listed rather than matched loosely — a
+ * substring match on "2084" would also catch a future curve nobody has
+ * measured this against.
+ */
+const HDR_TRANSFERS = new Set(["smpte2084", "smpte-st-2084", "arib-std-b67"]);
+
+/**
+ * Is this footage in a colour space the renderer cannot write?
+ *
+ * The transfer curve decides, not the primaries. A bt2020 container with an
+ * ordinary bt709 curve is a wide-gamut SDR file: converting its primaries is
+ * worth doing and tone-mapping it is not, and the difference matters because
+ * tone-mapping applies a curve — get it wrong and correct footage comes back
+ * flattened.
+ */
+export function isHighDynamicRange(source: {
+  colorTransfer: string | null;
+}): boolean {
+  return source.colorTransfer !== null && HDR_TRANSFERS.has(source.colorTransfer.toLowerCase());
 }
 
 /**
@@ -110,6 +168,143 @@ const FFMPEG = process.env["FFMPEG_PATH"] ?? "ffmpeg";
 const FFPROBE = process.env["FFPROBE_PATH"] ?? "ffprobe";
 
 export class FfmpegError extends Error {}
+
+/**
+ * The chain that brings high-dynamic-range footage into the space we encode in.
+ *
+ * Five steps, and every one of them is load-bearing:
+ *
+ *   `zscale=t=linear:npl=100`  undoes the transfer curve, so the numbers are
+ *                              light rather than code values. Tone-mapping
+ *                              anything else is arithmetic on the wrong scale.
+ *   `format=gbrpf32le`         float, because the next step compresses a range
+ *                              of ten thousand to one into a hundred to one and
+ *                              integers cannot hold the middle of that.
+ *   `zscale=p=bt709`           the gamut, converted while still linear.
+ *   `tonemap=hable`            the curve. Hable rolls the highlights off rather
+ *                              than clipping them, which is what keeps a window
+ *                              behind somebody's head from becoming a white
+ *                              rectangle. `desat=0` because zscale has already
+ *                              done the gamut and the filter's own
+ *                              desaturation on top of that drains the picture.
+ *   `zscale=t=bt709:m=bt709`   back onto the ordinary curve and matrix, at
+ *                              limited range, which is what `yuv420p` in this
+ *                              file's encoder settings means.
+ *
+ * The output has to be *tagged* bt709 as well, or the whole thing is undone at
+ * the last step: x264 copies the input's colour metadata through, so a
+ * correctly tone-mapped picture would ship describing itself as HDR and every
+ * player would apply the transform a second time.
+ */
+/**
+ * The colour the file *should* have said, filled in where it did not.
+ *
+ * `zscale` linearises from the frame's own tags, and a frame that carries a
+ * transfer and nothing else has no path to anywhere: the filter fails with
+ * "no path between colorspaces" and takes the whole render with it. That is
+ * not a hypothetical shape — a file tagged `arib-std-b67` with unknown
+ * primaries and unknown matrix is ordinary, and it kills the chain outright.
+ *
+ * So the gaps are filled before the conversion starts, with what HDR means in
+ * practice: bt2020 primaries and a bt2020 non-constant-luminance matrix. There
+ * is no such thing in circulation as a PQ or HLG file on bt709 primaries.
+ *
+ * Only spellings this has been measured against are passed through. A
+ * container saying something unexpected gets the default rather than having
+ * its own word handed to a filter that will refuse it — because the cost of
+ * being wrong here is a dead render, and the cost of the default is a colour
+ * conversion off by a hair on a file nobody has ever produced.
+ */
+const KNOWN_PRIMARIES = new Set(["bt709", "bt2020", "smpte432", "smpte431", "bt470bg", "smpte170m"]);
+const KNOWN_MATRICES = new Set(["bt709", "bt2020nc", "bt2020c", "smpte170m", "bt470bg", "fcc", "smpte240m"]);
+
+/**
+ * The chain that brings high-dynamic-range footage into the space we encode in.
+ *
+ * Six steps, and every one of them is load-bearing:
+ *
+ *   `setparams=…`              says what the file is, filling the gaps it left.
+ *                              See above: without it a partly-tagged frame
+ *                              fails the next filter and fails the render.
+ *   `zscale=t=linear:npl=100`  undoes the transfer curve, so the numbers are
+ *                              light rather than code values. Tone-mapping
+ *                              anything else is arithmetic on the wrong scale.
+ *                              `p` and `m` are carried through explicitly, or
+ *                              the linear frame comes out with an unknown
+ *                              gamut and the step after it has no path either.
+ *   `format=gbrpf32le`         float, because the next step compresses a range
+ *                              of ten thousand to one into a hundred to one and
+ *                              integers cannot hold the middle of that.
+ *   `zscale=p=bt709`           the gamut, converted while still linear.
+ *   `tonemap=hable`            the curve. Hable rolls the highlights off rather
+ *                              than clipping them, which is what keeps a window
+ *                              behind somebody's head from becoming a white
+ *                              rectangle. `desat=0` because zscale has already
+ *                              done the gamut and the filter's own
+ *                              desaturation on top of that drains the picture.
+ *   `zscale=t=bt709:m=bt709`   back onto the ordinary curve and matrix, at
+ *                              limited range, which is what `yuv420p` in this
+ *                              file's encoder settings means.
+ *
+ * The output has to be *tagged* bt709 as well, or the whole thing is undone at
+ * the last step: x264 copies the input's colour metadata through, so a
+ * correctly tone-mapped picture would ship describing itself as HDR and every
+ * player would apply the transform a second time.
+ */
+export function tonemapChainFor(source: {
+  colorTransfer: string | null;
+  colorPrimaries: string | null;
+  colorSpace: string | null;
+}): string {
+  const transfer = source.colorTransfer ?? "arib-std-b67";
+  const primaries =
+    source.colorPrimaries && KNOWN_PRIMARIES.has(source.colorPrimaries.toLowerCase())
+      ? source.colorPrimaries
+      : "bt2020";
+  const matrix =
+    source.colorSpace && KNOWN_MATRICES.has(source.colorSpace.toLowerCase())
+      ? source.colorSpace
+      : "bt2020nc";
+  return (
+    `setparams=color_trc=${transfer}:color_primaries=${primaries}:colorspace=${matrix},` +
+    "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709," +
+    "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+  );
+}
+
+/** Written after the encoder settings, so the file says what it actually is. */
+export const BT709_TAGS = [
+  "-color_primaries", "bt709",
+  "-color_trc", "bt709",
+  "-colorspace", "bt709",
+];
+
+/**
+ * Whether this ffmpeg can tone-map at all, asked once and remembered.
+ *
+ * `zscale` is libzimg and `tonemap` needs it to have run first. Debian's
+ * ffmpeg carries both and the worker image is checked for them at build time —
+ * but this module also runs from a checkout, on whatever ffmpeg is on the
+ * machine, and a filter that is not there fails the whole render rather than
+ * one step of it. So it is asked, and a build without it degrades to a note
+ * about a picture we could not correct instead of a job that dies.
+ */
+let tonemapAvailable: boolean | null = null;
+async function canTonemap(): Promise<boolean> {
+  if (tonemapAvailable !== null) return tonemapAvailable;
+  try {
+    const { stdout } = await run(FFMPEG, ["-hide_banner", "-filters"], { limits: LIMITS.probe });
+    tonemapAvailable = /^\s*\S+\s+zscale\s/m.test(stdout) && /^\s*\S+\s+tonemap\s/m.test(stdout);
+  } catch {
+    tonemapAvailable = false;
+  }
+  return tonemapAvailable;
+}
+
+/** Test seam: makes the next `canTonemap` ask again. */
+export function forgetTonemapSupport(): void {
+  tonemapAvailable = null;
+}
 
 /**
  * What `loudnorm` measured about a programme, in the shape its second pass wants.
@@ -319,7 +514,7 @@ export async function probeSource(file: string): Promise<SourceInfo> {
   const { stdout } = await run(FFPROBE, [
     "-v", "error",
     "-select_streams", "v:0",
-    "-show_entries", "stream=width,height,avg_frame_rate,duration",
+    "-show_entries", "stream=width,height,avg_frame_rate,duration,color_transfer,color_primaries,color_space",
     "-show_entries", "stream_side_data=rotation",
     "-show_entries", "stream_tags=rotate",
     "-show_entries", "format=duration",
@@ -365,7 +560,27 @@ export async function probeSource(file: string): Promise<SourceInfo> {
   const [num, den] = (read("avg_frame_rate") ?? "30/1").split("/").map(Number);
   const fps = den > 0 && num > 0 ? num / den : 30;
 
-  return { width, height, fps, duration, rotation, hasAudio: await hasAudioStream(file) };
+  /*
+    "unknown" is ffprobe's word for "the container does not say", and it is not
+    a colour space. Normalised to null here so the one place that decides what
+    to do about colour is not also the place that knows ffprobe's vocabulary.
+  */
+  const colour = (key: string): string | null => {
+    const value = read(key);
+    return value && value !== "unknown" && value !== "N/A" ? value : null;
+  };
+
+  return {
+    width,
+    height,
+    fps,
+    duration,
+    rotation,
+    hasAudio: await hasAudioStream(file),
+    colorTransfer: colour("color_transfer"),
+    colorPrimaries: colour("color_primaries"),
+    colorSpace: colour("color_space"),
+  };
 }
 
 export async function probeDuration(file: string): Promise<number> {
@@ -2617,6 +2832,47 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   }
 
   const videoParts: string[] = [];
+
+  /*
+    Colour first, before anything is scaled, cropped, punched or captioned.
+
+    Everything downstream of here is arithmetic on pixel values — a crossfade
+    averages two frames, a zoom interpolates between neighbours, an overlay
+    blends by alpha — and all of it assumes the numbers mean light in the way
+    bt709 says they do. On an HLG or PQ frame they do not, so every one of those
+    operations is being done on the wrong scale. And the caption colours, the
+    grade presets and the watermark are all written as bt709 values, which land
+    somewhere else entirely on a bt2020 frame.
+
+    So the tone-map goes at the head of the video chain, and the frames the rest
+    of this function works on are the ordinary kind. See `tonemapChainFor`.
+  */
+  let tonemapped = false;
+  if (isHighDynamicRange(source)) {
+    if (await canTonemap()) {
+      videoParts.push(tonemapChainFor(source));
+      tonemapped = true;
+      notes.push(
+        t(
+          `this was filmed in HDR (${source.colorTransfer}), which most feeds and browsers cannot show, so the colour was brought into the ordinary range rather than left to come out flat`,
+          `صُوّر هذا بمدى ديناميكي عالٍ (${source.colorTransfer})، وأكثر المنصّات والمتصفّحات لا تعرضه، فنُقل اللون إلى المدى العادي بدل أن يخرج باهتًا`,
+        ),
+      );
+    } else {
+      /*
+        Said rather than swallowed. This is the branch where the product knows
+        the picture will be wrong and cannot fix it, and the whole argument of
+        this file is that such a moment gets a sentence.
+      */
+      notes.push(
+        t(
+          "this was filmed in HDR and this machine has no tone-mapping filter, so the colour is left as it came. It may look flat or washed out where it is watched",
+          "صُوّر هذا بمدى ديناميكي عالٍ ولا يملك هذا الجهاز مرشّح تحويل النطاق، فتُرك اللون كما جاء. وقد يبدو باهتًا أو مسطّحًا حيث يُشاهَد",
+        ),
+      );
+    }
+  }
+
   const audioParts: string[] = [];
   /**
    * The level this render owes, once there is a mix to measure.
@@ -4748,6 +5004,17 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   if (hasAudioOut) args.push("-map", finalA);
 
   args.push(...videoEncodeFor(frameHeight, source.fps));
+  /*
+    And the file says what it is.
+
+    x264 copies the input stream's colour metadata through, so without this a
+    tone-mapped picture ships tagged as the HDR it no longer is and every
+    player that reads the tag applies the transform a second time. The tags are
+    written only when the conversion actually happened: stamping bt709 on
+    footage this build could not tone-map would replace a picture that is wrong
+    with a picture that is wrong *and* lying about it.
+  */
+  if (tonemapped) args.push(...BT709_TAGS);
   if (hasAudioOut) {
     /*
       The channel count of what comes out, not of what went in.

@@ -87,7 +87,20 @@ const { spring, sceneHtml, renderMotionLayer, wordsOf } = await import(pathToFil
 // The renderer too, because the cost of the layer is decided at its call site:
 // the module draws whatever window it is given, and the bug was in what it was
 // given.
-const renderModulePath = path.join(buildDir, "ffmpeg.mjs");
+/*
+  Beside the other bundle, and for the reason this file's own header gives.
+
+  `motion.ts` was moved out of /tmp because Node resolves a bare specifier by
+  walking up from the *importing file*, so a bundle in a temp directory can
+  never find `playwright` however it is installed. The render bundle — which
+  reaches the same `import("playwright")` through `renderPlan` — was left
+  behind in /tmp, so the half of this suite that exercises titles through a
+  real render could not load a browser on any machine. `renderMotionLayer`
+  answers a missing driver with null, the render writes "could not render the
+  titles here", and `work/motion` is never created: the checks below it fail
+  on a missing directory and say nothing about titles.
+*/
+const renderModulePath = path.join(moduleDir, "ffmpeg.mjs");
 spawnSync(
   require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/worker"] }),
   [
