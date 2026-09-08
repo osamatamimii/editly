@@ -527,15 +527,45 @@ function HeroEditor({ phone, language }: { phone: boolean; language: Language })
  * product. With `prefers-reduced-motion` it is drawn once and left alone.
  */
 
-/** The box the curve is drawn in, in its own units. */
+/**
+ * The box the curve is drawn in, and its units are **pixels**.
+ *
+ * The first version gave the `<svg>` a fixed 1000-unit viewBox and let
+ * `preserveAspectRatio="none"` stretch it to the page. That is fine at 1440,
+ * where the horizontal scale is 1.44 and the vertical is 1, and it is ruinous
+ * at 390, where the horizontal scale is 0.39 and the vertical is still 1.
+ *
+ * A stroke is thick perpendicular to its path, so under a non-uniform scale its
+ * apparent thickness depends on the direction the path is going: squeezed to a
+ * third of the width, the bell's shoulders become nearly vertical, and a
+ * 150-unit stroke that reads as a soft 150px band across a laptop reads as a
+ * pair of fat concentric arcs stacked in the corners of a phone. That is
+ * exactly what it looked like. The blur went the same way.
+ *
+ * So the viewBox is set from the element's own width and the path is built in
+ * real pixels: the mapping is 1:1 on both axes at every size, and a stroke is
+ * the thickness it says it is. The bell's control points are fractions of the
+ * width, so its *proportions* are the same everywhere — which is what
+ * `preserveAspectRatio` was being asked for and could not give without
+ * distorting everything else.
+ */
 const HORIZON_BOX = 380;
 /** Where the flat ends sit inside that box — the band's own top edge. */
 const HORIZON_SHOULDER = 250;
 /** Apex height at rest, and how much more it gains crossing the screen. */
 const HORIZON_REST = 76;
 const HORIZON_SWELL = 42;
-/** Where the apex sits across the width. Not the middle: see above. */
-const HORIZON_APEX = 460;
+/**
+ * How the apex scales with the page.
+ *
+ * A 100px bell across 1440px is a horizon. The same 100px across 390px is a
+ * hill, and its shoulders are steep enough to read as a shape rather than as
+ * light on an edge. The apex is proportional to the width, clamped so it never
+ * disappears on a narrow phone and never becomes a dome on a wide monitor.
+ */
+const HORIZON_REFERENCE_WIDTH = 1440;
+const horizonScale = (width: number) =>
+  Math.max(0.42, Math.min(1.1, width / HORIZON_REFERENCE_WIDTH));
 
 /**
  * The band, widest and dimmest first, because a `<g>` paints in document order
@@ -562,12 +592,23 @@ const HORIZON_LAYERS = [
  */
 const HORIZON_LIP = { w: 18, blur: 6, colour: "rgb(252, 250, 255)" };
 
-function horizonPath(apex: number) {
-  const y = HORIZON_SHOULDER - apex;
+/**
+ * The bell, in pixels, for a page `width` wide.
+ *
+ * Every horizontal number is a fraction of the width, so the curve keeps its
+ * shape at any size. The control points sit level with the point they leave —
+ * `C x1,S x2,y0 apex,y0` out of `0,S` — which is what makes both ends
+ * mathematically flat rather than nearly flat. The apex is at 46% of the
+ * width, not 50%: a symmetrical bump is a shape, and the reference leans.
+ */
+function horizonPath(width: number, apex: number) {
   const s = HORIZON_SHOULDER;
+  const y = s - apex;
+  const ax = width * 0.46;
+  const tail = width - ax;
   return (
-    `M0 ${s} C 250 ${s} 240 ${y} ${HORIZON_APEX} ${y}` +
-    ` C ${HORIZON_APEX + 260} ${y} ${HORIZON_APEX + 250} ${s} 1000 ${s}`
+    `M0 ${s} C ${(width * 0.25).toFixed(1)} ${s} ${(width * 0.24).toFixed(1)} ${y} ${ax.toFixed(1)} ${y}` +
+    ` C ${(ax + tail * 0.48).toFixed(1)} ${y} ${(ax + tail * 0.46).toFixed(1)} ${s} ${width} ${s}`
   );
 }
 
@@ -581,25 +622,59 @@ function Horizon({ foot = false }: { foot?: boolean }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const edgeRef = useRef<SVGPathElement>(null);
   const capRef = useRef<SVGPathElement>(null);
+  const groundRef = useRef<SVGRectElement>(null);
   const id = foot ? "horizon-foot" : "horizon-head";
 
   useEffect(() => {
     const box = boxRef.current;
     const edge = edgeRef.current;
     const cap = capRef.current;
+    const ground = groundRef.current;
     if (!box || !edge || !cap) return;
     const section = box.parentElement;
     if (!section) return;
 
+    const svg = box.querySelector("svg");
+    let width = 0;
+
     const draw = (apex: number) => {
-      const d = horizonPath(apex);
+      const d = horizonPath(width, apex);
       edge.setAttribute("d", d);
-      cap.setAttribute("d", `${d} L1000 ${HORIZON_BOX} L0 ${HORIZON_BOX} Z`);
+      cap.setAttribute("d", `${d} L${width} ${HORIZON_BOX} L0 ${HORIZON_BOX} Z`);
+    };
+
+    /*
+     * One `viewBox` per resize, never per frame — it is the only thing here
+     * that depends on the width rather than on the scroll.
+     *
+     * The band's thickness travels with it. Now that the strokes are in real
+     * pixels they no longer shrink on their own, and a 150px band across a
+     * 390px phone is a quarter of the screen: on a laptop the same band is a
+     * horizon, on a phone it is a stripe. Every layer is scaled by the same
+     * factor as the apex, so the whole thing keeps its proportions instead of
+     * only its shape. The lip scales less — it is a specular edge, and an edge
+     * that thins with the screen stops reading as light.
+     */
+    const fit = () => {
+      const next = Math.max(1, Math.round(box.getBoundingClientRect().width));
+      if (next === width) return;
+      width = next;
+      const k = horizonScale(width);
+      svg?.setAttribute("viewBox", `0 0 ${width} ${HORIZON_BOX}`);
+      ground?.setAttribute("width", String(width + 80));
+      box.querySelectorAll<SVGUseElement>("[data-stroke]").forEach((layer) => {
+        const base = Number(layer.dataset.stroke);
+        const blur = Number(layer.dataset.blur);
+        const scale = layer.dataset.lip ? 0.62 + 0.38 * k : k;
+        layer.setAttribute("stroke-width", (base * scale).toFixed(1));
+        layer.style.filter = `blur(${(blur * scale).toFixed(1)}px)`;
+      });
     };
 
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (still) {
-      draw(HORIZON_REST + HORIZON_SWELL * 0.7);
+      fit();
+      draw((HORIZON_REST + HORIZON_SWELL * 0.7) * horizonScale(width));
       box.style.setProperty("--arc-lit", "1");
       return;
     }
@@ -618,7 +693,7 @@ function Horizon({ foot = false }: { foot?: boolean }) {
       const from = foot ? rect.bottom : rect.top;
       const p = Math.max(0, Math.min(1, (vh - from) / (vh * 0.9)));
       const swell = Math.sin(Math.PI * p);
-      target = HORIZON_REST + HORIZON_SWELL * swell;
+      target = (HORIZON_REST + HORIZON_SWELL * swell) * horizonScale(width);
       lit = (foot ? 0.2 : 0.45) + (foot ? 0.22 : 0.55) * swell;
     };
 
@@ -637,15 +712,20 @@ function Horizon({ foot = false }: { foot?: boolean }) {
       measure();
       if (!frame) frame = requestAnimationFrame(tick);
     };
+    const onResize = () => {
+      fit();
+      onScroll();
+    };
 
+    fit();
     measure();
     shown = target;
     tick();
     window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
+    window.addEventListener("resize", onResize);
     return () => {
       window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
+      window.removeEventListener("resize", onResize);
       if (frame) cancelAnimationFrame(frame);
     };
   }, [foot]);
@@ -655,7 +735,7 @@ function Horizon({ foot = false }: { foot?: boolean }) {
       <svg
         className="horizon-svg"
         viewBox={`0 0 1000 ${HORIZON_BOX}`}
-        preserveAspectRatio="none"
+        preserveAspectRatio="xMidYMid meet"
         focusable="false"
       >
         <defs>
@@ -668,7 +748,7 @@ function Horizon({ foot = false }: { foot?: boolean }) {
           {/* The dark itself, so the curve is the boundary rather than a line
               drawn near one. Oversized, because a blurred stroke at the edge of
               the box would otherwise show the box. */}
-          <rect x="-40" y="-40" width="1080" height={HORIZON_BOX + 80} fill="hsl(var(--background))" />
+          <rect ref={groundRef} x="-40" y="-40" width="1080" height={HORIZON_BOX + 80} fill="hsl(var(--background))" />
           {HORIZON_LAYERS.map((layer) => (
             <use
               key={layer.w}
@@ -677,6 +757,8 @@ function Horizon({ foot = false }: { foot?: boolean }) {
               stroke={layer.colour}
               strokeWidth={layer.w}
               strokeLinecap="butt"
+              data-stroke={layer.w}
+              data-blur={layer.blur}
               style={{ filter: `blur(${layer.blur}px)`, opacity: "var(--arc-lit, 1)" }}
             />
           ))}
@@ -687,6 +769,9 @@ function Horizon({ foot = false }: { foot?: boolean }) {
           stroke={HORIZON_LIP.colour}
           strokeWidth={HORIZON_LIP.w}
           strokeLinecap="butt"
+          data-stroke={HORIZON_LIP.w}
+          data-blur={HORIZON_LIP.blur}
+          data-lip=""
           /* Fully opaque, unlike every layer inside the clip. It is covering an
              antialiasing seam, and a half-transparent cover leaves half a seam;
              the swell dims the band under it, not the line that hides the join. */
@@ -1412,7 +1497,14 @@ export default function Home() {
           <Logo className="w-8 h-8 sm:w-9 sm:h-9 text-brand-mark flex-shrink-0" />
           <span className="font-bold text-lg sm:text-xl tracking-tight">Editly</span>
         </div>
-        <nav className="hidden md:flex items-center gap-5 lg:gap-7 text-sm font-medium text-muted-foreground">
+        {/* `lg`, not `md`.
+
+              At 768 the section links appeared and the bar had 743px of content
+              for 768px of room, so the mark — which carries `min-w-0` so it can
+              shrink — squashed, and «Editly» printed over "Features". A tablet
+              gets the mark, the language switch and the two doors; the section
+              links come back when there is room for them. */}
+          <nav className="hidden lg:flex items-center gap-5 lg:gap-7 text-sm font-medium text-muted-foreground">
           {/* The anchor is the section id, which is English and stays English:
               it is a URL, and a URL that changes with the reader's language is
               a link that breaks when it is shared. Only the label translates. */}
