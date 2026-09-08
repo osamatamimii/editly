@@ -832,6 +832,17 @@ function Horizon({ foot = false }: { foot?: boolean }) {
 
 /** Where on the screen "now" is. Measured off the reference: 46% down. */
 const PLAYHEAD = 0.46;
+/**
+ * And where it is when the picture is *above* the writing rather than beside it.
+ *
+ * On a phone the pinned frame takes the top half of the screen, so a playhead
+ * at 46% sits behind it: the step that is lit would be the one hidden under the
+ * picture, and the line would fill to a point nobody can see. Three quarters
+ * down puts it in the middle of what is actually readable.
+ */
+const PLAYHEAD_STACKED = 0.76;
+/** The width at which the two columns appear — Tailwind's `lg`. */
+const TWO_COLUMNS = "(min-width: 1024px)";
 /** How much of the remaining distance the fill closes each frame. */
 const RAIL_SMOOTHING = 0.12;
 
@@ -853,7 +864,8 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
 
     const measure = () => {
       const rect = rail.getBoundingClientRect();
-      const playhead = window.innerHeight * PLAYHEAD;
+      const wide = window.matchMedia(TWO_COLUMNS).matches;
+      const playhead = window.innerHeight * (wide ? PLAYHEAD : PLAYHEAD_STACKED);
       target = Math.max(0, Math.min(rect.height, playhead - rect.top));
       /* The active step is the last one whose top has crossed the playhead —
          `last`, not `first`, so that scrolling back up hands the title back to
@@ -1048,7 +1060,12 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
    */
   return (
     <section id="how-it-works" className="w-full bg-band py-24 sm:py-32 relative">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(108,59,255,0.08)_0%,transparent_60%)]" />
+      {/* Hidden where the pinned frame carries a ground of its own: the sticky
+            wrapper paints `--band` over whatever is behind it, and over a wash
+            that means a faint rectangle with a visible edge follows the frame
+            down the page. At 390px the wash is two per cent of violet at the
+            top of a section nobody sees the top of. */}
+        <div className="hidden lg:block absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(108,59,255,0.08)_0%,transparent_60%)]" />
       <div className="max-w-7xl mx-auto px-6 relative z-10">
         <div className="text-center mb-16 sm:mb-24">
           <div className="reveal">
@@ -1065,13 +1082,63 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
               and it simply scrolls away. Stretched, the column is as tall as
               the steps beside it, which is exactly the distance the picture
               should hold for. */}
-          <div className="grid lg:grid-cols-2 gap-10 lg:gap-20">
-          {/* The picture, pinned. `top-28` clears the collapsed top bar. */}
-          <div className="hidden lg:block">
-            <div className="sticky top-28">
-              <div className="relative w-full aspect-[4/3] overflow-hidden rounded-[28px] ring-1 ring-hairline-faint shadow-[0_40px_90px_-50px_rgba(8,4,24,0.75)]">
-                {steps.map((step) => frame(step, step.num))}
-              </div>
+          {/* A grid only at `lg`, and that is what lets the picture pin on a phone.
+
+              Every grid item is its own containing block, so stacked into one
+              column the picture's row is exactly as tall as the picture: there
+              is nothing for a sticky child to travel inside and it scrolls away
+              — measured, `cardTop` walking to −1416 while the steps went past.
+              In normal flow the two are siblings of the same block, and that
+              block is as tall as the whole sequence. Same defect as
+              `items-start` on the two-column version, one row up. */}
+          <div className="lg:grid lg:grid-cols-2 lg:gap-20">
+          {/*
+              The picture, pinned — at every width, and that is the change.
+
+              It used to pin only on a laptop; a phone got a copy of the picture
+              above each step and scrolled the lot. That is a different section,
+              not a narrower one: the whole idea is that the frame holds still
+              and its *contents* change, and repeating the frame three times
+              throws that away — you never see one picture become the next,
+              which is the only thing the section is doing.
+
+              Stacked, it pins to the top of the screen and the writing goes
+              under it. Two things make that work rather than collide: `z-10`,
+              because siblings paint in document order and the steps come after,
+              so without it the text would ride *over* the frame; and the band's
+              own colour on the sticky wrapper, so what passes underneath
+              disappears at a clean edge instead of showing through the gap.
+
+              `top-[4.5rem]` clears the collapsed top bar on a phone, `top-28`
+              on a laptop where the bar is taller.
+          */}
+          {/* One element, and it is the sticky one.
+
+              A sticky box travels inside its own containing block, and a
+              *wrapper* around it is a block that shrink-wraps to its content —
+              which is the picture, so there was nothing to travel in and it
+              scrolled away on a phone exactly as it had before. Measured:
+              `parentH` 259 against a card 259 tall.
+
+              So the picture's own grid item is sticky. Stacked, its containing
+              block is the block that holds the picture *and* the steps, which
+              is the whole sequence. In two columns it is the grid area, whose
+              height is the row's — and `self-start` is what stops it filling
+              that area and leaving itself nowhere to go, which is the same
+              trap `items-start` was on the other side of.
+
+              The ground it carries is the band's own colour, and it has to
+              cover more than the card: stacked, the strip between the top of
+              the screen and the pinned frame is 72px of nothing, and the
+              writing scrolled through it in full view. `top-0` with 72px of
+              padding puts the frame in the same place and gives the ground the
+              whole strip; the negative margin cancels the padding so nothing
+              below moves. The `::after` fades the ground out under the card
+              rather than ending it on a ruled edge — a hard line there reads as
+              a slab laid over the page. */}
+          <div className="relative z-10 mb-8 self-start sticky top-0 -mt-[4.5rem] pt-[4.5rem] bg-band after:content-[''] after:absolute after:inset-x-0 after:top-full after:h-8 after:bg-gradient-to-b after:from-band after:to-transparent lg:z-auto lg:mb-0 lg:mt-0 lg:pt-0 lg:top-28 lg:bg-transparent lg:after:hidden">
+            <div className="relative w-full aspect-[16/11] lg:aspect-[4/3] overflow-hidden rounded-[28px] ring-1 ring-hairline-faint shadow-[0_40px_90px_-50px_rgba(8,4,24,0.75)]">
+              {steps.map((step) => frame(step, step.num))}
             </div>
           </div>
 
@@ -1098,17 +1165,8 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
                 }}
                 data-testid={`step-${step.num}`}
                 data-active={active === i ? "true" : "false"}
-                className="flex flex-col justify-center py-14 lg:py-0 lg:min-h-[58vh]"
+                className="flex flex-col justify-center min-h-[46vh] lg:min-h-[58vh]"
               >
-                {/* On a phone the picture travels with its step, because there
-                    is nowhere for it to stand still. */}
-                <div className="lg:hidden relative w-full aspect-[4/3] overflow-hidden rounded-3xl ring-1 ring-hairline-faint mb-8 shadow-[0_30px_70px_-40px_rgba(8,4,24,0.7)]">
-                  <div className="absolute inset-0 flex items-center justify-center p-6" style={{ background: step.wash }}>
-                    <div className="light w-full rounded-2xl bg-white/92 p-4 shadow-[0_24px_60px_-32px_rgba(20,10,60,0.6)] ring-1 ring-black/5">
-                      <div className="w-full aspect-[16/9]">{step.art}</div>
-                    </div>
-                  </div>
-                </div>
                 <p className="font-mono text-xs tracking-[0.35em] text-muted-foreground mb-3">{step.num}</p>
                 <h3
                   className={`text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight mb-4 transition-colors duration-500 motion-reduce:transition-none ${
