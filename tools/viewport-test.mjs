@@ -646,6 +646,41 @@ async function measure(page) {
           `${e.getAttribute("data-testid") || e.textContent?.trim().slice(0, 20) || e.tagName} left=${Math.round(r.left)} right=${Math.round(r.right)} of ${vw}`,
       );
 
+    /*
+      Two rounded rectangles nested inside each other, and whether their
+      curves are parallel.
+
+      A card that holds a picture insets it, and the picture keeps a corner of
+      its own. Those two corners only read as one object when they are
+      *concentric*, which means the inner radius has to be the outer one less
+      the gap between them. Give the picture the same radius as the card and
+      its curve turns in faster, leaving a thick crescent of card at each
+      corner — which is what a project card looked like on the dashboard, and
+      what a clip tile looked like in the library, and neither is findable by
+      reading the classes: `rounded-2xl` inside `rounded-2xl` reads as *more*
+      consistent, not less.
+
+      A pixel of slack, because a radius is a `calc` off `--radius` and the
+      padding is a Tailwind step, and the two need not land on the same integer
+      for the curves to look parallel.
+    */
+    const nested = [...document.querySelectorAll("[data-nested-media]")]
+      .filter(visible)
+      .map((media) => {
+        const card = media.closest("[class*='rounded-']:not([data-nested-media])");
+        if (!card || card === media) return null;
+        const cs = getComputedStyle(card);
+        const outer = parseFloat(cs.borderTopLeftRadius) || 0;
+        const inset = parseFloat(cs.paddingTop) || 0;
+        const inner = parseFloat(getComputedStyle(media).borderTopLeftRadius) || 0;
+        const want = Math.max(0, outer - inset);
+        return Math.abs(inner - want) <= 1
+          ? null
+          : `${media.getAttribute("data-testid") || media.className.slice(0, 24)}: ${inner}px inside ${outer}px with ${inset}px of inset, wanted ${want}px`;
+      })
+      .filter(Boolean)
+      .slice(0, 4);
+
     return {
       scrollWidth: doc.scrollWidth,
       clientWidth: doc.clientWidth,
@@ -654,6 +689,7 @@ async function measure(page) {
       tiny,
       collapsed,
       shaved,
+      nested,
       title: document.title,
       // When the page does scroll sideways, say what pushed it.
       //
@@ -1767,6 +1803,12 @@ for (const viewport of VIEWPORTS) {
       "no button has its ring shaved off by the edge of the screen",
       m.shaved.length === 0,
       m.shaved.join(" | "),
+    );
+
+    check(
+      "a picture inset in a card has the card's corner, less the inset",
+      m.nested.length === 0,
+      m.nested.join(" | "),
     );
 
     if (viewport.phoneRules) {

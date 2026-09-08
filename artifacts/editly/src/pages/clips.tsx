@@ -125,7 +125,9 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
       className="rounded-2xl glass-panel border border-hairline-faint overflow-hidden flex flex-col p-2"
       data-testid={`clip-card-${clip.id}`}
     >
-      <div className="force-dark relative w-full aspect-[9/16] rounded-xl overflow-hidden bg-background">
+      {/* The card is 24 and the inset is 8, so this is 16 — see the note on the
+          project card in `dashboard.tsx`. */}
+      <div className="force-dark relative w-full aspect-[9/16] rounded-lg overflow-hidden bg-background" data-nested-media>
         {/*
           The art stays until the clip has really drawn a frame.
 
@@ -457,7 +459,7 @@ export default function ClipsPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {[1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="rounded-2xl glass-panel border border-hairline-faint p-2">
-              <div className="w-full aspect-[9/16] rounded-xl bg-surface-1 animate-pulse" />
+              <div className="w-full aspect-[9/16] rounded-lg bg-surface-1 animate-pulse" />
               <div className="h-4 bg-surface-1 rounded mt-3 animate-pulse" />
             </div>
           ))}

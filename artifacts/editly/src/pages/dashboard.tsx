@@ -515,12 +515,23 @@ export default function Dashboard() {
               {/* The thumbnail is inset inside the card rather than bleeding
                   to its edge: a picture with a margin around it reads as
                   something the card is holding, which is the difference
-                  between a library and a list. */}
+                  between a library and a list.
+
+                  **Its corner is the card's corner minus the inset.** Two
+                  rounded rectangles nested inside each other only look like
+                  one object when their curves are concentric, and that means
+                  the inner radius has to be the outer one *less the gap*
+                  between them — 24 minus 8. Give the picture the same 24 the
+                  card has and its curve turns in faster than the card's, which
+                  leaves a fat crescent of card at each corner and is exactly
+                  what Osama photographed. Every card in this product that
+                  holds a picture follows the same arithmetic; `viewport-test`
+                  measures it. */}
               <Card
-                className="glass-panel border-hairline-faint overflow-hidden hover:border-primary/50 transition-all group cursor-pointer h-full flex flex-col p-2 hover:-translate-y-0.5"
+                className="glass-panel border-hairline-faint rounded-2xl overflow-hidden hover:border-primary/50 transition-all group cursor-pointer h-full flex flex-col p-2 hover:-translate-y-0.5"
                 data-testid={`card-project-${project.id}`}
               >
-                <div className="force-dark w-full aspect-[16/9] bg-background text-foreground relative overflow-hidden flex-shrink-0 rounded-xl">
+                <div className="force-dark w-full aspect-[16/9] bg-background text-foreground relative overflow-hidden flex-shrink-0 rounded-lg" data-nested-media>
                   {/* What is under everything else.
                       This was a black rectangle with a grey camera in the
                       middle, three across — the least appealing screen in the
