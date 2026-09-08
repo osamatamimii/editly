@@ -205,26 +205,52 @@ function useScrollReveal() {
  * The threshold is deliberately small. A bar that waits 200px to collapse feels
  * broken for the first flick of the wheel; 24px is "you have started moving".
  */
-function useCollapsedNav(threshold = 24): boolean {
-  const [collapsed, setCollapsed] = useState(false);
+function useNavState(threshold = 24): { collapsed: boolean; overDark: boolean } {
+  const [state, setState] = useState({ collapsed: false, overDark: false });
   useEffect(() => {
     let frame = 0;
     const read = () => {
       frame = 0;
-      setCollapsed(window.scrollY > threshold);
+      /*
+       * Glass takes the colour of what is behind it, and one section of this
+       * page is nearly black. At the tint the bar now carries that came out as
+       * a mid-grey smudge with the bar's own dark labels printed on it —
+       * measured at 2.0:1, which is not a contrast ratio, it is a guess. The
+       * bar cannot be light over that section, so it stops being light: the
+       * band's own rect says when, and the header takes the dark palette while
+       * it is inside it.
+       *
+       * Read from the band rather than from a scroll offset. An offset is a
+       * number that was true when it was written down and stops being true the
+       * next time anything above it changes height.
+       */
+      const band = document.querySelector(".horizon-band");
+      const r = band?.getBoundingClientRect();
+      /* The bar's own foot, not the viewport's: it is what the dark has to
+         reach before the labels are sitting on it. */
+      const foot = NAV_FOOT;
+      const overDark = !!r && r.top <= foot && r.bottom >= 0;
+      const collapsed = window.scrollY > threshold;
+      setState((prev) =>
+        prev.collapsed === collapsed && prev.overDark === overDark ? prev : { collapsed, overDark },
+      );
     };
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(read);
     };
     read();
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
     return () => {
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
       if (frame) cancelAnimationFrame(frame);
     };
   }, [threshold]);
-  return collapsed;
+  return state;
 }
+/** The collapsed bar's lowest pixel, which is what the dark has to reach. */
+const NAV_FOOT = 66;
 
 /**
  * The hero's waveform, written down rather than generated.
@@ -1439,7 +1465,7 @@ export default function Home() {
 
   const phone = usePhoneWidth();
   const [language, chooseLanguage] = useLandingLanguage();
-  const navCollapsed = useCollapsedNav();
+  const { collapsed: navCollapsed, overDark: navOverDark } = useNavState();
   const rtl = language === "ar";
   const t = (phrase: Phrase) => say(phrase, language);
 
@@ -1621,13 +1647,30 @@ export default function Home() {
         <header
           data-testid="landing-nav"
           data-collapsed={navCollapsed ? "true" : "false"}
-          className={`pointer-events-auto mx-auto flex items-center justify-between gap-2 animate-fade-in nav-shell ${
+          data-over-dark={navOverDark ? "true" : "false"}
+          /* `force-dark` re-declares the whole palette on the header, so the
+             capsule's own tokens, the wordmark and the two quiet labels all
+             turn over together. Setting six colours by hand here would be the
+             same change written six times and forgotten five. */
+          className={`pointer-events-auto mx-auto flex items-center justify-between gap-2 animate-fade-in nav-shell text-foreground ${
             navCollapsed ? "nav-shell-capsule" : "nav-shell-wide"
-          }`}
+          } ${navOverDark && navCollapsed ? "force-dark" : ""}`}
         >
-        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-          <Logo className="w-8 h-8 sm:w-9 sm:h-9 text-brand-mark flex-shrink-0" />
-          <span className="font-bold text-lg sm:text-xl tracking-tight">Editly</span>
+        {/*
+          The lockup, sized against the reference Osama sent rather than against
+          itself.
+
+          In that bar the mark and the wordmark are the *same height* — the mark
+          is a wide, squat emblem about as tall as a capital letter, and the
+          name is what you read. Ours had a 32px square mark beside a 13px cap,
+          so the mark was two and a half times the writing and the bar read as
+          an icon with a label after it. The mark comes down and the two now sit
+          within half a cap-height of each other, which is as close as a square
+          glyph gets to a squat one before it stops being legible.
+        */}
+        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+          <Logo className="w-6 h-6 sm:w-7 sm:h-7 text-brand-mark flex-shrink-0" />
+          <span className="font-bold text-base sm:text-lg tracking-tight">Editly</span>
         </div>
         {/* `lg`, not `md`.
 
@@ -1666,7 +1709,7 @@ export default function Home() {
           button. Once signed in both are noise, so they collapse back to the
           single destination that is actually theirs.
         */}
-        <div className="flex items-center gap-1.5 sm:gap-3">
+        <div className="flex items-center gap-1 sm:gap-2.5">
           {/* The theme control is gone from this page, with the theme. It
               lives in the app, on the screens where somebody sits long enough
               for it to matter. */}
@@ -1690,7 +1733,7 @@ export default function Home() {
             data-testid="button-language"
             lang={rtl ? "en" : "ar"}
             title={t(LANDING.languageToggle.title)}
-            className="px-2.5 sm:px-3 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
+            className="px-2 sm:px-3 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
           >
             {t(LANDING.languageToggle.label)}
           </button>
@@ -1707,7 +1750,7 @@ export default function Home() {
               <Link
                 href="/login"
                 data-testid="link-log-in"
-                className="px-2.5 sm:px-4 min-h-[44px] inline-flex items-center rounded-md font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
+                className="px-2 sm:px-4 min-h-[44px] inline-flex items-center rounded-md font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
               >
                 <span className="sm:hidden">{t(LANDING.header.logInShort)}</span>
                 <span className="hidden sm:inline">{t(LANDING.header.logIn)}</span>
