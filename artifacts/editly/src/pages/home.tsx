@@ -664,10 +664,15 @@ function Horizon({ foot = false }: { foot?: boolean }) {
       ground?.setAttribute("width", String(width + 80));
       box.querySelectorAll<SVGUseElement>("[data-stroke]").forEach((layer) => {
         const base = Number(layer.dataset.stroke);
-        const blur = Number(layer.dataset.blur);
         const scale = layer.dataset.lip ? 0.62 + 0.38 * k : k;
         layer.setAttribute("stroke-width", (base * scale).toFixed(1));
-        layer.style.filter = `blur(${(blur * scale).toFixed(1)}px)`;
+      });
+      box.querySelectorAll<SVGElement>("feGaussianBlur[data-stroke]").forEach((fe) => {
+        const blur = Number(fe.dataset.blur);
+        const scale = fe.dataset.lip ? 0.62 + 0.38 * k : k;
+        /* `stdDeviation` is half a CSS blur radius: `blur(20px)` and
+           `stdDeviation="10"` are the same Gaussian. */
+        fe.setAttribute("stdDeviation", ((blur * scale) / 2).toFixed(2));
       });
     };
 
@@ -743,6 +748,47 @@ function Horizon({ foot = false }: { foot?: boolean }) {
           <clipPath id={`${id}-under`}>
             <path ref={capRef} d="" />
           </clipPath>
+          {/*
+            An SVG filter, not `filter: blur()` in CSS, and this is the whole
+            reason the arc was wrong on a phone.
+
+            A CSS filter on an element *inside* an `<svg>` — a `<use>`, a
+            `<path>` — is a long-standing WebKit weak spot, and Safari on iOS
+            simply did not apply these. Without the blur every stroke keeps its
+            own hard edge, so the six layers that are meant to melt into one
+            band of light rendered as six concentric arcs stacked in the
+            corners of the screen. It was right in Chromium and wrong on the
+            phone Osama was holding, which is the worst way for a thing to be
+            wrong. `<feGaussianBlur>` is SVG's own and works everywhere.
+
+            `stdDeviation` is half a CSS blur radius. `color-interpolation-
+            filters="sRGB"` is not optional either: SVG filters default to
+            linearRGB, which lightens a blurred gradient noticeably, and every
+            colour here was picked against the sRGB blur CSS gave.
+
+            The filter region has to be enormous. The default is 10% around the
+            bounding box, and the box of a nearly-flat bell is a few hundred
+            pixels wide by a hundred tall — a 34px blur on that would be cut off
+            at the edges of its own region.
+          */}
+          {[...HORIZON_LAYERS, HORIZON_LIP].map((layer) => (
+            <filter
+              key={layer.w}
+              id={`${id}-soft-${layer.w}`}
+              x="-30%"
+              y="-600%"
+              width="160%"
+              height="1300%"
+              colorInterpolationFilters="sRGB"
+            >
+              <feGaussianBlur
+                data-stroke={layer.w}
+                data-blur={layer.blur}
+                {...(layer === HORIZON_LIP ? { "data-lip": "" } : {})}
+                stdDeviation={layer.blur / 2}
+              />
+            </filter>
+          ))}
         </defs>
         <g clipPath={`url(#${id}-under)`}>
           {/* The dark itself, so the curve is the boundary rather than a line
@@ -758,8 +804,8 @@ function Horizon({ foot = false }: { foot?: boolean }) {
               strokeWidth={layer.w}
               strokeLinecap="butt"
               data-stroke={layer.w}
-              data-blur={layer.blur}
-              style={{ filter: `blur(${layer.blur}px)`, opacity: "var(--arc-lit, 1)" }}
+              filter={`url(#${id}-soft-${layer.w})`}
+              style={{ opacity: "var(--arc-lit, 1)" }}
             />
           ))}
         </g>
@@ -770,12 +816,11 @@ function Horizon({ foot = false }: { foot?: boolean }) {
           strokeWidth={HORIZON_LIP.w}
           strokeLinecap="butt"
           data-stroke={HORIZON_LIP.w}
-          data-blur={HORIZON_LIP.blur}
           data-lip=""
           /* Fully opaque, unlike every layer inside the clip. It is covering an
              antialiasing seam, and a half-transparent cover leaves half a seam;
              the swell dims the band under it, not the line that hides the join. */
-          style={{ filter: `blur(${HORIZON_LIP.blur}px)` }}
+          filter={`url(#${id}-soft-${HORIZON_LIP.w})`}
         />
       </svg>
     </div>
