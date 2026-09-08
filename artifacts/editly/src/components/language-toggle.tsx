@@ -37,7 +37,7 @@ export function LanguageToggle({ className = "" }: { className?: string }) {
           // two scripts and says nothing about which one you are about to get.
           aria-label={t(LANGUAGE.title)}
           lang={next}
-          className={`h-11 sm:h-9 px-3 rounded-full flex items-center gap-2 border border-hairline bg-surface-1 text-muted-foreground text-sm font-medium transition-all duration-300 hover:text-foreground hover:bg-surface-2 hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${className}`}
+          className={`h-11 sm:h-9 px-3 rounded-md flex items-center gap-2 border border-hairline bg-surface-1 text-muted-foreground text-sm font-medium transition-all duration-300 hover:text-foreground hover:bg-surface-2 hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${className}`}
         >
           <Languages className="w-4 h-4" aria-hidden="true" />
           {t(LANGUAGE.label)}

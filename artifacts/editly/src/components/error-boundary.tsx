@@ -257,7 +257,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, BoundarySt
           </p>
           <button
             type="button"
-            className="rounded-full px-6 h-12 bg-primary text-primary-foreground font-semibold"
+            className="rounded-lg px-6 h-12 bg-primary text-primary-foreground font-semibold"
             onClick={() => window.location.reload()}
             data-testid="crash-reload"
           >

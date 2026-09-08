@@ -1956,10 +1956,10 @@ export default function Home() {
 
         {/* Billing toggle */}
         <div className="flex justify-center mb-10">
-          <div className="inline-flex items-center gap-1 p-1 rounded-full bg-surface-1 border border-hairline backdrop-blur-sm">
+          <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-surface-1 border border-hairline backdrop-blur-sm">
             <button
               onClick={() => setIsYearly(false)}
-              className={`px-6 min-h-[44px] rounded-full text-sm font-medium transition-all duration-300 ${
+              className={`px-6 min-h-[44px] rounded-md text-sm font-medium transition-all duration-300 ${
                 !isYearly
                   ? "bg-primary text-white shadow-[0_0_16px_rgba(108,59,255,0.5)]"
                   : "text-muted-foreground hover:text-foreground"
@@ -1969,7 +1969,7 @@ export default function Home() {
             </button>
             <button
               onClick={() => setIsYearly(true)}
-              className={`flex items-center justify-center gap-2 px-6 min-h-[44px] rounded-full text-sm font-medium transition-all duration-300 ${
+              className={`flex items-center justify-center gap-2 px-6 min-h-[44px] rounded-md text-sm font-medium transition-all duration-300 ${
                 isYearly
                   ? "bg-primary text-white shadow-[0_0_16px_rgba(108,59,255,0.5)]"
                   : "text-muted-foreground hover:text-foreground"

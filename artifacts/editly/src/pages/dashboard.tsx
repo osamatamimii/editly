@@ -673,7 +673,7 @@ export default function Dashboard() {
           {isAdmin ? (
             <Button
               variant="outline"
-              className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
+              className="border-hairline rounded-lg h-12 w-12 sm:w-auto px-0 sm:px-5"
               onClick={() => setLocation("/admin")}
               aria-label={t(DASHBOARD.operations)}
               data-testid="button-admin"
@@ -687,7 +687,7 @@ export default function Dashboard() {
               them — eleven recordings, eleven panels, no library. */}
           <Button
             variant="outline"
-            className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
+            className="border-hairline rounded-lg h-12 w-12 sm:w-auto px-0 sm:px-5"
             onClick={() => setLocation("/clips")}
             aria-label={t(DASHBOARD.clips)}
             data-testid="button-clips"
@@ -705,7 +705,7 @@ export default function Dashboard() {
               for "what is going out". */}
           <Button
             variant="outline"
-            className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
+            className="border-hairline rounded-lg h-12 w-12 sm:w-auto px-0 sm:px-5"
             onClick={() => setLocation("/scheduled")}
             aria-label={t(DASHBOARD.scheduled)}
             data-testid="button-scheduled"
@@ -723,7 +723,7 @@ export default function Dashboard() {
               admin. */}
           <Button
             variant="outline"
-            className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
+            className="border-hairline rounded-lg h-12 w-12 sm:w-auto px-0 sm:px-5"
             onClick={() => setLocation("/ads")}
             aria-label="Product ad"
             data-testid="button-product-ads"
@@ -733,7 +733,7 @@ export default function Dashboard() {
           </Button>
           <Button
             variant="outline"
-            className="border-hairline rounded-full h-12 w-12 sm:w-auto px-0 sm:px-5"
+            className="border-hairline rounded-lg h-12 w-12 sm:w-auto px-0 sm:px-5"
             onClick={() => setLocation("/account")}
             aria-label={t(COMMON.account)}
             data-testid="button-account"
@@ -746,7 +746,7 @@ export default function Dashboard() {
             /* No `glow-btn`: the Button component's default variant is
                `.aura-btn` now, and two classes both writing `box-shadow` is one
                of them silently winning. */
-            className="rounded-full px-5 sm:px-6 h-12 flex-1 sm:flex-none"
+            className="rounded-lg px-5 sm:px-6 h-12 flex-1 sm:flex-none"
             data-testid="button-new-project"
           >
             <Plus className="w-5 h-5 me-2" />
@@ -901,7 +901,7 @@ export default function Dashboard() {
               size="sm"
               variant="outline"
               data-testid="button-see-plans"
-              className="rounded-full text-xs h-8 px-4 border-primary/30"
+              className="rounded-md text-xs h-8 px-4 border-primary/30"
             >
               {t(COMMON.seePlans)}
             </Button>
@@ -964,7 +964,7 @@ export default function Dashboard() {
                     variant's own fill, plus a hover that fights `.aura-btn`'s.
                     Two rules changing the same background on hover is one of
                     them silently winning. */}
-                <Button size="sm" className="rounded-full text-xs h-8 px-4">
+                <Button size="sm" className="rounded-md text-xs h-8 px-4">
                   {t(COMMON.upgrade)}
                 </Button>
               </Link>

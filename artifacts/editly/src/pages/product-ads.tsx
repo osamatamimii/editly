@@ -555,7 +555,7 @@ export default function ProductAdsPage() {
         <Button
           onClick={() => void build()}
           disabled={clips.length === 0 || busy !== null}
-          className="rounded-full px-6 h-12"
+          className="rounded-lg px-6 h-12"
           data-testid="button-make-product-ad"
         >
           {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ArrowRight className="w-4 h-4 mr-2" />}
