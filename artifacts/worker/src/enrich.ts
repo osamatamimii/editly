@@ -73,6 +73,43 @@ export interface EnrichOptions {
    * having seen. By the time the renderer runs, a plan should be final.
    */
   referencePath?: string | null;
+  /**
+   * Where the words are kept between renders, when there is somewhere to keep them.
+   *
+   * A transcript is billed by the minute, is the slowest step in a render
+   * somebody is watching, and is a pure function of the sound in the file — the
+   * same audio through the same model gives the same words. It was bought again
+   * on every render anyway: five refinements on one thirty-minute podcast paid
+   * for the same half hour five times.
+   *
+   * Passed in rather than reached for, because this module has no database and
+   * is worth keeping that way: everything in here is a plan meeting the files
+   * it was written without having seen, and a table would make it also a place
+   * that knows about rows and owners and cascades. `index.ts` has all three.
+   *
+   * Absent is a valid state and the one every test runs in: no store, buy the
+   * words, use them, drop them — exactly what this did before.
+   */
+  transcriptStore?: TranscriptStore;
+}
+
+/**
+ * The two questions a stored transcript has to answer, and nothing else.
+ *
+ * `load` returns the words only when they are still the right words: same
+ * media, same provider, same shape of this code. Deciding that is the store's
+ * job rather than this module's, because the evidence for it — a storage
+ * object's version stamp — is something `index.ts` can see and `enrich.ts`
+ * cannot.
+ *
+ * Both fail soft. A store that cannot be read is a transcript that gets bought,
+ * which is what happened every time before this existed; a store that cannot be
+ * written is a render that still succeeds and pays again next time. Neither is
+ * worth failing somebody's edit over.
+ */
+export interface TranscriptStore {
+  load(): Promise<Transcript | null>;
+  save(transcript: Transcript): Promise<void>;
 }
 
 export async function enrichPlan(
@@ -194,7 +231,28 @@ export async function enrichPlan(
     }
   }
 
-  if (needsTranscript && providers.transcriber && !heardNothing) {
+  /*
+    The words we already have, before the words we would have to buy.
+
+    Checked after the silence probe rather than before it, and the order is
+    deliberate: a clip with nothing on its sound track has no stored words and
+    never will, so asking the store first would be a database round trip on the
+    one path that is certain to miss.
+  */
+  if (needsTranscript && !heardNothing && options.transcriptStore) {
+    const kept = await options.transcriptStore.load();
+    if (kept) {
+      transcript = kept;
+      // The same notes the first render wrote, carried with the words. A
+      // sentence like "only one speech model is configured, so captions rest
+      // on a single reading" is true of the second render too, and dropping it
+      // on reuse would make the honest version of a render the one nobody
+      // sees twice.
+      notes.push(...(kept.notes ?? []));
+    }
+  }
+
+  if (needsTranscript && providers.transcriber && !heardNothing && !transcript) {
     options.onProgress?.("Listening to what was said");
     const language = plan.operations.find((op) => op.type === "autoCaptions")?.language;
     try {
@@ -229,6 +287,16 @@ export async function enrichPlan(
       // A transcript that was corroborated and one that was not are worth
       // different amounts, and only one of them can say so.
       notes.push(...(transcript.notes ?? []));
+
+      /*
+        Kept, so the next render does not buy them again.
+
+        Not awaited into the render's critical path any more than it has to be:
+        the words are already in hand and the edit does not depend on the row
+        landing. A store that refuses is a render that succeeds and pays again
+        next time, which is what every render did before this existed.
+      */
+      await options.transcriptStore?.save(transcript).catch(() => {});
 
       // Which language was heard — but only when it is not the one they wrote
       // in.

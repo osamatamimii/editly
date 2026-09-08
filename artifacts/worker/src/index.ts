@@ -15,10 +15,10 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { sql, eq, and } from "drizzle-orm";
 import pino from "pino";
-import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, comprehensionsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
+import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, comprehensionsTable, transcriptsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
 import { EditPlan, type EditOperation } from "@workspace/api-zod";
 import { CANCELLED_MID_RENDER_MESSAGE } from "@workspace/api-zod/limits";
-import { downloadObject, uploadObject, bytesPulled, objectBytes, StorageTransferError } from "./storage";
+import { downloadObject, uploadObject, bytesPulled, objectBytes, objectStamp, StorageTransferError } from "./storage";
 import { roomFor, noRoomMessage, sweepStaleWork } from "./disk";
 import { renderPlan, probeDuration, probeSource, grabPosterFrame, shapeFor, frameFor, defaultHeightFor, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
@@ -28,9 +28,9 @@ import { chooseClips } from "./highlight";
 import { chooseConversationClips, type Reading } from "./conversation";
 import { snapToSpeechBreaks } from "./timeline";
 import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, allowanceNow, overAllowanceMessage, exceedsDeliverable, notDeliverableMessage } from "./duration";
-import { enrichPlan } from "./enrich";
+import { enrichPlan, type TranscriptStore } from "./enrich";
 import { comprehend, transcriptDigest, wordsOf, COMPREHENSION_VERSION } from "./comprehend";
-import { resolveProviders } from "./providers";
+import { resolveProviders, type Providers } from "./providers";
 import { sayIn, countedAr, AR_NOUNS, type Language } from "./say";
 import { publishDuePosts, surfaceStrandedPosts } from "./publisher";
 import { mailLogsTo, tellThemItDidNotFinish, tellThemTheEditIsReady } from "./mail";
@@ -723,6 +723,8 @@ async function processJob(job: Job): Promise<void> {
       }
     }
 
+    const keptWords = await transcriptStoreFor(job, providers, log);
+
     // Whatever the plan could not know without the file — the words, where the
     // emphasis fell, what the reference looks like — is filled in here. It
     // degrades rather than fails, and every degradation comes back as a note.
@@ -733,6 +735,10 @@ async function processJob(job: Job): Promise<void> {
       // answer is in the same language as the reply that promised it.
       language: say.language,
       referencePath: referenceFile,
+      // Where the words live between renders. Absent when the store cannot
+      // stamp the media, because a transcript reused against a file we cannot
+      // identify is a transcript of whatever used to be there.
+      ...(keptWords ? { transcriptStore: keptWords } : {}),
       onProgress: (stage) => {
         void reportProgress(job.id, 8, stage).catch(() => {});
       },
@@ -1305,6 +1311,122 @@ async function processJob(job: Job): Promise<void> {
  * same from the outside — so `how` and the notes say which it was, and the
  * shape path stores no claims and no hook at all.
  */
+/**
+ * The shape of this code's reading, so words from an older one are bought again.
+ *
+ * Bumped when what a transcript *is* changes — a new field the layout depends
+ * on, a different notion of a filler, per-word confidence arriving where it did
+ * not before. Not bumped for a bug fix in a provider adapter, which produces
+ * the same shape of answer.
+ */
+const TRANSCRIPT_VERSION = 1;
+
+/**
+ * Where a project's words are kept between renders, or null when nowhere safe.
+ *
+ * A transcript is billed by the minute, is the slowest step in a render
+ * somebody is watching a progress bar for, and is a pure function of the sound
+ * in the file. It was bought again on every render: five refinements on one
+ * thirty-minute podcast paid for the same half hour five times, waited for it
+ * five times, and discarded it five times. Nothing failed — the words were
+ * right on each of the five.
+ *
+ * Null when the store cannot stamp the media. That is the important direction
+ * of failure: a stamp that fell back to a constant would make every project
+ * look like the same file forever, and the product would caption one video with
+ * another's words. Unknown means buy them, which is what it always did.
+ *
+ * Both halves fail soft for the same reason: a database that will not answer is
+ * a transcript that gets bought, not a render that dies.
+ */
+async function transcriptStoreFor(
+  job: Job,
+  providers: Providers,
+  log: pino.Logger,
+): Promise<TranscriptStore | null> {
+  const stamp = await objectStamp(job.inputPath);
+  if (!stamp) return null;
+
+  /*
+    Which model would be asked, so a reuse cannot cross models.
+
+    A transcript from another provider is a different answer wearing the same
+    field names, and serving one model's hearing under another's is exactly the
+    silent substitution this codebase keeps finding in itself. `name` is what
+    the transcript already records for the render notes, so the two agree by
+    construction.
+  */
+  const provider = providers.transcriber?.name ?? null;
+  if (!provider) return null;
+
+  return {
+    async load() {
+      try {
+        const [row] = await db
+          .select()
+          .from(transcriptsTable)
+          .where(
+            and(
+              eq(transcriptsTable.projectId, job.projectId),
+              eq(transcriptsTable.userId, job.userId),
+            ),
+          )
+          .limit(1);
+        if (!row) return null;
+        if (row.stamp !== stamp || row.sourcePath !== job.inputPath) return null;
+        if (row.provider !== provider || row.version !== TRANSCRIPT_VERSION) return null;
+        log.info({ project: job.projectId }, "the words for this source are already known");
+        return {
+          segments: row.segments,
+          language: row.language,
+          source: row.provider,
+          ...(row.notes ? { notes: row.notes } : {}),
+        };
+      } catch (error) {
+        log.warn({ err: error }, "could not read the stored transcript; buying it again");
+        return null;
+      }
+    },
+    async save(transcript) {
+      try {
+        const now = new Date();
+        await db
+          .insert(transcriptsTable)
+          .values({
+            id: randomUUID(),
+            projectId: job.projectId,
+            userId: job.userId,
+            version: TRANSCRIPT_VERSION,
+            sourcePath: job.inputPath,
+            stamp,
+            provider,
+            language: transcript.language,
+            segments: transcript.segments,
+            notes: transcript.notes ?? null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: transcriptsTable.projectId,
+            set: {
+              userId: job.userId,
+              version: TRANSCRIPT_VERSION,
+              sourcePath: job.inputPath,
+              stamp,
+              provider,
+              language: transcript.language,
+              segments: transcript.segments,
+              notes: transcript.notes ?? null,
+              updatedAt: now,
+            },
+          });
+      } catch (error) {
+        log.warn({ err: error }, "could not keep the transcript; the next render will buy it again");
+      }
+    },
+  };
+}
+
 async function readMaterial(
   job: Job,
   transcript: Awaited<ReturnType<typeof enrichPlan>>["transcript"],

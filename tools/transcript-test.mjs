@@ -1155,5 +1155,103 @@ section("No word is dropped in the gap between Deepgram's sentences");
 
 await rm(buildDir, { recursive: true, force: true });
 
+section("The words are bought once, not once per render");
+{
+  /*
+    A transcript is the most expensive thing this pipeline produces: billed by
+    the minute of audio, the slowest step in a render somebody is watching a
+    progress bar for, and a **pure function of the sound in the file** — the
+    same audio through the same model gives the same words.
+
+    And it was thrown away every time. Every message that asks for an edit
+    starts a render, and every render with captions transcribed the source
+    again from the top: five refinements on one thirty-minute podcast bought
+    the same half hour of speech five times, waited for it five times, and
+    discarded it five times. Nothing failed. The words were right on each of
+    the five.
+
+    It matters more now than it did, which is why it is fixed now. The
+    direction no longer stands down on a project it has heard nothing from, so
+    captions are on the *first* message rather than the tenth, and the volume of
+    transcription this product buys went up by design.
+
+    The store is injected rather than reached for, so this exercises the real
+    `enrichPlan` against a real fake: a transcriber that counts how many times
+    it was asked, and a store that is one variable.
+  */
+  const words = [
+    { text: "hello", startMs: 0, endMs: 400, confidence: 0.9, filler: false },
+    { text: "there", startMs: 420, endMs: 800, confidence: 0.9, filler: false },
+  ];
+  let asked = 0;
+  const transcriber = {
+    name: "fake/one",
+    detectsLanguage: () => true,
+    transcribe: async () => {
+      asked += 1;
+      return {
+        segments: [{ startMs: 0, endMs: 800, text: "hello there", words }],
+        language: "en",
+        source: "fake/one",
+        notes: ["only one speech model is configured, so captions rest on a single reading"],
+      };
+    },
+  };
+  const providers = { transcriber, sceneReader: null, structureReader: null, status: {} };
+  const plan = {
+    version: 1,
+    operations: [{ type: "autoCaptions", style: "bold-white", animation: "none", language: null }],
+  };
+
+  let kept = null;
+  const store = {
+    load: async () => kept,
+    save: async (t) => {
+      kept = t;
+    },
+  };
+
+  const first = await enrichPlan("/nonexistent.mp4", plan, { providers, language: "en", transcriptStore: store });
+  check("the first render buys the words", asked === 1, `${asked} calls`);
+  check("and keeps them", kept !== null && kept.segments.length === 1, JSON.stringify(kept)?.slice(0, 80));
+  check(
+    "and the captions are built from them",
+    first.plan.operations.some((op) => op.type === "burnCaptions" && op.cues.length > 0),
+    JSON.stringify(first.plan.operations.map((op) => op.type)),
+  );
+
+  const second = await enrichPlan("/nonexistent.mp4", plan, { providers, language: "en", transcriptStore: store });
+  check("the second render does not buy them again", asked === 1, `${asked} calls`);
+  check(
+    "and still gets its captions",
+    second.plan.operations.some((op) => op.type === "burnCaptions" && op.cues.length > 0),
+    JSON.stringify(second.plan.operations.map((op) => op.type)),
+  );
+  /*
+    The notes travel with the words.
+
+    "Only one speech model is configured, so captions rest on a single reading"
+    is as true of the second render as of the first, and it is the version of
+    that sentence a customer sees most — the first render happens once, the
+    refinements happen all afternoon. Dropping it on reuse would make the
+    honest version of a render the one nobody reads twice.
+  */
+  check(
+    "along with what was lost getting them",
+    second.notes.some((n) => /single reading/.test(n)),
+    JSON.stringify(second.notes),
+  );
+
+  // And no store is a valid state — the one every other test in this file runs
+  // in. Buy the words, use them, drop them: exactly what this did before.
+  asked = 0;
+  const storeless = await enrichPlan("/nonexistent.mp4", plan, { providers, language: "en" });
+  check(
+    "with nowhere to keep them, the render still works and pays each time",
+    asked === 1 && storeless.plan.operations.some((op) => op.type === "burnCaptions"),
+    `${asked} calls`,
+  );
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 process.exit(failures === 0 ? 0 : 1);

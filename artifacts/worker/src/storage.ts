@@ -191,6 +191,29 @@ export async function objectBytes(key: string): Promise<number | null> {
   }
 }
 
+/**
+ * The object's own version: what it weighs and when the store last wrote it.
+ *
+ * One HEAD request, so it costs milliseconds — which is the whole reason it is
+ * this and not a hash of the bytes. It exists to answer "are these still the
+ * words for this file", and a re-upload changes both halves of it.
+ *
+ * `null` when the store cannot say, and callers must read that as *unknown*
+ * rather than as *unchanged*: a stamp that fell back to a constant would make
+ * every project look like the same media forever, which is the one failure this
+ * is dangerous enough to cause.
+ */
+export async function objectStamp(key: string): Promise<string | null> {
+  if (!isSafeObjectKey(key)) return null;
+  try {
+    const found = await store.head(key);
+    if (!found || !Number.isFinite(found.bytes)) return null;
+    return `${found.bytes}:${found.updatedAt ?? ""}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function downloadObject(key: string, destination: string): Promise<void> {
   // Where, and with what — from the seam. It applies the key rule before it
   // builds anything, so an unsafe key throws here rather than reaching a URL.

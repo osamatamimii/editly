@@ -19,6 +19,7 @@ import {
   clipsTable,
   billingEventsTable,
   comprehensionsTable,
+  transcriptsTable,
   projectsTable,
   messagesTable,
   exportsTable,
@@ -73,7 +74,7 @@ router.get("/account/export", rateLimit(LIMITS.dataExport), async (req, res): Pr
   const userId = currentUserId(req);
 
   const [projects, messages, jobs, exports, subscriptions, socialAccounts, scheduledPosts,
-         captionFaces, followups, assets, clips, billing, comprehensions] = await Promise.all([
+         captionFaces, followups, assets, clips, billing, comprehensions, transcripts] = await Promise.all([
     db.select().from(projectsTable).where(eq(projectsTable.userId, userId)),
     db.select().from(messagesTable).where(eq(messagesTable.userId, userId)),
     db.select().from(jobsTable).where(eq(jobsTable.userId, userId)),
@@ -87,6 +88,10 @@ router.get("/account/export", rateLimit(LIMITS.dataExport), async (req, res): Pr
     db.select().from(clipsTable).where(eq(clipsTable.userId, userId)),
     db.select().from(billingEventsTable).where(eq(billingEventsTable.userId, userId)),
     db.select().from(comprehensionsTable).where(eq(comprehensionsTable.userId, userId)),
+    // Their own words, heard from their own video. As much theirs as the
+    // messages they typed, and an export that held the reading of a recording
+    // but not the recording's words would be an odd place to draw the line.
+    db.select().from(transcriptsTable).where(eq(transcriptsTable.userId, userId)),
   ]);
 
   /*
@@ -128,6 +133,7 @@ router.get("/account/export", rateLimit(LIMITS.dataExport), async (req, res): Pr
       clips: redactRows(clips),
       billingEvents: redactRows(billing),
       comprehensions: redactRows(comprehensions),
+      transcripts: redactRows(transcripts),
     },
     files,
   };
