@@ -11,7 +11,7 @@
  * Usage: node tools/render-test.mjs
  * Requires: ffmpeg and ffprobe on PATH.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -44,7 +44,7 @@ if (esbuild.status !== 0) {
   process.exit(1);
 }
 
-const { renderPlan, probeSource, duckThreshold, keepSegmentsFrom, remapTime, outputDuration, zoomExpression, writeSubtitleFile, wrapToLayout, frameFor, shapeFor, defaultHeightFor, chooseHighlight, chooseClips } =
+const { renderPlan, probeSource, duckThreshold, keepSegmentsFrom, remapTime, outputDuration, zoomExpression, writeSubtitleFile, wrapToLayout, frameFor, shapeFor, defaultHeightFor, chooseHighlight, chooseClips, loudestSample, SILENT_PEAK_DBFS } =
   await import(pathToFileURL(modulePath).href);
 
 // The reference command below has to crop where the pipeline crops, or it
@@ -2391,6 +2391,93 @@ console.log("\nMixed overlay inputs");
 // off the pixels that came out, against the same clip rendered with no grade
 // at all — U and V are the colour-difference planes, so "warmer" is a real
 // number (V up, U down) rather than a word.
+console.log("\nWhether there is anything to listen to, asked before anyone pays for it");
+{
+  /*
+    Every speech-dependent operation used to go straight to the transcriber, so
+    a file with no sound in it — a screen recording made with the microphone
+    muted, a clip exported without its audio track — bought a transcript to be
+    told there were no words. A provider call, a wait, and the customer's
+    money, spent to learn something one second of ffmpeg could have said.
+
+    It matters more than it used to: the direction now plans for speech on a
+    project it has heard nothing from, because the alternative was a product
+    that could never improve on its own material. This is what keeps that
+    optimism from being expensive.
+
+    Three files, three different answers, because they are three different
+    faults and only one of them is the customer's:
+  */
+  const dir = await scratch();
+  const make = (name, args) => {
+    const file = path.join(dir, name);
+    spawnSync("ffmpeg", ["-y", "-loglevel", "error", ...args, file]);
+    return file;
+  };
+
+  const noTrack = make("no-track.mp4", [
+    "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=25:duration=3",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+  ]);
+  const mutedTrack = make("muted-track.mp4", [
+    "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=25:duration=3",
+    "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo:d=3",
+    "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+  ]);
+  const speaking = make("speaking.mp4", [
+    "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=25:duration=3",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=3",
+    "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+  ]);
+
+  const noTrackPeak = await loudestSample(noTrack);
+  const mutedPeak = await loudestSample(mutedTrack);
+  const speakingPeak = await loudestSample(speaking);
+
+  check(
+    "a file with no sound track at all answers null, not a number",
+    noTrackPeak === null,
+    String(noTrackPeak),
+  );
+  check(
+    "a track with nothing recorded onto it answers a number under the floor",
+    mutedPeak !== null && mutedPeak < SILENT_PEAK_DBFS,
+    `${mutedPeak} dBFS against a ${SILENT_PEAK_DBFS} floor`,
+  );
+  check(
+    "and a file with sound on it is well clear of the floor",
+    speakingPeak !== null && speakingPeak > SILENT_PEAK_DBFS + 20,
+    `${speakingPeak} dBFS`,
+  );
+
+  /*
+    And the direction the failure falls in.
+
+    This answer gates whether a transcript is bought, so the expensive mistake
+    is the confident one: a probe that failed and reported "no sound" would
+    cancel the captions on a clip full of speech and write a note saying we
+    could not hear anything. A file ffmpeg cannot read at all has to come back
+    *loud*, so the transcriber is the one that finds out.
+  */
+  const notAFile = path.join(dir, "not-a-video.mp4");
+  await writeFile(notAFile, "this is not a video");
+  const unreadable = await loudestSample(notAFile);
+  /*
+    `null` is not an acceptable answer here either, and writing it as one was
+    the first version of this check.
+
+    `enrich.ts` reads null as "no sound track", which is one of the two ways
+    this function says *silent* — so an unreadable file answering null cancels
+    the captions just as surely as one answering -80 dB. The check has to
+    refuse both, or it passes on the exact bug it exists for.
+  */
+  check(
+    "a file that cannot be read is not reported as silent, by either spelling of silent",
+    unreadable !== null && unreadable >= SILENT_PEAK_DBFS,
+    `${unreadable} — either silence here cancels captions on a clip full of speech`,
+  );
+}
+
 console.log("\nHDR footage is brought into the range this encoder writes");
 {
   /*

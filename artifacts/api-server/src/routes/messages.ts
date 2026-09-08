@@ -189,10 +189,35 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     ? direct({
         platform: (project.platform as never) ?? null,
         sourceSeconds: project.duration ?? null,
-        // Speech is what captions, silence and tightening all rest on. A
-        // reading exists only where there was a transcript, so it is the honest
-        // answer; without one this stands down rather than guessing from a shape.
-        hasSpeech: reading !== null,
+        /*
+          Speech is what captions, silence and tightening all rest on — and
+          this used to be `reading !== null`, which closed a loop that could
+          not open.
+
+          A reading exists only after a transcript. A transcript is bought only
+          when the plan asks for captions, a highlight, clips or chosen
+          punches. And the direction asked for none of those without a reading.
+          So the first "make it nice" on a new project produced
+          `formatForPlatform + normalizeLoudness + fade`, no transcript was
+          bought, no reading was written, and the second message produced the
+          same three operations. And the tenth. **The product never improved on
+          its own material, ever**, and nothing anywhere failed: three
+          operations is a valid edit and every note about it was true.
+
+          So the question changes. This API has no ears — it never opens the
+          file — and "have we already heard speech" is not the same question as
+          "could there be any". The honest answer to the second, on a video
+          somebody uploaded in order to have it edited, is yes. A reading, when
+          one exists, is proof of it rather than the source of it.
+
+          What makes the optimism safe is that the worker *does* have ears and
+          answers properly: `enrich.ts` listens for a second before it buys a
+          transcript, and a clip with nothing on its sound track loses the
+          speech-dependent operations with a sentence saying why. So the cost
+          of being wrong is three honest notes, and the cost of the old
+          certainty was a product that could not get better.
+        */
+        hasSpeech: true,
         reading,
         assets: assets as never,
         habits: await habitsFor(userId),

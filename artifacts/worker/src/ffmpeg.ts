@@ -170,6 +170,54 @@ const FFPROBE = process.env["FFPROBE_PATH"] ?? "ffprobe";
 export class FfmpegError extends Error {}
 
 /**
+ * The loudest this file ever gets, in dBFS, or null when it has no sound at all.
+ *
+ * One `volumedetect` pass over the audio and nothing else: no video is decoded,
+ * so a two-minute clip costs about a second. It exists to answer a question
+ * that used to be answered by *buying a transcript* — is there anything here to
+ * listen to — and the difference between the two is a provider call and a
+ * customer's money.
+ *
+ * `null` means the file carries no audio stream. A number means it does, and
+ * how loud its loudest sample is; a file whose peak sits under
+ * `SILENT_PEAK_DBFS` has a track and nothing on it, which happens on a screen
+ * recording made with the microphone muted.
+ */
+export async function loudestSample(file: string): Promise<number | null> {
+  try {
+    // Inside the guard with everything else. A file ffmpeg cannot open at all
+    // makes *this* throw too, and a probe that fell over must not be read as
+    // "no audio stream" — see the catch.
+    if (!(await hasAudioStream(file))) return null;
+    const { stderr } = await run(FFMPEG, [
+      "-hide_banner", "-nostdin",
+      "-i", file,
+      "-af", "volumedetect",
+      "-vn", "-sn", "-f", "null", "-",
+    ], { limits: LIMITS.probe });
+    const found = /max_volume:\s*(-?[\d.]+)\s*dB/.exec(stderr);
+    if (!found) return null;
+    const peak = Number(found[1]);
+    return Number.isFinite(peak) ? peak : null;
+  } catch {
+    /*
+      Unreadable is not silent.
+
+      This answer gates whether a transcript is bought, and the expensive
+      mistake is the confident one: a probe that failed and reported "no
+      sound" would cancel the captions on a clip full of speech and write a
+      note saying we could not hear anything. So a failure answers with a peak
+      loud enough to proceed, and the transcriber gets to be the one that
+      finds out.
+    */
+    return 0;
+  }
+}
+
+/** Below this a track has been recorded with nothing going into it. */
+export const SILENT_PEAK_DBFS = -50;
+
+/**
  * The chain that brings high-dynamic-range footage into the space we encode in.
  *
  * Five steps, and every one of them is load-bearing:

@@ -16,7 +16,7 @@ import type { EditOperation, EditPlan, Platform } from "@workspace/api-zod";
 import { buildCaptionCues, emphasisPoints } from "./captions";
 import { captionLayout } from "./caption-layout";
 import { faceById } from "@workspace/api-zod/fonts";
-import { defaultHeightFor, frameFor, shapeFor, probeDuration } from "./ffmpeg";
+import { defaultHeightFor, frameFor, shapeFor, probeDuration, loudestSample, SILENT_PEAK_DBFS } from "./ffmpeg";
 import { missingCapabilityNotes, type Providers } from "./providers";
 import { measureStyle, styleToSettings } from "./style-measure";
 import { applyReferenceStyle } from "./reference-style";
@@ -156,7 +156,45 @@ export async function enrichPlan(
 
   let transcript: Transcript | null = null;
 
+  /*
+    Is there anything here to listen to, asked before anyone is charged for it.
+
+    Every speech-dependent operation in a plan used to go straight to the
+    transcriber, and a file with no sound in it — a screen recording made with
+    the microphone muted, a clip exported without its audio track — bought a
+    transcript to be told there were no words. It is a provider call, a wait,
+    and the customer's money, spent to learn something one second of `ffmpeg`
+    could have said.
+
+    It matters more than it used to. The direction now plans for speech on a
+    project it has heard nothing from — see `messages.ts`, and the deadlock
+    that stood before it — so the optimistic case is the *common* case, and
+    this is what keeps optimism from being expensive.
+
+    Unreadable is not silent: `loudestSample` answers loud when it could not
+    tell, because the confident mistake here is the one that cancels captions
+    on a clip full of speech.
+  */
+  let heardNothing = false;
   if (needsTranscript && providers.transcriber) {
+    const peak = await loudestSample(mediaPath);
+    heardNothing = peak === null || peak < SILENT_PEAK_DBFS;
+    if (heardNothing) {
+      notes.push(
+        peak === null
+          ? t(
+              "this clip has no sound track at all, so there are no words to caption or to cut on",
+              "هذا المقطع بلا مسار صوت أصلًا، فلا كلمات تُكتب ولا يُقصّ عليها",
+            )
+          : t(
+              "there is a sound track on this clip but nothing recorded onto it, so there are no words to caption or to cut on",
+              "في هذا المقطع مسار صوت لكن لم يُسجَّل عليه شيء، فلا كلمات تُكتب ولا يُقصّ عليها",
+            ),
+      );
+    }
+  }
+
+  if (needsTranscript && providers.transcriber && !heardNothing) {
     options.onProgress?.("Listening to what was said");
     const language = plan.operations.find((op) => op.type === "autoCaptions")?.language;
     try {

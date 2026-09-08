@@ -442,6 +442,70 @@ check("a project with no reading gets a smaller direction, not an error", /async
 // much less defensible thing to build an edit out of.
 check("and only the timings are read from it", !/claims|chapters: comprehensionsTable\.chapters[\s\S]{0,80}title/.test(route.slice(route.indexOf("async function readingFor"))));
 
+section("The first message on a new project is not the last word on it");
+{
+  /*
+    A loop that could not open.
+
+    A reading exists only after a transcript. A transcript is bought only when
+    the plan asks for captions, a highlight, clips or chosen punches. And the
+    direction asked for none of those without a reading — `hasSpeech` was
+    `reading !== null`.
+
+    So the first "make it nice" on a new project produced three operations, no
+    transcript was bought, no reading was written, and the second message
+    produced the same three. And the tenth. The product could not improve on
+    its own material, ever, and nothing failed: three operations is a valid
+    edit and every note about it was true.
+
+    Measured through `direct` itself, because the gap is the whole point:
+  */
+  const blind = of({ hasSpeech: false });
+  const hearing = of({ hasSpeech: true });
+  check(
+    "the old answer was three operations and a fade",
+    types(blind).join(",") === "formatForPlatform,normalizeLoudness,fade",
+    JSON.stringify(types(blind)),
+  );
+  check(
+    "and everything this product is for was on the other side of it",
+    ["removeSilence", "tighten", "autoCaptions", "alternateFraming", "transition"].every((op) =>
+      types(hearing).includes(op),
+    ),
+    JSON.stringify(types(hearing)),
+  );
+
+  /*
+    The API has no ears — it never opens the file — so "have we already heard
+    speech" is not the question it can answer. "Could there be any", on a video
+    somebody uploaded in order to have it edited, is yes; a reading is proof of
+    it rather than the source of it.
+
+    What makes that safe is the worker, which does have ears: `enrich.ts`
+    listens for a second before it buys a transcript, and a clip with nothing
+    on its sound track loses the speech-dependent operations with a sentence
+    saying why. Both halves are asserted, because either one alone is a bug —
+    optimism without the listener spends a customer's money on silence, and the
+    listener without optimism guards a door nobody walks through.
+  */
+  check(
+    "so the route stops making a transcript the price of asking for one",
+    /hasSpeech: true,/.test(route) && !/hasSpeech: reading !== null/.test(route),
+    "hasSpeech was the reading, and the reading needed the plan that hasSpeech gated",
+  );
+  const enrich = await read("artifacts/worker/src/enrich.ts");
+  check(
+    "and the worker listens before it buys a transcript",
+    /loudestSample\(mediaPath\)/.test(enrich) && /SILENT_PEAK_DBFS/.test(enrich),
+    "the optimistic plan reaches a transcriber; something has to hear the silence first",
+  );
+  check(
+    "and says which kind of quiet it found, because they are different faults",
+    /no sound track at all/.test(enrich) && /nothing recorded onto it/.test(enrich),
+    "a missing track is an export mistake; an empty one is a muted microphone",
+  );
+}
+
 section("An elongated Arabic hesitation is heard, not lost to an ASCII word boundary");
 {
   // `\bآآ` matched nothing — `\b` needs an ASCII word character before it, and
