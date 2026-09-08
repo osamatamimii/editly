@@ -367,7 +367,7 @@
   --bubble-ring: rgba(255, 255, 255, 0.07);
   --bubble-asked-ring: hsl(var(--primary) / 0.35);
   --bubble-drop: rgba(4, 2, 14, 0.55);
-  --nav-capsule-top: rgba(32, 29, 52, 0.66);
+  --nav-capsule-top: rgba(30, 27, 50, 0.38);
   --nav-capsule-lens: rgba(255, 255, 255, 0.30);
   --nav-capsule-foot: rgba(0, 0, 0, 0.45);
   --nav-capsule-edge-lit: rgba(255, 255, 255, 0.34);
@@ -375,7 +375,7 @@
   --composer-face: rgba(255, 255, 255, 0.045);
   --composer-lip: rgba(255, 255, 255, 0.09);
   --composer-chip: rgba(255, 255, 255, 0.05);
-  --nav-capsule: rgba(14, 12, 24, 0.82);
+  --nav-capsule: rgba(14, 12, 24, 0.52);
   --nav-capsule-ring: rgba(255, 255, 255, 0.10);
   --nav-capsule-lip: rgba(255, 255, 255, 0.22);
   --input-focus-bg: rgba(255, 255, 255, 0.09);
@@ -808,7 +808,7 @@ html[data-page-theme="light"] body {
   --bubble-ring: rgba(30, 16, 80, 0.06);
   --bubble-asked-ring: hsl(var(--primary) / 0.22);
   --bubble-drop: rgba(40, 22, 100, 0.16);
-  --nav-capsule-top: rgba(255, 255, 255, 0.78);
+  --nav-capsule-top: rgba(255, 255, 255, 0.36);
   --nav-capsule-lens: rgba(255, 255, 255, 0.85);
   --nav-capsule-foot: rgba(40, 22, 100, 0.12);
   --nav-capsule-edge-lit: rgba(255, 255, 255, 0.75);
@@ -816,7 +816,7 @@ html[data-page-theme="light"] body {
   --composer-face: rgba(255, 255, 255, 0.72);
   --composer-lip: rgba(255, 255, 255, 0.9);
   --composer-chip: rgba(255, 255, 255, 0.72);
-  --nav-capsule: rgba(255, 255, 255, 0.9);
+  --nav-capsule: rgba(255, 255, 255, 0.5);
   --nav-capsule-ring: rgba(30, 16, 80, 0.07);
   --nav-capsule-lip: rgba(255, 255, 255, 0.85);
   --input-focus-bg: rgba(255, 255, 255, 0.95);
@@ -1531,14 +1531,28 @@ html[data-page-theme="light"] body {
     0 28px 64px -30px rgba(8, 4, 24, 0.42);
   /* Unprefixed and only unprefixed — see `.glass-panel`. */
   /*
-   * Forty, not thirty.
+   * The blur is the whole material, and it has to be enormous.
    *
-   * The bar passes under a 60px headline, and a 30px blur on a 60px letterform
-   * still leaves a legible letter: the page reads *through* the bar, which is
-   * the one thing glass never does. Forty plus a denser tint turns whatever is
-   * behind into moving colour, which is what it should be.
+   * There are two ways to stop a page reading through a bar: make the bar more
+   * opaque, or blur what is behind it until there are no letterforms left. The
+   * first one went first and it was wrong — at 90% white this stopped being
+   * glass and became a light grey plate, which is what Osama called it. The
+   * blur radius has to do the work instead.
+   *
+   * Sixty-four, and the number comes from the content: the bar passes under a
+   * 60px headline, and a Gaussian blur only destroys a stroke once its radius
+   * is comparable to the letter's own size. At 30 the words were readable, at
+   * 40 they were legible shapes, at 64 they are a colour wash — which is
+   * exactly what you want to see through glass. The tint can then drop to
+   * around half, where it is genuinely transparent and the page's colour and
+   * movement come through it.
+   *
+   * `saturate` and `brightness` are not decoration either. A plain blur
+   * averages colour toward grey, which reads as fog; real glass concentrates
+   * what is behind it, so the saturation goes back up and the whole thing is
+   * lifted a hair.
    */
-  backdrop-filter: blur(40px) saturate(200%) brightness(1.03);
+  backdrop-filter: blur(64px) saturate(190%) brightness(1.06);
 }
 /*
  * The edge, lit unevenly.
