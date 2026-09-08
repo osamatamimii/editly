@@ -1466,7 +1466,7 @@ export default function Home() {
             data-testid="button-language"
             lang={rtl ? "en" : "ar"}
             title={t(LANDING.languageToggle.title)}
-            className="px-2.5 sm:px-3 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-full font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
+            className="px-2.5 sm:px-3 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
           >
             {t(LANDING.languageToggle.label)}
           </button>
@@ -1474,7 +1474,7 @@ export default function Home() {
             <Link
               href="/dashboard"
               data-testid="link-dashboard"
-              className="glow-btn btn-gradient-cta text-white px-5 sm:px-6 min-h-[44px] inline-flex items-center rounded-full font-medium whitespace-nowrap"
+              className="glow-btn btn-gradient-cta text-white px-5 sm:px-6 min-h-[44px] inline-flex items-center rounded-md font-semibold whitespace-nowrap"
             >
               {t(LANDING.header.dashboard)}
             </Link>
@@ -1483,7 +1483,7 @@ export default function Home() {
               <Link
                 href="/login"
                 data-testid="link-log-in"
-                className="px-2.5 sm:px-4 min-h-[44px] inline-flex items-center rounded-full font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
+                className="px-2.5 sm:px-4 min-h-[44px] inline-flex items-center rounded-md font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
               >
                 <span className="sm:hidden">{t(LANDING.header.logInShort)}</span>
                 <span className="hidden sm:inline">{t(LANDING.header.logIn)}</span>
@@ -1491,7 +1491,7 @@ export default function Home() {
               <Link
                 href="/login?mode=signup"
                 data-testid="link-sign-up"
-                className="glow-btn btn-gradient-cta text-white px-4 sm:px-6 min-h-[44px] inline-flex items-center rounded-full font-medium text-sm sm:text-base whitespace-nowrap"
+                className="glow-btn btn-gradient-cta text-white px-4 sm:px-6 min-h-[44px] inline-flex items-center rounded-md font-semibold text-sm sm:text-base whitespace-nowrap"
               >
                 <span className="sm:hidden">{t(LANDING.header.signUp)}</span>
                 <span className="hidden sm:inline">{t(LANDING.header.signUpFree)}</span>
@@ -1600,7 +1600,7 @@ export default function Home() {
           <Link
             href={user ? "/dashboard" : "/login?mode=signup"}
             data-testid="link-hero-cta"
-            className="glow-btn btn-gradient-cta flex items-center justify-center gap-2 text-white h-14 px-8 rounded-full font-semibold text-lg"
+            className="glow-btn btn-gradient-cta flex items-center justify-center gap-2 text-white h-14 px-8 rounded-lg font-semibold text-lg"
           >
             <Play className="w-5 h-5 fill-current" />
             {user ? t(LANDING.hero.ctaSignedIn) : t(LANDING.hero.ctaSignedOut)}
@@ -1613,7 +1613,7 @@ export default function Home() {
           <a
             href="#how-it-works"
             data-testid="link-hero-secondary"
-            className="group flex items-center justify-center gap-2 h-14 px-8 rounded-full font-semibold text-lg bg-surface-1 hover:bg-surface-1 border border-hairline transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_24px_rgba(108,59,255,0.2)] backdrop-blur-sm"
+            className="group flex items-center justify-center gap-2 h-14 px-8 rounded-lg font-semibold text-lg bg-surface-1 hover:bg-surface-1 border border-hairline transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_24px_rgba(108,59,255,0.2)] backdrop-blur-sm"
           >
             {t(LANDING.hero.secondary)}
             {/* The arrow points the way the language reads, and moves that way
@@ -1926,7 +1926,7 @@ export default function Home() {
             <Link
               href="/login?mode=signup"
               data-testid="link-podcast-cta"
-              className="glow-btn btn-gradient-cta inline-flex items-center justify-center text-white h-12 px-7 rounded-full font-semibold whitespace-nowrap"
+              className="glow-btn btn-gradient-cta inline-flex items-center justify-center text-white h-12 px-7 rounded-lg font-semibold whitespace-nowrap"
             >
               {t(LANDING.podcasts.cta)}
             </Link>
@@ -2120,7 +2120,7 @@ export default function Home() {
                   </ul>
 
                   {isCurrent ? (
-                    <div className="flex items-center justify-center gap-2 rounded-full py-3 px-6 bg-primary/10 border border-primary/30 text-primary font-semibold text-sm">
+                    <div className="flex items-center justify-center gap-2 rounded-md py-3 px-6 bg-primary/10 border border-primary/30 text-primary font-semibold text-sm">
                       <Check className="w-4 h-4" />
                       {t(LANDING.pricing.currentPlan)}
                     </div>
@@ -2129,7 +2129,7 @@ export default function Home() {
                       onClick={() => handleSelectPlan(plan.key)}
                       disabled={!planKnown || updateSubscription.isPending || checkoutFor !== null}
                       data-testid={`button-plan-${plan.key}`}
-                      className={`w-full rounded-full py-3 px-6 font-semibold text-sm transition-all duration-300 ${
+                      className={`w-full rounded-md py-3 px-6 font-semibold text-sm transition-all duration-300 ${
                         isPro
                           ? "btn-gradient-cta text-white"
                           : "bg-surface-1 border border-hairline hover:bg-surface-2 hover:border-hairline-strong hover:shadow-[0_0_20px_rgba(108,59,255,0.12)]"
@@ -2207,7 +2207,7 @@ export default function Home() {
           </p>
           <Link
             href="/dashboard"
-            className="glow-btn btn-gradient-cta animate-glow-pulse text-white h-16 px-12 rounded-full font-bold text-xl flex items-center gap-3"
+            className="glow-btn btn-gradient-cta animate-glow-pulse text-white h-16 px-12 rounded-lg font-bold text-xl flex items-center gap-3"
           >
             {t(LANDING.closing.cta)}
             <Zap className="w-5 h-5" />

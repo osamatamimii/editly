@@ -142,9 +142,25 @@ export const LANDING = {
     // `.headline-serif` in index.css.
     headlineLead: p("توقّف عن المونتاج.", "Stop editing."),
     headlineAnswer: p("ابدأ بالوصف.", "Start describing."),
+    /*
+     * Three imperatives, and the shortest each one can be.
+     *
+     * What was here was a sequence of instructions — upload, describe, get —
+     * with a benefit tacked on the end, and it read as a summary of the page
+     * below rather than as a claim. It also spent its last clause on an
+     * arithmetic promise ("three hours of your evening") that the headline had
+     * already made better in two words.
+     *
+     * A line under a headline has one job: to say what the deal is, hard
+     * enough that the next thing you do is press the button. So it is the deal
+     * — one sentence in, a finished video out, and the evening is yours — in
+     * three clauses that all land on the beat. The Arabic is the same three
+     * beats, not the English translated: «قُلها بجملة واحدة» is what somebody
+     * actually says, and it is shorter than the English is.
+     */
     subtext: p(
-      "ارفع التسجيل الخام. صف التعديل. استرجع ثلاث ساعات من مسائك، مع كل فيديو.",
-      "Upload the raw take. Describe the edit. Get three hours of your evening back, on every video.",
+      "قُلها بجملة واحدة. استلم الفيديو جاهزًا. واحتفظ بمسائك.",
+      "Say it in one sentence. Get the video back finished. Keep your evening.",
     ),
     ctaSignedOut: p("ابدأ التعديل مجانًا", "Start editing free"),
     ctaSignedIn: p("ارفع تسجيلًا خامًا", "Upload a raw take"),

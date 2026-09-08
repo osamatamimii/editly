@@ -2202,7 +2202,7 @@ export default function ProjectEditor() {
                   <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
                   <div
                     dir="auto"
-                    className="bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed whitespace-pre-line"
+                    className="bubble bubble-said px-4 py-3 text-sm leading-relaxed whitespace-pre-line"
                   >
                     {t(EDITOR.noahWelcome)}
                   </div>
@@ -2243,10 +2243,10 @@ export default function ProjectEditor() {
                       {/* pre-line: the worker's summary arrives as one message
                           with a line per note, and collapsing those lines into
                           a paragraph turns a list of decisions into mush. */}
-                      <div dir="auto" className={`px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
+                      <div dir="auto" className={`bubble px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
                         msg.role === 'user'
-                          ? 'bg-primary/20 border border-primary/30 rounded-2xl rounded-tr-sm text-foreground max-w-[85%]'
-                          : 'bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm'
+                          ? 'bubble-asked text-foreground max-w-[85%]'
+                          : 'bubble-said'
                       }`}>
                         {msg.content}
                       </div>
@@ -2267,7 +2267,7 @@ export default function ProjectEditor() {
                     <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
                     {/* Glowing only while he is actually working — see the
                         .noah-working note in index.css. */}
-                    <div className="noah-working bg-surface-1 border border-hairline rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5">
+                    <div className="noah-working bubble bubble-said px-4 py-3 flex items-center gap-1.5">
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
@@ -2297,7 +2297,7 @@ export default function ProjectEditor() {
                     {/* Breathing while the render runs, still when it has
                         failed — a failure is not work in progress. */}
                     <div
-                      className={`bg-surface-1 border border-secondary/30 rounded-2xl rounded-tl-sm px-4 py-3 text-sm w-full ${
+                      className={`bubble bubble-said px-4 py-3 text-sm w-full ${
                         renderJob?.status === "failed"
                           ? "shadow-[0_0_15px_rgba(155,107,255,0.1)]"
                           : "noah-working"
@@ -2448,7 +2448,13 @@ export default function ProjectEditor() {
             the presence — and the input loses its own border, because a field
             inside a card that is already a field is two boxes doing one job.
           */}
-          <div className="p-4 border-t border-hairline bg-band">
+          {/* No rule across the top of the composer.
+
+              A 1px line under a conversation says the two things are separate
+              screens; they are one. What separates them now is light — the
+              panel's own ground fading up behind the card — which is the same
+              way every other boundary in this product is drawn. */}
+          <div className="composer-well p-4">
             <form
               onSubmit={(e) => { e.preventDefault(); handleSendChat(); }}
               className="composer-card"

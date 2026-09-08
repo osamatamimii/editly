@@ -356,12 +356,25 @@
   /* The ground behind the collapsed top bar. Not `--surface-1`: this pane
      floats over whatever is scrolling underneath it, so it needs to be more
      opaque than a raised surface on the page, not less. */
+  --bubble-said-top: rgba(255, 255, 255, 0.075);
+  --bubble-said: rgba(255, 255, 255, 0.045);
+  --bubble-asked-top: hsl(var(--primary) / 0.32);
+  --bubble-asked: hsl(var(--primary) / 0.20);
+  --bubble-lip: rgba(255, 255, 255, 0.10);
+  --bubble-ring: rgba(255, 255, 255, 0.07);
+  --bubble-asked-ring: hsl(var(--primary) / 0.35);
+  --bubble-drop: rgba(4, 2, 14, 0.55);
+  --nav-capsule-top: rgba(32, 29, 52, 0.66);
+  --nav-capsule-lens: rgba(255, 255, 255, 0.30);
+  --nav-capsule-foot: rgba(0, 0, 0, 0.45);
+  --nav-capsule-edge-lit: rgba(255, 255, 255, 0.34);
+  --nav-capsule-edge-dim: rgba(255, 255, 255, 0.06);
   --composer-face: rgba(255, 255, 255, 0.045);
   --composer-lip: rgba(255, 255, 255, 0.09);
   --composer-chip: rgba(255, 255, 255, 0.05);
-  --nav-capsule: rgba(18, 16, 30, 0.78);
+  --nav-capsule: rgba(14, 12, 24, 0.82);
   --nav-capsule-ring: rgba(255, 255, 255, 0.10);
-  --nav-capsule-lip: rgba(255, 255, 255, 0.14);
+  --nav-capsule-lip: rgba(255, 255, 255, 0.22);
   --input-focus-bg: rgba(255, 255, 255, 0.09);
   /* The halo under the one button drawn in the foreground colour. */
   --invert-glow: rgba(255, 255, 255, 0.3);
@@ -781,10 +794,23 @@ html[data-page-theme="light"] body {
   --text-glow-far: rgba(108, 59, 255, 0.11);
   --cta-shadow: rgba(108, 59, 255, 0.38);
   --cta-shadow-soft: rgba(70, 40, 160, 0.22);
+  --bubble-said-top: rgba(255, 255, 255, 0.95);
+  --bubble-said: rgba(255, 255, 255, 0.75);
+  --bubble-asked-top: hsl(var(--primary) / 0.20);
+  --bubble-asked: hsl(var(--primary) / 0.12);
+  --bubble-lip: rgba(255, 255, 255, 0.9);
+  --bubble-ring: rgba(30, 16, 80, 0.06);
+  --bubble-asked-ring: hsl(var(--primary) / 0.22);
+  --bubble-drop: rgba(40, 22, 100, 0.16);
+  --nav-capsule-top: rgba(255, 255, 255, 0.78);
+  --nav-capsule-lens: rgba(255, 255, 255, 0.85);
+  --nav-capsule-foot: rgba(40, 22, 100, 0.12);
+  --nav-capsule-edge-lit: rgba(255, 255, 255, 0.75);
+  --nav-capsule-edge-dim: rgba(255, 255, 255, 0.18);
   --composer-face: rgba(255, 255, 255, 0.72);
   --composer-lip: rgba(255, 255, 255, 0.9);
   --composer-chip: rgba(255, 255, 255, 0.72);
-  --nav-capsule: rgba(255, 255, 255, 0.78);
+  --nav-capsule: rgba(255, 255, 255, 0.9);
   --nav-capsule-ring: rgba(30, 16, 80, 0.07);
   --nav-capsule-lip: rgba(255, 255, 255, 0.85);
   --input-focus-bg: rgba(255, 255, 255, 0.95);
@@ -1060,6 +1086,47 @@ html[data-page-theme="light"] body {
   text-shadow: 0 0 60px var(--text-glow-near), 0 0 120px var(--text-glow-far);
 }
 
+/* ── Noah's conversation ─────────────────────────────────── */
+/*
+ * The bubbles, and the corner that was doing the most damage.
+ *
+ * They were `rounded-2xl rounded-tl-sm`: twenty-four pixels on three corners
+ * and twelve on the fourth, the usual chat-tail trick. At a 16px base radius
+ * that fourth corner reads as a *notch* — the eye sees three soft corners and
+ * one that was cut, which is the sharpest thing on the screen precisely
+ * because everything around it is round. Osama asked for no hard corners in
+ * this product, and this was the last one.
+ *
+ * So every corner is the same, and what tells the two speakers apart is what
+ * always should have: colour, ground, and which side of the column they are
+ * on. Noah's is a pane — a lit top edge, a whisper of a ring, a shadow rather
+ * than a stroke. Yours is the brand violet, tinted rather than filled, with
+ * the same light on it. Neither has a border, because a stroke around a
+ * translucent surface is the thing that makes chat bubbles look like divs.
+ */
+.bubble {
+  border-radius: var(--radius-2xl);
+  border: 0;
+  position: relative;
+  transition: box-shadow 200ms ease;
+}
+.bubble-said {
+  background-image: linear-gradient(to bottom, var(--bubble-said-top), var(--bubble-said));
+  box-shadow:
+    inset 0 1px 0 var(--bubble-lip),
+    inset 0 0 0 1px var(--bubble-ring),
+    0 1px 2px var(--bubble-drop),
+    0 10px 24px -16px var(--bubble-drop);
+}
+.bubble-asked {
+  background-image: linear-gradient(to bottom, var(--bubble-asked-top), var(--bubble-asked));
+  box-shadow:
+    inset 0 1px 0 var(--bubble-lip),
+    inset 0 0 0 1px var(--bubble-asked-ring),
+    0 1px 2px var(--bubble-drop),
+    0 10px 26px -16px hsl(var(--primary) / 0.35);
+}
+
 /* ── The composer ────────────────────────────────────────── */
 /*
  * The one control this product is built around, given the room it is worth.
@@ -1081,6 +1148,18 @@ html[data-page-theme="light"] body {
  * sides of the card rather than a glow all the way round. It is on
  * `:focus-within`, so it arrives when you start writing.
  */
+/* The ground the composer sits on: the panel's own colour, brought up from
+   nothing so the card reads as resting on the conversation rather than as
+   being fenced off from it. */
+.composer-well {
+  background-image: linear-gradient(
+    to top,
+    hsl(var(--background)) 0%,
+    hsl(var(--background)) 55%,
+    transparent 100%
+  );
+}
+
 .composer-card {
   position: relative;
   border-radius: var(--radius-3xl);
@@ -1305,6 +1384,10 @@ html[data-page-theme="light"] body {
  * nobody sees the switch.
  */
 .nav-shell {
+  /* For the edge ring below, which is `position: absolute` and therefore not a
+     flex item — a `::before` in normal flow would become one and push the mark
+     out of place. */
+  position: relative;
   width: 100%;
   transition:
     max-width 520ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -1314,6 +1397,7 @@ html[data-page-theme="light"] body {
     background-color 380ms ease,
     box-shadow 380ms ease,
     border-color 380ms ease;
+  background-image: none;
   border: 1px solid transparent;
 }
 .nav-shell-wide {
@@ -1354,15 +1438,94 @@ html[data-page-theme="light"] body {
   margin-top: 0.625rem;
   padding: 0.5rem 0.625rem;
   border-radius: 9999px;
-  border-color: var(--nav-capsule-ring);
-  background-color: var(--nav-capsule);
+  /* The border keeps its 1px of layout and paints nothing; the edge is the
+     gradient ring below, which one border colour cannot do. */
+  border-color: transparent;
+  /*
+   * A slab of glass, not a tinted rectangle.
+   *
+   * Four things separate the two, and the tint is the least of them:
+   *
+   *   1. **The ground is a gradient, not a flat alpha.** Glass is denser where
+   *      you look through more of it, so it is a little more opaque along the
+   *      bottom than the top. A flat alpha reads as paper at 74%.
+   *   2. **A specular line along the top inside edge.** One inset shadow, and
+   *      it is the difference between a pane and a printed shape: it is light
+   *      catching the leading edge of something that has thickness.
+   *   3. **A lens at the head and a shadow at the foot, both inside.** They
+   *      give the slab depth through the middle rather than only at its border.
+   *   4. **The backdrop is brightened and saturated, not only blurred.** A
+   *      plain blur leaves what is behind it grey, which reads as fog; glass
+   *      concentrates what is behind it.
+   *
+   * The shadow underneath is three layers on purpose — a hairline contact, a
+   * short soft one, and a wide faint one. One shadow at one radius is the tell
+   * of a box that was told to float rather than one that is floating.
+   */
+  background-color: transparent;
+  background-image: linear-gradient(
+    to bottom,
+    var(--nav-capsule-top),
+    var(--nav-capsule)
+  );
   box-shadow:
     inset 0 1px 0 var(--nav-capsule-lip),
-    0 1px 2px rgba(8, 4, 24, 0.07),
-    0 18px 44px -22px rgba(8, 4, 24, 0.45);
+    inset 0 10px 22px -14px var(--nav-capsule-lens),
+    inset 0 -12px 24px -16px var(--nav-capsule-foot),
+    0 1px 1px rgba(8, 4, 24, 0.05),
+    0 8px 20px -10px rgba(8, 4, 24, 0.16),
+    0 28px 64px -30px rgba(8, 4, 24, 0.42);
   /* Unprefixed and only unprefixed — see `.glass-panel`. */
-  backdrop-filter: blur(30px) saturate(190%);
+  /*
+   * Forty, not thirty.
+   *
+   * The bar passes under a 60px headline, and a 30px blur on a 60px letterform
+   * still leaves a legible letter: the page reads *through* the bar, which is
+   * the one thing glass never does. Forty plus a denser tint turns whatever is
+   * behind into moving colour, which is what it should be.
+   */
+  backdrop-filter: blur(40px) saturate(200%) brightness(1.03);
 }
+/*
+ * The edge, lit unevenly.
+ *
+ * A glass object has no border; it has an edge that catches light — brightest
+ * where the light is, nearly gone on the far side. That cannot be a
+ * `border-color`, which is one colour the whole way round, so it is a gradient
+ * painted into the padding box with the content box cut out of it: the ring
+ * `.glass-panel` already uses, at a capsule's radius.
+ *
+ * The two `-webkit-` lines are the exception `theme-test` allows, and the
+ * reason is real: `-webkit-mask-composite` takes different keywords from the
+ * standard property (`xor` against `exclude`), so they are two declarations
+ * rather than one written twice.
+ */
+.nav-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    150deg,
+    var(--nav-capsule-edge-lit) 0%,
+    var(--nav-capsule-edge-dim) 42%,
+    var(--nav-capsule-edge-dim) 62%,
+    var(--nav-capsule-edge-lit) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 380ms ease;
+  pointer-events: none;
+}
+.nav-shell-capsule::before { opacity: 1; }
 /* No blur available means the pill is a window rather than a pane, and a
    window over scrolling text is unreadable. Fall back to the opaque ground. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
