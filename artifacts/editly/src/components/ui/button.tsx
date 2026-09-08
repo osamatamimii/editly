@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0" +
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0" +
 " hover-elevate active-elevate-2",
   {
     variants: {
@@ -26,8 +26,16 @@ const buttonVariants = cva(
          * with a background colour — and on the primary variant that stroke was
          * `--primary-border`, undefined until today, which is to say white.
          */
+        /*
+         * Red, and it is the *only* red on the page that is not a warning.
+         *
+         * `--cta` rather than `--primary`: the brand violet still owns links,
+         * the mark, focus on anything that is not a button, and every accent —
+         * and this is the one colour that means "press here". They were the
+         * same token, which is why nothing on the page could point.
+         */
         default:
-           "bg-primary text-primary-foreground aura-btn no-default-hover-elevate",
+           "bg-cta text-cta-foreground aura-btn no-default-hover-elevate [--aura-bloom:hsl(var(--cta-bloom))]",
         destructive:
           "bg-destructive-fill text-destructive-foreground aura-btn no-default-hover-elevate [--aura-tint:hsl(var(--destructive-fill))]",
         // The quiet button, given the same treatment as the loud one: a raised

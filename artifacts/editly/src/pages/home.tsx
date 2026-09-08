@@ -157,6 +157,45 @@ function useScrollReveal() {
 }
 
 /**
+ * Whether the page has moved far enough for the top bar to collapse.
+ *
+ * The bar has two states and the second one is a different object: at rest it
+ * is the full width of the page, part of the hero, with nothing behind it. Once
+ * you move, it gathers itself into a capsule that floats over whatever is
+ * passing underneath — narrower, rounded all the way, lifted by a shadow rather
+ * than divided by a rule.
+ *
+ * A rAF-throttled passive listener rather than a bare `scroll` handler: reading
+ * `scrollY` is a layout read, and doing one per scroll event on a phone is the
+ * classic way to make the one element that is always on screen stutter. One
+ * read per frame, at most, and only when the boolean actually flips does React
+ * hear about it.
+ *
+ * The threshold is deliberately small. A bar that waits 200px to collapse feels
+ * broken for the first flick of the wheel; 24px is "you have started moving".
+ */
+function useCollapsedNav(threshold = 24): boolean {
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    let frame = 0;
+    const read = () => {
+      frame = 0;
+      setCollapsed(window.scrollY > threshold);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(read);
+    };
+    read();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [threshold]);
+  return collapsed;
+}
+
+/**
  * The hero's waveform, written down rather than generated.
  *
  * `Math.random()` here would give every visitor a different picture and every
@@ -408,6 +447,352 @@ function HeroEditor({ phone, language }: { phone: boolean; language: Language })
   );
 }
 
+/**
+ * How it works, as one continuous movement rather than three cards.
+ *
+ * Three cards side by side is a *list*, and a list says the three things are
+ * alternatives. These are not alternatives — they are one thing after another,
+ * and the page should be unable to show you the second before it has shown you
+ * the first. So the section is built as a track you move along: the picture
+ * holds still on the left while the writing goes past it on the right, one step
+ * at a time, and a line down the margin fills in as you go so you can see how
+ * far through the sequence you are without counting.
+ *
+ * ## The three pieces, and what each one is doing
+ *
+ * **The picture is pinned, not repeated.** One frame in one place, holding
+ * whatever the current step looks like, cross-fading between them. That is what
+ * makes the sequence read as a sequence rather than as three unrelated
+ * illustrations: the eye never has to go and find the next picture, because the
+ * picture is always in the same place and it is the *content* that changes.
+ *
+ * **The writing dims when it is not its turn.** Everything is on the page at
+ * once — you can read ahead, and a search engine and a screen reader get the
+ * whole thing in order — but only one step is at full contrast. Contrast is the
+ * cheapest way to say "this one", and it costs no layout.
+ *
+ * **The line fills to a fixed point on the screen.** Its bottom edge sits at
+ * 46% of the viewport height and stays there; the *section* moves past it. So
+ * the fill is not an animation that plays, it is a measurement of where you
+ * are, and it cannot get out of step with the page.
+ *
+ * ## Why it is smoothed, and why by hand
+ *
+ * The fill follows the scroll position through a critically-damped lerp rather
+ * than tracking it exactly. Exact tracking is correct and feels mechanical: on
+ * a trackpad, where the scroll position arrives in jerks, an exactly-tracking
+ * line jerks with it. Lagging about a tenth of the distance per frame turns the
+ * same input into one continuous slide, and the lag is small enough that it
+ * still reads as *the scroll* rather than as a thing moving on its own.
+ *
+ * It is a rAF loop over one `style.height` rather than React state, because
+ * this value changes on every frame of a scroll and rendering a component tree
+ * sixty times a second to move a line is how a landing page becomes the slowest
+ * screen in a product. React hears only about the *step*, which changes a few
+ * times per section.
+ *
+ * `prefers-reduced-motion` turns the smoothing off — the line still marks the
+ * position, it just gets there without the glide.
+ */
+
+/** Where on the screen "now" is. Measured off the reference: 46% down. */
+const PLAYHEAD = 0.46;
+/** How much of the remaining distance the fill closes each frame. */
+const RAIL_SMOOTHING = 0.12;
+
+function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean }) {
+  const railRef = useRef<HTMLDivElement>(null);
+  const fillRef = useRef<HTMLDivElement>(null);
+  const stepRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [active, setActive] = useState(0);
+
+  useEffect(() => {
+    const rail = railRef.current;
+    const fill = fillRef.current;
+    if (!rail || !fill) return;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    let frame = 0;
+    let shown = -1;
+    let target = 0;
+
+    const measure = () => {
+      const rect = rail.getBoundingClientRect();
+      const playhead = window.innerHeight * PLAYHEAD;
+      target = Math.max(0, Math.min(rect.height, playhead - rect.top));
+      /* The active step is the last one whose top has crossed the playhead —
+         `last`, not `first`, so that scrolling back up hands the title back to
+         the step above instead of leaving the final one lit for ever. */
+      let next = 0;
+      for (let i = 0; i < stepRefs.current.length; i += 1) {
+        const el = stepRefs.current[i];
+        if (el && el.getBoundingClientRect().top <= playhead) next = i;
+      }
+      setActive(next);
+    };
+
+    const tick = () => {
+      frame = 0;
+      if (shown < 0 || still) shown = target;
+      else shown += (target - shown) * RAIL_SMOOTHING;
+      fill.style.height = `${shown}px`;
+      if (Math.abs(target - shown) > 0.4) frame = requestAnimationFrame(tick);
+    };
+
+    const onScroll = () => {
+      measure();
+      if (!frame) frame = requestAnimationFrame(tick);
+    };
+
+    measure();
+    shown = target;
+    tick();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  /*
+   * Each step is drawn, not screenshotted — the same three drawings that were
+   * in the cards, at four times the size, which is the size they were always
+   * worth. A picture of a screen you cannot read says only "there is a screen".
+   *
+   * The wash behind each one stands in for the reference's photograph. It is
+   * three radial gradients rather than a stock image on purpose: it weighs
+   * nothing, it cannot go stale, it has no licence, and it is the one part of
+   * this section that is allowed to be purely decorative because it is
+   * *behind* the thing being explained.
+   */
+  const steps = [
+    {
+      num: "01",
+      title: t(LANDING.steps.one.title),
+      desc: t(LANDING.steps.one.desc),
+      wash: "radial-gradient(120% 95% at 18% 12%, #ffc2c2 0%, rgba(255,194,194,0) 62%), radial-gradient(115% 95% at 88% 84%, #c4b1ff 0%, rgba(196,177,255,0) 64%), linear-gradient(146deg, #fff1f1 0%, #ece9ff 100%)",
+      art: (
+          <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
+            <g transform={rtl ? MIRROR : undefined}>
+              <rect x="20" y="18" width="280" height="144" rx="12" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" strokeDasharray="8 7" />
+              <rect x="44" y="42" width="232" height="96" rx="10" className="fill-[var(--art-base)]" />
+              <rect x="44" y="42" width="232" height="96" rx="10" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
+              {/* The take, with the dead air still in it — flat where
+                  nobody is talking, which is what step three removes. */}
+              {[14, 22, 9, 26, 17, 24, 2, 2, 2, 2, 19, 27, 11, 23, 8, 2, 2, 2, 25, 13, 21, 16, 2, 2, 18, 26, 10, 20].map((h, n) => (
+                <rect
+                  key={n}
+                  x={62 + n * 7}
+                  y={106 - h}
+                  width="3.5"
+                  height={h * 2}
+                  rx="1.75"
+                  className={h > 3 ? "fill-[var(--art-accent)]" : "fill-[var(--art-line)]"}
+                />
+              ))}
+            </g>
+            {/* A file name and a timecode, which are Latin either way:
+                `dir` keeps `raw-take.mov` from being reordered when the
+                page around it is right-to-left. */}
+            <text {...mirrored(62, "start", rtl)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="13" fontWeight="600" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.file)}</text>
+            <text {...mirrored(258, "end", rtl)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-line)]" fontSize="12" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.duration)}</text>
+          </svg>
+      ),
+    },
+    {
+      num: "02",
+      title: t(LANDING.steps.two.title),
+      desc: t(LANDING.steps.two.desc),
+      wash: "radial-gradient(120% 95% at 82% 14%, #ff9f9f 0%, rgba(255,159,159,0) 60%), radial-gradient(115% 95% at 14% 86%, #b9d4ff 0%, rgba(185,212,255,0) 64%), linear-gradient(146deg, #ffeded 0%, #eef2ff 100%)",
+      art: (
+          <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
+            <g transform={rtl ? MIRROR : undefined}>
+              {/* What you typed, */}
+              <rect x="78" y="18" width="226" height="48" rx="12" className="fill-[var(--art-accent-soft)]" />
+              <rect x="78" y="18" width="226" height="48" rx="12" className="fill-none stroke-[var(--art-accent)]" strokeWidth="1.5" />
+              {/* and what it says back, before it starts. The tick is
+                  moved rather than mirrored: a reversed check mark is a
+                  shape people read as almost-a-tick. */}
+              <circle cx="34" cy="98" r="12" className="fill-[var(--art-accent-soft)]" />
+              {[
+                { y: 84, w: 162 },
+                { y: 114, w: 124 },
+                { y: 144, w: 158 },
+              ].map((row) => (
+                <g key={row.y}>
+                  <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-[var(--art-base)]" />
+                  <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
+                </g>
+              ))}
+            </g>
+            <path
+              d="M28 98l4.5 4.5L40 94"
+              transform={rtl ? "translate(252,0)" : undefined}
+              className="fill-none stroke-[var(--art-accent)]"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <text {...mirrored(94, "start", rtl)} y="39" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">{t(LANDING.steps.two.askLine1)}</text>
+            <text {...mirrored(94, "start", rtl)} y="56" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">{t(LANDING.steps.two.askLine2)}</text>
+            {[
+              { y: 84, label: LANDING.steps.two.planSilence },
+              { y: 114, label: LANDING.steps.two.planReframe },
+              { y: 144, label: LANDING.steps.two.planCaptions },
+            ].map((row) => (
+              <text key={row.y} {...mirrored(72, "start", rtl)} y={row.y + 19} className="fill-[var(--art-accent)]" fontSize="11.5">
+                {t(row.label)}
+              </text>
+            ))}
+          </svg>
+      ),
+    },
+    {
+      num: "03",
+      title: t(LANDING.steps.three.title),
+      desc: t(LANDING.steps.three.desc),
+      wash: "radial-gradient(125% 95% at 50% 8%, #d8c7ff 0%, rgba(216,199,255,0) 58%), radial-gradient(115% 95% at 12% 92%, #ffb3c8 0%, rgba(255,179,200,0) 62%), linear-gradient(146deg, #f3efff 0%, #fff0f4 100%)",
+      art: (
+          <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
+            <g transform={rtl ? MIRROR : undefined}>
+              {/* The widescreen you shot, with the speaker sitting off
+                to one side of it the way a phone on a desk films you, */}
+              <rect x="22" y="34" width="184" height="104" rx="8" className="fill-[var(--art-base)]" />
+              <rect x="22" y="34" width="184" height="104" rx="8" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" strokeDasharray="6 5" />
+              <circle cx="138" cy="74" r="17" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
+              <path d="M120 116a18 18 0 0 1 36 0" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
+              {/* and the vertical it kept, centred on them, with the
+                words burned onto it. */}
+              <rect x="104" y="16" width="94" height="148" rx="10" className="fill-[var(--art-accent-soft)]" />
+              <rect x="104" y="16" width="94" height="148" rx="10" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
+              <circle cx="151" cy="66" r="19" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
+              <path d="M131 112a20 20 0 0 1 40 0" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
+              <path d="M126 132h50M138 146h26" className="stroke-[var(--art-accent)]" strokeWidth="7" strokeLinecap="round" />
+              <path d="M216 100h30" className="stroke-[var(--art-accent)]" strokeWidth="2" strokeLinecap="round" />
+            </g>
+            <text {...mirrored(22, "start", rtl)} y="158" className="fill-[var(--art-line)]" fontSize="11" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.source)}</text>
+            <text {...mirrored(216, "start", rtl)} y="90" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="12" fontWeight="700" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.output)}</text>
+          </svg>
+      ),
+    },
+  ];
+
+  /* The frame the drawings live in. Pinned on wide screens, and repeated above
+     each step on a phone, where there is no room beside the writing for a
+     picture to stand still in.
+
+     `light` on the panel is deliberate and is the same trick `.force-dark`
+     plays in the hero, run the other way: this is a picture *of* an interface,
+     and an interface drawn in the dark theme's ink on a pale wash would be a
+     white drawing on white paper. Pinning the tokens makes the drawing read
+     the same in both themes, which is what a photograph would do. */
+  const frame = (step: (typeof steps)[number], key: string) => (
+    <div
+      key={key}
+      className="absolute inset-0 flex items-center justify-center p-6 sm:p-10 transition-opacity duration-[650ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+      style={{ background: step.wash, opacity: active === Number(step.num) - 1 ? 1 : 0 }}
+      aria-hidden={active !== Number(step.num) - 1}
+    >
+      <div className="light w-full rounded-2xl bg-white/92 backdrop-blur-[2px] p-4 sm:p-6 shadow-[0_28px_70px_-34px_rgba(20,10,60,0.65)] ring-1 ring-black/5">
+        <div className="w-full aspect-[16/9]">{step.art}</div>
+      </div>
+    </div>
+  );
+
+  /*
+   * No `overflow-hidden` on this section, and that is load-bearing.
+   *
+   * An ancestor with any overflow other than `visible` becomes the scroll
+   * container for a `position: sticky` descendant — and this section does not
+   * scroll internally, so the pinned picture inside it would never pin. It
+   * would simply scroll away with the page, which is exactly what it did the
+   * first time this was built. The wash below is `inset-0` on a relatively
+   * positioned box and cannot spill, so there was nothing to clip anyway.
+   */
+  return (
+    <section id="how-it-works" className="w-full bg-band py-24 sm:py-32 relative">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(108,59,255,0.08)_0%,transparent_60%)]" />
+      <div className="max-w-7xl mx-auto px-6 relative z-10">
+        <div className="text-center mb-16 sm:mb-24">
+          <div className="reveal">
+            <p className="text-cta text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.steps.eyebrow)}</p>
+            <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-4">{t(LANDING.steps.title)}</h2>
+            <p className="text-muted-foreground text-lg">{t(LANDING.steps.lead)}</p>
+          </div>
+        </div>
+
+        {/* `items-start` is *not* wanted here, and its absence is the whole
+              reason the picture stays put. A sticky element only travels inside
+              its own containing block, so if this column shrinks to the height
+              of the card there is nothing for the card to be sticky *within*
+              and it simply scrolls away. Stretched, the column is as tall as
+              the steps beside it, which is exactly the distance the picture
+              should hold for. */}
+          <div className="grid lg:grid-cols-2 gap-10 lg:gap-20">
+          {/* The picture, pinned. `top-28` clears the collapsed top bar. */}
+          <div className="hidden lg:block">
+            <div className="sticky top-28">
+              <div className="relative w-full aspect-[4/3] overflow-hidden rounded-[28px] ring-1 ring-hairline-faint shadow-[0_40px_90px_-50px_rgba(8,4,24,0.75)]">
+                {steps.map((step) => frame(step, step.num))}
+              </div>
+            </div>
+          </div>
+
+          {/* The writing, and the line down its margin. */}
+          <div ref={railRef} className="relative ps-6 sm:ps-10">
+            <div className="absolute inset-y-0 start-0 w-px bg-hairline" aria-hidden="true" />
+            <div
+              ref={fillRef}
+              data-testid="steps-progress"
+              className="absolute start-0 top-0 w-[2px] rounded-full bg-cta"
+              style={{ height: 0, boxShadow: "0 0 20px hsl(var(--cta-bloom) / 0.55)" }}
+              aria-hidden="true"
+            />
+            {steps.map((step, i) => (
+              <div
+                key={step.num}
+                ref={(el) => {
+                  stepRefs.current[i] = el;
+                }}
+                data-testid={`step-${step.num}`}
+                data-active={active === i ? "true" : "false"}
+                className="flex flex-col justify-center py-14 lg:py-0 lg:min-h-[58vh]"
+              >
+                {/* On a phone the picture travels with its step, because there
+                    is nowhere for it to stand still. */}
+                <div className="lg:hidden relative w-full aspect-[4/3] overflow-hidden rounded-3xl ring-1 ring-hairline-faint mb-8 shadow-[0_30px_70px_-40px_rgba(8,4,24,0.7)]">
+                  <div className="absolute inset-0 flex items-center justify-center p-6" style={{ background: step.wash }}>
+                    <div className="light w-full rounded-2xl bg-white/92 p-4 shadow-[0_24px_60px_-32px_rgba(20,10,60,0.6)] ring-1 ring-black/5">
+                      <div className="w-full aspect-[16/9]">{step.art}</div>
+                    </div>
+                  </div>
+                </div>
+                <p className="font-mono text-xs tracking-[0.35em] text-muted-foreground mb-3">{step.num}</p>
+                <h3
+                  className={`text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight mb-4 transition-colors duration-500 motion-reduce:transition-none ${
+                    active === i ? "text-foreground" : "text-foreground/35"
+                  }`}
+                >
+                  {step.title}
+                </h3>
+                <p
+                  className={`text-base sm:text-lg leading-relaxed max-w-md transition-colors duration-500 motion-reduce:transition-none ${
+                    active === i ? "text-muted-foreground" : "text-muted-foreground/40"
+                  }`}
+                >
+                  {step.desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Home() {
   const sectionsRef = useScrollReveal();
   const queryClient = useQueryClient();
@@ -582,6 +967,7 @@ export default function Home() {
 
   const phone = usePhoneWidth();
   const [language, chooseLanguage] = useLandingLanguage();
+  const navCollapsed = useCollapsedNav();
   const rtl = language === "ar";
   const t = (phrase: Phrase) => say(phrase, language);
 
@@ -752,12 +1138,26 @@ export default function Home() {
         label that cannot wrap, and a preference control that steps aside for
         the two things somebody actually came here to press.
       */}
-      <header className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6 flex items-center justify-between gap-2 z-10 relative animate-fade-in">
+      {/*
+        The bar is fixed now, so the page has to be told how tall it is. A
+        spacer rather than padding on the hero: the hero is the element the
+        parallax reads, and giving it a top padding that only exists because of
+        another element is how a layout acquires a rule nobody can delete.
+      */}
+      <div aria-hidden className="h-[72px] sm:h-[88px]" />
+      <div className="fixed inset-x-0 top-0 z-50 pointer-events-none">
+        <header
+          data-testid="landing-nav"
+          data-collapsed={navCollapsed ? "true" : "false"}
+          className={`pointer-events-auto mx-auto flex items-center justify-between gap-2 animate-fade-in nav-shell ${
+            navCollapsed ? "nav-shell-capsule" : "nav-shell-wide"
+          }`}
+        >
         <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
           <Logo className="w-8 h-8 sm:w-9 sm:h-9 text-brand-mark flex-shrink-0" />
           <span className="font-bold text-lg sm:text-xl tracking-tight">Editly</span>
         </div>
-        <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
+        <nav className="hidden md:flex items-center gap-5 lg:gap-7 text-sm font-medium text-muted-foreground">
           {/* The anchor is the section id, which is English and stays English:
               it is a URL, and a URL that changes with the reader's language is
               a link that breaks when it is shared. Only the label translates. */}
@@ -770,7 +1170,7 @@ export default function Home() {
             <a
               key={item.href}
               href={item.href}
-              className="relative hover:text-foreground transition-colors group"
+              className="relative whitespace-nowrap hover:text-foreground transition-colors group"
             >
               {t(item.label)}
               <span className="absolute -bottom-0.5 start-0 w-0 h-px bg-primary transition-all duration-300 group-hover:w-full" />
@@ -819,7 +1219,7 @@ export default function Home() {
             <Link
               href="/dashboard"
               data-testid="link-dashboard"
-              className="glow-btn btn-gradient-cta text-white px-5 sm:px-6 min-h-[44px] inline-flex items-center rounded-full font-medium whitespace-nowrap animate-shimmer-border border border-transparent"
+              className="glow-btn btn-gradient-cta text-white px-5 sm:px-6 min-h-[44px] inline-flex items-center rounded-full font-medium whitespace-nowrap"
             >
               {t(LANDING.header.dashboard)}
             </Link>
@@ -835,7 +1235,7 @@ export default function Home() {
               <Link
                 href="/login?mode=signup"
                 data-testid="link-sign-up"
-                className="glow-btn btn-gradient-cta text-white px-4 sm:px-6 min-h-[44px] inline-flex items-center rounded-full font-medium text-sm sm:text-base whitespace-nowrap animate-shimmer-border border border-transparent"
+                className="glow-btn btn-gradient-cta text-white px-4 sm:px-6 min-h-[44px] inline-flex items-center rounded-full font-medium text-sm sm:text-base whitespace-nowrap"
               >
                 <span className="sm:hidden">{t(LANDING.header.signUp)}</span>
                 <span className="hidden sm:inline">{t(LANDING.header.signUpFree)}</span>
@@ -843,7 +1243,8 @@ export default function Home() {
             </>
           )}
         </div>
-      </header>
+        </header>
+      </div>
 
       {/* ── Hero ── */}
       <section
@@ -859,10 +1260,31 @@ export default function Home() {
             arriving, the mock working, the timeline running. */}
 
         {/* Badge */}
+        {/*
+          The announcement pill, rebuilt against the reference Osama sent.
+
+          Three things separate that pill from ours, and none of them is the
+          text. It leads with a **tag** — a small filled capsule in the action
+          colour, so the eye lands on "there is news" before it starts reading
+          the news. It has **no border**: it is held off the page by a shadow,
+          the same way every other surface in this system is. And it is
+          **taller than its text**, with the tag insetting into the padding, so
+          the pill reads as a container rather than as a line of text with
+          rounded ends.
+
+          What does not change is what it says. Noah is the thing this pill
+          exists to introduce.
+        */}
         <div
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-surface-1 border border-hairline mb-8 backdrop-blur-md animate-fade-up"
+          className="inline-flex items-center gap-2 ps-1.5 pe-4 py-1.5 rounded-full bg-surface-1 border border-hairline-faint mb-8 backdrop-blur-md animate-fade-up shadow-[0_1px_2px_rgba(8,4,24,0.10),0_10px_28px_-14px_rgba(8,4,24,0.45)]"
           style={{ animationDelay: "100ms" }}
         >
+          <span
+            data-testid="badge-beta"
+            className="inline-flex items-center rounded-full bg-cta text-cta-foreground px-2.5 h-6 text-xs font-bold tracking-tight shadow-[0_1px_1px_color-mix(in_srgb,black_30%,hsl(var(--cta-bloom))),0_4px_12px_-4px_color-mix(in_srgb,hsl(var(--cta-bloom))_60%,transparent)]"
+          >
+            {t(LANDING.hero.badgeTag)}
+          </span>
           <Sparkles className="w-4 h-4 text-secondary animate-sparkle" />
           {/* Introduces the person the headline tells you to describe to, and
               claims nothing we have not built: no version number, nothing that
@@ -972,166 +1394,7 @@ export default function Home() {
       </section>
 
       {/* ── How It Works ── */}
-      <section id="how-it-works" className="w-full bg-band py-24 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(108,59,255,0.08)_0%,transparent_60%)]" />
-        <div className="max-w-7xl mx-auto px-6 relative z-10">
-          <div className="text-center mb-16">
-            <div className="reveal">
-              <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.steps.eyebrow)}</p>
-              <h2 className="text-3xl md:text-4xl font-bold mb-4">{t(LANDING.steps.title)}</h2>
-              <p className="text-muted-foreground text-lg">{t(LANDING.steps.lead)}</p>
-            </div>
-          </div>
-
-          {/* Each step is drawn, not screenshotted.
-              These were three crops of the demo recording: a dark rectangle
-              each, two of them cropped so hard the text inside was a few pixels
-              tall and unreadable, on a page that is otherwise light. A picture
-              of a screen at that size carries nothing — you cannot read it, so
-              all it says is "there is a screen". Each card now draws the step
-              itself at the size it is shown, in the same ink as the feature
-              grid: the take arriving with its dead air still in it, the
-              sentence and the plan it produced, and the vertical cut that came
-              out. No stock, no screenshots, and nothing that can go stale when
-              the app's chrome changes. */}
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                num: "01",
-                icon: Upload,
-                title: t(LANDING.steps.one.title),
-                desc: t(LANDING.steps.one.desc),
-                delay: "0ms",
-                art: (
-                  <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
-                    <g transform={rtl ? MIRROR : undefined}>
-                      <rect x="20" y="18" width="280" height="144" rx="12" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" strokeDasharray="8 7" />
-                      <rect x="44" y="42" width="232" height="96" rx="10" className="fill-[var(--art-base)]" />
-                      <rect x="44" y="42" width="232" height="96" rx="10" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
-                      {/* The take, with the dead air still in it — flat where
-                          nobody is talking, which is what step three removes. */}
-                      {[14, 22, 9, 26, 17, 24, 2, 2, 2, 2, 19, 27, 11, 23, 8, 2, 2, 2, 25, 13, 21, 16, 2, 2, 18, 26, 10, 20].map((h, n) => (
-                        <rect
-                          key={n}
-                          x={62 + n * 7}
-                          y={106 - h}
-                          width="3.5"
-                          height={h * 2}
-                          rx="1.75"
-                          className={h > 3 ? "fill-[var(--art-accent)]" : "fill-[var(--art-line)]"}
-                        />
-                      ))}
-                    </g>
-                    {/* A file name and a timecode, which are Latin either way:
-                        `dir` keeps `raw-take.mov` from being reordered when the
-                        page around it is right-to-left. */}
-                    <text {...mirrored(62, "start", rtl)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="13" fontWeight="600" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.file)}</text>
-                    <text {...mirrored(258, "end", rtl)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-line)]" fontSize="12" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.duration)}</text>
-                  </svg>
-                ),
-              },
-              {
-                num: "02",
-                icon: MessageSquareText,
-                title: t(LANDING.steps.two.title),
-                desc: t(LANDING.steps.two.desc),
-                delay: "120ms",
-                art: (
-                  <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
-                    <g transform={rtl ? MIRROR : undefined}>
-                      {/* What you typed, */}
-                      <rect x="78" y="18" width="226" height="48" rx="12" className="fill-[var(--art-accent-soft)]" />
-                      <rect x="78" y="18" width="226" height="48" rx="12" className="fill-none stroke-[var(--art-accent)]" strokeWidth="1.5" />
-                      {/* and what it says back, before it starts. The tick is
-                          moved rather than mirrored: a reversed check mark is a
-                          shape people read as almost-a-tick. */}
-                      <circle cx="34" cy="98" r="12" className="fill-[var(--art-accent-soft)]" />
-                      {[
-                        { y: 84, w: 162 },
-                        { y: 114, w: 124 },
-                        { y: 144, w: 158 },
-                      ].map((row) => (
-                        <g key={row.y}>
-                          <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-[var(--art-base)]" />
-                          <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
-                        </g>
-                      ))}
-                    </g>
-                    <path
-                      d="M28 98l4.5 4.5L40 94"
-                      transform={rtl ? "translate(252,0)" : undefined}
-                      className="fill-none stroke-[var(--art-accent)]"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <text {...mirrored(94, "start", rtl)} y="39" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">{t(LANDING.steps.two.askLine1)}</text>
-                    <text {...mirrored(94, "start", rtl)} y="56" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">{t(LANDING.steps.two.askLine2)}</text>
-                    {[
-                      { y: 84, label: LANDING.steps.two.planSilence },
-                      { y: 114, label: LANDING.steps.two.planReframe },
-                      { y: 144, label: LANDING.steps.two.planCaptions },
-                    ].map((row) => (
-                      <text key={row.y} {...mirrored(72, "start", rtl)} y={row.y + 19} className="fill-[var(--art-accent)]" fontSize="11.5">
-                        {t(row.label)}
-                      </text>
-                    ))}
-                  </svg>
-                ),
-              },
-              {
-                num: "03",
-                icon: Send,
-                title: t(LANDING.steps.three.title),
-                desc: t(LANDING.steps.three.desc),
-                delay: "240ms",
-                art: (
-                  <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
-                    <g transform={rtl ? MIRROR : undefined}>
-                      {/* The widescreen you shot, with the speaker sitting off
-                        to one side of it the way a phone on a desk films you, */}
-                      <rect x="22" y="34" width="184" height="104" rx="8" className="fill-[var(--art-base)]" />
-                      <rect x="22" y="34" width="184" height="104" rx="8" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" strokeDasharray="6 5" />
-                      <circle cx="138" cy="74" r="17" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
-                      <path d="M120 116a18 18 0 0 1 36 0" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
-                      {/* and the vertical it kept, centred on them, with the
-                        words burned onto it. */}
-                      <rect x="104" y="16" width="94" height="148" rx="10" className="fill-[var(--art-accent-soft)]" />
-                      <rect x="104" y="16" width="94" height="148" rx="10" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
-                      <circle cx="151" cy="66" r="19" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
-                      <path d="M131 112a20 20 0 0 1 40 0" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
-                      <path d="M126 132h50M138 146h26" className="stroke-[var(--art-accent)]" strokeWidth="7" strokeLinecap="round" />
-                      <path d="M216 100h30" className="stroke-[var(--art-accent)]" strokeWidth="2" strokeLinecap="round" />
-                    </g>
-                    <text {...mirrored(22, "start", rtl)} y="158" className="fill-[var(--art-line)]" fontSize="11" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.source)}</text>
-                    <text {...mirrored(216, "start", rtl)} y="90" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="12" fontWeight="700" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.output)}</text>
-                  </svg>
-                ),
-              },
-            ].map((step) => (
-              <div
-                key={step.num}
-                className="reveal glass-panel glass-flat rounded-2xl relative overflow-hidden group cursor-default transition-all duration-500 hover:border-primary/30 hover:shadow-[0_0_40px_rgba(108,59,255,0.2)] hover:-translate-y-1 flex flex-col"
-                style={{ transitionDelay: step.delay }}
-              >
-                <div className="relative bg-band border-b border-hairline-faint h-52 sm:h-56 overflow-hidden flex items-center justify-center p-5">
-                  {step.art}
-                  <span className="absolute top-3 start-3 text-xs font-mono font-semibold text-muted-foreground bg-surface-1 px-2 py-1 rounded-md border border-hairline-faint">
-                    {step.num}
-                  </span>
-                </div>
-                <div className="p-6 sm:p-8 pt-6 flex-1">
-                  <div className="w-10 h-10 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center mb-4 group-hover:shadow-[0_0_15px_rgba(108,59,255,0.5)] transition-shadow">
-                    <step.icon className="w-5 h-5 text-primary" />
-                  </div>
-                  <h3 className="text-xl font-bold mb-3">{step.title}</h3>
-                  <p className="text-muted-foreground leading-relaxed">{step.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      <HowItWorks t={t} rtl={rtl} />
 
       {/* ── Features ── */}
       <section id="features" className="w-full max-w-7xl mx-auto px-6 py-24">

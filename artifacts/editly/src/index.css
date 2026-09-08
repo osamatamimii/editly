@@ -22,6 +22,17 @@
 
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
+  /*
+   * The action colour, and it is not the brand colour.
+   *
+   * `--primary` is the violet the product is *made of* — links, focus rings,
+   * the mark, every accent. `--cta` is the red the product is *pressed with*.
+   * Keeping them apart is the whole point: a page where everything pressable
+   * and everything decorative share one hue has no way to say "this one".
+   */
+  --color-cta: hsl(var(--cta));
+  --color-cta-foreground: hsl(var(--cta-foreground));
+  --color-cta-bloom: hsl(var(--cta-bloom));
   --color-link: hsl(var(--link));
   --color-primary-border: var(--primary-border);
 
@@ -315,20 +326,28 @@
   /* The ring outside the button's edge, and the two insets that make its face
      a pillow rather than a fill. On near-black the halo can be the brand at a
      real alpha; the lip is white light catching the top edge. */
-  --halo: rgba(108, 59, 255, 0.26);
-  --halo-strong: rgba(155, 107, 255, 0.75);
+  /* Red, with the rest of the call-to-action. These five tokens are used by
+     `.glow-btn` and `.btn-gradient-cta` and by nothing else, so they follow
+     `--cta` rather than `--primary` — the headline's `--text-glow-*` below
+     stays violet, because the headline is brand and not an action. */
+  --halo: rgba(255, 46, 46, 0.26);
+  --halo-strong: rgba(255, 92, 92, 0.75);
   /* The specular line along a button's top edge. At 0.30 it was a white stroke
      rather than a highlight — with the (undefined) white border around the rest
      of the pill, the button read as outlined in white. The border is a colour
      now and this is back to being light catching an edge. */
   --btn-lip: rgba(255, 255, 255, 0.14);
   --btn-underside: rgba(6, 3, 20, 0.45);
-  --glow-soft: rgba(155, 107, 255, 0.85);
-  --glow-wide: rgba(108, 59, 255, 0.4);
+  --glow-soft: rgba(255, 46, 46, 0.72);
+  --glow-wide: rgba(235, 10, 10, 0.38);
   --text-glow-near: rgba(155, 107, 255, 0.8);
   --text-glow-far: rgba(108, 59, 255, 0.4);
-  --cta-shadow: rgba(108, 59, 255, 0.5);
-  --cta-shadow-soft: rgba(108, 59, 255, 0.4);
+  --cta-shadow: rgba(255, 46, 46, 0.48);
+  --cta-shadow-soft: rgba(235, 10, 10, 0.38);
+  /* The ground behind the collapsed top bar. Not `--surface-1`: this pane
+     floats over whatever is scrolling underneath it, so it needs to be more
+     opaque than a raised surface on the page, not less. */
+  --nav-capsule: rgba(20, 18, 32, 0.82);
   --input-focus-bg: rgba(255, 255, 255, 0.09);
   /* The halo under the one button drawn in the foreground colour. */
   --invert-glow: rgba(255, 255, 255, 0.3);
@@ -381,6 +400,32 @@
   */
   --link: 255 100% 72%;
   --primary-foreground: 0 0% 100%;
+
+  /*
+   * The action colour.
+   *
+   * Measured off the reference: the face is a **flat** fill, not a ramp, with
+   * a wide soft bloom of the same red under it and nothing else — no ring, no
+   * inner highlight, no gradient. That flatness is what reads as expensive
+   * here; the depth all comes from the bloom.
+   *
+   * ## Why 48% and not the reference's 59%
+   *
+   * The swatch on the reference is #FF2E2E. White on #FF2E2E measures
+   * **3.70:1** — under the 4.5 AA asks of a button label, and every button on
+   * this product carries one. The same hue at full saturation and 48% is
+   * 4.59:1 and is not distinguishable from the reference once the bloom is
+   * around it, because the bloom *is* #FF2E2E: `--cta-bloom` is the exact
+   * reference red and it is what the eye reads as the colour of the object.
+   *
+   * If the exact swatch is ever wanted on the face instead, this is the one
+   * line to change — and `theme-test` will say what it costs.
+   */
+  --cta: 0 92% 48%;
+  --cta-foreground: 0 0% 100%;
+  /* #FF2E2E — the reference red, on the light around the button rather than
+     on the face under the label, where contrast is not a question. */
+  --cta-bloom: 0 100% 59%;
 
   /*
    * Neon Purple Glow #9B6BFF — light enough that white sits on it at 3.54:1,
@@ -582,6 +627,34 @@ html[data-page-theme="light"] body {
      is 8.41:1 on this page and still unmistakably the brand hue. */
   --link: 255 100% 46%;
   --primary-foreground: 0 0% 100%;
+
+  /*
+   * The action colour.
+   *
+   * Measured off the reference: the face is a **flat** fill, not a ramp, with
+   * a wide soft bloom of the same red under it and nothing else — no ring, no
+   * inner highlight, no gradient. That flatness is what reads as expensive
+   * here; the depth all comes from the bloom.
+   *
+   * ## Why 48% and not the reference's 59%
+   *
+   * The swatch on the reference is #FF2E2E. White on #FF2E2E measures
+   * **3.70:1** — under the 4.5 AA asks of a button label, and every button on
+   * this product carries one. The same hue at full saturation and 48% is
+   * 4.59:1 and is not distinguishable from the reference once the bloom is
+   * around it, because the bloom *is* #FF2E2E: `--cta-bloom` is the exact
+   * reference red and it is what the eye reads as the colour of the object.
+   *
+   * If the exact swatch is ever wanted on the face instead, this is the one
+   * line to change — and `theme-test` will say what it costs.
+   */
+  /* The same red. A white page needs no compensation here — 48% is 4.59:1
+     against white as well, because the pair is the same two colours. */
+  --cta: 0 92% 48%;
+  --cta-foreground: 0 0% 100%;
+  /* #FF2E2E — the reference red, on the light around the button rather than
+     on the face under the label, where contrast is not a question. */
+  --cta-bloom: 0 100% 59%;
   /*
    * On dark, secondary is the *lighter* purple — the neon one that glows. On
    * light that relationship has to invert: a lighter-than-primary purple on
@@ -673,16 +746,17 @@ html[data-page-theme="light"] body {
   /* On white the halo has to be lighter and the underside far weaker, or the
      button reads as dirty rather than as lit. The lip stays white — it is the
      one thing that works identically in both, because it is the highlight. */
-  --halo: rgba(108, 59, 255, 0.16);
-  --halo-strong: rgba(108, 59, 255, 0.45);
+  --halo: rgba(255, 46, 46, 0.18);
+  --halo-strong: rgba(235, 10, 10, 0.45);
   --btn-lip: rgba(255, 255, 255, 0.28);
   --btn-underside: rgba(60, 30, 140, 0.16);
-  --glow-soft: rgba(108, 59, 255, 0.40);
-  --glow-wide: rgba(108, 59, 255, 0.18);
+  --glow-soft: rgba(255, 46, 46, 0.42);
+  --glow-wide: rgba(255, 46, 46, 0.20);
   --text-glow-near: rgba(108, 59, 255, 0.24);
   --text-glow-far: rgba(108, 59, 255, 0.11);
-  --cta-shadow: rgba(108, 59, 255, 0.38);
-  --cta-shadow-soft: rgba(70, 40, 160, 0.22);
+  --cta-shadow: rgba(255, 46, 46, 0.34);
+  --cta-shadow-soft: rgba(150, 10, 10, 0.20);
+  --nav-capsule: rgba(255, 255, 255, 0.86);
   --input-focus-bg: rgba(255, 255, 255, 0.95);
   --invert-glow: rgba(16, 16, 28, 0.22);
 
@@ -956,55 +1030,126 @@ html[data-page-theme="light"] body {
   text-shadow: 0 0 60px var(--text-glow-near), 0 0 120px var(--text-glow-far);
 }
 
+/* ── The top bar, and the capsule it becomes ────────────── */
+/*
+ * One element, two objects.
+ *
+ * At the top of the page the bar *is* the page: full width, no ground of its
+ * own, nothing dividing it from the hero underneath. The moment you move it
+ * gathers into a capsule — narrower, rounded the whole way, held above the
+ * content by a shadow instead of a rule, with a pane of frosted glass behind
+ * it so whatever scrolls past stays legible through it.
+ *
+ * ## Why the width is a number in both states
+ *
+ * The obvious spelling of the collapsed state is `width: fit-content`, and it
+ * is the wrong one: `fit-content` does not interpolate, so the bar would snap
+ * to its new width and then spend half a second changing colour — which reads
+ * as a glitch followed by an animation rather than as one movement. Two real
+ * lengths interpolate, so the row closes up smoothly and the chrome arrives
+ * with it.
+ *
+ * ## What is *not* transitioned
+ *
+ * `backdrop-filter`. Animating a blur radius means recompositing the pane
+ * behind the bar every frame of the transition, on the one element guaranteed
+ * to be on screen. It is switched, not ramped, and under the opacity fade
+ * nobody sees the switch.
+ */
+.nav-shell {
+  width: 100%;
+  transition:
+    max-width 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin-top 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 380ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 380ms ease,
+    box-shadow 380ms ease,
+    border-color 380ms ease;
+  border: 1px solid transparent;
+}
+.nav-shell-wide {
+  max-width: 80rem;
+  margin-top: 0;
+  padding: 1.25rem 1rem;
+  border-radius: 0;
+  background-color: transparent;
+  box-shadow: none;
+}
+@media (min-width: 640px) {
+  .nav-shell-wide { padding: 1.5rem 1.5rem; }
+}
+.nav-shell-capsule {
+  max-width: 56rem;
+  margin-top: 0.625rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 9999px;
+  border-color: var(--hairline-faint);
+  background-color: var(--nav-capsule);
+  box-shadow:
+    0 1px 2px rgba(8, 4, 24, 0.10),
+    0 16px 40px -18px rgba(8, 4, 24, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+@media (min-width: 640px) {
+  .nav-shell-capsule { padding: 0.5rem 0.75rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-shell { transition: none; }
+}
+
 /* ── Premium CTA button ─────────────────────────────────── */
+/*
+ * The four-stop violet ramp that used to be here, the 200% background-size it
+ * animated across, and the white sweep that crossed it on hover are all gone,
+ * and they are gone for the same reason the ramp came off `.aura-btn`: the
+ * button Osama is asking for is **one flat colour** with light around it, and
+ * every one of those three effects was drawing attention to the surface of the
+ * button instead of to the button.
+ *
+ * What is left is the same object as `.aura-btn` at a larger size — the hero
+ * and the header pill are pills rather than rounded rectangles, and that is
+ * the only difference between them.
+ */
 .btn-gradient-cta {
   position: relative;
-  overflow: hidden;
-  background: linear-gradient(135deg, #4318ff 0%, #6C3BFF 30%, #9B6BFF 65%, #c084fc 100%);
-  background-size: 200% 200%;
-  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-  /* The gradient itself never changes — only what it throws off. In light the
-   * first shadow becomes a tint and the second becomes a real cast shadow, so
-   * the button sits *on* the page rather than hovering above a void. */
+  --aura-tint: hsl(var(--cta));
+  --aura-bloom: hsl(var(--cta-bloom));
+  background: var(--aura-tint);
+  transition: box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              filter 0.35s ease;
   box-shadow:
-    0 0 30px var(--cta-shadow),
-    0 4px 24px var(--cta-shadow-soft),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    inset 0 -3px 10px rgba(10, 4, 40, 0.3);
-}
-.btn-gradient-cta::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    105deg,
-    transparent 30%,
-    rgba(255, 255, 255, 0.28) 50%,
-    transparent 70%
-  );
-  transform: translateX(-150%);
-  transition: transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
-  pointer-events: none;
-}
-.btn-gradient-cta:hover::after {
-  transform: translateX(200%);
+    0 1px 1px color-mix(in srgb, black 30%, var(--aura-bloom)),
+    0 6px 16px -4px color-mix(in srgb, var(--aura-bloom) 52%, transparent),
+    0 18px 44px -12px color-mix(in srgb, var(--aura-bloom) 46%, transparent);
 }
 .btn-gradient-cta:hover {
-  background-position: 100% 100%;
+  filter: brightness(1.06);
   box-shadow:
-    0 0 0 7px var(--halo),
-    0 0 60px var(--glow-soft),
-    0 0 120px var(--glow-wide),
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    inset 0 -3px 10px rgba(10, 4, 40, 0.35);
-  transform: translateY(-1px) scale(1.03);
+    0 1px 1px color-mix(in srgb, black 30%, var(--aura-bloom)),
+    0 8px 22px -5px color-mix(in srgb, var(--aura-bloom) 64%, transparent),
+    0 26px 60px -14px color-mix(in srgb, var(--aura-bloom) 58%, transparent);
+  transform: translateY(-1px);
 }
 .btn-gradient-cta:active {
-  transform: translateY(1px) scale(0.985);
+  transform: translateY(1px);
+  filter: brightness(0.93);
   box-shadow:
-    0 0 0 3px var(--halo),
-    inset 0 3px 10px rgba(10, 4, 40, 0.45),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.25);
+    0 1px 1px color-mix(in srgb, black 34%, var(--aura-bloom)),
+    0 3px 8px -3px color-mix(in srgb, var(--aura-bloom) 40%, transparent);
+}
+.btn-gradient-cta:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px hsl(var(--background)),
+    0 0 0 6px var(--aura-tint);
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-gradient-cta { transition: none; }
+  .btn-gradient-cta:hover,
+  .btn-gradient-cta:active { transform: none; }
 }
 
 /* ── Input glow ─────────────────────────────────────────── */
@@ -1580,9 +1725,17 @@ html[data-page-theme="light"] body {
    * the object instead of sitting behind it. Each variant declares its tint;
    * this is the one every filled button starts from.
    */
-  --aura-tint: hsl(var(--primary));
+  --aura-tint: hsl(var(--cta));
   /*
-   * A gradient face and nothing around it.
+   * The bloom is the tint unless a variant says otherwise. The default
+   * variant does say otherwise — it blooms in `--cta-bloom`, the reference
+   * red, which is a shade brighter than the face it surrounds. Everything
+   * else (destructive, secondary) blooms in its own colour, which is what the
+   * `var()` here gives it for free the moment it overrides the tint.
+   */
+  --aura-bloom: var(--aura-tint);
+  /*
+   * A flat face and a bloom under it.
    *
    * This used to draw a solid ring of the button's own colour, five pixels
    * wide, at 72% opacity above and 92% below — an actual halo, painted outside
@@ -1592,57 +1745,65 @@ html[data-page-theme="light"] body {
    * as decoration on every button that is not the one you want pressed, which
    * on most screens is all of them.
    *
-   * What is left is the part that was doing the work. A vertical gradient so
-   * the face has a light source, a one-pixel inner rim so the edge is defined
-   * without a stroke, a contact shadow so it sits on the page, and one soft
-   * tinted lift *underneath* so the colour still spills a little. Depth from
-   * light, still — just a quieter light.
+   * That version ramped the face and rimmed it. What replaced it is flatter
+   * still, and it is measured rather than invented: the reference swatch is
+   * **one solid colour** across the whole face — 9,722 pixels of exactly
+   * #FF2E2E, no ramp, no inner highlight, no rim. Under it, a hard contact
+   * shadow one pixel deep and then a wide soft bloom of the same red spreading
+   * about twenty pixels into the page.
+   *
+   * So all the depth moved outside the object. A flat face reads as a *thing*
+   * — printed, screen-printed, solid — and the bloom is the only thing saying
+   * it is lifted off the page. That is a much harder look to get wrong than a
+   * ramp, because there is nothing left to band on an 8-bit display.
+   *
+   * `linear-gradient` of a single colour rather than `background-color`, and
+   * that is not fussiness: the variants below carry Tailwind's `bg-primary`,
+   * utilities live in a layer that beats an unlayered rule on the same
+   * property, and a `background-color` here would lose to it. A
+   * background-image cannot be argued with by a background-color.
    */
-  background-image: linear-gradient(
-    to bottom,
-    color-mix(in srgb, white 12%, var(--aura-tint)) 0%,
-    var(--aura-tint) 52%,
-    color-mix(in srgb, black 10%, var(--aura-tint)) 100%
-  );
+  background-image: linear-gradient(var(--aura-tint), var(--aura-tint));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 0 0 1px var(--aura-rim),
-    0 1px 2px var(--aura-drop),
-    0 8px 18px -10px color-mix(in srgb, var(--aura-tint) 65%, transparent);
+    0 1px 1px color-mix(in srgb, black 30%, var(--aura-bloom)),
+    0 4px 10px -3px color-mix(in srgb, var(--aura-bloom) 50%, transparent),
+    0 12px 30px -8px color-mix(in srgb, var(--aura-bloom) 42%, transparent);
   transition: filter 180ms ease, box-shadow 180ms ease, transform 120ms ease;
 }
+/* Nothing grows and nothing ramps. The bloom opens a little, which is the
+   object catching more light rather than the pointer being announced. */
 .aura-btn:hover:not(:disabled) {
-  filter: brightness(1.07);
+  filter: brightness(1.06);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 0 0 1px var(--aura-rim),
-    0 2px 4px var(--aura-drop),
-    0 12px 24px -10px color-mix(in srgb, var(--aura-tint) 80%, transparent);
+    0 1px 1px color-mix(in srgb, black 30%, var(--aura-bloom)),
+    0 6px 14px -4px color-mix(in srgb, var(--aura-bloom) 62%, transparent),
+    0 18px 40px -10px color-mix(in srgb, var(--aura-bloom) 55%, transparent);
 }
 /* Pressed is the one state that moves, and it moves *in*: the lift goes, the
    face darkens, the rim deepens. Half a pixel down, which is felt rather than
    seen. */
 .aura-btn:active:not(:disabled) {
   transform: translateY(1px);
-  filter: brightness(0.94);
+  filter: brightness(0.92);
   box-shadow:
-    inset 0 2px 5px -2px var(--aura-rim-deep),
-    inset 0 0 0 1px var(--aura-rim),
-    0 1px 1px var(--aura-drop);
+    0 1px 1px color-mix(in srgb, black 34%, var(--aura-bloom)),
+    0 2px 6px -3px color-mix(in srgb, var(--aura-bloom) 40%, transparent);
 }
 /* Same defect, same fix — see `.glow-btn:focus-visible` above. A raw HSL triple
    where a colour belongs voids the declaration, and `outline: none` is already
    applied by then. */
+/* The ring is the button's own colour now, not the brand's. A violet ring
+   around a red button says the focus belongs to the page rather than to the
+   thing under the keyboard. */
 .aura-btn:focus-visible {
   outline: none;
   box-shadow:
     0 0 0 2px hsl(var(--background)),
-    0 0 0 4px hsl(var(--primary)),
-    inset 0 0 0 1px var(--aura-rim);
+    0 0 0 4px var(--aura-tint);
 }
 .aura-btn:disabled {
-  box-shadow: inset 0 0 0 1px var(--aura-rim);
-  opacity: 0.45;
+  box-shadow: none;
+  opacity: 0.42;
 }
 
 /* The same object in the page's own colours rather than the brand's — their

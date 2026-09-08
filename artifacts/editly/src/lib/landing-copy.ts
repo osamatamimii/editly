@@ -124,6 +124,10 @@ export const LANDING = {
   },
 
   hero: {
+    /* The badge at the head of the announcement pill. Latin "Beta" is a word
+       Arabic speakers use, but «تجريبي» is the one they *say*, and this page
+       is written rather than translated. */
+    badgeTag: p("تجريبي", "Beta"),
     badge: p("تعرّف على نوح. قل له ما تريد", "Meet Noah. Tell him what you want"),
     // Two lines, and the second one is set differently: an italic serif in
     // English, and weight in Arabic, because Arabic has no italic. See
