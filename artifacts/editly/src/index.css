@@ -1118,10 +1118,14 @@ html[data-page-theme="light"] body {
   backdrop-filter: blur(22px) saturate(170%);
   border-top-left-radius: var(--radius-3xl);
   border-top-right-radius: var(--radius-3xl);
+  /* Stacked, the panel sits directly on the editor with only its own top edge
+     between them, so the shadow has to be light: a dark blur across the middle
+     of a dark screen reads as a smudge, not as a lift. The lifted version is
+     the `lg` block below, where the panel is a card with air around it. */
   box-shadow:
     inset 0 1px 0 var(--panel-lip),
-    0 -8px 24px -12px var(--panel-drop),
-    0 -1px 0 var(--panel-ring);
+    0 -1px 0 var(--panel-ring),
+    0 -10px 26px -20px var(--panel-drop);
 }
 @media (min-width: 1024px) {
   .chat-panel {

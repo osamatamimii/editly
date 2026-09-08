@@ -27,7 +27,7 @@ import {
   UploadCloud, Play, Pause, ChevronLeft, Send,
   Wand2, Download, CheckCircle2, Loader2,
   Video, Sparkles, VideoOff, ChevronUp, ChevronDown, Scissors, FolderOpen,
-  Maximize2, Minimize2, Type, MapPin } from "lucide-react";
+  Maximize2, Minimize2, Type, MapPin, Plus, X } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { FontPicker, DEFAULT_FONTS, type ChosenFonts } from "@/components/font-picker";
 import type { UploadedFace } from "@/components/font-upload";
@@ -145,6 +145,26 @@ export default function ProjectEditor() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  /**
+   * Whether the two columns are side by side — the `lg` the chat panel uses.
+   *
+   * `sideBySide` next to this one is about the *video*: a portrait clip on a
+   * wide screen puts its controls in a column. This is about the *window*, and
+   * the two are not the same question — a landscape clip on a phone is not
+   * side-by-side and neither is one on a laptop.
+   */
+  const [wide, setWide] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setWide(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  /** Whether the tool icons are showing, on the layout that hides them. */
+  const [toolsOpen, setToolsOpen] = useState(false);
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [chatInput, setChatInput] = useState("");
@@ -481,13 +501,40 @@ export default function ProjectEditor() {
     if (project?.status === "done") setUnreadFromNoah(true);
     else setChatOpen(true);
   }, [messages, project?.status]);
-  // The first video is the moment the screen stops being about the conversation
-  // and starts being about the picture.
-  const sawVideo = useRef(false);
+  /*
+   * The first video is the moment the screen stops being about the
+   * conversation and starts being about the picture — on a laptop.
+   *
+   * On a phone with a *landscape* clip it is not, and folding there costs more
+   * than it buys: the composer goes with it, so the one thing this screen is
+   * for is two taps away, and the picture does not grow into the room it left
+   * — a 16:9 clip on a 390px screen is 219px tall however much space is under
+   * it, so the screen reads as a video with a hole beneath it. Open, the
+   * conversation has the bottom 56% and the picture has the rest, which is the
+   * shape Osama asked for and the shape the fold was fighting.
+   *
+   * A *portrait* clip on a phone is the other case entirely and still folds:
+   * it wants the height, and `viewport-test` says so out loud — with the sheet
+   * open a 9:16 frame measured 176px of a 390px screen and its scrubber 132px,
+   * which is the thumbnail-with-a-hairline this screen was rebuilt to stop
+   * being.
+   *
+   * The fold still exists on a phone. Below `lg` it is a control rather than a
+   * default.
+   */
+  const foldedForVideo = useRef(false);
   useEffect(() => {
-    if (hasVideo && !sawVideo.current) setChatOpen(false);
-    sawVideo.current = hasVideo;
-  }, [hasVideo]);
+    if (!hasVideo) {
+      foldedForVideo.current = false;
+      return;
+    }
+    /* The shape decides it, so wait until the shape is known — a portrait clip
+       on a phone needs the whole screen and a landscape one does not, and
+       `aspect` arrives a beat after the file does. */
+    if (foldedForVideo.current || aspect == null) return;
+    foldedForVideo.current = true;
+    if (wide || aspect < 1) setChatOpen(false);
+  }, [hasVideo, aspect, wide]);
   const TRANSPORT_GAP = 12;
 
   /**
@@ -629,15 +676,36 @@ export default function ProjectEditor() {
     return () => clearInterval(timer);
   }, [playbackUrl]);
 
+  /*
+   * The conversation opens at its last message, not its first.
+   *
+   * This existed and did not work, for two reasons that both come down to
+   * *when* it ran. The panel is `hidden` below `lg` until somebody opens it,
+   * and a hidden element has a `scrollHeight` of zero — so the one assignment
+   * that mattered was made against nothing, and the panel came up at the top.
+   * On a laptop it ran before the bubbles had their final height: avatars are
+   * images, and an image that has not loaded is 0px tall.
+   *
+   * So it runs on `chatOpen` as well, and three times: now, on the next frame
+   * once layout has settled, and once more a beat later for anything that
+   * loaded late. Setting `scrollTop` to a value larger than the maximum is
+   * clamped, so an early attempt costs nothing and a late one cannot overshoot.
+   */
   useEffect(() => {
-    // Scroll to bottom of chat
-    if (scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
-      if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      }
-    }
-  }, [messages, isProcessingEdit, renderJob?.progress, isNoahThinking]);
+    const area = scrollAreaRef.current;
+    if (!area) return;
+    const stick = () => {
+      const view = area.querySelector("[data-radix-scroll-area-viewport]");
+      if (view) view.scrollTop = view.scrollHeight;
+    };
+    stick();
+    const frame = requestAnimationFrame(stick);
+    const later = setTimeout(stick, 160);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(later);
+    };
+  }, [messages, isProcessingEdit, renderJob?.progress, isNoahThinking, chatOpen, messagesState]);
 
   const validateAndUpload = async (file: File) => {
     if (!isAcceptableVideo(file)) {
@@ -1560,8 +1628,7 @@ export default function ProjectEditor() {
     { key: "reference" as const, icon: Sparkles, label: t(EDITOR.panelMatch), available: Boolean(project) },
   ].filter((p) => p.available);
 
-  const panelRail = PANELS.length > 0 && (
-    <div className={sideBySide ? "flex flex-col gap-2" : "mt-3"} data-testid="panel-rail">
+  const railChips = PANELS.length > 0 && (
       <div
         /* Wrapping on a phone too, now that there are five.
 
@@ -1596,12 +1663,22 @@ export default function ProjectEditor() {
           );
         })}
       </div>
+  );
 
+  const railPanel = (
+    <>
       {openPanel === "looks" && looks}
       {openPanel === "type" && typePanel}
       {openPanel === "clips" && clipsPanel}
       {openPanel === "files" && library}
       {openPanel === "reference" && reference}
+    </>
+  );
+
+  const panelRail = PANELS.length > 0 && (
+    <div className={sideBySide ? "flex flex-col gap-2" : "mt-3"} data-testid="panel-rail">
+      {railChips}
+      {railPanel}
     </div>
   );
 
@@ -1686,7 +1763,12 @@ export default function ProjectEditor() {
             three panels cut off below it and no way to scroll to them.
             Scrolling is the honest answer at this width; the desktop layout,
             which has the room to hold everything at once, is unchanged. */}
-        <div className="flex-1 min-h-0 flex flex-col relative p-4 lg:p-6 pb-8 lg:pb-6 overflow-y-auto lg:overflow-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div /* `pb-14` below `lg`, and the eight it replaces is why. The fade at the foot
+             of this column is `h-8` with a matching negative margin, so it overlays
+             the last 32px of the padding box — which was exactly the padding, so the
+             mark button under the video sat *in* the fade and came out half
+             dissolved. The padding has to clear the fade, not equal it. */
+          className="flex-1 min-h-0 flex flex-col relative p-4 lg:p-6 pb-14 lg:pb-6 overflow-y-auto lg:overflow-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {/*
             A scroller that ends flush against the chat panel cuts whatever
             happens to be at the fold in half — on a phone that was the looks
@@ -1851,7 +1933,15 @@ export default function ProjectEditor() {
                is wrong in one of the two states. */
             <div
               ref={stageRef}
-              className={`flex-1 lg:min-h-[34rem] flex-shrink-0 lg:flex-shrink-0 flex items-stretch justify-center gap-4 ${
+              /* Centred on a phone, stretched on a laptop.
+
+                 With the conversation folded away this box is 62% of the
+                 screen and the picture inside it is whatever the clip's shape
+                 makes it — often half that. Stretched, the difference piles up
+                 as one dead gap under the video and above the Noah bar, which
+                 reads as a screen that ran out. Centred, the same space is
+                 margin above and below a thing that is deliberately placed. */
+              className={`flex-1 lg:min-h-[34rem] flex-shrink-0 lg:flex-shrink-0 flex items-center lg:items-stretch justify-center gap-4 ${
                 chatOpen ? "min-h-[23rem]" : "min-h-[62dvh]"
               }`}
             >
@@ -2116,13 +2206,28 @@ export default function ProjectEditor() {
           )}
 
           {/* Under a landscape clip the width is the plentiful dimension, so the
-              looks sit below as a row. A vertical clip puts them in the column. */}
-          {hasVideo && !sideBySide && <div>{panelRail}</div>}
+              looks sit below as a row. A vertical clip puts them in the column.
 
-          <div
+              Stacked, they are not here at all — they live in the composer, at
+              the bottom of the screen where the thumb is. They used to sit
+              under the video, which on a phone means under the fold and half
+              behind the conversation panel: five controls you could see the top
+              two millimetres of. */}
+          {hasVideo && !sideBySide && wide && <div>{panelRail}</div>}
+
+          {!chatOpen && <div
             aria-hidden
-            className="lg:hidden sticky bottom-0 -mb-8 h-8 flex-shrink-0 pointer-events-none bg-gradient-to-t from-background to-transparent"
-          />
+            /* `mt-auto`, or it is not at the foot of anything.
+
+              This is a flex column, and a sticky child of one sits where the
+              *flow* puts it — which, when the content is shorter than the
+              column, is straight after the content. With the conversation open
+              the column does not scroll and the fade landed across the bottom
+              of the video, dissolving the picture instead of the edge below it.
+              Pushed to the end of the column it is where it was always meant to
+              be, and it does nothing at all when there is nothing to scroll. */
+            className="lg:hidden sticky bottom-0 mt-auto -mb-8 h-8 flex-shrink-0 pointer-events-none bg-gradient-to-t from-background to-transparent"
+          />}
         </div>
 
         {/* AI Chat Sidebar.
@@ -2151,7 +2256,7 @@ export default function ProjectEditor() {
         */}
         <div
           className={`chat-panel w-full lg:w-[400px] flex-shrink-0 lg:basis-auto min-h-0 flex flex-col z-20 ${
-            chatOpen ? "basis-[52%]" : "basis-auto"
+            chatOpen ? "basis-[56%]" : "basis-auto"
           }`}
           data-testid="chat-panel"
           data-open={chatOpen ? "true" : "false"}
@@ -2470,7 +2575,27 @@ export default function ProjectEditor() {
               screens; they are one. What separates them now is light — the
               panel's own ground fading up behind the card — which is the same
               way every other boundary in this product is drawn. */}
-          <div className="composer-well p-4">
+          {/*
+            The tools, at the bottom of the screen where the thumb is.
+
+            Stacked, the five panels are not under the video any more — they
+            open from a button in the composer. Pressing it lays the five icons
+            out above the sentence; pressing one of those opens its panel in the
+            same place, in a box with its own scroll, so a phone gives them the
+            bottom half of the screen instead of the sliver under the fold.
+
+            `wide` and not `sideBySide`: this is a question about the window,
+            and the rail is already in the column beside a portrait clip.
+          */}
+          {!wide && hasVideo && PANELS.length > 0 && (toolsOpen || openPanel) && (
+            <div id="composer-tools" className="composer-well px-3 pt-3 flex flex-col gap-2" data-testid="composer-tools">
+              {railChips}
+              {openPanel && (
+                <div className="max-h-[38vh] overflow-y-auto pe-0.5">{railPanel}</div>
+              )}
+            </div>
+          )}
+          <div className="composer-well p-4 pt-2">
             <form
               onSubmit={(e) => { e.preventDefault(); handleSendChat(); }}
               className="composer-card"
@@ -2522,6 +2647,35 @@ export default function ProjectEditor() {
                     its own — so everything the typed path already does applies
                     to it unchanged, and you can fix a misheard word before
                     sending. See `voice-input.tsx`. */}
+                {/* The door to the five panels, on the layout that has no room
+                    for them anywhere else. It closes the open panel as well as
+                    the tray, because a button that opens a thing and cannot
+                    shut it is half a control. */}
+                {!wide && hasVideo && PANELS.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (toolsOpen || openPanel) {
+                        setToolsOpen(false);
+                        setOpenPanel(null);
+                      } else {
+                        setToolsOpen(true);
+                      }
+                    }}
+                    aria-expanded={toolsOpen || Boolean(openPanel)}
+                    aria-controls="composer-tools"
+                    aria-label={t(EDITOR.panelRail)}
+                    className="composer-chip"
+                    data-testid="button-composer-tools"
+                  >
+                    {toolsOpen || openPanel ? (
+                      <X className="w-4 h-4" aria-hidden="true" />
+                    ) : (
+                      <Plus className="w-4 h-4" aria-hidden="true" />
+                    )}
+                  </button>
+                )}
                 <SpeechLanguageToggle
                   language={speechLanguage}
                   onChange={setSpeechLanguage}
