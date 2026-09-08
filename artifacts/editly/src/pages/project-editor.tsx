@@ -27,7 +27,7 @@ import {
   UploadCloud, Play, Pause, ChevronLeft, Send,
   Wand2, Download, CheckCircle2, Loader2,
   Video, Sparkles, VideoOff, ChevronUp, ChevronDown, Scissors, FolderOpen,
-  Maximize2, Minimize2, Type } from "lucide-react";
+  Maximize2, Minimize2, Type, MapPin } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { FontPicker, DEFAULT_FONTS, type ChosenFonts } from "@/components/font-picker";
 import type { UploadedFace } from "@/components/font-upload";
@@ -2432,11 +2432,40 @@ export default function ProjectEditor() {
             </div>
           </ScrollArea>
 
+          {/*
+            The composer, rebuilt as a card.
+
+            What was here was an `<input>` pill with three controls floated on
+            top of it — the orb, the language switch and send, all inside the
+            right-hand fifth of a 48px bar. Every one of them worked and none of
+            them was *presented*: the sphere that is the best-looking object in
+            this product rendered at 36px, behind two other buttons, on the one
+            screen somebody spends an hour on.
+
+            Two rows instead. The orb and the sentence on the first, where they
+            are the only two things in the row. The controls on the second, as
+            chips, with send at the end. Same controls, same order, four times
+            the presence — and the input loses its own border, because a field
+            inside a card that is already a field is two boxes doing one job.
+          */}
           <div className="p-4 border-t border-hairline bg-band">
-            <form 
+            <form
               onSubmit={(e) => { e.preventDefault(); handleSendChat(); }}
-              className="relative"
+              className="composer-card"
+              data-testid="composer"
             >
+              <div className="composer-shell" aria-hidden="true" />
+              <div className="flex items-center gap-3 ps-3 pe-4 pt-2.5">
+                {/* The orb, first thing on the row and at the size it earns.
+                    Pressing it fills the box beside it, live. */}
+                <VoiceInput
+                  language={speechLanguage}
+                  onLanguageChange={setSpeechLanguage}
+                  disabled={isNoahThinking || sendMessage.isPending || isProcessingEdit}
+                  existing={chatInput}
+                  onTranscript={(text) => setChatInput(text)}
+                  onError={setVoiceError}
+                />
               {/* dir="auto": typed Arabic reads right-to-left *as it is
                   typed*, not once it is sent. An input laid out the other way
                   puts the caret on the wrong side of the sentence someone is
@@ -2460,42 +2489,49 @@ export default function ProjectEditor() {
                    twMerge keeps both — different breakpoints, no conflict to resolve — so
                    the chat bar quietly became 36px tall on a desktop while the buttons
                    inside it stayed 40px and bulged out of it. */
-                className="input-chat-glow pe-32 bg-surface-1 border-hairline rounded-full h-12 md:h-12"
+                className="composer-field h-11 md:h-11 text-base md:text-[0.95rem] placeholder:text-muted-foreground/70"
                 disabled={!hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
                 data-testid="input-chat"
               />
-              {/* Speech fills this same input, live, rather than sending on
-                  its own — so everything the typed path already does applies to
-                  it unchanged, and you can fix a misheard word before sending.
-                  See `voice-input.tsx`. */}
-              <SpeechLanguageToggle
-                language={speechLanguage}
-                onChange={setSpeechLanguage}
-                disabled={isNoahThinking || sendMessage.isPending || isProcessingEdit}
-              />
-              <VoiceInput
-                language={speechLanguage}
-                onLanguageChange={setSpeechLanguage}
-                disabled={isNoahThinking || sendMessage.isPending || isProcessingEdit}
-                existing={chatInput}
-                onTranscript={(text) => setChatInput(text)}
-                onError={setVoiceError}
-              />
-              <Button 
-                type="submit"
-                size="icon"
-                disabled={(!chatInput.trim() && marks.length === 0) || !hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
-                /* `.aura-btn` rather than a flat disc with a hover glow: the
-                   ring is there at rest, which is the only state a phone has. */
-                className="aura-btn no-default-hover-elevate absolute end-1 top-1 h-10 w-10 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary"
-                data-testid="button-send-message"
-                // An icon-only button at every width, so it never had a name
-                // at all: the one control that submits the sentence the whole
-                // product is built around announced itself as "button".
-                aria-label={t(MORE.send)}
-              >
-                <Send className="w-4 h-4" aria-hidden="true" />
-              </Button>
+              </div>
+
+              <div className="flex items-center gap-2 ps-3 pe-3 pb-3 pt-1.5">
+                {/* Speech fills this same input, live, rather than sending on
+                    its own — so everything the typed path already does applies
+                    to it unchanged, and you can fix a misheard word before
+                    sending. See `voice-input.tsx`. */}
+                <SpeechLanguageToggle
+                  language={speechLanguage}
+                  onChange={setSpeechLanguage}
+                  disabled={isNoahThinking || sendMessage.isPending || isProcessingEdit}
+                />
+                {/* What the marks add to the sentence, said before it is sent
+                    rather than after. This number was only ever visible on the
+                    timeline, and it changes what the message means. */}
+                {marks.length > 0 && (
+                  <span className="composer-chip" data-testid="composer-marks">
+                    <MapPin className="w-3.5 h-3.5" aria-hidden="true" />
+                    {marks.length}
+                  </span>
+                )}
+                <div className="flex-1" />
+                <Button
+                  type="submit"
+                  size="icon"
+                  disabled={(!chatInput.trim() && marks.length === 0) || !hasVideo || isNoahThinking || sendMessage.isPending || isProcessingEdit}
+                  /* `.aura-btn` rather than a flat disc with a hover glow: the
+                     bloom is there at rest, which is the only state a phone
+                     has. */
+                  className="aura-btn no-default-hover-elevate h-10 w-10 rounded-full bg-cta text-cta-foreground [--aura-bloom:hsl(var(--cta-bloom))]"
+                  data-testid="button-send-message"
+                  // An icon-only button at every width, so it never had a name
+                  // at all: the one control that submits the sentence the whole
+                  // product is built around announced itself as "button".
+                  aria-label={t(MORE.send)}
+                >
+                  <Send className="w-4 h-4" aria-hidden="true" />
+                </Button>
+              </div>
             </form>
             {voiceError && (
               <p

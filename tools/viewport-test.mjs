@@ -1514,39 +1514,50 @@ const PAGES = [
         };
       });
       // The chat bar on its own, which is where this control actually lives.
-      const bar = await page.getByTestId("input-chat").locator("xpath=ancestor::form").first();
+      const bar = await page.getByTestId("composer").first();
       await bar.screenshot({ path: path.join(SHOTS, "the-voice-bar.png") }).catch(() => {});
       await page.screenshot({ path: path.join(SHOTS, "the-voice-orb.png") });
       /*
-       * The send button has to be *inside* the chat bar.
+       * The send button, the orb and the sentence have to be *inside* the
+       * composer.
        *
-       * `.hover-elevate:not(...)` is two classes of specificity and Tailwind's
-       * `.absolute` is one, so this button — the only one in the app that
-       * positions itself — computed `relative` and rendered in normal flow,
-       * below and to the left of the input it belongs in, on every phone. The
-       * class was in the markup and in the bundle the whole time, which is why
-       * reading the JSX could never have found it. Geometry can.
+       * The original of this check measured the send button against the
+       * `<input>`, because the button was floated on top of it: `.hover-elevate
+       * :not(...)` is two classes of specificity and Tailwind's `.absolute` is
+       * one, so the only button in the app that positioned itself computed
+       * `relative`, fell into normal flow, and rendered below and to the left
+       * of the bar it belonged in, on every phone. The class was in the markup
+       * and in the bundle the whole time; only geometry could find it.
+       *
+       * The composer is a card with two rows now, so the button is laid out
+       * rather than floated and "inside the input" is the wrong question. The
+       * defect this exists to catch is not — a control escaping the container
+       * it is drawn as part of is the same bug whatever the layout — so the
+       * container is the form, and all three controls are measured against it.
        */
       const layout = await page.evaluate(() => {
+        const form = document.querySelector('[data-testid="composer"]');
         const send = document.querySelector('[data-testid="button-send-message"]');
         const input = document.querySelector('[data-testid="input-chat"]');
-        if (!send || !input) return null;
+        const orb = document.querySelector('[data-testid="button-voice"]');
+        if (!form || !send || !input || !orb) return null;
+        const f = form.getBoundingClientRect();
+        const held = (el) => {
+          const r = el.getBoundingClientRect();
+          return r.left >= f.left - 2 && r.right <= f.right + 2 && r.top >= f.top - 2 && r.bottom <= f.bottom + 2;
+        };
         const s = send.getBoundingClientRect();
-        const i = input.getBoundingClientRect();
         return {
-          position: getComputedStyle(send).position,
-          inside: s.left >= i.left - 2 && s.right <= i.right + 2 && s.top >= i.top - 2 && s.bottom <= i.bottom + 2,
+          inside: held(send) && held(input) && held(orb),
+          sendHeld: held(send),
+          inputHeld: held(input),
+          orbHeld: held(orb),
           send: { x: Math.round(s.x), y: Math.round(s.y) },
-          input: { x: Math.round(i.x), y: Math.round(i.y), w: Math.round(i.width), h: Math.round(i.height) },
+          form: { x: Math.round(f.x), y: Math.round(f.y), w: Math.round(f.width), h: Math.round(f.height) },
         };
       });
       check(
-        "a button that says it is absolute is absolute",
-        layout?.position === "absolute",
-        JSON.stringify(layout),
-      );
-      check(
-        "and the send button sits inside the chat bar rather than under it",
+        "the send button, the orb and the sentence all sit inside the composer",
         layout?.inside === true,
         JSON.stringify(layout),
       );

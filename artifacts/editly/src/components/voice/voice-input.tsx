@@ -15,6 +15,7 @@
  * close.
  */
 import { useEffect, useRef } from "react";
+import { Languages } from "lucide-react";
 import { VoiceOrb } from "./orb";
 import { useVoiceInput, voiceErrorMessage } from "./use-voice-input";
 import { SPEECH_TAGS, type SpeechLanguage } from "./speech-language";
@@ -98,18 +99,41 @@ export function VoiceInput({
       aria-label={voice.listening ? t(VOICE.stopListening) : t(VOICE.speak)}
       aria-pressed={voice.listening}
       title={t(VOICE.speak)}
-      className={`absolute end-12 top-1 h-10 w-10 rounded-full flex items-center justify-center
+      /* `relative` rather than `absolute`: the orb used to be floated into the
+         right-hand end of the chat input along with two other controls. It has
+         its own place in the composer now — first thing on the first row, at
+         the size it deserves — so it lays out like everything else. The growth
+         while listening is still free, because the sphere inside is what is
+         absolutely positioned, not the button. */
+      className={`relative shrink-0 h-11 w-11 rounded-full flex items-center justify-center
         transition-transform duration-200 disabled:opacity-40 disabled:pointer-events-none
         ${voice.listening ? "" : "hover:scale-105"}`}
       data-testid="button-voice"
     >
+      {/* The light the sphere sits in.
+
+          At rest the orb is a nearly-black glass ball — that is the material,
+          and it is correct — but on a pale composer a dark disc reads as a
+          hole rather than as an object. A soft brand-coloured bloom under it,
+          blurred and slightly off-centre so it reads as a light source above
+          and to one side, gives the sphere something to be glass *against*. It
+          brightens while listening, with everything else. */}
+      <span
+        aria-hidden="true"
+        className={`absolute inset-0 rounded-full blur-[7px] pointer-events-none transition-opacity duration-300
+          ${voice.listening ? "opacity-100" : "opacity-70"}`}
+        style={{
+          background:
+            "radial-gradient(circle at 34% 28%, hsl(var(--secondary) / 0.65) 0%, hsl(var(--primary) / 0.42) 52%, transparent 74%)",
+        }}
+      />
       {/* The same orb at both sizes, growing out of the button while it is
           listening rather than a sheet opening over the editor. It overflows
           the button on purpose — `absolute` here means the growth costs no
           layout, so the chat bar does not jump when you start speaking. */}
       <span
         className={`absolute pointer-events-none transition-all duration-300 ease-out
-          ${voice.listening ? "w-20 h-20" : "w-9 h-9"}`}
+          ${voice.listening ? "w-20 h-20" : "w-10 h-10"}`}
       >
         <VoiceOrb level={voice.level} listening={voice.listening} className="w-full h-full" />
       </span>
@@ -148,11 +172,12 @@ export function SpeechLanguageToggle({
       disabled={disabled}
       aria-label={language === "ar" ? t(VOICE.switchToEnglish) : t(VOICE.switchToArabic)}
       title={language === "ar" ? t(VOICE.listeningArabic) : t(VOICE.listeningEnglish)}
-      className="absolute end-[5.5rem] top-1 h-10 px-2 rounded-full text-[11px] font-semibold
-                 text-muted-foreground hover:text-foreground transition-colors
-                 disabled:opacity-40 disabled:pointer-events-none"
+      /* A chip on the composer's second row now, beside the other controls,
+         rather than a two-character label floated over the input. */
+      className="composer-chip"
       data-testid="button-voice-language"
     >
+      <Languages className="w-3.5 h-3.5" aria-hidden="true" />
       {language === "ar" ? "ع" : "EN"}
     </button>
   );

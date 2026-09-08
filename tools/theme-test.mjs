@@ -183,6 +183,19 @@ console.log("\nThe two themes actually differ");
     // White on red in both themes. A red button whose label changed colour
     // between themes would be the odd one out, not the consistent one.
     "--destructive-foreground",
+    /*
+     * The action colour is one colour, like the brand purple above it.
+     *
+     * Every other fill in this palette moves between themes because it is
+     * defined *against* the page — a raised surface is lighter than a dark page
+     * and darker than a light one. `--cta` is not: it is an object placed on
+     * the page, the same object on both, and white sits on it at 4.59:1 either
+     * way because the pair is the same two colours. A red that shifted with the
+     * theme would be two brands.
+     */
+    "--cta",
+    "--cta-foreground",
+    "--cta-bloom",
   ]);
   // A token that is not a colour has nothing to differ about: see
   // THEME_INDEPENDENT above. This check used to have its own idea of that, so
@@ -251,6 +264,18 @@ console.log("\nText stays readable");
     ["muted text on a card", "--muted-foreground", "--card", 4.5],
     ["text on an accent fill", "--accent-foreground", "--accent", 4.5],
     ["label on a primary button", "--primary-foreground", "--primary", 4.5],
+    /*
+     * The action colour, which is now a different token from the brand.
+     *
+     * `--cta` is the red every filled button in the product wears, and the
+     * reference swatch Osama measured it from is #FF2E2E — white on which is
+     * **3.70:1**, under AA for a 14px label, which is what a button label is.
+     * The face ships four points darker for exactly this line; the reference
+     * red lives on `--cta-bloom`, where it is the light *around* the button and
+     * carries no text. If somebody ever moves the face back to the swatch, this
+     * is the check that will say what it costs.
+     */
+    ["label on an action button", "--cta-foreground", "--cta", 4.5],
     // Both halves of the destructive split, because the whole reason there are
     // two tokens is that one of them could not satisfy both of these at once.
     ["label on a destructive button", "--destructive-foreground", "--destructive-fill", 4.5],

@@ -448,6 +448,84 @@ function HeroEditor({ phone, language }: { phone: boolean; language: Language })
 }
 
 /**
+ * The swell in the horizon arc.
+ *
+ * `--arc-h` is the vertical radius of the dome at the top of a dark band, and
+ * it is a half-sine of how far that band has travelled into the viewport:
+ * shallow as it appears, deepest as it crosses the middle of the screen,
+ * shallow again as it leaves. `--arc-lit` rides the same curve, so the light
+ * along the arc brightens and fades with it.
+ *
+ * Same loop as the steps rail and for the same reason: one custom property on
+ * one element, sixty times a second at most, and React is never told. A
+ * component tree re-rendered per frame to move a gradient is how a landing page
+ * becomes the slowest screen in a product.
+ *
+ * With `prefers-reduced-motion` the arc is drawn at its resting depth and never
+ * moves — a curved edge is not motion, and it is the shape that carries the
+ * design.
+ */
+const ARC_MIN = 74;
+const ARC_SWELL = 150;
+
+function useHorizon<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (still) {
+      el.style.setProperty("--arc-h", `${ARC_MIN + ARC_SWELL * 0.7}px`);
+      el.style.setProperty("--arc-lit", "1");
+      return;
+    }
+
+    let frame = 0;
+    let shown = -1;
+    let target = 0;
+    let lit = 0;
+
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      const vh = window.innerHeight || 1;
+      /* 0 the moment the band's top edge reaches the bottom of the screen, 1
+         by the time it has climbed nine tenths of the way up. Clamped at both
+         ends so a band that is far away or long gone sits still. */
+      const p = Math.max(0, Math.min(1, (vh - rect.top) / (vh * 0.9)));
+      const swell = Math.sin(Math.PI * p);
+      target = ARC_MIN + ARC_SWELL * swell;
+      lit = 0.45 + 0.55 * swell;
+    };
+
+    const tick = () => {
+      frame = 0;
+      if (shown < 0) shown = target;
+      else shown += (target - shown) * 0.14;
+      el.style.setProperty("--arc-h", `${shown.toFixed(1)}px`);
+      el.style.setProperty("--arc-lit", lit.toFixed(3));
+      if (Math.abs(target - shown) > 0.3) frame = requestAnimationFrame(tick);
+    };
+
+    const onScroll = () => {
+      measure();
+      if (!frame) frame = requestAnimationFrame(tick);
+    };
+
+    measure();
+    shown = target;
+    tick();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+  return ref;
+}
+
+/**
  * How it works, as one continuous movement rather than three cards.
  *
  * Three cards side by side is a *list*, and a list says the three things are
@@ -572,7 +650,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
       num: "01",
       title: t(LANDING.steps.one.title),
       desc: t(LANDING.steps.one.desc),
-      wash: "radial-gradient(120% 95% at 18% 12%, #ffc2c2 0%, rgba(255,194,194,0) 62%), radial-gradient(115% 95% at 88% 84%, #c4b1ff 0%, rgba(196,177,255,0) 64%), linear-gradient(146deg, #fff1f1 0%, #ece9ff 100%)",
+      wash: "radial-gradient(120% 95% at 18% 12%, #b9a2ff 0%, rgba(185,162,255,0) 62%), radial-gradient(115% 95% at 88% 84%, #d9c9ff 0%, rgba(217,201,255,0) 64%), linear-gradient(146deg, #f1ecff 0%, #efe9ff 100%)",
       art: (
           <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
             <g transform={rtl ? MIRROR : undefined}>
@@ -605,7 +683,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
       num: "02",
       title: t(LANDING.steps.two.title),
       desc: t(LANDING.steps.two.desc),
-      wash: "radial-gradient(120% 95% at 82% 14%, #ff9f9f 0%, rgba(255,159,159,0) 60%), radial-gradient(115% 95% at 14% 86%, #b9d4ff 0%, rgba(185,212,255,0) 64%), linear-gradient(146deg, #ffeded 0%, #eef2ff 100%)",
+      wash: "radial-gradient(120% 95% at 82% 14%, #a98cff 0%, rgba(169,140,255,0) 60%), radial-gradient(115% 95% at 14% 86%, #c9bcff 0%, rgba(201,188,255,0) 64%), linear-gradient(146deg, #efe9ff 0%, #f3f0ff 100%)",
       art: (
           <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
             <g transform={rtl ? MIRROR : undefined}>
@@ -653,7 +731,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
       num: "03",
       title: t(LANDING.steps.three.title),
       desc: t(LANDING.steps.three.desc),
-      wash: "radial-gradient(125% 95% at 50% 8%, #d8c7ff 0%, rgba(216,199,255,0) 58%), radial-gradient(115% 95% at 12% 92%, #ffb3c8 0%, rgba(255,179,200,0) 62%), linear-gradient(146deg, #f3efff 0%, #fff0f4 100%)",
+      wash: "radial-gradient(125% 95% at 50% 8%, #c3aaff 0%, rgba(195,170,255,0) 58%), radial-gradient(115% 95% at 12% 92%, #9b6bff 0%, rgba(155,107,255,0) 62%), linear-gradient(146deg, #f2edff 0%, #ece6ff 100%)",
       art: (
           <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
             <g transform={rtl ? MIRROR : undefined}>
@@ -717,7 +795,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
       <div className="max-w-7xl mx-auto px-6 relative z-10">
         <div className="text-center mb-16 sm:mb-24">
           <div className="reveal">
-            <p className="text-cta text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.steps.eyebrow)}</p>
+            <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.steps.eyebrow)}</p>
             <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-4">{t(LANDING.steps.title)}</h2>
             <p className="text-muted-foreground text-lg">{t(LANDING.steps.lead)}</p>
           </div>
@@ -746,8 +824,13 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
             <div
               ref={fillRef}
               data-testid="steps-progress"
-              className="absolute start-0 top-0 w-[2px] rounded-full bg-cta"
-              style={{ height: 0, boxShadow: "0 0 20px hsl(var(--cta-bloom) / 0.55)" }}
+              /* The brand violet, not the action red.
+                 Red means "press this" everywhere else in the product, and a
+                 red line down the margin of a section with nothing pressable in
+                 it spends that meaning on decoration. The reference's line is
+                 red because red is the reference's *brand*; ours is #6C3BFF. */
+              className="absolute start-0 top-0 w-[2px] rounded-full bg-primary"
+              style={{ height: 0, boxShadow: "0 0 20px hsl(var(--primary) / 0.6)" }}
               aria-hidden="true"
             />
             {steps.map((step, i) => (
@@ -968,6 +1051,8 @@ export default function Home() {
   const phone = usePhoneWidth();
   const [language, chooseLanguage] = useLandingLanguage();
   const navCollapsed = useCollapsedNav();
+  /* The one dark band on this page, and the horizon it comes up over. */
+  const podcastBand = useHorizon<HTMLElement>();
   const rtl = language === "ar";
   const t = (phrase: Phrase) => say(phrase, language);
 
@@ -1590,8 +1675,34 @@ export default function Home() {
           name on this section is a thing that runs today — the templates are
           `three-clips` and `podcast-clip` in lib/templates.ts, and the titles
           come from the transcript the same way the captions do. */}
-      <section id="podcasts" className="w-full bg-band py-24 relative overflow-hidden">
-        <div className="w-full max-w-7xl mx-auto px-6">
+      {/*
+        The dark band, and the sunrise it comes up over.
+
+        This section was `bg-band` — a slightly recessed lavender, four shades
+        from the section above it and three from the section below, which is to
+        say it was not a band at all. A page that is one temperature the whole
+        way down has no rhythm and nothing to close: the eye has no reason to
+        stop anywhere, so it stops nowhere.
+
+        Going properly dark is the cheapest rhythm there is, and it costs no
+        copy. `force-dark` pins the dark theme's tokens over the subtree, so the
+        glass panels, the hairlines and the text inside are the *dark* product
+        rather than the light one with its colours inverted — the same trick the
+        hero mockup uses, and the reason the panels below need no changes at all.
+
+        `.horizon-ground` supplies the background, and it is the reason there is
+        no `bg-` class here: the band's top edge is a curve, and a rectangular
+        background painted behind it would fill in the very shape the curve
+        exists to cut.
+      */}
+      <section
+        id="podcasts"
+        ref={podcastBand}
+        className="force-dark horizon-band w-full py-24 sm:py-32 relative text-foreground"
+      >
+        <div className="horizon-ground" aria-hidden="true" />
+        <div className="horizon-grain" aria-hidden="true" />
+        <div className="w-full max-w-7xl mx-auto px-6 relative">
           <div className="max-w-2xl reveal">
             <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">
               {t(LANDING.podcasts.eyebrow)}
@@ -1892,23 +2003,22 @@ export default function Home() {
       </section>
 
       {/* ── Footer CTA ── */}
-      <section className="w-full py-24 text-center relative overflow-hidden">
-        {/* Animated gradient background */}
-        <div
-          className="absolute inset-0 animate-gradient-shift"
-          style={{
-            background: "linear-gradient(135deg, rgba(108,59,255,0.15) 0%, rgba(155,107,255,0.08) 40%, rgba(108,59,255,0.12) 70%, rgba(155,107,255,0.18) 100%)",
-          }}
-        />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(108,59,255,0.2)_0%,transparent_65%)]" />
-        {/* Top border shimmer */}
-        <div
-          className="absolute top-0 left-0 right-0 h-px animate-gradient-shift"
-          style={{ background: "linear-gradient(90deg, transparent, rgba(155,107,255,0.6), rgba(108,59,255,0.8), rgba(155,107,255,0.6), transparent)" }}
-        />
+      {/*
+        The close stays on the page's own ground — there is exactly one dark
+        band on this page, and it is the podcasts section.
 
-        <div className="relative z-10 flex flex-col items-center reveal">
-          <h2 className="text-4xl md:text-5xl font-bold mb-4 glow-text">{t(LANDING.closing.title)}</h2>
+        What is gone from here is the *stack*: a violet tint over a violet
+        radial over an animated violet hairline, three effects each saying
+        "something is happening" and together saying nothing. One slow aurora in
+        the brand violet and the action red, behind a bigger headline, with the
+        sign-up as the only saturated object on the screen — which is the point
+        of a closing section.
+      */}
+      <section className="w-full py-28 sm:py-36 text-center relative overflow-hidden">
+        <div className="horizon-aurora horizon-aurora-light" aria-hidden="true" />
+
+        <div className="relative z-10 flex flex-col items-center reveal px-6">
+          <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-5 glow-text text-balance max-w-3xl">{t(LANDING.closing.title)}</h2>
           <p className="text-muted-foreground text-lg mb-10 max-w-lg">
             {t(LANDING.closing.leadFirst)}
             <br />
