@@ -356,6 +356,9 @@
   /* The ground behind the collapsed top bar. Not `--surface-1`: this pane
      floats over whatever is scrolling underneath it, so it needs to be more
      opaque than a raised surface on the page, not less. */
+  --panel-lip: rgba(255, 255, 255, 0.09);
+  --panel-ring: rgba(255, 255, 255, 0.06);
+  --panel-drop: rgba(2, 0, 10, 0.75);
   --bubble-said-top: rgba(255, 255, 255, 0.075);
   --bubble-said: rgba(255, 255, 255, 0.045);
   --bubble-asked-top: hsl(var(--primary) / 0.32);
@@ -794,6 +797,9 @@ html[data-page-theme="light"] body {
   --text-glow-far: rgba(108, 59, 255, 0.11);
   --cta-shadow: rgba(108, 59, 255, 0.38);
   --cta-shadow-soft: rgba(70, 40, 160, 0.22);
+  --panel-lip: rgba(255, 255, 255, 0.9);
+  --panel-ring: rgba(30, 16, 80, 0.07);
+  --panel-drop: rgba(40, 22, 100, 0.22);
   --bubble-said-top: rgba(255, 255, 255, 0.95);
   --bubble-said: rgba(255, 255, 255, 0.75);
   --bubble-asked-top: hsl(var(--primary) / 0.20);
@@ -1084,6 +1090,50 @@ html[data-page-theme="light"] body {
  */
 .glow-text {
   text-shadow: 0 0 60px var(--text-glow-near), 0 0 120px var(--text-glow-far);
+}
+
+/* ── The conversation panel ──────────────────────────────── */
+/*
+ * A card, not a column.
+ *
+ * The chat used to be flush to the window with square corners and a hairline
+ * border where it met the editor. That is a *region of the page*: it reads as
+ * the window having been divided, which is why it was the last thing in this
+ * product with hard corners — on the one surface somebody spends an hour
+ * looking at.
+ *
+ * As a card it needs three things and a border is none of them: a radius, an
+ * edge that catches light along its top, and a shadow that puts it above the
+ * editor beside it. The shadow is symmetric on purpose — the old one was
+ * `-20px 0`, which throws light from the right whatever the language, and in
+ * Arabic this panel is on the left.
+ *
+ * On a phone it is the bottom half of the screen rather than a column, so only
+ * the top corners are rounded and it keeps the window's own edges; a card
+ * floating in the middle of a phone is a sheet, and this is not one.
+ */
+.chat-panel {
+  position: relative;
+  background: hsl(var(--background) / 0.82);
+  backdrop-filter: blur(22px) saturate(170%);
+  border-top-left-radius: var(--radius-3xl);
+  border-top-right-radius: var(--radius-3xl);
+  box-shadow:
+    inset 0 1px 0 var(--panel-lip),
+    0 -8px 24px -12px var(--panel-drop),
+    0 -1px 0 var(--panel-ring);
+}
+@media (min-width: 1024px) {
+  .chat-panel {
+    margin: 0.75rem;
+    margin-inline-start: 0;
+    border-radius: var(--radius-3xl);
+    box-shadow:
+      inset 0 1px 0 var(--panel-lip),
+      inset 0 0 0 1px var(--panel-ring),
+      0 2px 6px -2px var(--panel-drop),
+      0 24px 60px -30px var(--panel-drop);
+  }
 }
 
 /* ── Noah's conversation ─────────────────────────────────── */

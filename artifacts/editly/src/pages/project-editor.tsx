@@ -2133,8 +2133,24 @@ export default function ProjectEditor() {
             crushing the player to a sliver under an unscrollable wall of
             messages. A fixed share of the column gives both panes a shape:
             the player keeps the top, the chat scrolls inside the bottom. */}
+        {/*
+            The panel is a card, not a column with a rule down its side.
+
+            It used to be flush to the edges of the window with square corners
+            and a 1px border where it met the editor — which made it a *region
+            of the page* rather than an object on it, and left the only hard
+            corners in the product on the surface somebody spends an hour
+            looking at. `.chat-panel` gives it a radius, a lit edge and a
+            shadow, and takes the border away; on a phone, where it is the
+            bottom half of the screen rather than a column, only its top
+            corners are rounded.
+
+            The directional shadow it used to carry went with the border. It
+            was `-20px 0`, which throws light from the right in every language,
+            and in Arabic this panel is on the left.
+        */}
         <div
-          className={`w-full lg:w-[400px] flex-shrink-0 lg:basis-auto min-h-0 border-t lg:border-t-0 lg:border-l border-hairline bg-background/80 backdrop-blur-xl flex flex-col z-20 shadow-[-20px_0_40px_rgba(0,0,0,0.5)] ${
+          className={`chat-panel w-full lg:w-[400px] flex-shrink-0 lg:basis-auto min-h-0 flex flex-col z-20 ${
             chatOpen ? "basis-[52%]" : "basis-auto"
           }`}
           data-testid="chat-panel"
