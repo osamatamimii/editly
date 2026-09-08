@@ -667,6 +667,12 @@ function Horizon({ foot = false }: { foot?: boolean }) {
         const scale = layer.dataset.lip ? 0.62 + 0.38 * k : k;
         layer.setAttribute("stroke-width", (base * scale).toFixed(1));
       });
+      /* The filter region is in user space, so it has to grow with the page —
+         see the note in the markup. 400px of margin on each side is more than
+         the widest blur here can reach. */
+      box.querySelectorAll<SVGElement>("[data-region]").forEach((f) => {
+        f.setAttribute("width", String(width + 800));
+      });
       box.querySelectorAll<SVGElement>("feGaussianBlur[data-stroke]").forEach((fe) => {
         const blur = Number(fe.dataset.blur);
         const scale = fe.dataset.lip ? 0.62 + 0.38 * k : k;
@@ -766,19 +772,28 @@ function Horizon({ foot = false }: { foot?: boolean }) {
             linearRGB, which lightens a blurred gradient noticeably, and every
             colour here was picked against the sRGB blur CSS gave.
 
-            The filter region has to be enormous. The default is 10% around the
-            bounding box, and the box of a nearly-flat bell is a few hundred
-            pixels wide by a hundred tall — a 34px blur on that would be cut off
-            at the edges of its own region.
+            The region is in **user space**, not in bounding-box percentages,
+            and that is the second half of the same bug. A percentage region is
+            resolved against the bounding box of the filtered element, and for a
+            `<use>` that box is whatever the browser has decided the referenced
+            path measures — which on iOS came out short, so the band was blurred
+            for the left two thirds of the page and simply stopped. Osama
+            photographed a wave that ran out two thirds of the way across.
+
+            Absolute numbers cannot be got wrong: the region is the whole box
+            plus 400px of margin on every side, and `fit()` widens it with the
+            page. Nothing about it depends on a measurement.
           */}
           {[...HORIZON_LAYERS, HORIZON_LIP].map((layer) => (
             <filter
               key={layer.w}
               id={`${id}-soft-${layer.w}`}
-              x="-30%"
-              y="-600%"
-              width="160%"
-              height="1300%"
+              data-region=""
+              filterUnits="userSpaceOnUse"
+              x="-400"
+              y="-400"
+              width="2400"
+              height={HORIZON_BOX + 800}
               colorInterpolationFilters="sRGB"
             >
               <feGaussianBlur
