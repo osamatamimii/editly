@@ -118,6 +118,14 @@ export const LANDING = {
 
   header: {
     logIn: p("تسجيل الدخول", "Log in"),
+    /* The same door, named in one word.
+
+       «تسجيل الدخول» is four syllables and 110 pixels wide, and on a 390px
+       phone the Arabic header needed 390 of the 388 it had: the wordmark was
+       squeezed to 53px by `min-w-0` and «Editly» ran out of its own box and
+       under the language switch. English never showed it, because "Log in" is
+       half the width. Measured at 390, in both directions. */
+    logInShort: p("دخول", "Log in"),
     signUp: p("حساب جديد", "Sign up"),
     signUpFree: p("ابدأ مجانًا", "Sign up free"),
     dashboard: p("لوحتك", "Dashboard"),

@@ -337,31 +337,29 @@
   /* The ring outside the button's edge, and the two insets that make its face
      a pillow rather than a fill. On near-black the halo can be the brand at a
      real alpha; the lip is white light catching the top edge. */
-  /* Red, with the rest of the call-to-action. These five tokens are used by
-     `.glow-btn` and `.btn-gradient-cta` and by nothing else, so they follow
-     `--cta` rather than `--primary` — the headline's `--text-glow-*` below
-     stays violet, because the headline is brand and not an action. */
-  --halo: rgba(255, 46, 46, 0.26);
-  --halo-strong: rgba(255, 92, 92, 0.75);
+  /* These five belong to `.glow-btn` and `.btn-gradient-cta` and to nothing
+     else, so they follow `--cta`. */
+  --halo: rgba(108, 59, 255, 0.26);
+  --halo-strong: rgba(155, 107, 255, 0.75);
   /* The specular line along a button's top edge. At 0.30 it was a white stroke
      rather than a highlight — with the (undefined) white border around the rest
      of the pill, the button read as outlined in white. The border is a colour
      now and this is back to being light catching an edge. */
   --btn-lip: rgba(255, 255, 255, 0.14);
   --btn-underside: rgba(6, 3, 20, 0.45);
-  --glow-soft: rgba(255, 46, 46, 0.72);
-  --glow-wide: rgba(235, 10, 10, 0.38);
+  --glow-soft: rgba(155, 107, 255, 0.85);
+  --glow-wide: rgba(108, 59, 255, 0.4);
   --text-glow-near: rgba(155, 107, 255, 0.8);
   --text-glow-far: rgba(108, 59, 255, 0.4);
-  --cta-shadow: rgba(255, 46, 46, 0.48);
-  --cta-shadow-soft: rgba(235, 10, 10, 0.38);
+  --cta-shadow: rgba(108, 59, 255, 0.5);
+  --cta-shadow-soft: rgba(108, 59, 255, 0.4);
   /* The ground behind the collapsed top bar. Not `--surface-1`: this pane
      floats over whatever is scrolling underneath it, so it needs to be more
      opaque than a raised surface on the page, not less. */
   --composer-face: rgba(255, 255, 255, 0.045);
   --composer-lip: rgba(255, 255, 255, 0.09);
   --composer-chip: rgba(255, 255, 255, 0.05);
-  --nav-capsule: rgba(18, 16, 30, 0.42);
+  --nav-capsule: rgba(18, 16, 30, 0.78);
   --nav-capsule-ring: rgba(255, 255, 255, 0.10);
   --nav-capsule-lip: rgba(255, 255, 255, 0.14);
   --input-focus-bg: rgba(255, 255, 255, 0.09);
@@ -418,30 +416,31 @@
   --primary-foreground: 0 0% 100%;
 
   /*
-   * The action colour.
+   * The action colour — the brand violet, in the shape of the reference.
    *
-   * Measured off the reference: the face is a **flat** fill, not a ramp, with
-   * a wide soft bloom of the same red under it and nothing else — no ring, no
-   * inner highlight, no gradient. That flatness is what reads as expensive
-   * here; the depth all comes from the bloom.
+   * What was taken from the reference Osama sent is the **form**, not the hue:
+   * the face is a flat fill, not a ramp, with a wide soft bloom of the same
+   * colour under it and nothing else — no ring, no inner highlight, no
+   * gradient. That flatness is what reads as expensive; all the depth comes
+   * from the bloom. The reference is red because red is *its* brand. This one
+   * is #6C3BFF, because that is ours, and a product does not borrow a colour
+   * along with a technique.
    *
-   * ## Why 48% and not the reference's 59%
+   * It stays its own token rather than collapsing into `--primary`, and the
+   * reason is a role and not a value: `--primary` is what the product is *made
+   * of* — the mark, links, accents, focus rings on things that are not
+   * buttons — and `--cta` is what it is *pressed with*. They are the same
+   * violet today. The day one of them moves, everything wearing the other one
+   * should not move with it.
    *
-   * The swatch on the reference is #FF2E2E. White on #FF2E2E measures
-   * **3.70:1** — under the 4.5 AA asks of a button label, and every button on
-   * this product carries one. The same hue at full saturation and 48% is
-   * 4.59:1 and is not distinguishable from the reference once the bloom is
-   * around it, because the bloom *is* #FF2E2E: `--cta-bloom` is the exact
-   * reference red and it is what the eye reads as the colour of the object.
-   *
-   * If the exact swatch is ever wanted on the face instead, this is the one
-   * line to change — and `theme-test` will say what it costs.
+   * The bloom is the lighter neon violet — a shade *up* from the face, the way
+   * light around a lit object always is, and the same colour `--secondary`
+   * already carries elsewhere in the product.
    */
-  --cta: 0 92% 48%;
+  --cta: 255 100% 62%;
   --cta-foreground: 0 0% 100%;
-  /* #FF2E2E — the reference red, on the light around the button rather than
-     on the face under the label, where contrast is not a question. */
-  --cta-bloom: 0 100% 59%;
+  /* #9B6BFF. */
+  --cta-bloom: 259 100% 71%;
 
   /*
    * Neon Purple Glow #9B6BFF — light enough that white sits on it at 3.54:1,
@@ -655,32 +654,32 @@ html[data-page-theme="light"] body {
   --primary-foreground: 0 0% 100%;
 
   /*
-   * The action colour.
+   * The action colour — the brand violet, in the shape of the reference.
    *
-   * Measured off the reference: the face is a **flat** fill, not a ramp, with
-   * a wide soft bloom of the same red under it and nothing else — no ring, no
-   * inner highlight, no gradient. That flatness is what reads as expensive
-   * here; the depth all comes from the bloom.
+   * What was taken from the reference Osama sent is the **form**, not the hue:
+   * the face is a flat fill, not a ramp, with a wide soft bloom of the same
+   * colour under it and nothing else — no ring, no inner highlight, no
+   * gradient. That flatness is what reads as expensive; all the depth comes
+   * from the bloom. The reference is red because red is *its* brand. This one
+   * is #6C3BFF, because that is ours, and a product does not borrow a colour
+   * along with a technique.
    *
-   * ## Why 48% and not the reference's 59%
+   * It stays its own token rather than collapsing into `--primary`, and the
+   * reason is a role and not a value: `--primary` is what the product is *made
+   * of* — the mark, links, accents, focus rings on things that are not
+   * buttons — and `--cta` is what it is *pressed with*. They are the same
+   * violet today. The day one of them moves, everything wearing the other one
+   * should not move with it.
    *
-   * The swatch on the reference is #FF2E2E. White on #FF2E2E measures
-   * **3.70:1** — under the 4.5 AA asks of a button label, and every button on
-   * this product carries one. The same hue at full saturation and 48% is
-   * 4.59:1 and is not distinguishable from the reference once the bloom is
-   * around it, because the bloom *is* #FF2E2E: `--cta-bloom` is the exact
-   * reference red and it is what the eye reads as the colour of the object.
-   *
-   * If the exact swatch is ever wanted on the face instead, this is the one
-   * line to change — and `theme-test` will say what it costs.
+   * The bloom is the lighter neon violet — a shade *up* from the face, the way
+   * light around a lit object always is, and the same colour `--secondary`
+   * already carries elsewhere in the product.
    */
-  /* The same red. A white page needs no compensation here — 48% is 4.59:1
-     against white as well, because the pair is the same two colours. */
-  --cta: 0 92% 48%;
+  /* The same violet. The brand does not have two purples, and the pair is the
+     same two colours on either ground. */
+  --cta: 255 100% 62%;
   --cta-foreground: 0 0% 100%;
-  /* #FF2E2E — the reference red, on the light around the button rather than
-     on the face under the label, where contrast is not a question. */
-  --cta-bloom: 0 100% 59%;
+  --cta-bloom: 259 100% 71%;
   /*
    * On dark, secondary is the *lighter* purple — the neon one that glows. On
    * light that relationship has to invert: a lighter-than-primary purple on
@@ -772,20 +771,20 @@ html[data-page-theme="light"] body {
   /* On white the halo has to be lighter and the underside far weaker, or the
      button reads as dirty rather than as lit. The lip stays white — it is the
      one thing that works identically in both, because it is the highlight. */
-  --halo: rgba(255, 46, 46, 0.18);
-  --halo-strong: rgba(235, 10, 10, 0.45);
+  --halo: rgba(108, 59, 255, 0.16);
+  --halo-strong: rgba(108, 59, 255, 0.45);
   --btn-lip: rgba(255, 255, 255, 0.28);
   --btn-underside: rgba(60, 30, 140, 0.16);
-  --glow-soft: rgba(255, 46, 46, 0.42);
-  --glow-wide: rgba(255, 46, 46, 0.20);
+  --glow-soft: rgba(108, 59, 255, 0.40);
+  --glow-wide: rgba(108, 59, 255, 0.18);
   --text-glow-near: rgba(108, 59, 255, 0.24);
   --text-glow-far: rgba(108, 59, 255, 0.11);
-  --cta-shadow: rgba(255, 46, 46, 0.34);
-  --cta-shadow-soft: rgba(150, 10, 10, 0.20);
+  --cta-shadow: rgba(108, 59, 255, 0.38);
+  --cta-shadow-soft: rgba(70, 40, 160, 0.22);
   --composer-face: rgba(255, 255, 255, 0.72);
   --composer-lip: rgba(255, 255, 255, 0.9);
   --composer-chip: rgba(255, 255, 255, 0.72);
-  --nav-capsule: rgba(255, 255, 255, 0.44);
+  --nav-capsule: rgba(255, 255, 255, 0.78);
   --nav-capsule-ring: rgba(30, 16, 80, 0.07);
   --nav-capsule-lip: rgba(255, 255, 255, 0.85);
   --input-focus-bg: rgba(255, 255, 255, 0.95);
@@ -1091,8 +1090,11 @@ html[data-page-theme="light"] body {
     inset 0 1px 0 var(--composer-lip),
     0 1px 2px rgba(8, 4, 24, 0.06),
     0 16px 36px -26px rgba(8, 4, 24, 0.5);
+  /* Unprefixed and only unprefixed — see `.glass-panel`. The minifier keeps
+     the last of the two aliases and throws the standard property away, and
+     this Chromium does not implement the `-webkit-` one at all, so writing
+     both is how you ship a card with no blur behind it. */
   backdrop-filter: blur(16px) saturate(170%);
-  -webkit-backdrop-filter: blur(16px) saturate(170%);
   transition: border-color 240ms ease, box-shadow 240ms ease;
 }
 .composer-shell {
@@ -1100,7 +1102,7 @@ html[data-page-theme="light"] body {
   inset: -7px;
   z-index: -1;
   border-radius: calc(var(--radius-3xl) + 7px);
-  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--secondary)) 38%, hsl(var(--cta-bloom)) 100%);
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--secondary)) 45%, hsl(var(--primary)) 100%);
   opacity: 0;
   filter: blur(6px);
   transition: opacity 260ms ease;
@@ -1154,39 +1156,14 @@ html[data-page-theme="light"] body {
 
 /* ── The horizon ─────────────────────────────────────────── */
 /*
- * Where a dark section meets a light one, drawn as a sunrise rather than as a
- * rule.
+ * Where a dark band meets the page above it, drawn as a sunrise rather than as
+ * a rule.
  *
- * The dark band does not begin on a straight line. Its ground is a very wide
- * ellipse that domes *up* into the section above it, and along that curve sits
- * a band of light — hot red at the edge, through crimson, into the brand
- * violet, out to nothing about a hundred and fifty pixels up. The section above
- * is not modified at all: the light is thrown onto it from below.
- *
- * ## How it is drawn — one element
- *
- * `border-radius: 50% 50% 0 0 / var(--arc-h) ...` gives the box an elliptical
- * top edge whose horizontal radius is half the box and whose vertical radius is
- * `--arc-h`. Pull the box up by exactly `--arc-h` and the arc's apex lands on
- * the section's top edge in the middle and its ends land on it at the sides:
- * a dome, with no clipping, no mask, and no second element.
- *
- * `box-shadow` respects `border-radius`, so a stack of shadows offset upward is
- * a stack of glowing copies of that same curve — which is the whole light
- * band, in one property, painted by the compositor rather than by a filter.
- * The box is a quarter wider than the page on each side so the shadow's own
- * left and right ends are always off-screen; what is left is the top edge.
- *
- * ## Why the arc moves
- *
- * `--arc-h` is driven by how far the section has travelled into the viewport,
- * as a half-sine: shallow as the band appears, deepest as it crosses the
- * middle of the screen, shallow again as it leaves. That is the swell in the
- * reference, and it is the reason the horizon reads as *lit* rather than as a
- * shape — light that never changes is a picture of light.
- *
- * One custom property, set from a rAF loop, changing a border-radius and the
- * geometry of a shadow. No filters, no canvas, nothing per-pixel.
+ * The geometry and the light both live in `<Horizon>` in `home.tsx`, which is
+ * the only place they can be honest about each other: the shape is a cubic
+ * bezier and the band is six strokes of that same path, and neither survives
+ * being restated in CSS. What is here is the two boxes they sit in and the
+ * grain over the top.
  */
 .horizon-band {
   position: relative;
@@ -1194,106 +1171,66 @@ html[data-page-theme="light"] body {
   /*
    * `clip` on one axis only, and the pair is the whole point.
    *
-   * The ground is drawn far wider than the page — half again as wide on a
-   * phone — so that the ellipse's ends and the shadow's ends stay off screen.
-   * On a 390px phone that is a 741px box inside a 390px page, and the document
-   * grew a horizontal scrollbar: the section is full-bleed, so nothing else was
-   * ever going to stop it. `viewport-test` measured it on the first run.
-   *
-   * `overflow: hidden` would fix it and break two other things: it clips the
-   * glow above the section, which is the entire effect, and it makes this
-   * section a scroll container, which is what stops a `position: sticky` child
-   * from ever sticking. `overflow-x: clip` with `overflow-y` left visible is
-   * honoured on one axis alone and establishes no scroll container — it cuts
-   * the sides, which were meant to be off screen anyway, and leaves the light
-   * free to spill above and below.
+   * The horizon is drawn a good deal taller than the section's own top edge —
+   * the bump rises over the page above it — and the light at the foot reaches
+   * below the section in the same way. `overflow: hidden` would fix a stray
+   * horizontal scrollbar and clip both of those, which is the entire effect,
+   * and would make this section a scroll container, which is what stops a
+   * `position: sticky` child from ever sticking. `overflow-x: clip` with
+   * `overflow-y` left visible is honoured on one axis alone and establishes no
+   * scroll container: it cuts the sides, which were never meant to be seen,
+   * and leaves the light free to spill above and below.
    */
   overflow-x: clip;
-  --arc-h: 60px;
-  --arc-lit: 0.6;
 }
-.horizon-ground {
+
+/*
+ * The dark under the light.
+ *
+ * `<Horizon>` (see `home.tsx`) draws the curve and everything within about
+ * 130px of it; this covers the rest of the band, from the shoulder line down.
+ * It is a plain rectangle on purpose — below the curve there is no shape left
+ * to describe, and a second copy of the geometry here is a second thing to
+ * keep in step with the first.
+ */
+.horizon-fill {
   position: absolute;
-  /*
-   * How far the ellipse hangs off each side sets how *curved* the arc looks,
-   * and it is the one number in here that was wrong twice.
-   *
-   * Only the middle of the ellipse is on screen, so the sag across the visible
-   * width is `H · (1 − √(1 − u²))` where `u` is the fraction of the half-width
-   * the viewport reaches. At a 25% overhang each side, u is 0.67 and the page
-   * sees a quarter of the vertical radius — a 170px radius drawing a 43px
-   * dip, which reads as a slightly bent line rather than as a horizon. At 12%,
-   * u is 0.81 and the page sees two fifths of it, which is the reference.
-   *
-   * The trade is the shadow's own left and right ends: they have to stay off
-   * screen, and 12% of a phone is not enough room for a 100px blur to hide in.
-   * So narrow screens go back to a wide overhang and a shallower arc, which is
-   * the right answer there anyway — a deep curve across 390px is a bowl.
-   */
-  left: -12%;
-  right: -12%;
-  /*
-   * Both edges, and the foot is the shallower one.
-   *
-   * A band that domes into the section above it and then stops on a ruled line
-   * is half an idea: the eye reads the top as a horizon and the bottom as a
-   * crop mark. The foot mirrors the same ellipse at 60% of the depth and a
-   * fraction of the light — enough that the dark closes rather than ends, not
-   * so much that the section has two suns.
-   */
-  --arc-foot: calc(var(--arc-h) * 0.6);
-  top: calc(var(--arc-h) * -1);
-  bottom: calc(var(--arc-foot) * -1);
-  z-index: -1;
+  inset: 0;
+  z-index: -2;
   background: hsl(var(--background));
-  border-radius: 50% / var(--arc-h) var(--arc-h) var(--arc-foot) var(--arc-foot);
-  /*
-   * The glow belongs above the arc and nowhere else.
-   *
-   * A `box-shadow` is the whole silhouette offset and blurred, so the outermost
-   * one here — 42px up, 92px of blur, 8px of spread — still reaches about a
-   * dozen pixels *below* the box, and the box's bottom is where the dark band
-   * meets whatever comes next. That was a faint magenta hairline across the
-   * full width at the foot of both bands: not a border, not a rule, and not
-   * findable by looking for one. Clipping everything below the bottom edge
-   * removes it and nothing else; the sides are generous because the shadow's
-   * own left and right ends are off-screen by design and must stay drawn.
-   */
-  clip-path: inset(-320px -400px -260px -400px);
-  /*
-   * Red at the rim, crimson through the middle, magenta after that, and out
-   * into #6C3BFF — the platform's own violet, so the light belongs to this
-   * product rather than to the reference it was measured from.
-   *
-   * **Nothing warm.** The reference's arc runs through amber and orange and it
-   * is the one thing about it that is not being copied: this brand has no warm
-   * colour in it anywhere, and a sunrise that goes orange on a violet product
-   * reads as a stock effect somebody pasted in. Every stop below has zero or
-   * near-zero green, which is what keeps the ramp on the red-to-violet side of
-   * the wheel however much the alphas are pushed.
-   *
-   * The alphas ride `--arc-lit`, so the band brightens with the swell.
-   */
-  box-shadow:
-    0 -1px 0 1px rgba(255, 96, 128, calc(0.95 * var(--arc-lit))),
-    0 -3px 7px 0 rgba(252, 12, 60, calc(1 * var(--arc-lit))),
-    0 -9px 20px 1px rgba(222, 0, 78, calc(0.92 * var(--arc-lit))),
-    0 -21px 46px 4px rgba(150, 0, 190, calc(0.58 * var(--arc-lit))),
-    /* Two violet layers rather than one, and they are the widest thing in the
-       stack: the arc should read as *this product's* light with a hot edge on
-       it, not as a red glow with a violet afterthought. #6C3BFF, twice. */
-    0 -40px 80px 6px rgba(108, 59, 255, calc(0.34 * var(--arc-lit))),
-    0 -76px 150px 16px rgba(108, 59, 255, calc(0.22 * var(--arc-lit))),
-    /* The foot, at a third of the light and no hot core at all. */
-    0 2px 6px 0 rgba(222, 0, 78, calc(0.42 * var(--arc-lit))),
-    0 10px 26px 2px rgba(158, 0, 150, calc(0.30 * var(--arc-lit))),
-    0 26px 64px 6px rgba(108, 59, 255, calc(0.22 * var(--arc-lit)));
 }
-@media (max-width: 640px) {
-  .horizon-ground { left: -45%; right: -45%; }
+/*
+ * The box the curve is drawn in.
+ *
+ * It hangs above the section by the height of the tallest apex, so the curve's
+ * flat ends land exactly on the section's own top edge and the bump rises over
+ * the page above. `preserveAspectRatio="none"` on the svg inside means the
+ * 1000-unit viewBox stretches to whatever the page is wide, so the curve keeps
+ * its proportions at every width without a single media query — and a blur
+ * stretched horizontally along a horizontal band is a blur nobody can see.
+ */
+.horizon {
+  position: absolute;
+  inset-inline: 0;
+  /* The shoulder line sits 250 units down the 380-unit viewBox, so hanging the
+     box 250px above the section puts the curve's flat ends exactly on the
+     section's own top edge and leaves 130px of band inside it. */
+  top: -250px;
+  height: 380px;
+  z-index: -1;
+  pointer-events: none;
 }
-/* The grain that separates an expensive dark surface from a flat one — the
-   same layer the page canvas uses, over the band and under its content. */
+.horizon-at-foot {
+  top: auto;
+  bottom: -250px;
+  transform: rotate(180deg);
+}
+.horizon-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
 .horizon-grain {
   position: absolute;
   inset: 0;
@@ -1320,7 +1257,7 @@ html[data-page-theme="light"] body {
   pointer-events: none;
   background:
     radial-gradient(38% 46% at 22% 62%, rgba(108, 59, 255, 0.30) 0%, transparent 68%),
-    radial-gradient(34% 40% at 78% 38%, rgba(214, 0, 92, 0.22) 0%, transparent 66%);
+    radial-gradient(34% 40% at 78% 38%, rgba(155, 107, 255, 0.24) 0%, transparent 66%);
   background-size: 180% 180%, 170% 170%;
   animation: aurora-drift 26s ease-in-out infinite alternate;
 }
@@ -1329,7 +1266,7 @@ html[data-page-theme="light"] body {
   inset: -10% -5%;
   background:
     radial-gradient(38% 46% at 22% 62%, rgba(108, 59, 255, 0.13) 0%, transparent 68%),
-    radial-gradient(34% 40% at 78% 38%, rgba(235, 10, 10, 0.09) 0%, transparent 66%);
+    radial-gradient(34% 40% at 78% 38%, rgba(155, 107, 255, 0.11) 0%, transparent 66%);
   background-size: 180% 180%, 170% 170%;
 }
 
@@ -1399,9 +1336,15 @@ html[data-page-theme="light"] body {
  * that makes a bar like this look expensive is that you can still see the page
  * through it — colour and movement, softened.
  *
- * So the ground drops to 44% and the blur does the legibility work instead,
- * with saturation pushed past 1 so the colours coming through stay colours
- * rather than going grey the way a plain blur leaves them. Two rings hold the
+ * So the ground is translucent and a 30px blur does the legibility work, with
+ * saturation pushed past 1 so the colours coming through stay colours rather
+ * than going grey the way a plain blur leaves them.
+ *
+ * How translucent took two goes. At 44% the page behind showed through as
+ * *readable text* — a nav bar and a headline printed on top of each other, not
+ * glass — and Arabic, being denser and heavier, showed it worst. 78% still
+ * moves and still takes colour from whatever is passing underneath, and
+ * nothing behind it can be read as words. Two rings hold the
  * edge: a hairline of the page's own ink on the outside, and a white lip along
  * the *top* inside, which is the highlight a curved piece of glass catches and
  * the single detail that separates this from a rectangle with a blur on it.
@@ -1417,8 +1360,8 @@ html[data-page-theme="light"] body {
     inset 0 1px 0 var(--nav-capsule-lip),
     0 1px 2px rgba(8, 4, 24, 0.07),
     0 18px 44px -22px rgba(8, 4, 24, 0.45);
-  backdrop-filter: blur(22px) saturate(190%);
-  -webkit-backdrop-filter: blur(22px) saturate(190%);
+  /* Unprefixed and only unprefixed — see `.glass-panel`. */
+  backdrop-filter: blur(30px) saturate(190%);
 }
 /* No blur available means the pill is a window rather than a pane, and a
    window over scrolling text is unreadable. Fall back to the opaque ground. */

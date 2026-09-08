@@ -189,9 +189,9 @@ console.log("\nThe two themes actually differ");
      * Every other fill in this palette moves between themes because it is
      * defined *against* the page — a raised surface is lighter than a dark page
      * and darker than a light one. `--cta` is not: it is an object placed on
-     * the page, the same object on both, and white sits on it at 4.59:1 either
-     * way because the pair is the same two colours. A red that shifted with the
-     * theme would be two brands.
+     * the page, the same object on both, and white sits on it identically
+     * either way because the pair is the same two colours. A button that
+     * changed colour with the theme would be two brands.
      */
     "--cta",
     "--cta-foreground",
@@ -265,15 +265,14 @@ console.log("\nText stays readable");
     ["text on an accent fill", "--accent-foreground", "--accent", 4.5],
     ["label on a primary button", "--primary-foreground", "--primary", 4.5],
     /*
-     * The action colour, which is now a different token from the brand.
+     * The action colour, which is its own token even though it currently holds
+     * the same violet as `--primary`.
      *
-     * `--cta` is the red every filled button in the product wears, and the
-     * reference swatch Osama measured it from is #FF2E2E — white on which is
-     * **3.70:1**, under AA for a 14px label, which is what a button label is.
-     * The face ships four points darker for exactly this line; the reference
-     * red lives on `--cta-bloom`, where it is the light *around* the button and
-     * carries no text. If somebody ever moves the face back to the swatch, this
-     * is the check that will say what it costs.
+     * `--primary` is what the product is made of and `--cta` is what it is
+     * pressed with; the pair above only covers the first of those. The day the
+     * two diverge — and the whole point of splitting them is that they can —
+     * every filled button in the product changes colour, and this is the line
+     * that will say whether its label is still readable on it.
      */
     ["label on an action button", "--cta-foreground", "--cta", 4.5],
     // Both halves of the destructive split, because the whole reason there are
@@ -329,6 +328,43 @@ console.log("\nText stays readable");
  * tidying a stylesheet who has never seen the two side by side. They are cheap
  * to assert and impossible to argue with once written down.
  */
+/*
+ * A hand-written vendor prefix is a way to lose the property it was meant to
+ * protect.
+ *
+ * The build's minifier knows `-webkit-backdrop-filter` and `backdrop-filter`
+ * are the same declaration, keeps the last one it sees, and throws the other
+ * away — so writing the alias "just in case" after the standard property ships
+ * a rule with *only* the alias. The Chromium these suites run in does not
+ * implement the alias at all, which is how a nav bar and a composer both went
+ * out with a computed `backdrop-filter` of `none` and no blur behind them.
+ *
+ * Prefixing is the build's job and it does it correctly when it is left alone.
+ * This is the second time; the note on `.glass-panel` was the first.
+ */
+console.log("\nNo vendor prefix is written by hand");
+{
+  /*
+   * Two prefixed properties are *not* aliases and have to stay.
+   *
+   * `-webkit-mask-composite` takes different keywords from the standard
+   * `mask-composite` (`xor` against `exclude`), so the two are genuinely
+   * different declarations and the minifier cannot substitute one for the
+   * other; `-webkit-mask` is written beside it for the same reason. Everything
+   * else prefixed by hand is a property the build already knows how to prefix,
+   * written twice, where writing it twice is how you lose it.
+   */
+  const KEPT = new Set(["-webkit-mask", "-webkit-mask-composite"]);
+  const prefixed = [...css.matchAll(/^\s*(-webkit-|-moz-|-ms-)([a-z-]+)\s*:/gm)]
+    .map((m) => m[1] + m[2])
+    .filter((name) => !KEPT.has(name));
+  check(
+    "the stylesheet writes no vendor-prefixed declaration the build would add itself",
+    prefixed.length === 0,
+    prefixed.length ? `${[...new Set(prefixed)].join(", ")} — the minifier keeps the last alias and drops the standard property` : "",
+  );
+}
+
 console.log("\nThe glass is a material rather than a scrim");
 {
   const panel = blockFor(".glass-panel") ?? "";

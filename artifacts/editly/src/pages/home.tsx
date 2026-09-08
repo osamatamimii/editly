@@ -103,9 +103,40 @@ const MIRROR = "translate(320,0) scale(-1,1)";
 /** The same, for the square cells in the feature grid. */
 const MIRROR_CELL = "translate(120,0) scale(-1,1)";
 
-function mirrored(x: number, anchor: "start" | "end", rtl: boolean, width = 320) {
+/**
+ * A text anchor, moved to the other side of a mirrored drawing.
+ *
+ * The `x` half is arithmetic and was always right. The *anchor* half was
+ * wrong for every Arabic label in these drawings, and wrong in the way that is
+ * hardest to see in a diff: `text-anchor: start` and `end` are not left and
+ * right, they are the two ends of the **inline base direction**, and the base
+ * direction inside these `<svg>`s is inherited from the page. On the Arabic
+ * page that is `rtl`, where `start` already means the right-hand side.
+ *
+ * So flipping the anchor as well as the coordinate flipped it twice. Every
+ * Arabic label anchored itself on the wrong end and ran the wrong way out of
+ * the drawing: «اقصّ الفراغات وخلّيه» started at x=226 in a 320-wide viewBox
+ * and ended at 344, off the edge — measured, not guessed. Nothing threw and
+ * the SVG viewport clipped it, so at the size these were drawn before (a
+ * 320px card) it read as a slightly cropped label rather than as a bug. At
+ * four times the size, in the pinned frame, it is the first thing you see.
+ *
+ * `latin` is the exception and it is a real one: the file names and timecodes
+ * carry `direction: ltr` of their own, because `raw-take.mov` and `12:04` must
+ * not be reordered by the paragraph around them. Those really are laid out
+ * left-to-right inside a right-to-left drawing, so for them — and only for
+ * them — the anchor does have to flip with the coordinate.
+ */
+function mirrored(
+  x: number,
+  anchor: "start" | "end",
+  rtl: boolean,
+  width = 320,
+  latin = false,
+) {
   if (!rtl) return { x, textAnchor: anchor };
-  return { x: width - x, textAnchor: anchor === "end" ? ("start" as const) : ("end" as const) };
+  const flipped = anchor === "end" ? ("start" as const) : ("end" as const);
+  return { x: width - x, textAnchor: latin ? flipped : anchor };
 }
 
 function useScrollReveal() {
@@ -448,35 +479,128 @@ function HeroEditor({ phone, language }: { phone: boolean; language: Language })
 }
 
 /**
- * The swell in the horizon arc.
+ * The horizon: the lit edge where a dark band meets the page above it.
  *
- * `--arc-h` is the vertical radius of the dome at the top of a dark band, and
- * it is a half-sine of how far that band has travelled into the viewport:
- * shallow as it appears, deepest as it crosses the middle of the screen,
- * shallow again as it leaves. `--arc-lit` rides the same curve, so the light
- * along the arc brightens and fades with it.
+ * ## The shape is not an arc
  *
- * Same loop as the steps rail and for the same reason: one custom property on
- * one element, sixty times a second at most, and React is never told. A
- * component tree re-rendered per frame to move a gradient is how a landing page
- * becomes the slowest screen in a product.
+ * The first version drew it as a very wide ellipse, because an ellipse is one
+ * `border-radius` and needs no geometry. It is also the wrong shape, and Osama
+ * said so twice before it was measured properly: on the reference the edge is
+ * **flat at both ends** and rises only through the middle. An ellipse has slope
+ * everywhere — its ends are the steepest part of it — so however wide it is
+ * made, the far left and far right of the page tilt, and the whole thing reads
+ * as a circle laid over the page rather than as a horizon.
  *
- * With `prefers-reduced-motion` the arc is drawn at its resting depth and never
- * moves — a curved edge is not motion, and it is the shape that carries the
- * design.
+ * What the reference actually is, is a bell: horizontal tangents at both ends
+ * and at the apex. That is exactly one cubic bezier per half with its control
+ * points held level with the point they leave — `C x1,S x2,y0 apex,y0` out of
+ * `0,S`, and the mirror of it back down to `1000,S`. Two curves, four numbers,
+ * and the ends are *mathematically* flat rather than nearly flat.
+ *
+ * The apex sits at 46% of the width rather than 50%. A perfectly symmetrical
+ * bump is a shape; the reference's leans, with a longer tail on one side, and
+ * that is the difference between a horizon and a semicircle.
+ *
+ * ## The light is a set of strokes, clipped to the dark side
+ *
+ * Six copies of the same path, from a 150-unit blurred stroke at the bottom to
+ * a 9-unit near-white one on top, all clipped to the region *below* the curve.
+ * A stroke is centred on its path, so half of each falls inside the dark and
+ * the visible band is a plateau of light at the edge with a ramp under it —
+ * the profile measured off the reference, where the first forty-odd pixels
+ * stay bright and only then fall away.
+ *
+ * Nothing is painted outside the shape. Any outer glow, however small, hazes
+ * the section above and turns the arc into a dark object with something lit
+ * behind it; on the reference the page above runs clean right up to the light.
+ * All six `<use>` elements reference one `<path>`, so the swell below is two
+ * `setAttribute` calls per frame rather than twelve.
+ *
+ * ## The swell
+ *
+ * The apex height is a half-sine of how far the band has travelled into the
+ * viewport: shallow as it appears, deepest as it crosses the middle of the
+ * screen, shallow again as it leaves. `--arc-lit` rides the same curve so the
+ * light brightens with it. It is a rAF loop over two attributes and one custom
+ * property, and React is never told — a component tree re-rendered per frame to
+ * move a gradient is how a landing page becomes the slowest screen in a
+ * product. With `prefers-reduced-motion` it is drawn once and left alone.
  */
-const ARC_MIN = 74;
-const ARC_SWELL = 150;
 
-function useHorizon<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
+/** The box the curve is drawn in, in its own units. */
+const HORIZON_BOX = 380;
+/** Where the flat ends sit inside that box — the band's own top edge. */
+const HORIZON_SHOULDER = 250;
+/** Apex height at rest, and how much more it gains crossing the screen. */
+const HORIZON_REST = 76;
+const HORIZON_SWELL = 42;
+/** Where the apex sits across the width. Not the middle: see above. */
+const HORIZON_APEX = 460;
+
+/**
+ * The band, widest and dimmest first, because a `<g>` paints in document order
+ * and the narrow bright ones belong on top.
+ */
+const HORIZON_LAYERS = [
+  { w: 150, blur: 34, colour: "rgba(67, 24, 255, 0.8)" },
+  { w: 104, blur: 24, colour: "rgba(108, 59, 255, 0.95)" },
+  { w: 72, blur: 16, colour: "rgb(148, 99, 255)" },
+  { w: 46, blur: 10, colour: "rgb(188, 155, 255)" },
+  { w: 26, blur: 6, colour: "rgb(224, 208, 255)" },
+];
+
+/*
+ * The lip, and it is the one layer that is *not* clipped.
+ *
+ * Clipping antialiases, and six clipped layers stacked leave a one-pixel seam
+ * along the curve — measured at 222,207,253 against a 251,249,253 page, which
+ * is faint and is unmistakably a drawn line once you have seen it. Painting the
+ * brightest, narrowest stroke over the top of the clip covers that seam with
+ * light instead of hiding it. It spills about five pixels above the curve; at
+ * this colour, on a page this light, that is invisible, and on the dark side it
+ * is the bright edge the whole band is built around.
+ */
+const HORIZON_LIP = { w: 18, blur: 6, colour: "rgb(252, 250, 255)" };
+
+function horizonPath(apex: number) {
+  const y = HORIZON_SHOULDER - apex;
+  const s = HORIZON_SHOULDER;
+  return (
+    `M0 ${s} C 250 ${s} 240 ${y} ${HORIZON_APEX} ${y}` +
+    ` C ${HORIZON_APEX + 260} ${y} ${HORIZON_APEX + 250} ${s} 1000 ${s}`
+  );
+}
+
+/**
+ * One lit edge, and the dark it belongs to.
+ *
+ * `foot` flips it: the same curve upside down at the bottom of the band, at a
+ * third of the light, so the dark closes rather than stopping on a ruled line.
+ */
+function Horizon({ foot = false }: { foot?: boolean }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const edgeRef = useRef<SVGPathElement>(null);
+  const capRef = useRef<SVGPathElement>(null);
+  const id = foot ? "horizon-foot" : "horizon-head";
+
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+    const box = boxRef.current;
+    const edge = edgeRef.current;
+    const cap = capRef.current;
+    if (!box || !edge || !cap) return;
+    const section = box.parentElement;
+    if (!section) return;
+
+    const draw = (apex: number) => {
+      const d = horizonPath(apex);
+      edge.setAttribute("d", d);
+      cap.setAttribute("d", `${d} L1000 ${HORIZON_BOX} L0 ${HORIZON_BOX} Z`);
+    };
+
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (still) {
-      el.style.setProperty("--arc-h", `${ARC_MIN + ARC_SWELL * 0.7}px`);
-      el.style.setProperty("--arc-lit", "1");
+      draw(HORIZON_REST + HORIZON_SWELL * 0.7);
+      box.style.setProperty("--arc-lit", "1");
       return;
     }
 
@@ -486,24 +610,27 @@ function useHorizon<T extends HTMLElement>() {
     let lit = 0;
 
     const measure = () => {
-      const rect = el.getBoundingClientRect();
+      const rect = section.getBoundingClientRect();
       const vh = window.innerHeight || 1;
-      /* 0 the moment the band's top edge reaches the bottom of the screen, 1
-         by the time it has climbed nine tenths of the way up. Clamped at both
-         ends so a band that is far away or long gone sits still. */
-      const p = Math.max(0, Math.min(1, (vh - rect.top) / (vh * 0.9)));
+      /* 0 the moment the band's edge reaches the bottom of the screen, 1 by
+         the time it has climbed nine tenths of the way up. Clamped at both
+         ends, so a band that is far off or long gone sits still. */
+      const from = foot ? rect.bottom : rect.top;
+      const p = Math.max(0, Math.min(1, (vh - from) / (vh * 0.9)));
       const swell = Math.sin(Math.PI * p);
-      target = ARC_MIN + ARC_SWELL * swell;
-      lit = 0.45 + 0.55 * swell;
+      target = HORIZON_REST + HORIZON_SWELL * swell;
+      lit = (foot ? 0.2 : 0.45) + (foot ? 0.22 : 0.55) * swell;
     };
 
     const tick = () => {
       frame = 0;
       if (shown < 0) shown = target;
       else shown += (target - shown) * 0.14;
-      el.style.setProperty("--arc-h", `${shown.toFixed(1)}px`);
-      el.style.setProperty("--arc-lit", lit.toFixed(3));
-      if (Math.abs(target - shown) > 0.3) frame = requestAnimationFrame(tick);
+      draw(shown);
+      box.style.setProperty("--arc-lit", lit.toFixed(3));
+      /* Six blurred strokes are not a free repaint, so the loop settles at
+         well under a pixel of remaining movement rather than at a tenth. */
+      if (Math.abs(target - shown) > 0.6) frame = requestAnimationFrame(tick);
     };
 
     const onScroll = () => {
@@ -521,8 +648,53 @@ function useHorizon<T extends HTMLElement>() {
       window.removeEventListener("resize", onScroll);
       if (frame) cancelAnimationFrame(frame);
     };
-  }, []);
-  return ref;
+  }, [foot]);
+
+  return (
+    <div ref={boxRef} className={foot ? "horizon horizon-at-foot" : "horizon"} aria-hidden="true">
+      <svg
+        className="horizon-svg"
+        viewBox={`0 0 1000 ${HORIZON_BOX}`}
+        preserveAspectRatio="none"
+        focusable="false"
+      >
+        <defs>
+          <path id={`${id}-edge`} ref={edgeRef} d="" />
+          <clipPath id={`${id}-under`}>
+            <path ref={capRef} d="" />
+          </clipPath>
+        </defs>
+        <g clipPath={`url(#${id}-under)`}>
+          {/* The dark itself, so the curve is the boundary rather than a line
+              drawn near one. Oversized, because a blurred stroke at the edge of
+              the box would otherwise show the box. */}
+          <rect x="-40" y="-40" width="1080" height={HORIZON_BOX + 80} fill="hsl(var(--background))" />
+          {HORIZON_LAYERS.map((layer) => (
+            <use
+              key={layer.w}
+              href={`#${id}-edge`}
+              fill="none"
+              stroke={layer.colour}
+              strokeWidth={layer.w}
+              strokeLinecap="butt"
+              style={{ filter: `blur(${layer.blur}px)`, opacity: "var(--arc-lit, 1)" }}
+            />
+          ))}
+        </g>
+        <use
+          href={`#${id}-edge`}
+          fill="none"
+          stroke={HORIZON_LIP.colour}
+          strokeWidth={HORIZON_LIP.w}
+          strokeLinecap="butt"
+          /* Fully opaque, unlike every layer inside the clip. It is covering an
+             antialiasing seam, and a half-transparent cover leaves half a seam;
+             the swell dims the band under it, not the line that hides the join. */
+          style={{ filter: `blur(${HORIZON_LIP.blur}px)` }}
+        />
+      </svg>
+    </div>
+  );
 }
 
 /**
@@ -674,8 +846,8 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
             {/* A file name and a timecode, which are Latin either way:
                 `dir` keeps `raw-take.mov` from being reordered when the
                 page around it is right-to-left. */}
-            <text {...mirrored(62, "start", rtl)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="13" fontWeight="600" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.file)}</text>
-            <text {...mirrored(258, "end", rtl)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-line)]" fontSize="12" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.duration)}</text>
+            <text {...mirrored(62, "start", rtl, 320, true)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="13" fontWeight="600" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.file)}</text>
+            <text {...mirrored(258, "end", rtl, 320, true)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-line)]" fontSize="12" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.duration)}</text>
           </svg>
       ),
     },
@@ -751,7 +923,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
               <path d="M216 100h30" className="stroke-[var(--art-accent)]" strokeWidth="2" strokeLinecap="round" />
             </g>
             <text {...mirrored(22, "start", rtl)} y="158" className="fill-[var(--art-line)]" fontSize="11" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.source)}</text>
-            <text {...mirrored(216, "start", rtl)} y="90" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="12" fontWeight="700" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.output)}</text>
+            <text {...mirrored(216, "start", rtl, 320, true)} y="90" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="12" fontWeight="700" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.output)}</text>
           </svg>
       ),
     },
@@ -1051,8 +1223,6 @@ export default function Home() {
   const phone = usePhoneWidth();
   const [language, chooseLanguage] = useLandingLanguage();
   const navCollapsed = useCollapsedNav();
-  /* The one dark band on this page, and the horizon it comes up over. */
-  const podcastBand = useHorizon<HTMLElement>();
   const rtl = language === "ar";
   const t = (phrase: Phrase) => say(phrase, language);
 
@@ -1313,9 +1483,10 @@ export default function Home() {
               <Link
                 href="/login"
                 data-testid="link-log-in"
-                className="px-3 sm:px-4 min-h-[44px] inline-flex items-center rounded-full font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
+                className="px-2.5 sm:px-4 min-h-[44px] inline-flex items-center rounded-full font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
               >
-                {t(LANDING.header.logIn)}
+                <span className="sm:hidden">{t(LANDING.header.logInShort)}</span>
+                <span className="hidden sm:inline">{t(LANDING.header.logIn)}</span>
               </Link>
               <Link
                 href="/login?mode=signup"
@@ -1481,8 +1652,43 @@ export default function Home() {
       {/* ── How It Works ── */}
       <HowItWorks t={t} rtl={rtl} />
 
+      {/* ── The dark chapter: what it does, and what it does for a podcast ── */}
+      {/*
+        Two sections inside one band, and the pairing is the point.
+
+        The podcasts section was `bg-band` on its own — a slightly recessed
+        lavender, four shades from the section above it and three from the one
+        below, which is to say it was not a band at all. A page that is one
+        temperature the whole way down has no rhythm and nothing to close: the
+        eye has no reason to stop anywhere, so it stops nowhere.
+
+        Going dark is the cheapest rhythm there is and it costs no copy. What it
+        does cost is *length*: a band shorter than the screen shows its opening
+        horizon and its closing one in the same frame, and two lit curves at
+        once read as a stripe rather than as a chapter with a beginning and an
+        end. So the band holds both sections that belong together — what the
+        product does, and what it does for the one format it is best at — and
+        runs to a couple of screens, which is what the horizons need to work.
+
+        `force-dark` pins the dark theme's tokens over the subtree, so the glass
+        panels, the hairlines and the text inside are the *dark* product rather
+        than the light one with its colours inverted — the same trick the hero
+        mockup uses, and the reason nothing inside either section changed.
+
+        `<Horizon />` supplies the dark as well as the light, which is why there
+        is no `bg-` class here: the band's edges are curves, and a rectangular
+        background painted behind them would fill in the very shape the curves
+        exist to cut. `.horizon-fill` covers everything between them, where the
+        shape no longer matters.
+      */}
+      <div className="force-dark horizon-band relative w-full text-foreground">
+        <div className="horizon-fill" aria-hidden="true" />
+        <Horizon />
+        <Horizon foot />
+        <div className="horizon-grain" aria-hidden="true" />
+
       {/* ── Features ── */}
-      <section id="features" className="w-full max-w-7xl mx-auto px-6 py-24">
+      <section id="features" className="relative w-full max-w-7xl mx-auto px-6 pt-32 pb-24 sm:pt-40">
         <div className="grid md:grid-cols-2 gap-16 items-center">
           <div>
             <div className="reveal">
@@ -1675,33 +1881,7 @@ export default function Home() {
           name on this section is a thing that runs today — the templates are
           `three-clips` and `podcast-clip` in lib/templates.ts, and the titles
           come from the transcript the same way the captions do. */}
-      {/*
-        The dark band, and the sunrise it comes up over.
-
-        This section was `bg-band` — a slightly recessed lavender, four shades
-        from the section above it and three from the section below, which is to
-        say it was not a band at all. A page that is one temperature the whole
-        way down has no rhythm and nothing to close: the eye has no reason to
-        stop anywhere, so it stops nowhere.
-
-        Going properly dark is the cheapest rhythm there is, and it costs no
-        copy. `force-dark` pins the dark theme's tokens over the subtree, so the
-        glass panels, the hairlines and the text inside are the *dark* product
-        rather than the light one with its colours inverted — the same trick the
-        hero mockup uses, and the reason the panels below need no changes at all.
-
-        `.horizon-ground` supplies the background, and it is the reason there is
-        no `bg-` class here: the band's top edge is a curve, and a rectangular
-        background painted behind it would fill in the very shape the curve
-        exists to cut.
-      */}
-      <section
-        id="podcasts"
-        ref={podcastBand}
-        className="force-dark horizon-band w-full py-24 sm:py-32 relative text-foreground"
-      >
-        <div className="horizon-ground" aria-hidden="true" />
-        <div className="horizon-grain" aria-hidden="true" />
+      <section id="podcasts" className="relative w-full pt-8 pb-32 sm:pb-40">
         <div className="w-full max-w-7xl mx-auto px-6 relative">
           <div className="max-w-2xl reveal">
             <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">
@@ -1758,6 +1938,7 @@ export default function Home() {
           </div>
         </div>
       </section>
+      </div>
 
       {/* ── Pricing ── */}
       <section id="pricing" className="w-full max-w-7xl mx-auto px-6 py-24">

@@ -388,6 +388,48 @@ section("The page opens in Arabic, and it opens the right way round");
     `${overflow.scroll} > ${overflow.view}`,
   );
 
+  /*
+   * The drawings are mirrored for Arabic, and a mirrored label can end up
+   * anchored to the wrong end of itself.
+   *
+   * `text-anchor: start` and `end` are the two ends of the **inline base
+   * direction**, not left and right. Inside these drawings that direction is
+   * inherited from the page, so on the Arabic page `start` already means the
+   * right-hand side — and the helper that mirrors a label's coordinate was
+   * flipping the anchor as well, which flips it twice. Every Arabic label in
+   * the how-it-works drawings anchored on the wrong end and ran off the edge
+   * of its own viewBox: «اقصّ الفراغات وخلّيه» began at x=226 in a 320-wide
+   * box and ended at 344.
+   *
+   * Nothing threw. The SVG viewport clips its own overflow, so the label was
+   * simply cut short — which at the size these were first drawn looked like a
+   * label that happened to be long. It only became obvious when the same
+   * drawing was shown four times larger.
+   *
+   * A bounding box against a viewBox is the whole check, and it is the kind of
+   * thing only a browser can answer: the JSX is identical in both directions.
+   */
+  const spilled = await page.evaluate(() => {
+    const out = [];
+    document.querySelectorAll("svg text").forEach((t) => {
+      const svg = t.ownerSVGElement;
+      if (!svg) return;
+      const view = svg.viewBox.baseVal;
+      if (!view || !view.width) return;
+      const box = t.getBBox();
+      if (!box.width) return;
+      if (box.x < view.x - 1 || box.x + box.width > view.x + view.width + 1) {
+        out.push(`${(t.textContent || "").slice(0, 18)} [${Math.round(box.x)}…${Math.round(box.x + box.width)}] in ${view.width}`);
+      }
+    });
+    return out;
+  });
+  check(
+    "and no label in a mirrored drawing runs off the edge of it",
+    spilled.length === 0,
+    spilled.slice(0, 4).join(" | "),
+  );
+
   await context.close();
 }
 
