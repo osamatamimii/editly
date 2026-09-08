@@ -717,6 +717,52 @@ section("CI has what the suites need");
     "and it is the same file the schema suite uses, not a copy",
     /supabase-shim\.sql/.test(read("tools/schema-test.mjs")),
   );
+
+  /*
+    And `dist/` is built before the suites that read it, and rebuilt by nobody
+    until they are done with it.
+
+    `dist/` is a *shared, mutable* artifact. The workflow builds it once, and
+    six suites read what it holds. `end-to-end-test` then builds it again —
+    with `VITE_SUPABASE_URL` pointed at its own local stub, which is correct for
+    what that suite does and wrong for everything else, because the two suites
+    that plant a signed-in session derive the project reference from the bundle
+    and there is no reference in `http://127.0.0.1:41287`.
+
+    Today the order is right by accident: end-to-end sits last in the file.
+    Nothing says it has to, and nothing notices if it moves — the symptom is
+    `viewport-test` reporting that half the screens redirect to sign-in, which
+    reads as a layout bug. Measured, by running the suites twice locally: the
+    second run fails both of them, because the first run left the stub's bundle
+    in place.
+
+    So the ordering stops being an accident and becomes a checked property. If
+    end-to-end ever needs to move up, the fix is for it to stop writing to the
+    shared path, and this check is what will say so.
+  */
+  for (const reader of ["viewport-test", "language-test", "csp-test", "speed-test", "landing-test", "theme-test"]) {
+    check(
+      `${reader} reads dist/ before end-to-end-test rebuilds it`,
+      order(checksWorkflow, `tools/${reader}.mjs`, "tools/end-to-end-test.mjs").ok,
+      "end-to-end builds dist/ against its own stub; a suite reading it afterwards is reading somebody else's bundle",
+    );
+  }
+  check(
+    "and the build that the readers depend on comes before all of them",
+    order(checksWorkflow, "pnpm run vercel:build", "tools/viewport-test.mjs").ok,
+  );
+  /*
+    With the two variables the bundle needs to name a project at all.
+
+    Without them `supabase.ts` throws at boot and every screen in
+    `viewport-test` fails with the app's own "must be set" — so these two suites
+    were only ever green on a machine where somebody had exported them by hand.
+  */
+  check(
+    "and with the Vite variables, without which the bundle names no project",
+    /VITE_SUPABASE_URL:/.test(checksWorkflow) && /VITE_SUPABASE_ANON_KEY:/.test(checksWorkflow),
+    "the session the browser suites plant is keyed on the project the bundle names",
+  );
   check(
     "psql stops on the first error rather than carrying on",
     /ON_ERROR_STOP=1/.test(checksWorkflow),

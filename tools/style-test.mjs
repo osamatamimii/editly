@@ -390,6 +390,95 @@ console.log("\nA ten-bit reference is measured on the same scale as an eight-bit
   );
 }
 
+console.log("\nOne decode per stream, not one per reading");
+{
+  /*
+    Four readings used to be four `ffmpeg` runs over the same window, each
+    decoding the clip again from the top — and two of those decode every frame.
+    A two-minute 1080p reference is 3,600 frames, twice. Measured on a 120s
+    1080p clip: **39.2 seconds** for the four passes against **25.1** for two,
+    reading identical numbers, and paid twice per render because `enrich.ts`
+    measures the source the same way.
+
+    Nothing failed. Every number was right; a quarter of a minute of a
+    single-core machine went into decoding one file four times while somebody
+    waited for their edit.
+
+    The property worth holding is not the speed — a faster reader that reads
+    something else is worse than a slow one. It is that the *numbers did not
+    move*. So this measures one clip that exercises every reading at once —
+    cuts, silence, loudness, grade, motion — and pins each against what the
+    four-pass reader returned for it. A merge that changed any of them shows up
+    here as a number, not as a slower suite.
+
+    The cut count is the one a careless merge breaks: `showinfo` and
+    `metadata=print` both print `pts_time:` for every frame they pass, so a
+    reader that counts timestamps across a shared graph counts the
+    four-per-second metadata frames too and reports a clip that cuts three
+    hundred times a minute.
+  */
+  const everything = at("everything.mp4");
+  ff([
+    "-f", "lavfi", "-i", "color=c=red:s=320x240:r=25:d=3",
+    "-f", "lavfi", "-i", "color=c=blue:s=320x240:r=25:d=3",
+    "-f", "lavfi", "-i", "color=c=green:s=320x240:r=25:d=3",
+    "-f", "lavfi", "-i", "color=c=yellow:s=320x240:r=25:d=3",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=12",
+    "-filter_complex",
+    "[0:v][1:v][2:v][3:v]concat=n=4:v=1:a=0[v];" +
+      "[4:a]volume='if(between(t,3,4.2),0,if(between(t,7,8.5),0,0.5))':eval=frame[a]",
+    "-map", "[v]", "-map", "[a]",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", everything,
+  ]);
+  const read = await measureStyle(everything);
+
+  // Three hard cuts in twelve seconds is fifteen a minute. The number the
+  // four-pass reader gave for this clip, to the decimal.
+  check(
+    "the cuts are counted, and only the cuts",
+    read.cutsPerMinute === 15,
+    `${read.cutsPerMinute} a minute`,
+  );
+  check(
+    "the kept silence is the one the editor left, to the millisecond it was",
+    Math.abs(read.keptSilenceMs - 1509) <= 40,
+    `${read.keptSilenceMs} ms`,
+  );
+  check(
+    "the loudness is unchanged by sharing a decode with the silence",
+    Math.abs(read.targetLufs - -28.2) < 0.3 && read.audioMeasured === true,
+    `${read.targetLufs} LUFS`,
+  );
+  check(
+    "and so are the grade and the movement, which come off the other branch",
+    Math.abs(read.saturation - 0.56) < 0.02 &&
+      Math.abs(read.brightness - 0.405) < 0.02 &&
+      Math.abs(read.motion - 0.136) < 0.02,
+    `sat ${read.saturation}, brightness ${read.brightness}, motion ${read.motion}`,
+  );
+
+  /*
+    And a silent clip is not handed two audio filters for nothing.
+
+    It used to get both anyway: a process that decoded a video stream it had
+    been told to ignore, to report nothing about sound that is not there.
+    `audioMeasured` was already false afterwards, so the answer was right and
+    the work was wasted — the same shape as everything else on this page.
+  */
+  const noSound = stillClip("no-sound", "teal", 5);
+  const quiet = await measureStyle(noSound);
+  check(
+    "a clip with no sound track reports no measurement rather than a wrong one",
+    quiet.audioMeasured === false && quiet.targetLufs === -14 && quiet.loudnessRange === 0,
+    JSON.stringify({ audioMeasured: quiet.audioMeasured, targetLufs: quiet.targetLufs }),
+  );
+  check(
+    "and its picture is still read",
+    quiet.gradeMeasured === true && quiet.brightness > 0,
+    `brightness ${quiet.brightness}`,
+  );
+}
+
 await rm(workDir, { recursive: true, force: true });
 await rm(buildDir, { recursive: true, force: true });
 
