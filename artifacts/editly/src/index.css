@@ -1302,19 +1302,24 @@ html[data-page-theme="light"] body {
   position: relative;
   isolation: isolate;
   /*
-   * `clip` on one axis only, and the pair is the whole point.
+   * No `overflow` here at all, and that is deliberate.
    *
-   * The horizon is drawn a good deal taller than the section's own top edge —
-   * the bump rises over the page above it — and the light at the foot reaches
-   * below the section in the same way. `overflow: hidden` would fix a stray
-   * horizontal scrollbar and clip both of those, which is the entire effect,
-   * and would make this section a scroll container, which is what stops a
-   * `position: sticky` child from ever sticking. `overflow-x: clip` with
-   * `overflow-y` left visible is honoured on one axis alone and establishes no
-   * scroll container: it cuts the sides, which were never meant to be seen,
-   * and leaves the light free to spill above and below.
+   * This used to read `overflow-x: clip`, on the theory that `clip` on one axis
+   * with `overflow-y` left visible is honoured on that axis alone. Chromium
+   * does honour it. WebKit clips both axes — measured, not guessed, in
+   * WebKitGTK 2.52 — and the horizon is drawn taller than the section's own top
+   * edge, because the bump rises over the page above it. So on every Safari the
+   * crest of the wave was being cut off at the section's top edge, leaving a
+   * flat join with a little light surviving at the far left and right, where
+   * the curve happens to be level with that edge. That is the shape Osama
+   * photographed twice.
+   *
+   * The stray horizontal overflow this was fixing came from inside the drawing,
+   * so it is fixed inside the drawing: `.horizon-svg` clips to its own viewport
+   * (see below). Nothing here needs to clip anything, which also keeps the
+   * section from being a scroll container — the thing that stops a
+   * `position: sticky` child from ever sticking.
    */
-  overflow-x: clip;
 }
 
 /*
@@ -1337,10 +1342,10 @@ html[data-page-theme="light"] body {
  *
  * It hangs above the section by the height of the tallest apex, so the curve's
  * flat ends land exactly on the section's own top edge and the bump rises over
- * the page above. `preserveAspectRatio="none"` on the svg inside means the
- * 1000-unit viewBox stretches to whatever the page is wide, so the curve keeps
- * its proportions at every width without a single media query — and a blur
- * stretched horizontally along a horizontal band is a blur nobody can see.
+ * the page above. The svg inside maps 1:1 to it — its viewBox is set from this
+ * box's own measured width, so a stroke is the thickness it says it is at every
+ * screen size; see the long note on units above `HORIZON_BOX` in `home.tsx` for
+ * why stretching a viewBox instead ruined the phone.
  */
 .horizon {
   position: absolute;
@@ -1362,7 +1367,16 @@ html[data-page-theme="light"] body {
   display: block;
   width: 100%;
   height: 100%;
-  overflow: visible;
+  /*
+   * The svg's own viewport does the clipping, which is the only clip in the
+   * whole band. The oversized ground and the outer reach of the blurs run past
+   * the sides of the box; they are cut here, at the page's own edge, where they
+   * were never going to be seen. Everything vertical stays inside the 380-unit
+   * viewBox by construction, so nothing that matters is lost — and the section
+   * above stays free of an `overflow` that WebKit would have applied to both
+   * axes.
+   */
+  overflow: hidden;
 }
 .horizon-grain {
   position: absolute;

@@ -734,9 +734,23 @@ function Horizon({ foot = false }: { foot?: boolean }) {
     tick();
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onResize);
+    /*
+     * A resize event is not the only way this box changes width, and the one it
+     * misses is the common one: a classic scrollbar appearing once the page has
+     * laid out takes the element from 447 to 431 with no window resize at all.
+     * The viewBox then disagreed with the element by those 16px, and
+     * `xMidYMid meet` — which is here so the mapping stays 1:1, see the note on
+     * the units above — answered by centring the drawing and leaving 8px of
+     * bare section down each side. On a phone that is a notch out of the light
+     * at both ends of the wave. Watching the element itself catches every cause
+     * rather than the one that happens to fire an event.
+     */
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(onResize);
+    ro?.observe(box);
     return () => {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onResize);
+      ro?.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
   }, [foot]);
@@ -799,7 +813,7 @@ function Horizon({ foot = false }: { foot?: boolean }) {
               <feGaussianBlur
                 data-stroke={layer.w}
                 data-blur={layer.blur}
-                {...(layer === HORIZON_LIP ? { "data-lip": "" } : {})}
+                {...(layer === HORIZON_LIP ? { "data-lip": "1" } : {})}
                 stdDeviation={layer.blur / 2}
               />
             </filter>
@@ -831,7 +845,7 @@ function Horizon({ foot = false }: { foot?: boolean }) {
           strokeWidth={HORIZON_LIP.w}
           strokeLinecap="butt"
           data-stroke={HORIZON_LIP.w}
-          data-lip=""
+          data-lip="1"
           /* Fully opaque, unlike every layer inside the clip. It is covering an
              antialiasing seam, and a half-transparent cover leaves half a seam;
              the swell dims the band under it, not the line that hides the join. */

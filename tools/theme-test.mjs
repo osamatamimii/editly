@@ -365,6 +365,33 @@ console.log("\nNo vendor prefix is written by hand");
   );
 }
 
+console.log("\nNothing clips on one axis and expects the other to be left alone");
+{
+  /*
+   * `overflow-x: clip` with `overflow-y` left `visible` reads, in the spec, as
+   * a clip on one axis and no scroll container at all. Chromium implements it
+   * that way. WebKit clips *both* axes — measured in WebKitGTK 2.52, and it is
+   * what every Safari Osama opened the page on was doing.
+   *
+   * That is not a cosmetic difference here. The horizon is drawn taller than
+   * its section on purpose, so the crest of the wave rises over the page above
+   * it; a browser that clips the y axis too cuts the crest off and leaves a
+   * flat join with a scrap of light surviving at the far left and right, where
+   * the curve happens to be level with the section's edge. Two rounds went into
+   * chasing that as a blur bug before the cause turned out to be one word of
+   * CSS one file away.
+   *
+   * So: no single-axis overflow in this stylesheet. Clip inside the thing that
+   * overflows, where both axes mean the same thing everywhere.
+   */
+  const oneAxis = [...css.matchAll(/^\s*overflow-(x|y)\s*:\s*(clip|hidden|auto|scroll)/gm)].map((m) => m[0].trim());
+  check(
+    "no rule clips or scrolls a single axis, which WebKit applies to both",
+    oneAxis.length === 0,
+    oneAxis.length ? `${[...new Set(oneAxis)].join(", ")} — Safari clips the other axis too` : "",
+  );
+}
+
 console.log("\nThe glass is a material rather than a scrim");
 {
   const panel = blockFor(".glass-panel") ?? "";
