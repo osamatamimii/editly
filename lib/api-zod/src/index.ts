@@ -1110,6 +1110,32 @@ export const NoteResponse = z.object({
   createdAt: z.string(),
 });
 
+/* ── The words, which are what a note is placed against ─────────────────── */
+
+/**
+ * One spoken word on the source clock, as a triple rather than an object.
+ *
+ * `[start, end, text]`. A three-hour podcast is about twenty-seven thousand of
+ * these, and `{"start":..,"end":..,"text":..}` spends roughly twice the bytes
+ * of `[..,..,".."]` saying the same thing. The shape is documented here and in
+ * the spec, which is the price of the saving and a fair one at this size.
+ */
+export const TranscriptWord = z.tuple([z.number(), z.number(), z.string()]);
+
+export const TranscriptResponse = z.object({
+  /**
+   * False when nothing has been transcribed yet, which is a state and not an
+   * error: a project uploaded a minute ago has no words, the surface that
+   * places notes has to draw that, and a 404 would make it indistinguishable
+   * from a project that does not exist.
+   */
+  available: z.boolean(),
+  language: z.string().nullable(),
+  words: z.array(TranscriptWord),
+  /** True when the cap bit, so the page can say so rather than quietly end. */
+  truncated: z.boolean(),
+});
+
 export const ListNotesResponse = z.object({
   notes: z.array(NoteResponse),
   /** What the page needs to say "that is as many as a project can hold". */

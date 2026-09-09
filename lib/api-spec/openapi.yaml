@@ -1661,6 +1661,73 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /projects/{id}/transcript:
+    get:
+      operationId: getTranscript
+      tags: [notes]
+      summary: The words of this project's source, on the source clock
+      description: >
+        The surface a note is placed against. Hiding the timeline does not mean
+        hiding everything - it means replacing it with what a person navigating
+        a talking head or a podcast actually looks for, which is what was said.
+        The words are already bought and stored for the edit, so this hands back
+        the copy that exists rather than buying another; a project whose source
+        has not been transcribed yet answers `available: false` with an empty
+        list, not a 404, because "not yet" and "no such project" are different
+        states and the page has to draw the first one.
+        Every pair is milliseconds into the source file as uploaded, the same
+        clock and the same unit a note's anchor uses - so a word this returns
+        can be posted straight back as `sourceMs` with nothing to convert.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The stored words, or the fact that there are none yet
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [available, language, words, truncated]
+                properties:
+                  available:
+                    type: boolean
+                    description: >
+                      False when nothing has been transcribed for this project
+                      yet. The other fields are then empty rather than absent.
+                  language:
+                    type: string
+                    nullable: true
+                    description: BCP-47 as the provider reported it, or null.
+                  words:
+                    type: array
+                    description: >
+                      One triple per word - start, end, text - rather than an
+                      object per word, because a four-hour podcast is hundreds
+                      of thousands of them and the key names would be most of
+                      the response.
+                    items:
+                      type: array
+                      minItems: 3
+                      maxItems: 3
+                      items: {}
+                  truncated:
+                    type: boolean
+                    description: >
+                      True when the source ran past the ceiling one response
+                      carries. The words up to that point are still exact.
+        "404":
+          description: >
+            No such project, or not this account's. The same answer for both, so
+            that whether an id exists is not learnable from a status code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /projects/{id}/notes/{noteId}:
     delete:
       operationId: deleteNote

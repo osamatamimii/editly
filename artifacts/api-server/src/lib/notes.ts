@@ -42,10 +42,19 @@ export interface Note {
   text: string;
 }
 
-/** A word from the transcript, on the source clock, in seconds. */
+/**
+ * A word from the transcript, on the source clock, in **milliseconds**.
+ *
+ * Milliseconds because that is the unit a note's anchor is stored in and the
+ * unit the stored transcript keeps its words in. The first version of this
+ * interface asked for seconds, and the store that fills it read fields that do
+ * not exist on a stored segment — so every snap silently fell through to "no
+ * transcript" and used the raw click. Nothing errored. One clock, one unit, is
+ * what stops that from being possible.
+ */
 export interface AnchorWord {
-  start: number;
-  end: number;
+  startMs: number;
+  endMs: number;
 }
 
 /** What a note turned out to mean, or that it meant nothing this layer knows. */
@@ -114,15 +123,14 @@ export const KEEP_PADDING_MS = 900;
  */
 export function snapAnchor(sourceMs: number, words: AnchorWord[]): number {
   if (words.length === 0) return Math.max(0, Math.round(sourceMs));
-  const seconds = sourceMs / 1000;
   let best = sourceMs;
   let closest = Infinity;
   for (const word of words) {
-    for (const edge of [word.start, word.end]) {
-      const gap = Math.abs(edge - seconds);
+    for (const edge of [word.startMs, word.endMs]) {
+      const gap = Math.abs(edge - sourceMs);
       if (gap < closest) {
         closest = gap;
-        best = Math.round(edge * 1000);
+        best = Math.round(edge);
       }
     }
   }

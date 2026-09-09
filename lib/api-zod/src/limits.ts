@@ -35,6 +35,18 @@ export const PROJECT_NOTES_LIMIT = 60;
 /** A note is one instruction about one moment, not an essay. */
 export const NOTE_TEXT_LIMIT = 280;
 
+/**
+ * How many words one transcript request will hand back.
+ *
+ * Forty thousand, which is about four hours of speech at a conversational
+ * pace — past the ten-hour upload Studio sells, and comfortably past the
+ * four-hour episode Pro is sold on. The cap exists because this response is
+ * the whole transcript in one piece and a request that cannot be bounded is a
+ * request that eventually is not answered; it is set where it does not bite on
+ * anything this product actually accepts.
+ */
+export const TRANSCRIPT_WORDS_LIMIT = 40000;
+
 /** What is scheduled, and what happened to what has gone. */
 export const SCHEDULED_POSTS_LIMIT = 200;
 

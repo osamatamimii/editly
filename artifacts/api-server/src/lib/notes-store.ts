@@ -45,13 +45,31 @@ export async function wordsFor(projectId: string, userId: string): Promise<Ancho
     .where(and(eq(transcriptsTable.projectId, projectId), eq(transcriptsTable.userId, userId)))
     .limit(1);
   if (!row?.segments) return [];
+  return wordsOf(row.segments);
+}
+
+/**
+ * The stored segments, flattened to word boundaries.
+ *
+ * `startMs`/`endMs`/`text` are the field names the worker's `TranscriptWord`
+ * writes, and reading anything else here fails the way a wrong field name in
+ * jsonb always fails — silently, with an empty list that looks exactly like a
+ * project nobody has transcribed yet. Both readers of these rows go through
+ * this one function so there is a single place to be right.
+ */
+export function wordsOf(segments: unknown): AnchorWord[] {
   const words: AnchorWord[] = [];
-  for (const segment of row.segments as Array<{ words?: Array<{ start?: number; end?: number }> }>) {
-    for (const word of segment.words ?? []) {
-      if (typeof word.start === "number" && typeof word.end === "number") {
-        words.push({ start: word.start, end: word.end });
+  for (const segment of (segments as StoredSegment[]) ?? []) {
+    for (const word of segment?.words ?? []) {
+      if (typeof word.startMs === "number" && typeof word.endMs === "number") {
+        words.push({ startMs: word.startMs, endMs: word.endMs });
       }
     }
   }
   return words;
+}
+
+/** As much of a stored segment as anything on this side reads. */
+export interface StoredSegment {
+  words?: Array<{ startMs?: number; endMs?: number; text?: string }>;
 }

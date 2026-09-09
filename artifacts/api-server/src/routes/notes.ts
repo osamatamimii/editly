@@ -10,14 +10,17 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { db, notesTable, projectsTable } from "@workspace/db";
+import { db, notesTable, projectsTable, transcriptsTable } from "@workspace/db";
 import {
   CreateNoteBody,
   DeleteNoteParams,
   ListNotesResponse,
   ProjectNoteParams,
+  TranscriptResponse,
   PROJECT_NOTES_LIMIT,
+  TRANSCRIPT_WORDS_LIMIT,
 } from "@workspace/api-zod";
+import type { StoredSegment } from "../lib/notes-store";
 import { currentUserId } from "../middlewares/auth";
 import { badRequest } from "../lib/bad-request";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
@@ -152,6 +155,66 @@ router.delete("/projects/:id/notes/:noteId", async (req, res): Promise<void> => 
     return;
   }
   res.status(204).end();
+});
+
+/**
+ * The words of this project's source, on the source clock.
+ *
+ * This is the surface a note is placed against. Hiding the timeline does not
+ * mean hiding everything — it means replacing it with the thing a person
+ * navigating a talking head or a podcast actually looks for, which is what was
+ * said. The words are already bought and stored for the edit; this hands back
+ * the copy that exists rather than buying another.
+ *
+ * `available: false` rather than a 404 when nothing has been transcribed yet.
+ * A project uploaded a minute ago legitimately has no words, the page has to
+ * draw that state, and answering 404 would make "not yet" and "no such
+ * project" the same reply.
+ */
+router.get("/projects/:id/transcript", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  const params = ProjectNoteParams.safeParse(req.params);
+  if (!params.success) {
+    badRequest(res, params.error);
+    return;
+  }
+  if (!(await ownedProject(params.data.id, userId))) {
+    res.status(404).json({ error: "Project not found." });
+    return;
+  }
+
+  const [row] = await db
+    .select({ segments: transcriptsTable.segments, language: transcriptsTable.language })
+    .from(transcriptsTable)
+    .where(and(eq(transcriptsTable.projectId, params.data.id), eq(transcriptsTable.userId, userId)))
+    .limit(1);
+
+  if (!row?.segments) {
+    res.json(TranscriptResponse.parse({ available: false, language: null, words: [], truncated: false }));
+    return;
+  }
+
+  /*
+   * `startMs`/`endMs`/`text` — the worker's own field names, and the same ones
+   * `wordsOf` reads for snapping. Milliseconds all the way out, so a word this
+   * hands to the page can be posted straight back as a note's `sourceMs`
+   * without a conversion anybody could get wrong in one direction only.
+   */
+  const words: Array<[number, number, string]> = [];
+  let truncated = false;
+  for (const segment of (row.segments as StoredSegment[]) ?? []) {
+    for (const word of segment?.words ?? []) {
+      if (typeof word.startMs !== "number" || typeof word.endMs !== "number") continue;
+      if (words.length >= TRANSCRIPT_WORDS_LIMIT) {
+        truncated = true;
+        break;
+      }
+      words.push([word.startMs, word.endMs, String(word.text ?? "")]);
+    }
+    if (truncated) break;
+  }
+
+  res.json(TranscriptResponse.parse({ available: true, language: row.language ?? null, words, truncated }));
 });
 
 export default router;

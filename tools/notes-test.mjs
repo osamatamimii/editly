@@ -20,6 +20,7 @@
  * the moment anything earlier changes — silently, which is the worst way.
  */
 import { mkdtemp } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -77,7 +78,7 @@ section("A sentence is read for what it asks, in either language");
 
 section("The anchor is moved onto a word boundary, never into the middle of one");
 {
-  const words = [{ start: 1.0, end: 1.4 }, { start: 1.6, end: 2.2 }, { start: 3.0, end: 3.5 }];
+  const words = [{ startMs: 1000, endMs: 1400 }, { startMs: 1600, endMs: 2200 }, { startMs: 3000, endMs: 3500 }];
   check("a click inside a word snaps to its nearer edge", snapAnchor(1750, words) === 1600, String(snapAnchor(1750, words)));
   check("a click just past a word snaps back to its end", snapAnchor(2300, words) === 2200, String(snapAnchor(2300, words)));
   check("a click in a gap takes the nearest edge either side", snapAnchor(2700, words) === 3000, String(snapAnchor(2700, words)));
@@ -174,6 +175,42 @@ section("Every anchor that reaches a plan is on the source clock");
   const punch = operations.find((o) => o.type === "zoomPunch");
   check("the keep sits around its own source millisecond", silence.protect[0].startMs === 12345 - KEEP_PADDING_MS, JSON.stringify(silence.protect));
   check("the punch sits on its own source second", punch.at[0] === 30, JSON.stringify(punch.at));
+}
+
+section("The words are read from the fields the worker actually wrote");
+{
+  /*
+   * The bug this section exists for shipped, and nothing failed.
+   *
+   * `snapAnchor` is fed from `transcripts.segments`, which is jsonb — so a
+   * reader asking for `word.start` on rows that hold `word.startMs` gets
+   * `undefined`, skips every word, and returns an empty list. An empty list is
+   * indistinguishable from a project nobody has transcribed yet, and the
+   * documented fallback for that is "use the anchor as given". So every snap
+   * quietly stopped snapping, every response stayed a 200, and every test that
+   * passed its own fixture in kept passing.
+   *
+   * Fixtures cannot catch this: the fixture is written by the same hand as the
+   * reader, so both are wrong together. Only the writer's own type can, which
+   * is what this reads.
+   */
+  const types = readFileSync(path.join(repoRoot, "artifacts/worker/src/providers/types.ts"), "utf8");
+  const word = types.slice(types.indexOf("export interface TranscriptWord"));
+  const fields = new Set([...word.slice(0, word.indexOf("}")).matchAll(/^\s{2}(\w+)[?]?:/gm)].map((m) => m[1]));
+  check("the worker writes startMs, endMs and text", ["startMs", "endMs", "text"].every((f) => fields.has(f)), [...fields].join(","));
+  check("and never start or end", !fields.has("start") && !fields.has("end"));
+
+  for (const reader of ["artifacts/api-server/src/lib/notes-store.ts", "artifacts/api-server/src/routes/notes.ts"]) {
+    const source = readFileSync(path.join(repoRoot, reader), "utf8");
+    // Only the lines that actually pick a field off a transcript word.
+    const reads = [...source.matchAll(/\bword\.(\w+)/g)].map((m) => m[1]);
+    check(`${path.basename(reader)} reads at least one word field`, reads.length > 0);
+    check(
+      `${path.basename(reader)} reads only fields the worker writes`,
+      reads.every((field) => fields.has(field)),
+      reads.filter((field) => !fields.has(field)).join(","),
+    );
+  }
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
