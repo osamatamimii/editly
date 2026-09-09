@@ -196,6 +196,18 @@ console.log("\nThe two themes actually differ");
     "--cta",
     "--cta-foreground",
     "--cta-bloom",
+    /*
+     * And the four stops that light it, for the same reason and one more.
+     *
+     * They are `--cta` under a light — the rim's top and bottom edge, the
+     * face's top and bottom — and the light on an object does not change
+     * because the wall behind it did. A button whose lit edge moved between
+     * themes would be two different objects wearing one name.
+     */
+    "--cta-face-top",
+    "--cta-face-bottom",
+    "--cta-ring-top",
+    "--cta-ring-bottom",
   ]);
   // A token that is not a colour has nothing to differ about: see
   // THEME_INDEPENDENT above. This check used to have its own idea of that, so

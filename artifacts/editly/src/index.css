@@ -459,6 +459,39 @@
   --cta-bloom: 259 100% 71%;
 
   /*
+   * The four stops that light a filled button, and only the lightness moves.
+   *
+   * Measured off the reference Osama sent, pixel by pixel. That button is one
+   * hue (218°) at one saturation (83%) with four lightness values, arranged so
+   * the light is physically coherent rather than merely pretty:
+   *
+   *   - the **rim** is lit like a bevel — brightest along its top edge, falling
+   *     into shadow along its bottom (L 70% → 66%)
+   *   - the **face** is lit like a recess — in shadow at the top where the rim
+   *     above occludes it, catching bounced light at the bottom (L 64% → 68%)
+   *
+   * The two gradients run in *opposite* directions and cross near the middle,
+   * which is why the rim disappears halfway down the sides and why the whole
+   * thing reads as an object with a raised edge rather than as a rectangle with
+   * a border. It is the single idea in that button.
+   *
+   * The numbers are not the reference's numbers. Copying its ±2.4 lightness
+   * steps onto our violet gave an effect measurably **35% weaker**: hue 255 at
+   * this lightness carries far less luminance than hue 218 (green is 71% of
+   * luminance, and ours has almost none), so the same lightness step is a
+   * smaller step in light. These four were solved for instead — the lightness
+   * values whose *luminance* separations match the reference's exactly.
+   *
+   * And the ring's bottom edge is `--cta` untouched, as it is in the
+   * reference: the brand colour is the unlit truth, and the other three are it
+   * under a light.
+   */
+  --cta-face-top: 255 100% 57.4%;
+  --cta-face-bottom: 255 100% 65.4%;
+  --cta-ring-top: 255 100% 67.5%;
+  --cta-ring-bottom: 255 100% 62%;
+
+  /*
    * Neon Purple Glow #9B6BFF — light enough that white sits on it at 3.54:1,
    * below AA. A light fill takes dark ink; that is not a compromise, it is the
    * rule the rest of the palette already follows.
@@ -696,6 +729,13 @@ html[data-page-theme="light"] body {
   --cta: 255 100% 62%;
   --cta-foreground: 0 0% 100%;
   --cta-bloom: 259 100% 71%;
+  /* Identical to the dark theme's, and for the same reason `--cta` is: the
+     button is one object placed on the page, not a surface defined against it.
+     The light on it does not care what colour the page is. */
+  --cta-face-top: 255 100% 57.4%;
+  --cta-face-bottom: 255 100% 65.4%;
+  --cta-ring-top: 255 100% 67.5%;
+  --cta-ring-bottom: 255 100% 62%;
   /*
    * On dark, secondary is the *lighter* purple — the neon one that glows. On
    * light that relationship has to invert: a lighter-than-primary purple on
@@ -1678,29 +1718,37 @@ html[data-page-theme="light"] body {
   position: relative;
   --aura-tint: hsl(var(--cta));
   --aura-bloom: hsl(var(--cta-bloom));
-  background: var(--aura-tint);
+  /* The same object as `.aura-btn`, so the same light on it *and the same
+     shadow* — see the long note on the four stops beside `--cta`. The shadow
+     is not scaled up with the button: this class dresses the hero at 56px and
+     the header pill at 44, and a shadow sized for the larger one sits under
+     the smaller like a bruise. It was measured at 44 and it holds at both. A pill rather than a rounded
+     rectangle, which the rim follows without being told: the inner radius is
+     the outer one less the border, whatever the outer one is. */
+  border: 2px solid transparent;
+  background-image:
+    linear-gradient(180deg, hsl(var(--cta-face-top)), hsl(var(--cta-face-bottom))),
+    linear-gradient(180deg, hsl(var(--cta-ring-top)), hsl(var(--cta-ring-bottom)));
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
   transition: box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1),
               transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
               filter 0.35s ease;
   box-shadow:
-    0 1px 1px color-mix(in srgb, black 30%, var(--aura-bloom)),
-    0 6px 16px -4px color-mix(in srgb, var(--aura-bloom) 52%, transparent),
-    0 18px 44px -12px color-mix(in srgb, var(--aura-bloom) 46%, transparent);
+    0 3px 6px -1px color-mix(in srgb, var(--aura-bloom) 24%, transparent),
+    0 9px 18px -6px color-mix(in srgb, var(--aura-bloom) 24%, transparent);
 }
 .btn-gradient-cta:hover {
   filter: brightness(1.06);
   box-shadow:
-    0 1px 1px color-mix(in srgb, black 30%, var(--aura-bloom)),
-    0 8px 22px -5px color-mix(in srgb, var(--aura-bloom) 64%, transparent),
-    0 26px 60px -14px color-mix(in srgb, var(--aura-bloom) 58%, transparent);
+    0 4px 8px -1px color-mix(in srgb, var(--aura-bloom) 30%, transparent),
+    0 14px 28px -8px color-mix(in srgb, var(--aura-bloom) 30%, transparent);
   transform: translateY(-1px);
 }
 .btn-gradient-cta:active {
   transform: translateY(1px);
   filter: brightness(0.93);
-  box-shadow:
-    0 1px 1px color-mix(in srgb, black 34%, var(--aura-bloom)),
-    0 3px 8px -3px color-mix(in srgb, var(--aura-bloom) 40%, transparent);
+  box-shadow: 0 3px 6px -2px color-mix(in srgb, var(--aura-bloom) 28%, transparent);
 }
 .btn-gradient-cta:focus-visible {
   outline: none;
@@ -2281,7 +2329,23 @@ html[data-page-theme="light"] body {
    * quietly deciding a layout property it does not need. viewport-test caught
    * it on the first run after the class was applied.
    */
-  border: 0;
+  /*
+   * Two pixels of transparent border, and it is the whole mechanism.
+   *
+   * The reference button is two nested rounded rectangles: a 2px rim with its
+   * own gradient, and a face with the opposite one. Drawing that with a
+   * `::before` would need `position: relative` here, which this class must not
+   * have — see the note above. Drawing it with `inset 0 0 0 2px` would give a
+   * rim of one flat colour, and the rim's gradient is the point.
+   *
+   * A transparent border with two backgrounds does it on one element: the face
+   * gradient is clipped to the padding box, the rim gradient fills the border
+   * box behind it, and the 2px band between them is the rim. The browser also
+   * derives the inner radius itself — `border-radius` minus `border-width`,
+   * 14px outer and 12px inner — which is the concentric rule `viewport-test`
+   * already enforces on nested media, obeyed here for free instead of by hand.
+   */
+  border: 2px solid transparent;
   /*
    * The ring is the *button's own* colour, veiled — which is why it belongs to
    * the object instead of sitting behind it. Each variant declares its tint;
@@ -2325,11 +2389,43 @@ html[data-page-theme="light"] body {
    * property, and a `background-color` here would lose to it. A
    * background-image cannot be argued with by a background-color.
    */
-  background-image: linear-gradient(var(--aura-tint), var(--aura-tint));
+  /*
+   * The four stops, overridable as a set.
+   *
+   * A variant that wants this treatment in another colour declares its own
+   * four, the way it already declares `--aura-tint`. A variant that wants none
+   * of it sets `background-image: none` and the border falls away with it.
+   */
+  --aura-face-top: hsl(var(--cta-face-top));
+  --aura-face-bottom: hsl(var(--cta-face-bottom));
+  --aura-ring-top: hsl(var(--cta-ring-top));
+  --aura-ring-bottom: hsl(var(--cta-ring-bottom));
+  background-image:
+    linear-gradient(180deg, var(--aura-face-top), var(--aura-face-bottom)),
+    linear-gradient(180deg, var(--aura-ring-top), var(--aura-ring-bottom));
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  /*
+   * No black contact line under it any more, and that is measured too.
+   *
+   * This used to open with `0 1px 1px color-mix(black 30%, bloom)` — a hard
+   * dark hairline pressed under the button, doing the job of separating it
+   * from the page. The reference has nothing of the kind: sampled across its
+   * bottom edge the last row of rim runs straight into the first row of
+   * shadow, with no darker line between them. It does not need one, because
+   * the rim's own bottom edge is already the darkest thing on the object.
+   *
+   * So the separation moved into the rim where it belongs, and what is left
+   * below is light rather than ink: the button's own colour, offset down about
+   * five pixels and blurred about seven, which is the profile measured off the
+   * reference's shadow (peak 28% alpha at the edge, half of it 5.5px down,
+   * still 3% at 10px). Two layers rather than one because the tail runs past
+   * where the crop could see it, and a shadow that stops abruptly is the tell
+   * of a box told to float.
+   */
   box-shadow:
-    0 1px 1px color-mix(in srgb, black 30%, var(--aura-bloom)),
-    0 4px 10px -3px color-mix(in srgb, var(--aura-bloom) 50%, transparent),
-    0 12px 30px -8px color-mix(in srgb, var(--aura-bloom) 42%, transparent);
+    0 3px 6px -1px color-mix(in srgb, var(--aura-bloom) 24%, transparent),
+    0 9px 18px -6px color-mix(in srgb, var(--aura-bloom) 24%, transparent);
   transition: filter 180ms ease, box-shadow 180ms ease, transform 120ms ease;
 }
 /* Nothing grows and nothing ramps. The bloom opens a little, which is the
@@ -2337,9 +2433,8 @@ html[data-page-theme="light"] body {
 .aura-btn:hover:not(:disabled) {
   filter: brightness(1.06);
   box-shadow:
-    0 1px 1px color-mix(in srgb, black 30%, var(--aura-bloom)),
-    0 6px 14px -4px color-mix(in srgb, var(--aura-bloom) 62%, transparent),
-    0 18px 40px -10px color-mix(in srgb, var(--aura-bloom) 55%, transparent);
+    0 4px 8px -1px color-mix(in srgb, var(--aura-bloom) 30%, transparent),
+    0 14px 28px -8px color-mix(in srgb, var(--aura-bloom) 30%, transparent);
 }
 /* Pressed is the one state that moves, and it moves *in*: the lift goes, the
    face darkens, the rim deepens. Half a pixel down, which is felt rather than
@@ -2347,9 +2442,7 @@ html[data-page-theme="light"] body {
 .aura-btn:active:not(:disabled) {
   transform: translateY(1px);
   filter: brightness(0.92);
-  box-shadow:
-    0 1px 1px color-mix(in srgb, black 34%, var(--aura-bloom)),
-    0 2px 6px -3px color-mix(in srgb, var(--aura-bloom) 40%, transparent);
+  box-shadow: 0 2px 4px -1px color-mix(in srgb, var(--aura-bloom) 26%, transparent);
 }
 /* Same defect, same fix — see `.glow-btn:focus-visible` above. A raw HSL triple
    where a colour belongs voids the declaration, and `outline: none` is already
@@ -2373,6 +2466,10 @@ html[data-page-theme="light"] body {
 /* The same object in the page's own colours rather than the brand's. Same
    removal: the ring is gone and the light stays. */
 .aura-btn-neutral {
+  /* It brings its own rim as an inset shadow, and an inset ring drawn 2px in
+     from the edge is a ring in the wrong place. The border goes with the
+     gradients. */
+  border-width: 0;
   background-color: var(--aura-neutral-face);
   background-image: none;
   box-shadow:
