@@ -21,7 +21,7 @@ export const PLANS = [
     price: 12,
     yearlyPrice: 115,
     yearlyPerMonth: "$9.6/month billed yearly",
-    minutes: 60,
+    minutes: 30,
     forWho: "Short-form: TikTok, Reels, Shorts",
     upload: "Upload up to 30 minutes",
     color: "emerald",
@@ -32,7 +32,7 @@ export const PLANS = [
     price: 29,
     yearlyPrice: 279,
     yearlyPerMonth: "$23.25/month billed yearly",
-    minutes: 400,
+    minutes: 150,
     forWho: "Long-form: YouTube and podcasts",
     upload: "Upload a 4-hour episode as one file",
     color: "violet",
@@ -44,7 +44,7 @@ export const PLANS = [
     price: 79,
     yearlyPrice: 758,
     yearlyPerMonth: "$63.2/month billed yearly",
-    minutes: 1000,
+    minutes: 800,
     forWho: "Teams and agencies",
     /*
       Three of these do not exist, and the line now says so.
@@ -106,13 +106,13 @@ export const FREE_TIER = {
   name: "Free",
   price: 0,
   /** Kept in step with PLAN_LIMITS.free.minutesPerMonth. */
-  minutes: 5,
+  minutes: 3,
   /** Kept in step with PLAN_LIMITS.free.maxUploadMinutes. */
-  uploadMinutes: 10,
+  uploadMinutes: 20,
   headline: "Try it free, no card",
   lines: [
-    "5 minutes of finished video a month",
-    "Upload clips up to 10 minutes",
+    "3 minutes of finished video a month",
+    "Upload clips up to 20 minutes",
     /*
       It said "Every editing feature, so you can judge the result", and that is
       not true: `PLAN_LIMITS.free.referenceStyle` is false, and matching another

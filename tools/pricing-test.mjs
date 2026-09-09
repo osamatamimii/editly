@@ -175,9 +175,14 @@ section("An upload limit named on the page is the one the worker enforces");
 const CLAIMS = {
   "Upload as much footage as you like. You only pay for what you publish": {
     kind: "enforced",
-    // Nothing meters uploaded minutes anywhere: the ceiling is per-file, and
-    // the month's allowance counts `output_seconds` on finished jobs.
-    holds: (limits) => limits.minutesPerMonth > 0 && limits.maxUploadMinutes > 0,
+    // The allowance counts finished output. There is a ceiling on source too
+    // now — `sourceMinutesPerMonth` — but it is fair use rather than a meter:
+    // it has to be far enough above the minutes it accompanies that reaching
+    // it means uploading hours to publish minutes. Ten times is the line.
+    holds: (limits) =>
+      limits.minutesPerMonth > 0 &&
+      limits.maxUploadMinutes > 0 &&
+      limits.sourceMinutesPerMonth >= limits.minutesPerMonth * 4,
   },
   "No watermark": {
     kind: "enforced",
@@ -289,6 +294,32 @@ section("Every claim on the page is one somebody has justified");
       `${line} appears to be built now — move it back to enforced with a holds() that means something`,
     );
   }
+}
+
+section("And no render charges for what was uploaded rather than published");
+{
+  /*
+   * The sentence above is the best line on the pricing page and it was false
+   * on one path: a clips job wrote `billedSeconds: sourceSeconds`, so a
+   * two-hour podcast cut into six clips billed two hours. `extractHighlight`
+   * read the same two hours and billed thirty seconds, which is the same
+   * contradiction from the other side.
+   *
+   * The cost that reasoning was answering is real, and it moved to
+   * `sourceMinutesPerMonth` — a fair-use ceiling, checked above. What must not
+   * come back is the visible charge, so this reads the worker rather than a
+   * limit: any path that bills the source again makes the page lie, and it
+   * would do it silently, on an invoice, months later.
+   */
+  const worker = readFileSync(path.join(repoRoot, "artifacts/worker/src/index.ts"), "utf8");
+  const charged = [...worker.matchAll(/billedSeconds:\s*([A-Za-z_$][\w$.]*)/g)].map((m) => m[1]);
+  check(
+    "every job is billed at something it produced",
+    charged.length > 0 && charged.every((name) => !/^source/i.test(name)),
+    charged.length === 0
+      ? "nothing writes billedSeconds any more — the meter is reading a column nobody fills"
+      : `billed at ${[...new Set(charged)].join(", ")}`,
+  );
 }
 
 section("What the page promises ahead of the code is written down, not forgotten");

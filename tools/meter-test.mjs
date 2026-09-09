@@ -464,18 +464,78 @@ if (!DATABASE_URL) {
     check("they are billed for theirs", theirs.minutesUsed === 100, JSON.stringify(theirs));
   }
 
+  /*
+   * The other ceiling: what we paid to *read*, as opposed to what we sold.
+   *
+   * The visible meter counts finished video, which is the right thing to sell
+   * and not what this costs. Nearly the whole bill is analysis — transcription
+   * and reading the picture — charged per minute uploaded, whatever fraction
+   * of it survives the edit. A two-hour podcast cut down to a thirty-second
+   * highlight bills half a minute and costs about $1.92 to read.
+   *
+   * So there is a fair-use line on source, and the property that makes it fair
+   * is the one checked here: it counts **per project, not per render**.
+   * Analysis is a pure function of the media and is cached (`transcripts`,
+   * `comprehensions`), so re-rendering one podcast five times costs one
+   * reading. A line that charged five would only ever punish somebody
+   * iterating, which is the behaviour the product exists to encourage.
+   */
+  section("The source a plan may have read is counted once per project");
+  {
+    await clear();
+    await project("p-podcast", METERED, 7200); // two hours
+    await insert("first-cut", METERED, { project_id: "p-podcast", output_seconds: 30 });
+    const once = await usageFor(METERED, "free");
+    check("a two-hour source reads as 120 source minutes", once.sourceMinutesUsed === 120, JSON.stringify(once));
+    check("while the visible meter still charges the half minute", once.minutesUsed === 1, JSON.stringify(once));
+
+    await insert("second-cut", METERED, { project_id: "p-podcast", output_seconds: 30 });
+    await insert("third-cut", METERED, { project_id: "p-podcast", output_seconds: 30 });
+    const thrice = await usageFor(METERED, "free");
+    check(
+      "and three renders of it are still 120, because the reading was cached",
+      thrice.sourceMinutesUsed === 120,
+      JSON.stringify(thrice),
+    );
+
+    await project("p-second", METERED, 1800); // half an hour
+    await insert("other", METERED, { project_id: "p-second", output_seconds: 30 });
+    const both = await usageFor(METERED, "free");
+    check("a second project adds its own", both.sourceMinutesUsed === 150, JSON.stringify(both));
+    check(
+      "which is past the free plan's line",
+      both.sourceExhausted === true && both.sourceMinutesIncluded === PLAN_LIMITS.free.sourceMinutesPerMonth,
+      JSON.stringify(both),
+    );
+
+    // And the line is far enough above the minutes it accompanies that only
+    // that shape of use reaches it.
+    for (const plan of ["free", "creator", "pro", "studio"]) {
+      check(
+        `${plan}'s source line is well clear of its minutes`,
+        PLAN_LIMITS[plan].sourceMinutesPerMonth >= PLAN_LIMITS[plan].minutesPerMonth * 4,
+        `${PLAN_LIMITS[plan].sourceMinutesPerMonth} against ${PLAN_LIMITS[plan].minutesPerMonth}`,
+      );
+    }
+  }
+
   section("Running out is reported before it is exceeded, not after");
   {
     await clear();
-    // The free plan includes five minutes.
-    await insert("four", METERED, { output_seconds: 240 });
+    /* Read from the plan rather than typed in. These four assertions said
+       "five" and went red the day the free plan became three — a test that
+       has to be edited whenever the number it guards moves is describing the
+       number, not checking it. What is being checked is the *boundary*: one
+       short of the ceiling is not exhausted, exactly at it is. */
+    const included = PLAN_LIMITS.free.minutesPerMonth;
+    await insert("one-short", METERED, { output_seconds: (included - 1) * 60 });
     const under = await usageFor(METERED, "free");
-    check("four of five is not exhausted", under.exhausted === false, JSON.stringify(under));
+    check(`${included - 1} of ${included} is not exhausted`, under.exhausted === false, JSON.stringify(under));
     check("and one minute remains", under.minutesRemaining === 1, JSON.stringify(under));
 
     await insert("one-more", METERED, { output_seconds: 60 });
     const at = await usageFor(METERED, "free");
-    check("five of five is exhausted", at.exhausted === true, JSON.stringify(at));
+    check(`${included} of ${included} is exhausted`, at.exhausted === true, JSON.stringify(at));
     check("with nothing remaining", at.minutesRemaining === 0, JSON.stringify(at));
     check("and remaining never goes negative", (await usageFor(METERED, "free")).minutesRemaining >= 0);
   }
@@ -518,11 +578,16 @@ if (!DATABASE_URL) {
     await clear();
     await insert("sixty-one-sec", METERED, { output_seconds: 61 });
     const usage = await usageFor(METERED, "free");
+    const ceiling = PLAN_LIMITS.free.minutesPerMonth;
     check("shown as two minutes used", usage.minutesUsed === 2, JSON.stringify(usage));
-    check("and three left", usage.minutesRemaining === 3, JSON.stringify(usage));
+    check(`and ${ceiling - 2} left`, usage.minutesRemaining === ceiling - 2, JSON.stringify(usage));
+    /* The point of this one is the *discrepancy*, not the number: the shown
+       balance is ceiled minutes and the enforced balance is exact seconds, so
+       the second is always 59 seconds more than multiplying the first back up.
+       Written against the plan so it keeps saying that at any ceiling. */
     check(
-      "but the real balance is 239 seconds, not 180",
-      usage.secondsRemaining === 239,
+      `but the real balance is ${ceiling * 60 - 61} seconds, not ${(ceiling - 2) * 60}`,
+      usage.secondsRemaining === ceiling * 60 - 61,
       JSON.stringify(usage),
     );
   }

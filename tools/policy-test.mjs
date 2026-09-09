@@ -48,6 +48,27 @@ if (built.status !== 0) {
 const { decideRender, smallestPlanFor, FREE_WATERMARK, MAX_RENDERS_IN_FLIGHT } = await import(pathToFileURL(outfile).href);
 
 /*
+  And the limits themselves, bundled separately because `render-policy` imports
+  them without re-exporting them — reaching through a module for a constant it
+  happens to depend on is how a test starts asserting against the wrong copy.
+*/
+const limitsOut = path.join(buildDir, "plan-limits.mjs");
+const builtLimits = spawnSync(
+  require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+  [
+    path.join(repoRoot, "artifacts/api-server/src/lib/plan-limits.ts"),
+    "--bundle", "--platform=node", "--format=esm", "--target=node22",
+    `--outfile=${limitsOut}`, "--log-level=error",
+  ],
+  { stdio: "inherit" },
+);
+if (builtLimits.status !== 0) {
+  console.error("could not bundle the plan limits");
+  process.exit(1);
+}
+const { PLAN_LIMITS } = await import(pathToFileURL(limitsOut).href);
+
+/*
   The ceiling, read from the schema that enforces it rather than typed here.
 
   It was twelve, in five places. This file held a sixth copy, and the day the
@@ -197,7 +218,8 @@ console.log("\nA file that is too long");
   check("and it names the plan that would have taken it", long.body?.suggestedPlan === "pro", JSON.stringify(long.body));
   check(
     "the message says how long the file is and what this plan takes",
-    String(long.body?.error).includes("240 minutes") && String(long.body?.error).includes("free plan takes up to 10"),
+    String(long.body?.error).includes("240 minutes") &&
+      String(long.body?.error).includes(`free plan takes up to ${PLAN_LIMITS.free.maxUploadMinutes}`),
     String(long.body?.error),
   );
 
@@ -310,7 +332,18 @@ console.log("\nThe ceiling the worker will actually enforce travels with the dec
 {
   const free = decideRender({ plan: "free", usage: usage(0, 5), operations: [SILENCE] });
   check("an approval carries a ceiling", typeof free.maxSourceSeconds === "number");
-  check("in seconds, matching the plan", free.maxSourceSeconds === 10 * 60, String(free.maxSourceSeconds));
+  /* Read from the plan, not typed in. Both of these said `10` and both went red
+     the day the free upload ceiling moved to 20 — a check that has to be edited
+     whenever the thing it guards changes is not guarding it, it is shadowing
+     it. `240` below stays a literal on purpose: the four-hour episode is a
+     promise on the pricing page, and `pricing-test` asserts that number
+     against the same field, so pinning it here is a second opinion rather than
+     a copy. */
+  check(
+    "in seconds, matching the plan",
+    free.maxSourceSeconds === PLAN_LIMITS.free.maxUploadMinutes * 60,
+    String(free.maxSourceSeconds),
+  );
 
   const pro = decideRender({ plan: "pro", usage: usage(0, 200), operations: [SILENCE] });
   check("a bigger plan carries a bigger one", pro.maxSourceSeconds === 240 * 60, String(pro.maxSourceSeconds));

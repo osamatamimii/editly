@@ -52,6 +52,28 @@ export interface PlanLimits {
   /** Claimed before older jobs when the queue is busy. */
   priorityQueue: boolean;
   seats: number;
+  /**
+   * Minutes of *source* a month, and it is deliberately invisible.
+   *
+   * The page sells minutes of finished video and that is the right unit to
+   * sell: it is the one thing a person can count, and it is what they came
+   * here to make. It is not what this costs us. Nearly all of the bill is
+   * analysis — transcription and reading the picture — and analysis is paid
+   * per minute of what was *uploaded*, whatever fraction of it survives the
+   * edit.
+   *
+   * Those two units agree while the output is most of the source, and they
+   * come apart completely when it is not: a two-hour podcast run through "The
+   * highlight" bills half a minute and costs about $1.92 of reading. One
+   * person doing that on repeat is not a customer we priced for.
+   *
+   * So this is a fair-use line rather than a second meter. It is not returned
+   * by the subscription route, not drawn anywhere, and set high enough that
+   * reaching it means uploading ten hours to publish five minutes — which is
+   * not a use of this product, it is an inventory of one. Everybody else will
+   * live their whole subscription without discovering that it exists.
+   */
+  sourceMinutesPerMonth: number;
 }
 
 /**
@@ -80,19 +102,57 @@ export const PLAN_LIMITS: Record<PlanKey, PlanLimits> = {
   // A trial, not a home. Two short videos is enough to see the quality and
   // not enough to live in.
   free: {
-    minutesPerMonth: 5,
-    maxUploadMinutes: 10,
-    maxUploadBytes: uploadBytesFor(10),
+    /*
+     * Three, down from five, and the reason is that five was a home.
+     *
+     * "A trial, not a home" is what the line above has always said. The
+     * numbers said otherwise: five minutes is ten thirty-second shorts, and
+     * the creator this plan is meant to convert publishes 2.15 times a week
+     * under 2,000 followers — 9.3 posts a month, about **4.65 minutes**. The
+     * free plan covered the median small creator entirely, forever, and no
+     * amount of copy fixes a ceiling nobody reaches.
+     */
+    minutesPerMonth: 3,
+    /*
+     * And twenty, *up* from ten, which is the opposite move for the opposite
+     * reason.
+     *
+     * Two of the three paid plans are sold to long-form — Pro is "a 4-hour
+     * episode as one file" and Studio is podcast operations — and the trial
+     * that is supposed to convert them capped uploads at ten minutes. A
+     * podcaster could not put a real segment through this product before
+     * paying for it. Twenty is enough to watch it cut a real piece of an
+     * episode, and still under Creator's thirty so it takes nothing from the
+     * plan above it.
+     */
+    maxUploadMinutes: 20,
+    maxUploadBytes: uploadBytesFor(20),
     pricePerMonth: 0,
     watermark: true,
     maxHeight: 1280,
     referenceStyle: false,
     priorityQueue: false,
     seats: 1,
+    /** Two twenty-minute uploads, or six five-minute ones. Enough to watch it work on real footage. */
+    sourceMinutesPerMonth: 30,
   },
-  // Short-form. Sixty minutes is three times what a busy creator publishes.
+  /*
+   * Short-form, and thirty is measured against the person rather than against
+   * the plan above it.
+   *
+   * A busy short-form creator publishes 7 times a week at 21–34 seconds:
+   * about **16 minutes a month**. Sixty was nearly four times that — a ceiling
+   * nobody could see, which is a ceiling that sells no upgrade and costs us
+   * the difference on the ones who do reach it.
+   *
+   * Thirty rather than twenty because until the browser player lands, every
+   * comparison a person exports is billed: two versions of each of seven
+   * weekly posts is 32 minutes, and the person we most want happy would hit
+   * the wall. After the player, iteration is a free preview and one export at
+   * the end — and thirty stops being *enough* and becomes *roomy*.
+   */
   creator: {
-    minutesPerMonth: 60,
+    minutesPerMonth: 30,
     maxUploadMinutes: 30,
     maxUploadBytes: uploadBytesFor(30),
     pricePerMonth: 12,
@@ -101,11 +161,23 @@ export const PLAN_LIMITS: Record<PlanKey, PlanLimits> = {
     referenceStyle: true,
     priorityQueue: false,
     seats: 1,
+    /** Three hours in for thirty minutes out — six times what a short-form creator actually shoots. */
+    sourceMinutesPerMonth: 180,
   },
   // Long-form: YouTube and podcasts. The number that sells this tier is the
   // four-hour upload — a whole episode as one file — not the minutes.
   pro: {
-    minutesPerMonth: 400,
+    /*
+     * A hundred and fifty, down from four hundred.
+     *
+     * One long video a week at twelve minutes plus twenty shorts is 58
+     * minutes; two a week is about 110. Four hundred was not generosity, it
+     * was the one number in this file with no working behind it — the plan
+     * approved in August said 200 — and at our cost per source minute it put
+     * this tier's margin at full consumption at **44%**, the worst of the
+     * four by a distance. At 150 it is 79% and the price did not move.
+     */
+    minutesPerMonth: 150,
     maxUploadMinutes: 240,
     maxUploadBytes: uploadBytesFor(240),
     pricePerMonth: 29,
@@ -114,9 +186,27 @@ export const PLAN_LIMITS: Record<PlanKey, PlanLimits> = {
     referenceStyle: true,
     priorityQueue: true,
     seats: 1,
+    /** Twenty hours: five four-hour episodes, or a long video a week with all its raw. */
+    sourceMinutesPerMonth: 1200,
   },
+  /*
+   * Podcast operations: hours in, hours out.
+   *
+   * Eight hundred, and this one is set by the *ladder* rather than by the
+   * segment. Each step up should roughly halve the price of a minute, and it
+   * did not: Creator $0.400, Pro $0.193 — a 52% improvement — and Studio at
+   * 600 minutes would be $0.132, only 32%. The most expensive tier was the
+   * weakest value on the page, which any customer with a calculator finds.
+   * 800 puts it at $0.099 and the step back to a clean −49%.
+   *
+   * It is also the cheapest place in this file to be generous. A Studio
+   * output minute costs us about **half** what a Creator one does — a podcast
+   * is three hours of source for two hours of episode where a short is three
+   * minutes of source for one — so the minutes that make this tier obviously
+   * worth its price are the ones we pay least for.
+   */
   studio: {
-    minutesPerMonth: 1000,
+    minutesPerMonth: 800,
     maxUploadMinutes: 600,
     maxUploadBytes: uploadBytesFor(600),
     pricePerMonth: 79,
@@ -125,6 +215,8 @@ export const PLAN_LIMITS: Record<PlanKey, PlanLimits> = {
     referenceStyle: true,
     priorityQueue: true,
     seats: 3,
+    /** Sixty hours. Fifteen four-hour recordings a month, which is a full-time podcast operation. */
+    sourceMinutesPerMonth: 3600,
   },
 };
 

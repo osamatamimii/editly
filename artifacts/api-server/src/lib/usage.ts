@@ -66,6 +66,20 @@ export interface Usage {
   jobsInFlight: number;
   /** True when the next render would exceed the allowance. */
   exhausted: boolean;
+  /**
+   * Source minutes analysed this month, and whether that has run out.
+   *
+   * Counted **per project, not per render**: analysis is a pure function of
+   * the media and is cached (`transcripts`, `comprehensions`), so the second
+   * render of one podcast costs almost nothing to read. Summing every job's
+   * source would charge a fair-use line for work we did not do, which is the
+   * fastest way to make a guard that only ever punishes the careful.
+   *
+   * Not shown anywhere. See `sourceMinutesPerMonth` for why it exists.
+   */
+  sourceMinutesUsed: number;
+  sourceMinutesIncluded: number;
+  sourceExhausted: boolean;
 }
 
 export function startOfMonthUtc(now = new Date()): Date {
@@ -152,6 +166,32 @@ export async function usageFor(userId: string, plan: PlanKey, on: Executor = db)
       ),
     );
 
+  /*
+   * What we actually paid to read this month.
+   *
+   * `distinct project_id` is the whole point: the bill is for analysing a
+   * source once, and the row that knows how long a source is, is the project.
+   * A project with no duration contributes nothing rather than a guess — the
+   * per-file ceiling and the worker's own limits cover that case, and a made-up
+   * number in a fair-use line is worse than a missing one.
+   */
+  const [read] = await on
+    .select({
+      seconds: sql<number>`coalesce(sum(${projectsTable.duration}), 0)`,
+    })
+    .from(projectsTable)
+    .where(
+      and(
+        eq(projectsTable.userId, userId),
+        sql`${projectsTable.id} in (
+          select distinct ${jobsTable.projectId} from ${jobsTable}
+          where ${jobsTable.userId} = ${userId}
+            and ${jobsTable.status} = 'done'
+            and ${jobsTable.finishedAt} >= ${since}
+        )`,
+      ),
+    );
+
   const minutesGranted = minutesFrom(Number(granted?.seconds ?? 0));
   const minutesIncluded = PLAN_LIMITS[plan].minutesPerMonth + minutesGranted;
   const secondsUsed = Number(row?.seconds ?? 0);
@@ -159,6 +199,8 @@ export async function usageFor(userId: string, plan: PlanKey, on: Executor = db)
   const secondsInFlight = Number(flight?.seconds ?? 0);
   const minutesInFlight = minutesFrom(secondsInFlight);
   const jobsInFlight = Number(flight?.jobs ?? 0);
+  const sourceMinutesUsed = minutesFrom(Number(read?.seconds ?? 0));
+  const sourceMinutesIncluded = PLAN_LIMITS[plan].sourceMinutesPerMonth;
 
   return {
     minutesUsed,
@@ -171,6 +213,9 @@ export async function usageFor(userId: string, plan: PlanKey, on: Executor = db)
     minutesRemaining: Math.max(0, minutesIncluded - minutesUsed - minutesInFlight),
     secondsRemaining: Math.max(0, minutesIncluded * 60 - secondsUsed - secondsInFlight),
     exhausted: minutesUsed + minutesInFlight >= minutesIncluded,
+    sourceMinutesUsed,
+    sourceMinutesIncluded,
+    sourceExhausted: sourceMinutesUsed >= sourceMinutesIncluded,
   };
 }
 
@@ -209,5 +254,8 @@ export function usageNotConsulted(): Usage {
     minutesRemaining: 0,
     secondsRemaining: 0,
     exhausted: false,
+    sourceMinutesUsed: 0,
+    sourceMinutesIncluded: Number.POSITIVE_INFINITY,
+    sourceExhausted: false,
   };
 }

@@ -468,8 +468,8 @@ export const PRICING_AR = {
   free: {
     headline: "جرّبها مجانًا، بلا بطاقة",
     lines: [
-      "5 دقائق فيديو منتهٍ في الشهر",
-      "ارفع مقاطع حتى 10 دقائق",
+      "3 دقائق فيديو منتهٍ في الشهر",
+      "ارفع مقاطع حتى 20 دقيقة",
       /*
         The English said "Every editing feature, so you can judge the result"
         and the claim was withdrawn: `PLAN_LIMITS.free.referenceStyle` is

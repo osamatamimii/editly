@@ -920,10 +920,25 @@ section("A clips plan becomes several files, each its own artifact");
     Math.abs(Number(row?.output_seconds) - durations.reduce((a, b) => a + b, 0)) < 0.8,
     `${row?.output_seconds} vs ${durations.reduce((a, b) => a + b, 0)}`,
   );
+  /*
+   * And the charge is the same number, because it is the same rule everywhere.
+   *
+   * This asserted the opposite — `billed_seconds` was the *source*, twelve
+   * seconds against ten of pieces — on the reasoning that a clips job reads
+   * the whole source and so should be charged for it. The cost half of that
+   * is true; the billing half made the pricing page's best line false on
+   * exactly one path ("you only pay for what you publish"), and it did not
+   * even agree with `extractHighlight`, which reads the same source down the
+   * single-render path and is billed at what it produced.
+   *
+   * The cost it was answering now sits in `sourceMinutesPerMonth` — a fair-use
+   * ceiling on source read per month, tested in `meter-test`. So this checks
+   * that the visible charge and the visible measurement are one number.
+   */
   check(
-    "but the charge is the source that was read — twelve seconds, not ten",
-    Math.abs(Number(row?.billed_seconds) - 12) < 1,
-    String(row?.billed_seconds),
+    "and the charge is that same sum — what you publish, on every path",
+    Math.abs(Number(row?.billed_seconds) - Number(row?.output_seconds)) < 0.01,
+    `billed ${row?.billed_seconds} vs produced ${row?.output_seconds}`,
   );
 
   const project = await readProject(projectId);

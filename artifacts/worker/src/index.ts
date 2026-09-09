@@ -2003,10 +2003,33 @@ async function renderClipSet(args: {
       outputPath: firstClipPath,
       notes,
       outputSeconds: outputSecondsSum,
-      // A clips render reads the whole source — transcribes it, scores every
-      // window, renders each piece — so the source is what it is billed at,
-      // and the note below says so before anyone reads it off an invoice.
-      billedSeconds: sourceSeconds,
+      /*
+       * Billed at what it produced, like every other render.
+       *
+       * This was `sourceSeconds`, on the reasoning that a clips job reads the
+       * whole source — transcribes it, scores every window — so the source is
+       * what it costs. The cost half of that is true and the billing half was
+       * the wrong answer to it, for two reasons.
+       *
+       * It contradicted the page. "Upload as much footage as you like. You
+       * only pay for what you publish" is the best line on the pricing page
+       * and this was the one path where it was false: a two-hour podcast cut
+       * into six clips billed two hours.
+       *
+       * And it was not even consistent with itself. `extractHighlight` reads
+       * exactly the same two hours and produced a thirty-second cut, and went
+       * down the single-render path billing thirty seconds. Same source, same
+       * analysis, same bill to us; 120 minutes against 0.5 depending on which
+       * word the person happened to type.
+       *
+       * The cost asymmetry is real and it is now carried where it belongs:
+       * `sourceMinutesPerMonth` in `plan-limits.ts` is a fair-use ceiling on
+       * how much source a plan may have read in a month, invisible until
+       * somebody uploads ten hours to publish five minutes. That bounds what
+       * this can cost us without charging a person 120 minutes for a clip they
+       * can watch in forty-five seconds.
+       */
+      billedSeconds: outputSecondsSum,
       bytesIn: bytesPulled() - pulledAtStart,
       outputSecondsSource: weakestMeasure,
       sourceSeconds,

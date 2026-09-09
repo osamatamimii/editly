@@ -185,6 +185,40 @@ export function decideRender(input: PolicyInput): PolicyResult {
     };
   }
 
+  /*
+   * The fair-use line on source, last of the allowance checks and by design
+   * the one almost nobody meets.
+   *
+   * It is *after* the minutes gate because minutes are what the person was
+   * sold and what they can reason about; being told about a limit they have
+   * never seen, while the number they watch still reads fine, is the worst
+   * possible order to learn these two facts in.
+   *
+   * The sentence names the real shape of what happened rather than the rule.
+   * "You have used your source minutes" means nothing to somebody who was
+   * never shown any; "you have uploaded far more than you have published"
+   * describes what they actually did, and the fix — publish more of what is
+   * already here, or move up — follows from it.
+   */
+  if (input.usage.sourceExhausted) {
+    return {
+      allowed: false,
+      status: 429,
+      body: {
+        error:
+          `This month's uploads have run well ahead of what has been published from them: about ` +
+          `${Math.round(input.usage.sourceMinutesUsed / 60)} hours of footage read against ` +
+          `${input.usage.minutesUsed} minutes exported. Publish more of what is already here, or move up a plan. ` +
+          `Either way this clears at the start of next month.`,
+        limitReached: true,
+        plan: input.plan,
+        minutesUsed: input.usage.minutesUsed,
+        minutesIncluded: input.usage.minutesIncluded,
+        minutesInFlight: input.usage.minutesInFlight,
+      },
+    };
+  }
+
   // The upload ceiling is the number that actually separates the tiers, so the
   // refusal names the tier that would have taken this file rather than saying
   // no and stopping there. A person told "too long" goes away; a person told
