@@ -11,7 +11,7 @@ import {
 import { PROJECT_MESSAGES_LIMIT } from "@workspace/api-zod/limits";
 import { serializeMessage, serializeJob } from "../lib/transformers";
 import { currentUserId } from "../middlewares/auth";
-import { replyFor } from "../lib/plan-from-text";
+import { replyFor, becauseIn } from "../lib/plan-from-text";
 import { createPlanner } from "../lib/planner";
 import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
 import { applyHabits, habitsFor } from "../lib/habits";
@@ -257,9 +257,21 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
       startedJob = serializeJob(outcome.job);
     } else {
       const busy = outcome.status === 409 && outcome.body["error"] === ALREADY_RENDERING;
+      /*
+        In the language of the sentence that asked, like everything else on
+        this path.
+
+        The busy case keeps its own wording because it is the only refusal that
+        is also a promise — the follow-up row below is what keeps it — and the
+        policy's bare "a render is already going" does not say that. Every
+        other refusal is written by `becauseIn` from the numbers the policy
+        attached, so nothing here translates an English sentence.
+      */
       const because = busy
-        ? "there's a render already going for this project. I'll fold this in once it finishes."
-        : String(outcome.body["error"] ?? "the render could not be started.");
+        ? intent.language === "ar"
+          ? "في تصيير يعمل الآن على هذا المشروع، وسأضمّ هذا إليه حالما ينتهي."
+          : "there's a render already going for this project. I'll fold this in once it finishes."
+        : becauseIn(intent.language, outcome.body);
       render = { started: false, because };
 
       // "I'll fold this in" is a promise, and this row is what keeps it. One

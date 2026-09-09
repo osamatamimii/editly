@@ -112,6 +112,30 @@ export interface PolicyInput {
 /** See the refusal in `decideRender`. */
 export const MAX_RENDERS_IN_FLIGHT = 3;
 
+/**
+ * Which refusal this is, as a word rather than as a sentence.
+ *
+ * `error` stays English and stays exactly as it is: route errors are English
+ * on purpose here, short and stable so a client can translate them, and the
+ * numbers that go beside them (`plan`, `minutesUsed`, `jobsInFlight`) are
+ * already machine-readable for the same reason.
+ *
+ * What was missing was the one field that says *which* refusal it is. Two of
+ * them set `limitReached` and carry the same numbers, so the only thing
+ * separating "you have used your minutes" from "you have read far more footage
+ * than you have published" was the English prose. That made the chat reply
+ * unable to write the Arabic itself, and it interpolated the English sentence
+ * into an Arabic frame instead. This is what it reads now.
+ */
+export type RefusalReason =
+  | "suspended"
+  | "tooManyInFlight"
+  | "minutesInFlight"
+  | "minutesExhausted"
+  | "sourceExhausted"
+  | "uploadTooLong"
+  | "wouldExceed";
+
 export function decideRender(input: PolicyInput): PolicyResult {
   const limits = PLAN_LIMITS[input.plan];
 
@@ -131,6 +155,7 @@ export function decideRender(input: PolicyInput): PolicyResult {
       body: {
         error:
           "This account is suspended, so new renders cannot start. Nothing has been deleted. Your projects and videos are all still here.",
+        reason: "suspended",
       },
     };
   }
@@ -153,6 +178,7 @@ export function decideRender(input: PolicyInput): PolicyResult {
       status: 429,
       body: {
         error: `You already have ${input.usage.jobsInFlight} renders going. They run one at a time, so start this one when one of them finishes.`,
+        reason: "tooManyInFlight",
         tooManyInFlight: true,
         plan: input.plan,
         jobsInFlight: input.usage.jobsInFlight,
@@ -176,6 +202,7 @@ export function decideRender(input: PolicyInput): PolicyResult {
         error: heldByFlight
           ? inFlightMessage(input.plan, input.usage.minutesIncluded, input.usage.minutesInFlight)
           : exhaustedMessage(input.plan, input.usage.minutesIncluded, input.usage.minutesUsed),
+        reason: heldByFlight ? "minutesInFlight" : "minutesExhausted",
         limitReached: true,
         plan: input.plan,
         minutesUsed: input.usage.minutesUsed,
@@ -210,6 +237,7 @@ export function decideRender(input: PolicyInput): PolicyResult {
           `${Math.round(input.usage.sourceMinutesUsed / 60)} hours of footage read against ` +
           `${input.usage.minutesUsed} minutes exported. Publish more of what is already here, or move up a plan. ` +
           `Either way this clears at the start of next month.`,
+        reason: "sourceExhausted",
         limitReached: true,
         plan: input.plan,
         minutesUsed: input.usage.minutesUsed,
@@ -232,6 +260,7 @@ export function decideRender(input: PolicyInput): PolicyResult {
         status: 413,
         body: {
           error: uploadTooLongMessage(input.plan, minutes),
+          reason: "uploadTooLong",
           uploadTooLong: true,
           plan: input.plan,
           maxUploadMinutes: limits.maxUploadMinutes,
@@ -260,6 +289,7 @@ export function decideRender(input: PolicyInput): PolicyResult {
         status: 429,
         body: {
           error: wouldExceedMessage(input.plan, projected, input.usage.minutesRemaining),
+          reason: "wouldExceed",
           limitReached: true,
           wouldExceed: true,
           plan: input.plan,

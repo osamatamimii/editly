@@ -51,7 +51,7 @@ import { tighten, type TightenResult } from "./tighten";
 import { placeSoundEffects, joinTimes, MIN_EDIT_SECONDS as SFX_MIN_EDIT_SECONDS, type SfxPalette } from "./sfx";
 import { chooseHighlight } from "./highlight";
 import { chooseConversationClips, type Reading } from "./conversation";
-import { sayIn, countedAr, AR_NOUNS, type Language } from "./say";
+import { sayIn, pick, countedAr, AR_NOUNS, type Language, type NotePair } from "./say";
 import { threadArgs } from "./cores";
 export { chooseHighlight, chooseClips } from "./highlight";
 
@@ -2258,6 +2258,12 @@ export interface RenderContext {
    * a button in an English interface should say.
    */
   language?: Language;
+  /**
+   * Progress, and the sentence under the bar already in `language`.
+   *
+   * The sentence is resolved in here rather than passed out as a pair: this
+   * module knows the language, and the caller knows only a job id.
+   */
   onProgress?: (fraction: number, stage: string) => void;
   /**
    * The command the render is about to run, before it runs.
@@ -2481,7 +2487,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   /** Set true only where `loudnorm` is actually added to the graph. See RenderResult. */
   let levelled = false;
 
-  ctx.onProgress?.(0.02, "Looking at your footage");
+  ctx.onProgress?.(0.02, t("Looking at your footage", "أنظر في اللقطات"));
 
   // ── Cuts ──────────────────────────────────────────────────────────────────
   //
@@ -2538,7 +2544,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     } else {
       let silences: RemovableSpan[] = [];
       if (silence && source.hasAudio) {
-        ctx.onProgress?.(0.06, "Finding the silences");
+        ctx.onProgress?.(0.06, t("Finding the silences", "أبحث عن مواضع الصمت"));
         /*
           The threshold, moved to where this recording actually sits.
 
@@ -3485,7 +3491,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         ),
       );
     } else {
-      ctx.onProgress?.(0.10, "Listening for the beat");
+      ctx.onProgress?.(0.10, t("Listening for the beat", "أنصت للإيقاع"));
       const grid = await beatsOf(musicAsset.file);
       if (!grid) {
         notes.push(
@@ -3736,7 +3742,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     let cropXExpr = String(cropX);
 
     if (scaledWidth > cropW + 2) {
-      ctx.onProgress?.(0.12, "Finding your subject in the frame");
+      ctx.onProgress?.(0.12, t("Finding your subject in the frame", "أبحث عن الموضوع في الإطار"));
       const windowFraction = cropW / scaledWidth;
 
       // Faces first: "where is the person" is the question, and everything else
@@ -5259,7 +5265,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   }
   args.push(...FASTSTART, output);
 
-  ctx.onProgress?.(0.15, describeWork(plan));
+  ctx.onProgress?.(0.15, pick(t, describeWork(plan)));
   ctx.onCommand?.(args);
 
   // Progress from ffmpeg's own reported timestamp, not from a guess.
@@ -5269,7 +5275,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       if (!m) return;
       const seconds = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
       const fraction = Math.min(1, seconds / Math.max(0.1, effectiveDuration));
-      ctx.onProgress?.(0.15 + fraction * 0.85, describeWork(plan));
+      ctx.onProgress?.(0.15 + fraction * 0.85, pick(t, describeWork(plan)));
     },
   });
 
@@ -5324,7 +5330,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   }
 
   if (notes.length === 0) notes.push(t("re-encoded with no changes requested", "أُعيد الترميز بلا أي تغيير مطلوب"));
-  ctx.onProgress?.(1, "finishing");
+  ctx.onProgress?.(1, t("finishing", "أُنهي"));
   return {
     output,
     notes,
@@ -5368,13 +5374,23 @@ export async function grabPosterFrame(video: string, seconds: number, destinatio
   }
 }
 
-function describeWork(plan: EditPlan): string {
+/**
+ * What the long middle of a render is doing, in both languages.
+ *
+ * A pair rather than a sentence because this is called from inside the encode
+ * loop, where the `Say` is at hand — but it is also the one progress line a
+ * customer stares at for minutes, so it is the last place an untranslated
+ * string should survive.
+ */
+function describeWork(plan: EditPlan): NotePair {
   const types = new Set(plan.operations.map((o) => o.type));
-  if (types.has("burnCaptions")) return "Cutting, reframing and burning captions";
+  if (types.has("burnCaptions"))
+    return { en: "Cutting, reframing and burning captions", ar: "أقصّ وأعيد التأطير وأحرق الكابشن" };
   if (types.has("kenBurns") || types.has("zoomPunch") || types.has("alternateFraming"))
-    return "Cutting, reframing and adding motion";
-  if (types.has("removeSilence")) return "Cutting the silences and reframing";
-  return "Rendering";
+    return { en: "Cutting, reframing and adding motion", ar: "أقصّ وأعيد التأطير وأضيف الحركة" };
+  if (types.has("removeSilence"))
+    return { en: "Cutting the silences and reframing", ar: "أقصّ الصمت وأعيد التأطير" };
+  return { en: "Rendering", ar: "أصيّر" };
 }
 
 export function describe(op: EditOperation): string {

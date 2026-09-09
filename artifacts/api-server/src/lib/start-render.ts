@@ -78,7 +78,7 @@ export async function startRenderForProject(
   }
 
   if (!project.videoPath) {
-    return { ok: false, status: 409, body: { error: "Upload a video before rendering." } };
+    return { ok: false, status: 409, body: { error: "Upload a video before rendering.", reason: "noVideo" } };
   }
 
   // One render at a time per project: a second one would race the first for
@@ -91,7 +91,7 @@ export async function startRenderForProject(
     .limit(1);
 
   if (pending && (pending.status === "queued" || pending.status === "running")) {
-    return { ok: false, status: 409, body: { error: ALREADY_RENDERING, jobId: pending.id } };
+    return { ok: false, status: 409, body: { error: ALREADY_RENDERING, reason: "alreadyRendering", jobId: pending.id } };
   }
 
   /**
@@ -255,7 +255,7 @@ export async function startRenderForProject(
         ),
       )
       .limit(1);
-    return { ok: false, status: 409, body: { error: ALREADY_RENDERING, ...(existing ? { jobId: existing.id } : {}) } };
+    return { ok: false, status: 409, body: { error: ALREADY_RENDERING, reason: "alreadyRendering", ...(existing ? { jobId: existing.id } : {}) } };
   }
 
   if (!reserved.accepted) {

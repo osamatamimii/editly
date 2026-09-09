@@ -61,6 +61,13 @@ export interface EnrichOptions {
   providers: Providers;
   /** The language every note this returns is written in. Absent means English. */
   language?: Language;
+  /**
+   * The sentence under the progress bar, already in `language`.
+   *
+   * Resolved here rather than handed out as a pair, because this module holds
+   * the language and the caller holds a job id. It was English whatever the
+   * person typed, sitting directly above notes that were translated.
+   */
   onProgress?: (stage: string) => void;
   /** Overridable so tests do not need a key. */
   now?: () => number;
@@ -253,7 +260,7 @@ export async function enrichPlan(
   }
 
   if (needsTranscript && providers.transcriber && !heardNothing && !transcript) {
-    options.onProgress?.("Listening to what was said");
+    options.onProgress?.(t("Listening to what was said", "أستمع إلى ما قيل"));
     const language = plan.operations.find((op) => op.type === "autoCaptions")?.language;
     try {
       // The language of the request travels with it as a *belief*, not an
@@ -340,7 +347,7 @@ export async function enrichPlan(
   // that is the only decision it changes.
   let protect: Array<{ startMs: number; endMs: number }> = [];
   if (cutsSilence && providers.sceneReader) {
-    options.onProgress?.("Watching for anything that shouldn't be cut");
+    options.onProgress?.(t("Watching for anything that shouldn't be cut", "أنتبه لما لا ينبغي قصّه"));
     try {
       const scenes = await providers.sceneReader.read(mediaPath);
       protect = scenes
@@ -491,7 +498,7 @@ export async function enrichPlan(
   // have been made — including the punch moments the transcript just chose.
   let shaped = operations;
   if (options.referencePath) {
-    options.onProgress?.("Reading the video you want to match");
+    options.onProgress?.(t("Reading the video you want to match", "أقرأ الفيديو الذي تريد مطابقته"));
     try {
       const [reference, own] = await Promise.all([
         measureStyle(options.referencePath),

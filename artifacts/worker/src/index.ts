@@ -505,6 +505,15 @@ let lastReported: { jobId: string; progress: number; stage: string | null } | nu
  */
 let stopRequestedFor: string | null = null;
 
+/**
+ * The sentence arrives already in the job's language.
+ *
+ * `stage` is written to the row and rendered raw by the editor, so whatever is
+ * passed here is what the customer reads. It used to be an English literal at
+ * every call site — sitting directly above render notes that were translated,
+ * which is the same conversation changing language halfway through that
+ * `say.ts` was written to end.
+ */
 async function reportProgress(jobId: string, progress: number, stage: string): Promise<void> {
   /*
     Every stage of the render passes through here, which is why the stop is
@@ -622,10 +631,10 @@ async function processJob(job: Job): Promise<void> {
     const reelNotes: string[] = [];
     const reelOp = plan.operations.find((op) => op.type === "stillsReel");
     if (reelOp && reelOp.type === "stillsReel") {
-      await reportProgress(job.id, 5, "Building a video from your photos");
+      await reportProgress(job.id, 5, say("Building a video from your photos", "أبني فيديو من صورك"));
       inputFile = await assembleReel(job, reelOp, plan, workDir, log, say, reelNotes);
     } else {
-      await reportProgress(job.id, 5, "Fetching your video");
+      await reportProgress(job.id, 5, say("Fetching your video", "أجيب الفيديو"));
       // Only when there is one to fetch. A reel job's `input_path` names the
       // first photograph, because the column means "the object this render
       // starts from" and for a reel that is exactly what it is — but opening
@@ -694,7 +703,7 @@ async function processJob(job: Job): Promise<void> {
     /** Said out loud when the reference could not be fetched. See below. */
     const referenceNotes: string[] = [];
     if (job.referencePath) {
-      await reportProgress(job.id, 7, "Fetching the video you want to match");
+      await reportProgress(job.id, 7, say("Fetching the video you want to match", "أجيب الفيديو الذي تريد مطابقته"));
       try {
         referenceFile = path.join(workDir, "reference.mp4");
         await downloadObject(job.referencePath, referenceFile);
@@ -828,7 +837,7 @@ async function processJob(job: Job): Promise<void> {
     /** Assets this project really has and this render could not fetch. */
     const unreachableAssetIds = new Set<string>();
     if (wantedAssetIds.length > 0) {
-      await reportProgress(job.id, 9, "Fetching the files you added");
+      await reportProgress(job.id, 9, say("Fetching the files you added", "أجيب الملفّات التي أضفتها"));
       const rows = await db
         .select()
         .from(assetsTable)
@@ -946,7 +955,7 @@ async function processJob(job: Job): Promise<void> {
     // master is the one the preview is encoded from and the one that ships.
     // And it is best-effort all the way down — a review that cannot run must
     // not cost anyone the render it was reviewing.
-    await reportProgress(job.id, 90, "Checking the result");
+    await reportProgress(job.id, 90, say("Checking the result", "أراجع النتيجة"));
     try {
       const review = await reviewOutput(output, {
         operations: enriched.plan.operations,
@@ -966,7 +975,7 @@ async function processJob(job: Job): Promise<void> {
       log.warn({ err: error }, "output review failed; delivering the file unreviewed");
     }
 
-    await reportProgress(job.id, 92, "Saving the result");
+    await reportProgress(job.id, 92, say("Saving the result", "أحفظ النتيجة"));
     const outputPath = `${job.userId}/${job.projectId}/edited-${job.id}.mp4`;
     await uploadObject(outputPath, output);
 
@@ -1604,7 +1613,7 @@ async function renderClipSet(args: {
   const { job, clipsOp, enriched, reading, words, assets, unreachableAssetIds, pulledAtStart, workDir, inputFile, sourceSeconds, sourceHadAudio, log } = args;
   const t = sayIn(args.language);
 
-  await reportProgress(job.id, 9, "Choosing the clips");
+  await reportProgress(job.id, 9, t("Choosing the clips", "أختار القصاصات"));
 
   /*
     A retry must produce a fresh set, not a second copy of half of one — and it
@@ -1963,7 +1972,7 @@ async function renderClipSet(args: {
 
   notes.push(...insideEachClip(perClipNotes, args.language));
 
-  await reportProgress(job.id, 95, "Saving the clips");
+  await reportProgress(job.id, 95, t("Saving the clips", "أحفظ القصاصات"));
 
   /*
     And the tail of a longer previous set, which no row names any more.
@@ -2507,7 +2516,7 @@ async function assembleReel(
     motion: reelOp.motion,
     workDir,
     onProgress: (fraction) => {
-      void reportProgress(job.id, 1 + fraction * 4, "Building a video from your photos").catch(() => {});
+      void reportProgress(job.id, 1 + fraction * 4, say("Building a video from your photos", "أبني فيديو من صورك")).catch(() => {});
     },
   });
 

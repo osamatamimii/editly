@@ -1699,6 +1699,80 @@ function describeFile(file: LibraryFile): string {
  * The assistant's reply. Written from the parsed plan so it can only claim what
  * the worker will really do — and says plainly when it cannot do something.
  */
+/**
+ * The three shapes an Arabic noun takes after a number.
+ *
+ * A second copy of the worker's `countedAr` rather than a shared package, for
+ * the reason the worker keeps its own `languageOf`: these are two deployments
+ * that ship on different days, and this is a rule, not a library. English
+ * needs two forms and switches on `n === 1`; Arabic needs three, and the
+ * plural is used for **three to ten** with the singular returning from eleven
+ * upward. `3 دقيقة` is the register of a machine translation.
+ */
+function countedAr(count: number, one: string, two: string, few: string): string {
+  const n = Math.abs(Math.round(count));
+  if (n === 1) return one;
+  if (n === 2) return two;
+  const tail = n % 100;
+  return tail >= 3 && tail <= 10 ? `${n} ${few}` : `${n} ${one}`;
+}
+
+/**
+ * Why the render did not start, written rather than translated.
+ *
+ * The refusal arrives from `render-policy` as an English sentence plus the
+ * numbers it was built from. Until now the Arabic reply interpolated that
+ * English sentence whole, and the comment beside it argued — honestly — that
+ * half a sentence in each language reads better than an invented reason.
+ *
+ * That was true while the reason was only prose. It stopped being true when
+ * the body started carrying `reason`: the sentence is now written here from
+ * the same numbers the English one was written from, so nothing is guessed and
+ * nothing is translated. A refusal this does not recognise still falls back to
+ * the English, which is the honest answer for a sentence we have not written
+ * yet, rather than a shrug that hides which refusal it was.
+ */
+export function becauseIn(lang: Language, body: Record<string, unknown>): string {
+  const english = String(body["error"] ?? "the render could not be started.");
+  if (lang !== "ar") return english;
+
+  const n = (key: string): number => {
+    const value = body[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  };
+
+  switch (body["reason"]) {
+    case "suspended":
+      return "هذا الحساب موقوف، فلا يبدأ تصيير جديد. لم يُحذف شيء؛ مشاريعك وفيديوهاتك كلّها في مكانها.";
+    case "alreadyRendering":
+      return "في تصيير يعمل الآن على هذا المشروع، وسأضمّ هذا إليه حالما ينتهي.";
+    case "noVideo":
+      return "ارفع فيديو قبل التصيير.";
+    case "tooManyInFlight":
+      return `عندك ${countedAr(n("jobsInFlight"), "تصيير واحد", "تصييران", "عمليات تصيير")} تعمل الآن. تعمل واحدة تلو الأخرى، فابدأ هذه حين تنتهي إحداها.`;
+    case "minutesInFlight":
+      return `دقائق هذا الشهر محجوزة بتصيير يعمل الآن: ${n("minutesInFlight")} من ${n("minutesIncluded")}. حين ينتهي يعود ما لم يُستهلك منها.`;
+    case "minutesExhausted":
+      return `استُهلكت دقائق هذا الشهر: ${n("minutesUsed")} من ${n("minutesIncluded")}. تتجدّد مع بداية الشهر القادم، أو ارفع الباقة الآن.`;
+    case "sourceExhausted":
+      return (
+        `ما رُفع هذا الشهر سبق ما نُشر منه بكثير: نحو ` +
+        `${countedAr(Math.round(n("sourceMinutesUsed") / 60), "ساعة", "ساعتين", "ساعات")} من اللقطات قُرئت مقابل ` +
+        `${countedAr(n("minutesUsed"), "دقيقة", "دقيقتين", "دقائق")} صُدّرت. انشر أكثر ممّا هو هنا، أو ارفع الباقة. ` +
+        `وعلى الحالين يتصفّر هذا مع بداية الشهر القادم.`
+      );
+    case "uploadTooLong": {
+      const suggested = body["suggestedPlan"];
+      const room = typeof suggested === "string" ? ` باقة ${suggested} تأخذه.` : "";
+      return `هذا الملفّ أطول ممّا تأخذه باقتك: ${countedAr(n("maxUploadMinutes"), "دقيقة", "دقيقتين", "دقائق")} هي الحدّ.${room}`;
+    }
+    case "wouldExceed":
+      return `هذا الملفّ يحتاج نحو ${countedAr(n("projectedMinutes"), "دقيقة", "دقيقتين", "دقائق")} والباقي لك ${countedAr(n("minutesRemaining"), "دقيقة", "دقيقتين", "دقائق")}. قصّره، أو ارفع الباقة.`;
+    default:
+      return english;
+  }
+}
+
 export function replyFor(
   intent: ParsedIntent,
   context: {
@@ -1731,10 +1805,9 @@ export function replyFor(
           : `On it. I'll ${doing}. It's rendering now; you'll see it here the moment it's done.`,
       );
     } else if (context.render && !context.render.started) {
-      // The reason comes from the server in English. It is left as it is
-      // rather than guessed at: half a sentence in each language reads worse
-      // than one, and inventing an Arabic reason we did not write would be
-      // putting words in the product's mouth about why it refused.
+      // `because` arrives already in `lang` — see `becauseIn`, which writes the
+      // Arabic from the refusal's own numbers rather than translating its
+      // English. It used to be English interpolated into the Arabic frame.
       parts.push(
         lang === "ar"
           ? `كنت س${doing}، لكن لا أستطيع البدء الآن: ${context.render.because}`

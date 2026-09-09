@@ -60,7 +60,7 @@ if (built.status !== 0) {
   process.exit(1);
 }
 
-const { planFromText, replyFor, parseMoments } = await import(pathToFileURL(outfile).href);
+const { planFromText, replyFor, parseMoments, becauseIn } = await import(pathToFileURL(outfile).href);
 
 let checks = 0;
 let failures = 0;
@@ -822,6 +822,99 @@ console.log("\nThe microphone is asked to listen for the right language");
     }
     check(`${file} counts through the agreement rule`, offenders.length === 0, offenders.join(" | "));
   }
+}
+
+console.log("\nthe sentence under the progress bar is in the language that asked");
+{
+  /*
+   * The bug this section exists for was visible on every Arabic render.
+   *
+   * `jobs.stage` is written by the worker and rendered raw by the editor, so
+   * whatever the worker passes is what the customer reads. Every call site
+   * passed an English literal — "Fetching your video", "Finding the silences" —
+   * while the render notes directly beneath them were translated. Nothing
+   * failed and no test noticed, because a string literal is a string literal.
+   *
+   * So the check is on the source: no progress sentence may be a bare literal.
+   * It must go through `say`/`t`, which is what carries the job's language.
+   */
+  const files = [
+    "artifacts/worker/src/index.ts",
+    "artifacts/worker/src/enrich.ts",
+    "artifacts/worker/src/ffmpeg.ts",
+  ];
+  for (const file of files) {
+    const text = await readFile(path.join(repoRoot, file), "utf8");
+    // Every progress call, with whatever it was handed as the sentence.
+    const calls = [...text.matchAll(/(?:reportProgress\(|onProgress\?\.\()([^;]*?)\)[.;]/gs)];
+    check(`${path.basename(file)} reports progress at all`, calls.length > 0, String(calls.length));
+    const bare = calls
+      .map((hit) => hit[1])
+      // The sentence is the last argument. A bare double-quoted literal there
+      // is one nobody can read in Arabic.
+      .filter((args) => /,\s*"[^"]{4,}"\s*$/.test(args) || /^\s*"[^"]{4,}"\s*$/.test(args))
+      .map((args) => args.trim().slice(-60));
+    check(`${path.basename(file)} hands no bare English sentence to the bar`, bare.length === 0, bare.join(" | "));
+  }
+
+  // The one progress sentence the worker never writes, because no worker has
+  // picked the job up.
+  const render = await readFile(path.join(repoRoot, "artifacts/api-server/src/routes/render.ts"), "utf8");
+  const stale = render.slice(render.indexOf("function annotateStaleQueue"));
+  const staleBody = stale.slice(0, stale.indexOf("\n}"));
+  check(
+    "the queued-too-long sentence has an Arabic half",
+    /[؀-ۿ]/.test(staleBody),
+    staleBody.slice(-80),
+  );
+}
+
+console.log("\na refusal is written in Arabic, not translated into it");
+{
+  /*
+   * `becauseIn` reads the refusal's own numbers, never its English.
+   *
+   * Two refusals set `limitReached` and carry identical numbers, so before
+   * `reason` existed there was nothing but the prose to tell "you have used
+   * your minutes" from "you have read far more footage than you published".
+   * That is why the Arabic reply used to interpolate the English sentence.
+   */
+  const cases = [
+    ["suspended", { error: "This account is suspended.", reason: "suspended" }],
+    ["alreadyRendering", { error: "A render is already going.", reason: "alreadyRendering" }],
+    ["noVideo", { error: "Upload a video before rendering.", reason: "noVideo" }],
+    ["tooManyInFlight", { error: "e", reason: "tooManyInFlight", jobsInFlight: 3 }],
+    ["minutesInFlight", { error: "e", reason: "minutesInFlight", minutesInFlight: 12, minutesIncluded: 30 }],
+    ["minutesExhausted", { error: "e", reason: "minutesExhausted", minutesUsed: 30, minutesIncluded: 30 }],
+    ["sourceExhausted", { error: "e", reason: "sourceExhausted", sourceMinutesUsed: 240, minutesUsed: 6 }],
+    ["uploadTooLong", { error: "e", reason: "uploadTooLong", maxUploadMinutes: 30, suggestedPlan: "pro" }],
+    ["wouldExceed", { error: "e", reason: "wouldExceed", projectedMinutes: 40, minutesRemaining: 5 }],
+  ];
+  // The function words that gave the old half-language sentence away.
+  const englishWords = /\b(and|the|it|with|from|into|your|so|rather than|renders|minutes|account)\b/i;
+  for (const [name, body] of cases) {
+    const ar = becauseIn("ar", body);
+    check(`${name} answers in Arabic`, /[؀-ۿ]/.test(ar), ar);
+    check(`${name} carries no English`, !englishWords.test(ar.replace(/pro|creator|studio|free/gi, "")), ar);
+    check(`${name} carries no em dash`, !ar.includes("—"), ar);
+    check(`${name} keeps English for an English reply`, becauseIn("en", body) === body.error);
+  }
+
+  // Arabic counts through the agreement rule, here as everywhere else.
+  check(
+    "one minute drops its digit",
+    becauseIn("ar", { error: "e", reason: "wouldExceed", projectedMinutes: 1, minutesRemaining: 0 }).includes("دقيقة") &&
+      !becauseIn("ar", { error: "e", reason: "wouldExceed", projectedMinutes: 1, minutesRemaining: 0 }).includes("1 دقيقة"),
+  );
+  check(
+    "four minutes takes the plural",
+    becauseIn("ar", { error: "e", reason: "wouldExceed", projectedMinutes: 4, minutesRemaining: 0 }).includes("4 دقائق"),
+  );
+
+  // A refusal nobody has written Arabic for is answered in English rather than
+  // with a shrug that hides which refusal it was.
+  const unknown = becauseIn("ar", { error: "Something new happened.", reason: "somethingNew" });
+  check("an unwritten refusal falls back to its English", unknown === "Something new happened.");
 }
 
 await rm(buildDir, { recursive: true, force: true });

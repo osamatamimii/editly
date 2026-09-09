@@ -25,6 +25,16 @@ import { cancelJobs } from "../lib/cancel-render";
 
 const router: IRouter = Router();
 
+/**
+ * The one progress sentence the worker never gets to write.
+ *
+ * Every other stage is written by the machine doing the work, in the language
+ * the job was asked in. This one exists precisely because no machine has
+ * picked the job up, so it is written here — and it is written in the job's
+ * own language for the same reason: a render answered for in Arabic that
+ * reports its first minute in English is the conversation changing language
+ * halfway through.
+ */
 function annotateStaleQueue(
   job: Record<string, unknown>,
   workerLastSeenAt: Date | null,
@@ -32,7 +42,10 @@ function annotateStaleQueue(
   if (!isUnattended(job as unknown as { status: string; createdAt: Date | string }, workerLastSeenAt)) return job;
   return {
     ...job,
-    stage: "Still waiting for a render machine, nothing has picked this up yet.",
+    stage:
+      job["language"] === "ar"
+        ? "ما زال ينتظر آلة تصيير، ولم يلتقطه أحد بعد."
+        : "Still waiting for a render machine, nothing has picked this up yet.",
   };
 }
 
