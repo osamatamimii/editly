@@ -362,7 +362,74 @@ async function bucketObjectLimit(): Promise<number | null> {
   }
 }
 
+/**
+ * How many times the same finished file is offered to the store.
+ *
+ * Three, and the reason for the number is what a fourth would cost rather than
+ * what a third buys: each attempt carries the thirty-minute ceiling below, and
+ * the job as a whole has six hours. Three keeps the worst case inside that with
+ * room to spare, and a store that has refused the same bytes three times over
+ * several minutes is having something other than a bad second.
+ */
+const UPLOAD_ATTEMPTS = 3;
+
+/** Between attempts. Short, because the render is done and somebody is waiting. */
+const UPLOAD_BACKOFF_MS = [2000, 8000];
+
+/**
+ * Told when an attempt was thrown away, because a silent retry is a lie of
+ * omission.
+ *
+ * Before the loop below, a store that kept two thirds of a file produced a
+ * failed job and a sentence naming both sizes, which is how anybody found out.
+ * Retrying in place is better for the customer and worse for whoever is
+ * watching, unless the attempt still says something. It goes through a setter
+ * rather than an import so this module keeps having no logger of its own: it
+ * is imported by the process that owns the logger, and importing back would be
+ * a cycle.
+ */
+let onTransferRetry: ((detail: { key: string; attempt: number; message: string }) => void) | null = null;
+
+export function reportTransferRetries(
+  report: (detail: { key: string; attempt: number; message: string }) => void,
+): void {
+  onTransferRetry = report;
+}
+
+/**
+ * The finished file, sent, and sent again if the store had a bad minute.
+ *
+ * The comment inside `sendOnce` used to explain why a retryable upload failure
+ * still cost a whole re-render: `processJob` removes the work directory in its
+ * `finally`, so the output is gone by the time the job is queued again, and on
+ * a two-hour source the next attempt spends another two hours making bytes
+ * that already existed. It called carrying the output between attempts "a real
+ * fix and a real change" — it would have to survive a retry landing on another
+ * machine and must not resurrect a stale render for an edited plan — and left
+ * it written down rather than half done.
+ *
+ * Both of those difficulties come from the retry being a *different attempt*.
+ * Retrying here has neither: the file is still on disk, in this process, for
+ * the plan that made it, and no state has to outlive anything. The job-level
+ * retry stays exactly as it was for everything it already covered.
+ */
 export async function uploadObject(key: string, source: string, contentType = "video/mp4"): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await sendOnce(key, source, contentType);
+      return;
+    } catch (error) {
+      // Only the ones another attempt could change. A 413 carries `final` and
+      // a bad key is a bug; both fail on the first try, as they did before.
+      const worthRepeating = error instanceof StorageTransferError && !error.final;
+      if (!worthRepeating || attempt >= UPLOAD_ATTEMPTS) throw error;
+      onTransferRetry?.({ key, attempt, message: (error as Error).message });
+      await new Promise((resolve) => setTimeout(resolve, UPLOAD_BACKOFF_MS[attempt - 1] ?? 8000));
+    }
+  }
+}
+
+async function sendOnce(key: string, source: string, contentType: string): Promise<void> {
   /*
     Streamed from disk, not read into memory.
 
@@ -449,16 +516,18 @@ export async function uploadObject(key: string, source: string, contentType = "v
       sentence says so, because "Rendering failed. We are looking into it." is
       the wrong answer to a store that had a bad minute.
 
-      What the next attempt costs is the part this comment used to get wrong.
-      It said the file was still on disk and a retry would re-upload rather
-      than re-render — but `processJob` removes the work directory in its
-      `finally`, so the finished video goes with it and the retry renders the
-      whole thing again. On a two-hour source that is another two hours of
-      paid compute to send bytes that already existed. Carrying the output
-      between attempts is a real fix and a real change — it has to survive a
-      retry landing on a different machine, and it has to not resurrect a
-      stale render for a plan that was edited — so it is written down rather
-      than half-done here. Retrying is still right; it is just not cheap.
+      And the next attempt is now another upload rather than another render.
+
+      This is thrown out to `uploadObject`, which offers the same file again
+      from the same disk. Before that loop existed it was thrown all the way
+      out to `processJob`, whose `finally` had already taken the work directory
+      and the finished video with it — so a store having a bad minute cost a
+      two-hour source another two hours of paid compute to produce bytes that
+      already existed.
+
+      It still reaches the job-level retry if the store refuses three times,
+      and there the old cost applies. That is the right place for it: a store
+      that has said no for several minutes is not having a bad second.
     */
     if (res.status >= 500 || res.status === 429) {
       throw new StorageTransferError(
@@ -486,7 +555,9 @@ export async function uploadObject(key: string, source: string, contentType = "v
     above leaves the 413 message standing when the ceiling cannot be read.
 
     Retryable, deliberately: the render is finished and the bytes are still on
-    disk, so the next attempt is another upload rather than another hour.
+    disk, so the next attempt is another upload rather than another hour. Since
+    `uploadObject` retries in place, that is now true of the very next attempt
+    rather than of a requeued job.
   */
   const stored = await store.head(key).catch(() => null);
   if (stored && Number.isFinite(stored.bytes) && stored.bytes > 0 && stored.bytes !== size) {

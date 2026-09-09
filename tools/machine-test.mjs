@@ -36,6 +36,7 @@ import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import http from "node:http";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { order } from "./lib/order.mjs";
@@ -290,6 +291,101 @@ section("The machine is described where it is provisioned, too");
 }
 
 await rm(buildDir, { recursive: true, force: true });
+
+section("A store having a bad minute costs an upload, not a render");
+{
+  /*
+   * The third way this machine wastes an hour, and until now it had no test
+   * either.
+   *
+   * `processJob` removes the work directory in its `finally`. So a store that
+   * answered 500 to the very last step of a render threw a retryable error,
+   * the job went back on the queue, and the finished video went in the bin
+   * with the directory — the next attempt made the same bytes again, from the
+   * top, on a source that may be two hours long. The comment in `storage.ts`
+   * described this accurately and called the fix a real change, because
+   * carrying an output between *attempts* has to survive a different machine
+   * and must not resurrect a stale render.
+   *
+   * Retrying inside the same call has neither problem, and this is the test of
+   * it: a store that fails twice and then works must produce one upload and
+   * zero re-renders.
+   */
+  const dir = await mkdtemp(path.join(tmpdir(), "editly-upload-"));
+  const file = path.join(dir, "output.mp4");
+  const bytes = Buffer.alloc(64 * 1024, 7);
+  await writeFile(file, bytes);
+
+  /** A store that fails `failures` times before it works, counting requests. */
+  const bucket = (failures, status = 503) => {
+    let seen = 0;
+    let received = 0;
+    const server = http.createServer((req, res) => {
+      // The HEAD that follows a successful upload asks what arrived, and is
+      // not one of the attempts this is counting.
+      if (req.method === "HEAD") {
+        res.writeHead(200, { "content-length": String(received) }).end();
+        return;
+      }
+      seen += 1;
+      let length = 0;
+      req.on("data", (chunk) => { length += chunk.length; });
+      req.on("end", () => {
+        if (seen <= failures) {
+          res.writeHead(status, { "content-type": "text/plain" }).end("not now");
+          return;
+        }
+        received = length;
+        res.writeHead(200, { "content-type": "application/json" }).end("{}");
+      });
+    });
+    return { server, seen: () => seen, received: () => received };
+  };
+
+  const run = async (failures, status = 503) => {
+    const store = bucket(failures, status);
+    await new Promise((resolve) => store.server.listen(0, "127.0.0.1", resolve));
+    const port = store.server.address().port;
+    const built = build("artifacts/worker/src/storage.ts", `storage-${failures}-${status}.mjs`);
+    const previous = { ...process.env };
+    process.env["OBJECT_STORE_PROVIDER"] = "supabase";
+    process.env["SUPABASE_URL"] = `http://127.0.0.1:${port}`;
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] = "not-a-real-key";
+    let error = null;
+    try {
+      const storage = await import(built);
+      await storage.uploadObject("videos/u/one/output.mp4", file).catch((e) => { error = e; });
+    } finally {
+      process.env = previous;
+      await new Promise((resolve) => store.server.close(resolve));
+    }
+    return { requests: store.seen(), error };
+  };
+
+  const twice = await run(2);
+  check("two bad answers and the third works", twice.error === null, String(twice.error));
+  check("and it took three requests, not three renders", twice.requests === 3, String(twice.requests));
+
+  const always = await run(9);
+  check(
+    "a store that never works still fails, so the job-level retry is still reachable",
+    always.error !== null,
+    String(always.error),
+  );
+  check("after three attempts and no more", always.requests === 3, String(always.requests));
+  check(
+    "and the sentence is the one written for a person waiting on a video",
+    /trying again is worth it|storage/i.test(String(always.error?.message ?? "")),
+    String(always.error?.message),
+  );
+
+  // A wall, not a hiccup: the same bytes will be refused the same way, so a
+  // second offer is a second minute spent to be told the same thing.
+  const tooBig = await run(9, 413);
+  check("a bucket that says the file is too large is asked once", tooBig.requests <= 2, String(tooBig.requests));
+
+  await rm(dir, { recursive: true, force: true });
+}
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {

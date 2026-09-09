@@ -38,6 +38,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import http from "node:http";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
@@ -61,6 +62,22 @@ if (built.status !== 0) {
 }
 const { guard, TimedOutError, LIMITS, ENCODE_SECONDS_PER_SOURCE_SECOND, deliverableSourceMinutes } =
   await import(pathToFileURL(outfile).href);
+
+const healthOut = path.join(buildDir, "health.mjs");
+const builtHealth = spawnSync(
+  require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+  [
+    path.join(repoRoot, "artifacts/worker/src/health.ts"),
+    "--bundle", "--platform=node", "--format=esm", "--target=node22",
+    `--outfile=${healthOut}`, "--log-level=error",
+  ],
+  { stdio: "inherit" },
+);
+if (builtHealth.status !== 0) {
+  console.error("could not bundle health.ts");
+  process.exit(1);
+}
+const { serveHealth, LOOP_TURNS_WITHIN, JOB_HELD_TOO_LONG_MS } = await import(pathToFileURL(healthOut).href);
 
 let checks = 0;
 let failures = 0;
@@ -370,6 +387,98 @@ console.log("\nWhat the deadline can actually finish, against what is sold");
     /\$\{deliverableMinutes\} minutes/.test(sentence),
     sentence.slice(0, 200),
   );
+}
+
+console.log("\nAlive and working are different facts");
+{
+  /*
+   * The half of this file's opening paragraph that had no test.
+   *
+   * The ceilings above stop a hung *child*. What nothing watched was the loop
+   * itself: `/healthz` answered `ready && !leaving`, both of which stay true
+   * for as long as the process exists. A render loop that stopped turning —
+   * an await that never settles, a throw out of the while, a database call
+   * with no timeout — looked exactly like an idle worker from outside, which
+   * is to say it looked fine, forever.
+   *
+   * The clock is injected, so this asks the question in milliseconds rather
+   * than in hours.
+   */
+  let clock = 1_000_000;
+  const port = 8099;
+  const h = serveHealth(port, () => {}, { pollIntervalMs: 100, now: () => clock });
+
+  check("a worker that has not started is not ready", h.state().ready === false);
+  h.ready();
+  check("and one that has is", h.state().ready === true && h.state().stalled === null);
+
+  // An idle loop comes round every poll interval and is not stalled by it.
+  clock += 100 * (LOOP_TURNS_WITHIN - 1);
+  check("an idle loop that keeps turning is working", h.state().stalled === null, JSON.stringify(h.state()));
+
+  clock += 100 * 3;
+  check(
+    "a loop that stopped turning is not, even though the process is up",
+    h.state().stalled === "loop",
+    JSON.stringify(h.state()),
+  );
+  check("and it says how long for", h.state().stalledForMs > 0);
+
+  h.turned();
+  check("one turn clears it", h.state().stalled === null);
+
+  /*
+   * While a job is held the loop is supposed to be inside it and not coming
+   * round, so the loop clock stops being the question and the job's own
+   * ceiling becomes it. This is the reason the two are separate rather than
+   * one timer: a legitimate two-hour encode must not read as a dead loop.
+   */
+  h.holding("job-1");
+  clock += 60 * 60_000 * 3;
+  check(
+    "a three-hour render is not a stalled worker",
+    h.state().stalled === null,
+    JSON.stringify(h.state()),
+  );
+  clock += JOB_HELD_TOO_LONG_MS;
+  check(
+    "but a job held past every ceiling that should have ended it is",
+    h.state().stalled === "job",
+    JSON.stringify(h.state()),
+  );
+  h.holding(null);
+  check("and settling it clears that too", h.state().stalled === null);
+
+  // The endpoint, not just the state: what Fly reads is the status code.
+  const ask = () =>
+    new Promise((resolve) => {
+      const req = http.request({ host: "127.0.0.1", port, path: "/healthz" }, (res) => {
+        let body = "";
+        res.on("data", (c) => { body += c; });
+        res.on("end", () => resolve({ status: res.statusCode, body }));
+      });
+      req.on("error", () => resolve({ status: 0, body: "" }));
+      req.end();
+    });
+
+  const good = await ask();
+  check("a working worker answers 200", good.status === 200, JSON.stringify(good));
+
+  clock += 100 * (LOOP_TURNS_WITHIN + 2);
+  const bad = await ask();
+  check(
+    "and a stopped one answers 503, which is what turns a silent outage into a restart",
+    bad.status === 503,
+    JSON.stringify(bad),
+  );
+  check("and says which of the two it is", /"stalled":"loop"/.test(bad.body), bad.body);
+
+  h.leaving();
+  h.turned();
+  const going = await ask();
+  check("a copy that is leaving still answers 503, as it did before", going.status === 503);
+
+  await h.close();
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

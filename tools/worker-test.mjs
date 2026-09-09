@@ -1298,21 +1298,41 @@ section("A store that keeps two thirds of the file is caught before anybody watc
 
   /*
     It finishes, because this is retryable on purpose: the render is done and
-    the bytes are still on disk, so the second attempt is another upload rather
-    than another hour. What must not happen is finishing on the *first* one.
+    the bytes are still on disk, so the next attempt is another upload rather
+    than another hour. What must not happen is finishing on the *first offer*.
+
+    This used to read `attempts >= 2` — the job had to fail, go back on the
+    queue, and render the whole thing again to send bytes that already
+    existed. `uploadObject` now offers the same file again from the same disk,
+    inside the same attempt, so the truncated copy is still refused and the
+    render is not repeated. The property is unchanged and the price of it is
+    an upload instead of an hour.
   */
   check("the render eventually lands", row?.status === "done", `${row?.status}: ${row?.error}`);
   check(
-    "but not on the attempt whose upload was cut short",
-    row?.attempts >= 2,
-    `${row?.attempts} — a 200 was taken as proof the bytes were kept`,
+    "and it cost one render, not two",
+    row?.attempts === 1,
+    `${row?.attempts} attempts — a truncated upload should not send anybody back to the encoder`,
   );
 
+  /*
+    And it is not silent about it.
+
+    A retry that says nothing is a lie of omission: before this, the way
+    anybody learned a store had kept two thirds of a file was that the job
+    failed and the sentence named both sizes. It still says both sizes; it says
+    them in a warning instead of in an obituary.
+  */
   const complaint = workerLog.find((l) => /only part of it reached storage/.test(l));
-  check("and the failure said what actually happened", complaint !== undefined, workerLog.slice(-2).join(" | "));
+  check("and the attempt that was thrown away said what happened", complaint !== undefined, workerLog.slice(-2).join(" | "));
   check(
     "naming both sizes, because 'upload failed' is not something anybody can act on",
     typeof complaint === "string" && /\d[\d.]*[KM]B of \d[\d.]*[KM]B/.test(complaint),
+    String(complaint).slice(0, 200),
+  );
+  check(
+    "and it reads as a retry rather than as a failure, which is what it now is",
+    typeof complaint === "string" && /retrying the upload/.test(complaint),
     String(complaint).slice(0, 200),
   );
 

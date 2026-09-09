@@ -18,7 +18,7 @@ import pino from "pino";
 import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, comprehensionsTable, transcriptsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
 import { EditPlan, type EditOperation } from "@workspace/api-zod";
 import { CANCELLED_MID_RENDER_MESSAGE } from "@workspace/api-zod/limits";
-import { downloadObject, uploadObject, bytesPulled, objectBytes, objectStamp, StorageTransferError } from "./storage";
+import { downloadObject, uploadObject, bytesPulled, objectBytes, objectStamp, reportTransferRetries, StorageTransferError } from "./storage";
 import { roomFor, noRoomMessage, sweepStaleWork } from "./disk";
 import { renderPlan, probeDuration, probeSource, grabPosterFrame, shapeFor, frameFor, defaultHeightFor, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
@@ -2338,8 +2338,23 @@ async function titleOf(projectId: string, userId: string): Promise<string | null
   already worked can only ever say yes. See health.ts for why the heartbeat row
   is the wrong signal here.
 */
-const health = serveHealth(HEALTH_PORT, (error) =>
-  logger.error({ err: String(error), port: HEALTH_PORT }, "health listener could not start"),
+/*
+  A retried upload still says what went wrong.
+
+  `uploadObject` offers the same finished file again when a store has a bad
+  minute, which spares the customer a second render — and would spare whoever
+  is watching the knowledge that anything happened. This is the line that
+  stops it being silent. It is set here rather than imported there because the
+  logger lives in this file and importing back would be a cycle.
+*/
+reportTransferRetries(({ key, attempt, message }) =>
+  logger.warn({ key, attempt }, `retrying the upload: ${message}`),
+);
+
+const health = serveHealth(
+  HEALTH_PORT,
+  (error) => logger.error({ err: String(error), port: HEALTH_PORT }, "health listener could not start"),
+  { pollIntervalMs: POLL_INTERVAL_MS },
 );
 
 /**
@@ -2621,6 +2636,17 @@ async function main(): Promise<void> {
 
   while (!shuttingDown) {
     try {
+      /*
+        The loop came round, which is a different fact from the process being
+        up and is the one `/healthz` could not answer.
+
+        Said before the heartbeat and before anything that can throw, because
+        what it records is that this line was reached — not that everything
+        after it worked. A loop failing every turn is a loop that is turning,
+        and it has its own signal in the log; a loop that has stopped turning
+        has no signal at all until this one.
+      */
+      health.turned();
       // Before anything else in the loop: a worker that is failing to claim is
       // still a worker that is here, and the difference matters to whoever is
       // watching a queue that is not moving.
@@ -2646,6 +2672,7 @@ async function main(): Promise<void> {
         continue;
       }
       heldJobId = job.id;
+      health.holding(job.id);
       // A new job starts from nothing, whatever the last one reached — and
       // whatever the last one was asked to do. `stopRequestedFor` holds a job
       // id rather than a flag for this reason, and clearing it here as well
@@ -2657,6 +2684,7 @@ async function main(): Promise<void> {
         await withLockKeptAlive(job.id, () => withinJobDeadline(job.id, () => processJob(job)));
       } finally {
         heldJobId = null;
+        health.holding(null);
       }
     } catch (error) {
       // The loop must survive anything, including the database going away.
