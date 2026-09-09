@@ -10,6 +10,7 @@ import billingRouter, { billingWebhookRouter } from "./billing";
 import accountRouter from "./account";
 import assetsRouter from "./assets";
 import clipsRouter from "./clips";
+import notesRouter from "./notes";
 import stockRouter from "./stock";
 import adminRouter from "./admin";
 import waitlistRouter from "./waitlist";
@@ -109,6 +110,7 @@ router.use(billingRouter);
 router.use(accountRouter);
 router.use(assetsRouter);
 router.use(clipsRouter);
+router.use(notesRouter);
 router.use(stockRouter);
 
 // The product-ads section. Behind `requireAuth` like every other data route:

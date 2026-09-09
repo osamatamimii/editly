@@ -1559,6 +1559,137 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /projects/{id}/notes:
+    get:
+      operationId: listNotes
+      tags: [notes]
+      summary: The sentences pinned to moments of this project's source
+      description: >
+        In the video's own order rather than the order they were written, since
+        the only sequence that means anything beside a player is the video's.
+        Every anchor is milliseconds into the source file as uploaded - never
+        into an edit of it - because an edit's clock moves whenever anything
+        earlier in it is cut, and a note anchored to that would point somewhere
+        else with nothing to say so.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The project's notes, and how many one project may hold
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [notes, limit]
+                properties:
+                  notes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Note"
+                  limit:
+                    type: integer
+                    description: >
+                      The plan schema's own ceiling on protected stretches, not
+                      this route's opinion - a note past it could be stored and
+                      then silently not applied.
+        "404":
+          description: >
+            No such project, or not this account's. The same answer for both, so
+            that whether an id exists is not learnable from a status code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createNote
+      tags: [notes]
+      summary: Pin one sentence to one moment of the source
+      description: >
+        The second of the two ways to edit here. A prompt describes the whole
+        video and produces a plan that is rebuilt from scratch on the next
+        sentence; a note is kept, and is applied on top of whatever that plan
+        turns out to be. So "cut the silences" typed tomorrow still leaves the
+        pause somebody marked today.
+        The anchor is snapped to the nearest word boundary from the stored
+        transcript, so a click landing inside a word cannot protect from the
+        middle of one.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sourceMs, text]
+              properties:
+                sourceMs:
+                  type: integer
+                  minimum: 0
+                  description: Milliseconds into the source file as uploaded.
+                text:
+                  type: string
+                  maxLength: 280
+      responses:
+        "201":
+          description: The note as stored, with its snapped anchor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+        "404":
+          description: No such project for this account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: >
+            This project already holds as many notes as one edit can carry. A
+            refusal somebody can read, rather than a row that exists and does
+            nothing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /projects/{id}/notes/{noteId}:
+    delete:
+      operationId: deleteNote
+      tags: [notes]
+      summary: Remove one note
+      description: >
+        Scoped by user, project and note; an id guessed from another account
+        removes nothing and gets the same 404 as one that never existed.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: noteId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: No such note in this project for this account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /projects/{id}/clips/{clipId}:
     delete:
       operationId: deleteClip
@@ -3871,6 +4002,29 @@ components:
           maximum: 1000
           default: 250
       required: [type]
+
+    Note:
+      description: >
+        One sentence a person pinned to one moment of their own source. Stored
+        as what they wrote rather than as the operation it produced, so that a
+        note written today is re-read through tomorrow's vocabulary instead of
+        being frozen as whatever the product understood at the time.
+      type: object
+      required: [id, sourceMs, text, createdAt]
+      properties:
+        id:
+          type: string
+        sourceMs:
+          description: >
+            Milliseconds into the source file as uploaded, snapped to the
+            nearest word boundary. Never a time on an edited clock - that one
+            moves whenever anything earlier in the video is cut.
+          type: integer
+        text:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
 
     Clip:
       description: >

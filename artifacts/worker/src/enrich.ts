@@ -387,7 +387,23 @@ export async function enrichPlan(
 
   for (const operation of plan.operations) {
     if (operation.type === "removeSilence" && protect.length > 0) {
-      operations.push({ ...operation, protect });
+      /*
+       * Union, not replace, and the difference is somebody's own instruction.
+       *
+       * This wrote `protect` flat, on the reasonable assumption that the scene
+       * reader was the only thing that ever filled it. It is not any more: a
+       * note pinned to a moment — "leave this pause" — is applied in the API
+       * and arrives here already in this field. Overwriting it would delete a
+       * sentence the person typed, in favour of what a model noticed, with no
+       * error and nothing in the log. That is the exact shape of the merge bug
+       * that had to be fixed in `direct.ts` before notes could be built at
+       * all, and it would have been reintroduced one layer down.
+       *
+       * The cap is the schema's, and the human entries go first so that a plan
+       * carrying sixty of them keeps the sixty a person asked for.
+       */
+      const merged = [...(operation.protect ?? []), ...protect].slice(0, 60);
+      operations.push({ ...operation, protect: merged });
       continue;
     }
 

@@ -606,12 +606,17 @@ section("The rules the schema itself enforces");
     /REFERENCES projects\(id\) ON DELETE CASCADE/.test(byName["transcripts_project_id_fkey"] ?? ""),
     byName["transcripts_project_id_fkey"],
   );
+  check(
+    "and the notes pinned to its moments, which are about a source that is gone",
+    /REFERENCES projects\(id\) ON DELETE CASCADE/.test(byName["notes_project_id_fkey"] ?? ""),
+    byName["notes_project_id_fkey"],
+  );
   // clips.job_id is deliberately NOT here: jobs are the billing record, and a
   // clip must not vanish because a cleanup pruned old job rows — the file it
   // names still exists and still belongs to the person.
   check(
     "and there are no others nobody has reasoned about",
-    keys.length === 8,
+    keys.length === 9,
     JSON.stringify(keys.map((k) => k.conname)),
   );
 

@@ -16,7 +16,9 @@ import { createPlanner } from "../lib/planner";
 import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
 import { applyHabits, habitsFor } from "../lib/habits";
 import { direct, withDirection, type Reading } from "../lib/direct";
-import { asksForAnEdit, saysOnlyThis } from "../lib/plan-from-text";
+import { asksForAnEdit, saysOnlyThis, clockOf } from "../lib/plan-from-text";
+import { applyNotes } from "../lib/notes";
+import { notesFor, wordsFor } from "../lib/notes-store";
 import { plannerAssets } from "../lib/planner-assets";
 import { startRenderForProject } from "../lib/start-render";
 import { ALREADY_RENDERING } from "../lib/one-active-job";
@@ -239,6 +241,56 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     );
     intent.operations = operations;
     for (const fill of applied) intent.willDo.push({ en: fill.en, ar: fill.ar });
+  }
+
+  /*
+   * The notes, last, and last is the point.
+   *
+   * Everything above this builds the *base*: the sentence, then what the
+   * product decided on top of it, then what this person usually chooses. All
+   * three are regenerated from scratch every time somebody types, and all
+   * three are thrown away on the next message.
+   *
+   * The notes are not. They are rows pinned to moments of the source, and they
+   * come after so that a new prompt can never destroy one — which is the
+   * failure that makes people stop trusting an editor. A note narrows what the
+   * base decided rather than replacing it: "cut the silences" and "leave this
+   * pause" compose into cut-everywhere-except-here, and the field they compose
+   * in already existed.
+   */
+  if (intent.operations.length > 0) {
+    const pinned = await notesFor(project.id, userId);
+    if (pinned.length > 0) {
+      const { operations, applied, unread } = applyNotes(intent.operations, pinned, await wordsFor(project.id, userId));
+      intent.operations = operations;
+      if (applied.length > 0) {
+        const kept = applied.filter((a) => a.verb === "keep").length;
+        const pushed = applied.filter((a) => a.verb === "punch").length;
+        if (kept > 0) {
+          intent.willDo.push(
+            kept === 1
+              ? { en: "keep the moment you marked, whatever else gets cut", ar: "أُبقي اللحظة التي علّمتها، مهما قُصّ غيرها" }
+              : { en: `keep the ${kept} moments you marked, whatever else gets cut`, ar: `أُبقي ${kept} لحظات علّمتها، مهما قُصّ غيرها` },
+          );
+        }
+        if (pushed > 0) {
+          intent.willDo.push(
+            pushed === 1
+              ? { en: "push in where you marked", ar: "أقرّب حيث علّمت" }
+              : { en: `push in at the ${pushed} moments you marked`, ar: `أقرّب عند ${pushed} لحظات علّمتها` },
+          );
+        }
+      }
+      /* Said out loud rather than dropped. A note this layer has no verb for is
+         a person who wrote something and was ignored, and the one thing worse
+         than not understanding is not saying so. */
+      for (const note of unread) {
+        intent.willDo.push({
+          en: `I have kept your note at ${clockOf(note.sourceMs / 1000)} but I cannot act on it yet`,
+          ar: `احتفظتُ بملاحظتك عند ${clockOf(note.sourceMs / 1000)} لكنني لا أستطيع تنفيذها بعد`,
+        });
+      }
+    }
   }
   if (intent.operations.length > 0 && project.videoPath) {
     // The render's notes come back in the language the sentence was written

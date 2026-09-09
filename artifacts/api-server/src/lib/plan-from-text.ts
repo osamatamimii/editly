@@ -1683,7 +1683,7 @@ export function levelAgainstTheBed(operations: EditOperation[]): void {
 }
 
 /** Seconds as m:ss, because "80s" is a number and "1:20" is a moment. */
-function clockOf(seconds: number): string {
+export function clockOf(seconds: number): string {
   const whole = Math.max(0, Math.round(seconds));
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }

@@ -337,6 +337,34 @@ function sweepSeededGrants() {
 sweepSeededGrants();
 sweepSeededUsers();
 
+/*
+ * Room to work in, and it is a grant rather than a plan.
+ *
+ * This suite is about who can read and write whose data. It renders a great
+ * many things along the way — templates, clips, follow-ups — and every one of
+ * them spends the free plan's monthly minutes, which fell from five to three
+ * when the plans were sized to the people they are for. Twenty-two checks then
+ * failed on "you have 3 minutes left", none of them about the meter and all of
+ * them about isolation.
+ *
+ * Upgrading Alice is not the fix: a later section checks that a refused
+ * upgrade leaves the plan reading `free`, and that check is worth keeping. So
+ * the allowance is granted the way the console grants one — a `grant_minutes`
+ * row that `usage.ts` reads and adds — which leaves the plan alone, exercises
+ * a real product mechanism rather than a fixture, and is swept with the rest
+ * of this file's leavings.
+ *
+ * Deliberately not sized against `PLAN_LIMITS`: the number this needs is "more
+ * than this file happens to render", which has nothing to do with what a free
+ * plan includes and should not move when that does.
+ */
+for (const who of [ALICE, BOB]) {
+  psqlGlobal(
+    `insert into admin_actions (id, actor_user_id, action, subject_user_id, reason, detail)
+     values (gen_random_uuid(), '${ALICE}', 'grant_minutes', '${who}', 'isolation-test headroom', '{"seconds": 36000}'::jsonb)`,
+  );
+}
+
 async function call(user, path, method = "GET", body) {
   const res = await fetch(BASE + path, {
     method,
@@ -3818,7 +3846,6 @@ console.log("\nFive requests in the same millisecond spend the allowance once");
 
   /** Free is five minutes a month; each of these is two, so at most two fit. */
   const SOURCE_SECONDS = 120;
-  const ALLOWANCE_SECONDS = 5 * 60;
 
   const projects = [];
   for (let i = 0; i < 5; i += 1) {
@@ -3886,11 +3913,19 @@ console.log("\nFive requests in the same millisecond spend the allowance once");
     Every render accepted at once will consume the source it names, so what is
     accepted together has to fit. Before the fix this was four renders of two
     minutes each against a five-minute plan.
+
+    The month is read from the meter rather than typed here. It was `5 * 60`,
+    which was the free plan's minutes at the time and stopped being them; a
+    check written against a number it does not own goes red the day that number
+    is set deliberately, and says nothing about the property it was guarding.
+    The largest balance any of these renders was told *is* the allowance at the
+    moment the race began, which is exactly the quantity this compares against.
   */
+  const allowanceSeconds = balances.length > 0 ? Math.max(...balances) : 0;
   check(
     "and the work accepted at once fits in the month",
-    accepted.length * SOURCE_SECONDS <= ALLOWANCE_SECONDS,
-    `${accepted.length} renders of ${SOURCE_SECONDS}s each against ${ALLOWANCE_SECONDS}s`,
+    accepted.length * SOURCE_SECONDS <= allowanceSeconds,
+    `${accepted.length} renders of ${SOURCE_SECONDS}s each against ${allowanceSeconds}s`,
   );
 
   clearQueue(ALICE);

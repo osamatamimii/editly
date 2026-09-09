@@ -3,7 +3,7 @@
  * Derived from lib/api-spec/openapi.yaml (source of truth).
  */
 import { z } from "zod/v4";
-import { MAX_FONT_BYTES, MAX_MESSAGE_LENGTH, MAX_CAPTION_CUES, MAX_CAPTION_WORDS_PER_CUE } from "./limits";
+import { MAX_FONT_BYTES, MAX_MESSAGE_LENGTH, MAX_CAPTION_CUES, MAX_CAPTION_WORDS_PER_CUE, NOTE_TEXT_LIMIT } from "./limits";
 
 // ---------------------------------------------------------------------------
 // Shared schemas
@@ -1081,6 +1081,40 @@ export const Clip = z.object({
 export type Clip = z.infer<typeof Clip>;
 
 export const ListClipsParams = z.object({ id: z.string().min(1) });
+
+/* ── Notes: one sentence pinned to one moment of the source ─────────────── */
+
+export const ProjectNoteParams = z.object({ id: z.string().min(1) });
+export const DeleteNoteParams = z.object({ id: z.string().min(1), noteId: z.string().min(1) });
+
+export const CreateNoteBody = z.object({
+  /**
+   * Milliseconds into the **source**, never into the edit.
+   *
+   * The client sends the moment it means on the uploaded file's own clock,
+   * because that is the only clock that does not move when an earlier part of
+   * the video is cut. The server snaps it to the nearest word boundary from
+   * the stored transcript; it does not convert between clocks, and a client
+   * that sends an edited-clock time will pin a note to the wrong instant with
+   * nothing to warn it. Named `sourceMs` so there is no way to send the other
+   * one by accident.
+   */
+  sourceMs: z.number().int().min(0),
+  text: z.string().trim().min(1).max(NOTE_TEXT_LIMIT),
+});
+
+export const NoteResponse = z.object({
+  id: z.string(),
+  sourceMs: z.number(),
+  text: z.string(),
+  createdAt: z.string(),
+});
+
+export const ListNotesResponse = z.object({
+  notes: z.array(NoteResponse),
+  /** What the page needs to say "that is as many as a project can hold". */
+  limit: z.number(),
+});
 export const ListClipsResponse = z.array(Clip);
 
 export const DeleteClipParams = z.object({ id: z.string().min(1), clipId: z.string().min(1) });

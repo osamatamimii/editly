@@ -17,3 +17,4 @@ export * from "./comprehensions";
 export * from "./transcripts";
 export * from "./mail";
 export * from "./shopify";
+export * from "./notes";

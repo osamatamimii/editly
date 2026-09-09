@@ -22,6 +22,19 @@ export const CLIPS_LIBRARY_LIMIT = 200;
 /** The clips of one project, shown grouped by the run that made them. */
 export const PROJECT_CLIPS_LIMIT = 60;
 
+/**
+ * How many notes one project may carry.
+ *
+ * Sixty, and it is the schema's own ceiling rather than a number picked here:
+ * `removeSilence.protect` takes at most sixty stretches, so a sixty-first
+ * "keep this" could be written, stored, and then silently not applied. A limit
+ * a person meets with a sentence is better than one they meet with a shrug.
+ */
+export const PROJECT_NOTES_LIMIT = 60;
+
+/** A note is one instruction about one moment, not an essay. */
+export const NOTE_TEXT_LIMIT = 280;
+
 /** What is scheduled, and what happened to what has gone. */
 export const SCHEDULED_POSTS_LIMIT = 200;
 
