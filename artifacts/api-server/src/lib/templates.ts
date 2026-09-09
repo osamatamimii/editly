@@ -159,7 +159,7 @@ export const TEMPLATES: Template[] = [
           // the clip is roughly a percent every few seconds — felt, not seen.
           { type: "kenBurns", to: 1.08 },
           captions("bold-white"),
-          { type: "normalizeLoudness", targetLufs: -14, voice: true },
+          { type: "normalizeLoudness", targetLufs: -14, voice: true, denoise: true },
         ],
         context,
       ),
@@ -193,7 +193,7 @@ export const TEMPLATES: Template[] = [
           // matches it reads as one edit rather than as a caption laid over
           // somebody else's.
           captions("bold-yellow"),
-          { type: "normalizeLoudness", targetLufs: -13, voice: true },
+          { type: "normalizeLoudness", targetLufs: -13, voice: true, denoise: true },
         ],
         context,
       ),
@@ -215,7 +215,7 @@ export const TEMPLATES: Template[] = [
           // one promises that nothing else is touched. Filtering under the
           // voice is almost always an improvement and it is still a change,
           // and a look whose whole claim is restraint does not get to make it.
-          { type: "normalizeLoudness", targetLufs: -14, voice: false },
+          { type: "normalizeLoudness", targetLufs: -14, voice: false, denoise: false },
         ],
         context,
       ),
@@ -251,7 +251,7 @@ export const TEMPLATES: Template[] = [
           // the captions below stay white rather than drifting with the look.
           { type: "grade", saturation: 1, look: "cinematic" },
           captions("bold-white"),
-          { type: "normalizeLoudness", targetLufs: -14, voice: true },
+          { type: "normalizeLoudness", targetLufs: -14, voice: true, denoise: true },
         ],
         context,
       ),
@@ -277,7 +277,7 @@ export const TEMPLATES: Template[] = [
           // A highlight exists to be posted, and posted clips get read with
           // the sound off. Captions are the look, not an accessory to it.
           captions("bold-white"),
-          { type: "normalizeLoudness", targetLufs: -14, voice: true },
+          { type: "normalizeLoudness", targetLufs: -14, voice: true, denoise: true },
         ],
         context,
       ),
@@ -304,7 +304,7 @@ export const TEMPLATES: Template[] = [
           // Same reasoning as the highlight: a clip made to be posted is a
           // clip read with the sound off.
           captions("bold-white"),
-          { type: "normalizeLoudness", targetLufs: -14, voice: true },
+          { type: "normalizeLoudness", targetLufs: -14, voice: true, denoise: true },
           // Half a second at each end. A piece cut out of the middle of a
           // recording starts and stops mid-room; the fade is what makes it
           // read as a post rather than as an excerpt.
@@ -366,7 +366,7 @@ export const TEMPLATES: Template[] = [
           // No high-pass under a track. Below 80Hz there is room tone on a
           // talking clip and the bottom octave of a kick drum here, and this
           // is the one look somebody picked *for* the music.
-          { type: "normalizeLoudness", targetLufs: -13, voice: false },
+          { type: "normalizeLoudness", targetLufs: -13, voice: false, denoise: false },
         ],
         context,
       ),
@@ -408,7 +408,7 @@ export const TEMPLATES: Template[] = [
           // lost to the shot behind it, and this is the look most likely to be
           // pointed at footage nobody lit.
           captions("karaoke-box"),
-          { type: "normalizeLoudness", targetLufs: -14, voice: true },
+          { type: "normalizeLoudness", targetLufs: -14, voice: true, denoise: true },
         ],
         context,
       ),

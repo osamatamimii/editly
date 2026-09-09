@@ -712,6 +712,92 @@ export async function peakDb(file: string): Promise<number | null> {
 }
 
 /**
+ * How far the room sits under the voice.
+ *
+ * The first version of this measured the pauses `removeSilence` had already
+ * found, on the argument that the pauses *are* the room. The argument is
+ * right and the implementation was backwards: `silencedetect` finds a pause by
+ * looking for level under a threshold, so a recording with an audible fan in
+ * it has no pauses to find. It reported "no pauses long enough to measure the
+ * room in" on the one fixture built specifically to be noisy — which is to say
+ * it stood down exactly where it was needed.
+ *
+ * `astats` answers the question directly and on any material. It reports a
+ * noise floor and a peak from one audio-only pass, and the **distance between
+ * them** is what decides: an absolute floor is a claim about the recording
+ * level, and a quiet recording of a quiet room reads the same as a loud
+ * recording of a noisy one. A healthy take puts fifty or more decibels between
+ * the two. Measured on a fixture with pink noise under a tone: 13dB. On the
+ * same fixture with the noise forty decibels down: 54dB.
+ */
+export interface RoomMeasurement {
+  /** Where the quietest part of the recording sits, in dBFS. */
+  floorDb: number;
+  /** Where the loudest part sits. */
+  peakDb: number;
+  /** The distance between them, which is the number that decides. */
+  headroomDb: number;
+}
+
+export async function measureRoom(file: string): Promise<RoomMeasurement | null> {
+  let buffer = "";
+  await run(
+    FFMPEG,
+    // `-vn` for the reason `detectSilences` gives: decoding the picture to
+    // measure the sound is fourteen times the work for nothing.
+    ["-hide_banner", "-vn", "-i", file, "-af", "astats=metadata=1:reset=0", "-f", "null", "-"],
+    { onStderr: (chunk) => { buffer += chunk; } },
+  );
+  // The overall block is printed last, after one block per channel, so the
+  // final match of each is the one that describes the whole file.
+  const floors = [...buffer.matchAll(/Noise floor dB:\s*(-?[\d.]+|-?inf)/g)];
+  const peaks = [...buffer.matchAll(/Peak level dB:\s*(-?[\d.]+|-?inf)/g)];
+  const last = (found: RegExpMatchArray[]): number => {
+    const raw = found.length > 0 ? found[found.length - 1]![1]! : "";
+    return Number.parseFloat(raw);
+  };
+  const floorDb = last(floors);
+  const peakDb = last(peaks);
+  if (!Number.isFinite(floorDb) || !Number.isFinite(peakDb)) return null;
+  return { floorDb, peakDb, headroomDb: peakDb - floorDb };
+}
+
+/**
+ * How hard to pull, given what was measured. Pure, so the arithmetic is
+ * checkable without an encoder.
+ *
+ * Three numbers are the whole policy. **Forty-five decibels** between the
+ * voice and the floor is a recording with nothing worth removing; above that
+ * the noise is already under everything a viewer will hear it through, and
+ * removing nothing still costs the voice something, because every spectral
+ * subtraction does. **Six** is the least reduction worth the artefact it
+ * introduces, so a take just inside the line is left alone rather than half
+ * treated. **Eighteen** is the ceiling, and it is a taste decision with a
+ * reason: past about twenty the voice starts to sound underwater, and somebody
+ * who can hear the processing will trust the edit less than somebody who can
+ * hear the fan.
+ *
+ * Returns null for "leave it alone", which is the answer for most recordings.
+ */
+export const ROOM_CLEAN_HEADROOM_DB = 45;
+export const ROOM_MIN_REDUCTION_DB = 6;
+export const ROOM_MAX_REDUCTION_DB = 18;
+
+export function denoiseFor(room: RoomMeasurement | null): { nr: number; nf: number } | null {
+  if (!room || !Number.isFinite(room.headroomDb) || !Number.isFinite(room.floorDb)) return null;
+  if (room.headroomDb >= ROOM_CLEAN_HEADROOM_DB) return null;
+  // Not the whole distance. Taking a room down to nothing takes the breath and
+  // the consonant tails with it; leaving some of it audible is what makes the
+  // result sound like a better microphone rather than like a gate.
+  const nr = Math.round(Math.min(ROOM_MAX_REDUCTION_DB, (ROOM_CLEAN_HEADROOM_DB - room.headroomDb) * 0.6) * 10) / 10;
+  if (nr < ROOM_MIN_REDUCTION_DB) return null;
+  // afftdn's own range. A measured floor outside it is clamped rather than
+  // refused: the estimate is still the best one available.
+  const nf = Math.round(Math.max(-80, Math.min(-20, room.floorDb)));
+  return { nr, nf };
+}
+
+/**
  * How far under the loudest moment the silence threshold has to sit.
  *
  * Only a floor, and only ever moves the threshold down. A recording made at an
@@ -2935,6 +3021,12 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
    * voice. Acted on where the speech is still on its own — see the music block.
    */
   let filterTheRoomOut = false;
+  /**
+   * Whether the plan asked for the room itself to be taken out, as opposed to
+   * the rumble under it. Acted on beside `filterTheRoomOut`, and only when
+   * that is also set — see the schema for why speech is the gate.
+   */
+  let takeTheRoomOut = false;
   let graphPrefix = "";
   /** The audio half of `graphPrefix`, for the measuring pass. See `audioPieces`. */
   let audioPrefix = "";
@@ -4085,6 +4177,9 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       the speech leg before the mix.
     */
     if (loudness.voice) filterTheRoomOut = true;
+    // Only alongside `voice`. A plan with a bed under it turns `voice` off, and
+    // a spectral subtraction on music takes the reverb tail off every snare.
+    if (loudness.voice && loudness.denoise) takeTheRoomOut = true;
     /*
       Noted here, applied after the mix is assembled.
 
@@ -4102,8 +4197,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     notes.push(
       loudness.voice
         ? t(
-            `levelled to ${loudness.targetLufs} LUFS, with the room tone under the voice filtered out`,
-            `سُوّي المستوى إلى ${loudness.targetLufs} LUFS، مع ترشيح ضجيج الغرفة تحت الصوت`,
+            `levelled to ${loudness.targetLufs} LUFS, with the rumble under the voice filtered out`,
+            `سُوّي المستوى إلى ${loudness.targetLufs} LUFS، مع ترشيح الهدير تحت الصوت`,
           )
         : t(`levelled to ${loudness.targetLufs} LUFS`, `سُوّي المستوى إلى ${loudness.targetLufs} LUFS`),
     );
@@ -4448,6 +4543,52 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   if (filterTheRoomOut && source.hasAudio) {
     speechParts.push(`[${aLabel}]highpass=f=80[spdry]`);
     aLabel = "spdry";
+  }
+
+  /*
+    And the room itself, which the high pass above never touched.
+
+    A fan, a laptop, a street through a window, the hiss of a cheap preamp:
+    all of it sits across the same band the voice sits in, and nothing at 80Hz
+    reaches any of it. The note beside the high pass used to say it filtered
+    "the room tone" out. It said so for a long time, and it was not true.
+
+    Measured, not assumed, and by the distance between the floor and the peak
+    rather than by a level — see `measureRoom`. Most recordings get nothing,
+    because a quiet room costs the voice something to "clean" and buys nothing.
+
+    After the high pass rather than before it, so the estimate is taken of what
+    is actually left to remove.
+  */
+  if (takeTheRoomOut && source.hasAudio) {
+    const room = await measureRoom(input);
+    const pull = denoiseFor(room);
+    if (pull && room) {
+      speechParts.push(`[${aLabel}]afftdn=nr=${pull.nr}:nf=${pull.nf}[spclean]`);
+      aLabel = "spclean";
+      notes.push(
+        t(
+          `the room sits ${Math.round(room.headroomDb)}dB under your voice, which is close enough to hear, so I took ${pull.nr}dB of it out`,
+          `ضجيج الغرفة يبعد ${Math.round(room.headroomDb)} ديسيبل عن صوتك، وهو قريب بما يُسمَع، فأزلت منه ${pull.nr} ديسيبل`,
+        ),
+      );
+    } else if (room) {
+      // Said out loud, because "I did nothing" and "I could not tell" are
+      // different answers and only one of them is good news.
+      notes.push(
+        t(
+          `the room sits ${Math.round(room.headroomDb)}dB under your voice, which is far enough down to leave alone`,
+          `ضجيج الغرفة يبعد ${Math.round(room.headroomDb)} ديسيبل عن صوتك، وهو بعيد بما يكفي فتركته`,
+        ),
+      );
+    } else {
+      notes.push(
+        t(
+          "I could not measure the room in this recording, so I left the noise alone rather than guess at it",
+          "لم أستطع قياس ضجيج الغرفة في هذا التسجيل، فتركت الضجيج بدل أن أخمّنه",
+        ),
+      );
+    }
   }
 
   const musicParts: string[] = [];

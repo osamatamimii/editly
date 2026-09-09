@@ -901,6 +901,28 @@ export const NormalizeLoudnessOperation = z.object({
    * what it would remove. A look with a track under it leaves this alone.
    */
   voice: z.boolean().default(false),
+  /**
+   * Take the room out from under the voice, if there is a room to take out.
+   *
+   * `voice` above is a high pass at 80Hz. It removes rumble, and the note
+   * beside it used to say it removed "the room tone" — which is not the same
+   * thing and was not true. A fan, a laptop, a street through a window and the
+   * hiss of a cheap preamp all sit across the whole band the voice sits in;
+   * nothing at 80Hz touches them.
+   *
+   * This asks for the real thing: a spectral estimate of what is there when
+   * nobody is speaking, subtracted from what is there when they are. The
+   * strength is not in the plan and could not be, because it is a property of
+   * the recording rather than of the request. The renderer measures the room
+   * in the pauses `removeSilence` already finds, and either takes out what it
+   * measured or does nothing and says nothing. A quiet room is the common
+   * case and it must cost the audio nothing.
+   *
+   * Honoured only where `voice` is also true, which is this schema's existing
+   * answer to "is this speech" — a plan with a bed under it turns `voice` off,
+   * and denoising music is as wrong as high-passing it.
+   */
+  denoise: z.boolean().default(false),
 });
 
 /**

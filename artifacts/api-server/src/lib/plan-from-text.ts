@@ -934,6 +934,18 @@ const NO_COVERAGE_WORDS =
  * product said the words and could not hear them. Only "audio level" matched,
  * which is the same two words in the order nobody says them in.
  */
+/**
+ * Somebody naming the room rather than the level.
+ *
+ * A separate list from the loudness one, and separate because the two asks
+ * arrive in different words and want different work: "the audio is quiet" is a
+ * level, "there is a fan in the background" is a room. They produce the same
+ * operation because the operation is where both live, but a sentence that
+ * names noise must reach it even when it says nothing about volume.
+ */
+const NOISE_WORDS =
+  /\b(?:noise|noisy|hiss|hissing|hum|humming|buzz|buzzing|denoise)\b|\b(?:room|background|ambient) tone\b|\bclean (?:up )?(?:the |my )?(?:audio|sound)\b|ضجيج|ضوضاء|شوشرة|صوت المروحة|صوت الغرفة|في ضجّة|في ضجة|نظّف الصوت|نظف الصوت/i;
+
 const LOUDNESS_WORDS =
   /\bloud|volume|quiet|audio level|sound level|normali[sz]|\blevel(l?ing)? (the |my )?(audio|sound|volume)\b|مستوى الصوت|اضبط الصوت|وحّد الصوت|عدّل الصوت|عدل الصوت|ظبط الصوت|ارفع الصوت|الصوت واطي|الصوت منخفض|الصوت عالي/i;
 // "fade" alone is enough — every reading of it in an edit request means the
@@ -1252,11 +1264,21 @@ export function planFromText(
     );
   }
 
-  if (LOUDNESS_WORDS.test(text)) {
+  const namedNoise = NOISE_WORDS.test(text);
+  if (LOUDNESS_WORDS.test(text) || namedNoise) {
     // `voice` is decided at the end, once the whole sentence has been read —
-    // see the note above the loop below.
-    operations.push({ type: "normalizeLoudness", targetLufs: -14, voice: false });
-    willDo.push(say("level the audio to what these platforms expect", "أضبط مستوى الصوت على ما تتوقّعه هذه المنصّات"));
+    // see the note above the loop below. `denoise` is asked for either way and
+    // costs nothing when there is nothing to remove: the renderer measures the
+    // room in the pauses and leaves a quiet one alone.
+    operations.push({ type: "normalizeLoudness", targetLufs: -14, voice: false, denoise: true });
+    willDo.push(
+      namedNoise
+        ? say(
+            "level the audio and take the room out from under your voice",
+            "أضبط مستوى الصوت وأزيل ضجيج الغرفة من تحت صوتك",
+          )
+        : say("level the audio to what these platforms expect", "أضبط مستوى الصوت على ما تتوقّعه هذه المنصّات"),
+    );
   }
 
   // A bare "add transitions" used to be refused outright. The fade at the ends

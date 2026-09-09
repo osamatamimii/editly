@@ -174,6 +174,15 @@ const PAIRS = [
     expect: ["normalizeLoudness"],
   },
   {
+    // A different ask in different words, reaching the same operation. "the
+    // audio is quiet" is a level; "there is a fan behind me" is a room, and
+    // somebody with the second problem does not say a word about the first.
+    what: "the room behind the voice",
+    en: "there is background noise, clean up the audio",
+    ar: "في ضجيج بالخلفية، نظّف الصوت",
+    expect: ["normalizeLoudness"],
+  },
+  {
     what: "a named look",
     en: "give it a cinematic look",
     ar: "لون سينمائي",

@@ -289,7 +289,10 @@ export function direct(input: DirectionInput): Direction {
     to the wrong material.
   */
   add(
-    { type: "normalizeLoudness", targetLufs: -14, voice: input.hasSpeech },
+    // `denoise` follows `voice`, and both are requests rather than decisions:
+    // the renderer measures the room in the pauses and takes out only what it
+    // measured, which on a quiet recording is nothing at all.
+    { type: "normalizeLoudness", targetLufs: -14, voice: input.hasSpeech, denoise: input.hasSpeech },
     say("level the audio to what the feeds play at", "أضبط مستوى الصوت على ما تشغّله المنصّات"),
   );
 

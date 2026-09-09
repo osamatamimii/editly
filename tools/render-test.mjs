@@ -44,7 +44,7 @@ if (esbuild.status !== 0) {
   process.exit(1);
 }
 
-const { renderPlan, probeSource, duckThreshold, keepSegmentsFrom, remapTime, outputDuration, zoomExpression, writeSubtitleFile, wrapToLayout, frameFor, shapeFor, defaultHeightFor, chooseHighlight, chooseClips, loudestSample, SILENT_PEAK_DBFS } =
+const { renderPlan, probeSource, duckThreshold, keepSegmentsFrom, remapTime, outputDuration, zoomExpression, writeSubtitleFile, wrapToLayout, frameFor, shapeFor, defaultHeightFor, chooseHighlight, chooseClips, loudestSample, SILENT_PEAK_DBFS, measureRoom, denoiseFor, ROOM_CLEAN_HEADROOM_DB, ROOM_MIN_REDUCTION_DB, ROOM_MAX_REDUCTION_DB } =
   await import(pathToFileURL(modulePath).href);
 
 // The reference command below has to crop where the pipeline crops, or it
@@ -1047,9 +1047,185 @@ console.log("\nAudio levelling");
     `${voiceBefore.toFixed(1)}dB against ${voiceAfter.toFixed(1)}dB above 120Hz`,
   );
   check(
-    "the note says the room was filtered, and only when it was",
-    spoken.notes.some((n) => /room tone/.test(n)) && !plain.notes.some((n) => /room tone/.test(n)),
+    // It used to say "room tone", and it said so for a long time. A high pass
+    // at 80Hz removes rumble; a fan, a street and a preamp's hiss all sit in
+    // the band the voice sits in and none of them is touched by it. The room
+    // proper is the section below, and it is the one allowed that word.
+    "the note says the rumble was filtered, and only when it was",
+    spoken.notes.some((n) => /rumble|الهدير/.test(n)) && !plain.notes.some((n) => /rumble|الهدير/.test(n)),
     JSON.stringify([spoken.notes, plain.notes]),
+  );
+  check(
+    "and does not claim the room, which it never removed",
+    !spoken.notes.some((n) => /room tone|ضجيج الغرفة/.test(n)),
+    JSON.stringify(spoken.notes),
+  );
+}
+
+console.log("\nThe room, measured where nobody is speaking");
+{
+  /*
+    The half of "clean up my audio" this product could not do.
+
+    `voice` is a high pass at 80Hz. Below 80Hz there is no speech and no fan
+    either: a laptop, a street, an air conditioner and the hiss of a cheap
+    preamp all sit across the same band the voice does. So the filter removed
+    rumble, the note said "room tone", and the two were not the same thing.
+
+    The strength cannot be in the plan, because it is a property of the
+    recording rather than of the request. It is measured in the pauses — the
+    only place the room is audible on its own — and most recordings get
+    nothing, because taking nothing out still costs a voice something.
+
+    Measured as signal-to-noise rather than as a level, and that matters: both
+    outputs are levelled to -14 LUFS, so a quieter file simply comes back with
+    more gain and its noise floor lands where it started. The distance between
+    the speech and the pause is the only thing the levelling cannot move.
+  */
+  const roomDir = await scratch();
+  const noisy = path.join(roomDir, "roomy.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=12",
+    // 300Hz stands in for the voice and speaks in three stretches; the pink
+    // noise never stops, which is what a room does.
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=12",
+    "-f", "lavfi", "-i", "anoisesrc=color=pink:duration=12:amplitude=0.05",
+    "-filter_complex",
+    "[1:a]volume='0.5*(between(t,0,3)+between(t,5,8)+between(t,10,12))':eval=frame[v];" +
+      "[v][2:a]amix=inputs=2:normalize=0[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", noisy,
+  ]);
+
+  const quiet = path.join(roomDir, "quiet-room.mp4");
+  spawnSync("ffmpeg", [
+    "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=12",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=12",
+    // Forty decibels further down: a room already quieter than anything a
+    // viewer will hear through it.
+    "-f", "lavfi", "-i", "anoisesrc=color=pink:duration=12:amplitude=0.0004",
+    "-filter_complex",
+    "[1:a]volume='0.5*(between(t,0,3)+between(t,5,8)+between(t,10,12))':eval=frame[v];" +
+      "[v][2:a]amix=inputs=2:normalize=0[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", quiet,
+  ]);
+
+  /** RMS between two moments, in dB. */
+  const rmsBetween = (file, from, to) => {
+    const r = spawnSync("ffprobe", [
+      "-v", "error", "-f", "lavfi",
+      "-i", `amovie=${file},atrim=start=${from}:end=${to},asetpts=N/SR/TB,astats=metadata=1:reset=0`,
+      "-show_entries", "frame_tags=lavfi.astats.Overall.RMS_level",
+      "-of", "default=nw=1:nk=1",
+    ], { encoding: "utf8" });
+    const values = r.stdout.trim().split("\n").filter(Boolean).map(Number).filter(Number.isFinite);
+    return values.length > 0 ? values[values.length - 1] : NaN;
+  };
+  /** How far the speech sits above the pause. Gain cannot change this. */
+  const snr = (file) => rmsBetween(file, 1, 2.5) - rmsBetween(file, 3.5, 4.5);
+
+  const level = { type: "normalizeLoudness", targetLufs: -14, voice: true, denoise: false };
+  const before = await renderPlan(noisy, { version: 1, operations: [level] }, { workDir: await scratch() });
+  const after = await renderPlan(
+    noisy,
+    { version: 1, operations: [{ ...level, denoise: true }] },
+    { workDir: await scratch() },
+  );
+
+  const wide = snr(before.output);
+  const wider = snr(after.output);
+  check(
+    "a room under the voice is measured and taken out",
+    wider > wide + 4,
+    `${wide.toFixed(1)}dB of headroom became ${wider.toFixed(1)}dB`,
+  );
+  check(
+    "and the voice is still there, not gated away with it",
+    rmsBetween(after.output, 1, 2.5) > -30,
+    `${rmsBetween(after.output, 1, 2.5).toFixed(1)}dB while speaking`,
+  );
+  check(
+    "the note says what it measured and what it took",
+    after.notes.some((n) => /the room sits -?\d+dB under your voice.*so I took [\d.]+dB of it out/.test(n)),
+    JSON.stringify(after.notes),
+  );
+  const measured = await measureRoom(noisy);
+  check(
+    "and the measurement is of the distance, not of a level",
+    measured !== null && Math.abs(measured.headroomDb - (measured.peakDb - measured.floorDb)) < 0.001,
+    JSON.stringify(measured),
+  );
+  check(
+    "a noisy take measures as noisy",
+    measured !== null && measured.headroomDb < ROOM_CLEAN_HEADROOM_DB,
+    JSON.stringify(measured),
+  );
+  const measuredQuiet = await measureRoom(quiet);
+  check(
+    "and the same recording with the room forty decibels down does not",
+    measuredQuiet !== null && measuredQuiet.headroomDb >= ROOM_CLEAN_HEADROOM_DB,
+    JSON.stringify(measuredQuiet),
+  );
+  check(
+    "which is the case a threshold on the level alone would have got wrong, since the two peak the same",
+    measured !== null && measuredQuiet !== null && Math.abs(measured.peakDb - measuredQuiet.peakDb) < 1,
+    `${measured?.peakDb} against ${measuredQuiet?.peakDb}`,
+  );
+
+  const clean = await renderPlan(
+    quiet,
+    { version: 1, operations: [{ ...level, denoise: true }] },
+    { workDir: await scratch() },
+  );
+  check(
+    "a quiet room is left alone, and said to be",
+    clean.notes.some((n) => /far enough down to leave alone/.test(n)),
+    JSON.stringify(clean.notes),
+  );
+  check(
+    "and nothing was done to it",
+    Math.abs(snr(clean.output) - snr(before.output)) >= 0 && !clean.notes.some((n) => /so I took/.test(n)),
+    JSON.stringify(clean.notes),
+  );
+  check(
+    "asking without denoise says nothing about the room at all",
+    !before.notes.some((n) => /the room sits/.test(n)),
+    JSON.stringify(before.notes),
+  );
+}
+
+console.log("\nHow hard to pull, decided from what was measured");
+{
+  // Pure arithmetic, so it is checked without an encoder. The three numbers
+  // are the whole policy: below the floor there is nothing to remove, below
+  // the minimum the artefact costs more than the noise, and above the ceiling
+  // a voice starts to sound underwater.
+  const room = (headroomDb, floorDb = -50) => ({ floorDb, peakDb: floorDb + headroomDb, headroomDb });
+  check("a clean take asks for nothing", denoiseFor(room(ROOM_CLEAN_HEADROOM_DB + 10)) === null);
+  check("and exactly at the line, nothing", denoiseFor(room(ROOM_CLEAN_HEADROOM_DB)) === null);
+  check(
+    "a take just inside it is left alone rather than half treated",
+    denoiseFor(room(ROOM_CLEAN_HEADROOM_DB - 5)) === null,
+    JSON.stringify(denoiseFor(room(ROOM_CLEAN_HEADROOM_DB - 5))),
+  );
+  const ordinary = denoiseFor(room(30, -48));
+  check(
+    "an ordinary noisy take gets a real pull",
+    ordinary !== null && ordinary.nr >= ROOM_MIN_REDUCTION_DB && ordinary.nr <= ROOM_MAX_REDUCTION_DB,
+    JSON.stringify(ordinary),
+  );
+  check("and the noise floor it is told is the one measured", ordinary?.nf === -48, JSON.stringify(ordinary));
+  const bad = denoiseFor(room(8, -30));
+  check("a very noisy take is capped rather than trusted", bad?.nr === ROOM_MAX_REDUCTION_DB, JSON.stringify(bad));
+  const shallow = denoiseFor(room(8, -12));
+  check("and a floor outside the filter's range is clamped", shallow?.nf === -20, JSON.stringify(shallow));
+  check("nothing measured is nothing done", denoiseFor(null) === null);
+  check(
+    "and a measurement that came back as infinity is nothing measured",
+    denoiseFor({ floorDb: -Infinity, peakDb: -6, headroomDb: Infinity }) === null,
   );
 }
 

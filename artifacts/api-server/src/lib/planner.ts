@@ -753,7 +753,10 @@ function toOperation(
         };
       }
       case "normalizeLoudness":
-        return { type, targetLufs: -14 };
+        // Not a choice the model is offered. Whether there is a room to remove
+        // is a property of the recording, and the renderer is the only thing
+        // that can hear it; asking here would be asking the model to guess.
+        return { type, targetLufs: -14, denoise: true };
       case "grade": {
         // No saturation from the model: that number belongs to the reference
         // matcher, which measures it. The model chooses a mood, nothing more.
@@ -1076,10 +1079,15 @@ function describeAll(operations: EditOperation[]): Phrase[] {
             }
           : { en: "punch in where you lean on a word", ar: "أقرّب الصورة عند الكلمات التي تشدّد عليها" };
       case "normalizeLoudness":
-        return {
-          en: "level the audio to what these platforms expect",
-          ar: "أضبط مستوى الصوت على ما تتوقّعه هذه المنصّات",
-        };
+        return op.denoise
+          ? {
+              en: "level the audio and take the room out from under your voice",
+              ar: "أضبط مستوى الصوت وأزيل ضجيج الغرفة من تحت صوتك",
+            }
+          : {
+              en: "level the audio to what these platforms expect",
+              ar: "أضبط مستوى الصوت على ما تتوقّعه هذه المنصّات",
+            };
       case "burnCaptions":
         return { en: "burn in the captions", ar: "أحرق الترجمة في الصورة" };
       case "watermark":
