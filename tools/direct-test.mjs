@@ -91,7 +91,7 @@ const base = {
   assets: [],
   habits: [],
   spokenTypes: new Set(),
-  spoke: { platform: false, captions: false, silence: false, music: false },
+  spoke: { platform: false, captions: false, silence: false, music: false, coverage: false, sfx: false },
   onlyWhatWasAsked: false,
 };
 const of = (over = {}) => direct({ ...base, ...over });
@@ -380,6 +380,43 @@ check("and effects on the feeds, under the voice", of({ platform: "tiktok" }).op
     "while a video nobody cut still gets none",
     !types(of({ hasSpeech: false, sourceSeconds: 300, spokenTypes: new Set(["addMusic"]) })).includes("transition"),
   );
+}
+
+section("A refusal is a decision, on every subject and not just the ones somebody remembered");
+{
+  /*
+   * Auto-direction exists to fill in what the sentence did not mention, and it
+   * decides that by asking `spoke`. Two of its rules never asked.
+   *
+   * `alternateFraming` went onto anything over a minute with cuts in it, and
+   * quiet `soundEffects` onto any vertical with cuts — regardless of whether
+   * the person had just said "keep the framing" or "no sound effects". Both
+   * refusals parse in `plan-from-text`, both correctly produce no operation,
+   * and both were then overruled here. The framing is the sentence people are
+   * most firm about: somebody who composed a shot says so once and expects it
+   * to hold.
+   *
+   * The cause was that the shape of `spoke` was typed out in three files and
+   * only the parser filled it in, so a subject could be added in one place and
+   * never reach the two layers whose whole job is to be silenced by it. It is
+   * one exported type now, which makes adding a subject a type error until it
+   * is handled everywhere.
+   */
+  const long = { sourceSeconds: 180, hasSpeech: true, platform: "tiktok" };
+
+  const free = types(of(long));
+  check("with nothing said, a long vertical gets both", free.includes("alternateFraming") && free.includes("soundEffects"), free.join(", "));
+
+  const noCoverage = types(of({ ...long, spoke: { ...base.spoke, coverage: true } }));
+  check("but a sentence about the framing keeps its framing", !noCoverage.includes("alternateFraming"), noCoverage.join(", "));
+  check("and that says nothing about the effects", noCoverage.includes("soundEffects"), noCoverage.join(", "));
+
+  const noSfx = types(of({ ...long, spoke: { ...base.spoke, sfx: true } }));
+  check("a sentence about sound effects gets none", !noSfx.includes("soundEffects"), noSfx.join(", "));
+  check("and keeps its coverage", noSfx.includes("alternateFraming"), noSfx.join(", "));
+
+  const neither = types(of({ ...long, spoke: { ...base.spoke, coverage: true, sfx: true } }));
+  check("and both refused is both honoured", !neither.includes("alternateFraming") && !neither.includes("soundEffects"), neither.join(", "));
 }
 
 section("It fits, and the person's plan is still theirs");

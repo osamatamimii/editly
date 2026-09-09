@@ -1,6 +1,7 @@
 import type { EditOperation, Platform } from "@workspace/api-zod";
 import type { Habit } from "./habits";
 import type { PlannerAsset } from "./planner";
+import type { SpokenSubjects } from "./plan-from-text";
 
 /**
  * The edit this material wants, before anybody asks for one.
@@ -89,7 +90,7 @@ export interface DirectionInput {
    * The same set `applyHabits` reads, and for the same reason: "no captions"
    * produces no caption operation and is a decision about captions.
    */
-  spoke: { platform: boolean; captions: boolean; silence: boolean; music: boolean };
+  spoke: SpokenSubjects;
   /** "cut the silences only" — the sentence is the whole plan. */
   onlyWhatWasAsked: boolean;
 }
@@ -355,7 +356,12 @@ export function direct(input: DirectionInput): Direction {
     silences taken out, that is one or two joins, and a video that changes size
     once is a video where something went wrong.
   */
-  if (cutsSoFar() && known && (seconds as number) >= 60) {
+  /* `!spoke.coverage`, and it is the whole reason `SpokenSubjects` grew a field.
+     "Don't change the framing" parses, correctly produces no operation, and was
+     then overruled right here — the one sentence a person is most likely to be
+     firm about, ignored by the layer that exists to fill in what they did not
+     say. */
+  if (cutsSoFar() && known && (seconds as number) >= 60 && !input.spoke.coverage) {
     add(
       { type: "alternateFraming", amount: 0.15 },
       say("cut between a wide and a tight framing, the way a second camera would", "أبدّل بين كادر واسع وآخر ضيّق، كما لو أن هناك كاميرا ثانية"),
@@ -397,7 +403,8 @@ export function direct(input: DirectionInput): Direction {
     that was too loud. Held to the vertical feeds, where this reads as
     production; on a long-form talk it reads as a distraction.
   */
-  if (vertical && cutsSoFar()) {
+  /* And the same for "no sound effects", which had the same hole. */
+  if (vertical && cutsSoFar() && !input.spoke.sfx) {
     add(
       { type: "soundEffects", gainDb: -12, palette: "clean", onCuts: true, onPunches: true, onOpen: true },
       say("put quiet effects under the cuts and the punches", "أضع مؤثّرات خافتة تحت القطع والتقريبات"),

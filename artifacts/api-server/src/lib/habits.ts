@@ -1,3 +1,4 @@
+import type { SpokenSubjects } from "./plan-from-text";
 /**
  * What this person always asks for, learned from what they actually rendered.
  *
@@ -240,7 +241,7 @@ export interface Applied {
 export function applyHabits(
   operations: EditOperation[],
   habits: Habit[],
-  spoke: { platform: boolean; captions: boolean; silence: boolean; music: boolean },
+  spoke: SpokenSubjects,
 ): { operations: EditOperation[]; applied: Applied[] } {
   if (operations.length === 0 || habits.length === 0) return { operations, applied: [] };
 

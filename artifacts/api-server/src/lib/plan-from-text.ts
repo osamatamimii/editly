@@ -62,7 +62,33 @@ export interface ParsedIntent {
    *
    * A subject is spoken if the words are about it, whichever way they went.
    */
-  spoke: { platform: boolean; captions: boolean; silence: boolean; music: boolean };
+  spoke: SpokenSubjects;
+}
+
+/**
+ * The subjects a sentence can decide, and the one place they are listed.
+ *
+ * This shape was written out three times — here, in `direct.ts` and in
+ * `habits.ts` — and the parser is the only one of the three that fills it in.
+ * That is not a tidiness complaint: it is exactly why a subject could be added
+ * to the parser and never reach the two layers that exist to be silenced by it.
+ * `music` was added and threaded through by hand; `coverage` and `sfx` were
+ * not, and both auto-direction rules went on overriding people who had said no
+ * for as long as that was true. Named once, adding a subject is a type error
+ * everywhere it has to be handled.
+ *
+ * A subject is spoken if the words are about it, **whichever way they went**.
+ * A refusal is a decision.
+ */
+export interface SpokenSubjects {
+  platform: boolean;
+  captions: boolean;
+  silence: boolean;
+  music: boolean;
+  /** Changing shot size or angle: `alternateFraming`, and any b-roll with it. */
+  coverage: boolean;
+  /** The quiet whooshes under the cuts: `soundEffects`. */
+  sfx: boolean;
 }
 
 /**
@@ -1047,6 +1073,20 @@ export function planFromText(
     // — having named the subject, and been given no bed here — still had one
     // added there, because "not requested" and "refused" looked the same to it.
     music: MUSIC_WORDS.test(text) || NO_MUSIC_WORDS.test(text),
+    /*
+     * Coverage and effects, request or refusal alike, and both were missing.
+     *
+     * `direct.ts` adds `alternateFraming` to anything over a minute with cuts
+     * in it, and quiet `soundEffects` to any vertical with cuts. Neither could
+     * see a refusal, because neither was told: "don't change the framing" and
+     * "no sound effects" both parse here, both correctly produce no operation,
+     * and both were then overruled by the layer that fills in what the sentence
+     * did not mention. The framing is the thing people are most firm about —
+     * somebody who composed a shot and wants it left alone says so once and
+     * expects that to hold.
+     */
+    coverage: COVERAGE_WORDS.test(text) || NO_COVERAGE_WORDS.test(text),
+    sfx: SFX_WORDS.test(text) || NO_SFX_WORDS.test(text),
   };
 
   /*
