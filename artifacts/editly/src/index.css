@@ -475,20 +475,36 @@
    * thing reads as an object with a raised edge rather than as a rectangle with
    * a border. It is the single idea in that button.
    *
-   * The numbers are not the reference's numbers. Copying its ±2.4 lightness
-   * steps onto our violet gave an effect measurably **35% weaker**: hue 255 at
-   * this lightness carries far less luminance than hue 218 (green is 71% of
-   * luminance, and ours has almost none), so the same lightness step is a
-   * smaller step in light. These four were solved for instead — the lightness
-   * values whose *luminance* separations match the reference's exactly.
+   * The numbers are not the reference's numbers, and the first attempt to make
+   * them so was calibrated against the wrong thing.
+   *
+   * That attempt matched *luminance* separations, on the reasoning that hue 255
+   * carries less luminance than hue 218. It measured correct and looked flat,
+   * which is the only verdict that counts. Checked afterwards in Oklab — a
+   * perceptually uniform space — those stops were already **156%** of the
+   * reference's own lightness steps. So neither metric was the thing.
+   *
+   * The thing is the *ground*. That reference is a pale blue at 83% saturation
+   * on a white page: its own lightness is near the page's, so the shading
+   * inside it is the loudest fact about it. Ours is a fully saturated violet, a
+   * far darker object against nearly the same page, and the eye reads "vivid
+   * violet block" first and everything happening inside it second. No amount of
+   * matching a number fixes that, because the number was never what made the
+   * reference read.
+   *
+   * So the strength was chosen the only honest way left: a ladder at ×1.0,
+   * ×1.6, ×2.2 and ×2.8 of the reference's Oklab steps, rendered at 44px beside
+   * a rebuild of the reference itself, and looked at. **×2.2** is where our rim
+   * reads as prominently as its rim does. Below it we had a correct measurement
+   * of an effect nobody could see, which is what Osama reported.
    *
    * And the ring's bottom edge is `--cta` untouched, as it is in the
    * reference: the brand colour is the unlit truth, and the other three are it
    * under a light.
    */
-  --cta-face-top: 255 100% 57.4%;
-  --cta-face-bottom: 255 100% 65.4%;
-  --cta-ring-top: 255 100% 67.5%;
+  --cta-face-top: 255 100% 55.6%;
+  --cta-face-bottom: 255 100% 67%;
+  --cta-ring-top: 255 100% 69.9%;
   --cta-ring-bottom: 255 100% 62%;
 
   /*
@@ -732,9 +748,9 @@ html[data-page-theme="light"] body {
   /* Identical to the dark theme's, and for the same reason `--cta` is: the
      button is one object placed on the page, not a surface defined against it.
      The light on it does not care what colour the page is. */
-  --cta-face-top: 255 100% 57.4%;
-  --cta-face-bottom: 255 100% 65.4%;
-  --cta-ring-top: 255 100% 67.5%;
+  --cta-face-top: 255 100% 55.6%;
+  --cta-face-bottom: 255 100% 67%;
+  --cta-ring-top: 255 100% 69.9%;
   --cta-ring-bottom: 255 100% 62%;
   /*
    * On dark, secondary is the *lighter* purple — the neon one that glows. On
