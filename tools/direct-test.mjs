@@ -33,6 +33,7 @@
  * Requires: nothing. No keys, no network, no database.
  */
 import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -554,6 +555,65 @@ section("An elongated Arabic hesitation is heard, not lost to an ASCII word boun
   check("'cut the ums' still lands", typesOf("cut the ums and uhs").includes("tighten"));
   // And a single madda-alef inside an ordinary word is not a hesitation.
   check("an ordinary word with one madda-alef is not read as a hesitation", !typesOf("اقرأ القرآن").includes("tighten"), typesOf("اقرأ القرآن").join(","));
+}
+
+section("The voice curve is never applied over a music bed");
+{
+  /*
+   * `normalizeLoudness.voice` is an 80 Hz high pass on the speech leg. With
+   * music in the mix that filter used to reach the bed and strip its bottom
+   * octave — the kick drum, which is the part somebody chose that track for.
+   * The comment in `ffmpeg.ts` records the bug.
+   *
+   * The matcher had a guard for it, run at the end of `planFromText`. The
+   * direction had none, and the direction is the half of the plan that lays a
+   * bed on its own the moment a project has a track in it. So the two
+   * operations that must not meet were produced together, by the same
+   * function, on the ordinary path.
+   */
+  const withTrack = { assets: [{ id: "t1", kind: "audio", label: "song.mp3" }] };
+  const built = of(withTrack);
+  const bed = built.operations.find((op) => op.type === "addMusic");
+  const level = built.operations.find((op) => op.type === "normalizeLoudness");
+  check("the direction lays a bed and levels in one plan", Boolean(bed) && Boolean(level));
+  check(
+    "and asks for the voice curve while it does, which is the shape of the bug",
+    level?.voice === true,
+    JSON.stringify(level),
+  );
+
+  // The rule, applied to the plan that is about to be rendered rather than to
+  // whichever half of it a particular assembler happened to build.
+  text.levelAgainstTheBed(built.operations);
+  check("the rule takes it off once a bed is in the list", level?.voice === false, JSON.stringify(level));
+
+  const spoken = text.planFromText("put my music under it and level the audio").operations;
+  const merged = direction.withDirection(spoken, of(withTrack).operations);
+  text.levelAgainstTheBed(merged);
+  const mergedLevel = merged.find((op) => op.type === "normalizeLoudness");
+  check(
+    "and across the merge, which is where it was getting past the matcher's copy",
+    mergedLevel === undefined || mergedLevel.voice === false,
+    JSON.stringify(mergedLevel),
+  );
+
+  // Somebody talking with no bed still gets it, or this rule would have made
+  // every voice recording worse to fix a mix nobody had.
+  const talking = of({});
+  text.levelAgainstTheBed(talking.operations);
+  const talkingLevel = talking.operations.find((op) => op.type === "normalizeLoudness");
+  check("speech with no bed keeps the voice curve", talkingLevel?.voice === true, JSON.stringify(talkingLevel));
+
+  /*
+   * And the door it is applied at.
+   *
+   * The rule above is only worth anything if something calls it on the way to
+   * a render. `start-render` is where every path meets — the chat, both render
+   * buttons, the export, the product ads — so that is where it is called, and
+   * this reads the file rather than trusting that it still is.
+   */
+  const door = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/start-render.ts"), "utf8");
+  check("start-render applies the rule to what it is about to queue", /levelAgainstTheBed\(/.test(door));
 }
 
 await rm(buildDir, { recursive: true, force: true });

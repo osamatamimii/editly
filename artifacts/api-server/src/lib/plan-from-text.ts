@@ -1627,12 +1627,37 @@ export function planFromText(
     A sentence that asked for music gets the plain levelling. Everything else
     is somebody talking, which is what this product is for.
   */
+  levelAgainstTheBed(operations);
+
+  return { operations, willDo, cannotYet, language: languageOf(asked), spoke };
+}
+
+/**
+ * The voice curve is for a voice, and a bed is not one.
+ *
+ * `normalizeLoudness.voice` puts an 80 Hz high pass on the speech leg. With
+ * music in the mix that filter used to reach the bed and strip its bottom
+ * octave: the kick drum, which is the part somebody chose that track for. The
+ * comment in `ffmpeg.ts` records the bug; this is the rule that stops the plan
+ * ever asking for it.
+ *
+ * It ran at the end of the matcher only, and the matcher is one of three
+ * places a plan is assembled. The direction sets `voice: hasSpeech` with no
+ * knowledge of a bed, and its operations are merged in **after** this ran, so
+ * "put my music under it" plus an auto-levelled render walked straight past
+ * the guard. It is called once more from `start-render`, which is the one door
+ * every render goes through, for the reason `render-policy` gives about rules
+ * enforced at each door: a rule applied where somebody remembered is a rule
+ * that eventually is not applied.
+ *
+ * Mutates in place, like the loop it replaced, because the operations are the
+ * plan being built rather than a value being derived.
+ */
+export function levelAgainstTheBed(operations: EditOperation[]): void {
   const hasBed = operations.some((op) => op.type === "addMusic");
   for (const operation of operations) {
     if (operation.type === "normalizeLoudness") operation.voice = !hasBed;
   }
-
-  return { operations, willDo, cannotYet, language: languageOf(asked), spoke };
 }
 
 /** Seconds as m:ss, because "80s" is a number and "1:20" is a moment. */

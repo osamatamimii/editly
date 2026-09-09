@@ -20,6 +20,7 @@ import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { db, projectsTable, jobsTable, subscriptionsTable, renderFollowupsTable } from "@workspace/db";
 import type { EditOperation } from "@workspace/api-zod";
 import { evenlySpacedPunches } from "./templates";
+import { levelAgainstTheBed } from "./plan-from-text";
 import { planKeyFrom, referenceForPlan } from "./plan-limits";
 import { usageFor, usageNotConsulted } from "./usage";
 import { decideRender } from "./render-policy";
@@ -114,6 +115,18 @@ export async function startRenderForProject(
       ? { ...op, at: evenlySpacedPunches(project.duration ?? null, 4) }
       : op,
   );
+
+  /*
+    The voice curve, judged against the whole plan rather than against the half
+    of it the matcher built.
+
+    See `levelAgainstTheBed`. The matcher ran this on its own operations and
+    then the direction's were merged on top, so a sentence that asked for music
+    and left the levelling to us produced `voice: true` over a bed. Here it is
+    judged once, on the list that is about to be rendered, whichever of the
+    three assemblers built it.
+  */
+  levelAgainstTheBed(requested);
 
   // Everything above this line is what the caller *asked for*. Everything
   // below is what the plan they pay for actually allows.
