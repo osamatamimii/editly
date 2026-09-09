@@ -251,6 +251,10 @@ jobs:
       # Beside the planner, because what it checks is a rule about the parser:
       # a habit must never be applied over the sentence somebody just typed.
       - run: node tools/habits-test.mjs
+      # Beside the habits for the same reason: a note is the third writer of a
+      # plan the sentence did not write, and the property that matters is that
+      # none of the three erases another.
+      - run: node tools/notes-test.mjs
       - run: node tools/vocabulary-test.mjs
       - run: node tools/font-test.mjs
       # After font-test, because it needs the same faces installed and there is

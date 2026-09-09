@@ -28,6 +28,7 @@
  * Requires: nothing. No keys, no network, no database.
  */
 import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { createHmac } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -148,6 +149,28 @@ section("The signing secret can be its own, so a database key can be rotated");
     "and with neither it throws rather than falling back to a constant",
     /if \(!secret\)[\s\S]{0,120}throw new Error/.test(source),
   );
+
+  /*
+    The fallback no longer *signs with* the database key.
+
+    Keeping the fallback was the right call — removing it breaks a running
+    deployment for a variable somebody can set in a minute — but the second
+    half of the objection above stands whatever the deployment does: a value
+    this module holds in memory, compares, and sits beside in a stack trace
+    must not be the value that bypasses row-level security. One HMAC under a
+    fixed label separates them, and it is one way: the state secret cannot be
+    turned back into the key it came from.
+  */
+  const derived = /createHmac\("sha256", secret\)\s*\.update\((\w+)\)/.exec(source);
+  check("the fallback derives a secret rather than using the key itself", derived !== null, source.slice(source.indexOf("function signingSecret"), source.indexOf("function signingSecret") + 260));
+
+  const key = "service-role-key-that-must-not-be-what-signs";
+  const label = (/const STATE_SECRET_LABEL = "([^"]+)"/.exec(source) ?? [])[1];
+  check("the label is fixed and versioned, so it can be changed on purpose later", /\/v\d+$/.test(label ?? ""), String(label));
+  const asDerived = createHmac("sha256", key).update(label ?? "").digest("base64url");
+  check("the derived secret is not the key", asDerived !== key);
+  check("and a state signed with the key does not verify under it", readState(signState({ userId: ME, platform: "x", expiresAt: soon(), nonce: N }, key), asDerived) === null);
+  check("while a state signed with the derived secret does", readState(signState({ userId: ME, platform: "x", expiresAt: soon(), nonce: N }, asDerived), asDerived) !== null);
 }
 
 section("A state expires, so one left in a browser history is worthless");

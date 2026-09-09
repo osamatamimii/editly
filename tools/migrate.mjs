@@ -69,6 +69,50 @@ const pool = new Pool({
 const dir = path.join(process.cwd(), "lib/db/migrations");
 const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
 
+/**
+ * Two migrations may not share a number.
+ *
+ * The order these run in is the order of their filenames, and a number is the
+ * only part of a filename anybody reads as an order. When two share one, the
+ * sentence after the number decides which goes first — alphabetically, by
+ * accident, and differently from what either author intended. It has never
+ * bitten because the four that collide are independent of each other; the next
+ * pair will not be.
+ *
+ * The four are named rather than renamed. Their filenames are the primary key
+ * of `schema_migrations` on every database that has run them, so renaming one
+ * is not a tidy-up: it is a migration that has never been applied, and it
+ * would be applied again against a schema that already has it.
+ *
+ * This refuses at the point a fifth is added, which is the only moment the
+ * mistake is cheap to fix.
+ */
+const GRANDFATHERED = new Set([
+  "0043_the_bucket_takes_what_the_product_offers.sql",
+  "0043_who_the_queue_is_about.sql",
+  "0044_a_render_can_be_stopped.sql",
+  "0044_shopify_shops.sql",
+]);
+
+{
+  const byNumber = new Map();
+  for (const file of files) {
+    const number = file.slice(0, 4);
+    byNumber.set(number, [...(byNumber.get(number) ?? []), file]);
+  }
+  const collisions = [...byNumber.values()]
+    .filter((group) => group.length > 1)
+    .filter((group) => !group.every((file) => GRANDFATHERED.has(file)));
+  if (collisions.length > 0) {
+    console.error(
+      "two migrations share a number, and the number is what decides the order they run in:\n" +
+        collisions.map((group) => `  ${group.join("  and  ")}`).join("\n") +
+        "\nrename the new one to the next free number. it has not been applied anywhere yet.",
+    );
+    process.exit(1);
+  }
+}
+
 const client = await pool.connect();
 try {
   await client.query(`

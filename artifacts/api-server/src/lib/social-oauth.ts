@@ -85,7 +85,22 @@ export const BINDING_COOKIE = "editly_oauth";
  * The fallback stays because removing it would break a running deployment on
  * the day this ships, which is not a trade worth making for a variable somebody
  * can set in a minute. It is a step, not a resting place.
+ *
+ * What it no longer does is *sign with* that key. The fallback derives a
+ * separate secret from it — one HMAC under a fixed label — so the value this
+ * module holds, logs beside, and compares in memory is not the value that
+ * bypasses row-level security on the whole database. The derivation is one
+ * way: the state secret cannot be turned back into the service role key.
+ *
+ * Two consequences worth naming rather than discovering. Rotating the service
+ * role key still rotates this, because it is still the input; that coupling is
+ * the reason to set `OAUTH_STATE_SECRET`, and it is unchanged. And on the
+ * deployment where this ships, states signed by the old value stop verifying —
+ * which is a connect flow somebody started in the last few minutes asking to
+ * be started again, not an account lost.
  */
+const STATE_SECRET_LABEL = "editly/oauth-state/v1";
+
 function signingSecret(): string {
   const dedicated = process.env["OAUTH_STATE_SECRET"]?.trim();
   if (dedicated) return dedicated;
@@ -93,7 +108,7 @@ function signingSecret(): string {
   if (!secret) {
     throw new Error("no signing secret: set OAUTH_STATE_SECRET (or SUPABASE_SERVICE_ROLE_KEY)");
   }
-  return secret;
+  return createHmac("sha256", secret).update(STATE_SECRET_LABEL).digest("base64url");
 }
 
 const base64url = (input: Buffer | string) =>
