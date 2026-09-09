@@ -259,7 +259,18 @@ export function direct(input: DirectionInput): Direction {
     if (known && (seconds as number) >= 30) {
       add(
         { type: "tighten", fillers: true, repeats: true },
-        say("and the ums and the restarts", "والترددات والبدايات المكرّرة"),
+        /*
+          Written to stand alone, not to lean on the phrase above it.
+
+          It used to open with "and" — «والترددات» in Arabic — because it is
+          added directly after the silence cut and reads as its continuation.
+          It is not one: `joinNaturally` puts «، و» between every Arabic item,
+          so the list came out «الصمت والفراغات، ووالترددات», with the واو
+          doubled, in the most-read sentence this product writes. The same
+          wording as `describeAll` uses for this operation, so the two paths
+          say one thing about one operation.
+        */
+        say("cut the hesitations and the false starts", "أقصّ الترددات والبدايات المكرّرة"),
       );
     }
   }

@@ -986,7 +986,14 @@ function clock(seconds: number): string {
  * answering in English would mean an Arabic speaker's reply changed language
  * depending on whether a key was configured that day.
  */
-function describeAll(operations: EditOperation[]): Phrase[] {
+/**
+ * Exported for `phrasing-test`, which is the only reader outside this file.
+ *
+ * It is the one place every operation type turns into a sentence, so it is
+ * also the only place a suite can see all of them at once: a switch the
+ * compiler keeps exhaustive is a better corpus than any list a test could hold.
+ */
+export function describeAll(operations: EditOperation[]): Phrase[] {
   return operations.map((op): Phrase => {
     switch (op.type) {
       case "removeSilence":

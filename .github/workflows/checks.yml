@@ -336,6 +336,11 @@ jobs:
       - run: node tools/combination-test.mjs
       - run: node tools/promise-test.mjs
       - run: node tools/bilingual-test.mjs
+      # Every phrase the product says about itself is half a sentence, put
+      # behind "I'll " or «س». This drives the five files that produce one and
+      # checks each half reads inside the frame it lands in. It found the
+      # direction opening a phrase with «و», which the Arabic join doubled.
+      - run: node tools/phrasing-test.mjs
       - run: node tools/overlay-test.mjs
       - run: node tools/motion-test.mjs
       - run: node tools/beat-test.mjs
