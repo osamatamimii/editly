@@ -175,7 +175,7 @@ export default function Login() {
             position: "absolute",
             inset: 0,
             background:
-              "radial-gradient(ellipse 100% 55% at 50% -5%, rgba(108,59,255,0.4) 0%, rgba(108,59,255,0.12) 40%, transparent 70%)",
+              "radial-gradient(ellipse 100% 55% at 50% -5%, rgba(80, 161, 237,0.4) 0%, rgba(80, 161, 237,0.12) 40%, transparent 70%)",
           }}
         />
       </div>

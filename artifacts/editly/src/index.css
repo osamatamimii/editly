@@ -206,18 +206,18 @@
    * a spread is an edge and reads as an object. Sitting one on top of the
    * other is what gives the disc a second, softer silhouette.
    */
-  --aura-ring: rgba(124, 78, 255, 0.42);
-  --aura-ring-strong: rgba(124, 78, 255, 0.62);
+  --aura-ring: rgba(95, 169, 238, 0.42);
+  --aura-ring-strong: rgba(95, 169, 238, 0.62);
   /* Recessed, not domed: dark at the top, light bounce at the bottom. */
   /* The face, ramped rather than shadowed: dark at the top, light at the
      bottom, the whole way down. */
-  --aura-face-dark: rgba(2, 0, 12, 0.10);
-  --aura-face-dark-deep: rgba(2, 0, 12, 0.26);
+  --aura-face-dark: rgba(1, 6, 11, 0.10);
+  --aura-face-dark-deep: rgba(1, 6, 11, 0.26);
   --aura-face-light: rgba(255, 255, 255, 0.09);
   /* The shadow the ring casts onto the face it surrounds. The strongest depth
      cue in the button, and the one we did not have. */
-  --aura-rim: rgba(2, 0, 12, 0.09);
-  --aura-rim-deep: rgba(2, 0, 12, 0.34);
+  --aura-rim: rgba(1, 6, 11, 0.09);
+  --aura-rim-deep: rgba(1, 6, 11, 0.34);
   /* The ring, graded. Lighter than the face, which is what makes it read as
      light around the object rather than a shadow under it. */
   /* The ring is the button's own colour, veiled — measured off the reference
@@ -229,7 +229,7 @@
   --aura-ring-top-lit-mix: 84%;
   --aura-ring-bottom-lit-mix: 100%;
   --aura-neutral-ring-lo: rgba(255, 255, 255, 0.12);
-  --aura-drop: rgba(8, 4, 24, 0.55);
+  --aura-drop: rgba(3, 14, 25, 0.55);
   /* The neutral one — their white `+`. A surface, a ring of nothing much, and
      a shadow doing all the work of the border it does not have. */
   --aura-neutral-ring: rgba(255, 255, 255, 0.07);
@@ -246,12 +246,12 @@
   --deal: 338 90% 62%;
   --deal-soft: rgba(247, 60, 140, 0.16);
   --deal-edge: rgba(247, 60, 140, 0.38);
-  --primary-border: rgba(20, 6, 60, 0.45);
-  --secondary-border: rgba(20, 6, 60, 0.40);
+  --primary-border: rgba(6, 34, 60, 0.45);
+  --secondary-border: rgba(6, 34, 60, 0.40);
   --destructive-border: rgba(60, 6, 12, 0.45);
   --accent-border: rgba(255, 255, 255, 0.08);
   --muted-border: rgba(255, 255, 255, 0.06);
-  --sidebar-primary-border: rgba(20, 6, 60, 0.45);
+  --sidebar-primary-border: rgba(6, 34, 60, 0.45);
   --sidebar-accent-border: rgba(255, 255, 255, 0.08);
 
   --surface-1: rgba(255, 255, 255, 0.05);
@@ -263,33 +263,33 @@
   --band: rgba(0, 0, 0, 0.4);
 
   /* Purple, lifted only as far as legibility on near-black requires. */
-  --brand-mark: 265 85% 58%;
+  --brand-mark: 209 85% 58%;
 
   /* The washes behind the landing page. Purple on near-black. */
-  --wash-top: rgba(108, 59, 255, 0.28);
-  --wash-top-mid: rgba(108, 59, 255, 0.10);
-  --wash-mid: rgba(79, 70, 229, 0.18);
-  --wash-left: rgba(108, 59, 255, 0.10);
-  --wash-right: rgba(155, 107, 255, 0.12);
+  --wash-top: rgba(78, 160, 236, 0.28);
+  --wash-top-mid: rgba(78, 160, 236, 0.10);
+  --wash-mid: rgba(64, 152, 235, 0.18);
+  --wash-left: rgba(78, 160, 236, 0.10);
+  --wash-right: rgba(121, 183, 241, 0.12);
   /* The grid the key light falls across, and the grain over everything.
      Brighter than the light theme's, because a hairline on near-black has to
      clear the display's own noise floor to be seen at all — and heavier grain,
      because banding across a large dark gradient is visible on every 8-bit
      panel and this is what hides it. */
-  --grid-line: rgba(196, 178, 255, 0.075);
+  --grid-line: rgba(185, 218, 248, 0.075);
   /* The footer wordmark. It fades *into* the page from the top down rather
      than sitting on it — on near-black the bottom of the letterforms goes to
      almost nothing, which is what stops a mark this size shouting. */
   --wordmark-top: rgba(255, 255, 255, 0.92);
-  --wordmark-mid: rgba(155, 107, 255, 0.55);
+  --wordmark-mid: rgba(121, 183, 241, 0.55);
   --wordmark-bottom: rgba(255, 255, 255, 0.04);
-  --wordmark-bloom: rgba(108, 59, 255, 0.35);
+  --wordmark-bloom: rgba(78, 160, 236, 0.35);
   /* The little drawings in the feature grid. Three values, so a cell reads as
      one object: the shot, its edge, and the thing the product did to it. */
   --art-base: rgba(255, 255, 255, 0.05);
   --art-line: rgba(255, 255, 255, 0.22);
-  --art-accent: rgba(155, 107, 255, 0.95);
-  --art-accent-soft: rgba(108, 59, 255, 0.22);
+  --art-accent: rgba(121, 183, 241, 0.95);
+  --art-accent-soft: rgba(78, 160, 236, 0.22);
   --grain-opacity: 0.05;
 
   /*
@@ -322,10 +322,10 @@
    */
   --glass-bg-top: rgba(255, 255, 255, 0.07);
   --glass-bg-bottom: rgba(255, 255, 255, 0.02);
-  --glass-bg: rgba(10, 10, 15, 0.5);
+  --glass-bg: rgba(10, 13, 15, 0.5);
   /* What the translucent tint resolves to over this theme's own background,
      for panels that skip the readback. See `.glass-flat`. */
-  --glass-bg-solid: rgb(12, 11, 16);
+  --glass-bg-solid: rgb(11, 14, 16);
   --glass-ring-lit: rgba(255, 255, 255, 0.28);
   --glass-ring-dim: rgba(255, 255, 255, 0.05);
   --glass-inset: rgba(255, 255, 255, 0.12);
@@ -339,26 +339,26 @@
      real alpha; the lip is white light catching the top edge. */
   /* These five belong to `.glow-btn` and `.btn-gradient-cta` and to nothing
      else, so they follow `--cta`. */
-  --halo: rgba(108, 59, 255, 0.26);
-  --halo-strong: rgba(155, 107, 255, 0.75);
+  --halo: rgba(78, 160, 236, 0.26);
+  --halo-strong: rgba(121, 183, 241, 0.75);
   /* The specular line along a button's top edge. At 0.30 it was a white stroke
      rather than a highlight — with the (undefined) white border around the rest
      of the pill, the button read as outlined in white. The border is a colour
      now and this is back to being light catching an edge. */
   --btn-lip: rgba(255, 255, 255, 0.14);
-  --btn-underside: rgba(6, 3, 20, 0.45);
-  --glow-soft: rgba(155, 107, 255, 0.85);
-  --glow-wide: rgba(108, 59, 255, 0.4);
-  --text-glow-near: rgba(155, 107, 255, 0.8);
-  --text-glow-far: rgba(108, 59, 255, 0.4);
-  --cta-shadow: rgba(108, 59, 255, 0.5);
-  --cta-shadow-soft: rgba(108, 59, 255, 0.4);
+  --btn-underside: rgba(2, 12, 21, 0.45);
+  --glow-soft: rgba(121, 183, 241, 0.85);
+  --glow-wide: rgba(78, 160, 236, 0.4);
+  --text-glow-near: rgba(121, 183, 241, 0.8);
+  --text-glow-far: rgba(78, 160, 236, 0.4);
+  --cta-shadow: rgba(78, 160, 236, 0.5);
+  --cta-shadow-soft: rgba(78, 160, 236, 0.4);
   /* The ground behind the collapsed top bar. Not `--surface-1`: this pane
      floats over whatever is scrolling underneath it, so it needs to be more
      opaque than a raised surface on the page, not less. */
   --panel-lip: rgba(255, 255, 255, 0.09);
   --panel-ring: rgba(255, 255, 255, 0.06);
-  --panel-drop: rgba(2, 0, 10, 0.75);
+  --panel-drop: rgba(1, 5, 9, 0.75);
   --bubble-said-top: rgba(255, 255, 255, 0.075);
   --bubble-said: rgba(255, 255, 255, 0.045);
   --bubble-asked-top: hsl(var(--primary) / 0.32);
@@ -366,8 +366,8 @@
   --bubble-lip: rgba(255, 255, 255, 0.10);
   --bubble-ring: rgba(255, 255, 255, 0.07);
   --bubble-asked-ring: hsl(var(--primary) / 0.35);
-  --bubble-drop: rgba(4, 2, 14, 0.55);
-  --nav-capsule-top: rgba(30, 27, 50, 0.38);
+  --bubble-drop: rgba(2, 8, 14, 0.55);
+  --nav-capsule-top: rgba(27, 39, 50, 0.38);
   --nav-capsule-lens: rgba(255, 255, 255, 0.30);
   --nav-capsule-foot: rgba(0, 0, 0, 0.45);
   --nav-capsule-edge-lit: rgba(255, 255, 255, 0.34);
@@ -375,7 +375,7 @@
   --composer-face: rgba(255, 255, 255, 0.045);
   --composer-lip: rgba(255, 255, 255, 0.09);
   --composer-chip: rgba(255, 255, 255, 0.05);
-  --nav-capsule: rgba(14, 12, 24, 0.52);
+  --nav-capsule: rgba(12, 18, 24, 0.52);
   --nav-capsule-ring: rgba(255, 255, 255, 0.10);
   --nav-capsule-lip: rgba(255, 255, 255, 0.22);
   --input-focus-bg: rgba(255, 255, 255, 0.09);
@@ -388,30 +388,30 @@
   --elevate-2: rgba(255,255,255, .09);
 
   /* Deep dark background */
-  --background: 255 10% 4%;
+  --background: 209 45% 4%;
   --foreground: 0 0% 98%;
-  --border: 255 10% 12%;
+  --border: 209 45% 12%;
   
   /* Glassy cards */
-  --card: 255 10% 6%;
+  --card: 209 45% 6%;
   --card-foreground: 0 0% 98%;
-  --card-border: 255 10% 15%;
+  --card-border: 209 45% 15%;
 
-  --sidebar: 255 10% 5%;
+  --sidebar: 209 45% 5%;
   --sidebar-foreground: 0 0% 98%;
-  --sidebar-border: 255 10% 15%;
-  --sidebar-primary: 255 100% 62%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 255 10% 12%;
+  --sidebar-border: 209 45% 15%;
+  --sidebar-primary: 209 81% 62%;
+  --sidebar-primary-foreground: 209 60% 10%;
+  --sidebar-accent: 209 45% 12%;
   --sidebar-accent-foreground: 0 0% 98%;
-  --sidebar-ring: 255 100% 62%;
+  --sidebar-ring: 209 81% 62%;
 
-  --popover: 255 10% 6%;
+  --popover: 209 45% 6%;
   --popover-foreground: 0 0% 98%;
-  --popover-border: 255 10% 15%;
+  --popover-border: 209 45% 15%;
 
   /* Deep Purple #6C3BFF */
-  --primary: 255 100% 62%;
+  --primary: 209 81% 62%;
   /*
     The brand colour when it is *text* rather than a fill.
 
@@ -428,8 +428,8 @@
     Lighter rather than a different hue: 72% is the same brand violet at 5.7:1
     on this ground, so the page does not acquire a second accent colour.
   */
-  --link: 255 100% 72%;
-  --primary-foreground: 0 0% 100%;
+  --link: 209 81% 72%;
+  --primary-foreground: 209 60% 10%;
 
   /*
    * The action colour — the brand violet, in the shape of the reference.
@@ -453,10 +453,10 @@
    * light around a lit object always is, and the same colour `--secondary`
    * already carries elsewhere in the product.
    */
-  --cta: 255 100% 62%;
-  --cta-foreground: 0 0% 100%;
+  --cta: 209 81% 62%;
+  --cta-foreground: 209 60% 10%;
   /* #9B6BFF. */
-  --cta-bloom: 259 100% 71%;
+  --cta-bloom: 209 81% 71%;
 
   /*
    * The four stops that light a filled button, and only the lightness moves.
@@ -502,23 +502,23 @@
    * reference: the brand colour is the unlit truth, and the other three are it
    * under a light.
    */
-  --cta-face-top: 255 100% 55.6%;
-  --cta-face-bottom: 255 100% 67%;
-  --cta-ring-top: 255 100% 69.9%;
-  --cta-ring-bottom: 255 100% 62%;
+  --cta-face-top: 209 81% 55.6%;
+  --cta-face-bottom: 209 81% 67%;
+  --cta-ring-top: 209 81% 69.9%;
+  --cta-ring-bottom: 209 81% 62%;
 
   /*
    * Neon Purple Glow #9B6BFF — light enough that white sits on it at 3.54:1,
    * below AA. A light fill takes dark ink; that is not a compromise, it is the
    * rule the rest of the palette already follows.
    */
-  --secondary: 259 100% 71%;
-  --secondary-foreground: 260 40% 8%;
+  --secondary: 209 81% 71%;
+  --secondary-foreground: 209 14% 8%;
 
-  --muted: 255 10% 12%;
-  --muted-foreground: 255 5% 65%;
+  --muted: 209 45% 12%;
+  --muted-foreground: 209 5% 65%;
 
-  --accent: 255 10% 12%;
+  --accent: 209 45% 12%;
   --accent-foreground: 0 0% 98%;
 
   /* Bright, because it is read as text on a near-black page. */
@@ -529,12 +529,12 @@
   --warning: 38 92% 62%;
   --destructive-foreground: 0 0% 100%;
 
-  --input: 255 10% 15%;
-  --ring: 255 100% 62%;
+  --input: 209 45% 15%;
+  --ring: 209 81% 62%;
   
   /* Categorical series, tuned for a dark plot area. */
-  --chart-1: 255 100% 62%;
-  --chart-2: 259 100% 71%;
+  --chart-1: 209 81% 62%;
+  --chart-2: 209 81% 71%;
   --chart-3: 199 89% 48%;
   --chart-4: 43 74% 66%;
   --chart-5: 27 87% 67%;
@@ -623,35 +623,35 @@
 html[data-page-theme="light"],
 html[data-page-theme="light"] body {
   color-scheme: light;
-  background-color: hsl(265 60% 98.5%);
+  background-color: hsl(209 60% 98.5%);
 }
 
 .light {
-  --button-outline: rgba(84, 30, 190, 0.16);
-  --badge-outline: rgba(84, 30, 190, 0.09);
+  --button-outline: rgba(21, 113, 199, 0.16);
+  --badge-outline: rgba(21, 113, 199, 0.09);
 
   /* The same edges, on a white page. See the note in the dark block. */
   /* The same aura on a white page: the ring has to be a touch stronger to be
      seen at all, and the face gradient flips to a dark-to-nothing so a filled
      button still reads as lit from above rather than washed out. */
-  --aura-ring: rgba(124, 78, 255, 0.30);
-  --aura-ring-strong: rgba(124, 78, 255, 0.48);
+  --aura-ring: rgba(95, 169, 238, 0.30);
+  --aura-ring-strong: rgba(95, 169, 238, 0.48);
   /* Shallower on a white page: the same dish, lit from a brighter room. */
   /* The same five parts on a white page. The face ramp is shallower and the
      ring is stronger, because a translucent ring over white loses more of
      itself than one over near-black. */
-  --aura-face-dark: rgba(20, 4, 70, 0.09);
-  --aura-face-dark-deep: rgba(20, 4, 70, 0.22);
+  --aura-face-dark: rgba(7, 38, 67, 0.09);
+  --aura-face-dark-deep: rgba(7, 38, 67, 0.22);
   --aura-face-light: rgba(255, 255, 255, 0.13);
-  --aura-rim: rgba(20, 4, 70, 0.07);
-  --aura-rim-deep: rgba(20, 4, 70, 0.30);
+  --aura-rim: rgba(7, 38, 67, 0.07);
+  --aura-rim-deep: rgba(7, 38, 67, 0.30);
   --aura-ring-top-mix: 74%;
   --aura-ring-bottom-mix: 92%;
   --aura-ring-top-lit-mix: 86%;
   --aura-ring-bottom-lit-mix: 100%;
-  --aura-neutral-ring-lo: rgba(20, 4, 70, 0.05);
-  --aura-drop: rgba(60, 30, 140, 0.18);
-  --aura-neutral-ring: rgba(40, 12, 110, 0.06);
+  --aura-neutral-ring-lo: rgba(7, 38, 67, 0.05);
+  --aura-drop: rgba(30, 87, 140, 0.18);
+  --aura-neutral-ring: rgba(12, 63, 110, 0.06);
   --aura-neutral-face: rgba(255, 255, 255, 0.9);
 
   /* Deeper, because 62% lightness on white is a highlighter rather than a
@@ -659,16 +659,16 @@ html[data-page-theme="light"] body {
   --deal: 338 82% 48%;
   --deal-soft: rgba(214, 22, 104, 0.10);
   --deal-edge: rgba(214, 22, 104, 0.28);
-  --primary-border: rgba(40, 12, 110, 0.35);
-  --secondary-border: rgba(40, 12, 110, 0.30);
+  --primary-border: rgba(12, 63, 110, 0.35);
+  --secondary-border: rgba(12, 63, 110, 0.30);
   --destructive-border: rgba(90, 10, 20, 0.35);
-  --accent-border: rgba(40, 12, 110, 0.10);
-  --muted-border: rgba(40, 12, 110, 0.08);
-  --sidebar-primary-border: rgba(40, 12, 110, 0.35);
-  --sidebar-accent-border: rgba(40, 12, 110, 0.10);
+  --accent-border: rgba(12, 63, 110, 0.10);
+  --muted-border: rgba(12, 63, 110, 0.08);
+  --sidebar-primary-border: rgba(12, 63, 110, 0.35);
+  --sidebar-accent-border: rgba(12, 63, 110, 0.10);
 
-  --elevate-1: rgba(84, 30, 190, 0.045);
-  --elevate-2: rgba(84, 30, 190, 0.095);
+  --elevate-1: rgba(21, 113, 199, 0.045);
+  --elevate-2: rgba(21, 113, 199, 0.095);
 
   /*
    * Violet ink, not grey ink.
@@ -680,43 +680,43 @@ html[data-page-theme="light"] body {
    * and "the light half of *this* product": the greys now belong to the purple
    * rather than sitting next to it.
    */
-  --surface-1: rgba(84, 30, 190, 0.045);
-  --surface-2: rgba(84, 30, 190, 0.085);
-  --surface-3: rgba(84, 30, 190, 0.14);
-  --hairline-faint: rgba(84, 30, 190, 0.09);
-  --hairline: rgba(84, 30, 190, 0.15);
-  --hairline-strong: rgba(84, 30, 190, 0.26);
+  --surface-1: rgba(21, 113, 199, 0.045);
+  --surface-2: rgba(21, 113, 199, 0.085);
+  --surface-3: rgba(21, 113, 199, 0.14);
+  --hairline-faint: rgba(21, 113, 199, 0.09);
+  --hairline: rgba(21, 113, 199, 0.15);
+  --hairline-strong: rgba(21, 113, 199, 0.26);
   /* Far shallower than dark's 40%. Black at 40% over white is a grey slab; the
    * band only has to read as "set back", and on paper that takes very little. */
-  --band: rgba(84, 30, 190, 0.045);
+  --band: rgba(21, 113, 199, 0.045);
 
-  --background: 265 60% 98.5%;
-  --foreground: 265 45% 10%;
-  --border: 265 40% 88%;
+  --background: 209 60% 98.5%;
+  --foreground: 209 14% 10%;
+  --border: 209 40% 88%;
 
   --card: 0 0% 100%;
-  --card-foreground: 265 45% 10%;
-  --card-border: 265 40% 89%;
+  --card-foreground: 209 14% 10%;
+  --card-border: 209 40% 89%;
 
   --sidebar: 0 0% 100%;
-  --sidebar-foreground: 265 45% 10%;
-  --sidebar-border: 265 40% 89%;
-  --sidebar-primary: 255 100% 62%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 265 55% 94%;
-  --sidebar-accent-foreground: 265 45% 10%;
-  --sidebar-ring: 255 100% 62%;
+  --sidebar-foreground: 209 14% 10%;
+  --sidebar-border: 209 40% 89%;
+  --sidebar-primary: 209 81% 62%;
+  --sidebar-primary-foreground: 209 60% 10%;
+  --sidebar-accent: 209 55% 94%;
+  --sidebar-accent-foreground: 209 14% 10%;
+  --sidebar-ring: 209 81% 62%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 265 45% 10%;
-  --popover-border: 265 40% 89%;
+  --popover-foreground: 209 14% 10%;
+  --popover-border: 209 40% 89%;
 
   /* Unchanged. The brand does not have two purples. */
-  --primary: 255 100% 62%;
+  --primary: 209 81% 62%;
   /* The same role on the light ground, where the fix runs the other way: 46%
      is 8.41:1 on this page and still unmistakably the brand hue. */
-  --link: 255 100% 46%;
-  --primary-foreground: 0 0% 100%;
+  --link: 209 81% 42%;
+  --primary-foreground: 209 60% 10%;
 
   /*
    * The action colour — the brand violet, in the shape of the reference.
@@ -742,16 +742,16 @@ html[data-page-theme="light"] body {
    */
   /* The same violet. The brand does not have two purples, and the pair is the
      same two colours on either ground. */
-  --cta: 255 100% 62%;
-  --cta-foreground: 0 0% 100%;
-  --cta-bloom: 259 100% 71%;
+  --cta: 209 81% 62%;
+  --cta-foreground: 209 60% 10%;
+  --cta-bloom: 209 81% 71%;
   /* Identical to the dark theme's, and for the same reason `--cta` is: the
      button is one object placed on the page, not a surface defined against it.
      The light on it does not care what colour the page is. */
-  --cta-face-top: 255 100% 55.6%;
-  --cta-face-bottom: 255 100% 67%;
-  --cta-ring-top: 255 100% 69.9%;
-  --cta-ring-bottom: 255 100% 62%;
+  --cta-face-top: 209 81% 55.6%;
+  --cta-face-bottom: 209 81% 67%;
+  --cta-ring-top: 209 81% 69.9%;
+  --cta-ring-bottom: 209 81% 62%;
   /*
    * On dark, secondary is the *lighter* purple — the neon one that glows. On
    * light that relationship has to invert: a lighter-than-primary purple on
@@ -760,17 +760,17 @@ html[data-page-theme="light"] body {
    * once. Deeper than primary keeps it the more emphatic of the two, which is
    * the role it actually plays, and clears 6:1 in both directions.
    */
-  --secondary: 272 90% 50%;
+  --secondary: 209 81% 44%;
   --secondary-foreground: 0 0% 100%;
 
-  --muted: 265 55% 95%;
+  --muted: 209 55% 95%;
   /* Saturated toward the brand and darkened a little: the old 10%-saturation
    * grey was the single thing making this theme look washed out, because it is
    * the colour most of the running copy is set in. */
-  --muted-foreground: 265 30% 38%;
+  --muted-foreground: 209 14% 38%;
 
-  --accent: 265 55% 94%;
-  --accent-foreground: 265 45% 10%;
+  --accent: 209 55% 94%;
+  --accent-foreground: 209 14% 10%;
 
   /* On white both jobs want a darker red, so the two are close but not equal:
    * the fill still goes deeper, to keep the white label comfortably clear. */
@@ -781,17 +781,17 @@ html[data-page-theme="light"] body {
   --warning: 32 90% 30%;
   --destructive-foreground: 0 0% 100%;
 
-  --input: 265 40% 87%;
-  --ring: 255 100% 62%;
+  --input: 209 40% 87%;
+  --ring: 209 81% 62%;
 
   /* The mark's true purple, exactly as drawn. */
-  --brand-mark: 265 82% 49%;
+  --brand-mark: 209 82% 49%;
 
   /* The same five hues, darkened for a white plot area. Run the dark set on
    * white and the yellow and orange series all but vanish — a chart where two
    * of five categories are unreadable is a chart that misleads. */
-  --chart-1: 255 85% 55%;
-  --chart-2: 271 70% 50%;
+  --chart-1: 209 85% 55%;
+  --chart-2: 209 70% 50%;
   --chart-3: 199 89% 38%;
   --chart-4: 38 85% 42%;
   --chart-5: 20 80% 46%;
@@ -799,27 +799,27 @@ html[data-page-theme="light"] body {
   /* Washes: the same shapes, at a fifth of the strength. On white they are
    * tints rather than light sources, and anything stronger turns the copy
    * sitting on top of them unreadable. */
-  --wash-top: rgba(108, 59, 255, 0.20);
-  --wash-top-mid: rgba(108, 59, 255, 0.075);
-  --wash-mid: rgba(99, 70, 235, 0.11);
-  --wash-left: rgba(94, 52, 224, 0.085);
-  --wash-right: rgba(155, 107, 255, 0.10);
+  --wash-top: rgba(78, 160, 236, 0.20);
+  --wash-top-mid: rgba(78, 160, 236, 0.075);
+  --wash-mid: rgba(69, 155, 236, 0.11);
+  --wash-left: rgba(43, 141, 233, 0.085);
+  --wash-right: rgba(121, 183, 241, 0.10);
   /* Brighter than the light theme's, because a hairline on near-black has to
      clear the display's own noise floor to be seen at all. */
   /* On white the grid is dark ink, and the grain is nearly off — a light page
      has no banding to hide and grain on it just reads as a dirty screen. */
-  --grid-line: rgba(23, 15, 46, 0.045);
+  --grid-line: rgba(15, 31, 46, 0.045);
   /* On white the same idea runs the other way: dark ink at the top fading to
      nearly the page at the bottom, and a much weaker bloom, or the mark reads
      as a stain rather than as light. */
-  --wordmark-top: rgba(17, 10, 38, 0.92);
-  --wordmark-mid: rgba(108, 59, 255, 0.55);
-  --wordmark-bottom: rgba(17, 10, 38, 0.05);
-  --wordmark-bloom: rgba(108, 59, 255, 0.16);
-  --art-base: rgba(23, 15, 46, 0.05);
-  --art-line: rgba(23, 15, 46, 0.22);
-  --art-accent: rgba(108, 59, 255, 0.95);
-  --art-accent-soft: rgba(108, 59, 255, 0.16);
+  --wordmark-top: rgba(10, 24, 38, 0.92);
+  --wordmark-mid: rgba(78, 160, 236, 0.55);
+  --wordmark-bottom: rgba(10, 24, 38, 0.05);
+  --wordmark-bloom: rgba(78, 160, 236, 0.16);
+  --art-base: rgba(15, 31, 46, 0.05);
+  --art-line: rgba(15, 31, 46, 0.22);
+  --art-accent: rgba(78, 160, 236, 0.95);
+  --art-accent-soft: rgba(78, 160, 236, 0.16);
   --grain-opacity: 0.02;
 
   /*
@@ -832,41 +832,41 @@ html[data-page-theme="light"] body {
   --glass-bg-top: rgba(255, 255, 255, 0.72);
   --glass-bg-bottom: rgba(255, 255, 255, 0.52);
   --glass-bg: rgba(255, 255, 255, 0.78);
-  --glass-bg-solid: rgb(253, 252, 254);
+  --glass-bg-solid: rgb(252, 253, 254);
   --glass-ring-lit: rgba(255, 255, 255, 0.9);
-  --glass-ring-dim: rgba(84, 30, 190, 0.18);
+  --glass-ring-dim: rgba(21, 113, 199, 0.18);
   --glass-inset: rgba(255, 255, 255, 0.95);
-  --glass-bloom: rgba(80, 70, 110, 0.07);
-  --glass-drop: rgba(60, 30, 140, 0.10);
+  --glass-bloom: rgba(70, 91, 110, 0.07);
+  --glass-drop: rgba(30, 87, 140, 0.10);
   --glass-sheen: rgba(255, 255, 255, 0.6);
 
   /* On white the halo has to be lighter and the underside far weaker, or the
      button reads as dirty rather than as lit. The lip stays white — it is the
      one thing that works identically in both, because it is the highlight. */
-  --halo: rgba(108, 59, 255, 0.16);
-  --halo-strong: rgba(108, 59, 255, 0.45);
+  --halo: rgba(78, 160, 236, 0.16);
+  --halo-strong: rgba(78, 160, 236, 0.45);
   --btn-lip: rgba(255, 255, 255, 0.28);
-  --btn-underside: rgba(60, 30, 140, 0.16);
-  --glow-soft: rgba(108, 59, 255, 0.40);
-  --glow-wide: rgba(108, 59, 255, 0.18);
-  --text-glow-near: rgba(108, 59, 255, 0.24);
-  --text-glow-far: rgba(108, 59, 255, 0.11);
-  --cta-shadow: rgba(108, 59, 255, 0.38);
-  --cta-shadow-soft: rgba(70, 40, 160, 0.22);
+  --btn-underside: rgba(30, 87, 140, 0.16);
+  --glow-soft: rgba(78, 160, 236, 0.40);
+  --glow-wide: rgba(78, 160, 236, 0.18);
+  --text-glow-near: rgba(78, 160, 236, 0.24);
+  --text-glow-far: rgba(78, 160, 236, 0.11);
+  --cta-shadow: rgba(78, 160, 236, 0.38);
+  --cta-shadow-soft: rgba(40, 102, 160, 0.22);
   --panel-lip: rgba(255, 255, 255, 0.9);
-  --panel-ring: rgba(30, 16, 80, 0.07);
-  --panel-drop: rgba(40, 22, 100, 0.22);
+  --panel-ring: rgba(16, 49, 80, 0.07);
+  --panel-drop: rgba(22, 62, 100, 0.22);
   --bubble-said-top: rgba(255, 255, 255, 0.95);
   --bubble-said: rgba(255, 255, 255, 0.75);
   --bubble-asked-top: hsl(var(--primary) / 0.20);
   --bubble-asked: hsl(var(--primary) / 0.12);
   --bubble-lip: rgba(255, 255, 255, 0.9);
-  --bubble-ring: rgba(30, 16, 80, 0.06);
+  --bubble-ring: rgba(16, 49, 80, 0.06);
   --bubble-asked-ring: hsl(var(--primary) / 0.22);
-  --bubble-drop: rgba(40, 22, 100, 0.16);
+  --bubble-drop: rgba(22, 62, 100, 0.16);
   --nav-capsule-top: rgba(255, 255, 255, 0.2);
   --nav-capsule-lens: rgba(255, 255, 255, 0.85);
-  --nav-capsule-foot: rgba(40, 22, 100, 0.12);
+  --nav-capsule-foot: rgba(22, 62, 100, 0.12);
   --nav-capsule-edge-lit: rgba(255, 255, 255, 0.75);
   --nav-capsule-edge-dim: rgba(255, 255, 255, 0.18);
   --composer-face: rgba(255, 255, 255, 0.72);
@@ -892,19 +892,19 @@ html[data-page-theme="light"] body {
    * of one section.
    */
   --nav-capsule: rgba(255, 255, 255, 0.3);
-  --nav-capsule-ring: rgba(30, 16, 80, 0.07);
+  --nav-capsule-ring: rgba(16, 49, 80, 0.07);
   --nav-capsule-lip: rgba(255, 255, 255, 0.85);
   --input-focus-bg: rgba(255, 255, 255, 0.95);
-  --invert-glow: rgba(16, 16, 28, 0.22);
+  --invert-glow: rgba(16, 22, 28, 0.22);
 
-  --shadow-2xs: 0px 1px 2px 0px rgba(30, 27, 58, 0.05);
-  --shadow-xs: 0px 1px 2px 0px rgba(30, 27, 58, 0.07);
-  --shadow-sm: 0px 1px 3px 0px rgba(30, 27, 58, 0.08), 0px 1px 2px -1px rgba(30, 27, 58, 0.06);
-  --shadow: 0px 1px 3px 0px rgba(30, 27, 58, 0.08), 0px 1px 2px -1px rgba(30, 27, 58, 0.06);
-  --shadow-md: 0px 4px 6px -1px rgba(30, 27, 58, 0.08), 0px 2px 4px -2px rgba(30, 27, 58, 0.06);
-  --shadow-lg: 0px 10px 15px -3px rgba(30, 27, 58, 0.08), 0px 4px 6px -4px rgba(30, 27, 58, 0.05);
-  --shadow-xl: 0px 20px 25px -5px rgba(30, 27, 58, 0.08), 0px 8px 10px -6px rgba(30, 27, 58, 0.04);
-  --shadow-2xl: 0px 25px 50px -12px rgba(30, 27, 58, 0.14);
+  --shadow-2xs: 0px 1px 2px 0px rgba(27, 43, 58, 0.05);
+  --shadow-xs: 0px 1px 2px 0px rgba(27, 43, 58, 0.07);
+  --shadow-sm: 0px 1px 3px 0px rgba(27, 43, 58, 0.08), 0px 1px 2px -1px rgba(27, 43, 58, 0.06);
+  --shadow: 0px 1px 3px 0px rgba(27, 43, 58, 0.08), 0px 1px 2px -1px rgba(27, 43, 58, 0.06);
+  --shadow-md: 0px 4px 6px -1px rgba(27, 43, 58, 0.08), 0px 2px 4px -2px rgba(27, 43, 58, 0.06);
+  --shadow-lg: 0px 10px 15px -3px rgba(27, 43, 58, 0.08), 0px 4px 6px -4px rgba(27, 43, 58, 0.05);
+  --shadow-xl: 0px 20px 25px -5px rgba(27, 43, 58, 0.08), 0px 8px 10px -6px rgba(27, 43, 58, 0.04);
+  --shadow-2xl: 0px 25px 50px -12px rgba(27, 43, 58, 0.14);
 
   color-scheme: light;
 }
@@ -1296,8 +1296,8 @@ html[data-page-theme="light"] body {
   border: 1px solid var(--hairline);
   box-shadow:
     inset 0 1px 0 var(--composer-lip),
-    0 1px 2px rgba(8, 4, 24, 0.06),
-    0 16px 36px -26px rgba(8, 4, 24, 0.5);
+    0 1px 2px rgba(3, 14, 25, 0.06),
+    0 16px 36px -26px rgba(3, 14, 25, 0.5);
   /* Unprefixed and only unprefixed — see `.glass-panel`. The minifier keeps
      the last of the two aliases and throws the standard property away, and
      this Chromium does not implement the `-webkit-` one at all, so writing
@@ -1478,8 +1478,8 @@ html[data-page-theme="light"] body {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(38% 46% at 22% 62%, rgba(108, 59, 255, 0.30) 0%, transparent 68%),
-    radial-gradient(34% 40% at 78% 38%, rgba(155, 107, 255, 0.24) 0%, transparent 66%);
+    radial-gradient(38% 46% at 22% 62%, rgba(78, 160, 236, 0.30) 0%, transparent 68%),
+    radial-gradient(34% 40% at 78% 38%, rgba(121, 183, 241, 0.24) 0%, transparent 66%);
   background-size: 180% 180%, 170% 170%;
   animation: aurora-drift 26s ease-in-out infinite alternate;
 }
@@ -1487,8 +1487,8 @@ html[data-page-theme="light"] body {
 .horizon-aurora-light {
   inset: -10% -5%;
   background:
-    radial-gradient(38% 46% at 22% 62%, rgba(108, 59, 255, 0.13) 0%, transparent 68%),
-    radial-gradient(34% 40% at 78% 38%, rgba(155, 107, 255, 0.11) 0%, transparent 66%);
+    radial-gradient(38% 46% at 22% 62%, rgba(78, 160, 236, 0.13) 0%, transparent 68%),
+    radial-gradient(34% 40% at 78% 38%, rgba(121, 183, 241, 0.11) 0%, transparent 66%);
   background-size: 180% 180%, 170% 170%;
 }
 
@@ -1628,9 +1628,9 @@ html[data-page-theme="light"] body {
     inset 0 1px 0 var(--nav-capsule-lip),
     inset 0 10px 22px -14px var(--nav-capsule-lens),
     inset 0 -12px 24px -16px var(--nav-capsule-foot),
-    0 1px 1px rgba(8, 4, 24, 0.05),
-    0 8px 20px -10px rgba(8, 4, 24, 0.16),
-    0 28px 64px -30px rgba(8, 4, 24, 0.42);
+    0 1px 1px rgba(3, 14, 25, 0.05),
+    0 8px 20px -10px rgba(3, 14, 25, 0.16),
+    0 28px 64px -30px rgba(3, 14, 25, 0.42);
   /* Unprefixed and only unprefixed — see `.glass-panel`. */
   /*
    * The blur is the whole material, and it has to be enormous.
@@ -1795,11 +1795,11 @@ html[data-page-theme="light"] body {
 .input-chat-glow:focus-visible,
 .input-chat-glow:focus {
   outline: none;
-  border-color: rgba(155, 107, 255, 0.55) !important;
+  border-color: rgba(121, 183, 241, 0.55) !important;
   box-shadow:
-    0 0 0 2px rgba(155, 107, 255, 0.28),
-    0 0 20px rgba(155, 107, 255, 0.2),
-    0 0 40px rgba(108, 59, 255, 0.1) !important;
+    0 0 0 2px rgba(121, 183, 241, 0.28),
+    0 0 20px rgba(121, 183, 241, 0.2),
+    0 0 40px rgba(78, 160, 236, 0.1) !important;
   background-color: var(--input-focus-bg) !important;
 }
 
@@ -1856,14 +1856,14 @@ html[data-page-theme="light"] body {
 }
 
 @keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 30px rgba(108, 59, 255, 0.5); }
-  50%       { box-shadow: 0 0 60px rgba(155, 107, 255, 0.9), 0 0 100px rgba(108, 59, 255, 0.4); }
+  0%, 100% { box-shadow: 0 0 30px rgba(78, 160, 236, 0.5); }
+  50%       { box-shadow: 0 0 60px rgba(121, 183, 241, 0.9), 0 0 100px rgba(78, 160, 236, 0.4); }
 }
 
 @keyframes shimmer-border {
-  0%   { border-color: rgba(108, 59, 255, 0.3); }
-  50%  { border-color: rgba(155, 107, 255, 0.7); }
-  100% { border-color: rgba(108, 59, 255, 0.3); }
+  0%   { border-color: rgba(78, 160, 236, 0.3); }
+  50%  { border-color: rgba(121, 183, 241, 0.7); }
+  100% { border-color: rgba(78, 160, 236, 0.3); }
 }
 
 @keyframes timeline-progress {
@@ -1915,8 +1915,8 @@ html[data-page-theme="light"] body {
 }
 
 @keyframes segment-glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(108,59,255,0.4); }
-  50%       { box-shadow: 0 0 20px rgba(108,59,255,0.9), 0 0 40px rgba(155,107,255,0.4); }
+  0%, 100% { box-shadow: 0 0 8px rgba(78, 160, 236,0.4); }
+  50%       { box-shadow: 0 0 20px rgba(78, 160, 236,0.9), 0 0 40px rgba(121, 183, 241,0.4); }
 }
 
 
@@ -2207,12 +2207,12 @@ html[data-page-theme="light"] body {
 
 @keyframes noah-working {
   0%, 100% {
-    box-shadow: 0 0 0 1px rgba(155,107,255,0.16),
-                0 0 18px rgba(108,59,255,0.14);
+    box-shadow: 0 0 0 1px rgba(121, 183, 241,0.16),
+                0 0 18px rgba(78, 160, 236,0.14);
   }
   50% {
-    box-shadow: 0 0 0 1px rgba(155,107,255,0.36),
-                0 0 32px rgba(108,59,255,0.34);
+    box-shadow: 0 0 0 1px rgba(121, 183, 241,0.36),
+                0 0 32px rgba(78, 160, 236,0.34);
   }
 }
 
@@ -2237,12 +2237,12 @@ html[data-page-theme="light"] body {
   pointer-events: none;
   background: conic-gradient(
     from var(--noah-angle),
-    rgba(155, 107, 255, 0) 0deg,
-    rgba(155, 107, 255, 0) 190deg,
-    rgba(124, 58, 237, 0.65) 250deg,
-    rgba(216, 180, 254, 1) 292deg,
-    rgba(124, 58, 237, 0.65) 334deg,
-    rgba(155, 107, 255, 0) 360deg
+    rgba(121, 183, 241, 0) 0deg,
+    rgba(121, 183, 241, 0) 190deg,
+    rgba(60, 150, 235, 0.65) 250deg,
+    rgba(186, 218, 248, 1) 292deg,
+    rgba(60, 150, 235, 0.65) 334deg,
+    rgba(121, 183, 241, 0) 360deg
   );
   /* The ring, cut out of the fill: content-box minus border-box. Both spellings
      because Safari implements the prefixed one and calls the operation `xor`. */
@@ -2262,7 +2262,7 @@ html[data-page-theme="light"] body {
 @media (prefers-reduced-motion: reduce) {
   .noah-working {
     animation: none;
-    box-shadow: 0 0 0 1px rgba(155,107,255,0.35), 0 0 24px rgba(108,59,255,0.28);
+    box-shadow: 0 0 0 1px rgba(121, 183, 241,0.35), 0 0 24px rgba(78, 160, 236,0.28);
   }
   .noah-working::before {
     animation: none;

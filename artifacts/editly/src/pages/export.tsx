@@ -567,7 +567,7 @@ export default function ExportPage() {
           )}
 
           {currentStatus === 'pending' && (
-            <Card className="glass-panel border-primary/30 shadow-[0_0_30px_rgba(108,59,255,0.15)] relative overflow-hidden">
+            <Card className="glass-panel border-primary/30 shadow-[0_0_30px_rgba(80, 161, 237,0.15)] relative overflow-hidden">
               <div className="absolute top-0 start-0 h-1 bg-primary animate-pulse w-full"></div>
               <CardHeader>
                 <CardTitle className="flex items-center gap-3">

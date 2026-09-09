@@ -1278,7 +1278,7 @@ export default function ProjectEditor() {
                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 md:[&::-webkit-slider-thumb]:w-3.5
                      [&::-webkit-slider-thumb]:h-5 md:[&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
                      [&::-webkit-slider-thumb]:bg-secondary
-                     [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(155,107,255,0.8)]`}
+                     [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(121, 183, 241,0.8)]`}
           data-testid="input-scrubber"
         />
 
@@ -1305,7 +1305,7 @@ export default function ProjectEditor() {
                            h-11 w-6 md:h-6 md:w-4 flex items-center justify-center group"
                 data-testid="mark-pin"
               >
-                <span className="block w-[3px] h-4 md:h-3.5 rounded-full bg-secondary shadow-[0_0_6px_rgba(155,107,255,0.9)]
+                <span className="block w-[3px] h-4 md:h-3.5 rounded-full bg-secondary shadow-[0_0_6px_rgba(121, 183, 241,0.9)]
                                  group-hover:h-5 transition-all" />
               </button>
             );
@@ -1982,9 +1982,9 @@ export default function ProjectEditor() {
                   style={{
                     width: picture ? `${picture.width}px` : "100%",
                     height: picture ? `${picture.height}px` : "100%",
-                    background: "linear-gradient(135deg, #06030f 0%, #0a0518 50%, #080312 100%)",
+                    background: "linear-gradient(135deg, #050a10 0%, #071018 50%, #060d14 100%)",
                     boxShadow:
-                      "0 0 0 1px rgba(108,59,255,0.15), 0 24px 60px rgba(0,0,0,0.55), 0 0 90px rgba(108,59,255,0.18)",
+                      "0 0 0 1px rgba(80, 161, 237,0.15), 0 24px 60px rgba(0,0,0,0.55), 0 0 90px rgba(80, 161, 237,0.18)",
                   }}
                   data-testid="video-stage"
                 >
@@ -2042,12 +2042,12 @@ export default function ProjectEditor() {
                         happening inside it. */}
                     <div
                       className="absolute inset-x-0 top-0 h-1 z-30 pointer-events-none"
-                      style={{ background: "linear-gradient(90deg, transparent, rgba(108,59,255,0.4), rgba(155,107,255,0.6), rgba(108,59,255,0.4), transparent)" }}
+                      style={{ background: "linear-gradient(90deg, transparent, rgba(80, 161, 237,0.4), rgba(121, 183, 241,0.6), rgba(80, 161, 237,0.4), transparent)" }}
                       data-testid="frame-edge-top"
                     />
                     <div
                       className="absolute inset-x-0 bottom-0 h-1 z-30 pointer-events-none"
-                      style={{ background: "linear-gradient(90deg, transparent, rgba(108,59,255,0.3), rgba(155,107,255,0.5), rgba(108,59,255,0.3), transparent)" }}
+                      style={{ background: "linear-gradient(90deg, transparent, rgba(80, 161, 237,0.3), rgba(121, 183, 241,0.5), rgba(80, 161, 237,0.3), transparent)" }}
                       data-testid="frame-edge-bottom"
                     />
 
@@ -2277,7 +2277,7 @@ export default function ProjectEditor() {
               <img
                 src="/noah-avatar.jpg"
                 alt="Noah"
-                className="w-10 h-10 rounded-full object-cover shadow-[0_0_12px_rgba(108,59,255,0.5)] ring-2 ring-primary/30"
+                className="w-10 h-10 rounded-full object-cover shadow-[0_0_12px_rgba(80, 161, 237,0.5)] ring-2 ring-primary/30"
               />
               <span className="absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full bg-green-400 border-2 border-background shadow-[0_0_6px_rgba(74,222,128,0.8)]" />
             </div>
@@ -2294,7 +2294,7 @@ export default function ProjectEditor() {
             <span className="ms-auto lg:hidden flex items-center gap-2 flex-shrink-0">
               {unreadFromNoah && !chatOpen && (
                 <span
-                  className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(108,59,255,0.8)]"
+                  className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(80, 161, 237,0.8)]"
                   data-testid="chat-unread"
                   aria-label={t(EDITOR.noahSomethingNew)}
                 />
@@ -2420,7 +2420,7 @@ export default function ProjectEditor() {
                     <div
                       className={`bubble bubble-said px-4 py-3 text-sm w-full ${
                         renderJob?.status === "failed"
-                          ? "shadow-[0_0_15px_rgba(155,107,255,0.1)]"
+                          ? "shadow-[0_0_15px_rgba(121, 183, 241,0.1)]"
                           : "noah-working"
                       }`}
                     >

@@ -332,7 +332,7 @@ function HeroEditor({ phone, language }: { phone: boolean; language: Language })
           <span className="hidden sm:flex items-center gap-1.5 text-[13px] text-white/60 px-3 py-1.5 rounded-lg border border-white/10">
             <Download className="w-3.5 h-3.5" /> {t(copy.exportLabel)}
           </span>
-          <span className="flex items-center gap-1.5 text-[12px] sm:text-[13px] font-semibold text-white px-3 py-1.5 rounded-lg bg-[#6c3bff] shadow-[0_0_20px_rgba(108,59,255,0.45)]">
+          <span className="flex items-center gap-1.5 text-[12px] sm:text-[13px] font-semibold text-white px-3 py-1.5 rounded-lg bg-[#50a1ed] shadow-[0_0_20px_rgba(80,161,237,0.45)]">
             <Sparkles className="w-3.5 h-3.5" /> {t(copy.generate)}
           </span>
         </div>
@@ -360,13 +360,13 @@ function HeroEditor({ phone, language }: { phone: boolean; language: Language })
             <svg viewBox="0 0 320 180" className="w-full h-auto block" aria-hidden="true">
               <defs>
                 <linearGradient id="hero-room" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stopColor="#241b45" />
-                  <stop offset="0.58" stopColor="#171130" />
-                  <stop offset="1" stopColor="#0d181c" />
+                  <stop offset="0" stopColor="#1b3146" />
+                  <stop offset="0.58" stopColor="#112232" />
+                  <stop offset="1" stopColor="#0c151d" />
                 </linearGradient>
                 <radialGradient id="hero-lamp" cx="0.64" cy="0.3" r="0.55">
-                  <stop offset="0" stopColor="#8b5cf6" stopOpacity="0.5" />
-                  <stop offset="1" stopColor="#8b5cf6" stopOpacity="0" />
+                  <stop offset="0" stopColor="#50a1ed" stopOpacity="0.5" />
+                  <stop offset="1" stopColor="#50a1ed" stopOpacity="0" />
                 </radialGradient>
                 <radialGradient id="hero-vignette" cx="0.5" cy="0.45" r="0.78">
                   <stop offset="0.45" stopColor="#000" stopOpacity="0" />
@@ -381,7 +381,7 @@ function HeroEditor({ phone, language }: { phone: boolean; language: Language })
                   are not symmetrical, and a rim light down the side the lamp is
                   on: three details that are the difference between a figure in
                   a frame and the avatar glyph every placeholder uses. */}
-              <g className="fill-[#cdbcff]" opacity="0.62">
+              <g className="fill-[#c7dff5]" opacity="0.62">
                 {/* Neck first, then shoulders over it, then the head over both,
                     so the three read as one body. Drawn as separate shapes with
                     a gap between them, this was a head floating above a hill. */}
@@ -416,7 +416,7 @@ function HeroEditor({ phone, language }: { phone: boolean; language: Language })
                   width="2.6"
                   height={h * 2}
                   rx="1.3"
-                  className={h > 2 ? "fill-[#8b5cf6]" : "fill-white/15"}
+                  className={h > 2 ? "fill-[#50a1ed]" : "fill-white/15"}
                 />
               ))}
               {/* Where the silences are, and that they are going. */}
@@ -443,14 +443,14 @@ function HeroEditor({ phone, language }: { phone: boolean; language: Language })
         {/* ── What was asked, and what came back ── */}
         <div className="p-4 sm:p-5 flex flex-col gap-3">
           <div className="flex justify-end">
-            <p className="max-w-[85%] text-[12px] sm:text-[13.5px] leading-relaxed rounded-2xl rounded-ee-sm px-3.5 py-2.5 bg-[#6c3bff] text-white">
+            <p className="max-w-[85%] text-[12px] sm:text-[13.5px] leading-relaxed rounded-2xl rounded-ee-sm px-3.5 py-2.5 bg-[#50a1ed] text-white">
               {t(copy.ask)}
             </p>
           </div>
 
           <div className="flex items-start gap-2.5">
-            <span className="w-7 h-7 rounded-full bg-[#6c3bff]/25 border border-[#6c3bff]/40 flex items-center justify-center flex-shrink-0">
-              <Sparkles className="w-3.5 h-3.5 text-[#a78bfa]" />
+            <span className="w-7 h-7 rounded-full bg-[#50a1ed]/25 border border-[#50a1ed]/40 flex items-center justify-center flex-shrink-0">
+              <Sparkles className="w-3.5 h-3.5 text-[#79b7f1]" />
             </span>
             <div className="min-w-0">
               <p className="text-[12px] sm:text-[11px] font-semibold text-white/50 mb-1.5">{t(copy.assistant)}</p>
@@ -473,14 +473,14 @@ function HeroEditor({ phone, language }: { phone: boolean; language: Language })
           </div>
 
           {/* What came out, beside the numbers that describe it. */}
-          <div className="mt-1 flex items-stretch gap-3 rounded-xl border border-[#6c3bff]/30 bg-[#6c3bff]/[0.07] p-3">
-            <div className="w-[62px] sm:w-[72px] flex-shrink-0 rounded-md overflow-hidden border-2 border-[#6c3bff]/60">
+          <div className="mt-1 flex items-stretch gap-3 rounded-xl border border-[#50a1ed]/30 bg-[#50a1ed]/[0.07] p-3">
+            <div className="w-[62px] sm:w-[72px] flex-shrink-0 rounded-md overflow-hidden border-2 border-[#50a1ed]/60">
               {/* The same room, cropped to 9:16 and centred on the speaker,
                   with the captions on the picture rather than beside it. */}
               <svg viewBox="0 0 62 110" className="w-full h-auto block" aria-hidden="true">
                 <rect width="62" height="110" fill="url(#hero-room)" />
                 <rect width="62" height="110" fill="url(#hero-lamp)" />
-                <g className="fill-[#cdbcff]" opacity="0.68">
+                <g className="fill-[#c7dff5]" opacity="0.68">
                   <rect x="26" y="46" width="10" height="14" rx="4" />
                   <path d="M9 84c0-17 10-28 22-28s22 11 22 28z" />
                   <ellipse cx="31" cy="38" rx="13" ry="15" />
@@ -598,11 +598,11 @@ const horizonScale = (width: number) =>
  * and the narrow bright ones belong on top.
  */
 const HORIZON_LAYERS = [
-  { w: 150, blur: 34, colour: "rgba(67, 24, 255, 0.8)" },
-  { w: 104, blur: 24, colour: "rgba(108, 59, 255, 0.95)" },
-  { w: 72, blur: 16, colour: "rgb(148, 99, 255)" },
-  { w: 46, blur: 10, colour: "rgb(188, 155, 255)" },
-  { w: 26, blur: 6, colour: "rgb(224, 208, 255)" },
+  { w: 150, blur: 34, colour: "rgba(10, 105, 194, 0.8)" },
+  { w: 104, blur: 24, colour: "rgba(80, 161, 237, 0.95)" },
+  { w: 72, blur: 16, colour: "rgb(112, 178, 240)" },
+  { w: 46, blur: 10, colour: "rgb(163, 205, 245)" },
+  { w: 26, blur: 6, colour: "rgb(213, 233, 251)" },
 ];
 
 /*
@@ -616,7 +616,7 @@ const HORIZON_LAYERS = [
  * this colour, on a page this light, that is invisible, and on the dark side it
  * is the bright edge the whole band is built around.
  */
-const HORIZON_LIP = { w: 18, blur: 6, colour: "rgb(252, 250, 255)" };
+const HORIZON_LIP = { w: 18, blur: 6, colour: "rgb(250, 253, 254)" };
 
 /**
  * The bell, in pixels, for a page `width` wide.
@@ -1019,7 +1019,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
       num: "01",
       title: t(LANDING.steps.one.title),
       desc: t(LANDING.steps.one.desc),
-      wash: "radial-gradient(120% 95% at 18% 12%, #b9a2ff 0%, rgba(185,162,255,0) 62%), radial-gradient(115% 95% at 88% 84%, #d9c9ff 0%, rgba(217,201,255,0) 64%), linear-gradient(146deg, #f1ecff 0%, #efe9ff 100%)",
+      wash: "radial-gradient(120% 95% at 18% 12%, #b1d2f1 0%, rgba(177, 210, 241,0) 62%), radial-gradient(115% 95% at 88% 84%, #d4e6f7 0%, rgba(212, 230, 247,0) 64%), linear-gradient(146deg, #eff5fb 0%, #ebf3fa 100%)",
       art: (
           <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
             <g transform={rtl ? MIRROR : undefined}>
@@ -1052,7 +1052,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
       num: "02",
       title: t(LANDING.steps.two.title),
       desc: t(LANDING.steps.two.desc),
-      wash: "radial-gradient(120% 95% at 82% 14%, #a98cff 0%, rgba(169,140,255,0) 60%), radial-gradient(115% 95% at 14% 86%, #c9bcff 0%, rgba(201,188,255,0) 64%), linear-gradient(146deg, #efe9ff 0%, #f3f0ff 100%)",
+      wash: "radial-gradient(120% 95% at 82% 14%, #98c6f0 0%, rgba(152, 198, 240,0) 60%), radial-gradient(115% 95% at 14% 86%, #c7dff5 0%, rgba(199, 223, 245,0) 64%), linear-gradient(146deg, #ebf3fa 0%, #f3f8fc 100%)",
       art: (
           <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
             <g transform={rtl ? MIRROR : undefined}>
@@ -1100,7 +1100,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
       num: "03",
       title: t(LANDING.steps.three.title),
       desc: t(LANDING.steps.three.desc),
-      wash: "radial-gradient(125% 95% at 50% 8%, #c3aaff 0%, rgba(195,170,255,0) 58%), radial-gradient(115% 95% at 12% 92%, #9b6bff 0%, rgba(155,107,255,0) 62%), linear-gradient(146deg, #f2edff 0%, #ece6ff 100%)",
+      wash: "radial-gradient(125% 95% at 50% 8%, #b8d7f5 0%, rgba(184, 215, 245,0) 58%), radial-gradient(115% 95% at 12% 92%, #79b7f1 0%, rgba(121, 183, 241,0) 62%), linear-gradient(146deg, #eff5fb 0%, #e7f0f9 100%)",
       art: (
           <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
             <g transform={rtl ? MIRROR : undefined}>
@@ -1165,7 +1165,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
             that means a faint rectangle with a visible edge follows the frame
             down the page. At 390px the wash is two per cent of violet at the
             top of a section nobody sees the top of. */}
-        <div className="hidden lg:block absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(108,59,255,0.08)_0%,transparent_60%)]" />
+        <div className="hidden lg:block absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(80,161,237,0.08)_0%,transparent_60%)]" />
       <div className="max-w-7xl mx-auto px-6 relative z-10">
         <div className="text-center mb-16 sm:mb-24">
           <div className="reveal">
@@ -1252,7 +1252,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
                  Red means "press this" everywhere else in the product, and a
                  red line down the margin of a section with nothing pressable in
                  it spends that meaning on decoration. The reference's line is
-                 red because red is the reference's *brand*; ours is #6C3BFF. */
+                 red because red is the reference's *brand*; ours is #50a1ed. */
               className="absolute start-0 top-0 w-[2px] rounded-full bg-primary"
               style={{ height: 0, boxShadow: "0 0 20px hsl(var(--primary) / 0.6)" }}
               aria-hidden="true"
@@ -1834,7 +1834,7 @@ export default function Home() {
           <span
             className="headline-serif animate-gradient-shift"
             style={{
-              background: "linear-gradient(135deg, #6C3BFF 0%, #9B6BFF 40%, #c084fc 70%, #6C3BFF 100%)",
+              background: "linear-gradient(135deg, #50a1ed 0%, #79b7f1 40%, #87bef2 70%, #50a1ed 100%)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
               backgroundClip: "text",
@@ -1880,7 +1880,7 @@ export default function Home() {
           <a
             href="#how-it-works"
             data-testid="link-hero-secondary"
-            className="group flex items-center justify-center gap-2 h-14 px-8 rounded-lg font-semibold text-lg bg-surface-1 hover:bg-surface-1 border border-hairline transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_24px_rgba(108,59,255,0.2)] backdrop-blur-sm"
+            className="group flex items-center justify-center gap-2 h-14 px-8 rounded-lg font-semibold text-lg bg-surface-1 hover:bg-surface-1 border border-hairline transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_24px_rgba(80,161,237,0.2)] backdrop-blur-sm"
           >
             {t(LANDING.hero.secondary)}
             {/* The arrow points the way the language reads, and moves that way
@@ -1905,7 +1905,7 @@ export default function Home() {
             className="rounded-2xl glass-panel glass-flat overflow-hidden border border-hairline p-1.5 sm:p-2"
             style={{
               boxShadow:
-                "0 40px 80px rgba(108,59,255,0.28), 0 80px 160px rgba(108,59,255,0.10), 0 0 0 1px rgba(155,107,255,0.12)",
+                "0 40px 80px rgba(80,161,237,0.28), 0 80px 160px rgba(80,161,237,0.10), 0 0 0 1px rgba(121, 183, 241,0.12)",
             }}
           >
             <HeroEditor phone={phone} language={language} />
@@ -1978,7 +1978,7 @@ export default function Home() {
                     className="reveal flex items-start gap-4 group"
                     style={{ transitionDelay: `${i * 80}ms` }}
                   >
-                    <div className="w-9 h-9 mt-0.5 flex-shrink-0 rounded-full bg-primary/15 flex items-center justify-center border border-primary/30 shadow-[0_0_8px_rgba(108,59,255,0.2)] group-hover:shadow-[0_0_16px_rgba(108,59,255,0.5)] group-hover:border-primary/60 transition-all duration-300">
+                    <div className="w-9 h-9 mt-0.5 flex-shrink-0 rounded-full bg-primary/15 flex items-center justify-center border border-primary/30 shadow-[0_0_8px_rgba(80,161,237,0.2)] group-hover:shadow-[0_0_16px_rgba(80,161,237,0.5)] group-hover:border-primary/60 transition-all duration-300">
                       <CheckCircle2 className="w-4 h-4 text-secondary" />
                     </div>
                     <div>
@@ -2022,7 +2022,7 @@ export default function Home() {
                   "radial-gradient(ellipse at 50% 50%, hsl(var(--secondary) / 0.20) 0%, hsl(var(--secondary) / 0.10) 38%, transparent 72%)",
               }}
             />
-            <div className="glass-panel glass-flat p-4 sm:p-6 rounded-2xl relative z-10 transition-all duration-500 hover:shadow-[0_0_60px_rgba(108,59,255,0.2)]">
+            <div className="glass-panel glass-flat p-4 sm:p-6 rounded-2xl relative z-10 transition-all duration-500 hover:shadow-[0_0_60px_rgba(80,161,237,0.2)]">
               <div className="grid grid-cols-2 gap-3 sm:gap-4">
                 {[
                   {
@@ -2123,7 +2123,7 @@ export default function Home() {
                     key={i}
                     className={`aspect-square rounded-xl overflow-hidden border transition-all duration-300 cursor-default flex flex-col
                       ${cell.accent
-                        ? "bg-primary/15 border-primary/40 shadow-[0_0_20px_rgba(108,59,255,0.18)] hover:shadow-[0_0_35px_rgba(108,59,255,0.4)]"
+                        ? "bg-primary/15 border-primary/40 shadow-[0_0_20px_rgba(80,161,237,0.18)] hover:shadow-[0_0_35px_rgba(80,161,237,0.4)]"
                         : "bg-band border-hairline-faint hover:border-hairline hover:bg-surface-1"
                       }`}
                   >
@@ -2228,7 +2228,7 @@ export default function Home() {
               onClick={() => setIsYearly(false)}
               className={`px-6 min-h-[44px] rounded-md text-sm font-medium transition-all duration-300 ${
                 !isYearly
-                  ? "bg-primary text-white shadow-[0_0_16px_rgba(108,59,255,0.5)]"
+                  ? "bg-primary text-white shadow-[0_0_16px_rgba(80,161,237,0.5)]"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -2238,7 +2238,7 @@ export default function Home() {
               onClick={() => setIsYearly(true)}
               className={`flex items-center justify-center gap-2 px-6 min-h-[44px] rounded-md text-sm font-medium transition-all duration-300 ${
                 isYearly
-                  ? "bg-primary text-white shadow-[0_0_16px_rgba(108,59,255,0.5)]"
+                  ? "bg-primary text-white shadow-[0_0_16px_rgba(80,161,237,0.5)]"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -2309,13 +2309,13 @@ export default function Home() {
                 key={plan.key}
                 className={`reveal relative flex flex-col rounded-3xl border transition-all duration-500 overflow-hidden ${
                   isPro
-                    ? "border-primary/60 shadow-[0_0_50px_rgba(108,59,255,0.25)] bg-surface-2"
+                    ? "border-primary/60 shadow-[0_0_50px_rgba(80,161,237,0.25)] bg-surface-2"
                     : "border-hairline bg-surface-1 hover:border-hairline-strong"
                 }`}
                 style={{
                   transitionDelay: `${i * 80}ms`,
                   boxShadow: isPro
-                    ? "inset 0 1px 0 rgba(255,255,255,0.1), 0 0 50px rgba(108,59,255,0.25)"
+                    ? "inset 0 1px 0 rgba(255,255,255,0.1), 0 0 50px rgba(80,161,237,0.25)"
                     : "inset 0 1px 0 rgba(255,255,255,0.05)",
                 }}
               >
@@ -2399,7 +2399,7 @@ export default function Home() {
                       className={`w-full rounded-md py-3 px-6 font-semibold text-sm transition-all duration-300 ${
                         isPro
                           ? "btn-gradient-cta text-white"
-                          : "bg-surface-1 border border-hairline hover:bg-surface-2 hover:border-hairline-strong hover:shadow-[0_0_20px_rgba(108,59,255,0.12)]"
+                          : "bg-surface-1 border border-hairline hover:bg-surface-2 hover:border-hairline-strong hover:shadow-[0_0_20px_rgba(80,161,237,0.12)]"
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
                       {!planKnown
