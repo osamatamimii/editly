@@ -27,6 +27,7 @@ import { mkdtemp, rm, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
@@ -536,7 +537,58 @@ section("A sound on every cut stops being an accent");
   check("the accents reach the end of the edit rather than stopping a third of the way in", last > 30, String(last));
 
   const huge = sfx.placeSoundEffects(ask({ duration: 600, joins: spread(300, 2, 2) }));
-  check("and there is a ceiling however long the video runs", huge.cues.length <= sfx.MAX_CUES, String(huge.cues.length));
+  check("and there is a ceiling however long the video runs", huge.cues.length <= sfx.HARD_CAP, String(huge.cues.length));
+}
+
+section("The ceiling is about taste, not about how many decoders fit");
+{
+  /*
+   * It used to be a flat 24 at any length, and it was chosen when everything
+   * this product made was a short. At thirty seconds that is one accent per
+   * 1.2 seconds and it binds. At two hours it is **one every five minutes** —
+   * four whooshes at the front of a film, then nothing — which reads as the
+   * layer having broken rather than as restraint.
+   *
+   * The number was doing two jobs: density on a short, and a bound on the
+   * filter graph on anything long. Only the first was ever chosen for. The
+   * second is gone — see the input dedup below — so what is left is taste, and
+   * taste says accents thin as a piece grows.
+   */
+  check("a short is unchanged, which is the case the old number was chosen for", sfx.cueBudget(30) === 24, String(sfx.cueBudget(30)));
+  check("and so is a minute", sfx.cueBudget(60) === 24, String(sfx.cueBudget(60)));
+
+  const density = (d) => d / sfx.cueBudget(d);
+  check("five minutes gets more accents than a minute did", sfx.cueBudget(300) > sfx.cueBudget(60), String(sfx.cueBudget(300)));
+  check("an hour gets more than five minutes", sfx.cueBudget(3600) > sfx.cueBudget(300), String(sfx.cueBudget(3600)));
+  check(
+    "and yet every step is sparser than the one before it, which is the whole point",
+    density(30) < density(300) && density(300) < density(3600) && density(3600) < density(7200),
+    [30, 300, 3600, 7200].map((d) => `${d}s: one per ${density(d).toFixed(1)}s`).join(", "),
+  );
+  check(
+    "a two-hour recording is no longer four sounds and then silence",
+    sfx.cueBudget(7200) >= 100 && density(7200) <= 75,
+    `${sfx.cueBudget(7200)} cues, one per ${density(7200).toFixed(0)}s`,
+  );
+  check("and it stops somewhere", sfx.cueBudget(36000) === sfx.HARD_CAP, String(sfx.cueBudget(36000)));
+  check("a clip too short for one is still given one rather than none", sfx.cueBudget(3) >= 1);
+
+  /*
+   * And the reason the ceiling could move at all.
+   *
+   * Every cue used to open its own `-i` on the same sixteen files, so forty
+   * accents meant forty decoders of a half-second FLAC on a one-gigabyte
+   * machine. A file is opened once now and `asplit` fans it out, so the cue
+   * count costs filter nodes rather than decoders.
+   */
+  const renderer = readFileSync(path.join(repoRoot, "artifacts/worker/src/ffmpeg.ts"), "utf8");
+  const bus = renderer.slice(renderer.indexOf("const layerOffsetDb = sfxLayerOffsetDb"));
+  const block = bus.slice(0, bus.indexOf("if (labels.length === 0)"));
+  check("the renderer opens one input per sound file", /perFile|asplit=\$\{count\}/.test(block), block.slice(0, 120));
+  check(
+    "and not one per cue",
+    !/for \(const cue of sfxPlan\.cues\)[\s\S]{0,400}addInput\("-i", file\)/.test(block),
+  );
 }
 
 section("Nothing is placed where it would be cut off");

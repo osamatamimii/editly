@@ -213,8 +213,44 @@ export const LEAD_SECONDS = 0.06;
 export const MIN_GAP = 0.35;
 /** At most one sound per this much finished video. */
 export const SECONDS_PER_CUE = 1.2;
-/** And never more than this, however long the edit runs. */
+/**
+ * The most accents a minute of finished video may carry.
+ *
+ * This used to be a flat ceiling of 24 for any length, and it was written when
+ * every edit this product made was a short. On a thirty-second clip it is one
+ * accent per 1.2 seconds and it binds; on a two-hour podcast it is **one
+ * accent every five minutes**, which is not a sparse layer, it is four
+ * whooshes at the front of a film and then silence. The number was doing two
+ * jobs — density on a short, and a bound on the filter graph on anything long
+ * — and it was only ever chosen for the first.
+ *
+ * The graph is not the constraint any more: `ffmpeg.ts` opens one input per
+ * *sound* and splits it, so a hundred cues on sixteen files is sixteen
+ * decoders. What is left is taste, and taste says the accents should thin as a
+ * piece grows: a whoosh every 1.2 seconds is a trailer, and two hours of
+ * trailer is exhausting.
+ *
+ * So the ceiling grows with the square root of the length rather than with the
+ * length. At a minute it is 24, exactly as before; at five minutes 58, at an
+ * hour 230, and `HARD_CAP` stops it there. Density falls the whole way: one
+ * per 1.2s on a short, one per 5s at five minutes, one per 16s at an hour.
+ */
 export const MAX_CUES = 24;
+
+/**
+ * However long it runs. A hundred and twenty is one accent a minute on a
+ * two-hour recording, and past that the layer stops being an accent.
+ */
+export const HARD_CAP = 120;
+
+/** How the ceiling grows. Chosen for the density it produces, listed above. */
+const CUE_GROWTH = 0.55;
+
+export function cueBudget(durationSeconds: number): number {
+  const minutes = Math.max(1, durationSeconds / 60);
+  const ceiling = Math.min(HARD_CAP, Math.round(MAX_CUES * minutes ** CUE_GROWTH));
+  return Math.max(1, Math.min(ceiling, Math.floor(durationSeconds / SECONDS_PER_CUE)));
+}
 /** A sound whose tail would be cut off by the end of the video is a click. */
 export const TAIL_ROOM = 0.25;
 /** Below this the edit has no room for a layer at all. */
@@ -288,7 +324,7 @@ export function placeSoundEffects(request: SfxRequest): SfxPlacement {
     return { cues, thinned: 0, riserSkipped: request.onOpen ? "no-room" : "not-asked" };
   }
 
-  const budget = Math.max(1, Math.min(MAX_CUES, Math.floor(request.duration / SECONDS_PER_CUE)));
+  const budget = cueBudget(request.duration);
 
   /**
    * Lay a sound so that *it* arrives on `moment`, if it fits and nothing is

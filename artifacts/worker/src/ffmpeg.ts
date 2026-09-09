@@ -4919,14 +4919,55 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         changes nothing.
       */
       const layerOffsetDb = sfxLayerOffsetDb(await sourcePeakDb());
+
+      /*
+        One input per *sound*, not per cue.
+
+        Every cue used to open its own `-i` on the same sixteen files, so a
+        two-minute edit with forty accents decoded forty streams of a
+        half-second FLAC — forty decoders, forty buffers, on a machine with one
+        gigabyte, to play sounds that repeat. It bounded how many accents an
+        edit could carry for a reason that was never about the edit.
+
+        A file is opened once and `asplit` fans it out to the cues that use it,
+        which is what makes the cue budget in `sfx.ts` a question about taste
+        rather than about memory.
+      */
+      const usable: Array<{ cue: (typeof sfxPlan.cues)[number]; file: string }> = [];
       for (const cue of sfxPlan.cues) {
         const file = await sfxFile(cue.sound);
         if (!file) {
           missing += 1;
           continue;
         }
-        laid.push(cue);
+        usable.push({ cue, file });
+      }
+
+      /** How many cues each file carries, which is the split's width. */
+      const perFile = new Map<string, number>();
+      for (const { file } of usable) perFile.set(file, (perFile.get(file) ?? 0) + 1);
+
+      /** The branch labels still unspent, by file. */
+      const branches = new Map<string, string[]>();
+      let fileNo = 0;
+      for (const [file, count] of perFile) {
         const idx = addInput("-i", file);
+        const mine = Array.from({ length: count }, (_, i) => `sfxsrc${fileNo}_${i}`);
+        // The format conversion happens once, before the split, rather than
+        // once per cue: every branch of an `asplit` is the same stream.
+        sfxParts.push(
+          `[${idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo` +
+            (count > 1 ? `,asplit=${count}` : "") +
+            mine.map((l) => `[${l}]`).join("") +
+            (count > 1 ? "" : ""),
+        );
+        branches.set(file, mine);
+        fileNo += 1;
+      }
+
+      for (const { cue, file } of usable) {
+        laid.push(cue);
+        const source_ = branches.get(file)!.shift()!;
         const label = `sfx${labels.length}`;
         // Trimmed to the room left before the end. A file that would run past
         // the last frame is not silently truncated by the mux — it is cut mid
@@ -4949,7 +4990,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         const ramp = Math.min(0.006, length / 4);
         const delayMs = Math.round(cue.at * 1000);
         sfxParts.push(
-          `[${idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,` +
+          `[${source_}]` +
             `atrim=0:${length.toFixed(3)},asetpts=PTS-STARTPTS,` +
             (clipped ? `afade=t=out:st=${(length - ramp).toFixed(4)}:d=${ramp.toFixed(4)},` : "") +
             `volume=${(soundEffects.gainDb + cue.trimDb + layerOffsetDb).toFixed(1)}dB` +
