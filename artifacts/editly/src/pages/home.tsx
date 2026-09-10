@@ -593,11 +593,28 @@ function useStageLive<T extends HTMLElement>(): RefObject<T | null> {
  * translates its own width and loops — transform only, compositor only, and
  * paused (with the videos) whenever the stage is off screen.
  *
- * The hand is a mounting point, not yet an image. The reference's hand is a
- * photograph, and the honest ways to get one — a generation, or a photo of
- * Osama's own — both need him (his HIGGS workspace is at zero credits). The
- * `.stage-hand` slot takes the asset the moment one exists.
+ * The hand is drawn, because it could not honestly be anything else: no
+ * generated imagery is allowed here (his instruction), no stock file can be
+ * fetched from this session, and none of his own footage holds a hand on a
+ * phone. So it is what a hand actually is in a shot like the reference's —
+ * a grip seen from the front, almost silhouette, told entirely by its rim
+ * light: four fingertips curling over the left bezel, a thumb pad riding
+ * the right edge, a forearm dropping out of the frame. The lit edges take
+ * the screen's own blue, which is the "الاضاءة عاليد" of the reference —
+ * in a dark room the phone is the key light, and the hand holding it is
+ * lit by what it holds.
  */
+/**
+ * The hand is Osama's to supply: he is sending a real photograph (a hand
+ * holding a phone from the lower left, the reference's grip). Two drawn
+ * attempts made the case that a photoreal hand is not an SVG job. The
+ * `.stage-hand` mount stays: when the asset lands in /reel/hand.png this
+ * component becomes one `<img>` and the geometry is already solved.
+ */
+function StageHand() {
+  return null;
+}
+
 function PhoneStage({
   copy,
 }: {
@@ -636,6 +653,7 @@ function PhoneStage({
             </div>
           </div>
         </div>
+        <StageHand />
       </div>
     </div>
   );
@@ -878,223 +896,12 @@ const WAVE_BARS = Array.from({ length: 48 }, (_, i) => ({
  */
 const RANK = { free: 0, creator: 1, pro: 2, studio: 3 } as const;
 
-/**
- * The editor, drawn.
- *
- * What was here was a screen recording: `tools/demo-capture.mjs` driving the
- * built app through one real edit. The reasoning was sound and the result was
- * not, for three reasons that no amount of re-recording fixes.
- *
- * The largest element in that recording is the video player, and the demo
- * project has no footage in it — so the biggest thing on a page selling a
- * video editor was an empty purple gradient where the video goes. A 1280x800
- * browser window scaled into a 1000px hero renders every label at about eight
- * pixels, which is a picture of text rather than text. And it was encoded at
- * 209kbps, so what little was legible was also blocky, and it cost 1.4MB
- * across four files that every visitor downloaded.
- *
- * This is the same screen, drawn at the size it is shown: real DOM and real
- * type, so it is sharp at any density and on any screen, with the drawn parts
- * — the frame, the waveform, the crop — as inline SVG. Nothing is downloaded.
- * Nothing goes stale when a button in the app moves, because it is not a
- * photograph of the app; it is the claim the page is making, which is that you
- * say a sentence and get an edit back.
- *
- * Every number on it is real: 12.3s in and 6.5s out is what
- * `tools/demo-capture.mjs` measured on the sample take, and the operations
- * listed are the ones that plan actually produces.
+/*
+ * The drawn editor that stood here (HeroEditor, ~190 lines of real DOM and
+ * SVG) is gone at Osama's instruction: the reference composition — the
+ * hand-held phone writing a prompt over a row of finished work — now opens
+ * the page instead. See PhoneStage.
  */
-function HeroEditor({ phone, language }: { phone: boolean; language: Language }) {
-  const t = (phrase: Phrase) => say(phrase, language);
-  const copy = LANDING.heroEditor;
-  return (
-    // `text-start` because the hero section around this is centred, and an app
-    // whose every label is centred does not read as an app. Logical rather than
-    // `text-left`: this is a drawing of the product, and the product is set the
-    // way the language reads.
-    <div className="force-dark text-start rounded-xl overflow-hidden relative bg-[hsl(var(--card))] text-foreground">
-      {/* Title bar */}
-      <div className="flex items-center gap-3 px-4 sm:px-5 h-12 sm:h-14 border-b border-white/[0.07] bg-white/[0.02]">
-        <ChevronLeft className="w-4 h-4 text-white/35 flex-shrink-0" />
-        <p className="text-[13px] sm:text-[15px] font-semibold truncate">{t(copy.projectTitle)}</p>
-        <span className="hidden sm:inline-flex text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-400/15 text-emerald-300 border border-emerald-400/25 flex-shrink-0">
-          {t(copy.status)}
-        </span>
-        <div className="ms-auto flex items-center gap-2 flex-shrink-0">
-          <span className="hidden sm:flex items-center gap-1.5 text-[13px] text-white/60 px-3 py-1.5 rounded-lg border border-white/10">
-            <Download className="w-3.5 h-3.5" /> {t(copy.exportLabel)}
-          </span>
-          <span className="flex items-center gap-1.5 text-[12px] sm:text-[13px] font-semibold text-white px-3 py-1.5 rounded-lg bg-[#50a1ed] shadow-[0_0_20px_rgba(80,161,237,0.45)]">
-            <Sparkles className="w-3.5 h-3.5" /> {t(copy.generate)}
-          </span>
-        </div>
-      </div>
-
-      <div className="grid md:grid-cols-[minmax(0,0.92fr)_minmax(0,1fr)]">
-        {/* ── What went in ── */}
-        <div className="p-4 sm:p-5 md:border-r border-white/[0.07] flex flex-col gap-3">
-          <p className="text-[12px] sm:text-[11px] uppercase tracking-[0.14em] text-white/35 font-semibold">
-            {t(copy.rawTake)}
-          </p>
-
-          {/* The frame. A speaker sitting off to one side, which is what a
-              phone on a desk actually films, and what the reframe below is
-              for. */}
-          <div className="rounded-lg overflow-hidden border border-white/10 relative">
-            {/* Filled, not outlined, and lit from one side.
-                An outline drawing of a person reads as an icon — which is what
-                the recording this replaced had in its video pane, and why that
-                pane read as empty. Shapes with mass, a lamp behind them and a
-                line where the wall meets the desk read as a frame somebody
-                filmed. The subject sits right of centre because that is where a
-                phone propped on a desk puts you, and it is what the 9:16 crop
-                further down is correcting. */}
-            <svg viewBox="0 0 320 180" className="w-full h-auto block" aria-hidden="true">
-              <defs>
-                <linearGradient id="hero-room" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stopColor="#1b3146" />
-                  <stop offset="0.58" stopColor="#112232" />
-                  <stop offset="1" stopColor="#0c151d" />
-                </linearGradient>
-                <radialGradient id="hero-lamp" cx="0.64" cy="0.3" r="0.55">
-                  <stop offset="0" stopColor="#50a1ed" stopOpacity="0.5" />
-                  <stop offset="1" stopColor="#50a1ed" stopOpacity="0" />
-                </radialGradient>
-                <radialGradient id="hero-vignette" cx="0.5" cy="0.45" r="0.78">
-                  <stop offset="0.45" stopColor="#000" stopOpacity="0" />
-                  <stop offset="1" stopColor="#000" stopOpacity="0.42" />
-                </radialGradient>
-              </defs>
-              <rect width="320" height="180" fill="url(#hero-room)" />
-              <rect width="320" height="180" fill="url(#hero-lamp)" />
-              {/* Where the wall meets the desk. */}
-              <path d="M0 132h320" className="stroke-white" strokeOpacity="0.06" strokeWidth="2" />
-              {/* The speaker. An ellipse rather than a circle, shoulders that
-                  are not symmetrical, and a rim light down the side the lamp is
-                  on: three details that are the difference between a figure in
-                  a frame and the avatar glyph every placeholder uses. */}
-              <g className="fill-[#c7dff5]" opacity="0.62">
-                {/* Neck first, then shoulders over it, then the head over both,
-                    so the three read as one body. Drawn as separate shapes with
-                    a gap between them, this was a head floating above a hill. */}
-                <rect x="194" y="84" width="18" height="24" rx="7" />
-                <path d="M166 152c0-30 16-50 37-50s37 20 37 50z" />
-                <ellipse cx="203" cy="70" rx="21" ry="23" />
-              </g>
-              {/* A rim light down the side the lamp is on. */}
-              <path
-                d="M220 55a21 23 0 0 1 3 28"
-                className="fill-none stroke-[#efe8ff]"
-                strokeOpacity="0.55"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              />
-              {/* A vignette, because a lens has one. */}
-              <rect width="320" height="180" fill="url(#hero-vignette)" />
-            </svg>
-            <div className="absolute bottom-2 start-2 text-[12px] sm:text-[10px] font-mono text-white/45 bg-black/45 px-1.5 py-0.5 rounded" dir="ltr">
-              1920×1080 · 12.3s
-            </div>
-          </div>
-
-          {/* The timeline, with the dead air marked rather than described. */}
-          <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-            <svg viewBox="0 0 300 46" className="w-full h-auto" aria-hidden="true">
-              {WAVE.map((h, i) => (
-                <rect
-                  key={i}
-                  x={i * 5}
-                  y={23 - h}
-                  width="2.6"
-                  height={h * 2}
-                  rx="1.3"
-                  className={h > 2 ? "fill-[#50a1ed]" : "fill-white/15"}
-                />
-              ))}
-              {/* Where the silences are, and that they are going. */}
-              {SILENCES.map(([from, to], i) => (
-                <g key={i}>
-                  <rect x={from * 5} y="0" width={(to - from) * 5} height="46" rx="3" className="fill-white/[0.06]" />
-                  <path
-                    d={`M${from * 5 + 1} 40h${(to - from) * 5 - 2}`}
-                    className="stroke-white/30"
-                    strokeWidth="1.5"
-                    strokeDasharray="3 3"
-                    strokeLinecap="round"
-                  />
-                </g>
-              ))}
-            </svg>
-            <p className="mt-2 text-[12px] text-white/45">
-              {t(copy.silencesLead)} <span className="text-white/70">{t(copy.deadAirAmount)}</span>{" "}
-              {t(copy.silencesTail)}
-            </p>
-          </div>
-        </div>
-
-        {/* ── What was asked, and what came back ── */}
-        <div className="p-4 sm:p-5 flex flex-col gap-3">
-          <div className="flex justify-end">
-            <p className="max-w-[85%] text-[12px] sm:text-[13.5px] leading-relaxed rounded-2xl rounded-ee-sm px-3.5 py-2.5 bg-[#50a1ed] text-white">
-              {t(copy.ask)}
-            </p>
-          </div>
-
-          <div className="flex items-start gap-2.5">
-            <span className="w-7 h-7 rounded-full bg-[#50a1ed]/25 border border-[#50a1ed]/40 flex items-center justify-center flex-shrink-0">
-              <Sparkles className="w-3.5 h-3.5 text-[#79b7f1]" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[12px] sm:text-[11px] font-semibold text-white/50 mb-1.5">{t(copy.assistant)}</p>
-              <p className="text-[12px] sm:text-[13.5px] leading-relaxed text-white/80 mb-2.5">
-                {t(copy.intro)}
-              </p>
-              {/* The plan, itemised. This is the promise the product makes:
-                  you see the edit described before it is rendered. */}
-              <ul className="flex flex-col gap-1.5">
-                {[copy.planCutSilence, copy.planReframe, copy.planCaptions, copy.planLevel]
-                  .map(t)
-                  .map((line) => (
-                    <li key={line} className="flex items-start gap-2 text-[12px] sm:text-[13px] leading-snug text-white/70">
-                      <Check className="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                      {line}
-                    </li>
-                  ))}
-              </ul>
-            </div>
-          </div>
-
-          {/* What came out, beside the numbers that describe it. */}
-          <div className="mt-1 flex items-stretch gap-3 rounded-xl border border-[#50a1ed]/30 bg-[#50a1ed]/[0.07] p-3">
-            <div className="w-[62px] sm:w-[72px] flex-shrink-0 rounded-md overflow-hidden border-2 border-[#50a1ed]/60">
-              {/* The same room, cropped to 9:16 and centred on the speaker,
-                  with the captions on the picture rather than beside it. */}
-              <svg viewBox="0 0 62 110" className="w-full h-auto block" aria-hidden="true">
-                <rect width="62" height="110" fill="url(#hero-room)" />
-                <rect width="62" height="110" fill="url(#hero-lamp)" />
-                <g className="fill-[#c7dff5]" opacity="0.68">
-                  <rect x="26" y="46" width="10" height="14" rx="4" />
-                  <path d="M9 84c0-17 10-28 22-28s22 11 22 28z" />
-                  <ellipse cx="31" cy="38" rx="13" ry="15" />
-                </g>
-                <rect x="11" y="88" width="40" height="6" rx="3" className="fill-white" opacity="0.92" />
-                <rect x="20" y="98" width="22" height="6" rx="3" className="fill-white" opacity="0.92" />
-              </svg>
-            </div>
-            <div className="min-w-0 flex flex-col justify-center gap-1">
-              <p className="text-[12px] sm:text-[13.5px] font-semibold text-white">
-                {t(copy.resultTitle)}
-              </p>
-              <p className="text-[12px] leading-snug text-white/55">
-                {t(copy.resultDetail)}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /**
  * The horizon: the lit edge where a dark band meets the page above it.
@@ -1973,41 +1780,10 @@ export default function Home() {
   const [checkoutFor, setCheckoutFor] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
-  /* ── Parallax refs ─────────────────────────────────────── */
-  const heroRef    = useRef<HTMLElement>(null);
-  const mockupRef  = useRef<HTMLDivElement>(null);
-  const pxTarget   = useRef({ x: 0, y: 0 });
-  const pxCurrent  = useRef({ x: 0, y: 0 });
-  const rafRef     = useRef<number>(0);
-
-  useEffect(() => {
-    const el = heroRef.current;
-    if (!el) return;
-
-    const onMouseMove = (e: MouseEvent) => {
-      const rect = el.getBoundingClientRect();
-      const nx = (e.clientX - rect.left - rect.width  / 2) / (rect.width  / 2);
-      const ny = (e.clientY - rect.top  - rect.height / 2) / (rect.height / 2);
-      pxTarget.current.x = Math.max(-1, Math.min(1, nx)) * 4;
-      pxTarget.current.y = Math.max(-1, Math.min(1, ny)) * 4;
-    };
-
-    const tick = () => {
-      const t = 0.06;
-      pxCurrent.current.x += (pxTarget.current.x - pxCurrent.current.x) * t;
-      pxCurrent.current.y += (pxTarget.current.y - pxCurrent.current.y) * t;
-      const { x, y } = pxCurrent.current;
-      if (mockupRef.current) mockupRef.current.style.translate  = `${x * 0.5}px ${y * 0.5}px`;
-      rafRef.current = requestAnimationFrame(tick);
-    };
-
-    el.addEventListener("mousemove", onMouseMove);
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      el.removeEventListener("mousemove", onMouseMove);
-      cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
+  /* The parallax rig that lived here — a mousemove listener and a permanent
+     rAF loop nudging the editor mockup by four pixels — went with the mockup
+     it existed to nudge. A frame loop with nothing to move is pure heat. */
+  const heroRef = useRef<HTMLElement>(null);
 
   /**
    * Choosing a plan.
@@ -2631,29 +2407,26 @@ export default function Home() {
           </a>
         </div>
 
-        {/* The hero is a drawing of the editor, not a recording of it.
-            See `HeroEditor` above for why: the recording's largest element was
-            an empty video pane, its type rendered at about eight pixels, and it
-            cost 1.4MB across four files. */}
-        <div
-          ref={mockupRef}
-          className="mt-16 sm:mt-20 w-full max-w-5xl animate-fade-up"
-          style={{ animationDelay: "560ms" }}
-        >
-          <div
-            className="rounded-2xl glass-panel glass-flat overflow-hidden border border-hairline p-1.5 sm:p-2"
-            style={{
-              boxShadow:
-                "0 40px 80px rgba(80,161,237,0.28), 0 80px 160px rgba(80,161,237,0.10), 0 0 0 1px rgba(121, 183, 241,0.12)",
-            }}
-          >
-            <HeroEditor phone={phone} language={language} />
-          </div>
-          <p className="mt-4 text-xs sm:text-sm text-muted-foreground text-center">
-            {t(LANDING.hero.caption)}
-          </p>
-        </div>
       </section>
+
+      {/* ── The stage ── */}
+      {/*
+        Where the drawing of the editor stood, the reference's composition now
+        stands: a hand-held phone writing a prompt, finished work sliding past
+        behind it. Osama's instruction, with the second recording: this goes at
+        the top of the landing page, and the editor drawing goes. It is a
+        sibling of the hero section rather than a child because the hero column
+        is `max-w-7xl` and the row of work runs the full width of the screen.
+      */}
+      <div className="w-full -mt-16 sm:-mt-12 animate-fade-up" style={{ animationDelay: "560ms" }}>
+        <PhoneStage
+          copy={{
+            chips: [t(LANDING.reel.chipSilence), t(LANDING.reel.chipVertical)],
+            placeholder: t(LANDING.reel.placeholder),
+            send: t(LANDING.reel.note),
+          }}
+        />
+      </div>
 
       {/* ── How It Works ── */}
       <HowItWorks t={t} rtl={rtl} />
@@ -2692,29 +2465,6 @@ export default function Home() {
         <Horizon />
         <Horizon foot />
         <div className="horizon-grain" aria-hidden="true" />
-
-      {/* ── What comes out ── */}
-      {/*
-        Three finished exports, playing. The section it sits in front of spent
-        a paragraph describing what a clip looks like when it comes back; these
-        are three of them, and they cost nothing until somebody scrolls here.
-      */}
-      <section id="output" className="relative w-full pt-28 pb-0 sm:pt-32 overflow-hidden">
-        <div className="max-w-7xl mx-auto px-6 text-center mb-10 reveal">
-          <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.reel.eyebrow)}</p>
-          <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4 text-balance">
-            <Sweep>{t(LANDING.reel.title)}</Sweep>
-          </h2>
-          <p className="text-muted-foreground text-lg max-w-xl mx-auto">{t(LANDING.reel.lead)}</p>
-        </div>
-        <PhoneStage
-          copy={{
-            chips: [t(LANDING.reel.chipSilence), t(LANDING.reel.chipVertical)],
-            placeholder: t(LANDING.reel.placeholder),
-            send: t(LANDING.reel.note),
-          }}
-        />
-      </section>
 
       {/* ── Features ── */}
       <section id="features" className="relative w-full max-w-7xl mx-auto px-6 pt-32 pb-24 sm:pt-40">

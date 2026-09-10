@@ -377,10 +377,10 @@ section("The page opens in Arabic, and it opens the right way round");
   check("no English sentence is left on the Arabic page", leaked.length === 0, leaked.slice(0, 6).join(", "));
 
   check(
-    "the drawing of the editor speaks Arabic too",
-    text.includes(say(copy.LANDING.heroEditor.rawTake, "ar")) &&
-      text.includes(say(copy.LANDING.heroEditor.assistant, "ar")),
-    "the hero mock is the largest thing on the page and the easiest to leave in English",
+    "the phone on the stage speaks Arabic too",
+    text.includes(say(copy.LANDING.reel.chipSilence, "ar")) &&
+      text.includes(say(copy.LANDING.reel.placeholder, "ar")),
+    "the stage phone is the largest thing on the page and the easiest to leave in English",
   );
 
   // A phone is where this page is read, and a right-to-left layout is a
