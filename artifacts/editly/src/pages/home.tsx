@@ -407,6 +407,110 @@ function useGlidingScroll(): void {
 }
 
 /**
+ * What the podcast section was saying in five paragraphs, drawn.
+ *
+ * The section had a hundred and fifty words and no picture, and the words
+ * were describing something that is entirely spatial: a long recording, three
+ * moments inside it, three vertical clips out. A reader has to hold all of
+ * that in their head to follow the prose; the same thing as a drawing is
+ * understood before it is read. So the copy is halved and this carries the
+ * mechanism.
+ *
+ * The waveform is a fixed pattern rather than a random one — a "random"
+ * waveform redraws differently on every render and cannot be judged, and this
+ * one is shaped: quiet at the edges of each lit window and busiest inside it,
+ * which is the claim the picture is making.
+ *
+ * Mirrored in Arabic. This is a *process* — the take on one side, the clips
+ * out of it — and a process drawn left to right reads backwards to a reader
+ * going right to left. Time runs the way the language does.
+ */
+const TAKE_WAVE = [
+  3, 4, 3, 5, 4, 3, 4, 3, 5, 4, 3, 4, 5, 3, 4, 3, 4, 5, 4, 3,
+  9, 15, 22, 17, 24, 13, 20, 26, 16, 21, 12, 18, 23, 14, 19, 25, 15, 11, 20, 16,
+  4, 3, 5, 4, 3, 4, 3, 5, 4, 3, 5, 4, 3, 4, 5, 3, 4, 3, 4, 5,
+  12, 19, 25, 14, 21, 27, 16, 23, 13, 20, 26, 15, 22, 18, 24, 12, 19, 17, 23, 14,
+  3, 5, 4, 3, 4, 5, 3, 4, 3, 5, 4, 3, 4, 3, 5, 4, 3, 5, 4, 3,
+  14, 21, 16, 24, 12, 19, 26, 15, 22, 13, 20, 25, 17, 23, 14, 21, 18, 12, 19, 16,
+  4, 3, 5, 4, 3, 4, 5, 3, 4, 3, 5, 4, 3, 5, 4, 3, 4, 5, 3, 4,
+];
+/** Which runs of the waveform above are the moments worth posting. */
+const TAKE_MOMENTS = [
+  { from: 20, to: 40, at: "00:14:20", clip: "00:48" },
+  { from: 60, to: 80, at: "00:51:06", clip: "01:12" },
+  { from: 100, to: 120, at: "01:37:44", clip: "00:39" },
+];
+
+function ClipStrip({ rtl, labels }: { rtl: boolean; labels: { take: string; clips: string } }) {
+  const W = 960;
+  const barX = 24;
+  const barW = W - 48;
+  const step = barW / TAKE_WAVE.length;
+  const win = (m: (typeof TAKE_MOMENTS)[number]) => ({
+    x: barX + m.from * step,
+    w: (m.to - m.from) * step,
+  });
+  return (
+    <svg viewBox={`0 0 ${W} 300`} className="w-full h-auto" role="img" aria-label={labels.take}>
+      <g transform={rtl ? `translate(${W},0) scale(-1,1)` : undefined}>
+        {/* The take. */}
+        <rect x={barX} y="26" width={barW} height="64" rx="14" fill="var(--surface-1)" stroke="hsl(var(--border))" strokeWidth="1" />
+        {TAKE_WAVE.map((h, i) => {
+          const inMoment = TAKE_MOMENTS.some((m) => i >= m.from && i < m.to);
+          return (
+            <rect
+              key={i}
+              x={barX + i * step + step * 0.22}
+              y={58 - h}
+              width={step * 0.56}
+              height={h * 2}
+              rx={step * 0.28}
+              fill={inMoment ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))"}
+              opacity={inMoment ? 0.95 : 0.32}
+            />
+          );
+        })}
+        {TAKE_MOMENTS.map((m, i) => {
+          const { x, w } = win(m);
+          const cx = x + w / 2;
+          const cardW = 76;
+          const cardH = 135;
+          const cardX = cx - cardW / 2;
+          return (
+            <g key={m.at}>
+              {/* The moment, ringed on the take. */}
+              <rect x={x - 4} y="20" width={w + 8} height="76" rx="12" fill="hsl(var(--primary) / 0.10)" stroke="hsl(var(--primary) / 0.55)" strokeWidth="1.5" />
+              {/* Down to its clip. */}
+              <path d={`M ${cx} 96 L ${cx} 128`} stroke="hsl(var(--primary) / 0.45)" strokeWidth="1.5" strokeDasharray="3 4" fill="none" />
+              {/* The clip: 9:16, captioned, named. */}
+              <rect x={cardX} y="130" width={cardW} height={cardH} rx="10" fill="var(--surface-1)" stroke="hsl(var(--border))" strokeWidth="1" />
+              <rect x={cardX + 7} y="137" width={cardW - 14} height={cardH - 40} rx="6" fill="hsl(var(--primary) / 0.14)" />
+              <circle cx={cx} cy={137 + (cardH - 40) * 0.36} r="11" fill="hsl(var(--primary) / 0.45)" />
+              <rect x={cx - 9} y={137 + (cardH - 40) * 0.58} width="18" height="15" rx="7" fill="hsl(var(--primary) / 0.45)" />
+              {/* The caption, burnt in. */}
+              <rect x={cardX + 16} y={cardH + 96} width={cardW - 32} height="5" rx="2.5" fill="hsl(var(--foreground) / 0.75)" />
+              <rect x={cardX + 24} y={cardH + 105} width={cardW - 48} height="5" rx="2.5" fill="hsl(var(--foreground) / 0.45)" />
+            </g>
+          );
+        })}
+      </g>
+      {/* The numbers sit outside the mirror: digits and timecodes read left to
+          right in Arabic too, and a mirrored `<text>` renders backwards. */}
+      {TAKE_MOMENTS.map((m) => {
+        const { x, w } = win(m);
+        const cx = rtl ? W - (x + w / 2) : x + w / 2;
+        return (
+          <g key={m.at}>
+            <text x={cx} y="14" textAnchor="middle" fontSize="11" fontFamily="ui-monospace, monospace" fill="hsl(var(--muted-foreground))">{m.at}</text>
+            <text x={cx} y="288" textAnchor="middle" fontSize="11" fontFamily="ui-monospace, monospace" fill="hsl(var(--muted-foreground))">{m.clip}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/**
  * A heading that arrives out of focus and sharpens across itself.
  *
  * The blurred copy is `aria-hidden`; the sharp one is the real text, so a
@@ -2626,9 +2730,14 @@ export default function Home() {
             </p>
           </div>
 
-          {/* The mechanism, in the order it happens. Three steps because there
-              are three; a five-step diagram of a three-step process is a
-              diagram somebody padded. */}
+          {/* The mechanism, drawn, because it is a shape and not an argument:
+              one long recording, three moments inside it, three vertical clips
+              out. The three cards under it name the steps; the picture is what
+              makes them read in a glance. */}
+          <div className="reveal mt-12">
+            <ClipStrip rtl={rtl} labels={{ take: t(LANDING.podcasts.diagramTake), clips: t(LANDING.podcasts.diagramClips) }} />
+          </div>
+
           <div className="grid md:grid-cols-3 gap-6 mt-12">
             {LANDING.podcasts.steps
               .map((entry) => ({ step: t(entry.step), detail: t(entry.detail) }))

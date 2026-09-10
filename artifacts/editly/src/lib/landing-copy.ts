@@ -310,32 +310,39 @@ export const LANDING = {
       "One recording on Tuesday. A week of posts by Wednesday.",
     ),
     lead: p(
-      "حديث من ساعتين فيه ثلاث أو أربع لحظات تستحقّ النشر، والعثور عليها هو العمل كلّه. ارفع التسجيل، وقل ما تريد، وتعود كل لحظة قصاصة عمودية قائمة بذاتها: مكتوبة الكابشن، معايَرة الصوت، ومعنونة بما قيل فيها فعلًا.",
-      "A two-hour conversation holds three or four moments worth posting, and finding them is the work. Upload the take, say what you want, and each moment comes back as its own vertical clip, captioned, levelled and titled by what was actually said in it.",
+      "في الساعتين ثلاث لحظات تستحقّ النشر. العثور عليها هو العمل كلّه، وهذا هو الجزء الذي يفعله.",
+      "Two hours holds three moments worth posting. Finding them is the work, and that is the part this does.",
     ),
     steps: [
       {
         step: p("التسجيل كلّه يدخل", "The whole take goes in"),
         detail: p(
-          "ساعتان، شخصان، ملفّ واحد. وحتى أربع ساعات على Pro. لا شيء يحتاج تشذيبًا أوّلًا، لأن التشذيب أوّلًا هو العمل نفسه.",
-          "Two hours, two people, one file. Up to four hours on Pro. Nothing has to be trimmed first, because trimming it first is the job.",
+          "ساعتان، ملفّ واحد، بلا تشذيب أوّلًا. وأربع ساعات على Pro.",
+          "Two hours, one file, nothing trimmed first. Four on Pro.",
         ),
       },
       {
         step: p("اللحظات تُلتقَط", "The moments are found"),
         detail: p(
-          "تُقرأ ممّا قيل لا من الموجة الصوتية. وقصاصات أقلّ بدل الحشو إلى رقم: تسجيل طويل نادرًا ما يحمل أكثر من ثلاث تستحقّ النشر، فيعود بثلاث.",
-          "Read from what is said, not from the waveform. Fewer clips rather than padding to a number: a long take rarely holds more than three worth posting, and it comes back with three.",
+          "من الكلام، لا من الموجة الصوتية. ثلاث تستحقّ النشر، لا عشر محشوّة.",
+          "From what was said, not the waveform. Three worth posting, not ten padded.",
         ),
       },
       {
         step: p("كل واحدة منشور جاهز", "Each one is a finished post"),
         detail: p(
-          "مقصوصة عموديًّا، بكابشن من كلام المتحدّث نفسه، معايَرة لما تطلبه المنصّات، ومسمّاة بالجملة التي تدور عليها. افتح أيّها وواصل التعديل.",
-          "Cut vertical, captioned in the speaker's own words, levelled to what the platforms want, and named after the line it turns on. Open any of them and keep editing.",
+          "عمودية، مكتوبة الكابشن، معايَرة، ومسمّاة بالجملة التي تدور عليها.",
+          "Vertical, captioned, levelled, and named after the line it turns on.",
         ),
       },
     ],
+    // Labels for the drawing, which is the section's real argument. They are
+    // read aloud rather than seen, so they say what the picture shows.
+    diagramTake: p(
+      "تسجيل من ساعتين، مُعلَّم عليه ثلاث لحظات، وتحت كل لحظة القصاصة العمودية الخارجة منها",
+      "A two-hour take with three moments marked on it, and under each one the vertical clip it becomes",
+    ),
+    diagramClips: p("ثلاث قصاصات", "Three clips"),
     cta: p("اقصّ أوّل تسجيل لك", "Cut your first recording"),
     // Two template names, said in the middle of a sentence. Split so the names
     // stay set in bold without a translated string having to carry markup.
