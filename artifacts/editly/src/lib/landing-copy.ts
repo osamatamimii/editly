@@ -230,6 +230,10 @@ export const LANDING = {
       planSilence: p("إزالة 41 ثانية من الصمت", "Remove 41s of silence"),
       planReframe: p("إعادة التأطير إلى 9:16", "Reframe to 9:16"),
       planCaptions: p("حرق الكابشن", "Burn in your captions"),
+      planLoudness: p("معايرة الصوت إلى −14 LUFS", "Level the audio to −14 LUFS"),
+      // Inside the drawing: who is answering, and the line he opens with.
+      noah: p("نوح", "Noah"),
+      before: p("هذا ما سأفعله، قبل أن أفعله:", "Here is what I will do, before I do it:"),
     },
     three: {
       title: p("انشره", "Post it"),
@@ -239,6 +243,7 @@ export const LANDING = {
       ),
       source: p("مصدر 16:9", "16:9 source"),
       output: p("9:16", "9:16"),
+      loudness: p("−14 LUFS", "−14 LUFS"),
     },
   },
 

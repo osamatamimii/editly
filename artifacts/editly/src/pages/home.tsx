@@ -1475,114 +1475,146 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
    * this section that is allowed to be purely decorative because it is
    * *behind* the thing being explained.
    */
+  /*
+   * The three pictures are renderings of the product, not diagrams of it.
+   *
+   * They were line schematics on a pale cream wash — a leftover from the light
+   * theme, and on a dark page they read as a bright card with a faint drawing
+   * in it. Osama asked for pictures that look real, built out of what the
+   * product actually shows: "صمم شيء احترافي من البرومت الداخلي الموجود".
+   *
+   * So each one is a screen. A window with a title bar, a sunken well and a
+   * ruler; a conversation with a real prompt in it and the plan that comes
+   * back; a source frame with the vertical it kept lit inside it and the
+   * caption burnt on. The washes went dark with them, because a picture of
+   * this app is a picture of a dark interface.
+   */
+  const WAVE_TAKE = [
+    16, 23, 11, 27, 19, 25, 14, 21, 9, 24, 2, 2, 2, 2, 2, 18, 26, 13, 22, 10,
+    27, 15, 20, 8, 23, 2, 2, 2, 2, 19, 12, 25, 17, 21, 9, 26, 14, 23, 11, 20,
+  ];
   const steps = [
     {
       num: "01",
       title: t(LANDING.steps.one.title),
       desc: t(LANDING.steps.one.desc),
-      wash: "radial-gradient(120% 95% at 18% 12%, #b1d2f1 0%, rgba(177, 210, 241,0) 62%), radial-gradient(115% 95% at 88% 84%, #d4e6f7 0%, rgba(212, 230, 247,0) 64%), linear-gradient(146deg, #eff5fb 0%, #ebf3fa 100%)",
+      wash:
+        "radial-gradient(120% 95% at 18% 10%, rgba(78,160,236,0.20) 0%, rgba(78,160,236,0) 62%), linear-gradient(146deg, #0b1622 0%, #060d16 100%)",
       art: (
-          <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
-            <g transform={rtl ? MIRROR : undefined}>
-              <rect x="20" y="18" width="280" height="144" rx="12" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" strokeDasharray="8 7" />
-              <rect x="44" y="42" width="232" height="96" rx="10" className="fill-[var(--art-base)]" />
-              <rect x="44" y="42" width="232" height="96" rx="10" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
-              {/* The take, with the dead air still in it — flat where
-                  nobody is talking, which is what step three removes. */}
-              {[14, 22, 9, 26, 17, 24, 2, 2, 2, 2, 19, 27, 11, 23, 8, 2, 2, 2, 25, 13, 21, 16, 2, 2, 18, 26, 10, 20].map((h, n) => (
+        <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
+          <g transform={rtl ? MIRROR : undefined}>
+            {/* The window. */}
+            <rect x="6" y="10" width="308" height="160" rx="11" fill="var(--art-panel)" stroke="var(--art-edge)" strokeWidth="1" />
+            <path d="M6 21a11 11 0 0 1 11-11h286a11 11 0 0 1 11 11v11H6z" fill="var(--art-bar)" />
+            <line x1="6" y1="32" x2="314" y2="32" stroke="var(--art-edge)" strokeWidth="1" />
+            {/* The well the waveform sits in. */}
+            <rect x="18" y="44" width="284" height="82" rx="7" fill="var(--art-well)" stroke="var(--art-edge)" strokeWidth="1" />
+            {WAVE_TAKE.map((h, n) => {
+              const dead = h <= 3;
+              return (
                 <rect
                   key={n}
-                  x={62 + n * 7}
-                  y={106 - h}
-                  width="3.5"
-                  height={h * 2}
-                  rx="1.75"
-                  className={h > 3 ? "fill-[var(--art-accent)]" : "fill-[var(--art-line)]"}
+                  x={26 + n * 6.9}
+                  y={85 - h}
+                  width="3.4"
+                  height={Math.max(2, h * 2)}
+                  rx="1.7"
+                  fill={dead ? "var(--art-dim)" : "var(--art-accent)"}
+                  opacity={dead ? 0.35 : 0.9}
                 />
-              ))}
-            </g>
-            {/* A file name and a timecode, which are Latin either way:
-                `dir` keeps `raw-take.mov` from being reordered when the
-                page around it is right-to-left. */}
-            <text {...mirrored(62, "start", rtl, 320, true)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="13" fontWeight="600" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.file)}</text>
-            <text {...mirrored(258, "end", rtl, 320, true)} y="68" style={{ direction: "ltr" }} className="fill-[var(--art-line)]" fontSize="12" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.duration)}</text>
-          </svg>
+              );
+            })}
+            {/* The dead air, marked where it is. */}
+            {[{ x: 92, w: 34 }, { x: 197, w: 27 }].map((gap) => (
+              <rect key={gap.x} x={gap.x} y="52" width={gap.w} height="66" rx="4" fill="var(--art-dim)" opacity="0.10" stroke="var(--art-dim)" strokeWidth="1" strokeDasharray="3 3" />
+            ))}
+            {/* The playhead. */}
+            <line x1="150" y1="44" x2="150" y2="126" stroke="var(--art-ink)" strokeWidth="1.4" />
+            <rect x="145" y="40" width="10" height="8" rx="2" fill="var(--art-ink)" />
+            {/* The ruler. */}
+            {[0, 1, 2, 3, 4, 5, 6].map((n) => (
+              <line key={n} x1={26 + n * 45} y1="136" x2={26 + n * 45} y2={n % 2 ? 141 : 144} stroke="var(--art-dim)" strokeWidth="1" />
+            ))}
+            <line x1="18" y1="136" x2="302" y2="136" stroke="var(--art-edge)" strokeWidth="1" />
+          </g>
+          {/* Latin either way: a file name and a timecode are not translated,
+              and `direction: ltr` keeps them from being reordered on an
+              Arabic page. */}
+          <text {...mirrored(20, "start", rtl, 320, true)} y="26" style={{ direction: "ltr" }} fill="var(--art-ink)" fontSize="11" fontWeight="600" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.file)}</text>
+          <text {...mirrored(300, "end", rtl, 320, true)} y="26" style={{ direction: "ltr" }} fill="var(--art-dim)" fontSize="10.5" fontFamily="ui-monospace, monospace">{t(LANDING.steps.one.duration)}</text>
+          {/* Three, not four. A fourth sat at the far end of the ruler and in
+              Arabic the mirror put its right edge two pixels off the drawing —
+              `landing-test` measures every mirrored label against the viewBox
+              for exactly this. */}
+          {["00:00", "06:00", "12:00"].map((label, n) => (
+            <text key={label} {...mirrored(30 + n * 122, "start", rtl, 320, true)} y="156" style={{ direction: "ltr" }} fill="var(--art-dim)" fontSize="8.5" fontFamily="ui-monospace, monospace">{label}</text>
+          ))}
+        </svg>
       ),
     },
     {
       num: "02",
       title: t(LANDING.steps.two.title),
       desc: t(LANDING.steps.two.desc),
-      wash: "radial-gradient(120% 95% at 82% 14%, #98c6f0 0%, rgba(152, 198, 240,0) 60%), radial-gradient(115% 95% at 14% 86%, #c7dff5 0%, rgba(199, 223, 245,0) 64%), linear-gradient(146deg, #ebf3fa 0%, #f3f8fc 100%)",
+      wash:
+        "radial-gradient(120% 95% at 82% 12%, rgba(78,160,236,0.22) 0%, rgba(78,160,236,0) 60%), linear-gradient(146deg, #081320 0%, #0b1826 100%)",
       art: (
-          <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
-            <g transform={rtl ? MIRROR : undefined}>
-              {/* What you typed, */}
-              <rect x="78" y="18" width="226" height="48" rx="12" className="fill-[var(--art-accent-soft)]" />
-              <rect x="78" y="18" width="226" height="48" rx="12" className="fill-none stroke-[var(--art-accent)]" strokeWidth="1.5" />
-              {/* and what it says back, before it starts. The tick is
-                  moved rather than mirrored: a reversed check mark is a
-                  shape people read as almost-a-tick. */}
-              <circle cx="34" cy="98" r="12" className="fill-[var(--art-accent-soft)]" />
-              {[
-                { y: 84, w: 162 },
-                { y: 114, w: 124 },
-                { y: 144, w: 158 },
-              ].map((row) => (
-                <g key={row.y}>
-                  <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-[var(--art-base)]" />
-                  <rect x="56" y={row.y} width={row.w} height="28" rx="14" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
-                </g>
-              ))}
-            </g>
-            <path
-              d="M28 98l4.5 4.5L40 94"
-              transform={rtl ? "translate(252,0)" : undefined}
-              className="fill-none stroke-[var(--art-accent)]"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <text {...mirrored(94, "start", rtl)} y="39" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">{t(LANDING.steps.two.askLine1)}</text>
-            <text {...mirrored(94, "start", rtl)} y="56" className="fill-[var(--art-accent)]" fontSize="11.5" fontWeight="600">{t(LANDING.steps.two.askLine2)}</text>
-            {[
-              { y: 84, label: LANDING.steps.two.planSilence },
-              { y: 114, label: LANDING.steps.two.planReframe },
-              { y: 144, label: LANDING.steps.two.planCaptions },
-            ].map((row) => (
-              <text key={row.y} {...mirrored(72, "start", rtl)} y={row.y + 19} className="fill-[var(--art-accent)]" fontSize="11.5">
-                {t(row.label)}
-              </text>
+        <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
+          <g transform={rtl ? MIRROR : undefined}>
+            {/* What you asked for. */}
+            <path d="M118 12h182a10 10 0 0 1 10 10v24a10 10 0 0 1-10 10H130l-12 10z" fill="hsl(var(--primary))" opacity="0.92" />
+            {/* Who answers, and what he says he will do before he does it. */}
+            <circle cx="20" cy="78" r="11" fill="var(--art-accent-soft)" stroke="var(--art-accent)" strokeWidth="1" />
+            <circle cx="20" cy="75" r="3.4" fill="var(--art-accent)" />
+            <path d="M14 84a6.4 6.4 0 0 1 12 0z" fill="var(--art-accent)" />
+            {[100, 120, 140, 160].map((y) => (
+              <path key={y} d={`M38 ${y - 4.5}l3.6 3.8L48 ${y - 10}`} fill="none" stroke="var(--art-ok)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" transform={rtl ? "translate(268,0) scale(-1,1)" : undefined} />
             ))}
-          </svg>
+          </g>
+          <text {...mirrored(132, "start", rtl)} y="32" fill="#fff" fontSize="11.5" fontWeight="600">{t(LANDING.steps.two.askLine1)}</text>
+          <text {...mirrored(132, "start", rtl)} y="48" fill="#fff" fontSize="11.5" fontWeight="600">{t(LANDING.steps.two.askLine2)}</text>
+          <text {...mirrored(38, "start", rtl)} y="76" fill="var(--art-ink)" fontSize="10.5" fontWeight="700">{t(LANDING.steps.two.noah)}</text>
+          <text {...mirrored(38, "start", rtl)} y="90" fill="var(--art-dim)" fontSize="10">{t(LANDING.steps.two.before)}</text>
+          {[
+            { y: 100, label: LANDING.steps.two.planSilence },
+            { y: 120, label: LANDING.steps.two.planReframe },
+            { y: 140, label: LANDING.steps.two.planCaptions },
+            { y: 160, label: LANDING.steps.two.planLoudness },
+          ].map((row) => (
+            <text key={row.y} {...mirrored(56, "start", rtl)} y={row.y} fill="var(--art-ink)" fontSize="11">
+              {t(row.label)}
+            </text>
+          ))}
+        </svg>
       ),
     },
     {
       num: "03",
       title: t(LANDING.steps.three.title),
       desc: t(LANDING.steps.three.desc),
-      wash: "radial-gradient(125% 95% at 50% 8%, #b8d7f5 0%, rgba(184, 215, 245,0) 58%), radial-gradient(115% 95% at 12% 92%, #79b7f1 0%, rgba(121, 183, 241,0) 62%), linear-gradient(146deg, #eff5fb 0%, #e7f0f9 100%)",
+      wash:
+        "radial-gradient(125% 95% at 50% 6%, rgba(121,183,241,0.22) 0%, rgba(121,183,241,0) 58%), linear-gradient(146deg, #0a1420 0%, #050b13 100%)",
       art: (
-          <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
-            <g transform={rtl ? MIRROR : undefined}>
-              {/* The widescreen you shot, with the speaker sitting off
-                to one side of it the way a phone on a desk films you, */}
-              <rect x="22" y="34" width="184" height="104" rx="8" className="fill-[var(--art-base)]" />
-              <rect x="22" y="34" width="184" height="104" rx="8" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" strokeDasharray="6 5" />
-              <circle cx="138" cy="74" r="17" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
-              <path d="M120 116a18 18 0 0 1 36 0" className="fill-none stroke-[var(--art-line)]" strokeWidth="2" />
-              {/* and the vertical it kept, centred on them, with the
-                words burned onto it. */}
-              <rect x="104" y="16" width="94" height="148" rx="10" className="fill-[var(--art-accent-soft)]" />
-              <rect x="104" y="16" width="94" height="148" rx="10" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
-              <circle cx="151" cy="66" r="19" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
-              <path d="M131 112a20 20 0 0 1 40 0" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2.5" />
-              <path d="M126 132h50M138 146h26" className="stroke-[var(--art-accent)]" strokeWidth="7" strokeLinecap="round" />
-              <path d="M216 100h30" className="stroke-[var(--art-accent)]" strokeWidth="2" strokeLinecap="round" />
-            </g>
-            <text {...mirrored(22, "start", rtl)} y="158" className="fill-[var(--art-line)]" fontSize="11" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.source)}</text>
-            <text {...mirrored(216, "start", rtl, 320, true)} y="90" style={{ direction: "ltr" }} className="fill-[var(--art-accent)]" fontSize="12" fontWeight="700" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.output)}</text>
-          </svg>
+        <svg viewBox="0 0 320 180" className="w-full h-full" aria-hidden="true">
+          <g transform={rtl ? MIRROR : undefined}>
+            {/* What the camera gave you, dimmed. */}
+            <rect x="16" y="30" width="196" height="112" rx="7" fill="var(--art-well)" stroke="var(--art-edge)" strokeWidth="1" strokeDasharray="5 4" />
+            <circle cx="144" cy="72" r="16" fill="var(--art-dim)" opacity="0.35" />
+            <path d="M126 116a18 18 0 0 1 36 0z" fill="var(--art-dim)" opacity="0.35" />
+            {/* The vertical it kept, lit, with the words burnt onto it. */}
+            <rect x="108" y="12" width="94" height="150" rx="9" fill="var(--art-panel)" stroke="hsl(var(--primary))" strokeWidth="2" />
+            <circle cx="155" cy="64" r="18" fill="var(--art-accent)" opacity="0.65" />
+            <path d="M134 112a21 21 0 0 1 42 0z" fill="var(--art-accent)" opacity="0.65" />
+            <rect x="118" y="124" width="74" height="9" rx="4.5" fill="var(--art-ink)" />
+            <rect x="131" y="138" width="48" height="9" rx="4.5" fill="var(--art-ink)" opacity="0.7" />
+            {/* The two readouts the export actually carries. */}
+            <rect x="216" y="60" width="88" height="22" rx="6" fill="var(--art-panel)" stroke="var(--art-edge)" strokeWidth="1" />
+            <rect x="216" y="90" width="88" height="22" rx="6" fill="var(--art-panel)" stroke="var(--art-edge)" strokeWidth="1" />
+          </g>
+          <text {...mirrored(16, "start", rtl)} y="156" fill="var(--art-dim)" fontSize="10">{t(LANDING.steps.three.source)}</text>
+          <text {...mirrored(228, "start", rtl, 320, true)} y="75" style={{ direction: "ltr" }} fill="hsl(var(--primary))" fontSize="12" fontWeight="700" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.output)}</text>
+          <text {...mirrored(228, "start", rtl, 320, true)} y="105" style={{ direction: "ltr" }} fill="var(--art-ink)" fontSize="11" fontWeight="600" fontFamily="ui-monospace, monospace">{t(LANDING.steps.three.loudness)}</text>
+        </svg>
       ),
     },
   ];

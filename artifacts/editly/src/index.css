@@ -339,6 +339,17 @@
   --art-line: rgba(255, 255, 255, 0.22);
   --art-accent: rgba(121, 183, 241, 0.95);
   --art-accent-soft: rgba(78, 160, 236, 0.22);
+  /* The pieces a *screen* is made of, as opposed to a diagram: a panel, its
+     title bar, a sunken well, an edge, ink and dim ink, and the green a
+     confirmation is in everywhere else in this product. The three step
+     pictures are renderings of the app now, not schematics of it. */
+  --art-panel: rgba(255, 255, 255, 0.045);
+  --art-bar: rgba(255, 255, 255, 0.075);
+  --art-well: rgba(0, 0, 0, 0.30);
+  --art-edge: rgba(255, 255, 255, 0.14);
+  --art-ink: rgba(236, 244, 252, 0.92);
+  --art-dim: rgba(236, 244, 252, 0.42);
+  --art-ok: rgba(52, 199, 123, 0.95);
   --grain-opacity: 0.05;
 
   /*
@@ -890,6 +901,13 @@ html[data-page-theme="light"] body {
   --art-line: rgba(15, 31, 46, 0.22);
   --art-accent: rgba(78, 160, 236, 0.95);
   --art-accent-soft: rgba(78, 160, 236, 0.16);
+  --art-panel: rgba(15, 31, 46, 0.04);
+  --art-bar: rgba(15, 31, 46, 0.07);
+  --art-well: rgba(15, 31, 46, 0.09);
+  --art-edge: rgba(15, 31, 46, 0.14);
+  --art-ink: rgba(12, 22, 33, 0.92);
+  --art-dim: rgba(12, 22, 33, 0.45);
+  --art-ok: rgba(22, 143, 84, 0.95);
   --grain-opacity: 0.02;
 
   /*

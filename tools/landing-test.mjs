@@ -131,7 +131,15 @@ section("Every line on the page exists in both languages");
     check pass. The exceptions are real and few, and they are things that are
     the same string in both languages rather than translations of each other.
   */
-  const SAME_IN_BOTH = new Set(["steps.one.file", "steps.one.duration", "steps.three.output"]);
+  /* A unit readout is the same string in both languages the way a file name is:
+     "−14 LUFS" is not English, it is a measurement, and translating the letters
+     would make it wrong rather than local. */
+  const SAME_IN_BOTH = new Set([
+    "steps.one.file",
+    "steps.one.duration",
+    "steps.three.output",
+    "steps.three.loudness",
+  ]);
   const identical = pairs.filter(({ path: at, pair }) => pair.ar === pair.en && !SAME_IN_BOTH.has(at));
   check("and no pair is the English twice", identical.length === 0, identical.map((e) => e.path).join(", "));
 
