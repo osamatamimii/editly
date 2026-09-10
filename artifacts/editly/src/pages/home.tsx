@@ -122,10 +122,31 @@ function starField(count: number, size: number): string {
     // Most of them are barely there, and they fade with distance from the
     // light. A sky of equally bright dots is a pattern; the variation is what
     // makes it read as depth.
-    const fade = Math.max(0, 1 - (yAt / 62) ** 1.6);
-    const alpha = ((0.18 + random() * 0.55) * fade).toFixed(3);
-    const r = (size * (0.6 + random() * 0.8)).toFixed(2);
-    dots.push(`radial-gradient(circle ${r}px at ${x}% ${y}%, rgba(255,255,255,${alpha}) 0%, rgba(255,255,255,0) 100%)`);
+    /* The fade never reaches zero. At `1 - (y/62)^1.6` the lower two thirds of
+       the field were multiplied to nothing, so a count of thirty was really a
+       count of about twelve. */
+    const fade = 0.4 + 0.6 * Math.max(0, 1 - (yAt / 62) ** 1.4);
+    const alpha = ((0.34 + random() * 0.5) * fade).toFixed(3);
+    /*
+     * A dot needs a core, and this is the whole reason the first sky was
+     * invisible on the deployed site.
+     *
+     * `radial-gradient(circle Rpx, white α 0%, transparent 100%)` puts α at the
+     * exact centre and nothing at R, so the alpha the screen actually gets is
+     * the average over the pixels the circle covers — a fraction of α. At the
+     * radius this shipped with, 0.85px, that fraction is most of the way to
+     * zero and the star is a rounding error. Measured on the built page:
+     * `radial-gradient(0.85px at 66.56% 11.9%, rgba(255,255,255,0.4) …)`, which
+     * renders as nothing at all. Osama looked at the live hero and said the
+     * stars were not there, and they were not.
+     *
+     * So: a real radius, and a stop that holds the colour across the middle of
+     * it before the falloff starts. Same one pass, a dot you can see.
+     */
+    const r = (size * (0.8 + random() * 0.7)).toFixed(2);
+    dots.push(
+      `radial-gradient(circle ${r}px at ${x}% ${y}%, rgba(255,255,255,${alpha}) 0%, rgba(255,255,255,${alpha}) 38%, rgba(255,255,255,0) 100%)`,
+    );
   }
   return dots.join(", ");
 }
@@ -149,8 +170,8 @@ const STAR_DRIFT = [6, 14];
  * The reference has perhaps twenty visible. Thirty and fourteen is more sky
  * than it has, and it paints.
  */
-const FAR_STARS = starField(30, 1.0);
-const NEAR_STARS = starField(14, 1.6);
+const FAR_STARS = starField(52, 1.5);
+const NEAR_STARS = starField(24, 2.4);
 
 /*
  * The sky follows the pointer through two CSS variables, and never through
@@ -241,7 +262,16 @@ function useStarDrift(): void {
  *   - any scroll the page did not start — keyboard, scrollbar, an anchor, a
  *     focus jump — which resyncs the target instead of yanking it back.
  */
-const GLIDE_EASE = 0.13;
+/*
+ * 0.085 of the remaining distance per 60Hz frame: about 45% of a notch spent
+ * in the first tenth of a second and a tail that runs a little past a second.
+ * It started at 0.13, which measured as a glide and did not read as one —
+ * Osama scrolled the deployed page and said the premium scroll was not there.
+ * The difference between "technically eased" and "obviously eased" is roughly
+ * this much, and the honest test is not the curve, it is whether somebody
+ * notices without being told to look.
+ */
+const GLIDE_EASE = 0.085;
 const GLIDE_REST_PX = 0.5;
 
 function useGlidingScroll(): void {
@@ -1870,8 +1900,31 @@ export default function Home() {
      * carries IBM Plex Sans Arabic after Inter, and the browser picks per
      * language, not per character.
      */
+    /*
+     * `isolate`, and the entire hero background depends on it.
+     *
+     * The wash below is `fixed inset-0 -z-10`. A positioned descendant with a
+     * negative stack level paints at step 2 of its *stacking context* — right
+     * after that context's own background and before anything in flow. This
+     * wrapper was not a stacking context, so the wash joined the root's
+     * instead, where step 2 comes before the in-flow block backgrounds — and
+     * the app shell's own opaque `bg-background` is one of those. The key
+     * light, the horizon and every star were painted, correctly, underneath an
+     * opaque rectangle.
+     *
+     * Nothing about it looked wrong from the inside: the elements were in the
+     * DOM, their computed styles were right, their boxes covered the viewport,
+     * their opacity was 1. It took painting the two star layers solid red and
+     * green and finding the screenshot unchanged. Osama saw it immediately, on
+     * the deployed site, which is the only place it was ever visible as a
+     * problem: "توهج النجوم لم يتم".
+     *
+     * `isolation: isolate` makes this element the stacking context, so its own
+     * background paints first and the wash lands on top of it — still under
+     * every section, which is all it ever wanted.
+     */
     <div
-      className="w-full flex flex-col items-center bg-background text-foreground"
+      className="isolate w-full flex flex-col items-center bg-background text-foreground"
       style={{ colorScheme: "dark" }}
       dir={directionOf(language)}
       lang={language}

@@ -23,6 +23,7 @@
  *  - the whole application in the first chunk, so opening the marketing page
  *    downloads and parses the editor, the export screen and the admin console.
  */
+import { brightness } from "./png-pixels.mjs";
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -231,6 +232,36 @@ section("Anything that moves every frame moves without re-rendering the page");
     }),
   );
   check("the drifting layers are on the page at all", drift.every((d) => d.found), JSON.stringify(drift));
+  /*
+   * And that they can be seen. The field shipped once with a 0.85px gradient
+   * radius, which is a sub-pixel smudge: present in the DOM, present in the
+   * computed style, invisible on the screen, and reported by the person who
+   * asked for it. A count and a floor on the radius is the cheapest thing that
+   * would have caught it.
+   */
+  const sky = await page.evaluate(() => {
+    const read = (id) => {
+      const e = document.querySelector(`[data-testid="${id}"]`);
+      const bg = e ? getComputedStyle(e).backgroundImage : "";
+      const radii = [...bg.matchAll(/radial-gradient\(([\d.]+)px/g)].map((m) => Number(m[1]));
+      return { id, dots: radii.length, smallest: radii.length ? Math.min(...radii) : 0 };
+    };
+    return ["star-far", "star-near"].map(read);
+  });
+  const MIN_STAR_PX = 1;
+  const MIN_STARS = 20;
+  for (const layer of sky) {
+    check(
+      `${layer.id} has enough dots to read as a sky`,
+      layer.dots >= MIN_STARS,
+      `${layer.dots} dots`,
+    );
+    check(
+      `${layer.id}'s faintest dot is at least ${MIN_STAR_PX}px, so it renders at all`,
+      layer.smallest >= MIN_STAR_PX,
+      `smallest radius ${layer.smallest}px`,
+    );
+  }
   for (const layer of drift) {
     check(
       `${layer.id} takes its offset from a custom property, not from a re-render`,
@@ -238,6 +269,46 @@ section("Anything that moves every frame moves without re-rendering the page");
       layer.transform || "no inline transform",
     );
   }
+}
+
+/*
+ * And that the light and the sky are actually on the screen.
+ *
+ * Everything above this reads the DOM, and the DOM said the hero background
+ * was fine while it was completely invisible. The wash is `fixed inset-0
+ * -z-10`; a negative stack level paints at step 2 of its *stacking context*,
+ * and the wrapper was not one, so the layers joined the root's — where step 2
+ * comes before in-flow block backgrounds, and the app shell's own opaque
+ * background is one of those. Elements present, styles correct, boxes right,
+ * opacity 1, nothing on screen. It was found by painting the star layers red
+ * and finding the screenshot unchanged.
+ *
+ * So this section does not ask the page anything. It photographs it and looks
+ * at the pixels: the top of the hero has a light in it and must be brighter
+ * than the bottom, and the sky must have something in it brighter than the
+ * ground it sits on.
+ */
+section("The light and the sky survive all the way to the screen");
+{
+  const mean = async (clip) =>
+    brightness(await page.screenshot({ clip, animations: "disabled", timeout: 150000 }));
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(400);
+  // Two empty bands of the hero: one under the key light, one well below it.
+  const lit = await mean({ x: 250, y: 96, width: 900, height: 54 });
+  const unlit = await mean({ x: 250, y: 600, width: 900, height: 54 });
+  check(
+    "the top of the hero is lit — the key light reaches the screen, not just the DOM",
+    lit.mean > unlit.mean + 3,
+    `top ${lit.mean.toFixed(1)} vs lower ${unlit.mean.toFixed(1)}`,
+  );
+  // A strip down the left edge, where there is no text and no button.
+  const skyBand = await mean({ x: 0, y: 190, width: 280, height: 320 });
+  check(
+    "and the sky has stars in it that are brighter than the ground",
+    skyBand.peak > 60,
+    `brightest pixel in the star band ${skyBand.peak.toFixed(0)}`,
+  );
 }
 
 section("The hero is drawn, so there is nothing to download and nothing to hide");
