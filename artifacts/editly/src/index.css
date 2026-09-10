@@ -273,10 +273,11 @@
      a sixth of the way down, 46 at a third, 15 at half, black by two thirds.
      The old pair of ellipses was five times too dim at the second of those
      and spread twice as wide at the sides, which is why it read as a tint. */
-  --wash-core: rgba(168, 208, 248, 0.95);
-  --wash-top: rgba(78, 160, 236, 0.85);
-  --wash-top-mid: rgba(78, 160, 236, 0.34);
-  --wash-top-far: rgba(78, 160, 236, 0.10);
+  --wash-core: rgba(180, 215, 250, 0.88);
+  --wash-near: rgba(120, 185, 245, 0.50);
+  --wash-top: rgba(78, 160, 236, 0.72);
+  --wash-top-mid: rgba(78, 160, 236, 0.20);
+  --wash-top-far: rgba(78, 160, 236, 0.07);
   --wash-mid: rgba(64, 152, 235, 0.18);
   --wash-left: rgba(78, 160, 236, 0.10);
   --wash-right: rgba(121, 183, 241, 0.12);
@@ -341,8 +342,6 @@
   --glass-bloom: rgba(255, 255, 255, 0.035);
   --glass-drop: rgba(0, 0, 0, 0.5);
   --glass-sheen: rgba(255, 255, 255, 0.10);
-  /* The veil under the expanded top bar. See `.nav-shell-wide`. */
-  --nav-veil: rgba(6, 11, 18, 0.55);
   /* A plan card's own face, and the light that lives inside it. The face is
      nearly the page: what separates the card from the ground is the rim and
      the bloom, not a lighter fill. See `.plan-card`. */
@@ -819,9 +818,10 @@ html[data-page-theme="light"] body {
    * tints rather than light sources, and anything stronger turns the copy
    * sitting on top of them unreadable. */
   --wash-core: rgba(150, 200, 245, 0.42);
-  --wash-top: rgba(78, 160, 236, 0.30);
-  --wash-top-mid: rgba(78, 160, 236, 0.12);
-  --wash-top-far: rgba(78, 160, 236, 0.04);
+  --wash-near: rgba(120, 185, 245, 0.24);
+  --wash-top: rgba(78, 160, 236, 0.18);
+  --wash-top-mid: rgba(78, 160, 236, 0.08);
+  --wash-top-far: rgba(78, 160, 236, 0.02);
   --wash-mid: rgba(69, 155, 236, 0.11);
   --wash-left: rgba(43, 141, 233, 0.085);
   --wash-right: rgba(121, 183, 241, 0.10);
@@ -854,7 +854,6 @@ html[data-page-theme="light"] body {
   --glass-bg-bottom: rgba(255, 255, 255, 0.52);
   --glass-bg: rgba(255, 255, 255, 0.78);
   --glass-bg-solid: rgb(252, 253, 254);
-  --nav-veil: rgba(255, 255, 255, 0.55);
   --plan-face: rgb(255, 255, 255);
   --plan-sheen-top: rgba(255, 255, 255, 0.5);
   --plan-sheen-bottom: rgba(255, 255, 255, 0.12);
@@ -1732,32 +1731,16 @@ html[data-page-theme="light"] body {
   background-image: none;
   border: 1px solid transparent;
 }
-/*
- * The bar needs a ground of its own now, and the key light is why.
- *
- * The light the reference is built around is brightest exactly where this bar
- * sits — measured at the top of its centre column, 164 out of 255 — and this
- * bar was `background-color: transparent`, so its labels were mid-grey text on
- * a pale blue dome. That is unreadable, and it is not what the reference does
- * either: the reference's bar is a dark pill floating *on* the light, which is
- * the only reason its own white labels hold.
- *
- * Not the capsule's full slab, which is a decided object with a lens and a
- * specular edge; this is a veil. Enough ground to keep the labels off the
- * light, a radius so it reads as a shape rather than a band ruled across the
- * page, and no ring — the capsule is still the thing the bar becomes, and it
- * has to have somewhere to arrive.
- */
 .nav-shell-wide {
   max-width: 80rem;
-  margin-top: 0.5rem;
-  padding: 1rem 1rem;
-  border-radius: 1.25rem;
-  background-color: var(--nav-veil);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  margin-top: 0;
+  padding: 1.25rem 1rem;
+  border-radius: 0;
+  background-color: transparent;
+  box-shadow: none;
 }
 @media (min-width: 640px) {
-  .nav-shell-wide { padding: 1.125rem 1.5rem; }
+  .nav-shell-wide { padding: 1.5rem 1.5rem; }
 }
 /*
  * Glass, not paint.
@@ -2358,6 +2341,70 @@ html[data-page-theme="light"] body {
  * going. Opacity only: it is the one property the compositor can animate
  * without repainting anything.
  */
+/*
+ * The key light.
+ *
+ * Solved from the reference frame: cut into a 12×8 grid, each block reduced to
+ * its tenth percentile so the text and chrome fall out and only the light is
+ * left. That map reads 5.1 everywhere outside it, 89 at the top of the centre
+ * column, 73 an eighth down, 37 a third, 16 at 44%, 8 at 56% and back to the
+ * page by 69%; across the top, 89 at the centre, 68 at 12% of the width out,
+ * 34 at 21%, 15 at 29%, gone by 37%. Every one of those points falls on one
+ * curve once the ellipse is 39% of the width by 55% of the height, centred two
+ * per cent above the top edge — and the stops below are that curve, converted
+ * back through the blend against our own ground.
+ *
+ * The core is a paler blue than the brand one because the reference's is:
+ * measured rgb(124,170,223) at its brightest, which no alpha of #4EA0EC can
+ * reach.
+ *
+ * The geometry changes on a phone and it has to. Those percentages are of the
+ * viewport, and a phone's viewport is portrait: 39% by 55% of 390×844 is 152px
+ * across by 464 down, which is not a dome, it is a searchlight beam pointing
+ * down the middle of the screen. What carries over is the *shape* — wide, low,
+ * gone before halfway — so the phone gets its own pair of radii that produce
+ * it there.
+ */
+.key-light {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 82% 50% at 50% -2%,
+    var(--wash-core) 0%,
+    var(--wash-near) 15%,
+    var(--wash-top) 37%,
+    var(--wash-top-mid) 58%,
+    var(--wash-top-far) 80%,
+    transparent 100%
+  );
+}
+@media (min-width: 768px) {
+  .key-light {
+    background: radial-gradient(
+      ellipse 56% 48% at 50% -2%,
+      var(--wash-core) 0%,
+      var(--wash-near) 15%,
+      var(--wash-top) 37%,
+      var(--wash-top-mid) 58%,
+      var(--wash-top-far) 80%,
+      transparent 100%
+    );
+  }
+}
+@media (min-width: 1280px) {
+  .key-light {
+    background: radial-gradient(
+      ellipse 37% 60% at 50% -2%,
+      var(--wash-core) 0%,
+      var(--wash-near) 15%,
+      var(--wash-top) 37%,
+      var(--wash-top-mid) 58%,
+      var(--wash-top-far) 80%,
+      transparent 100%
+    );
+  }
+}
+
 @keyframes star-twinkle {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }

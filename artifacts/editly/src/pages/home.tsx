@@ -1988,6 +1988,14 @@ export default function Home() {
         scroll away with the hero, which is also cheaper than a fixed layer the
         compositor has to hold against everything that moves past it.
 
+        The band's height is clamped off the *width*, not `100vh`, and that is
+        not a style choice. A full-page screenshot expands the viewport to the
+        height of the document, so `100vh` becomes the whole page: the light's
+        ellipse and all three star fields were being rasterised at twelve
+        thousand pixels tall, and this repo's own `viewport-test` stopped
+        completing. Anything sized in `vh` that carries a gradient is a trap
+        of that shape.
+
         What stays fixed is what genuinely has no place on the page: the low
         bounce, and the grain over all of it.
       */}
@@ -2006,7 +2014,7 @@ export default function Home() {
         }} className="grain-layer" />
       </div>
 
-      <div className="absolute inset-x-0 top-0 h-[130vh] pointer-events-none -z-10 overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-[clamp(680px,60vw,900px)] pointer-events-none -z-10 overflow-hidden">
         {/*
           The key light, and it is the loudest thing on the page above the
           fold, which is what the reference does.
@@ -2018,21 +2026,25 @@ export default function Home() {
           rather than like a coloured background.
         */}
         {/*
-          One gradient, four stops, fitted to the measured profile of the
-          reference rather than composed by eye. Two ellipses were the earlier
-          attempt at "a tight core inside a wide halo" and they could not hold
-          the shape: a lamp is not two lamps, it is one falloff that is steep
-          near the source and long in the tail, which is what stops let you
-          say directly. Vertically it reaches about two thirds down the band
-          and horizontally it is gone by the edges, so the sides stay black —
-          the reference measures 5 out of 255 there, and the old wash measured
-          16.
+          One gradient, six stops, solved from the reference rather than
+          composed by eye.
+
+          The reference frame was cut into a 12×8 grid and each block reduced
+          to its tenth percentile, which throws away the text and the chrome
+          and leaves the light. That gives a luminance map: 5.1 everywhere
+          outside it — the page — rising to 89 at the top of the centre
+          column, 73 an eighth down, 37 a third, 16 at 44%, 8 at 56%, and back
+          to the page by 69%. Across the top it is 89 at the centre, 68 at 12%
+          of the width out, 34 at 21%, 15 at 29% and gone by 37%.
+
+          Those points fall on one curve once you pick the right ellipse:
+          37.5% of the width by 71% of the height, centred two per cent above
+          the top edge. The stops are that curve, converted back through the
+          blend against our own ground. The core is a paler blue than the
+          brand one because the reference's is — measured rgb(124,170,223) at
+          its brightest, which no alpha of #4EA0EC can reach.
         */}
-        <div style={{
-          position: "absolute", inset: 0,
-          background:
-            "radial-gradient(ellipse 34% 66% at 50% -7%, var(--wash-core) 0%, var(--wash-top) 30%, var(--wash-top-mid) 52%, var(--wash-top-far) 68%, transparent 84%)",
-        }} />
+        <div className="key-light" />
         {/* The dust in the light, and only where the light is. */}
         {([
           ["star-far", FAR_STARS, STAR_DRIFT[0]!, "7.5s", "0s"],
@@ -2048,7 +2060,12 @@ export default function Home() {
               position: "absolute", inset: "-3%",
               backgroundImage: field,
               transform: `translate3d(calc(var(--drift-x, 0) * ${-travel}px), calc(var(--drift-y, 0) * ${-travel}px), 0)`,
-              willChange: "transform, opacity",
+              /* No `will-change`. Three full-viewport layers hinted for two
+                 properties are three layers the compositor holds for the life
+                 of the page — the exact cost `speed-test` was written after,
+                 and it took the hero's raster past this repo's own screenshot
+                 timeout. The opacity animation promotes them while it runs,
+                 which is all that was wanted. */
               animationDuration: period,
               animationDelay: phase,
             }}
@@ -2111,7 +2128,20 @@ export default function Home() {
               shrink — squashed, and «Editly» printed over "Features". A tablet
               gets the mark, the language switch and the two doors; the section
               links come back when there is room for them. */}
-          <nav className="hidden lg:flex items-center gap-5 lg:gap-7 text-sm font-medium text-muted-foreground">
+          {/*
+              Near-white, not muted, and the key light is why.
+
+              These four sit in the middle of the bar, which is exactly where
+              the lamp is brightest — measured at the composited pixels, the
+              muted grey came back at 2.66:1 against the lit ground, where the
+              same labels out at the edges measure 5.15. That is a real
+              failure, not a preference: it appeared the moment the light was
+              raised to the reference's, and no token pair check can see it
+              because the ground is a gradient painted by a different element.
+
+              Only the colour changed. The bar itself is the bar it was.
+          */}
+          <nav className="hidden lg:flex items-center gap-5 lg:gap-7 text-sm font-medium text-foreground/90">
           {/* The anchor is the section id, which is English and stays English:
               it is a URL, and a URL that changes with the reader's language is
               a link that breaks when it is shared. Only the label translates. */}
@@ -2165,7 +2195,7 @@ export default function Home() {
             data-testid="button-language"
             lang={rtl ? "en" : "ar"}
             title={t(LANDING.languageToggle.title)}
-            className="px-2 sm:px-3 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
+            className="px-2 sm:px-3 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md font-medium text-sm whitespace-nowrap text-foreground/85 hover:text-foreground hover:bg-surface-1 transition-colors"
           >
             {t(LANDING.languageToggle.label)}
           </button>
@@ -2182,7 +2212,7 @@ export default function Home() {
               <Link
                 href="/login"
                 data-testid="link-log-in"
-                className="px-2 sm:px-4 min-h-[44px] inline-flex items-center rounded-md font-medium text-sm whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-surface-1 transition-colors"
+                className="px-2 sm:px-4 min-h-[44px] inline-flex items-center rounded-md font-medium text-sm whitespace-nowrap text-foreground/85 hover:text-foreground hover:bg-surface-1 transition-colors"
               >
                 <span className="sm:hidden">{t(LANDING.header.logInShort)}</span>
                 <span className="hidden sm:inline">{t(LANDING.header.logIn)}</span>
