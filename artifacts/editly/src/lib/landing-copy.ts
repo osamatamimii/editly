@@ -323,6 +323,11 @@ export const LANDING = {
       "Vertical, captioned, levelled. Three real exports, playing now.",
     ),
     note: p("مقاطع خرجت من Editly، بلا قصّ يدوي", "Cut by Editly, with nobody trimming anything"),
+    // On the phone's screen. The chips are requests this editor actually
+    // takes, and the placeholder is the app's own.
+    chipSilence: p("اقصّ الصمت", "Cut the silence"),
+    chipVertical: p("عمودي 9:16", "Vertical 9:16"),
+    placeholder: p("اكتب تعديلك…", "Write your edit…"),
   },
   podcasts: {
     eyebrow: p("البودكاست والقصاصات", "Podcasts and clipping"),

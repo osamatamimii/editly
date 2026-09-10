@@ -531,7 +531,6 @@ function WordmarkBand({ word }: { word: string }) {
   return (
     <div className="wordmark-band" aria-hidden="true">
       <span className="wordmark-band-word">{word}</span>
-      <span className="wordmark-band-sheen" />
     </div>
   );
 }
@@ -549,26 +548,26 @@ function WordmarkBand({ word }: { word: string }) {
  * a video that plays behind the fold is a video nobody watches, decoding every
  * frame of it.
  */
-const REELS = [
-  { id: "reel-1", tilt: -7, lift: 26, depth: 0 },
-  { id: "reel-2", tilt: 0, lift: 0, depth: 1 },
-  { id: "reel-3", tilt: 7, lift: 26, depth: 0 },
-] as const;
+const WIDE_CARDS = ["wide-1", "wide-2", "wide-3", "wide-4"] as const;
 
-function useReelsInView<T extends HTMLElement>(): RefObject<T | null> {
+function useStageLive<T extends HTMLElement>(): RefObject<T | null> {
   const ref = useRef<T>(null);
   useEffect(() => {
     const host = ref.current;
     if (!host) return;
-    const clips = () => [...host.querySelectorAll("video")];
     const observer = new IntersectionObserver(
       ([entry]) => {
-        for (const clip of clips()) {
-          if (entry?.isIntersecting) void clip.play().catch(() => {});
+        const live = !!entry?.isIntersecting;
+        /* One attribute drives everything that moves in the stage: the videos
+           and the marquee both key off it, so nothing in here plays, decodes
+           or animates unless the stage is actually on screen. */
+        host.dataset.live = live ? "1" : "0";
+        for (const clip of host.querySelectorAll("video")) {
+          if (live) void clip.play().catch(() => {});
           else clip.pause();
         }
       },
-      { threshold: 0.25 },
+      { threshold: 0.2 },
     );
     observer.observe(host);
     return () => observer.disconnect();
@@ -576,29 +575,68 @@ function useReelsInView<T extends HTMLElement>(): RefObject<T | null> {
   return ref;
 }
 
-function ReelWall({ label }: { label: string }) {
-  const host = useReelsInView<HTMLDivElement>();
+/**
+ * The stage from Osama's recording: a hand-held phone writing a prompt, a
+ * row of finished work sliding past behind it.
+ *
+ * The reference is an image app; ours is the same composition told in this
+ * product's language. The screen is not a screenshot of the editor — his
+ * words: "مش سكرين من جوا المنصة بس زيه" — it is the prompt moment itself,
+ * rebuilt at phone scale: a finished clip playing where their generated image
+ * sits, two suggestion chips that are real requests this editor takes, the
+ * prompt field with its real placeholder, and the blue send pill. Everything
+ * on it is live HTML, so it stays sharp on any screen and the clip in it
+ * actually plays.
+ *
+ * Behind it, the reference scrolls a row of large rounded cards. Ours are
+ * four real exports as landscape crops, doubled into a marquee track that
+ * translates its own width and loops — transform only, compositor only, and
+ * paused (with the videos) whenever the stage is off screen.
+ *
+ * The hand is a mounting point, not yet an image. The reference's hand is a
+ * photograph, and the honest ways to get one — a generation, or a photo of
+ * Osama's own — both need him (his HIGGS workspace is at zero credits). The
+ * `.stage-hand` slot takes the asset the moment one exists.
+ */
+function PhoneStage({
+  copy,
+}: {
+  copy: { chips: [string, string]; placeholder: string; send: string };
+}) {
+  const host = useStageLive<HTMLDivElement>();
   return (
-    <div ref={host} className="relative mx-auto flex items-center justify-center gap-4 sm:gap-8">
-      {REELS.map((reel) => (
-        <div
-          key={reel.id}
-          className={reel.depth ? "reel-phone" : "reel-behind"}
-          style={{ transform: `rotate(${reel.tilt}deg) translateY(${reel.lift}px)` }}
-        >
-          <video
-            className="reel-video"
-            src={`/reel/${reel.id}.mp4`}
-            poster={`/reel/${reel.id}.jpg`}
-            preload="none"
-            muted
-            loop
-            playsInline
-            aria-label={label}
-          />
-          {reel.depth ? <span className="reel-island" aria-hidden="true" /> : null}
+    <div ref={host} className="phone-stage" data-live="0">
+      <div className="clip-marquee" aria-hidden="true">
+        <div className="clip-track">
+          {[...WIDE_CARDS, ...WIDE_CARDS].map((id, i) => (
+            <div className="clip-card" key={`${id}-${i}`} aria-hidden={i >= WIDE_CARDS.length}>
+              <video src={`/reel/${id}.mp4`} poster={`/reel/${id}.jpg`} preload="none" muted loop playsInline />
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
+      <div className="stage-dim" aria-hidden="true" />
+      <div className="stage-phone" aria-hidden="true">
+        <span className="reel-island" />
+        <div className="stage-screen" dir="rtl">
+          <div className="stage-menu"><span /><span /></div>
+          <div className="stage-result">
+            <video src="/reel/reel-2.mp4" poster="/reel/reel-2.jpg" preload="none" muted loop playsInline />
+          </div>
+          <div className="stage-chips">
+            <span>+ {copy.chips[0]}</span>
+            <span>+ {copy.chips[1]}</span>
+            <span className="stage-chip-more">+</span>
+          </div>
+          <div className="stage-prompt">
+            <div className="stage-prompt-text">{copy.placeholder}</div>
+            <div className="stage-prompt-row">
+              <Upload className="stage-prompt-attach" />
+              <span className="stage-send"><Sparkles /></span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2661,18 +2699,21 @@ export default function Home() {
         a paragraph describing what a clip looks like when it comes back; these
         are three of them, and they cost nothing until somebody scrolls here.
       */}
-      <section id="output" className="relative w-full max-w-7xl mx-auto px-6 pt-28 pb-20 sm:pt-32">
-        <div className="text-center mb-12 reveal">
+      <section id="output" className="relative w-full pt-28 pb-0 sm:pt-32 overflow-hidden">
+        <div className="max-w-7xl mx-auto px-6 text-center mb-10 reveal">
           <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.reel.eyebrow)}</p>
           <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4 text-balance">
             <Sweep>{t(LANDING.reel.title)}</Sweep>
           </h2>
           <p className="text-muted-foreground text-lg max-w-xl mx-auto">{t(LANDING.reel.lead)}</p>
         </div>
-        <div className="reveal">
-          <ReelWall label={t(LANDING.reel.note)} />
-        </div>
-        <p className="text-center text-xs text-muted-foreground mt-8 opacity-70">{t(LANDING.reel.note)}</p>
+        <PhoneStage
+          copy={{
+            chips: [t(LANDING.reel.chipSilence), t(LANDING.reel.chipVertical)],
+            placeholder: t(LANDING.reel.placeholder),
+            send: t(LANDING.reel.note),
+          }}
+        />
       </section>
 
       {/* ── Features ── */}
@@ -3238,8 +3279,17 @@ export default function Home() {
           the page deliberately — and it costs nothing but type, which is the
           only reason it can be done well without a photograph.
           The links keep their thumb-sized rows underneath. */}
-      <footer className="w-full border-t border-hairline-faint overflow-hidden">
-        <div className="max-w-6xl mx-auto px-6 pt-16 pb-10">
+      {/*
+        No top border, and the field underlays everything. Osama's recording
+        does not end its page with content-on-black followed by a colour strip:
+        the footer's links already sit on the beginning of the gradient, and
+        the same surface deepens through them into the wordmark. A border on
+        top of that would draw the exact seam the gradient exists to remove —
+        "مش زي كانها بقسم مقطوعة".
+      */}
+      <footer className="relative w-full overflow-hidden">
+        <div className="footer-field" aria-hidden="true" />
+        <div className="relative max-w-6xl mx-auto px-6 pt-16 pb-10">
 
 
           {/* The two documents every platform review asks for before it will

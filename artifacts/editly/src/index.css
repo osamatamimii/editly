@@ -391,10 +391,38 @@
   --glass-bloom: rgba(255, 255, 255, 0.035);
   --glass-drop: rgba(0, 0, 0, 0.5);
   --glass-sheen: rgba(255, 255, 255, 0.10);
-  /* The field the page ends on, and the tint the mark is set in. */
-  --band-top: #0a2c52;
-  --band-mid: #2273bd;
-  --band-foot: #79b1e6;
+  /*
+   * The field the page ends on, sampled off the reference and moved to our
+   * hue.
+   *
+   * Read down a column of the recording clear of the letters, its band is not
+   * a slab: it runs 770 pixels from #401106 to #edaa5b in one unbroken ramp,
+   * with hue and saturation held constant for the first three fifths while
+   * lightness climbs 14% to 53%, and then the hue drifting fourteen degrees
+   * warmer as it lightens the rest of the way. That drift is what stops the
+   * light end reading as a washed-out version of the dark end.
+   *
+   * Ours begins *transparent*, not at a colour, and that is the difference
+   * Osama was pointing at: "يعني يكون في دمج". Starting the ramp at the page's
+   * ground colour still leaves a seam, because the footer above is not
+   * exactly that colour — it carries the low bounce wash — so the field opens
+   * with a step down before it climbs. Opening at zero alpha of the *same
+   * hue* lets whatever is above show through and the blue arrive over it,
+   * which is a blend rather than a join. The same hue matters: fading from
+   * `transparent` interpolates through transparent black and leaves a grey
+   * bruise across the top of the field.
+   */
+  --band-stops:
+    hsl(209 78% 14% / 0) 0%,
+    hsl(209 78% 14% / 0.35) 18%,
+    hsl(209 79% 17%) 30%,
+    hsl(209 80% 26%) 45%,
+    hsl(209 80% 36%) 58%,
+    hsl(209 83% 47%) 70%,
+    hsl(207 84% 54%) 79%,
+    hsl(202 82% 59%) 87%,
+    hsl(197 80% 63%) 94%,
+    hsl(194 78% 68%) 100%;
   --band-ink: rgba(255, 255, 255, 0.22);
   /* A plan card's own face, and the light that lives inside it. The face is
      nearly the page: what separates the card from the ground is the rim and
@@ -924,10 +952,16 @@ html[data-page-theme="light"] body {
   --glass-bg-bottom: rgba(255, 255, 255, 0.52);
   --glass-bg: rgba(255, 255, 255, 0.78);
   --glass-bg-solid: rgb(252, 253, 254);
-  --band-top: #cfe4f8;
-  --band-mid: #7bb3e6;
-  --band-foot: #3d8ad2;
-  --band-ink: rgba(255, 255, 255, 0.38);
+  --band-stops:
+    hsl(209 66% 92% / 0) 0%,
+    hsl(209 66% 92% / 0.4) 18%,
+    hsl(209 70% 86%) 32%,
+    hsl(209 74% 76%) 48%,
+    hsl(209 78% 64%) 64%,
+    hsl(205 78% 55%) 78%,
+    hsl(200 76% 48%) 90%,
+    hsl(196 74% 43%) 100%;
+  --band-ink: rgba(255, 255, 255, 0.40);
   --plan-face: rgb(255, 255, 255);
   --plan-sheen-top: rgba(255, 255, 255, 0.5);
   --plan-sheen-bottom: rgba(255, 255, 255, 0.12);
@@ -2468,81 +2502,214 @@ html[data-page-theme="light"] body {
 }
 
 /*
- * The wall of finished clips.
- *
- * One of them is in a phone and two are bare, tilted and set back — which is
- * the composition, not decoration: the phone says "this is what you post" and
- * the two behind say "and there were three of them". The bare two are dimmer
- * and slightly desaturated so the eye lands on the phone first.
- *
- * The phone is drawn rather than photographed. A photograph of a device dates
- * the page to the year of the handset; a rim, a bezel and an island read as
- * "a phone" and belong to no particular one.
+ * The stage: a hand-held phone writing a prompt, finished work sliding past
+ * behind it. Composition and measurements taken from the recording Osama
+ * sent — the card row's baseline sits just below the phone's middle, the
+ * cards nearest the phone are dimmed so the phone reads as the lit thing, and
+ * the phone itself is tilted about six degrees, the way a hand actually
+ * holds one.
  */
-.reel-behind,
-.reel-phone {
+.phone-stage {
   position: relative;
+  width: 100%;
+  height: clamp(460px, 48vw, 690px);
+  overflow: hidden;
+}
+
+/* The row of work. A single track holding every card twice, translating its
+   own half-width and looping: transform only, so the compositor carries it,
+   and `data-live` on the stage pauses it — with the videos — the moment the
+   stage leaves the screen. An animation below the fold is a heater. */
+.clip-marquee {
+  position: absolute;
+  inset-inline: 0;
+  top: 34%;
+  pointer-events: none;
+}
+.clip-track {
+  display: flex;
+  gap: clamp(14px, 1.8vw, 26px);
+  width: max-content;
+  animation: clip-slide 48s linear infinite;
+}
+.phone-stage[data-live="0"] .clip-track {
+  animation-play-state: paused;
+}
+@keyframes clip-slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.clip-card {
   flex: 0 0 auto;
+  width: clamp(200px, 22vw, 310px);
+  aspect-ratio: 480 / 420;
   border-radius: 22px;
   overflow: hidden;
-  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  /* Dimmer than the phone on purpose: in the reference the row is scenery and
+     the phone is the subject, and the difference is carried by brightness. */
+  filter: brightness(0.6) saturate(0.9);
 }
-.reel-behind {
-  /* Tucked under the phone on a narrow screen rather than lined up beside it.
-     Three abreast plus the page's own gutters measured 393px against a 390px
-     phone — `landing-test` catches a page that can be pushed sideways, and
-     three portraits in a row is a desktop composition. Overlapped, the same
-     three read as a stack, which is what a phone has room for. */
-  margin-inline: -26px;
-  width: clamp(84px, 17vw, 188px);
-  filter: saturate(0.85) brightness(0.72);
-  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.8);
-  border: 1px solid var(--hairline);
-}
-.reel-phone {
-  width: clamp(144px, 26vw, 268px);
-  border-radius: 34px;
-  padding: 7px;
-  z-index: 1;
-  /* The body: a dark shell with light caught along its top edge, and the
-     bright hairline that reads as the polished edge of a case. */
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02) 22%, rgba(255, 255, 255, 0) 60%),
-    linear-gradient(180deg, #1b2836, #0a121c);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.16),
-    0 44px 90px -34px rgba(0, 0, 0, 0.9),
-    0 0 70px -18px var(--halo);
-}
-.reel-video {
+.clip-card video {
   display: block;
   width: 100%;
-  aspect-ratio: 9 / 16;
+  height: 100%;
   object-fit: cover;
-  border-radius: 18px;
-  background: #05080d;
 }
-.reel-phone .reel-video {
-  border-radius: 27px;
-}
-/* The island. Small, dark, and centred under the top edge — the one detail
-   that makes a rounded rectangle read as a handset. */
-.reel-island {
+
+/* The dark the phone stands in. */
+.stage-dim {
   position: absolute;
-  top: 15px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 30%;
-  height: 12px;
-  border-radius: 999px;
-  background: #05080d;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 44% 78% at 50% 58%,
+    rgba(2, 5, 9, 0.82) 0%,
+    rgba(2, 5, 9, 0.35) 52%,
+    transparent 74%
+  );
 }
-@media (min-width: 640px) {
-  .reel-behind { margin-inline: 0; }
+
+/* The handset. Drawn, for the same reason as before — a photographed handset
+   dates the page to its model year — but sized and tilted to the reference. */
+.stage-phone {
+  position: absolute;
+  left: 50%;
+  bottom: 4.5%;
+  width: clamp(212px, 23vw, 296px);
+  aspect-ratio: 9 / 18.6;
+  transform: translateX(-50%) rotate(6deg);
+  transform-origin: 50% 80%;
+  border-radius: 40px;
+  padding: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.03) 20%, rgba(255, 255, 255, 0) 55%),
+    linear-gradient(180deg, #1c2937, #0a121c);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.17),
+    0 50px 100px -36px rgba(0, 0, 0, 0.92),
+    0 0 80px -18px var(--halo);
+}
+.stage-phone .reel-island {
+  top: 16px;
+  z-index: 1;
+}
+
+/* The screen: the prompt moment, built live rather than screenshotted. */
+.stage-screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 32px;
+  overflow: hidden;
+  background: #07090d;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 13% 7% 6%;
+}
+.stage-menu {
+  align-self: flex-start;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+.stage-menu span {
+  width: 10px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.6);
+}
+.stage-result {
+  width: 86%;
+  aspect-ratio: 9 / 13.4;
+  margin-top: 5%;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 10px 34px -12px rgba(0, 0, 0, 0.8);
+}
+.stage-result video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.stage-chips {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: auto;
+  width: 100%;
+}
+.stage-chips span {
+  white-space: nowrap;
+  font-size: clamp(8px, 0.72vw, 10px);
+  font-weight: 600;
+  color: rgba(236, 244, 252, 0.85);
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+.stage-chips .stage-chip-more {
+  padding: 4px 7px;
+}
+.stage-prompt {
+  width: 100%;
+  margin-top: 7px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 9px 10px 8px;
+}
+.stage-prompt-text {
+  font-size: clamp(9px, 0.78vw, 11px);
+  color: rgba(236, 244, 252, 0.45);
+}
+.stage-prompt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 9px;
+}
+.stage-prompt-attach {
+  width: 12px;
+  height: 12px;
+  color: rgba(236, 244, 252, 0.5);
+}
+.stage-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 22px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, hsl(209 81% 70%), hsl(209 81% 52%));
+  box-shadow: 0 0 16px rgba(80, 161, 237, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.stage-send svg {
+  width: 11px;
+  height: 11px;
+  color: #fff;
+}
+
+/* Where the hand goes when there is a hand: over the phone's lower half,
+   under nothing. The asset does not exist yet — see the component note. */
+.stage-hand {
+  position: absolute;
+  left: 50%;
+  bottom: -2%;
+  width: clamp(300px, 34vw, 430px);
+  transform: translateX(-52%);
+  pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .reel-behind,
-  .reel-phone { transition: none; }
+  .clip-track { animation: none; }
 }
 
 /*
@@ -2559,20 +2726,60 @@ html[data-page-theme="light"] body {
  * Helvetica; real text needs no such wait. The only moving part is the sheen,
  * which is one composited layer sliding across rather than a repaint loop.
  */
+/*
+ * One surface for the whole footer.
+ *
+ * The band used to be appended after the footer's content, which read as a
+ * coloured strip stapled to a black footer — a cut, exactly what the
+ * reference does not do. There, the link columns already sit on the top of
+ * the gradient and the same field deepens through the copyright row into the
+ * wordmark. So the field is an underlay for the entire footer, opening at
+ * zero alpha of its own hue (fading from `transparent` walks through
+ * transparent black and bruises the top grey) and reaching full light only at
+ * the very bottom edge.
+ */
+.footer-field {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, var(--band-stops));
+}
+/* The sheen crosses the whole field. It used to live inside the wordmark's
+   band, and the moment the field became one surface the band's top edge cut
+   the stripe and printed a faint rectangle over the gradient — a seam again,
+   made by the thing meant to decorate it. On the field there is no inner
+   edge for it to be cut by; the footer's own overflow does the clipping. */
+.footer-field::after {
+  content: "";
+  position: absolute;
+  inset: 0 -60%;
+  background: linear-gradient(
+    104deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.10) 50%,
+    transparent 62%
+  );
+  animation: band-sheen 11s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .footer-field::after { animation: none; }
+}
+
 .wordmark-band {
   position: relative;
   /* It sits outside the footer's column already, so it only needs to be as
      wide as the page. Physical properties on purpose: `margin-inline-start`
      flips with the language and this band does not. */
   width: 100%;
-  height: clamp(150px, 26vw, 380px);
+  /* Tall, because the ramp is the effect. The reference's field is 770px of a
+     892px screen — 86% of the viewport height — and a 380px strip of the same
+     colours reads as a slab laid on the page rather than as the page turning
+     into the colour. */
+  height: clamp(300px, 34vw, 560px);
   overflow: hidden;
-  background: linear-gradient(
-    180deg,
-    var(--band-top) 0%,
-    var(--band-mid) 52%,
-    var(--band-foot) 100%
-  );
+  /* No background of its own any more: `.footer-field` paints the surface
+     under the whole footer, this element only stages the mark and the sheen
+     at the bottom of it. */
 }
 .wordmark-band-word {
   position: absolute;
@@ -2594,25 +2801,11 @@ html[data-page-theme="light"] body {
   user-select: none;
   pointer-events: none;
 }
-.wordmark-band-sheen {
-  position: absolute;
-  inset: -30% -60%;
-  pointer-events: none;
-  background: linear-gradient(
-    104deg,
-    transparent 38%,
-    rgba(255, 255, 255, 0.14) 50%,
-    transparent 62%
-  );
-  animation: band-sheen 11s linear infinite;
-}
 @keyframes band-sheen {
   from { transform: translateX(-34%); }
   to { transform: translateX(34%); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .wordmark-band-sheen { animation: none; }
-}
+
 
 @keyframes star-twinkle {
   0%, 100% { opacity: 1; }
