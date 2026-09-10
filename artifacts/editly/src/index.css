@@ -2454,6 +2454,84 @@ html[data-page-theme="light"] body {
   .key-light { background: radial-gradient(ellipse 44.8% 74.6% at 50% -2%, var(--key-stops)); }
 }
 
+/*
+ * The wall of finished clips.
+ *
+ * One of them is in a phone and two are bare, tilted and set back — which is
+ * the composition, not decoration: the phone says "this is what you post" and
+ * the two behind say "and there were three of them". The bare two are dimmer
+ * and slightly desaturated so the eye lands on the phone first.
+ *
+ * The phone is drawn rather than photographed. A photograph of a device dates
+ * the page to the year of the handset; a rim, a bezel and an island read as
+ * "a phone" and belong to no particular one.
+ */
+.reel-behind,
+.reel-phone {
+  position: relative;
+  flex: 0 0 auto;
+  border-radius: 22px;
+  overflow: hidden;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.reel-behind {
+  /* Tucked under the phone on a narrow screen rather than lined up beside it.
+     Three abreast plus the page's own gutters measured 393px against a 390px
+     phone — `landing-test` catches a page that can be pushed sideways, and
+     three portraits in a row is a desktop composition. Overlapped, the same
+     three read as a stack, which is what a phone has room for. */
+  margin-inline: -26px;
+  width: clamp(84px, 17vw, 188px);
+  filter: saturate(0.85) brightness(0.72);
+  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.8);
+  border: 1px solid var(--hairline);
+}
+.reel-phone {
+  width: clamp(144px, 26vw, 268px);
+  border-radius: 34px;
+  padding: 7px;
+  z-index: 1;
+  /* The body: a dark shell with light caught along its top edge, and the
+     bright hairline that reads as the polished edge of a case. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02) 22%, rgba(255, 255, 255, 0) 60%),
+    linear-gradient(180deg, #1b2836, #0a121c);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 44px 90px -34px rgba(0, 0, 0, 0.9),
+    0 0 70px -18px var(--halo);
+}
+.reel-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  object-fit: cover;
+  border-radius: 18px;
+  background: #05080d;
+}
+.reel-phone .reel-video {
+  border-radius: 27px;
+}
+/* The island. Small, dark, and centred under the top edge — the one detail
+   that makes a rounded rectangle read as a handset. */
+.reel-island {
+  position: absolute;
+  top: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 30%;
+  height: 12px;
+  border-radius: 999px;
+  background: #05080d;
+}
+@media (min-width: 640px) {
+  .reel-behind { margin-inline: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reel-behind,
+  .reel-phone { transition: none; }
+}
+
 @keyframes star-twinkle {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }

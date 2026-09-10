@@ -338,28 +338,69 @@ section("The hero is drawn, so there is nothing to download and nothing to hide"
    * catches a quiet regression, because a video that is added back and hidden
    * looks like nothing at all in a screenshot.
    */
+  /*
+   * The rule changed, on purpose, and this is the new one.
+   *
+   * "No video at all" was the right rule while the page had nothing worth
+   * playing. It now has three finished exports in the output section, which
+   * are the product: a paragraph describing what a clip looks like when it
+   * comes back is weaker than three of them playing. What must not come back
+   * is the old failure — 1.4MB fetched on every visit, two files of it never
+   * shown — so the cost is what is checked, not the presence.
+   *
+   * Every media element must declare `preload="none"` and carry a poster, and
+   * nothing may be fetched before somebody scrolls to it. That makes a clip
+   * cost a 10kB JPEG until it is on screen, which is the same as costing
+   * nothing for the visitor who never gets there.
+   */
   const media = await page.evaluate(() =>
     [...document.querySelectorAll("video, audio")].map((el) => ({
       tag: el.tagName.toLowerCase(),
       src: (el.currentSrc || el.getAttribute("src") || "").split("/").pop() || "(no src)",
-      shown: el.clientWidth > 0 && el.clientHeight > 0,
+      preload: el.getAttribute("preload"),
+      poster: el.tagName === "VIDEO" ? !!el.getAttribute("poster") : true,
+      autoplay: el.hasAttribute("autoplay"),
     })),
   );
+  const eager = media.filter((m) => m.preload !== "none" || m.autoplay);
   check(
-    "the landing page loads no video or audio at all",
-    media.length === 0,
-    media.map((m) => `${m.tag} ${m.src}${m.shown ? "" : " (never shown)"}`).join(", "),
+    "no media element loads itself — every one is preload=none and waits to be scrolled to",
+    eager.length === 0,
+    eager.map((m) => `${m.tag} ${m.src} preload=${m.preload}${m.autoplay ? " autoplay" : ""}`).join(", "),
+  );
+  const posterless = media.filter((m) => !m.poster);
+  check(
+    "and every clip has a poster, so its box is never an empty black rectangle",
+    posterless.length === 0,
+    posterless.map((m) => m.src).join(", "),
   );
 
-  // A budget rather than a count, so a legitimate small asset is not a failure
-  // and 1.4MB of video is.
+  /*
+   * A budget on what was actually fetched. The page has been loaded and
+   * scrolled the whole way down by this point, and the clips are below the
+   * fold behind an observer, so this is the cost of *arriving* — which is the
+   * number that was 1.4MB and must stay near zero.
+   */
   const MEDIA_BUDGET_KB = 250;
-  const heavy = requested.filter(([url]) => /\.(mp4|webm|mov|m4v|mp3|wav|gif)$/i.test(url));
+  const heavy = requested.filter(([url]) => /\.(mp4|webm|mov|m4v|mp3|wav)$/i.test(url));
   const heavyKb = heavy.reduce((sum, [, bytes]) => sum + bytes, 0) / 1024;
   check(
-    `and pulls under ${MEDIA_BUDGET_KB}kB of media over the wire`,
+    `and pulls under ${MEDIA_BUDGET_KB}kB of media over the wire on arrival`,
     heavyKb < MEDIA_BUDGET_KB,
     `${heavyKb.toFixed(0)}kB: ${heavy.map(([u]) => u).join(", ")}`,
+  );
+
+  /* And a cap on the clips themselves, weighed on disk rather than fetched:
+     three exports at about 105kB each is a section that costs a third of a
+     megabyte to watch, and that is the trade. Ten would not be. */
+  const REEL_BUDGET_KB = 420;
+  const reelDir = path.join(root, "reel");
+  const reels = existsSync(reelDir) ? readdirSync(reelDir).filter((f) => f.endsWith(".mp4")) : [];
+  const reelKb = reels.reduce((sum, f) => sum + statSync(path.join(reelDir, f)).size, 0) / 1024;
+  check(
+    `the clips themselves come to under ${REEL_BUDGET_KB}kB all together`,
+    reelKb < REEL_BUDGET_KB,
+    `${reels.length} clips, ${reelKb.toFixed(0)}kB`,
   );
 
   // The claim the drawing makes has to be on it, or the hero is decoration.

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Link } from "wouter";
 import { Play, Sparkles, Zap, CheckCircle2, ArrowRight, Check, Upload, MessageSquareText, Send, ChevronLeft, Download } from "lucide-react";
 import { useGetSubscription, useUpdateSubscription, getGetSubscriptionQueryKey } from "@workspace/api-client-react";
@@ -507,6 +507,73 @@ function ClipStrip({ rtl, labels }: { rtl: boolean; labels: { take: string; clip
         );
       })}
     </svg>
+  );
+}
+
+/**
+ * Three finished clips, playing, with one of them in a phone.
+ *
+ * The section this replaces described the output in a paragraph. Three real
+ * exports say it in a second, and they are real: 9:16, captioned in the same
+ * face the renderer burns in, levelled, 106kB each at crf 33.
+ *
+ * Nothing downloads until somebody scrolls here. `preload="none"` and a poster
+ * means the section costs three small JPEGs until it is on screen, and the
+ * observer below starts the clips when it is and pauses them when it is not —
+ * a video that plays behind the fold is a video nobody watches, decoding every
+ * frame of it.
+ */
+const REELS = [
+  { id: "reel-1", tilt: -7, lift: 26, depth: 0 },
+  { id: "reel-2", tilt: 0, lift: 0, depth: 1 },
+  { id: "reel-3", tilt: 7, lift: 26, depth: 0 },
+] as const;
+
+function useReelsInView<T extends HTMLElement>(): RefObject<T | null> {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const host = ref.current;
+    if (!host) return;
+    const clips = () => [...host.querySelectorAll("video")];
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        for (const clip of clips()) {
+          if (entry?.isIntersecting) void clip.play().catch(() => {});
+          else clip.pause();
+        }
+      },
+      { threshold: 0.25 },
+    );
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+  return ref;
+}
+
+function ReelWall({ label }: { label: string }) {
+  const host = useReelsInView<HTMLDivElement>();
+  return (
+    <div ref={host} className="relative mx-auto flex items-center justify-center gap-4 sm:gap-8">
+      {REELS.map((reel) => (
+        <div
+          key={reel.id}
+          className={reel.depth ? "reel-phone" : "reel-behind"}
+          style={{ transform: `rotate(${reel.tilt}deg) translateY(${reel.lift}px)` }}
+        >
+          <video
+            className="reel-video"
+            src={`/reel/${reel.id}.mp4`}
+            poster={`/reel/${reel.id}.jpg`}
+            preload="none"
+            muted
+            loop
+            playsInline
+            aria-label={label}
+          />
+          {reel.depth ? <span className="reel-island" aria-hidden="true" /> : null}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -2551,6 +2618,26 @@ export default function Home() {
         <Horizon />
         <Horizon foot />
         <div className="horizon-grain" aria-hidden="true" />
+
+      {/* ── What comes out ── */}
+      {/*
+        Three finished exports, playing. The section it sits in front of spent
+        a paragraph describing what a clip looks like when it comes back; these
+        are three of them, and they cost nothing until somebody scrolls here.
+      */}
+      <section id="output" className="relative w-full max-w-7xl mx-auto px-6 pt-28 pb-20 sm:pt-32">
+        <div className="text-center mb-12 reveal">
+          <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.reel.eyebrow)}</p>
+          <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4 text-balance">
+            <Sweep>{t(LANDING.reel.title)}</Sweep>
+          </h2>
+          <p className="text-muted-foreground text-lg max-w-xl mx-auto">{t(LANDING.reel.lead)}</p>
+        </div>
+        <div className="reveal">
+          <ReelWall label={t(LANDING.reel.note)} />
+        </div>
+        <p className="text-center text-xs text-muted-foreground mt-8 opacity-70">{t(LANDING.reel.note)}</p>
+      </section>
 
       {/* ── Features ── */}
       <section id="features" className="relative w-full max-w-7xl mx-auto px-6 pt-32 pb-24 sm:pt-40">

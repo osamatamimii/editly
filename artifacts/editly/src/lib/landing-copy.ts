@@ -308,6 +308,22 @@ export const LANDING = {
     ],
   },
 
+  /*
+   * The wall of finished clips, and the phone in front of it.
+   *
+   * Three real exports play there rather than a drawing of them, so the copy
+   * does not have to describe what a finished clip looks like — the section
+   * is showing three.
+   */
+  reel: {
+    eyebrow: p("المُخرَج", "The output"),
+    title: p("هذا ما يخرج منها", "This is what comes out"),
+    lead: p(
+      "عمودي، مكتوب الكابشن، معايَر الصوت. ثلاثة مقاطع حقيقية، تشتغل الآن.",
+      "Vertical, captioned, levelled. Three real exports, playing now.",
+    ),
+    note: p("مقاطع خرجت من Editly، بلا قصّ يدوي", "Cut by Editly, with nobody trimming anything"),
+  },
   podcasts: {
     eyebrow: p("البودكاست والقصاصات", "Podcasts and clipping"),
     title: p(
