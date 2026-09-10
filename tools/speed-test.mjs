@@ -246,16 +246,20 @@ section("Anything that moves every frame moves without re-rendering the page");
       const radii = [...bg.matchAll(/radial-gradient\(([\d.]+)px/g)].map((m) => Number(m[1]));
       return { id, dots: radii.length, smallest: radii.length ? Math.min(...radii) : 0 };
     };
-    return ["star-far", "star-near"].map(read);
+    return [...document.querySelectorAll(".star-layer")].map((e) => read(e.dataset.testid));
   });
   const MIN_STAR_PX = 1;
-  const MIN_STARS = 20;
+  const MIN_STARS = 60;
+  // Counted across the layers, not within one: the field is split three ways
+  // so the twinkle can run on three phases, and how it is split is a
+  // rendering decision, not a promise about how many stars there are.
+  const total = sky.reduce((n, layer) => n + layer.dots, 0);
+  check(
+    "there are enough dots across the layers to read as a sky",
+    total >= MIN_STARS,
+    `${total} dots in ${sky.length} layers`,
+  );
   for (const layer of sky) {
-    check(
-      `${layer.id} has enough dots to read as a sky`,
-      layer.dots >= MIN_STARS,
-      `${layer.dots} dots`,
-    );
     check(
       `${layer.id}'s faintest dot is at least ${MIN_STAR_PX}px, so it renders at all`,
       layer.smallest >= MIN_STAR_PX,
@@ -303,11 +307,18 @@ section("The light and the sky survive all the way to the screen");
     `top ${lit.mean.toFixed(1)} vs lower ${unlit.mean.toFixed(1)}`,
   );
   // A strip down the left edge, where there is no text and no button.
+  /*
+   * A ratio, not a floor. The stars are deliberately faint — the reference
+   * they were fitted to has an ordinary one peaking at 24 against a ground of
+   * 8 — so "brighter than 60" would fail a sky that is exactly right and pass
+   * one bleached white. What has to hold is that something in the band stands
+   * off its own ground.
+   */
   const skyBand = await mean({ x: 0, y: 190, width: 280, height: 320 });
   check(
-    "and the sky has stars in it that are brighter than the ground",
-    skyBand.peak > 60,
-    `brightest pixel in the star band ${skyBand.peak.toFixed(0)}`,
+    "and the sky has stars standing off the ground they sit on",
+    skyBand.peak > skyBand.mean * 2 && skyBand.peak - skyBand.mean > 12,
+    `brightest ${skyBand.peak.toFixed(0)} against a band mean of ${skyBand.mean.toFixed(1)}`,
   );
 }
 

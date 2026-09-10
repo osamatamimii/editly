@@ -115,9 +115,11 @@ function starField(count: number, size: number): string {
   const dots: string[] = [];
   for (let i = 0; i < count; i += 1) {
     const x = (random() * 100).toFixed(2);
-    // Only where the light is. Stars in the dark at the bottom of a page are
-    // wallpaper, and the top 62% is the band the key light reaches.
-    const yAt = random() * 62;
+    /* Only where the light is, and weighted towards it. A uniform draw over
+       the band puts as many stars along its bottom edge as under the lamp,
+       which reads as a rectangle of stars ending in a line; squaring the draw
+       crowds them upwards, so the field thins out instead of stopping. */
+    const yAt = 66 * random() ** 1.5;
     const y = yAt.toFixed(2);
     // Most of them are barely there, and they fade with distance from the
     // light. A sky of equally bright dots is a pattern; the variation is what
@@ -125,8 +127,17 @@ function starField(count: number, size: number): string {
     /* The fade never reaches zero. At `1 - (y/62)^1.6` the lower two thirds of
        the field were multiplied to nothing, so a count of thirty was really a
        count of about twelve. */
-    const fade = 0.4 + 0.6 * Math.max(0, 1 - (yAt / 62) ** 1.4);
-    const alpha = ((0.34 + random() * 0.5) * fade).toFixed(3);
+    const fade = 0.35 + 0.65 * Math.max(0, 1 - (yAt / 66) ** 1.3);
+    /*
+     * Mostly faint, a few bright, and that distribution is the whole
+     * difference between a sky and a scatter of identical dots. Measured off
+     * the reference: an ordinary star peaks at 24 against a ground of 8, and
+     * the brightest one found peaks at 123 against 11 — alphas of 0.065 and
+     * 0.46. An even draw between those two gives a field where every star is
+     * the same star, which is what "soft" was asking to be rid of. Squaring
+     * the draw puts most of them near the floor.
+     */
+    const alpha = ((0.055 + 0.42 * random() ** 2.4) * fade).toFixed(3);
     /*
      * A dot needs a core, and this is the whole reason the first sky was
      * invisible on the deployed site.
@@ -143,16 +154,23 @@ function starField(count: number, size: number): string {
      * So: a real radius, and a stop that holds the colour across the middle of
      * it before the falloff starts. Same one pass, a dot you can see.
      */
-    const r = (size * (0.8 + random() * 0.7)).toFixed(2);
+    /*
+     * A core and then a halo, which is what the reference's stars are: a two
+     * pixel centre at full value, a ring around it at about a quarter of it,
+     * and ground by four pixels out. A single stop from the centre is a hard
+     * disc; this is the soft one Osama asked for, and it is the same one pass.
+     */
+    const r = (size * (0.78 + random() * 0.6)).toFixed(2);
+    const halo = (Number(alpha) * 0.24).toFixed(3);
     dots.push(
-      `radial-gradient(circle ${r}px at ${x}% ${y}%, rgba(255,255,255,${alpha}) 0%, rgba(255,255,255,${alpha}) 38%, rgba(255,255,255,0) 100%)`,
+      `radial-gradient(circle ${r}px at ${x}% ${y}%, rgba(255,255,255,${alpha}) 0%, rgba(255,255,255,${alpha}) 42%, rgba(255,255,255,${halo}) 68%, rgba(255,255,255,0) 100%)`,
     );
   }
   return dots.join(", ");
 }
 
 /** How far the pointer moves each layer, in pixels, at the edges of the window. */
-const STAR_DRIFT = [6, 14];
+const STAR_DRIFT = [6, 11, 16];
 
 /* Built once at module load. A field rebuilt on every render is a string of a
    hundred gradients concatenated sixty times a second while the pointer moves. */
@@ -170,8 +188,20 @@ const STAR_DRIFT = [6, 14];
  * The reference has perhaps twenty visible. Thirty and fourteen is more sky
  * than it has, and it paints.
  */
-const FAR_STARS = starField(52, 1.5);
-const NEAR_STARS = starField(24, 2.4);
+/*
+ * Three fields rather than one, and the reason is the twinkle.
+ *
+ * A star field is one `background-image`, so its dots cannot be animated
+ * apart — pulse the layer and the whole sky breathes at once, which is not
+ * what a sky does. Split across three layers on different periods and
+ * different phases, a third of the stars are brightening while another third
+ * dims, and the eye reads that as individual stars twinkling. It costs two
+ * extra composited layers and nothing per frame: opacity is the one property
+ * the compositor animates without touching paint.
+ */
+const FAR_STARS = starField(38, 2.0);
+const MID_STARS = starField(24, 2.4);
+const NEAR_STARS = starField(16, 2.9);
 
 /*
  * The sky follows the pointer through two CSS variables, and never through
@@ -1924,7 +1954,7 @@ export default function Home() {
      * every section, which is all it ever wanted.
      */
     <div
-      className="isolate w-full flex flex-col items-center bg-background text-foreground"
+      className="isolate relative w-full flex flex-col items-center bg-background text-foreground"
       style={{ colorScheme: "dark" }}
       dir={directionOf(language)}
       lang={language}
@@ -1947,9 +1977,38 @@ export default function Home() {
         flat one — it breaks the banding a large gradient always has on an 8-bit
         display, and the eye reads the texture as depth rather than noise.
       */}
+      {/*
+        Two canvases, and the split is the point.
+
+        The light and the dust in it belong to the *top of the page*, not to
+        the window. Held in the fixed layer they travelled down with the
+        reader: a sky that is still there at the pricing table is wallpaper,
+        and Osama said so — "النجوم فقط باعلى الصفحة". So they sit in an
+        absolutely positioned band anchored to the top of the document and
+        scroll away with the hero, which is also cheaper than a fixed layer the
+        compositor has to hold against everything that moves past it.
+
+        What stays fixed is what genuinely has no place on the page: the low
+        bounce, and the grain over all of it.
+      */}
       <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+        {/* One low bounce, off-centre, so the page is not symmetrical. */}
+        <div style={{
+          position: "absolute", inset: 0,
+          background: "radial-gradient(ellipse 70% 45% at 22% 92%, var(--wash-left) 0%, transparent 60%)",
+        }} />
+        {/* Grain, over everything. */}
+        <div style={{
+          position: "absolute", inset: 0,
+          backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E\")",
+          backgroundRepeat: "repeat",
+          backgroundSize: "128px 128px",
+        }} className="grain-layer" />
+      </div>
+
+      <div className="absolute inset-x-0 top-0 h-[130vh] pointer-events-none -z-10 overflow-hidden">
         {/*
-          The key light, and it is now the loudest thing on the page above the
+          The key light, and it is the loudest thing on the page above the
           fold, which is what the reference does.
 
           Two ellipses rather than one. A single wide one spreads its light
@@ -1958,64 +2017,46 @@ export default function Home() {
           difference between the two is what makes it look like a light source
           rather than like a coloured background.
         */}
-        <div style={{
-          position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 120% 62% at 50% -16%, var(--wash-top-mid) 0%, transparent 70%)",
-        }} />
-        <div style={{
-          position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 42% 30% at 50% -4%, var(--wash-core) 0%, var(--wash-top) 38%, transparent 74%)",
-        }} />
-        {/* One low bounce, off-centre, so the page is not symmetrical. */}
-        <div style={{
-          position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 70% 45% at 22% 92%, var(--wash-left) 0%, transparent 60%)",
-        }} />
         {/*
-          The dust in the light. Masked to the top of the window, where the
-          light is: stars in the dark at the bottom of a page are wallpaper.
+          One gradient, four stops, fitted to the measured profile of the
+          reference rather than composed by eye. Two ellipses were the earlier
+          attempt at "a tight core inside a wide halo" and they could not hold
+          the shape: a lamp is not two lamps, it is one falloff that is steep
+          near the source and long in the tail, which is what stops let you
+          say directly. Vertically it reaches about two thirds down the band
+          and horizontally it is gone by the edges, so the sides stay black —
+          the reference measures 5 out of 255 there, and the old wash measured
+          16.
         */}
-        <div
-          aria-hidden="true"
-          data-testid="star-far"
-          style={{
-            position: "absolute", inset: "-3%",
-            backgroundImage: FAR_STARS,
-            transform: `translate3d(calc(var(--drift-x, 0) * ${-STAR_DRIFT[0]!}px), calc(var(--drift-y, 0) * ${-STAR_DRIFT[0]!}px), 0)`,
-            willChange: "transform",
-          }}
-        />
-        <div
-          aria-hidden="true"
-          data-testid="star-near"
-          style={{
-            position: "absolute", inset: "-3%",
-            backgroundImage: NEAR_STARS,
-            transform: `translate3d(calc(var(--drift-x, 0) * ${-STAR_DRIFT[1]!}px), calc(var(--drift-y, 0) * ${-STAR_DRIFT[1]!}px), 0)`,
-            willChange: "transform",
-          }}
-        />
-        {/* The grid the light falls across. Masked to fade out with distance,
-            so it is architecture near the top and gone by the fold. */}
         <div style={{
           position: "absolute", inset: 0,
-          backgroundImage:
-            "linear-gradient(to right, var(--grid-line) 1px, transparent 1px), linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px)",
-          backgroundSize: "72px 72px",
-          maskImage: "radial-gradient(ellipse 95% 75% at 50% 8%, black 0%, rgba(0,0,0,0.55) 45%, transparent 80%)",
-          WebkitMaskImage: "radial-gradient(ellipse 95% 75% at 50% 8%, black 0%, rgba(0,0,0,0.55) 45%, transparent 80%)",
+          background:
+            "radial-gradient(ellipse 34% 66% at 50% -7%, var(--wash-core) 0%, var(--wash-top) 30%, var(--wash-top-mid) 52%, var(--wash-top-far) 68%, transparent 84%)",
         }} />
-        {/* The slow diagonal light sweep that used to be here is gone with the
-            orbs. A second moving light with no source is the same tell — and it
-            was 806px wide, so it was also the widest thing on a phone. */}
-
-        {/* Grain, over everything. */}
-        <div style={{
-          position: "absolute", inset: 0,
-          backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E\")",
-          backgroundRepeat: "repeat",
-          backgroundSize: "128px 128px",
-        }} className="grain-layer" />
+        {/* The dust in the light, and only where the light is. */}
+        {([
+          ["star-far", FAR_STARS, STAR_DRIFT[0]!, "7.5s", "0s"],
+          ["star-mid", MID_STARS, STAR_DRIFT[1]!, "5.5s", "-2.4s"],
+          ["star-near", NEAR_STARS, STAR_DRIFT[2]!, "9s", "-4.1s"],
+        ] as const).map(([id, field, travel, period, phase]) => (
+          <div
+            key={id}
+            aria-hidden="true"
+            data-testid={id}
+            className="star-layer"
+            style={{
+              position: "absolute", inset: "-3%",
+              backgroundImage: field,
+              transform: `translate3d(calc(var(--drift-x, 0) * ${-travel}px), calc(var(--drift-y, 0) * ${-travel}px), 0)`,
+              willChange: "transform, opacity",
+              animationDuration: period,
+              animationDelay: phase,
+            }}
+          />
+        ))}
+        {/* The grid that used to be here is gone. It was meant to read as
+            architecture the light falls across and it read as a grid — Osama
+            saw squares, which is what it was. */}
       </div>
 
       {/* ── Header ── */}
