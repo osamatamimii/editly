@@ -2234,13 +2234,23 @@ export default function Home() {
           position: "absolute", inset: 0,
           background: "radial-gradient(ellipse 70% 45% at 22% 92%, var(--wash-left) 0%, transparent 60%)",
         }} />
-        {/* Grain, over everything. */}
-        <div style={{
-          position: "absolute", inset: 0,
-          backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E\")",
-          backgroundRepeat: "repeat",
-          backgroundSize: "128px 128px",
-        }} className="grain-layer" />
+        {/*
+          The page-wide grain is gone, and this is a performance fix with a
+          measurement behind it.
+
+          It was `position: fixed`, the size of the viewport, at 5% opacity,
+          with `mix-blend-mode: overlay`. A blend mode makes the compositor
+          read back everything underneath the layer and blend it — and a fixed
+          layer sits still while the page moves, so that readback happened on
+          every frame of every scroll, over 1.3 million pixels, for a texture
+          at five per cent that nobody can point to. It was one of the three
+          full-screen layers this page had grown, and together they were most
+          of the per-frame cost.
+
+          What it was for — breaking the banding a large gradient shows on an
+          8-bit display — is handled by the key light itself now: twelve stops
+          band far less than the three it had when the grain was added.
+        */}
       </div>
 
       <div className="absolute inset-x-0 top-0 h-[clamp(680px,60vw,900px)] pointer-events-none -z-10 overflow-hidden">

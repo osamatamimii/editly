@@ -350,7 +350,6 @@
   --art-ink: rgba(236, 244, 252, 0.92);
   --art-dim: rgba(236, 244, 252, 0.42);
   --art-ok: rgba(52, 199, 123, 0.95);
-  --grain-opacity: 0.05;
 
   /*
    * Glass.
@@ -913,7 +912,6 @@ html[data-page-theme="light"] body {
   --art-ink: rgba(12, 22, 33, 0.92);
   --art-dim: rgba(12, 22, 33, 0.45);
   --art-ok: rgba(22, 143, 84, 0.95);
-  --grain-opacity: 0.02;
 
   /*
    * The same four jobs, inverted.
@@ -1049,23 +1047,16 @@ html[data-page-theme="light"] body {
 }
 
 /*
- * The film grain over the landing page.
+ * The page-wide grain layer is gone, and its rules with it.
  *
- * `overlay` lightens whatever is brighter than mid-grey, which on a near-black
- * page is nothing — so the grain reads as a faint dusting. Run the same layer
- * over white and every speck lightens something already light, and the texture
- * turns into visible noise crawling over the copy. `multiply` at a third of the
- * opacity gives the light theme the same *feeling* of a surface rather than a
- * flat fill, without putting dirt on the page.
+ * It was `position: fixed` at the size of the viewport with
+ * `mix-blend-mode: overlay`, which made the compositor read back and blend
+ * 1.3 million pixels on every frame of every scroll for a texture at five per
+ * cent. Leaving the class behind with the blend mode still on it is how that
+ * comes back: somebody writes `className="grain-layer"` on something
+ * full-screen and nothing looks wrong until a laptop fan does. The remaining
+ * grain is `.horizon-grain`, which is bounded and scrolls.
  */
-.grain-layer {
-  mix-blend-mode: overlay;
-  opacity: var(--grain-opacity);
-}
-.light .grain-layer {
-  mix-blend-mode: multiply;
-  opacity: var(--grain-opacity);
-}
 
 /* ── Glass & Glow Utilities ─────────────────────────────── */
 /*
@@ -1717,9 +1708,22 @@ html[data-page-theme="light"] body {
    */
   overflow: hidden;
 }
+/*
+ * Bounded, because a blend mode is charged by the pixel.
+ *
+ * This was `inset: 0` over the whole band, which measured 4.2 million pixels
+ * — and `mix-blend-mode` makes the compositor read back everything under the
+ * layer and blend it, over that whole area, whenever anything beneath it
+ * moves. It is here to break the banding in the arc's gradient, and the arc
+ * is at the top of the band; the rest of the band is flat colour, which does
+ * not band and does not need it. Capped, it is about a fifth of the area for
+ * the same picture.
+ */
 .horizon-grain {
   position: absolute;
-  inset: 0;
+  inset-inline: 0;
+  top: 0;
+  height: min(100%, 900px);
   z-index: -1;
   pointer-events: none;
   opacity: 0.16;
