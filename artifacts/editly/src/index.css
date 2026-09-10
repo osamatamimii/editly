@@ -325,10 +325,10 @@
    */
   --glass-bg-top: rgba(255, 255, 255, 0.07);
   --glass-bg-bottom: rgba(255, 255, 255, 0.02);
-  --glass-bg: rgba(10, 13, 15, 0.5);
+  --glass-bg: rgba(10, 21, 31, 0.5);
   /* What the translucent tint resolves to over this theme's own background,
      for panels that skip the readback. See `.glass-flat`. */
-  --glass-bg-solid: rgb(11, 14, 16);
+  --glass-bg-solid: rgb(8, 16, 24);
   --glass-ring-lit: rgba(255, 255, 255, 0.28);
   --glass-ring-dim: rgba(255, 255, 255, 0.05);
   --glass-inset: rgba(255, 255, 255, 0.12);
@@ -993,6 +993,38 @@ html[data-page-theme="light"] body {
  * whatever happens to be behind it. That branch drops the transparency and
  * keeps the panel readable rather than pretty.
  */
+/*
+ * Glass for the many, without the backdrop snapshot.
+ *
+ * `.glass-panel` blurs what is behind it, which means the compositor has to
+ * snapshot everything under the element and blur it, on every frame the page
+ * moves. That is affordable for the three or four things that genuinely float
+ * over other content and it is not affordable for a grid of cards. Putting it
+ * on every card took this page from painting to not painting: a screenshot on
+ * a software rasteriser stopped completing at all, which is the same warning
+ * `speed-test` was written after.
+ *
+ * So the look is rebuilt out of what is cheap. A translucent face that lets the
+ * navy ground through, a lit rim along the top edge falling to nothing at the
+ * bottom, and an inner highlight. It reads as glass because glass on a dark
+ * ground is mostly *rim*, not blur, and the ground under these cards is a flat
+ * colour anyway: there is nothing behind them worth blurring.
+ */
+.glass-card {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid transparent;
+  background-image:
+    linear-gradient(to bottom, var(--glass-bg-top), var(--glass-bg-bottom)),
+    linear-gradient(to bottom, var(--glass-ring-lit), var(--glass-ring-dim) 45%, var(--glass-ring-dim));
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  background-color: var(--glass-bg);
+  box-shadow:
+    inset 0 1px 0 var(--glass-inset),
+    0 18px 48px -24px var(--glass-drop);
+}
+
 .glass-panel {
   @apply border;
   position: relative;
@@ -2072,6 +2104,82 @@ html[data-page-theme="light"] body {
 .reveal.settled {
   filter: none;
   transition: none;
+}
+
+/*
+ * The sweep: a line that arrives out of focus and sharpens across itself, in
+ * the direction the language is read.
+ *
+ * Two copies of the same string, stacked. The lower one is blurred and stays
+ * blurred; the upper one is sharp and is revealed through a mask that travels.
+ * What the eye reads is a line coming into focus from one end to the other.
+ *
+ * Two copies rather than splitting the text into per-character spans, and this
+ * is not a preference. Arabic letters join, and the shaping is decided by a
+ * letter's neighbours *within its text node*. Splitting a word into one span
+ * per letter gives isolated letters that no longer join, which is not the word
+ * any more. Every per-character text animation on the web has this bug and it
+ * is invisible to whoever wrote it.
+ *
+ * The direction follows the text, not the screen. A sweep that runs against
+ * the reading direction arrives at the end of the line before the beginning,
+ * which reads as a glitch rather than as focus being found.
+ */
+.sweep {
+  position: relative;
+  display: inline-block;
+}
+.sweep-blur,
+.sweep-sharp {
+  display: inline-block;
+}
+.sweep-blur {
+  filter: blur(7px);
+  opacity: 0.5;
+}
+.sweep-sharp {
+  position: absolute;
+  inset: 0;
+  mask-image: linear-gradient(to right, #000 0 33%, transparent 48% 100%);
+  mask-size: 320% 100%;
+  mask-repeat: no-repeat;
+  mask-position: 100% 0;
+  transition: mask-position 1.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/*
+ * Right-to-left is not the same mask read backwards: both ends move.
+ *
+ * The mask box is 320% of the line and travels across it, so which edge of
+ * that box the percentage pins decides where the black band sits. In LTR the
+ * band lives at the box's left, so the line starts pinned right (band off the
+ * left edge, nothing sharp) and ends pinned left (band over everything). In
+ * RTL the band lives at the box's right, so *both* pins invert. Mirroring only
+ * the gradient — which is what this first did — leaves an Arabic heading whose
+ * sharp copy is off-canvas at both ends: it never arrives, and the line simply
+ * sits blurred until `settled` takes the mask off and it snaps into focus.
+ */
+[dir="rtl"] .sweep-sharp {
+  mask-image: linear-gradient(to left, #000 0 33%, transparent 48% 100%);
+  mask-position: 0 0;
+}
+.reveal.visible .sweep-sharp {
+  mask-position: 0 0;
+}
+[dir="rtl"] .reveal.visible .sweep-sharp {
+  mask-position: 100% 0;
+}
+/* Once it has arrived, the mask and the second copy are dead weight on every
+   subsequent paint. `settled` is the same escape `.reveal` already uses. */
+.reveal.settled .sweep-sharp {
+  mask-image: none;
+  transition: none;
+}
+.reveal.settled .sweep-blur {
+  visibility: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sweep-sharp { mask-image: none; transition: none; }
+  .sweep-blur { visibility: hidden; }
 }
 
 /*

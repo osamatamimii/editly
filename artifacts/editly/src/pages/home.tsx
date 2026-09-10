@@ -95,6 +95,15 @@ function usePhoneWidth(): boolean {
  */
 const STAR_SEED = 0x5eed;
 
+/*
+ * The fade is baked into the dots, not painted as a mask over them.
+ *
+ * Two full-viewport `mask-image` layers cost more than everything else in the
+ * hero put together: a screenshot of this section took 26 seconds on a
+ * software rasteriser against 2 to 4 for every other section of the page. A
+ * mask is a separate compositing pass over the whole layer; a dimmer dot is
+ * free. Same sky, one pass.
+ */
 function starField(count: number, size: number): string {
   // A seeded PRNG, so the sky is the same sky on every render and every build.
   // A field that reshuffles on hot reload is impossible to judge.
@@ -106,10 +115,15 @@ function starField(count: number, size: number): string {
   const dots: string[] = [];
   for (let i = 0; i < count; i += 1) {
     const x = (random() * 100).toFixed(2);
-    const y = (random() * 100).toFixed(2);
-    // Most of them are barely there. A sky of equally bright dots is a
-    // pattern; the variation is what makes it read as distance.
-    const alpha = (0.18 + random() * 0.55).toFixed(2);
+    // Only where the light is. Stars in the dark at the bottom of a page are
+    // wallpaper, and the top 62% is the band the key light reaches.
+    const yAt = random() * 62;
+    const y = yAt.toFixed(2);
+    // Most of them are barely there, and they fade with distance from the
+    // light. A sky of equally bright dots is a pattern; the variation is what
+    // makes it read as depth.
+    const fade = Math.max(0, 1 - (yAt / 62) ** 1.6);
+    const alpha = ((0.18 + random() * 0.55) * fade).toFixed(3);
     const r = (size * (0.6 + random() * 0.8)).toFixed(2);
     dots.push(`radial-gradient(circle ${r}px at ${x}% ${y}%, rgba(255,255,255,${alpha}) 0%, rgba(255,255,255,0) 100%)`);
   }
@@ -172,6 +186,25 @@ function useStarDrift(): { x: number; y: number } {
     };
   }, []);
   return at;
+}
+
+/**
+ * A heading that arrives out of focus and sharpens across itself.
+ *
+ * The blurred copy is `aria-hidden`; the sharp one is the real text, so a
+ * screen reader hears the line once. See `.sweep` in `index.css` for why this
+ * is two copies of a string rather than one span per character — the short
+ * version is that Arabic letters join, and per-character spans stop them.
+ */
+function Sweep({ children, className = "" }: { children: string; className?: string }) {
+  return (
+    <span className={`sweep ${className}`}>
+      <span className="sweep-blur" aria-hidden="true">
+        {children}
+      </span>
+      <span className="sweep-sharp">{children}</span>
+    </span>
+  );
 }
 
 function useLandingLanguage(): [Language, (next: Language) => void] {
@@ -1242,7 +1275,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
       style={{ background: step.wash, opacity: active === Number(step.num) - 1 ? 1 : 0 }}
       aria-hidden={active !== Number(step.num) - 1}
     >
-      <div className="w-full rounded-2xl bg-card/80 backdrop-blur-[2px] p-4 sm:p-6 shadow-[0_28px_70px_-34px_rgba(0,0,0,0.75)] ring-1 ring-white/10">
+      <div className="glass-card w-full rounded-2xl p-4 sm:p-6">
         <div className="w-full aspect-[16/9]">{step.art}</div>
       </div>
     </div>
@@ -1270,7 +1303,9 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
         <div className="text-center mb-16 sm:mb-24">
           <div className="reveal">
             <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.steps.eyebrow)}</p>
-            <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-4">{t(LANDING.steps.title)}</h2>
+            <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-4">
+              <Sweep>{t(LANDING.steps.title)}</Sweep>
+            </h2>
             <p className="text-muted-foreground text-lg">{t(LANDING.steps.lead)}</p>
           </div>
         </div>
@@ -1729,8 +1764,6 @@ export default function Home() {
             position: "absolute", inset: "-3%",
             backgroundImage: FAR_STARS,
             transform: `translate3d(${(-drift.x * STAR_DRIFT[0]!).toFixed(2)}px, ${(-drift.y * STAR_DRIFT[0]!).toFixed(2)}px, 0)`,
-            maskImage: "radial-gradient(ellipse 90% 55% at 50% 2%, black 0%, rgba(0,0,0,0.5) 52%, transparent 82%)",
-            WebkitMaskImage: "radial-gradient(ellipse 90% 55% at 50% 2%, black 0%, rgba(0,0,0,0.5) 52%, transparent 82%)",
           }}
         />
         <div
@@ -1740,8 +1773,6 @@ export default function Home() {
             position: "absolute", inset: "-3%",
             backgroundImage: NEAR_STARS,
             transform: `translate3d(${(-drift.x * STAR_DRIFT[1]!).toFixed(2)}px, ${(-drift.y * STAR_DRIFT[1]!).toFixed(2)}px, 0)`,
-            maskImage: "radial-gradient(ellipse 80% 48% at 50% 0%, black 0%, rgba(0,0,0,0.45) 50%, transparent 78%)",
-            WebkitMaskImage: "radial-gradient(ellipse 80% 48% at 50% 0%, black 0%, rgba(0,0,0,0.45) 50%, transparent 78%)",
           }}
         />
         {/* The grid the light falls across. Masked to fade out with distance,
@@ -2100,7 +2131,9 @@ export default function Home() {
           <div>
             <div className="reveal">
               <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.features.eyebrow)}</p>
-              <h2 className="text-4xl font-bold mb-6 leading-tight">{t(LANDING.features.title)}</h2>
+              <h2 className="text-4xl font-bold mb-6 leading-tight">
+                <Sweep>{t(LANDING.features.title)}</Sweep>
+              </h2>
             </div>
             {/* Five outcomes, not eleven mechanics.
                 This was a checklist of everything the renderer can do, one
@@ -2295,7 +2328,7 @@ export default function Home() {
               {t(LANDING.podcasts.eyebrow)}
             </p>
             <h2 className="text-4xl font-bold mb-4 leading-tight text-balance">
-              {t(LANDING.podcasts.title)}
+              <Sweep>{t(LANDING.podcasts.title)}</Sweep>
             </h2>
             <p className="text-muted-foreground text-lg leading-relaxed">
               {t(LANDING.podcasts.lead)}
@@ -2311,7 +2344,7 @@ export default function Home() {
               .map((item, i) => (
                 <div
                   key={item.step}
-                  className="reveal rounded-2xl glass-panel border border-hairline p-6"
+                  className="reveal rounded-2xl glass-card border border-hairline p-6"
                   style={{ transitionDelay: `${i * 90}ms` }}
                 >
                 {/* Numbered because this genuinely is a sequence — the clips
@@ -2447,10 +2480,8 @@ export default function Home() {
             return (
               <div
                 key={plan.key}
-                className={`reveal relative flex flex-col rounded-3xl border transition-all duration-500 overflow-hidden ${
-                  isPro
-                    ? "border-primary/60 shadow-[0_0_50px_rgba(80,161,237,0.25)] bg-surface-2"
-                    : "border-hairline bg-surface-1 hover:border-hairline-strong"
+                className={`reveal glass-card relative flex flex-col rounded-3xl border transition-all duration-500 overflow-hidden ${
+                  isPro ? "border-primary/60" : "border-hairline hover:border-hairline-strong"
                 }`}
                 style={{
                   transitionDelay: `${i * 80}ms`,
@@ -2571,7 +2602,7 @@ export default function Home() {
           <div
             role="status"
             data-testid="text-billing-unchanged"
-            className="mt-6 max-w-md mx-auto rounded-xl border border-hairline bg-surface-1 p-4 text-sm"
+            className="glass-card mt-6 max-w-md mx-auto rounded-xl border border-hairline p-4 text-sm"
           >
             <p dir="auto">{billingNotice.message}</p>
             <a
