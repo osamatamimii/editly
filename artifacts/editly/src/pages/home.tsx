@@ -320,7 +320,7 @@ function HeroEditor({ phone, language }: { phone: boolean; language: Language })
     // whose every label is centred does not read as an app. Logical rather than
     // `text-left`: this is a drawing of the product, and the product is set the
     // way the language reads.
-    <div className="force-dark text-start rounded-xl overflow-hidden relative bg-[#0a090b] text-[#efeaf7]">
+    <div className="force-dark text-start rounded-xl overflow-hidden relative bg-[hsl(var(--card))] text-foreground">
       {/* Title bar */}
       <div className="flex items-center gap-3 px-4 sm:px-5 h-12 sm:h-14 border-b border-white/[0.07] bg-white/[0.02]">
         <ChevronLeft className="w-4 h-4 text-white/35 flex-shrink-0" />
@@ -598,11 +598,11 @@ const horizonScale = (width: number) =>
  * and the narrow bright ones belong on top.
  */
 const HORIZON_LAYERS = [
-  { w: 150, blur: 34, colour: "rgba(10, 105, 194, 0.8)" },
-  { w: 104, blur: 24, colour: "rgba(80, 161, 237, 0.95)" },
-  { w: 72, blur: 16, colour: "rgb(112, 178, 240)" },
-  { w: 46, blur: 10, colour: "rgb(163, 205, 245)" },
-  { w: 26, blur: 6, colour: "rgb(213, 233, 251)" },
+  { w: 150, blur: 34, colour: "rgba(13, 89, 160, 0.6)" },
+  { w: 104, blur: 24, colour: "rgba(33, 136, 232, 0.75)" },
+  { w: 72, blur: 16, colour: "rgb(80, 161, 237)" },
+  { w: 46, blur: 10, colour: "rgb(126, 186, 241)" },
+  { w: 26, blur: 6, colour: "rgb(172, 210, 246)" },
 ];
 
 /*
@@ -616,7 +616,7 @@ const HORIZON_LAYERS = [
  * this colour, on a page this light, that is invisible, and on the dark side it
  * is the bright edge the whole band is built around.
  */
-const HORIZON_LIP = { w: 18, blur: 6, colour: "rgb(250, 253, 254)" };
+const HORIZON_LIP = { w: 18, blur: 6, colour: "rgb(218, 235, 251)" };
 
 /**
  * The bell, in pixels, for a page `width` wide.
@@ -1142,7 +1142,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
       style={{ background: step.wash, opacity: active === Number(step.num) - 1 ? 1 : 0 }}
       aria-hidden={active !== Number(step.num) - 1}
     >
-      <div className="light w-full rounded-2xl bg-white/92 backdrop-blur-[2px] p-4 sm:p-6 shadow-[0_28px_70px_-34px_rgba(20,10,60,0.65)] ring-1 ring-black/5">
+      <div className="w-full rounded-2xl bg-card/80 backdrop-blur-[2px] p-4 sm:p-6 shadow-[0_28px_70px_-34px_rgba(0,0,0,0.75)] ring-1 ring-white/10">
         <div className="w-full aspect-[16/9]">{step.art}</div>
       </div>
     </div>
@@ -1473,7 +1473,7 @@ export default function Home() {
      note on the wrapper below. Scoped to the mount so /app keeps its theme. */
   useEffect(() => {
     const root = document.documentElement;
-    root.dataset.pageTheme = "light";
+    root.dataset.pageTheme = "dark";
     return () => {
       delete root.dataset.pageTheme;
     };
@@ -1570,8 +1570,8 @@ export default function Home() {
      * language, not per character.
      */
     <div
-      className="light w-full flex flex-col items-center bg-background text-foreground"
-      style={{ colorScheme: "light" }}
+      className="w-full flex flex-col items-center bg-background text-foreground"
+      style={{ colorScheme: "dark" }}
       dir={directionOf(language)}
       lang={language}
       data-testid="landing"

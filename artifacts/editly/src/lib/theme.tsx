@@ -36,24 +36,29 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-function prefersDark(): boolean {
-  if (typeof window === "undefined" || !window.matchMedia) return true;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
+/**
+ * There is one theme now, and this is where that is decided.
+ *
+ * The argument above for three states was a good one and it was about a
+ * palette that had two. This one does not: the colours are a single blue
+ * family on a deep navy ground, and the ground is not a background — it is
+ * what the accents are lit against, the way the reference this was taken from
+ * works. A light rendering of it is not the same design in another mode, it is
+ * a different design that happens to share hues.
+ *
+ * The machinery is left standing rather than torn out. `preference`, the
+ * storage key and the inline script in `index.html` all still exist and all
+ * now answer "dark", so the day a light rendering is actually designed it is a
+ * function body rather than an archaeology exercise. What is gone is the
+ * toggle, because a control that cannot change anything is worse than no
+ * control.
+ */
 function readStoredPreference(): ThemePreference {
-  try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === "light" || stored === "dark" || stored === "system") return stored;
-  } catch {
-    // Private browsing, or storage disabled. Not a reason to fail to render.
-  }
-  return "system";
+  return "dark";
 }
 
-function resolve(preference: ThemePreference): ResolvedTheme {
-  if (preference === "system") return prefersDark() ? "dark" : "light";
-  return preference;
+function resolve(_preference: ThemePreference): ResolvedTheme {
+  return "dark";
 }
 
 /**

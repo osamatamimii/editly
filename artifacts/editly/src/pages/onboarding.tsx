@@ -34,7 +34,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Logo } from "@/components/logo";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { VIDEO_UPLOAD_EXTENSIONS } from "@workspace/api-zod/limits";
 import { useToast } from "@/hooks/use-toast";
 import { stashPendingUpload, stashPendingMessage, titleFromFilename } from "@/lib/pending-upload";
@@ -205,7 +204,6 @@ export default function Onboarding() {
                 </button>
               ))}
             </div>
-            <ThemeToggle />
           </div>
         </div>
 

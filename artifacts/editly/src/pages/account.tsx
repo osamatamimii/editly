@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BackButton } from "@/components/back-button";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageToggle } from "@/components/language-toggle";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -250,7 +249,6 @@ export default function AccountPage() {
             side by side, on the one screen a person goes to to change it. */}
         <div className="flex items-center gap-2">
           <LanguageToggle />
-          <ThemeToggle />
         </div>
       </div>
 

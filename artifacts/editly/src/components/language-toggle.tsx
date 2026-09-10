@@ -13,7 +13,7 @@
  * control labelled with the state you are already in is a riddle, and everybody
  * who has ever built one gets told the label is backwards.
  *
- * Shaped like `ThemeToggle` on purpose. They sit next to each other on the
+ * Shaped the way the theme toggle beside it was, before there was one theme. It
  * account screen and they are the same kind of thing: one button, one click, no
  * menu for two states.
  */

@@ -27,7 +27,6 @@ import {
 } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { ProjectArt } from "@/components/project-art";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { videoRejection } from "@/lib/start-from-video";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -673,7 +672,6 @@ export default function Dashboard() {
           is the one thing this screen is for and an icon is not an invitation.
         */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
-          <ThemeToggle />
           {/*
             Shown only when the server has already answered the admin overview.
             The client is not deciding anything here — it asked, and a 404 (what

@@ -388,27 +388,27 @@
   --elevate-2: rgba(255,255,255, .09);
 
   /* Deep dark background */
-  --background: 209 45% 4%;
+  --background: 209 55% 4%;
   --foreground: 0 0% 98%;
-  --border: 209 45% 12%;
+  --border: 208 42% 20%;
   
   /* Glassy cards */
-  --card: 209 45% 6%;
+  --card: 208 59% 12%;
   --card-foreground: 0 0% 98%;
-  --card-border: 209 45% 15%;
+  --card-border: 208 42% 22%;
 
-  --sidebar: 209 45% 5%;
+  --sidebar: 209 55% 5%;
   --sidebar-foreground: 0 0% 98%;
-  --sidebar-border: 209 45% 15%;
+  --sidebar-border: 208 42% 22%;
   --sidebar-primary: 209 81% 62%;
   --sidebar-primary-foreground: 209 60% 10%;
-  --sidebar-accent: 209 45% 12%;
+  --sidebar-accent: 208 50% 17%;
   --sidebar-accent-foreground: 0 0% 98%;
   --sidebar-ring: 209 81% 62%;
 
-  --popover: 209 45% 6%;
+  --popover: 208 59% 12%;
   --popover-foreground: 0 0% 98%;
-  --popover-border: 209 45% 15%;
+  --popover-border: 208 42% 22%;
 
   /* Deep Purple #6C3BFF */
   --primary: 209 81% 62%;
@@ -515,10 +515,10 @@
   --secondary: 209 81% 71%;
   --secondary-foreground: 209 14% 8%;
 
-  --muted: 209 45% 12%;
+  --muted: 208 50% 17%;
   --muted-foreground: 209 5% 65%;
 
-  --accent: 209 45% 12%;
+  --accent: 208 50% 17%;
   --accent-foreground: 0 0% 98%;
 
   /* Bright, because it is read as text on a near-black page. */
@@ -529,7 +529,7 @@
   --warning: 38 92% 62%;
   --destructive-foreground: 0 0% 100%;
 
-  --input: 209 45% 15%;
+  --input: 208 42% 22%;
   --ring: 209 81% 62%;
   
   /* Categorical series, tuned for a dark plot area. */
