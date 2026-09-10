@@ -511,6 +511,32 @@ function ClipStrip({ rtl, labels }: { rtl: boolean; labels: { take: string; clip
 }
 
 /**
+ * The band at the foot of the page, and the mark standing in it.
+ *
+ * Osama sent a recording of the effect he meant, and it is not water: the
+ * whole foot of the page becomes a single coloured field, and the wordmark
+ * sits inside it as a lighter tint of the same colour — set large enough that
+ * it runs off both edges and is cut by the bottom, so it reads as a sign the
+ * page ends on rather than a word placed there. A slow diagonal sheen crosses
+ * it, which is the movement.
+ *
+ * That is three CSS layers and no canvas, which is the second reason to build
+ * it this way: the previous version drew the mark into a canvas and had to
+ * wait on `document.fonts.ready` to avoid setting it in Helvetica for the
+ * first frame. Real text needs no such wait, stays selectable-free but
+ * accessible, and costs one composited layer for the sheen instead of a
+ * repaint loop.
+ */
+function WordmarkBand({ word }: { word: string }) {
+  return (
+    <div className="wordmark-band" aria-hidden="true">
+      <span className="wordmark-band-word">{word}</span>
+      <span className="wordmark-band-sheen" />
+    </div>
+  );
+}
+
+/**
  * Three finished clips, playing, with one of them in a phone.
  *
  * The section this replaces described the output in a paragraph. Three real
@@ -3204,94 +3230,7 @@ export default function Home() {
           The links keep their thumb-sized rows underneath. */}
       <footer className="w-full border-t border-hairline-faint overflow-hidden">
         <div className="max-w-6xl mx-auto px-6 pt-16 pb-10">
-          {/* `clamp` rather than breakpoints: the mark should be as wide as the
-              column allows at every width, not four fixed sizes with awkward
-              gaps between them. `1px` of tracking taken back at the top end,
-              because a face this large sets loose. */}
-          <div
-            aria-hidden="true"
-            className="select-none font-extrabold leading-[0.95] tracking-[-0.045em] pointer-events-none -mb-[0.12em]"
-            style={{
-              // Sized to *fill the column*, which is the whole idea — a mark
-              // that stops two thirds of the way across reads as a heading that
-              // grew rather than as a sign. Six characters of a heavy grotesque
-              // at this tracking come to roughly 3.3 ems wide, so the width of
-              // the content column divided by 3.3 is the size, and `min` caps
-              // it at the container so it never overflows on a wide screen.
-              // `leading-[0.95]` rather than tighter: the descender on the `y`
-              // is part of the letterform, and clipping it is a mistake nobody
-              // reads as a choice.
-              fontSize: "min(24vw, 21.5rem)",
-              // Solid for most of its height, then away — the fade is the last
-              // fifth, not the whole letterform, or the mark reads as washed
-              // out rather than as lit from above.
-              backgroundImage:
-                "linear-gradient(180deg, var(--wordmark-top) 0%, var(--wordmark-top) 42%, var(--wordmark-mid) 78%, var(--wordmark-bottom) 100%)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-            }}
-          >
-            Editly
-          </div>
-          {/* The glow the mark sits in, not on it — a text-shadow on a clipped
-              gradient paints over the letterforms. */}
-          <div
-            aria-hidden="true"
-            className="relative h-0"
-          >
-            {/* The gradient was already soft; the `blur(70px)` on top of it was
-                paying the filter pipeline to soften an edge that does not
-                exist. The stops carry the falloff instead. */}
-            <div
-              className="absolute start-1/4 -top-24 w-1/2 h-40 pointer-events-none opacity-70"
-              style={{
-                background:
-                  "radial-gradient(ellipse at center, var(--wordmark-bloom) 0%, var(--wordmark-bloom) 18%, transparent 78%)",
-              }}
-            />
-          </div>
 
-          <div className="mt-10 grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-8 text-sm">
-            <div>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">{t(LANDING.footer.product)}</p>
-              <ul className="flex flex-col">
-                <li><a href="/#how-it-works" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.howItWorks)}</a></li>
-                <li><a href="/#features" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.features)}</a></li>
-                <li><a href="/#podcasts" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.podcasts)}</a></li>
-                <li><a href="/#pricing" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.pricing)}</a></li>
-              </ul>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">{t(LANDING.footer.account)}</p>
-              <ul className="flex flex-col">
-                <li><Link href="/login" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.logIn)}</Link></li>
-                <li><Link href="/login?mode=signup" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.createAccount)}</Link></li>
-                <li><Link href="/dashboard" className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors">{t(LANDING.footer.yourProjects)}</Link></li>
-              </ul>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground/70 mb-3">{t(LANDING.footer.earn)}</p>
-              <ul className="flex flex-col">
-                <li>
-                  <a
-                    href="https://users.freemius.com/"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="min-h-11 inline-flex items-center text-muted-foreground hover:text-foreground transition-colors"
-                    data-testid="link-become-affiliate"
-                  >
-                    {t(LANDING.footer.affiliate)}
-                  </a>
-                </li>
-                {/* The number is the offer. Under the link rather than inside
-                    it, so the link stays a link and the terms stay readable. */}
-                <li className="text-xs text-muted-foreground/70 leading-relaxed max-w-[16rem] pt-1">
-                  {t(LANDING.footer.affiliateTerms)}
-                </li>
-              </ul>
-            </div>
-          </div>
 
           {/* The two documents every platform review asks for before it will
               look at an app, and the two a person is entitled to read *before*
@@ -3307,6 +3246,9 @@ export default function Home() {
             <span>{t(LANDING.footer.tagline)}</span>
           </div>
         </div>
+        {/* Last of all, and outside the column: the field the page ends on.
+            See `WordmarkBand`. */}
+        <WordmarkBand word="EDITLY" />
       </footer>
     </div>
   );

@@ -392,6 +392,11 @@
   --glass-bloom: rgba(255, 255, 255, 0.035);
   --glass-drop: rgba(0, 0, 0, 0.5);
   --glass-sheen: rgba(255, 255, 255, 0.10);
+  /* The field the page ends on, and the tint the mark is set in. */
+  --band-top: #0a2c52;
+  --band-mid: #2273bd;
+  --band-foot: #79b1e6;
+  --band-ink: rgba(255, 255, 255, 0.22);
   /* A plan card's own face, and the light that lives inside it. The face is
      nearly the page: what separates the card from the ground is the rim and
      the bloom, not a lighter fill. See `.plan-card`. */
@@ -921,6 +926,10 @@ html[data-page-theme="light"] body {
   --glass-bg-bottom: rgba(255, 255, 255, 0.52);
   --glass-bg: rgba(255, 255, 255, 0.78);
   --glass-bg-solid: rgb(252, 253, 254);
+  --band-top: #cfe4f8;
+  --band-mid: #7bb3e6;
+  --band-foot: #3d8ad2;
+  --band-ink: rgba(255, 255, 255, 0.38);
   --plan-face: rgb(255, 255, 255);
   --plan-sheen-top: rgba(255, 255, 255, 0.5);
   --plan-sheen-bottom: rgba(255, 255, 255, 0.12);
@@ -2530,6 +2539,75 @@ html[data-page-theme="light"] body {
 @media (prefers-reduced-motion: reduce) {
   .reel-behind,
   .reel-phone { transition: none; }
+}
+
+/*
+ * The band the page ends on.
+ *
+ * Copied from the recording Osama sent: the whole foot of the page becomes one
+ * coloured field, and the wordmark sits inside it as a lighter tint of the
+ * same colour rather than as a separate object on top of it. It is set large
+ * enough to run off both edges and be cut by the bottom, which is what makes
+ * it read as a sign the page ends on instead of a word somebody placed there.
+ *
+ * Three layers, no canvas. The version before this drew the letters into a
+ * canvas and had to wait on `document.fonts.ready` so the first frame was not
+ * Helvetica; real text needs no such wait. The only moving part is the sheen,
+ * which is one composited layer sliding across rather than a repaint loop.
+ */
+.wordmark-band {
+  position: relative;
+  /* It sits outside the footer's column already, so it only needs to be as
+     wide as the page. Physical properties on purpose: `margin-inline-start`
+     flips with the language and this band does not. */
+  width: 100%;
+  height: clamp(150px, 26vw, 380px);
+  overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    var(--band-top) 0%,
+    var(--band-mid) 52%,
+    var(--band-foot) 100%
+  );
+}
+.wordmark-band-word {
+  position: absolute;
+  bottom: -0.17em;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  /* Six caps of a heavy grotesque at this tracking come to about 3.7 ems, so
+     26vw runs a little past both edges at every width — which is the point:
+     the reference cuts its first and last letter, and a mark that fits inside
+     the frame reads as a word rather than as a sign. */
+  font-size: 26vw;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  color: var(--band-ink);
+  /* It is a picture of the name, not the name: the footer already says it in
+     text, and a screen reader should not hear it twice. */
+  user-select: none;
+  pointer-events: none;
+}
+.wordmark-band-sheen {
+  position: absolute;
+  inset: -30% -60%;
+  pointer-events: none;
+  background: linear-gradient(
+    104deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.14) 50%,
+    transparent 62%
+  );
+  animation: band-sheen 11s linear infinite;
+}
+@keyframes band-sheen {
+  from { transform: translateX(-34%); }
+  to { transform: translateX(34%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wordmark-band-sheen { animation: none; }
 }
 
 @keyframes star-twinkle {
