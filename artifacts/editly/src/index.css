@@ -273,11 +273,50 @@
      a sixth of the way down, 46 at a third, 15 at half, black by two thirds.
      The old pair of ellipses was five times too dim at the second of those
      and spread twice as wide at the sides, which is why it read as a tint. */
-  --wash-core: rgba(180, 215, 250, 0.88);
-  --wash-near: rgba(120, 185, 245, 0.50);
-  --wash-top: rgba(78, 160, 236, 0.72);
-  --wash-top-mid: rgba(78, 160, 236, 0.20);
-  --wash-top-far: rgba(78, 160, 236, 0.07);
+  /*
+   * The key light, solved as a super-Gaussian.
+   *
+   * Three attempts got here. Four hand-picked stops matched the reference's
+   * luminance map to two parts in 255 and still looked wrong, because a block
+   * metric cannot see an *edge*: the steep middle drew a visible arc in the
+   * sky — the shape of the ellipse printed on the page — where the
+   * reference's light simply thins until it is the page. A plain Gaussian
+   * removed the arc and lost the shoulder: too dim a fifth of the width out,
+   * too wide at the bottom.
+   *
+   * So it was fitted rather than guessed. The reference frame reduced to a
+   * 12x8 grid of tenth-percentile luminance, and a search over
+   * exp(-[(dx/sx)^2 + (dy/sy)^2]^(p/2)) for sx, sy, p and amplitude. The
+   * answer is p = 3 — flatter than a Gaussian near the middle, steeper at the
+   * edge, which is exactly the shoulder the four-stop version was chasing —
+   * with sx 24% of the width, sy 40% of the height, A = 0.648. Mean absolute
+   * error 0.71 out of 255 across the grid.
+   *
+   * The fit is made on the same statistic on both sides. An earlier one
+   * compared the model's value at each block's *centre* against the
+   * reference's tenth percentile over the block, which is not the same
+   * number: it rendered a fifth dimmer than it predicted at the shoulder. The
+   * model is rasterised at full size and reduced the identical way.
+   *
+   * Written as stops, the radius is 1.866 sigma so the tail reaches 0.001
+   * before it is cut, and t is the fraction of it:
+   * a(t) = 0.648 * e^(-6.5 * t^3). The first two stops are a paler blue,
+   * because the reference's core measures rgb(124,170,223) at the top edge
+   * and no alpha of #4EA0EC reaches it.
+   */
+  --key-stops:
+    rgba(190, 220, 252, 0.90) 0%,
+    rgba(150, 200, 248, 0.75) 4%,
+    rgba(78, 160, 236, 0.6438) 10%,
+    rgba(78, 160, 236, 0.6152) 20%,
+    rgba(78, 160, 236, 0.5437) 30%,
+    rgba(78, 160, 236, 0.4274) 40%,
+    rgba(78, 160, 236, 0.2875) 50%,
+    rgba(78, 160, 236, 0.1592) 60%,
+    rgba(78, 160, 236, 0.0697) 70%,
+    rgba(78, 160, 236, 0.0233) 80%,
+    rgba(78, 160, 236, 0.0057) 90%,
+    rgba(78, 160, 236, 0) 100%;
   --wash-mid: rgba(64, 152, 235, 0.18);
   --wash-left: rgba(78, 160, 236, 0.10);
   --wash-right: rgba(121, 183, 241, 0.12);
@@ -817,11 +856,21 @@ html[data-page-theme="light"] body {
   /* Washes: the same shapes, at a fifth of the strength. On white they are
    * tints rather than light sources, and anything stronger turns the copy
    * sitting on top of them unreadable. */
-  --wash-core: rgba(150, 200, 245, 0.42);
-  --wash-near: rgba(120, 185, 245, 0.24);
-  --wash-top: rgba(78, 160, 236, 0.18);
-  --wash-top-mid: rgba(78, 160, 236, 0.08);
-  --wash-top-far: rgba(78, 160, 236, 0.02);
+  /* The same curve at a third of the depth: on a white page the light is a
+     tint, and at the dark theme's alphas it is a stain. */
+  --key-stops:
+    rgba(150, 200, 245, 0.34) 0%,
+    rgba(130, 190, 245, 0.28) 4%,
+    rgba(78, 160, 236, 0.2300) 10%,
+    rgba(78, 160, 236, 0.1930) 20%,
+    rgba(78, 160, 236, 0.1440) 30%,
+    rgba(78, 160, 236, 0.0954) 40%,
+    rgba(78, 160, 236, 0.0562) 50%,
+    rgba(78, 160, 236, 0.0294) 60%,
+    rgba(78, 160, 236, 0.0137) 70%,
+    rgba(78, 160, 236, 0.0057) 80%,
+    rgba(78, 160, 236, 0.0021) 90%,
+    rgba(78, 160, 236, 0) 100%;
   --wash-mid: rgba(69, 155, 236, 0.11);
   --wash-left: rgba(43, 141, 233, 0.085);
   --wash-right: rgba(121, 183, 241, 0.10);
@@ -2365,44 +2414,26 @@ html[data-page-theme="light"] body {
  * gone before halfway — so the phone gets its own pair of radii that produce
  * it there.
  */
+/*
+ * The radii, and why they change.
+ *
+ * sigma-x is 24% of the reference's width and sigma-y 40% of its height,
+ * which on a 1874x894 screen is 450px by 358 — a wide, shallow dome. Those
+ * same percentages on a phone are 94px by 338: a searchlight pointing down
+ * the middle of the screen, which is what shipped once. What has to carry
+ * over is the shape on the screen, not the numbers, so a phone gets radii
+ * that produce a wide shallow dome there too.
+ */
 .key-light {
   position: absolute;
   inset: 0;
-  background: radial-gradient(
-    ellipse 82% 50% at 50% -2%,
-    var(--wash-core) 0%,
-    var(--wash-near) 15%,
-    var(--wash-top) 37%,
-    var(--wash-top-mid) 58%,
-    var(--wash-top-far) 80%,
-    transparent 100%
-  );
+  background: radial-gradient(ellipse 90% 45% at 50% -2%, var(--key-stops));
 }
 @media (min-width: 768px) {
-  .key-light {
-    background: radial-gradient(
-      ellipse 56% 48% at 50% -2%,
-      var(--wash-core) 0%,
-      var(--wash-near) 15%,
-      var(--wash-top) 37%,
-      var(--wash-top-mid) 58%,
-      var(--wash-top-far) 80%,
-      transparent 100%
-    );
-  }
+  .key-light { background: radial-gradient(ellipse 65% 60% at 50% -2%, var(--key-stops)); }
 }
 @media (min-width: 1280px) {
-  .key-light {
-    background: radial-gradient(
-      ellipse 37% 60% at 50% -2%,
-      var(--wash-core) 0%,
-      var(--wash-near) 15%,
-      var(--wash-top) 37%,
-      var(--wash-top-mid) 58%,
-      var(--wash-top-far) 80%,
-      transparent 100%
-    );
-  }
+  .key-light { background: radial-gradient(ellipse 44.8% 74.6% at 50% -2%, var(--key-stops)); }
 }
 
 @keyframes star-twinkle {
