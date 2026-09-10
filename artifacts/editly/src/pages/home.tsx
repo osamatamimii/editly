@@ -2634,7 +2634,7 @@ export default function Home() {
                 <li key={line} className="text-sm text-muted-foreground flex items-start gap-3">
                   {/* The same dot as the plan cards below. Two bullet systems
                       stacked on one another read as two designs. */}
-                  <span aria-hidden className="mt-[0.6em] h-1 w-1 flex-shrink-0 rounded-full bg-foreground/35" />
+                  <span aria-hidden className="mt-[0.6em] h-1 w-1 flex-shrink-0 rounded-full bg-foreground/45" />
                   <span>{line}</span>
                 </li>
               ))}
@@ -2660,17 +2660,17 @@ export default function Home() {
                   ...(isPro
                     ? {
                         "--bloom-x": "50%",
-                        "--bloom-y": "50%",
-                        "--bloom-w": "124%",
-                        "--bloom-h": "80%",
+                        "--bloom-y": "66%",
+                        "--bloom-w": "116%",
+                        "--bloom-h": "106%",
                         "--bloom-core": "var(--plan-bloom-lit)",
-                        "--glass-ring-lit": "rgba(122,184,242,0.42)",
+                        "--glass-ring-lit": "rgba(122,184,242,0.30)",
                       }
                     : {
                         "--bloom-x": (i === 0) === !rtl ? "2%" : "98%",
-                        "--bloom-y": "62%",
-                        "--bloom-w": "132%",
-                        "--bloom-h": "88%",
+                        "--bloom-y": "60%",
+                        "--bloom-w": "128%",
+                        "--bloom-h": "100%",
                       }),
                 } as CSSProperties}
               >
@@ -2757,12 +2757,12 @@ export default function Home() {
                     {t(LANDING.pricing.minutesLabel)}
                   </p>
 
-                  <ul className="space-y-4 flex-1 mt-8">
+                  <ul className="space-y-4 flex-1 mt-10">
                     {[t(phrase(PRICING_AR.plans[plan.key].upload, plan.upload))]
                       .concat(SHARED_FEATURES.map((feat, i) => t(phrase(PRICING_AR.shared[i] ?? feat, feat))))
                       .map((feat) => (
                         <li key={feat} className="flex items-start gap-3 text-sm text-muted-foreground">
-                          <span aria-hidden className="mt-[0.6em] h-1 w-1 flex-shrink-0 rounded-full bg-foreground/35" />
+                          <span aria-hidden className="mt-[0.6em] h-1 w-1 flex-shrink-0 rounded-full bg-foreground/45" />
                           <span>{feat}</span>
                         </li>
                       ))}
