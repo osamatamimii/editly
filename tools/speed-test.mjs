@@ -204,6 +204,42 @@ section("Nothing on the page is filtered once it has finished animating");
   );
 }
 
+/*
+ * The cost that does not show up as a filter, a byte or a blur: a component
+ * that re-renders at frame rate.
+ *
+ * The pointer-following star field was written the ordinary way — position in
+ * `useState`, set every frame — and `Home` is the whole landing page, so
+ * moving the mouse re-rendered every section sixty times a second. It shipped,
+ * and the site was reported slow within minutes. Nothing measured here caught
+ * it, because the page's weight, its blurs and its scroll frames were all
+ * unchanged.
+ *
+ * Counting React renders from outside is not something a page will tell you.
+ * What it will tell you is *where the number lives*: a value that reaches only
+ * a transform belongs in a custom property, where the compositor can read it
+ * without waking the framework. So the check is that the moving layers are
+ * driven by one, and it fails the moment somebody puts the number back into a
+ * template string.
+ */
+section("Anything that moves every frame moves without re-rendering the page");
+{
+  const drift = await page.evaluate(() =>
+    ["star-far", "star-near"].map((id) => {
+      const e = document.querySelector(`[data-testid="${id}"]`);
+      return { id, found: !!e, transform: e?.getAttribute("style")?.match(/transform:[^;]*/)?.[0] ?? "" };
+    }),
+  );
+  check("the drifting layers are on the page at all", drift.every((d) => d.found), JSON.stringify(drift));
+  for (const layer of drift) {
+    check(
+      `${layer.id} takes its offset from a custom property, not from a re-render`,
+      /var\(--drift-/.test(layer.transform),
+      layer.transform || "no inline transform",
+    );
+  }
+}
+
 section("The hero is drawn, so there is nothing to download and nothing to hide");
 {
   /*

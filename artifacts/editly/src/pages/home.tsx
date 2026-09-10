@@ -152,8 +152,28 @@ const STAR_DRIFT = [6, 14];
 const FAR_STARS = starField(30, 1.0);
 const NEAR_STARS = starField(14, 1.6);
 
-function useStarDrift(): { x: number; y: number } {
-  const [at, setAt] = useState({ x: 0, y: 0 });
+/*
+ * The sky follows the pointer through two CSS variables, and never through
+ * React state.
+ *
+ * The first version held the position in `useState` and set it every frame.
+ * That is the ordinary way to write this hook and on this page it was a
+ * disaster: `Home` is the entire landing page, so moving the mouse re-rendered
+ * every section, every card and every SVG sixty times a second. It shipped,
+ * and the site was reported slow within minutes of the deploy — by the person
+ * who asked for the effect.
+ *
+ * Nothing about the effect needed React. It is two numbers that only ever
+ * reach a `transform`, so they are written straight onto the document element
+ * as custom properties and the two star layers read them in `calc()`. The
+ * frame loop now touches no component at all: one style write, and the
+ * compositor moves two already-painted layers.
+ *
+ * The lesson generalises — anything animating at frame rate that ends up in a
+ * transform, an opacity or a colour belongs in a custom property, not in
+ * state.
+ */
+function useStarDrift(): void {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
@@ -161,6 +181,7 @@ function useStarDrift(): { x: number; y: number } {
     // wherever a finger last touched is worse than one that sits still.
     if (window.matchMedia?.("(pointer: coarse)").matches) return;
 
+    const root = document.documentElement;
     let frame = 0;
     let target = { x: 0, y: 0 };
     let current = { x: 0, y: 0 };
@@ -175,7 +196,8 @@ function useStarDrift(): { x: number; y: number } {
     // mouse reported; the sky should not.
     const step = () => {
       current = { x: current.x + (target.x - current.x) * 0.06, y: current.y + (target.y - current.y) * 0.06 };
-      setAt({ x: current.x, y: current.y });
+      root.style.setProperty("--drift-x", current.x.toFixed(4));
+      root.style.setProperty("--drift-y", current.y.toFixed(4));
       const settled = Math.abs(target.x - current.x) < 0.001 && Math.abs(target.y - current.y) < 0.001;
       frame = settled ? 0 : requestAnimationFrame(step);
     };
@@ -183,9 +205,10 @@ function useStarDrift(): { x: number; y: number } {
     return () => {
       window.removeEventListener("pointermove", onMove);
       if (frame) cancelAnimationFrame(frame);
+      root.style.removeProperty("--drift-x");
+      root.style.removeProperty("--drift-y");
     };
   }, []);
-  return at;
 }
 
 /**
@@ -477,6 +500,7 @@ function useNavState(threshold = 24): { collapsed: boolean; overDark: boolean } 
   const [state, setState] = useState({ collapsed: false, overDark: false });
   useEffect(() => {
     let frame = 0;
+    let band: Element | null = null;
     const read = () => {
       frame = 0;
       /*
@@ -492,7 +516,12 @@ function useNavState(threshold = 24): { collapsed: boolean; overDark: boolean } 
        * number that was true when it was written down and stops being true the
        * next time anything above it changes height.
        */
-      const band = document.querySelector(".horizon-band");
+      /* Held rather than looked up. This runs once a frame for the whole
+         length of a scroll, and with the wheel glide driving the scroll that
+         is every frame the page moves — a selector match per frame for an
+         element that does not move in the tree. Re-found if it is ever gone,
+         so a remount does not leave the bar reading a detached node. */
+      if (!band || !band.isConnected) band = document.querySelector(".horizon-band");
       const r = band?.getBoundingClientRect();
       /* The bar's own foot, not the viewport's: it is what the dark has to
          reach before the labels are sitting on it. */
@@ -1736,7 +1765,7 @@ export default function Home() {
   const phone = usePhoneWidth();
   const [language, chooseLanguage] = useLandingLanguage();
   const { collapsed: navCollapsed, overDark: navOverDark } = useNavState();
-  const drift = useStarDrift();
+  useStarDrift();
   useGlidingScroll();
   const rtl = language === "ar";
   const t = (phrase: Phrase) => say(phrase, language);
@@ -1899,7 +1928,8 @@ export default function Home() {
           style={{
             position: "absolute", inset: "-3%",
             backgroundImage: FAR_STARS,
-            transform: `translate3d(${(-drift.x * STAR_DRIFT[0]!).toFixed(2)}px, ${(-drift.y * STAR_DRIFT[0]!).toFixed(2)}px, 0)`,
+            transform: `translate3d(calc(var(--drift-x, 0) * ${-STAR_DRIFT[0]!}px), calc(var(--drift-y, 0) * ${-STAR_DRIFT[0]!}px), 0)`,
+            willChange: "transform",
           }}
         />
         <div
@@ -1908,7 +1938,8 @@ export default function Home() {
           style={{
             position: "absolute", inset: "-3%",
             backgroundImage: NEAR_STARS,
-            transform: `translate3d(${(-drift.x * STAR_DRIFT[1]!).toFixed(2)}px, ${(-drift.y * STAR_DRIFT[1]!).toFixed(2)}px, 0)`,
+            transform: `translate3d(calc(var(--drift-x, 0) * ${-STAR_DRIFT[1]!}px), calc(var(--drift-y, 0) * ${-STAR_DRIFT[1]!}px), 0)`,
+            willChange: "transform",
           }}
         />
         {/* The grid the light falls across. Masked to fade out with distance,
