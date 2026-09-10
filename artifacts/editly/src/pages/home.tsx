@@ -189,6 +189,141 @@ function useStarDrift(): { x: number; y: number } {
 }
 
 /**
+ * The glide: the page keeps moving after the wheel stops, and eases into rest.
+ *
+ * A wheel notch is a step function — the browser jumps the page by a fixed
+ * number of pixels and stops dead. What reads as expensive on the sites Osama
+ * pointed at is that the jump is spent over a few hundred milliseconds and
+ * arrives slowing down. So: hold a target, move a current position a fraction
+ * of the remaining distance every frame, and scroll to that. A fixed fraction
+ * is exponential decay, which is exactly the shape asked for — fastest at the
+ * moment the notch lands, and asymptotically slow into the stop.
+ *
+ * `window.scrollTo` rather than translating a wrapper, and that is the whole
+ * design decision. Every inertial-scroll library on the web moves a
+ * `transform` on a tall div, which is smoother by a hair and breaks
+ * `position: sticky`, `position: fixed`, the scrollbar's position, anchor
+ * links, and find-in-page — this page has a sticky nav, a sticky picture in
+ * `how it works`, and a fixed header, so that trade is not available and is
+ * not worth it anyway. Driving the real scroll position keeps every one of
+ * those native and correct.
+ *
+ * It stands down rather than fighting, in five cases:
+ *
+ *   - reduced motion, where added movement is the thing being asked against;
+ *   - coarse pointers, which already have momentum from the platform and lose
+ *     it the moment a wheel handler calls `preventDefault`;
+ *   - a wheel over something with its own scrollbar, which must scroll itself;
+ *   - a wheel with a modifier held, which is zoom or a horizontal gesture;
+ *   - any scroll the page did not start — keyboard, scrollbar, an anchor, a
+ *     focus jump — which resyncs the target instead of yanking it back.
+ */
+const GLIDE_EASE = 0.13;
+const GLIDE_REST_PX = 0.5;
+
+function useGlidingScroll(): void {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    if (window.matchMedia?.("(pointer: coarse)").matches) return;
+
+    let frame = 0;
+    let target = window.scrollY;
+    let current = window.scrollY;
+
+    const ceiling = () => Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+
+    /* A wheel inside a pane that can scroll belongs to that pane. Walking up
+       from the target is the only honest test: `overflow: auto` on a box whose
+       content fits is not a scroller, and a `<textarea>` is one without saying
+       so in its computed style. */
+    const ownsItsScroll = (from: EventTarget | null): boolean => {
+      let node = from instanceof Element ? from : null;
+      while (node && node !== document.body && node !== document.documentElement) {
+        if (node.scrollHeight > node.clientHeight + 1) {
+          const how = getComputedStyle(node).overflowY;
+          if (how === "auto" || how === "scroll" || node instanceof HTMLTextAreaElement) return true;
+        }
+        node = node.parentElement;
+      }
+      return false;
+    };
+
+    /* The fraction is per 60Hz frame, and it is corrected by how long the
+       frame actually took. Uncorrected, "13% of the remaining distance every
+       frame" is a promise about frames and not about time: the same wheel
+       notch settles in half a second at 60Hz, a second at 30, and — measured
+       in this repo's own screenshot container, where the hero costs seconds a
+       frame to rasterise — moves 78 pixels and then appears to hang. Raising
+       the fraction to `1 - (1 - ease)^(dt/16.7)` makes the curve a function of
+       elapsed time, so the glide has the same shape on every machine. */
+    let last = 0;
+    const step = (now: number) => {
+      const dt = last === 0 ? 16.7 : Math.min(now - last, 64);
+      last = now;
+      const gap = target - current;
+      if (Math.abs(gap) < GLIDE_REST_PX) {
+        current = target;
+        window.scrollTo(0, current);
+        frame = 0;
+        last = 0;
+        return;
+      }
+      current += gap * (1 - Math.pow(1 - GLIDE_EASE, dt / 16.7));
+      window.scrollTo(0, current);
+      frame = requestAnimationFrame(step);
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      if (ownsItsScroll(event.target)) return;
+
+      // deltaMode 1 is lines and 2 is pages; Firefox reports the first of
+      // those for a real mouse wheel, and untranslated it moves the page by
+      // three pixels a notch.
+      const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1;
+      const by = event.deltaY * scale;
+
+      const next = Math.min(ceiling(), Math.max(0, target + by));
+      // At either end there is nothing to glide to, so let the browser have
+      // the event back and keep overscroll, rubber-banding and chaining.
+      if (next === target) return;
+
+      event.preventDefault();
+      target = next;
+      if (frame === 0) {
+        last = 0;
+        frame = requestAnimationFrame(step);
+      }
+    };
+
+    // Anything that moved the page without going through the wheel: the target
+    // follows it rather than the next notch snapping back to where the glide
+    // had been heading.
+    const onScroll = () => {
+      if (frame !== 0) return;
+      target = window.scrollY;
+      current = window.scrollY;
+    };
+
+    const onResize = () => {
+      target = Math.min(ceiling(), target);
+    };
+
+    window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+}
+
+/**
  * A heading that arrives out of focus and sharpens across itself.
  *
  * The blurred copy is `aria-hidden`; the sharp one is the real text, so a
@@ -1602,6 +1737,7 @@ export default function Home() {
   const [language, chooseLanguage] = useLandingLanguage();
   const { collapsed: navCollapsed, overDark: navOverDark } = useNavState();
   const drift = useStarDrift();
+  useGlidingScroll();
   const rtl = language === "ar";
   const t = (phrase: Phrase) => say(phrase, language);
 
