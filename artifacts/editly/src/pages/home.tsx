@@ -74,6 +74,106 @@ function usePhoneWidth(): boolean {
  * the landing page was asked again. The preference belongs to the person, not
  * to the page.
  */
+/**
+ * The dust the key light falls through, and the only thing on this page that
+ * follows the cursor.
+ *
+ * Two layers rather than one, because a single field sliding as a sheet reads
+ * as a bug rather than as depth. The near layer moves about twice as far as
+ * the far one, which is the whole illusion: nothing else about them differs
+ * enough to notice.
+ *
+ * Deliberately small. Fourteen pixels at the extremes of a 1440-wide window is
+ * a drift you feel and cannot point at, which is what was asked for — "خفيف مش
+ * أوفر". A field that tracks the pointer one-to-one is a toy.
+ *
+ * The cost is two `transform`s on two elements that never repaint: the dots
+ * are a `background-image`, not DOM, so there is nothing to lay out and
+ * nothing to composite but the two layers themselves. `speed-test` exists
+ * because eighteen blurred elements once cost 141 janky frames out of 150, and
+ * this is the shape that does not do that.
+ */
+const STAR_SEED = 0x5eed;
+
+function starField(count: number, size: number): string {
+  // A seeded PRNG, so the sky is the same sky on every render and every build.
+  // A field that reshuffles on hot reload is impossible to judge.
+  let seed = STAR_SEED + count;
+  const random = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  const dots: string[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const x = (random() * 100).toFixed(2);
+    const y = (random() * 100).toFixed(2);
+    // Most of them are barely there. A sky of equally bright dots is a
+    // pattern; the variation is what makes it read as distance.
+    const alpha = (0.18 + random() * 0.55).toFixed(2);
+    const r = (size * (0.6 + random() * 0.8)).toFixed(2);
+    dots.push(`radial-gradient(circle ${r}px at ${x}% ${y}%, rgba(255,255,255,${alpha}) 0%, rgba(255,255,255,0) 100%)`);
+  }
+  return dots.join(", ");
+}
+
+/** How far the pointer moves each layer, in pixels, at the edges of the window. */
+const STAR_DRIFT = [6, 14];
+
+/* Built once at module load. A field rebuilt on every render is a string of a
+   hundred gradients concatenated sixty times a second while the pointer moves. */
+/*
+ * Few, and that is a measurement rather than a taste.
+ *
+ * The first version had ninety and forty-six. A `background-image` of a
+ * hundred and thirty-six radial gradients across two full-viewport layers has
+ * to be rasterised whole every time either one is promoted, and it was slow
+ * enough that a screenshot of the page timed out on a software rasteriser
+ * before it ever reached a user's machine. `speed-test` exists because
+ * eighteen blurred elements once cost 141 janky frames out of 150; this is the
+ * same lesson arriving from the other direction.
+ *
+ * The reference has perhaps twenty visible. Thirty and fourteen is more sky
+ * than it has, and it paints.
+ */
+const FAR_STARS = starField(30, 1.0);
+const NEAR_STARS = starField(14, 1.6);
+
+function useStarDrift(): { x: number; y: number } {
+  const [at, setAt] = useState({ x: 0, y: 0 });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    // Coarse pointers have no cursor to follow, and a field that jumps to
+    // wherever a finger last touched is worse than one that sits still.
+    if (window.matchMedia?.("(pointer: coarse)").matches) return;
+
+    let frame = 0;
+    let target = { x: 0, y: 0 };
+    let current = { x: 0, y: 0 };
+    const onMove = (event: PointerEvent) => {
+      target = {
+        x: (event.clientX / window.innerWidth) * 2 - 1,
+        y: (event.clientY / window.innerHeight) * 2 - 1,
+      };
+      if (frame === 0) frame = requestAnimationFrame(step);
+    };
+    // Eased rather than followed. The pointer arrives in jumps of whatever the
+    // mouse reported; the sky should not.
+    const step = () => {
+      current = { x: current.x + (target.x - current.x) * 0.06, y: current.y + (target.y - current.y) * 0.06 };
+      setAt({ x: current.x, y: current.y });
+      const settled = Math.abs(target.x - current.x) < 0.001 && Math.abs(target.y - current.y) < 0.001;
+      frame = settled ? 0 : requestAnimationFrame(step);
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+  return at;
+}
+
 function useLandingLanguage(): [Language, (next: Language) => void] {
   const { language, choose } = useLanguage();
   return [language, choose];
@@ -1466,6 +1566,7 @@ export default function Home() {
   const phone = usePhoneWidth();
   const [language, chooseLanguage] = useLandingLanguage();
   const { collapsed: navCollapsed, overDark: navOverDark } = useNavState();
+  const drift = useStarDrift();
   const rtl = language === "ar";
   const t = (phrase: Phrase) => say(phrase, language);
 
@@ -1594,16 +1695,55 @@ export default function Home() {
         display, and the eye reads the texture as depth rather than noise.
       */}
       <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
-        {/* The key light. */}
+        {/*
+          The key light, and it is now the loudest thing on the page above the
+          fold, which is what the reference does.
+
+          Two ellipses rather than one. A single wide one spreads its light
+          evenly and reads as a tint; the reference has a bright, *tight* core
+          sitting just above the nav with a much wider halo behind it, and the
+          difference between the two is what makes it look like a light source
+          rather than like a coloured background.
+        */}
         <div style={{
           position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse 90% 50% at 50% -10%, var(--wash-top) 0%, var(--wash-top-mid) 45%, transparent 72%)",
+          background: "radial-gradient(ellipse 120% 62% at 50% -16%, var(--wash-top-mid) 0%, transparent 70%)",
+        }} />
+        <div style={{
+          position: "absolute", inset: 0,
+          background: "radial-gradient(ellipse 42% 30% at 50% -4%, var(--wash-core) 0%, var(--wash-top) 38%, transparent 74%)",
         }} />
         {/* One low bounce, off-centre, so the page is not symmetrical. */}
         <div style={{
           position: "absolute", inset: 0,
           background: "radial-gradient(ellipse 70% 45% at 22% 92%, var(--wash-left) 0%, transparent 60%)",
         }} />
+        {/*
+          The dust in the light. Masked to the top of the window, where the
+          light is: stars in the dark at the bottom of a page are wallpaper.
+        */}
+        <div
+          aria-hidden="true"
+          data-testid="star-far"
+          style={{
+            position: "absolute", inset: "-3%",
+            backgroundImage: FAR_STARS,
+            transform: `translate3d(${(-drift.x * STAR_DRIFT[0]!).toFixed(2)}px, ${(-drift.y * STAR_DRIFT[0]!).toFixed(2)}px, 0)`,
+            maskImage: "radial-gradient(ellipse 90% 55% at 50% 2%, black 0%, rgba(0,0,0,0.5) 52%, transparent 82%)",
+            WebkitMaskImage: "radial-gradient(ellipse 90% 55% at 50% 2%, black 0%, rgba(0,0,0,0.5) 52%, transparent 82%)",
+          }}
+        />
+        <div
+          aria-hidden="true"
+          data-testid="star-near"
+          style={{
+            position: "absolute", inset: "-3%",
+            backgroundImage: NEAR_STARS,
+            transform: `translate3d(${(-drift.x * STAR_DRIFT[1]!).toFixed(2)}px, ${(-drift.y * STAR_DRIFT[1]!).toFixed(2)}px, 0)`,
+            maskImage: "radial-gradient(ellipse 80% 48% at 50% 0%, black 0%, rgba(0,0,0,0.45) 50%, transparent 78%)",
+            WebkitMaskImage: "radial-gradient(ellipse 80% 48% at 50% 0%, black 0%, rgba(0,0,0,0.45) 50%, transparent 78%)",
+          }}
+        />
         {/* The grid the light falls across. Masked to fade out with distance,
             so it is architecture near the top and gone by the fold. */}
         <div style={{
@@ -1978,8 +2118,8 @@ export default function Home() {
                     className="reveal flex items-start gap-4 group"
                     style={{ transitionDelay: `${i * 80}ms` }}
                   >
-                    <div className="w-9 h-9 mt-0.5 flex-shrink-0 rounded-full bg-primary/15 flex items-center justify-center border border-primary/30 shadow-[0_0_8px_rgba(80,161,237,0.2)] group-hover:shadow-[0_0_16px_rgba(80,161,237,0.5)] group-hover:border-primary/60 transition-all duration-300">
-                      <CheckCircle2 className="w-4 h-4 text-secondary" />
+                    <div className="icon-tile w-10 h-9 mt-0.5 flex-shrink-0">
+                      <CheckCircle2 className="w-[18px] h-[18px]" strokeWidth={2.4} />
                     </div>
                     <div>
                       <span className="block text-lg font-semibold group-hover:text-foreground transition-colors">

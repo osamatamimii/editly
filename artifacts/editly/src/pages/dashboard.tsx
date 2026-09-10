@@ -473,9 +473,9 @@ export default function Dashboard() {
       case 'uploading':
         return <Badge variant="outline" className={ON_ART}><Loader2 className="w-3 h-3 me-1 animate-spin text-blue-300" /> {t(DASHBOARD.statusUploading)}</Badge>;
       case 'ready':
-        return <Badge variant="outline" className={ON_ART}><PlayCircle className="w-3 h-3 me-1 text-violet-300" /> {t(DASHBOARD.statusReady)}</Badge>;
+        return <Badge variant="outline" className={ON_ART}><PlayCircle className="w-3 h-3 me-1 text-[hsl(var(--cta))]" /> {t(DASHBOARD.statusReady)}</Badge>;
       case 'processing':
-        return <Badge variant="outline" className={ON_ART}><Sparkles className="w-3 h-3 me-1 animate-pulse text-violet-200" /> {t(DASHBOARD.statusProcessing)}</Badge>;
+        return <Badge variant="outline" className={ON_ART}><Sparkles className="w-3 h-3 me-1 animate-pulse text-[hsl(var(--cta-bloom))]" /> {t(DASHBOARD.statusProcessing)}</Badge>;
       case 'done':
         return <Badge variant="outline" className={ON_ART}><CheckCircle2 className="w-3 h-3 me-1 text-green-400" /> {t(DASHBOARD.statusDone)}</Badge>;
       case 'failed':

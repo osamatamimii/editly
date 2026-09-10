@@ -58,29 +58,38 @@ uniform vec2 uSize;
 // like silence — the membrane is flat and slow — but it looks like a *purple*
 // silence, which is the point of putting it there.
 //
-// Purple, asked for by name. The palette the editor exported was magenta into
-// coral — two hues away from each other — so turning it violet is not one
-// substitution: A is the ground the whole sphere sits on, B and C are the two
-// veils that cross, D is the depth behind them, and if they do not stay a
-// *set* the orb goes flat. So the hues were rotated together into 265°–290°
-// and only the spread between them was kept: B deep violet, C the lighter
-// lilac that reads as the lit side, D the blue-violet underneath.
-const vec3 COLOR_A      = vec3(0.0392, 0.0157, 0.0745);
-const vec3 IDLE_COLOR_A = vec3(0.1216, 0.0745, 0.2000);
-const vec3 COLOR_B      = vec3(0.5451, 0.2392, 0.9608);
-const vec3 IDLE_COLOR_B = vec3(0.4392, 0.2824, 0.7020);
-const vec3 COLOR_C      = vec3(0.7137, 0.4510, 1.0000);
-const vec3 IDLE_COLOR_C = vec3(0.5804, 0.4392, 0.7843);
-const vec3 COLOR_D      = vec3(0.4275, 0.2314, 1.0000);
-const vec3 IDLE_COLOR_D = vec3(0.3843, 0.2745, 0.7059);
-const vec3 HIGHLIGHT      = vec3(0.9412, 0.9020, 1.0000);
-const vec3 IDLE_HIGHLIGHT = vec3(0.7804, 0.7176, 0.8824);
-const vec3 SHELL_INNER = vec3(1.0, 1.0, 1.0);
-const vec3 SHELL_MID   = vec3(0.7804, 0.6118, 1.0000);
-const vec3 SHELL_EDGE  = vec3(0.5451, 0.3608, 0.9647);
-const vec3 SHEEN_COLOR = vec3(0.9686, 0.9490, 1.0000);
-const vec3 SPEC_COLOR  = vec3(0.8941, 0.8510, 1.0000);
-const vec3 CANVAS      = vec3(0.0196, 0.0118, 0.0549);
+// Purple, asked for by name, and then asked away from by name.
+//
+// The reason it was purple is in the sentence above and the reason it is not
+// any more is a different kind of reason: violet on a dark ground with a bloom
+// under it became the visual signature of a whole year of quickly generated AI
+// tools, and a product that wants to be read as considered cannot wear the
+// uniform of products that were not. Osama's words for it were "AI slop" and
+// "vibe coding", and he is right that it is now a tell rather than a taste.
+//
+// The operation is the same one that was done to make it violet, which is the
+// only reason it is safe. A is the ground the whole sphere sits on, B and C
+// are the two veils that cross, D is the depth behind them, and if they stop
+// being a *set* the orb goes flat. So every hue moved by one angle — the set
+// was centred on 261° and is centred on 209° now — and every saturation and
+// lightness is untouched. The spread that makes it read as a lit sphere is the
+// spread it had.
+const vec3 COLOR_A      = vec3(0.0157, 0.0434, 0.0745);
+const vec3 IDLE_COLOR_A = vec3(0.0745, 0.1367, 0.2000);
+const vec3 COLOR_B      = vec3(0.2392, 0.5618, 0.9608);
+const vec3 IDLE_COLOR_B = vec3(0.2824, 0.4911, 0.7020);
+const vec3 COLOR_C      = vec3(0.4510, 0.6665, 1.0000);
+const vec3 IDLE_COLOR_C = vec3(0.4392, 0.5986, 0.7843);
+const vec3 COLOR_D      = vec3(0.2314, 0.7048, 1.0000);
+const vec3 IDLE_COLOR_D = vec3(0.2745, 0.5405, 0.7059);
+const vec3 HIGHLIGHT      = vec3(0.9020, 0.9482, 1.0000);
+const vec3 IDLE_HIGHLIGHT = vec3(0.7176, 0.7983, 0.8824);
+const vec3 SHELL_INNER = vec3(1.0000, 1.0000, 1.0000);
+const vec3 SHELL_MID   = vec3(0.6118, 0.7813, 1.0000);
+const vec3 SHELL_EDGE  = vec3(0.3608, 0.7025, 0.9647);
+const vec3 SHEEN_COLOR = vec3(0.9490, 0.9738, 1.0000);
+const vec3 SPEC_COLOR  = vec3(0.8510, 0.9377, 1.0000);
+const vec3 CANVAS      = vec3(0.0118, 0.0415, 0.0549);
 
 const float RADIUS         = 0.7;
 const float CONTOUR_DEFORM = 0.1;
@@ -408,11 +417,11 @@ export function VoiceOrb({
         className="absolute inset-[6%] rounded-full transition-transform duration-150"
         style={{
           transform: `scale(${1 + (listening ? level : 0) * 0.08})`,
-          // The same purple as the shader above, so the browser that falls back
-          // does not fall back to a different orb.
+          // The same blue as the shader above, rotated by the same angle, so the
+          // browser that falls back does not fall back to a different orb.
           background:
-            "radial-gradient(circle at 42% 38%, #C89BFF 0%, #8B3DF5 24%, #5B31FF 54%, #0A0413 86%)",
-          boxShadow: "inset 0 0 24px rgba(176,132,255,0.35), 0 0 22px rgba(139,61,245,0.38)",
+            "radial-gradient(circle at 42% 38%, #9BC5FF 0%, #3D8FF5 24%, #31BBFF 54%, #040B13 86%)",
+          boxShadow: "inset 0 0 24px rgba(132,195,255,0.35), 0 0 22px rgba(61,143,245,0.38)",
         }}
       />
       <canvas ref={canvasRef} className="relative w-full h-full block" />

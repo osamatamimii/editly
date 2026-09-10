@@ -2320,7 +2320,7 @@ export default function ProjectEditor() {
                   className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-hairline"
                 />
                 <div className="flex flex-col gap-1 min-w-0">
-                  <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
+                  <span className="text-xs font-semibold text-[hsl(var(--cta))] px-1">Noah</span>
                   <div
                     dir="auto"
                     className="bubble bubble-said px-4 py-3 text-sm leading-relaxed whitespace-pre-line"
@@ -2359,7 +2359,7 @@ export default function ProjectEditor() {
                     )}
                     <div className={`flex flex-col gap-1 min-w-0 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                       {msg.role === 'assistant' && (
-                        <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
+                        <span className="text-xs font-semibold text-[hsl(var(--cta))] px-1">Noah</span>
                       )}
                       {/* pre-line: the worker's summary arrives as one message
                           with a line per note, and collapsing those lines into
@@ -2385,13 +2385,13 @@ export default function ProjectEditor() {
                     className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-hairline"
                   />
                   <div className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
+                    <span className="text-xs font-semibold text-[hsl(var(--cta))] px-1">Noah</span>
                     {/* Glowing only while he is actually working — see the
                         .noah-working note in index.css. */}
                     <div className="noah-working bubble bubble-said px-4 py-3 flex items-center gap-1.5">
-                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
-                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
-                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-purple-400 inline-block" />
+                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-[hsl(var(--cta))] inline-block" />
+                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-[hsl(var(--cta))] inline-block" />
+                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-[hsl(var(--cta))] inline-block" />
                     </div>
                   </div>
                 </div>
@@ -2414,7 +2414,7 @@ export default function ProjectEditor() {
                     className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-[0_2px_10px_rgba(0,0,0,0.4)] ring-1 ring-hairline"
                   />
                   <div className="flex flex-col gap-1 flex-1">
-                    <span className="text-xs font-semibold text-purple-300 px-1">Noah</span>
+                    <span className="text-xs font-semibold text-[hsl(var(--cta))] px-1">Noah</span>
                     {/* Breathing while the render runs, still when it has
                         failed — a failure is not work in progress. */}
                     <div

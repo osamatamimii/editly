@@ -243,9 +243,9 @@
    * is 80 degrees around the wheel from the mark, which is far enough to read
    * as a different thing and close enough to belong to the same product.
    */
-  --deal: 338 90% 62%;
-  --deal-soft: rgba(247, 60, 140, 0.16);
-  --deal-edge: rgba(247, 60, 140, 0.38);
+  --deal: 6 88% 60%;
+  --deal-soft: rgba(240, 68, 56, 0.16);
+  --deal-edge: rgba(240, 68, 56, 0.40);
   --primary-border: rgba(6, 34, 60, 0.45);
   --secondary-border: rgba(6, 34, 60, 0.40);
   --destructive-border: rgba(60, 6, 12, 0.45);
@@ -266,6 +266,9 @@
   --brand-mark: 209 85% 58%;
 
   /* The washes behind the landing page. Purple on near-black. */
+  /* The core of the key light: brighter and much tighter than the halo, which
+     is what reads as a source rather than as a tint. */
+  --wash-core: rgba(150, 200, 245, 0.55);
   --wash-top: rgba(78, 160, 236, 0.28);
   --wash-top-mid: rgba(78, 160, 236, 0.10);
   --wash-mid: rgba(64, 152, 235, 0.18);
@@ -656,9 +659,9 @@ html[data-page-theme="light"] body {
 
   /* Deeper, because 62% lightness on white is a highlighter rather than a
      colour that carries text. */
-  --deal: 338 82% 48%;
-  --deal-soft: rgba(214, 22, 104, 0.10);
-  --deal-edge: rgba(214, 22, 104, 0.28);
+  --deal: 6 78% 46%;
+  --deal-soft: rgba(200, 46, 36, 0.12);
+  --deal-edge: rgba(200, 46, 36, 0.34);
   --primary-border: rgba(12, 63, 110, 0.35);
   --secondary-border: rgba(12, 63, 110, 0.30);
   --destructive-border: rgba(90, 10, 20, 0.35);
@@ -799,6 +802,7 @@ html[data-page-theme="light"] body {
   /* Washes: the same shapes, at a fifth of the strength. On white they are
    * tints rather than light sources, and anything stronger turns the copy
    * sitting on top of them unreadable. */
+  --wash-core: rgba(150, 200, 245, 0.34);
   --wash-top: rgba(78, 160, 236, 0.20);
   --wash-top-mid: rgba(78, 160, 236, 0.075);
   --wash-mid: rgba(69, 155, 236, 0.11);
@@ -2481,6 +2485,56 @@ html[data-page-theme="light"] body {
    white `+`. Depth from the ring and the rim, never from a stroke. */
 /* The same object in the page's own colours rather than the brand's. Same
    removal: the ring is gone and the light stays. */
+/*
+ * The lit tile, from the reference Osama sent: a small saturated slab with a
+ * bright rim along its top edge, a deeper face below, and a bloom of its own
+ * colour underneath it.
+ *
+ * The same two-background construction as `.aura-btn` and for the same reason
+ * — one element, a transparent border, the face painted to the padding box and
+ * the ring to the border box, so the browser derives the concentric inner
+ * radius instead of us guessing it. What is different is the bloom: on a
+ * button the drop shadow is contact shadow and stays tight, and here it is the
+ * light the object throws, so it is wide, coloured, and offset downward.
+ *
+ * The glyph inside is white rather than tinted. Against a fill this saturated
+ * a tinted glyph reads as a smudge, which is the one thing the reference is
+ * emphatically not.
+ */
+.icon-tile {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 0.7rem;
+  background-image:
+    linear-gradient(180deg, hsl(var(--cta-face-top)), hsl(var(--cta-face-bottom))),
+    linear-gradient(180deg, hsl(var(--cta-ring-top)), hsl(var(--cta-ring-bottom)));
+  background-origin: padding-box, border-box;
+  background-clip: padding-box, border-box;
+  color: #fff;
+  box-shadow:
+    /* the rim catching light along the top, inside the face */
+    inset 0 1px 0 hsl(var(--cta-ring-top) / 0.55),
+    /* the bloom it throws */
+    0 6px 18px -4px hsl(var(--cta) / 0.55),
+    0 2px 6px -2px hsl(var(--cta) / 0.45);
+  transition: box-shadow 220ms ease, transform 220ms ease;
+}
+
+.group:hover .icon-tile,
+.icon-tile:hover {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--cta-ring-top) / 0.7),
+    0 8px 26px -4px hsl(var(--cta) / 0.75),
+    0 3px 8px -2px hsl(var(--cta) / 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-tile { transition: none; }
+}
+
 .aura-btn-neutral {
   /* It brings its own rim as an inset shadow, and an inset ring drawn 2px in
      from the edge is a ring in the wrong place. The border goes with the
