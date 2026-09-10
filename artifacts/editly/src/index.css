@@ -335,6 +335,14 @@
   --glass-bloom: rgba(255, 255, 255, 0.035);
   --glass-drop: rgba(0, 0, 0, 0.5);
   --glass-sheen: rgba(255, 255, 255, 0.10);
+  /* A plan card's own face, and the light that lives inside it. The face is
+     nearly the page: what separates the card from the ground is the rim and
+     the bloom, not a lighter fill. See `.plan-card`. */
+  --plan-face: rgb(9, 15, 23);
+  --plan-sheen-top: rgba(255, 255, 255, 0.035);
+  --plan-sheen-bottom: rgba(255, 255, 255, 0.006);
+  --plan-bloom: rgba(80, 161, 237, 0.13);
+  --plan-bloom-lit: rgba(96, 172, 243, 0.20);
 
   /* Glow, which is the whole visual identity and must survive the flip. */
   /* The ring outside the button's edge, and the two insets that make its face
@@ -837,6 +845,11 @@ html[data-page-theme="light"] body {
   --glass-bg-bottom: rgba(255, 255, 255, 0.52);
   --glass-bg: rgba(255, 255, 255, 0.78);
   --glass-bg-solid: rgb(252, 253, 254);
+  --plan-face: rgb(255, 255, 255);
+  --plan-sheen-top: rgba(255, 255, 255, 0.5);
+  --plan-sheen-bottom: rgba(255, 255, 255, 0.12);
+  --plan-bloom: rgba(80, 161, 237, 0.07);
+  --plan-bloom-lit: rgba(80, 161, 237, 0.14);
   --glass-ring-lit: rgba(255, 255, 255, 0.9);
   --glass-ring-dim: rgba(21, 113, 199, 0.18);
   --glass-inset: rgba(255, 255, 255, 0.95);
@@ -1010,16 +1023,35 @@ html[data-page-theme="light"] body {
  * ground is mostly *rim*, not blur, and the ground under these cards is a flat
  * colour anyway: there is nothing behind them worth blurring.
  */
+/*
+ * The border-box gradient needs something opaque above it, and this is the
+ * trap in the whole two-gradient rim trick.
+ *
+ * `background-clip: border-box` does not paint *only* the border: it paints
+ * the whole box and is merely clipped to its outer edge. The ring reads as a
+ * ring because an opaque layer clipped to the padding box covers the middle of
+ * it. Written with a translucent face and the solid colour in
+ * `background-color` — which sits *below* every background-image — the ring's
+ * white shows through the entire card. Measured: a card whose face should have
+ * been rgb(7,13,20) read back rgb(26,33,42) in the middle and rgb(77,80,86)
+ * along the top, which is exactly the ring's 0.05 and 0.28 of white. Three
+ * cards that were meant to be as dark as the page looked like grey slabs, and
+ * nothing in the CSS looked wrong.
+ *
+ * So the face is an opaque gradient in the image stack, above the ring. The
+ * ground under these is a flat colour anyway, so translucency was buying
+ * nothing and costing this.
+ */
 .glass-card {
   position: relative;
   isolation: isolate;
   border: 1px solid transparent;
   background-image:
     linear-gradient(to bottom, var(--glass-bg-top), var(--glass-bg-bottom)),
+    linear-gradient(var(--glass-bg-solid), var(--glass-bg-solid)),
     linear-gradient(to bottom, var(--glass-ring-lit), var(--glass-ring-dim) 45%, var(--glass-ring-dim));
-  background-origin: padding-box, border-box;
-  background-clip: padding-box, border-box;
-  background-color: var(--glass-bg);
+  background-origin: padding-box, padding-box, border-box;
+  background-clip: padding-box, padding-box, border-box;
   box-shadow:
     inset 0 1px 0 var(--glass-inset),
     0 18px 48px -24px var(--glass-drop);
@@ -1063,6 +1095,106 @@ html[data-page-theme="light"] body {
 .glass-flat {
   backdrop-filter: none;
   background-color: var(--glass-bg-solid);
+}
+
+/*
+ * The plan cards, from the reference Osama sent.
+ *
+ * What makes those cards read as glass is not the panel — the panel is barely
+ * lighter than the page behind it. It is that there is a *light source inside
+ * the card*: a wide, soft bloom in the brand colour, sitting behind the
+ * content and strongest around the button, falling off before it reaches the
+ * edges. The rim then catches that light along the top and loses it by the
+ * bottom corners. Take the bloom away and the same card is a dark rectangle
+ * with a border; that one gradient is the whole effect.
+ *
+ * So the bloom is placed, not decorative. On the featured card it sits under
+ * the call to action, which is where the reference puts it and where it does
+ * the most work — the button appears to be the thing lighting the card. On the
+ * cards either side it comes in low from the outer edge, so the three of them
+ * read as one lit composition rather than three copies.
+ *
+ * A gradient and not a filter, and that is deliberate: `speed-test` exists
+ * because this page once put a backdrop blur behind every card and stopped
+ * painting. A radial gradient is part of the same paint as the card.
+ */
+.plan-card {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid transparent;
+  background-image:
+    radial-gradient(
+      ellipse var(--bloom-w, 92%) var(--bloom-h, 62%) at var(--bloom-x, 50%) var(--bloom-y, 55%),
+      var(--bloom-core, var(--plan-bloom)),
+      transparent 72%
+    ),
+    linear-gradient(to bottom, var(--plan-sheen-top), var(--plan-sheen-bottom)),
+    linear-gradient(var(--plan-face), var(--plan-face)),
+    linear-gradient(to bottom, var(--glass-ring-lit), var(--glass-ring-dim) 48%, var(--glass-ring-dim));
+  background-origin: padding-box, padding-box, padding-box, border-box;
+  background-clip: padding-box, padding-box, padding-box, border-box;
+  box-shadow:
+    inset 0 1px 0 var(--glass-inset),
+    0 24px 60px -30px var(--glass-drop);
+}
+
+/*
+ * The call to action is a pill with a halo, which is the second thing the
+ * reference does and the first thing anyone copying it gets wrong: the glow is
+ * *outside* the button and the same colour as its face, so the button looks
+ * lit rather than outlined. The face itself is the platform's own CTA — the
+ * gradient, the rim and the ink colour on it were all decided already, and
+ * white on this blue measured 2.68:1, which is why the ink is dark. Only the
+ * shape and the halo are new here.
+ */
+.plan-cta {
+  border-radius: 999px;
+}
+.plan-cta.btn-gradient-cta {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 3px 6px -1px color-mix(in srgb, var(--aura-bloom) 24%, transparent),
+    0 12px 30px -10px var(--cta-shadow-soft),
+    0 0 42px -8px var(--cta-shadow-soft);
+}
+.plan-cta.btn-gradient-cta:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    0 4px 8px -1px color-mix(in srgb, var(--aura-bloom) 30%, transparent),
+    0 16px 36px -10px var(--cta-shadow-soft),
+    0 0 54px -8px var(--cta-shadow-soft);
+}
+
+/* The same pill on the plans that are not the featured one: a dark face, the
+   light caught along its top edge only, and a bloom under it rather than
+   around it. In the reference this button is what tells you which plan the
+   page is steering you to, by being the one that is *not* lit. */
+.plan-cta-quiet {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-image:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.02)),
+    linear-gradient(var(--glass-bg-solid), var(--glass-bg-solid)),
+    linear-gradient(to bottom, var(--glass-ring-lit), var(--glass-ring-dim) 55%, var(--glass-ring-dim));
+  background-origin: padding-box, padding-box, border-box;
+  background-clip: padding-box, padding-box, border-box;
+  box-shadow:
+    inset 0 1px 0 var(--glass-inset),
+    0 12px 30px -16px var(--glass-drop);
+  transition: filter 0.3s ease, box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.plan-cta-quiet:hover {
+  filter: brightness(1.16);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 var(--glass-inset),
+    0 14px 34px -16px var(--glass-drop),
+    0 0 34px -10px var(--halo);
+}
+.plan-cta-quiet:active {
+  transform: translateY(1px);
+  filter: brightness(0.94);
 }
 
 .glass-panel::before {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "wouter";
 import { Play, Sparkles, Zap, CheckCircle2, ArrowRight, Check, Upload, MessageSquareText, Send, ChevronLeft, Download } from "lucide-react";
 import { useGetSubscription, useUpdateSubscription, getGetSubscriptionQueryKey } from "@workspace/api-client-react";
@@ -2600,8 +2600,10 @@ export default function Home() {
             {FREE_TIER.lines
               .map((line, i) => t(phrase(PRICING_AR.free.lines[i] ?? line, line)))
               .map((line) => (
-                <li key={line} className="text-sm text-muted-foreground flex items-start gap-2">
-                  <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary/70" />
+                <li key={line} className="text-sm text-muted-foreground flex items-start gap-3">
+                  {/* The same dot as the plan cards below. Two bullet systems
+                      stacked on one another read as two designs. */}
+                  <span aria-hidden className="mt-[0.6em] h-1 w-1 flex-shrink-0 rounded-full bg-foreground/35" />
                   <span>{line}</span>
                 </li>
               ))}
@@ -2616,32 +2618,46 @@ export default function Home() {
             return (
               <div
                 key={plan.key}
-                className={`reveal glass-card relative flex flex-col rounded-3xl border transition-all duration-500 overflow-hidden ${
-                  isPro ? "border-primary/60" : "border-hairline hover:border-hairline-strong"
-                }`}
+                className="reveal plan-card relative flex flex-col rounded-[28px] transition-all duration-500 overflow-hidden"
                 style={{
                   transitionDelay: `${i * 80}ms`,
-                  boxShadow: isPro
-                    ? "inset 0 1px 0 rgba(255,255,255,0.1), 0 0 50px rgba(80,161,237,0.25)"
-                    : "inset 0 1px 0 rgba(255,255,255,0.05)",
-                }}
+                  /* Where the light inside the card comes from. Under the
+                     button on the featured plan, low and from the outer edge
+                     on the two beside it, so the row reads as one lit thing.
+                     Mirrored in Arabic: "the outer edge" is a side of the
+                     composition, not a side of the screen. */
+                  ...(isPro
+                    ? {
+                        "--bloom-x": "50%",
+                        "--bloom-y": "50%",
+                        "--bloom-w": "124%",
+                        "--bloom-h": "80%",
+                        "--bloom-core": "var(--plan-bloom-lit)",
+                        "--glass-ring-lit": "rgba(122,184,242,0.42)",
+                      }
+                    : {
+                        "--bloom-x": (i === 0) === !rtl ? "2%" : "98%",
+                        "--bloom-y": "62%",
+                        "--bloom-w": "132%",
+                        "--bloom-h": "88%",
+                      }),
+                } as CSSProperties}
               >
-                {isPro && (
-                  <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary to-transparent" />
-                )}
-                {isPro && (
-                  <div className="absolute top-4 end-4">
-                    <span className="text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full bg-primary/20 text-primary border border-primary/30">
-                      {t(LANDING.pricing.mostPopular)}
-                    </span>
-                  </div>
-                )}
-
                 <div className="p-8 flex flex-col flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="text-lg font-medium text-foreground/90">{plan.name}</h3>
+                    {isPro && (
+                      <span className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-primary/15 text-primary border border-primary/25 whitespace-nowrap">
+                        {t(LANDING.pricing.mostPopular)}
+                      </span>
+                    )}
+                  </div>
                   <div className="mb-6">
-                    <h3 className="text-xl font-bold mb-1">{plan.name}</h3>
                     <div className="mt-3 transition-all duration-300">
-                      <div className="flex items-baseline gap-1">
+                      {/* The price carries the accent, which is the single
+                          loudest thing on the reference's card and the reason
+                          the eye lands on the number before the name. */}
+                      <div className="flex items-baseline gap-1 text-primary">
                         {/* The number rolls rather than being replaced.
                             There was a `transition` on this span, which does
                             nothing: transitions interpolate properties and the
@@ -2654,14 +2670,14 @@ export default function Home() {
                             sibling of it: the row's `gap-1` was putting four
                             pixels between "$" and "115", which reads as two
                             things rather than a price. */}
-                        <span className="flex items-baseline text-4xl font-bold" dir="ltr">
+                        <span className="flex items-baseline text-5xl font-semibold tracking-tight" dir="ltr">
                           $
                           <RollingNumber
                             value={String(isYearly ? plan.yearlyPrice : plan.price)}
                             testId={`price-${plan.key}`}
                           />
                         </span>
-                        <span className="text-muted-foreground text-sm">
+                        <span className="text-xl font-medium text-primary/75">
                           {isYearly ? t(LANDING.pricing.perYear) : t(LANDING.pricing.perMonth)}
                         </span>
                       </div>
@@ -2669,32 +2685,16 @@ export default function Home() {
                         {t(phrase(PRICING_AR.plans[plan.key].yearlyPerMonth, plan.yearlyPerMonth))}
                       </p>
                     </div>
+                    <p className="text-sm text-muted-foreground mt-3">
+                      {t(phrase(PRICING_AR.plans[plan.key].forWho, plan.forWho))}
+                    </p>
                   </div>
 
-                  <div className="mb-6 space-y-2">
-                    <div className="flex items-center gap-2 text-sm font-semibold">
-                      <span className="text-2xl">{plan.minutes}</span>
-                      <span className="text-muted-foreground">{t(LANDING.pricing.minutesLabel)}</span>
-                    </div>
-                    <div className="text-sm text-muted-foreground">{t(phrase(PRICING_AR.plans[plan.key].upload, plan.upload))}</div>
-                    <div className="text-xs text-muted-foreground/70 mt-1">{t(phrase(PRICING_AR.plans[plan.key].forWho, plan.forWho))}</div>
-                  </div>
-
-                  <div className="h-px bg-surface-1 mb-6" />
-
-                  <ul className="space-y-3 flex-1 mb-8">
-                    {SHARED_FEATURES.map((feat, i) => t(phrase(PRICING_AR.shared[i] ?? feat, feat))).map((feat) => (
-                      <li key={feat} className="flex items-center gap-3 text-sm">
-                        <div className="w-5 h-5 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center flex-shrink-0">
-                          <CheckCircle2 className="w-3 h-3 text-primary" />
-                        </div>
-                        {feat}
-                      </li>
-                    ))}
-                  </ul>
-
+                  {/* The button sits above the list, which is the reference's
+                      order and the better one: whoever has already decided
+                      does not have to read five bullets to find the way in. */}
                   {isCurrent ? (
-                    <div className="flex items-center justify-center gap-2 rounded-md py-3 px-6 bg-primary/10 border border-primary/30 text-primary font-semibold text-sm">
+                    <div className="plan-cta-quiet flex items-center justify-center gap-2 py-4 px-6 text-primary font-semibold text-sm">
                       <Check className="w-4 h-4" />
                       {t(LANDING.pricing.currentPlan)}
                     </div>
@@ -2703,10 +2703,8 @@ export default function Home() {
                       onClick={() => handleSelectPlan(plan.key)}
                       disabled={!planKnown || updateSubscription.isPending || checkoutFor !== null}
                       data-testid={`button-plan-${plan.key}`}
-                      className={`w-full rounded-md py-3 px-6 font-semibold text-sm transition-all duration-300 ${
-                        isPro
-                          ? "btn-gradient-cta text-white"
-                          : "bg-surface-1 border border-hairline hover:bg-surface-2 hover:border-hairline-strong hover:shadow-[0_0_20px_rgba(80,161,237,0.12)]"
+                      className={`w-full py-4 px-6 font-semibold text-base transition-all duration-300 ${
+                        isPro ? "plan-cta btn-gradient-cta text-white" : "plan-cta-quiet"
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
                       {!planKnown
@@ -2720,6 +2718,24 @@ export default function Home() {
                         : `${t(LANDING.pricing.get)} ${plan.name}`}
                     </button>
                   )}
+
+                  {/* The line the reference puts under its button, and here it
+                      is the meter — the number this plan is actually sold by. */}
+                  <p className="text-center text-xs text-muted-foreground mt-3.5">
+                    <span className="text-foreground/85 font-semibold">{plan.minutes}</span>{" "}
+                    {t(LANDING.pricing.minutesLabel)}
+                  </p>
+
+                  <ul className="space-y-4 flex-1 mt-8">
+                    {[t(phrase(PRICING_AR.plans[plan.key].upload, plan.upload))]
+                      .concat(SHARED_FEATURES.map((feat, i) => t(phrase(PRICING_AR.shared[i] ?? feat, feat))))
+                      .map((feat) => (
+                        <li key={feat} className="flex items-start gap-3 text-sm text-muted-foreground">
+                          <span aria-hidden className="mt-[0.6em] h-1 w-1 flex-shrink-0 rounded-full bg-foreground/35" />
+                          <span>{feat}</span>
+                        </li>
+                      ))}
+                  </ul>
                 </div>
               </div>
             );
