@@ -70,7 +70,7 @@ jobs:
           fi
           # PATHS is the list this workflow watches. Keep it beside the one in
           # the comment above; deploy-test reads this block.
-          PATHS="artifacts/worker/ lib/db/ lib/api-zod/ lib/object-store/ lib/mail/ pnpm-lock.yaml .github/workflows/deploy-worker.yml"
+          PATHS="artifacts/worker/ lib/db/ lib/api-zod/ lib/object-store/ lib/mail/ lib/secrets/ pnpm-lock.yaml .github/workflows/deploy-worker.yml"
           touched="$(git diff --name-only HEAD^ HEAD || true)"
           if [ -z "$touched" ]; then
             echo "no parent to compare against: deploying to be safe"
@@ -204,6 +204,12 @@ jobs:
           [ -n "${SNAPCHAT_CLIENT_SECRET:-}" ] && args+=(SNAPCHAT_CLIENT_SECRET="$SNAPCHAT_CLIENT_SECRET")
           [ -n "${YOUTUBE_CLIENT_ID:-}" ] && args+=(YOUTUBE_CLIENT_ID="$YOUTUBE_CLIENT_ID")
           [ -n "${YOUTUBE_CLIENT_SECRET:-}" ] && args+=(YOUTUBE_CLIENT_SECRET="$YOUTUBE_CLIENT_SECRET")
+          # The key the stored platform tokens are sealed under. Optional here
+          # like the client credentials above and for the same reason: with no
+          # platform connected there is nothing to seal. It stops being
+          # optional the moment one is, and the code says so by refusing to
+          # store a token without it rather than storing a readable one.
+          [ -n "${SOCIAL_TOKEN_KEYS:-}" ] && args+=(SOCIAL_TOKEN_KEYS="$SOCIAL_TOKEN_KEYS")
           flyctl secrets set "${args[@]}" --app editly-worker --stage
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -240,6 +246,7 @@ jobs:
           SNAPCHAT_CLIENT_SECRET: ${{ secrets.SNAPCHAT_CLIENT_SECRET }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          SOCIAL_TOKEN_KEYS: ${{ secrets.SOCIAL_TOKEN_KEYS }}
 
       - name: Deploy
         if: steps.changed.outputs.worker == 'true'

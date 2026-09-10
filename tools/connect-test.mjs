@@ -65,6 +65,7 @@ const {
 const { SOCIAL_PLATFORMS, SOCIAL_SPEC } = await import(
   bundle("lib/api-zod/src/social.ts", "social.mjs")
 );
+const secrets = await import(bundle("lib/secrets/src/index.ts", "secrets.mjs"));
 
 let checks = 0;
 let failures = 0;
@@ -703,6 +704,91 @@ section("And the renderer prefers the stored answer to asking again");
   const publisher = await readFile(path.join(repoRoot, "artifacts/worker/src/publisher.ts"), "utf8");
   check("the publisher reads the columns", publisher.includes("page_access_token"), "");
   check("and hands them down", /page: credential\.page/.test(publisher), "");
+}
+
+section("A token that is not ours is not readable in our database");
+{
+  /*
+   * The risk, stated the way it actually lands.
+   *
+   * `social_accounts` holds OAuth credentials for somebody's YouTube channel,
+   * their TikTok, their Instagram, their Page. A leaked backup of this
+   * database is not an incident about this service — it is their channel. And
+   * a refresh token keeps working until its owner revokes it, which they will
+   * not, because nobody will have told them.
+   *
+   * They were plain text. They are sealed now, with the key in the environment
+   * and never in the row.
+   */
+  const keys = [
+    { version: 2, key: Buffer.alloc(32, 7) },
+    { version: 1, key: Buffer.alloc(32, 3) },
+  ];
+  const token = "ya29.a0AfB_the-refresh-token-that-matters";
+
+  const sealed = secrets.seal(token, keys);
+  check("a sealed token does not contain the token", !sealed.includes(token) && !sealed.includes("ya29"));
+  check("it round trips", secrets.open(sealed, keys) === token);
+  check("and it names the key it used, so a rotation can be finished", sealed.startsWith("v2."));
+
+  // Rotation is a deploy, not an outage: the new key goes in front, the old
+  // one stays until the last value sealed under it has been rewritten.
+  const old = secrets.seal(token, [keys[1]]);
+  check("a value sealed under the previous key still opens", secrets.open(old, keys) === token);
+  check(
+    "and one sealed under a key this deployment does not have is refused, not guessed",
+    (() => {
+      try { secrets.open(secrets.seal(token, [{ version: 9, key: Buffer.alloc(32, 1) }]), keys); return false; }
+      catch (error) { return error.name === "CannotOpen"; }
+    })(),
+  );
+
+  // Authenticated, so a row somebody edited in the database does not decrypt
+  // to something the publisher will send.
+  const tampered = sealed.slice(0, -4) + "AAAA";
+  check(
+    "an altered row does not open",
+    (() => { try { secrets.open(tampered, keys); return false; } catch (e) { return e.name === "CannotOpen"; } })(),
+  );
+  check("and reads as nothing rather than throwing into a sweep", secrets.openStored(tampered, keys) === null);
+
+  // Two seals of one value differ, or the column leaks which accounts share a
+  // token and how long each one is.
+  check("the same token seals differently every time", secrets.seal(token, keys) !== secrets.seal(token, keys));
+
+  // Fails closed. On a deployment with no key this turns the first connect
+  // into a loud error rather than a quiet return to plaintext.
+  check(
+    "with no key it refuses to store rather than storing plain text",
+    (() => { try { secrets.seal(token, []); return false; } catch (e) { return e.name === "NoSealingKey"; } })(),
+  );
+
+  // A column may hold either while connections made before this refresh.
+  check("a legacy plaintext value is read as itself", secrets.openStored("ya29.plain", keys) === "ya29.plain");
+  check("and is not mistaken for a sealed one", !secrets.isSealed("ya29.plain") && secrets.isSealed(sealed));
+  check("nothing stored is nothing read", secrets.openStored(null, keys) === null && secrets.openStored("", keys) === null);
+
+  /*
+   * And the two sides that have to agree about it.
+   *
+   * The API seals what it writes at the callback; the worker opens what it
+   * reads and re-seals what a refresh returns. A miss on either side is a
+   * plaintext token in a column, which is exactly the state being left behind,
+   * so both are read here rather than assumed.
+   */
+  const callback = await readFile(path.join(repoRoot, "artifacts/api-server/src/routes/social.ts"), "utf8");
+  check("the connect callback seals the account token", /accessToken: seal\(/.test(callback));
+  check("and the refresh token", /refreshToken: sealStored\(/.test(callback));
+  check("and Meta's Page token", /pageAccessToken: sealStored\(/.test(callback));
+
+  const reader = await readFile(path.join(repoRoot, "artifacts/worker/src/publisher.ts"), "utf8");
+  check("the publisher opens what it reads", /openStored\(row\.access_token\)/.test(reader));
+  check("and treats an unreadable one as a connection to make again", /accessToken === null\) return null/.test(reader));
+
+  const refresher = await readFile(path.join(repoRoot, "artifacts/worker/src/social-token.ts"), "utf8");
+  const writes = [...refresher.matchAll(/set access_token = \$\{([^}]*)\}/g)].map((m) => m[1]);
+  check("every refresh writes a sealed token", writes.length > 0 && writes.every((w) => w.includes("seal(")), writes.join(" | "));
+  check("and a rotated refresh token is sealed too", /rotated = payload\["refresh_token"\] \? seal\(/.test(refresher));
 }
 
 await rm(buildDir, { recursive: true, force: true });

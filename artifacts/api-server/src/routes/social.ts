@@ -67,6 +67,23 @@ import {
   metaPagesFor,
 } from "../lib/social-identity";
 import { appOrigin } from "../lib/allowed-origins";
+import { seal, sealStored, openStored, CannotOpen } from "@workspace/secrets";
+
+/**
+ * A stored token, opened, or a refusal somebody can act on.
+ *
+ * `openStored` answers null for a value this deployment cannot read — a key
+ * that is gone, or a row somebody altered. On a *sweep* that is the right
+ * answer, because one unreadable row must not fail everybody else's posts. On
+ * a request somebody is watching it is not: they asked for their Pages and
+ * there is nothing to show them, so they are told to connect again, which is
+ * the only thing that fixes it.
+ */
+function mustOpen(stored: string | null): string {
+  const value = openStored(stored);
+  if (value === null) throw new CannotOpen("this connection needs to be made again");
+  return value;
+}
 
 const router: IRouter = Router();
 
@@ -260,7 +277,7 @@ router.patch("/social/accounts/:id/page", async (req, res): Promise<void> => {
   }
 
   try {
-    const pages = await metaPagesFor(account.accessToken);
+    const pages = await metaPagesFor(mustOpen(account.accessToken));
     const page = pages.find((candidate) => candidate.id === pageId);
     if (!page) {
       /*
@@ -733,12 +750,22 @@ socialCallbackRouter.get("/social/callback/:platform", rateLimitByIp(LIMITS.soci
       handle: who.handle,
       displayName: who.displayName,
       avatarUrl: who.avatarUrl,
-      accessToken: meta?.accessToken ?? tokens.accessToken,
-      refreshToken: tokens.refreshToken,
+      /*
+        Sealed before it reaches a column, and there are three of them: the
+        account token, its refresh token, and the Page token Meta hands back.
+        A refresh token is the one that matters most — it is a key that keeps
+        working until somebody thinks to revoke it, and nobody tells them to.
+
+        `seal` throws with no key configured rather than storing plain text,
+        which turns a misconfigured deployment into a failed connect instead of
+        a quiet return to the problem this closes.
+      */
+      accessToken: seal(meta?.accessToken ?? tokens.accessToken),
+      refreshToken: sealStored(tokens.refreshToken),
       expiresAt: meta ? meta.expiresAt : tokens.expiresAt,
       pageId: chosen?.id ?? null,
       pageName: chosen?.name ?? null,
-      pageAccessToken: chosen?.token ?? null,
+      pageAccessToken: sealStored(chosen?.token ?? null),
       instagramUserId: chosen?.instagramUserId ?? null,
       pageChoices: meta ? pageChoicesFrom(meta.pages) : null,
       /*

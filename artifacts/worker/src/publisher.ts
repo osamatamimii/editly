@@ -37,6 +37,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
+import { openStored } from "@workspace/secrets";
 import { configuredPlatforms, isSocialPlatform, SOCIAL_LABEL, type SocialPlatform } from "@workspace/api-zod";
 import { usableToken, TokenError } from "./social-token.js";
 import { publishToYouTube, PublishError, type Published } from "./publish-youtube.js";
@@ -433,9 +434,21 @@ async function credentialFor(accountId: string) {
       }
     | undefined;
   if (!row) return null;
+  /*
+    Opened here, at the one place a credential is built, so nothing downstream
+    has to know these are sealed at rest.
+
+    Null from `openStored` means this deployment cannot read the value — a key
+    that has been rotated out from under a row, or a row somebody altered. That
+    is a connection to make again, and the caller already knows how to say so;
+    it is deliberately not a throw, because one unreadable row must not fail
+    the sweep for everybody else's posts.
+  */
+  const accessToken = openStored(row.access_token);
+  if (accessToken === null) return null;
   return {
-    accessToken: row.access_token,
-    refreshToken: row.refresh_token,
+    accessToken,
+    refreshToken: openStored(row.refresh_token),
     expiresAt: row.expires_at ? new Date(row.expires_at) : null,
     /*
       The Page this connection posts to, chosen once when it was made.
@@ -449,7 +462,7 @@ async function credentialFor(accountId: string) {
     */
     page:
       row.page_id && row.page_access_token
-        ? { id: row.page_id, token: row.page_access_token, name: row.page_name ?? "your Page" }
+        ? { id: row.page_id, token: openStored(row.page_access_token) ?? "", name: row.page_name ?? "your Page" }
         : null,
     instagramUserId: row.instagram_user_id,
   };

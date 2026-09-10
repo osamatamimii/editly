@@ -98,6 +98,9 @@ importers:
       '@workspace/object-store':
         specifier: workspace:*
         version: link:../../lib/object-store
+      '@workspace/secrets':
+        specifier: workspace:*
+        version: link:../../lib/secrets
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -357,6 +360,9 @@ importers:
       '@workspace/object-store':
         specifier: workspace:*
         version: link:../../lib/object-store
+      '@workspace/secrets':
+        specifier: workspace:*
+        version: link:../../lib/secrets
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.45.2(@types/pg@8.20.4)(pg@8.22.0)
@@ -432,6 +438,12 @@ importers:
         version: 25.9.5
 
   lib/object-store:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.5
+
+  lib/secrets:
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

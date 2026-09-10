@@ -42,6 +42,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { SOCIAL_SPEC, metaExchangeUrl, type SocialPlatform } from "@workspace/api-zod";
 import { withDeadline, PUBLISH_TIMEOUT_MS } from "./providers/deadline";
+import { seal } from "@workspace/secrets";
 
 /**
  * How long before expiry a token counts as expired.
@@ -167,11 +168,11 @@ export async function usableToken(
     does not rotate, and keeping the old value would break the one that does —
     so it is written only when the platform actually said something.
   */
-  const rotated = payload["refresh_token"] ? String(payload["refresh_token"]) : null;
+  const rotated = payload["refresh_token"] ? seal(String(payload["refresh_token"])) : null;
 
   await db.execute(sql`
     update social_accounts
-       set access_token = ${accessToken},
+       set access_token = ${seal(accessToken)},
            refresh_token = coalesce(${rotated}, refresh_token),
            expires_at = ${expiresAt},
            status = 'ok',
@@ -255,7 +256,7 @@ async function extendMetaToken(
 
   await db.execute(sql`
     update social_accounts
-       set access_token = ${accessToken},
+       set access_token = ${seal(accessToken)},
            expires_at = ${expiresAt},
            status = 'ok',
            status_detail = null,
