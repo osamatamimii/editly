@@ -41,6 +41,9 @@ export const ASSET_BUDGET = {
   video: 16,
   image: 16,
   audio: 8,
+  // Colour cubes. Four is generous: an edit applies one, and a person who
+  // keeps a folder of them still asks for one by its label.
+  lut: 4,
 } as const;
 
 export type AssetKind = keyof typeof ASSET_BUDGET;

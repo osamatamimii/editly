@@ -1121,7 +1121,7 @@ export function usePlayableVideo(pathOrUrl: string | null | undefined): {
  * to disagree with it.
  */
 
-export type AssetKind = "video" | "image" | "audio";
+export type AssetKind = "video" | "image" | "audio" | "lut";
 
 /**
  * What this file is, from its MIME type — and `null` when it is something we
@@ -1139,7 +1139,7 @@ export type AssetKind = "video" | "image" | "audio";
  */
 export function assetKindOf(file: File): AssetKind | null {
   const kind = uploadKindFor(file.name);
-  return kind === "video" || kind === "image" || kind === "audio" ? kind : null;
+  return kind === "video" || kind === "image" || kind === "audio" || kind === "lut" ? kind : null;
 }
 
 export async function uploadProjectAsset(options: {

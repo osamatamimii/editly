@@ -63,7 +63,7 @@ export interface PlanResult extends ParsedIntent {
 /** What the project has to put on screen, as the planner is allowed to see it. */
 export interface PlannerAsset {
   id: string;
-  kind: "video" | "image" | "audio";
+  kind: "video" | "image" | "audio" | "lut";
   label: string | null;
 }
 
@@ -87,6 +87,7 @@ function buildSchema(assets: PlannerAsset[]) {
   const clips = assets.filter((a) => a.kind === "video").map((a) => a.id);
   const stills = assets.filter((a) => a.kind === "image").map((a) => a.id);
   const tracks = assets.filter((a) => a.kind === "audio").map((a) => a.id);
+  const luts = assets.filter((a) => a.kind === "lut").map((a) => a.id);
   const assetIds = [...clips, ...stills, ...tracks];
 
   const types = [
@@ -164,6 +165,7 @@ function buildSchema(assets: PlannerAsset[]) {
             "duck",
             "sfxPalette",
             "assetIds",
+            "lutAssetId",
           ],
           properties: {
             type: { type: "string", enum: types },
@@ -212,6 +214,13 @@ function buildSchema(assets: PlannerAsset[]) {
                 ? { type: ["string", "null"], enum: [...assetIds, null] }
                 : { type: ["string", "null"] },
             /** Seconds into the finished video where this belongs. */
+            /* The colour cube the grade may carry. Same rule as every file:
+               the ids this project holds are the whole vocabulary, so a LUT the
+               library does not have is unrepresentable. */
+            lutAssetId:
+              luts.length > 0
+                ? { type: ["string", "null"], enum: [...luts, null] }
+                : { type: "null" },
             atSeconds: { type: ["number", "null"] },
             /** How long it stays. */
             durationSeconds: { type: ["number", "null"] },
@@ -421,6 +430,9 @@ function instructionFor(assets: PlannerAsset[]): string {
     "grade sets a named look: warm, cool, cinematic, mono (black and white) or punch. Choose it when they ask",
     "for a look or a colour, and choose the one they named. Cinematic is the teal-and-orange film look, punch is",
     "just more contrast and colour. If they name no look you have, choose no grade rather than guessing at one.",
+    "grade can also carry lutAssetId when the library holds a .cube colour LUT: choose it when they ask to",
+    "apply their LUT, their colour file, or the grade they uploaded - with look none unless they also named a",
+    "mood. Never invent a LUT id; the choices are only the ones offered.",
     "soundEffects puts a layer of sound on the edit: air across the cuts, weight under the punch-ins, and a",
     "riser into the first seam. The sounds are ours and ship with the product, so it needs no file from them.",
     "It has no atSeconds either: the worker places every sound from the finished edit, because only the worker",
@@ -804,7 +816,14 @@ function toOperation(
         // matcher, which measures it. The model chooses a mood, nothing more.
         const look = raw["look"];
         if (!GRADE_LOOKS.has(look as string)) return null;
-        return { type, saturation: 1, look };
+        // The LUT, checked against the library and the kind like every other
+        // named file: the schema restricts the id, this restricts what it is.
+        const lutId = raw["lutAssetId"];
+        const lut =
+          typeof lutId === "string" && assets.some((a) => a.id === lutId && a.kind === "lut")
+            ? lutId
+            : null;
+        return { type, saturation: 1, look, ...(lut ? { lut } : {}) };
       }
       case "insertBRoll": {
         const assetId = assetOfKind("video");
@@ -1143,6 +1162,8 @@ export function describeAll(operations: EditOperation[]): Phrase[] {
         return { en: "add the watermark", ar: "أضيف العلامة المائية" };
       case "grade":
         // Read back as a promise, so it has to say which of the two it is.
+        // A LUT first: it is the most deliberate of the three asks.
+        if ("lut" in op && op.lut) return { en: "grade it with your LUT", ar: "أدرّج الصورة بملف الألوان الذي رفعته" };
         return op.look === "mono"
           ? { en: "take the colour out", ar: "أنزع اللون" }
           : op.look === "punch"

@@ -8,7 +8,7 @@
  * The endpoints it calls are three, and they are stable.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Trash2, ImageIcon, Film, Music, Plus } from "lucide-react";
+import { Loader2, Trash2, ImageIcon, Film, Music, Plus, Palette } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { uploadProjectAsset, formatBytes, assetKindOf } from "@/lib/video-storage";
 import { StockSearch } from "./stock-search";
@@ -55,12 +55,12 @@ const LIBRARY_STATES = {
 
 export interface ProjectAsset {
   id: string;
-  kind: "video" | "image" | "audio";
+  kind: "video" | "image" | "audio" | "lut";
   label: string | null;
   bytes: number;
 }
 
-const ICON = { video: Film, image: ImageIcon, audio: Music } as const;
+const ICON = { video: Film, image: ImageIcon, audio: Music, lut: Palette } as const;
 
 async function authHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
@@ -215,7 +215,7 @@ export function ProjectLibrary({
           ref={inputRef}
           type="file"
           multiple
-          accept="video/*,image/*,audio/*"
+          accept="video/*,image/*,audio/*,.cube"
           className="hidden"
           onChange={(e) => {
             const files = e.target.files;

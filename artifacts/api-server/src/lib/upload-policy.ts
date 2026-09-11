@@ -239,9 +239,9 @@ const ACCEPTS: Record<
     refusal: (name) => `A project is edited from a video. "${name}" is not one.`,
   },
   asset: {
-    kinds: ["video", "image", "audio"],
+    kinds: ["video", "image", "audio", "lut"],
     refusal: (name) =>
-      `We can use video, images and audio. "${name}" is none of those, so there is nothing an edit could do with it.`,
+      `We can use video, images, audio and .cube colour LUTs. "${name}" is none of those, so there is nothing an edit could do with it.`,
   },
   reference: {
     kinds: ["video"],

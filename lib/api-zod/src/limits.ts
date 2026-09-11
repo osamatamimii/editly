@@ -156,6 +156,10 @@ export const UPLOAD_CONTENT_TYPES = [
   "font/ttf",
   "font/otf",
   "font/woff2",
+  // Colour cubes (.cube LUTs) are plain text by their own spec, and stored
+  // as exactly that: a content type invented for them would be a name the
+  // bucket has never heard of, refused where nobody reads the refusal.
+  "text/plain",
 ] as const;
 
 export type UploadContentType = (typeof UPLOAD_CONTENT_TYPES)[number];
@@ -187,6 +191,7 @@ export function uploadContentTypeFor(filename: string): UploadContentType | null
     ttf: "font/ttf", ttc: "font/ttf",
     otf: "font/otf",
     woff2: "font/woff2",
+    cube: "text/plain",
   };
   return byExtension[extension] ?? null;
 }
@@ -204,12 +209,14 @@ export function uploadContentTypeFor(filename: string): UploadContentType | null
 export const VIDEO_UPLOAD_EXTENSIONS = ["mp4", "m4v", "mov", "qt", "webm", "mkv", "avi", "3gp", "3g2"] as const;
 
 /** What an uploaded file is *for*, derived from the same one table. */
-export function uploadKindFor(filename: string): "video" | "image" | "audio" | "font" | null {
+export function uploadKindFor(filename: string): "video" | "image" | "audio" | "font" | "lut" | null {
   const type = uploadContentTypeFor(filename);
   if (!type) return null;
   if (type.startsWith("video/")) return "video";
   if (type.startsWith("image/")) return "image";
   if (type.startsWith("audio/")) return "audio";
+  // The one plain-text thing this product ingests is a colour cube.
+  if (type === "text/plain") return "lut";
   return "font";
 }
 

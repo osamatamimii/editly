@@ -422,7 +422,7 @@ const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
  */
 export interface LibraryFile {
   id: string;
-  kind: "video" | "image" | "audio";
+  kind: "video" | "image" | "audio" | "lut";
   label: string | null;
 }
 
