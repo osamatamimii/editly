@@ -745,7 +745,7 @@ export const BurnCaptionsOperation = z.object({
     person a mixing desk and lose the guarantee that every combination shown
     has been rendered and measured.
   */
-  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "hormozi", "beast", "pill", "neon", "clean", "bubble"]).default("bold-white"),
+  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator"]).default("bold-white"),
   /** Where the block sits. The middle of the frame is most of short-form now. */
   position: z.enum(["bottom", "middle", "top"]).default("bottom"),
   /** Three steps on the measured default, not a free number. */
@@ -756,7 +756,7 @@ export const BurnCaptionsOperation = z.object({
    * degrades to `pop` when a provider returned sentences without word timings,
    * the same way `karaoke` does, and says so rather than pretending.
    */
-  animation: z.enum(["none", "pop", "karaoke", "kinetic"]).default("pop"),
+  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus"]).default("pop"),
   /*
     Which face, per script.
 
@@ -792,14 +792,14 @@ export const BurnCaptionsOperation = z.object({
 export const AutoCaptionsOperation = z.object({
   type: z.literal("autoCaptions"),
   /* The same catalogue as `burnCaptions`, which this becomes. */
-  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "hormozi", "beast", "pill", "neon", "clean", "bubble"]).default("bold-white"),
+  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator"]).default("bold-white"),
   position: z.enum(["bottom", "middle", "top"]).default("bottom"),
   size: z.enum(["s", "m", "l"]).default("m"),
   /* Same four as `burnCaptions`, because this becomes one. A value that
      existed on one and not the other would be a plan that validates and then
      silently loses the animation it asked for at the moment the worker
      rewrites it. */
-  animation: z.enum(["none", "pop", "karaoke", "kinetic"]).default("pop"),
+  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus"]).default("pop"),
   /* Carried through to the `burnCaptions` this becomes. See it for why there
      are two. */
   font: z.string().max(64).optional(),

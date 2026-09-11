@@ -506,6 +506,75 @@ section("The pill travels with the voice, in the direction the script reads");
   check("and it travels leftward, because that is the way the line reads", arLate.cx < arEarly.cx - 20, `${Math.round(arEarly.cx)} -> ${Math.round(arLate.cx)}`);
 }
 
+section("The lockup: one keyword large and coloured, the small words gathering");
+{
+  /*
+    The focus animation is the reference's opening move — measured here the
+    way the pill is: by pixels. The keyword must draw taller than the small
+    words (its glyphs are twice the size), it must carry the accent colour,
+    and the lockup must accumulate: more ink late than early, with nothing
+    that has appeared ever moving. And the whole lockup must stay inside the
+    frame's caption band, because a two-scale row is exactly what the band
+    maths was never measured against.
+  */
+  const stressedCue = (words, keyAt) => ({
+    startMs: 0,
+    endMs: 3000,
+    text: words.join(" "),
+    words: words.map((text, i) => ({
+      text,
+      startMs: i * 450,
+      // The keyword is held longest, which is what the emphasis score reads.
+      endMs: i * 450 + (i === keyAt ? 440 : 260),
+    })),
+  });
+
+  /*
+    The keyword is a gradient now — Osama's rule: a clean colour ramp, no
+    stroke, no shadow behind it — so the accent is counted with a green
+    detector over the raw frame, not the yellow one `ink` carries.
+  */
+  const greenInk = (file, second) => {
+    const source = at(`fx-${Math.random().toString(36).slice(2, 8)}.mp4`);
+    ff(["-f", "lavfi", "-i", `color=c=black:s=${FRAME.width}x${FRAME.height}:d=4:r=25`,
+        "-vf", `subtitles=${file.replace(/[\\:']/g, "\\$&")}`, "-frames:v", "100", source]);
+    const run = spawnSync(
+      "ffmpeg",
+      ["-hide_banner", "-nostdin", "-v", "error", "-ss", String(second), "-i", source,
+       "-vf", "format=rgb24", "-frames:v", "1", "-f", "rawvideo", "-"],
+      { maxBuffer: 1 << 28 },
+    );
+    if (run.status !== 0) throw new Error("no frame");
+    const rgb = run.stdout;
+    let green = 0;
+    for (let y = 0; y < FRAME.height; y += 2) {
+      for (let x = 0; x < FRAME.width; x += 2) {
+        const i = (FRAME.width * y + x) * 3;
+        const r = rgb[i], g = rgb[i + 1], b = rgb[i + 2];
+        if (g > 110 && g > r + 30 && g > b + 25) green += 1;
+      }
+    }
+    return green;
+  };
+
+  const en = await assFor(stressedCue(["captions", "WIN", "every", "scroll"], 1), "focus");
+  // 0.25s: only the first small word has arrived. 2.6s: the whole lockup.
+  const early = frames(en.file, [0.25])[0];
+  const late = frames(en.file, [2.6])[0];
+  check("the lockup accumulates: more ink late than early", late.lit > early.lit * 2, `${early.lit} -> ${late.lit}`);
+  check("the keyword carries the gradient's green", greenInk(en.file, 2.6) > 150, `${greenInk(en.file, 2.6)} green px`);
+  check("and the lockup stays inside the frame", late.x0 >= 0 && late.x1 <= FRAME.width, `${late.x0}..${late.x1}`);
+  const events = en.text.split("[Events]")[1];
+  check("the keyword is drawn at about twice the size", /\\fs\d+/.test(events) && (() => {
+    const sizes = [...events.matchAll(/\\fs(\d+)/g)].map((m) => Number(m[1]));
+    return Math.max(...sizes) >= Math.min(...sizes) * 1.9;
+  })());
+
+  const ar = await assFor(stressedCue(["الكابشن", "يكسب", "كل", "تمرير"], 1), "focus");
+  const arLate = frames(ar.file, [2.6])[0];
+  check("the Arabic lockup draws and carries the gradient too", arLate.lit > 200 && greenInk(ar.file, 2.6) > 150, `${arLate.lit}/${greenInk(ar.file, 2.6)}`);
+}
+
 section("The loud looks are upper-case before they are measured");
 {
   /*

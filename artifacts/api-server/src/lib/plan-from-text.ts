@@ -605,14 +605,18 @@ const YELLOW_WORDS = /\byellow|gold\b|أصفر|اصفر|ذهبي/i;
  * product. Checked before the older colour words: somebody who says
  * «هرموزي» has said something more specific than "yellow".
  */
-const CAPTION_STYLE_WORDS: Array<[RegExp, "hormozi" | "beast" | "pill" | "neon" | "clean" | "bubble"]> = [
+const CAPTION_STYLE_WORDS: Array<[RegExp, "hormozi" | "beast" | "pill" | "neon" | "clean" | "bubble" | "karaoke-light" | "creator"]> = [
   [/hormozi|هرموزي|هورموزي/i, "hormozi"],
   [/\bbeast\b|بيست|مستر بيست/i, "beast"],
   [/خلف الكلمة|صندوق الكلمة|word pill|pill caption|box behind/i, "pill"],
   [/\bneon\b|نيون|متوهج/i, "neon"],
   [/\bminimal\b|\bclean caption|كابشن هادئ|كابشن بسيط/i, "clean"],
   [/\bbubble\b|فقاع/i, "bubble"],
+  [/white box|bright box|صندوق أبيض|شريط أبيض/i, "karaoke-light"],
+  [/\bcreator\b|كرييتور|كرياتور|زي المشاهير/i, "creator"],
 ];
+/** The big-keyword lockup, asked for the way people describe it. */
+const FOCUS_WORDS = /الكلمة الكبيرة|كلمة بارزة|كلمة كبيرة|big keyword|keyword caption|one word big|focus caption/i;
 /** Where the caption sits, said the way people say it. */
 const CAPTION_TOP_WORDS = /كابشن فوق|الكابشن فوق|فوق الشاشة|أعلى الشاشة|اعلى الشاشة|captions? (?:at|on) top|top of the screen/i;
 const CAPTION_MIDDLE_WORDS = /وسط الشاشة|منتصف الشاشة|نص الشاشة|middle of the screen|center(?:ed)? captions?|captions? in the (?:centre|center|middle)/i;
@@ -1229,11 +1233,13 @@ export function planFromText(
         shape of regression this file keeps finding — so `kinetic` only answers
         the words the wipe never claimed.
       */
-      animation: KARAOKE_WORDS.test(text)
-        ? "karaoke"
-        : KINETIC_CAPTION_WORDS.test(text)
-          ? "kinetic"
-          : "pop",
+      animation: FOCUS_WORDS.test(text)
+        ? "focus"
+        : KARAOKE_WORDS.test(text)
+          ? "karaoke"
+          : KINETIC_CAPTION_WORDS.test(text)
+            ? "kinetic"
+            : "pop",
       dropFillers: true,
     });
     willDo.push(

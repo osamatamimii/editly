@@ -993,7 +993,7 @@ interface CaptionColours {
    */
   pill?: { box: string; ink: string };
   /** What this style animates like when the plan does not say. */
-  defaultAnimation?: "none" | "pop" | "karaoke" | "kinetic";
+  defaultAnimation?: "none" | "pop" | "karaoke" | "kinetic" | "focus";
   /**
    * The style's own scale on the measured default size, on top of the
    * person's s/m/l. The loud looks are drawn larger by everyone who draws
@@ -1008,32 +1008,43 @@ interface CaptionColours {
 
 /**
  * The style catalogue. Named looks, not knobs: each entry is a complete,
- * tuned combination, and the six new ones are built from what actually runs
- * on the platforms today (researched, then rendered, then kept) — the
- * uppercase heavy-stroke look with a green accent that Hormozi made a genre,
- * the saturated yellow-with-red of the Beast school, the word-by-word pill
- * that Opus and Submagic call karaoke, a neon edge, a quiet lower-third, and
- * a comic bubble. ASS colours are &HAABBGGRR — backwards from every other
- * format, and the single easiest thing in this file to get wrong.
+ * tuned combination, built from what actually runs on the platforms today —
+ * researched, rendered against Osama's reference edits, and kept.
+ *
+ * **Osama's rule, verbatim: «لا تحط ستروك حول الكابشن ابدا، شكله سيء
+ * دائما».** No text style here carries an outline. Legibility comes the way
+ * the professional edits do it: a soft drop shadow — `Shadow` for the
+ * offset, a translucent `back` for its colour, and a small `\blur` in the
+ * style's tags to melt its edge (libass blurs the glyph edge and the shadow
+ * together when there is no border, which at these sizes reads as softness,
+ * not blur). The only non-zero `Outline` values left are on BorderStyle-3
+ * rows, where the field is the box's padding, not a stroke — and on neon,
+ * whose blurred edge is a glow, the one place an edge is the point.
+ *
+ * ASS colours are &HAABBGGRR — backwards from every other format, and the
+ * single easiest thing in this file to get wrong.
  */
 const CAPTION_COLOURS: Record<string, CaptionColours> = {
   "bold-white": {
-    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&HA0000000",
-    borderStyle: 1, outlineWidth: 5, shadow: 2,
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&H60000000",
+    borderStyle: 1, outlineWidth: 0, shadow: 4,
+    tags: "\\blur2.2",
     // Yellow on white.
     accent: "&H00E5FF&",
   },
   "bold-yellow": {
-    primary: "&H0000E5FF", secondary: "&H00FFFFFF", outline: "&H00000000", back: "&HA0000000",
-    borderStyle: 1, outlineWidth: 5, shadow: 2,
+    primary: "&H0000E5FF", secondary: "&H00FFFFFF", outline: "&H00000000", back: "&H60000000",
+    borderStyle: 1, outlineWidth: 0, shadow: 4,
+    tags: "\\blur2.2",
     // White on yellow: the same pair, the other way round.
     accent: "&HFFFFFF&",
   },
   /* Uppercase Anton, thick black edge, the stressed word in green: the look
      a generation learned from Hormozi clips and asks for by name. */
   "hormozi": {
-    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&HA0000000",
-    borderStyle: 1, outlineWidth: 4, shadow: 2,
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&H55000000",
+    borderStyle: 1, outlineWidth: 0, shadow: 5,
+    tags: "\\blur2.6",
     accent: "&H5EC522&",
     uppercase: true,
     defaultAnimation: "kinetic",
@@ -1043,8 +1054,9 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
   /* Saturated yellow with a red stressed word and a heavier edge — the
      Beast-school look, louder than hormozi on purpose. */
   "beast": {
-    primary: "&H0000D4FF", secondary: "&H00FFFFFF", outline: "&H00000000", back: "&HA0000000",
-    borderStyle: 1, outlineWidth: 6, shadow: 3,
+    primary: "&H0000D4FF", secondary: "&H00FFFFFF", outline: "&H00000000", back: "&H60000000",
+    borderStyle: 1, outlineWidth: 0, shadow: 5,
+    tags: "\\blur2.6",
     accent: "&H303BFF&",
     uppercase: true,
     defaultAnimation: "pop",
@@ -1055,11 +1067,26 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
      voice. The body carries only a soft shadow: the pill is the emphasis and
      an outline under it would double the edges. */
   "pill": {
-    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&H80000000",
-    borderStyle: 1, outlineWidth: 1, shadow: 2,
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&H70000000",
+    borderStyle: 1, outlineWidth: 0, shadow: 3,
+    tags: "\\blur2",
     accent: "&HF65C8B&",
     pill: { box: "&H00F65C8B", ink: "&H00FFFFFF" },
     defaultAnimation: "none",
+  },
+  /* The reference look itself: a wide rounded heavy face, sentence case,
+     no edge of any kind, a soft real shadow — and, with the focus
+     animation it defaults to, one mint keyword drawn twice the size while
+     the small words gather around it. Built against the two edits Osama
+     sent frame by frame. */
+  "creator": {
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&H5A000000",
+    borderStyle: 1, outlineWidth: 0, shadow: 4,
+    tags: "\\blur2.4",
+    accent: "&H8ECF3E&",
+    defaultAnimation: "focus",
+    sizeBoost: 1.1,
+    defaultFont: { latin: "poppins-extrabold", arabic: "almarai-extrabold" },
   },
   /* White core, cyan edge, and the edge alone is blurred into a glow — libass
      blurs the border when there is one, which is exactly the neon trick. */
@@ -1075,18 +1102,20 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
   /* The quiet one: sentence case, a thin dark edge and a small shadow, sat
      low. For the person who wants subtitles rather than a performance. */
   "clean": {
-    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&H96000000",
-    borderStyle: 1, outlineWidth: 2, shadow: 2,
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&H70000000",
+    borderStyle: 1, outlineWidth: 0, shadow: 3,
+    tags: "\\blur2",
     accent: "&HEED322&",
     defaultAnimation: "none",
     defaultFont: { latin: "poppins-extrabold", arabic: "almarai-extrabold" },
   },
-  /* White letters in a very thick dark rind — the comic-bubble look. libass
-     rounds its outline joins, which is what keeps a 9px edge friendly
-     rather than spiky. */
+  /* White letters floating on a deep, wide soft shadow — the sticker look
+     without a sticker's rind, since the rind is a stroke and strokes are
+     banned. The heavy blur is what carries it. */
   "bubble": {
-    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H0016100B", back: "&H60000000",
-    borderStyle: 1, outlineWidth: 9, shadow: 0,
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&H88000000",
+    borderStyle: 1, outlineWidth: 0, shadow: 7,
+    tags: "\\blur3.4",
     accent: "&H00D4FF&",
     defaultAnimation: "pop",
     sizeBoost: 1.1,
@@ -1104,6 +1133,16 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
     way round — and it is the difference between the line filling with colour
     as somebody speaks and the line emptying of it.
   */
+  /* The reference's closer: a white rounded bar, the words starting grey
+     and darkening as they are said. The same karaoke mechanics as the dark
+     box, in daylight — primary is the said colour, secondary the not-yet. */
+  "karaoke-light": {
+    primary: "&H00141414", secondary: "&H009A9A9A", outline: "&H00FFFFFF", back: "&H00FFFFFF",
+    borderStyle: 3, outlineWidth: 6, shadow: 0,
+    accent: "&H5EC522&",
+    defaultAnimation: "karaoke",
+    defaultFont: { latin: "poppins-extrabold", arabic: "almarai-extrabold" },
+  },
   "karaoke-box": {
     primary: "&H0000E5FF", secondary: "&H00FFFFFF", outline: "&H00000000", back: "&HC0000000",
     /*
@@ -1289,6 +1328,11 @@ export interface KineticContext {
   typicalWordMs: number;
   /** True when this line can grow by `POP_SCALE` and still be inside the frame. */
   fits: (line: string, rtl: boolean, scale: number) => boolean;
+  /** The nominal ASS size for a line in this script, for `\fs` overrides. */
+  nominalFor: (rtl: boolean) => number;
+  /** The frame and layout, for animations that place events themselves. */
+  frame: { width: number; height: number };
+  layout: CaptionLayout;
 }
 
 /**
@@ -1555,7 +1599,9 @@ function animateCue(
         */
         const hide = colours.borderStyle === 3 ? "\\1a&HFF&\\4a&HFF&" : "\\alpha&HFF&";
         const show = colours.borderStyle === 3 ? "\\1a&H00&\\4a&H00&" : "\\alpha&H00&";
-        let tags = `${hide}\\t(${inMs},${inMs + 1},${show}`;
+        // The fill stated per run: the stressed word's accent would otherwise
+        // persist into every word revealed after it. Same finding as focus.
+        let tags = `\\c${bareColour(colours.primary)}${hide}\\t(${inMs},${inMs + 1},${show}`;
         if (at === stressed) tags += `\\c${accent}`;
         tags += ")";
         if (at === stressed && roomToPop) {
@@ -1590,7 +1636,7 @@ function animateCue(
     "pop in rather than arriving a word at a time", and a plain fade would have
     made that sentence a small lie.
   */
-  if (animation === "pop" || animation === "kinetic") {
+  if (animation === "pop" || animation === "kinetic" || animation === "focus") {
     // Overshoot to 108% then settle. 120ms is short enough to feel snappy and
     // long enough not to strobe.
     return finish(`{\\fad(60,60)\\fscx70\\fscy70\\t(0,120,\\fscx108\\fscy108)\\t(120,200,\\fscx100\\fscy100)}${body}`);
@@ -1676,6 +1722,150 @@ export function wrapToLayout(
   });
 }
 
+/**
+ * The focus lockup, drawn where we say rather than where the margins fall.
+ *
+ * Osama's verdict on the first cut, verbatim: «عندهم متدرج اللون بشكل نظيف
+ * و بدون ستروك او ظل خلفه، الظل بينحط فقط في اماكن معينة». A clean colour
+ * gradient, no stroke, no shadow behind the keyword — and libass has no
+ * gradient fill, so the keyword is drawn as a stack of copies of itself,
+ * each `\clip`ped to a horizontal band and tinted one step of the ramp.
+ * A band trick needs to know exactly where the glyphs are, which is why
+ * every event here carries `\an5\pos`: the lockup computes its rows in
+ * pixels — small words above, keyword, small words below — and places each
+ * row itself. The keyword rows carry `\shad0` besides: the shadow lives
+ * only on the small words, which sit on unknown video, and never behind
+ * the gradient, which is its own contrast.
+ *
+ * Reveal is per word by `\alpha`, runs reversed for a right-to-left row —
+ * the fourth appearance of that finding in this file. The keyword pops
+ * through `\fscx/y`, which scales about `\an5`'s own centre, so every
+ * gradient band scales together and the seams cannot drift.
+ */
+function focusEvents(
+  cue: CaptionCue,
+  style: string,
+  kinetic: KineticContext,
+  rtl: boolean,
+  styleName: string,
+): string[] {
+  const words = cue.words!;
+  const colours = CAPTION_COLOURS[style] ?? CAPTION_COLOURS["bold-white"]!;
+
+  let stressed = 0;
+  let best = -Infinity;
+  for (let i = 0; i < words.length; i += 1) {
+    const score = emphasisScore(words[i], words[i - 1], kinetic.typicalWordMs);
+    if (score > best) {
+      best = score;
+      stressed = i;
+    }
+  }
+
+  const BIG = 2.05;
+  const SMALL = 0.92;
+  const nominal = kinetic.nominalFor(rtl);
+  const keyword = words[stressed];
+  const keyScale = kinetic.fits(keyword.text, rtl, BIG) ? BIG : 1.6;
+  const bigPx = Math.round(nominal * keyScale);
+  const smallPx = Math.round(nominal * SMALL);
+
+  const pre = words.slice(0, stressed);
+  const post = words.slice(stressed + 1);
+
+  /*
+    Row geometry, in pixels. `Fontsize` is the line step, so a row's height
+    is its size; the lockup stacks pre, keyword, post with a small breath
+    between rows, and anchors on the frame the way the layout's position
+    asks — centred for middle, standing on the bottom margin, hanging from
+    the top one.
+  */
+  const gap = Math.round(smallPx * 0.16);
+  const rows: Array<{ px: number; kind: "pre" | "key" | "post" }> = [];
+  if (pre.length > 0) rows.push({ px: smallPx, kind: "pre" });
+  rows.push({ px: bigPx, kind: "key" });
+  if (post.length > 0) rows.push({ px: smallPx, kind: "post" });
+  const total = rows.reduce((sum, row) => sum + row.px, 0) + gap * (rows.length - 1);
+
+  const { frame, layout } = kinetic;
+  let top: number;
+  if (layout.position === "top") top = layout.marginV;
+  else if (layout.position === "bottom") top = frame.height - layout.marginV - total;
+  else top = Math.round(frame.height * 0.47 - total / 2);
+  const cx = Math.round(frame.width / 2);
+
+  const centres = new Map<string, number>();
+  let cursor = top;
+  for (const row of rows) {
+    centres.set(row.kind, Math.round(cursor + row.px / 2));
+    cursor += row.px + gap;
+  }
+
+  const truncated = cue.text.endsWith("…");
+  const last = words[words.length - 1];
+  const wordText = (word: CaptionWord) => {
+    let text = word.text.replace(/[{}]/g, "");
+    if (truncated && word === last && !text.endsWith("…")) text += "…";
+    return text;
+  };
+  const revealAt = (word: CaptionWord) => Math.max(0, Math.round(word.startMs - cue.startMs));
+  const event = (layer: number, body: string) =>
+    `Dialogue: ${layer},${toAssTime(cue.startMs)},${toAssTime(cue.endMs)},${styleName},,0,0,0,,${body}`;
+
+  const out: string[] = [];
+
+  /* The small rows: the style's own soft shadow, the style's own fill. */
+  const smallRow = (list: CaptionWord[], kind: "pre" | "post") => {
+    const runs = list.map((word) => {
+      const at = revealAt(word);
+      /*
+        «حتى عندهم انميشن الكتابة blury فخم» — the words arrive out of
+        focus and resolve. Alpha snaps at the word's instant; the blur rides
+        a short `\t` down to the style's own resting softness.
+      */
+      return `{\\fs${smallPx}\\c${bareColour(colours.primary)}\\blur6\\alpha&HFF&\\t(${at},${at + 1},\\alpha&H00&)\\t(${at},${at + 160},\\blur1.4)}${isolate(wordText(word))} `;
+    });
+    const ordered = rtl ? [...runs].reverse() : runs;
+    out.push(event(0, `{\\an5\\pos(${cx},${centres.get(kind)})\\fad(0,60)}${ordered.join("").trimEnd()}`));
+  };
+  if (pre.length > 0) smallRow(pre, "pre");
+  if (post.length > 0) smallRow(post, "post");
+
+  /*
+    The keyword: a vertical ramp in seven bands. The clip rectangles span
+    the whole frame's width — only the y matters — and overlap by a pixel
+    so antialiased edges cannot open a hairline seam between bands.
+  */
+  const BANDS = 7;
+  const rampTop = { r: 0x8f, g: 0xe8, b: 0xb4 };
+  const rampBottom = { r: 0x14, g: 0x9a, b: 0x5c };
+  const keyCentre = centres.get("key")!;
+  const keyTop = keyCentre - Math.round(bigPx * 0.62);
+  const keyBottom = keyCentre + Math.round(bigPx * 0.62);
+  const at = revealAt(keyword);
+  const popTags =
+    `\\t(${at + 1},${at + 1 + POP_RISE_MS},\\fscx112\\fscy112)` +
+    `\\t(${at + 1 + POP_RISE_MS},${at + 1 + POP_RISE_MS + POP_FALL_MS},\\fscx100\\fscy100)`;
+  for (let band = 0; band < BANDS; band += 1) {
+    const mix = band / (BANDS - 1);
+    const r = Math.round(rampTop.r + (rampBottom.r - rampTop.r) * mix);
+    const g = Math.round(rampTop.g + (rampBottom.g - rampTop.g) * mix);
+    const b = Math.round(rampTop.b + (rampBottom.b - rampTop.b) * mix);
+    const colour = `&H${b.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${r.toString(16).padStart(2, "0")}&`.toUpperCase();
+    const y0 = Math.round(keyTop + ((keyBottom - keyTop) * band) / BANDS);
+    const y1 = Math.round(keyTop + ((keyBottom - keyTop) * (band + 1)) / BANDS) + 1;
+    out.push(
+      event(
+        1,
+        `{\\an5\\pos(${cx},${keyCentre})\\fs${bigPx}\\shad0\\blur7\\c${colour}` +
+          `\\clip(0,${y0},${frame.width},${y1})` +
+          `\\alpha&HFF&\\t(${at},${at + 1},\\alpha&H00&)\\t(${at},${at + 180},\\blur0)${popTags}\\fad(0,60)}${isolate(wordText(keyword))}`,
+      ),
+    );
+  }
+  return out;
+}
+
 export async function writeSubtitleFile(
   file: string,
   cues: CaptionCue[],
@@ -1754,7 +1944,7 @@ export async function writeSubtitleFile(
     picture and the caption cannot end up emphasising different words.
   */
   const kinetic: KineticContext | null =
-    animation === "kinetic"
+    animation === "kinetic" || animation === "focus"
       ? (() => {
           const durations = cues
             .flatMap((c) => c.words ?? [])
@@ -1769,6 +1959,9 @@ export async function writeSubtitleFile(
             fits: (line, rtl, scale) =>
               allowed !== null &&
               widthInCaps(line, (rtl ? faces.arabic : faces.latin).widthScale) * scale <= allowed,
+            nominalFor: (rtl) => nominalSizeFor(rtl ? faces.arabic : faces.latin, layout),
+            frame,
+            layout,
           };
         })()
       : null;
@@ -1778,6 +1971,9 @@ export async function writeSubtitleFile(
     .filter((c) => c.endMs > c.startMs)
     .flatMap((c) => {
       const rtl = readsRightToLeft(c.text);
+      if (animation === "focus" && kinetic && c.words && c.words.length > 0) {
+        return focusEvents(c, style, kinetic, rtl, rtl ? RTL_STYLE : LATIN_STYLE);
+      }
       const base = `Dialogue: 0,${toAssTime(c.startMs)},${toAssTime(c.endMs)},${
         rtl ? RTL_STYLE : LATIN_STYLE
       },,0,0,0,,${animateCue(c, pill ? "none" : animation, style, kinetic)}`;

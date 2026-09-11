@@ -4287,7 +4287,7 @@ components:
             box travelling word to word behind the voice), neon (glowing
             edge), clean (a quiet lower-third), bubble (thick dark rind).
           type: string
-          enum: [bold-white, bold-yellow, karaoke-box, hormozi, beast, pill, neon, clean, bubble]
+          enum: [bold-white, bold-yellow, karaoke-box, karaoke-light, hormozi, beast, pill, neon, clean, bubble, creator]
           default: bold-white
         position:
           description: Where the caption block sits in the frame.
@@ -4301,7 +4301,7 @@ components:
           default: m
         animation:
           type: string
-          enum: [none, pop, karaoke, kinetic]
+          enum: [none, pop, karaoke, kinetic, focus]
           default: pop
       required: [type, cues]
 
@@ -4324,7 +4324,7 @@ components:
             box travelling word to word behind the voice), neon (glowing
             edge), clean (a quiet lower-third), bubble (thick dark rind).
           type: string
-          enum: [bold-white, bold-yellow, karaoke-box, hormozi, beast, pill, neon, clean, bubble]
+          enum: [bold-white, bold-yellow, karaoke-box, karaoke-light, hormozi, beast, pill, neon, clean, bubble, creator]
           default: bold-white
         position:
           description: Where the caption block sits in the frame.
@@ -4338,7 +4338,7 @@ components:
           default: m
         animation:
           type: string
-          enum: [none, pop, karaoke, kinetic]
+          enum: [none, pop, karaoke, kinetic, focus]
           default: pop
         dropFillers:
           description: Leave "um" and "uh" out of what is burnt in.
