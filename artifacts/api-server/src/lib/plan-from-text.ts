@@ -1012,6 +1012,9 @@ const STYLE_IN_WORDS: Record<Exclude<TransitionStyle, "dissolve">, string> = {
   slideUp: "slide upward",
   slideDown: "slide downward",
   flash: "flash of white",
+  whipPan: "whip pan",
+  zoomBlur: "zoom through a blur",
+  glitch: "glitch at the seams",
 };
 
 /** The same nine, as the reply says them in Arabic. */
@@ -1025,9 +1028,21 @@ const STYLE_IN_WORDS_AR: Record<Exclude<TransitionStyle, "dissolve">, string> = 
   slideUp: "انزلاقة إلى الأعلى",
   slideDown: "انزلاقة إلى الأسفل",
   flash: "ومضة بيضاء",
+  whipPan: "سحبة سريعة",
+  zoomBlur: "تقريب بضبابية سريعة",
+  glitch: "جليتش عند الوصلات",
 };
 
 const TRANSITION_STYLES: Array<{ patterns: RegExp; style: TransitionStyle }> = [
+  /*
+    The montage three first, because their words are the specific ones.
+    "whip pan" used to fall through to slideLeft — a plain slide is what a
+    person who says whip pan explicitly did not ask for, and the day the
+    real whip shipped, the mapping moved with it.
+  */
+  { patterns: /whip\s*-?pan|\bwhip\b|سحبة|سحبه سريعة/i, style: "whipPan" },
+  { patterns: /zoom\s*-?blur|zoom transition|انتقال زوم|زوم بلور|تقريب سريع بين/i, style: "zoomBlur" },
+  { patterns: /\bglitch|جليتش|غليتش|قليتش/i, style: "glitch" },
   { patterns: /\bwipe\s*(?:to\s*the\s*)?right|مسح(?:ة)?\s*لليمين/i, style: "wipeRight" },
   { patterns: /\bwipe\s*(?:to\s*the\s*)?up|\bwipe\s*upward/i, style: "wipeUp" },
   { patterns: /\bwipe\s*(?:to\s*the\s*)?down|\bwipe\s*downward/i, style: "wipeDown" },
@@ -1035,7 +1050,7 @@ const TRANSITION_STYLES: Array<{ patterns: RegExp; style: TransitionStyle }> = [
   { patterns: /\bslide\s*(?:to\s*the\s*)?right|\bpush\s*right|انزلاق\s*لليمين/i, style: "slideRight" },
   { patterns: /\bslide\s*(?:to\s*the\s*)?up|\bpush\s*up/i, style: "slideUp" },
   { patterns: /\bslide\s*(?:to\s*the\s*)?down|\bpush\s*down/i, style: "slideDown" },
-  { patterns: /\bslide|\bpush\b|\bswipe|whip ?pan|انزلاق/i, style: "slideLeft" },
+  { patterns: /\bslide|\bpush\b|\bswipe|انزلاق/i, style: "slideLeft" },
   { patterns: /\bflash\b|white flash|ومضة|فلاش/i, style: "flash" },
 ];
 

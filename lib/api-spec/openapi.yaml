@@ -4084,7 +4084,7 @@ components:
             that happens.
           type: string
           enum:
-            [dissolve, wipeLeft, wipeRight, wipeUp, wipeDown, slideLeft, slideRight, slideUp, slideDown, flash]
+            [dissolve, wipeLeft, wipeRight, wipeUp, wipeDown, slideLeft, slideRight, slideUp, slideDown, flash, whipPan, zoomBlur, glitch]
           default: dissolve
         durationMs:
           description: How long each join overlaps, in milliseconds.

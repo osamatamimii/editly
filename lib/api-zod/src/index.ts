@@ -1364,6 +1364,18 @@ export const TransitionStyle = z.enum([
   "slideDown",
   /** Through white. The short-form cut that reads as energy rather than as time passing. */
   "flash",
+  /*
+    The montage three — the joins short-form is actually cut with today,
+    each built from filters the worker already ships rather than from a new
+    engine. `whipPan` is a slide under a burst of directional blur; `zoomBlur`
+    is a zoom-in under a gaussian burst; `glitch` is not an xfade at all — a
+    hard cut with an RGB split and noise flickered around the seam, which is
+    why it is the one join with no piece cap: nothing overlaps, so nothing
+    holds memory open.
+  */
+  "whipPan",
+  "zoomBlur",
+  "glitch",
 ]);
 export type TransitionStyle = z.infer<typeof TransitionStyle>;
 
