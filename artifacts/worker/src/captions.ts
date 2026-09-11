@@ -32,6 +32,12 @@ export interface CaptionCue {
 }
 
 export interface CaptionOptions {
+  /**
+   * Hard ceiling on words per cue, for the quick pace the reference edits
+   * cut at: one to three words on screen, swapped on the voice. Left unset,
+   * the character budget is the only ceiling, which is the sentence pace.
+   */
+  maxWordsPerCue?: number;
   /** Characters per line before we wrap. Vertical video wants this small. */
   maxCharsPerLine?: number;
   /**
@@ -71,7 +77,7 @@ const DEFAULTS = {
   breakOnPauseMs: 500,
   dropFillers: true,
   minConfidence: 0.4,
-} satisfies Required<Omit<CaptionOptions, "lineWidthInCaps">>;
+} satisfies Required<Omit<CaptionOptions, "lineWidthInCaps" | "maxWordsPerCue">> & Pick<CaptionOptions, "maxWordsPerCue">;
 
 /** Below this a cue is a flash, not a caption. */
 const MIN_CUE_MS = 700;
@@ -126,8 +132,10 @@ export function buildCaptionCues(transcript: Transcript, options: CaptionOptions
       const wouldOverrun = overruns([...group, word]);
       const pauseBefore = previous ? word.startMs - previous.endMs : 0;
       const wouldRunLong = group.length > 0 && word.endMs - group[0].startMs > config.maxCueMs;
+      const wouldOverfill =
+        config.maxWordsPerCue !== undefined && group.length >= config.maxWordsPerCue;
 
-      if (previous && (wouldOverrun || pauseBefore >= config.breakOnPauseMs || wouldRunLong)) flush();
+      if (previous && (wouldOverrun || wouldOverfill || pauseBefore >= config.breakOnPauseMs || wouldRunLong)) flush();
       group.push(word);
     }
     flush();
@@ -138,7 +146,7 @@ export function buildCaptionCues(transcript: Transcript, options: CaptionOptions
 
 function toCue(
   words: TranscriptWord[],
-  config: Required<Omit<CaptionOptions, "lineWidthInCaps">>,
+  config: Required<Omit<CaptionOptions, "lineWidthInCaps" | "maxWordsPerCue">> & Pick<CaptionOptions, "maxWordsPerCue">,
 ): CaptionCue | null {
   const kept = words.filter((w) => w.text.trim().length > 0);
   if (kept.length === 0) return null;

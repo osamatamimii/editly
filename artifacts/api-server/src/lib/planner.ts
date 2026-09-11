@@ -140,6 +140,7 @@ function buildSchema(assets: PlannerAsset[]) {
             "captionAnimation",
             "captionPosition",
             "captionSize",
+            "captionPace",
             "zoomTo",
             "punchAmount",
             "minSilenceMs",
@@ -183,13 +184,14 @@ function buildSchema(assets: PlannerAsset[]) {
               type: ["string", "null"],
               enum: [
                 "bold-white", "bold-yellow", "karaoke-box", "karaoke-light",
-                "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator",
+                "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "label",
                 null,
               ],
             },
             captionAnimation: { type: ["string", "null"], enum: ["none", "pop", "karaoke", "kinetic", "focus", null] },
             captionPosition: { type: ["string", "null"], enum: ["bottom", "middle", "top", null] },
             captionSize: { type: ["string", "null"], enum: ["s", "m", "l", null] },
+            captionPace: { type: ["string", "null"], enum: ["normal", "quick", null] },
             /** 1.02–1.5. How far a slow push travels. */
             zoomTo: { type: ["number", "null"] },
             /** 0.02–0.6. How hard a punch hits. */
@@ -374,11 +376,17 @@ function instructionFor(assets: PlannerAsset[]): string {
     "named look when they name it or describe it; otherwise bold-white. creator is the polished creator-reel"
     + " look: rounded heavy face, soft shadow, no outline, and with the focus animation one mint keyword drawn"
     + " large. karaoke-light is the same wipe in a",
-    "white bar with dark words, for a bright look.",
+    "white bar with dark words, for a bright look. label is a quiet white line on a grey translucent bar -",
+    "choose it when the footage is bright, a screen recording, or they ask for a backing behind the words",
+    "without a loud look.",
     "captionPosition is bottom, middle or top of the frame - middle when they ask for captions in the middle or",
     "centre of the screen, top when they want them up top. Default bottom. captionSize is s, m or l - l when",
     "they ask for big captions, s for small. Default m.",
-    "captionAnimation is how the caption behaves: none is a plain fade, pop grows the whole caption in on entry,",
+    "captionPace is normal or quick. quick is the fast-cut rhythm: one to three words on screen at a time,",
+    "swapping roughly twice a second - choose it when they ask for fast captions, punchy short captions, word",
+    "chunks, or the style of fast-paced tiktok edits. Default normal, which reads as subtitles.",
+    "captionAnimation is how the caption behaves: none is a hard swap on the exact frame - choose it with quick",
+    "pace for the professional fast-cut look. pop grows the whole caption in on entry,",
     "karaoke wipes a fill across each word as it is spoken, and kinetic reveals each word as it is said and draws",
     "the word the speaker leaned on larger and in the accent colour. focus builds a lockup: the key word of each",
     "sentence is drawn about twice the size in the accent colour and the small words gather around it as they are",
@@ -726,6 +734,7 @@ function toOperation(
           position: raw["captionPosition"] ?? "bottom",
           size: raw["captionSize"] ?? "m",
           animation: raw["captionAnimation"] ?? "pop",
+          pace: raw["captionPace"] ?? "normal",
           dropFillers: true,
         };
       case "kenBurns":

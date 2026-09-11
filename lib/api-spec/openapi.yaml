@@ -4285,9 +4285,11 @@ components:
             measured in both scripts — hormozi (uppercase, heavy edge, green
             stressed word), beast (yellow with a red stressed word), pill (a
             box travelling word to word behind the voice), neon (glowing
-            edge), clean (a quiet lower-third), bubble (thick dark rind).
+            edge), clean (a quiet lower-third), bubble (thick dark rind),
+            creator (the polished creator-reel look), label (a quiet white
+            line on a grey translucent bar, for bright footage).
           type: string
-          enum: [bold-white, bold-yellow, karaoke-box, karaoke-light, hormozi, beast, pill, neon, clean, bubble, creator]
+          enum: [bold-white, bold-yellow, karaoke-box, karaoke-light, hormozi, beast, pill, neon, clean, bubble, creator, label]
           default: bold-white
         position:
           description: Where the caption block sits in the frame.
@@ -4322,9 +4324,11 @@ components:
             measured in both scripts — hormozi (uppercase, heavy edge, green
             stressed word), beast (yellow with a red stressed word), pill (a
             box travelling word to word behind the voice), neon (glowing
-            edge), clean (a quiet lower-third), bubble (thick dark rind).
+            edge), clean (a quiet lower-third), bubble (thick dark rind),
+            creator (the polished creator-reel look), label (a quiet white
+            line on a grey translucent bar, for bright footage).
           type: string
-          enum: [bold-white, bold-yellow, karaoke-box, karaoke-light, hormozi, beast, pill, neon, clean, bubble, creator]
+          enum: [bold-white, bold-yellow, karaoke-box, karaoke-light, hormozi, beast, pill, neon, clean, bubble, creator, label]
           default: bold-white
         position:
           description: Where the caption block sits in the frame.
@@ -4340,6 +4344,16 @@ components:
           type: string
           enum: [none, pop, karaoke, kinetic, focus]
           default: pop
+        pace:
+          description: >
+            How fast the cues turn over. quick is the fast-cut rhythm measured
+            off professional short-form edits — one to three words on screen at
+            a time, swapping roughly twice a second, a new cue at every real
+            pause. normal reads as subtitles. A grouping decision, so it lives
+            here and not on burnCaptions, whose cues are already grouped.
+          type: string
+          enum: [normal, quick]
+          default: normal
         dropFillers:
           description: Leave "um" and "uh" out of what is burnt in.
           type: boolean

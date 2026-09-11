@@ -1109,6 +1109,26 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
     defaultAnimation: "none",
     defaultFont: { latin: "poppins-extrabold", arabic: "almarai-extrabold" },
   },
+  /*
+    The reference's bright-ground caption: a quiet white line riding a grey
+    translucent bar. Measured off the tool-listicle edit Osama sent — over
+    dark footage its captions are bare, but the moment the content behind
+    them is a white webpage or a screen recording they pick up a soft dark
+    pill and nothing else. No stroke, no shadow: the bar *is* the
+    legibility, and `Shadow` stays 0 because BorderStyle 3 already fills
+    behind the line. `Outline` here is the box's padding, not a stroke —
+    same field, same reason as karaoke-box.
+  */
+  "label": {
+    // The bar is charcoal, not black, and 40% sees through it — matched
+    // against the reference's pill by eye on the same frame, black at the
+    // same alpha read heavier than theirs.
+    primary: "&H00FFFFFF", secondary: "&H00C8C8C8", outline: "&H64262626", back: "&H64262626",
+    borderStyle: 3, outlineWidth: 7, shadow: 0,
+    accent: "&H8ECF3E&",
+    defaultAnimation: "none",
+    defaultFont: { latin: "poppins-extrabold", arabic: "almarai-extrabold" },
+  },
   /* White letters floating on a deep, wide soft shadow — the sticker look
      without a sticker's rind, since the rind is a stroke and strokes are
      banned. The heavy blur is what carries it. */
@@ -1641,6 +1661,20 @@ function animateCue(
     // long enough not to strobe.
     return finish(`{\\fad(60,60)\\fscx70\\fscy70\\t(0,120,\\fscx108\\fscy108)\\t(120,200,\\fscx100\\fscy100)}${body}`);
   }
+
+  /*
+    `none` means none. A hard swap on the exact frame, zero fade either side.
+
+    Measured off the reference edit, not assumed: stepping its caption band
+    frame by frame at 30fps, each cue appears whole on one frame and is
+    replaced whole on another — there is no transition of any kind. At that
+    pacing (one to three words, half a second each) even a 60ms fade reads as
+    the caption hesitating, and the hesitation is precisely the amateur tell
+    the reference doesn't have. The fade below is reserved for the degraded
+    cases — an animation that needed word timings and didn't get them — where
+    the cue is long enough that a hard swap would flash.
+  */
+  if (animation === "none") return finish(body);
 
   return finish(`{\\fad(60,60)}${body}`);
 }

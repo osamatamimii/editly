@@ -745,7 +745,7 @@ export const BurnCaptionsOperation = z.object({
     person a mixing desk and lose the guarantee that every combination shown
     has been rendered and measured.
   */
-  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator"]).default("bold-white"),
+  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "label"]).default("bold-white"),
   /** Where the block sits. The middle of the frame is most of short-form now. */
   position: z.enum(["bottom", "middle", "top"]).default("bottom"),
   /** Three steps on the measured default, not a free number. */
@@ -792,9 +792,21 @@ export const BurnCaptionsOperation = z.object({
 export const AutoCaptionsOperation = z.object({
   type: z.literal("autoCaptions"),
   /* The same catalogue as `burnCaptions`, which this becomes. */
-  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator"]).default("bold-white"),
+  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "label"]).default("bold-white"),
   position: z.enum(["bottom", "middle", "top"]).default("bottom"),
   size: z.enum(["s", "m", "l"]).default("m"),
+  /*
+    How fast the cues turn over — the rhythm, separated from the look.
+
+    `normal` groups words into caption-length cues, up to ~3.5 seconds each.
+    `quick` is the fast-cut pacing measured off the reference edits: one to
+    three words on screen at a time, a cue lasting about half a second, broken
+    at any real pause. It lives on `autoCaptions` and not on `burnCaptions`
+    because pacing is a *grouping* decision — by the time cues exist the rhythm
+    has already been chosen, and a field here that pretended to re-group
+    somebody's hand-written cues would be a knob wired to nothing.
+  */
+  pace: z.enum(["normal", "quick"]).default("normal"),
   /* Same four as `burnCaptions`, because this becomes one. A value that
      existed on one and not the other would be a plan that validates and then
      silently loses the animation it asked for at the moment the worker

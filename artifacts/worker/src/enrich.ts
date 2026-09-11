@@ -447,6 +447,19 @@ export async function enrichPlan(
           effectiveCaptionFonts(operation.style, operation.font, operation.fontArabic).latin,
         ),
         maxLines: layout.maxLines,
+        /*
+          The fast-cut rhythm, measured off the reference edit frame by frame:
+          one to three words on screen at once, each cue roughly half a second,
+          a new cue at every real pause. Three numbers because the reference's
+          rhythm is made of three things — a word cap (never more than three),
+          a time cap (a chunk never lingers), and a hair-trigger pause break
+          (280ms of silence starts a new cue where the default grouping would
+          bridge it). Only set on `quick`: `undefined` leaves the measured
+          defaults alone rather than restating them here.
+        */
+        ...(operation.pace === "quick"
+          ? { maxWordsPerCue: 3, maxCueMs: 1100, breakOnPauseMs: 280 }
+          : {}),
       });
       if (cues.length === 0) {
         notes.push(

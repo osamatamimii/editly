@@ -605,7 +605,7 @@ const YELLOW_WORDS = /\byellow|gold\b|أصفر|اصفر|ذهبي/i;
  * product. Checked before the older colour words: somebody who says
  * «هرموزي» has said something more specific than "yellow".
  */
-const CAPTION_STYLE_WORDS: Array<[RegExp, "hormozi" | "beast" | "pill" | "neon" | "clean" | "bubble" | "karaoke-light" | "creator"]> = [
+const CAPTION_STYLE_WORDS: Array<[RegExp, "hormozi" | "beast" | "pill" | "neon" | "clean" | "bubble" | "karaoke-light" | "creator" | "label"]> = [
   [/hormozi|هرموزي|هورموزي/i, "hormozi"],
   [/\bbeast\b|بيست|مستر بيست/i, "beast"],
   [/خلف الكلمة|صندوق الكلمة|word pill|pill caption|box behind/i, "pill"],
@@ -614,6 +614,9 @@ const CAPTION_STYLE_WORDS: Array<[RegExp, "hormozi" | "beast" | "pill" | "neon" 
   [/\bbubble\b|فقاع/i, "bubble"],
   [/white box|bright box|صندوق أبيض|شريط أبيض/i, "karaoke-light"],
   [/\bcreator\b|كرييتور|كرياتور|زي المشاهير/i, "creator"],
+  /* The grey translucent bar. «شريط أبيض» above stays the white one: most
+     specific first only works when the two bars do not share their words. */
+  [/gr[ae]y (?:bar|box)|شريط رمادي|خلفية رمادية|خلفية شفافة|خلفية للكابشن|caption background/i, "label"],
 ];
 /** The big-keyword lockup, asked for the way people describe it. */
 const FOCUS_WORDS = /الكلمة الكبيرة|كلمة بارزة|كلمة كبيرة|big keyword|keyword caption|one word big|focus caption/i;
@@ -623,6 +626,15 @@ const CAPTION_MIDDLE_WORDS = /وسط الشاشة|منتصف الشاشة|نص �
 /** The three sizes, in the words that mean them. */
 const CAPTION_BIG_WORDS = /كابشن كبير|الكابشن كبير|كبّر الكابشن|كبر الكابشن|big captions?|large captions?|bigger captions?/i;
 const CAPTION_SMALL_WORDS = /كابشن صغير|الكابشن صغير|صغّر الكابشن|صغر الكابشن|small(?:er)? captions?/i;
+/**
+ * The fast-cut rhythm, asked for as a rhythm.
+ *
+ * Deliberately none of KARAOKE_WORDS' phrases: «كلمة كلمة» has meant the wipe
+ * since the wipe shipped, and pace is a different axis — a person can want
+ * a karaoke wipe at a leisurely pace or a hard-swap caption twice a second.
+ */
+const CAPTION_QUICK_WORDS =
+  /fast captions?|quick captions?|rapid captions?|snappy captions?|punchy captions?|short chunks|كابشن سريع|الكابشن سريع|كابشن متسارع|كابشن قصير سريع|إيقاع سريع للكابشن|ايقاع سريع للكابشن/i;
 
 /**
  * Asking for the strongest stretch, in the ways people actually ask.
@@ -1239,7 +1251,13 @@ export function planFromText(
           ? "karaoke"
           : KINETIC_CAPTION_WORDS.test(text)
             ? "kinetic"
-            : "pop",
+            : CAPTION_QUICK_WORDS.test(text)
+              ? // The reference fast-cut look: at two swaps a second any
+                // entrance animation reads as flicker, so quick pace asked
+                // for on its own brings the hard swap with it.
+                "none"
+              : "pop",
+      pace: CAPTION_QUICK_WORDS.test(text) ? "quick" : "normal",
       dropFillers: true,
     });
     willDo.push(

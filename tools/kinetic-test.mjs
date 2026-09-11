@@ -597,6 +597,119 @@ section("The loud looks are upper-case before they are measured");
   );
 }
 
+section("«none» means none: a hard swap on the exact frame");
+{
+  /*
+    Measured off the reference edit, stepped frame by frame at 30fps: its
+    captions appear whole on one frame and are replaced whole on another,
+    with no transition of any kind. So `none` writes no `\fad` at all — and
+    the check reads the file rather than the frame, because a 60ms fade is
+    exactly the kind of thing a sampled frame is blind to.
+  */
+  const swap = await assFor(cueOf(["hard", "swap", "look"]), "none", "clean");
+  check(
+    "a none cue carries no fade tag",
+    !/\\fad/.test(swap.text.split("[Events]")[1]),
+  );
+  // And the reader is reading the right thing: pop still fades.
+  const pop = await assFor(cueOf(["still", "fades", "in"]), "pop", "clean");
+  check("while pop still does", /\\fad/.test(pop.text.split("[Events]")[1]));
+  // The degraded case keeps its softness: karaoke without word timings is a
+  // cue long enough that a hard swap would read as a flash.
+  const degraded = await assFor({ startMs: 0, endMs: 3000, text: "no timings came back" }, "karaoke", "clean");
+  check(
+    "and karaoke without timings falls back to the fade, not the swap",
+    /\\fad/.test(degraded.text.split("[Events]")[1]),
+  );
+}
+
+section("The label bar: translucent charcoal behind both scripts");
+{
+  /*
+    The reference's bright-ground caption. Rendered on *white*, because a
+    dark translucent bar on the suite's usual black source is invisible —
+    the one measurement that matters here is the bar holding its own against
+    a bright ground. Counted: the bar's pixels are darker than the ground,
+    and they are grey rather than black, because 0x64 of alpha is the point.
+  */
+  const bar = (rgb, width, height) => {
+    let n = 0, sum = 0;
+    for (let y = 0; y < height; y += 2) {
+      for (let x = 0; x < width; x += 2) {
+        const i = (width * y + x) * 3;
+        const r = rgb[i], g = rgb[i + 1], b = rgb[i + 2];
+        if (r + g + b < 500) { n += 1; sum += (r + g + b) / 3; }
+      }
+    }
+    return { n, mean: n ? sum / n : 0 };
+  };
+  const whiteFrame = (file, second) => {
+    const source = at(`label-${Math.random().toString(36).slice(2, 8)}.mp4`);
+    ff(["-f", "lavfi", "-i", `color=c=white:s=${FRAME.width}x${FRAME.height}:d=4:r=25`,
+        "-vf", `subtitles=${file.replace(/[\\:']/g, "\\$&")}`, "-frames:v", "100", source]);
+    const run = spawnSync(
+      "ffmpeg",
+      ["-hide_banner", "-nostdin", "-v", "error", "-ss", String(second), "-i", source,
+       "-vf", "format=rgb24", "-frames:v", "1", "-f", "rawvideo", "-"],
+      { maxBuffer: 1 << 28 },
+    );
+    if (run.status !== 0) throw new Error("no frame");
+    return run.stdout;
+  };
+  for (const [scriptName, words] of [
+    ["latin", ["a", "bar", "on", "bright", "ground"]],
+    ["arabic", ["شريط", "خلف", "الكلام", "الفاتح"]],
+  ]) {
+    const { file } = await assFor(cueOf(words), "none", "label");
+    const m = bar(whiteFrame(file, 1.5), FRAME.width, FRAME.height);
+    check(`the ${scriptName} bar darkens the white ground`, m.n > 800, `${m.n} px`);
+    check(
+      `and reads charcoal, not black — the alpha is real in ${scriptName}`,
+      m.mean > 35 && m.mean < 160,
+      `mean ${Math.round(m.mean)}`,
+    );
+  }
+}
+
+section("The quick pace: one to three words, broken at every real pause");
+{
+  /*
+    The grouping numbers `enrich` sends for pace "quick", asserted against
+    the grouping itself rather than the field's existence — a knob wired to
+    nothing is the failure this suite keeps finding elsewhere.
+  */
+  const { buildCaptionCues } = captionsMod;
+  const talk = [];
+  let t = 0;
+  for (let i = 0; i < 30; i += 1) {
+    // 240ms words with 40ms gaps, and a real 400ms breath every seventh.
+    talk.push({ text: `w${i}`, startMs: t, endMs: t + 240 });
+    t += 280 + (i % 7 === 6 ? 400 : 0);
+  }
+  const quick = buildCaptionCues(
+    { segments: [{ words: talk }] },
+    { maxWordsPerCue: 3, maxCueMs: 1100, breakOnPauseMs: 280 },
+  );
+  check(
+    "no quick cue carries more than three words",
+    quick.length > 0 && quick.every((c) => (c.words?.length ?? 0) <= 3),
+    quick.map((c) => c.words?.length).join(","),
+  );
+  // The 400ms breaths are cue boundaries: no cue's own words bridge one.
+  const bridges = quick.filter((c) =>
+    (c.words ?? []).some((w, i, ws) => i > 0 && w.startMs - ws[i - 1].endMs >= 400),
+  );
+  check("and a 400ms breath always starts a new cue", bridges.length === 0, `${bridges.length} bridged`);
+  // The same transcript at the default pace groups longer — the numbers do
+  // something, rather than restating the defaults.
+  const normal = buildCaptionCues({ segments: [{ words: talk }] }, {});
+  check(
+    "while the default pace groups the same words into fewer, longer cues",
+    normal.length < quick.length && normal.some((c) => (c.words?.length ?? 0) > 3),
+    `${normal.length} vs ${quick.length}`,
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);

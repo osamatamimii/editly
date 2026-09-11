@@ -286,7 +286,7 @@ export function direct(input: DirectionInput): Direction {
   */
   if (input.hasSpeech && !input.spoke.captions) {
     add(
-      { type: "autoCaptions", style: "bold-white", position: "bottom", size: "m", animation: "pop", dropFillers: true },
+      { type: "autoCaptions", style: "bold-white", position: "bottom", size: "m", animation: "pop", pace: "normal", dropFillers: true },
       say("put captions on it, because most of this is watched with the sound off", "أضع كابشنز، لأن أكثره يُشاهَد بلا صوت"),
     );
   }

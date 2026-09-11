@@ -144,6 +144,7 @@ function captions(style: "bold-white" | "bold-yellow" | "karaoke-box") {
     position: "bottom" as const,
     size: "m" as const,
     animation: "karaoke" as const,
+    pace: "normal" as const,
     dropFillers: true,
   };
 }
