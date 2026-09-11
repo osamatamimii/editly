@@ -196,17 +196,49 @@ section("A face the renderer never actually used is refused, not measured");
 section("A face that cannot draw the script is refused for that script only");
 {
   /*
-    Rubik, which is in this repository precisely because it got this far once.
+    Rubik *as it used to ship* — carved back into that state on purpose.
 
-    It resolves, it draws every isolated Arabic form, and its ratio is sane. It
-    renders لا as a box. If the intake accepts it for Arabic, the intake has
-    the bug the suite was rewritten to catch.
+    The committed file was this fixture for a while: it resolved, drew every
+    isolated form, had a sane ratio, and rendered لا as a box. Then the brief
+    had it rebuilt with the repaired cmap, the committed file learned to draw
+    لا, and this section quietly started testing nothing — a fixture that
+    shares a file with the product is a fixture that heals when the product
+    does. So the broken state is carved deliberately now: both lam-alef
+    ligature sets stripped from GSUB and the legacy codepoints from the cmap,
+    which is a face no repair can help, because there is no glyph left to
+    point at. If the intake accepts *that* for Arabic, the intake has the bug
+    this suite was rewritten to catch.
   */
   const dir = path.join(work, "rubik");
   await mkdir(dir, { recursive: true });
-  await copyFile(
-    path.join(repoRoot, "artifacts/worker/fonts/Rubik-Black.ttf"),
-    path.join(dir, "Rubik-Black.ttf"),
+  const boxed = spawnSync("python3", ["-c", `
+import sys
+from fontTools import ttLib
+font = ttLib.TTFont(sys.argv[1])
+gsub = font["GSUB"].table
+removed = 0
+for lookup in gsub.LookupList.Lookup:
+    for sub in lookup.SubTable:
+        sub = sub.ExtSubTable if lookup.LookupType == 7 else sub
+        ligs = getattr(sub, "ligatures", None)
+        if not ligs:
+            continue
+        for lam in ("uniFEDF", "uniFEE0"):
+            if lam not in ligs:
+                continue
+            keep = [l for l in ligs[lam] if l.Component != ["uniFE8E"]]
+            removed += len(ligs[lam]) - len(keep)
+            ligs[lam] = keep
+for table in font["cmap"].tables:
+    for cp in (0xFEFB, 0xFEFC):
+        table.cmap.pop(cp, None)
+font.save(sys.argv[2])
+print(removed)
+`, path.join(repoRoot, "artifacts/worker/fonts/Rubik-Black.ttf"), path.join(dir, "Rubik-Black.ttf")], { encoding: "utf8" });
+  check(
+    "the boxed-lam-alef fixture was carved",
+    boxed.status === 0 && Number(boxed.stdout.trim()) === 2,
+    boxed.stderr?.trim() ?? boxed.stdout,
   );
   const arabic = await intakeFace(dir, "Rubik Black", "arabic");
   check(
@@ -325,6 +357,14 @@ for lookup in gsub.LookupList.Lookup:
         keep = [l for l in ligs["uniFEE0"] if l.Component != ["uniFE8E"]]
         removed += len(ligs["uniFEE0"]) - len(keep)
         ligs["uniFEE0"] = keep
+# The committed Rubik now carries U+FEFB/FEFC in its cmap (the rebuilt
+# repair filled them), and a codepoint that survives the carve would let the
+# prepared face map the form whose ligature was just removed. The fixture is
+# "a font that has only one of the two", so both legacy codepoints go; the
+# repair must re-derive what it can from the carved GSUB.
+for table in font["cmap"].tables:
+    for cp in (0xFEFB, 0xFEFC):
+        table.cmap.pop(cp, None)
 font.save(sys.argv[2])
 print(removed)
 `, path.join(repoRoot, "artifacts/worker/fonts/Rubik-Black.ttf"), path.join(half, "Carved.ttf")], { encoding: "utf8" });

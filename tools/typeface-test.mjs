@@ -177,6 +177,14 @@ for lookup in font["GSUB"].table.LookupList.Lookup:
             keep = [l for l in ligs[first] if l.Component != ["uniFE8E"]]
             removed += len(ligs[first]) - len(keep)
             ligs[first] = keep
+# The committed Rubik now maps U+FEFB/FEFC directly (the rebuilt repair
+# filled its cmap), so carving GSUB alone no longer breaks the face: the
+# codepoints still reach the ligature glyphs and the fixture heals itself.
+# A fixture that shares a file with the product breaks the day the product
+# is fixed; both routes to the shape have to go.
+for table in font["cmap"].tables:
+    for cp in (0xFEFB, 0xFEFC):
+        table.cmap.pop(cp, None)
 font.save(sys.argv[2])
 print(removed)
 `, path.join(repoRoot, "artifacts/worker/fonts/Rubik-Black.ttf"), NO_LIGATURE], { encoding: "utf8" });

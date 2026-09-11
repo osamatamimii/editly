@@ -165,15 +165,15 @@ export const CAPTION_FACES: readonly CaptionFace[] = [
       searched under the base glyph names, `uni0644+uni0627`, which not one font
       on this machine keys it by. With that fixed, Rubik draws لا.
 
-      So the box was ours. It is left in the Latin list for now because listing
-      it for Arabic means shipping a rebuilt `Rubik-Black.ttf` (the committed
-      one is the old repair's output and still lacks those eight codepoints) and
-      a second catalogue row with Arabic-measured numbers — 0.5 and 0.9, not the
-      0.46 and 1 below, which are Latin's. That is a change to what the product
-      offers, and it is Osama's to make. Its Arabic is complete: all 28 letters,
-      every hamza form, the harakat, the Arabic-Indic digits and the
-      punctuation; what it lacks against Cairo is thirteen Urdu and Persian
-      letters, which are not Arabic.
+      So the box was ours. The rebuilt `Rubik-Black.ttf` (this repair's
+      output: 125 presentation forms filled, U+FEFB/FEFC among them) now ships,
+      and the Arabic row lives at the end of the Arabic list with numbers
+      measured through libass — 0.5 and 0.9, exactly the estimate this note
+      used to carry, but measured rather than copied. The brief (تكليف ٠١ هـ)
+      is what made the call. Its Arabic is complete: all 28 letters, every
+      hamza form, the harakat, the Arabic-Indic digits and the punctuation;
+      what it lacks against Cairo is thirteen Urdu and Persian letters, which
+      are not Arabic.
 
       The lesson the old note drew is still right, and worth keeping: the checks
       at the time drew isolated letters and measured heights, and Rubik passed
@@ -242,6 +242,28 @@ export const CAPTION_FACES: readonly CaptionFace[] = [
     capRatio: 0.52,
     widthScale: 0.95,
     note: "طويل ومتّزن. أقرب إلى النصوص منه إلى العناوين.",
+  },
+  /*
+    The second row over Rubik's one file — the gap the long note above closes.
+
+    The rebuilt `Rubik-Black.ttf` carries the repaired cmap (125 presentation
+    forms filled, lam-alef's U+FEFB/FEFC among them), so the face finally
+    draws لا and earns its Arabic listing. The numbers are measured through
+    libass exactly as `tools/font-test.mjs` measures them, not copied from
+    the estimate: alef ink 50px at nominal 100 → capRatio 0.5; per-cap width
+    0.881 of Cairo's baseline → declared 0.9, rounded up per the one-sided
+    rule (a scale too small runs past the safe area; too large costs only a
+    line break).
+  */
+  {
+    id: "rubik-black-arabic",
+    label: "Rubik Black عربي",
+    script: "arabic",
+    family: "Rubik Black",
+    file: "Rubik-Black.ttf",
+    capRatio: 0.5,
+    widthScale: 0.9,
+    note: "مستدير الزوايا ولاتيني الروح. عربيّته كاملة الحروف بعد إصلاح الخريطة.",
   },
 ];
 

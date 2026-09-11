@@ -117,13 +117,12 @@ FACES = [
     ("noto-kufi-black", "Noto Kufi Arabic Black", "ofl/notokufiarabic/NotoKufiArabic%5Bwght%5D.ttf", "ofl/notokufiarabic", {"wght": 900}),
     ("alexandria-extrabold", "Alexandria ExtraBold", "ofl/alexandria/Alexandria%5Bwght%5D.ttf", "ofl/alexandria", {"wght": 800}),
 
-    # Latin only, and the reason written here was wrong: Rubik does have the
-    # lam-alef ligature, for plain alef, in both its forms. What it did not have
-    # was a codepoint pointing at it, because `facerepair.py` looked the
-    # ligature up under the base glyph names and no font keys it that way. That
-    # is fixed; the file committed under `fonts/` is the old repair's output and
-    # still lacks those eight codepoints, so it stays Latin here until it is
-    # rebuilt and a second row is measured for it. See the note in `fonts.ts`.
+    # Both scripts now. The reason it was Latin-only for a while is written in
+    # `fonts.ts`: `facerepair.py` looked the lam-alef ligature up under the
+    # base glyph names, no font keys it that way, and the committed file was
+    # that broken repair's output. The file under `fonts/` is rebuilt with the
+    # fixed repair (125 presentation forms, U+FEFB/FEFC among them) and the
+    # catalogue carries a second, Arabic-measured row over the same file.
     ("rubik-black", "Rubik Black", "ofl/rubik/Rubik%5Bwght%5D.ttf", "ofl/rubik", {"wght": 900}),
 ]
 
