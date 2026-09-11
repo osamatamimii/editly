@@ -80,10 +80,16 @@ export interface CaptionLayout {
   capHeight: number;
   marginL: number;
   marginR: number;
-  /** Distance from the bottom edge, for bottom-centred alignment. */
+  /**
+   * Vertical margin. For alignment 2 (bottom-centre) it is the distance from
+   * the bottom edge; for 8 (top-centre) from the top; for 5 (dead centre)
+   * libass ignores it.
+   */
   marginV: number;
-  /** 2 is bottom-centre in ASS. */
+  /** 2 bottom-centre, 5 centre, 8 top-centre. */
   alignment: number;
+  /** Where the block sits, kept beside the ASS spelling of the same fact. */
+  position: CaptionPosition;
   /** Width the text may occupy, after both margins. */
   usableWidth: number;
   /** How many characters fit on one line at this size and width. */
@@ -631,12 +637,32 @@ export function nominalSizeFor(face: CaptionFace, layout: CaptionLayout): number
   return Math.round(layout.capHeight / face.capRatio);
 }
 
+/** The three places a caption may sit, and the three type sizes it may take. */
+export type CaptionPosition = "bottom" | "middle" | "top";
+export type CaptionSize = "s" | "m" | "l";
+
+/**
+ * Three steps rather than a free number: a free pixel size breaks the layout
+ * maths and gives a person nothing three named steps do not. The steps are
+ * multipliers on the measured default, so every face and frame keeps its own
+ * proportions.
+ */
+const SIZE_MULTIPLIER: Record<CaptionSize, number> = { s: 0.8, m: 1, l: 1.25 };
+
 export function captionLayout(
   frame: { width: number; height: number },
   platform: Platform | null | undefined,
+  options: { position?: CaptionPosition; size?: CaptionSize; boost?: number } = {},
 ): CaptionLayout {
+  const position: CaptionPosition = options.position ?? "bottom";
   const safe = safeAreaFor(platform);
-  const capHeight = Math.min(frame.width, frame.height) * CAP_FRACTION_OF_SHORT_SIDE;
+  const capHeight =
+    Math.min(frame.width, frame.height) *
+    CAP_FRACTION_OF_SHORT_SIDE *
+    SIZE_MULTIPLIER[options.size ?? "m"] *
+    // The style's own scale — the loud looks are drawn larger everywhere
+    // they appear. Bounded, because a boost is a taste and a runaway is not.
+    Math.min(1.4, Math.max(0.7, options.boost ?? 1));
   const fontSize = Math.round(capHeight / DEFAULT_FACES.latin.capRatio);
 
   // Both margins take the rail's width so the block stays centred in the frame
@@ -646,9 +672,20 @@ export function captionLayout(
   const sideMargin = Math.ceil(frame.width * Math.max(safe.side, safe.rail));
   const usableWidth = Math.max(frame.width * 0.3, frame.width - sideMargin * 2);
 
-  // Sit the caption just above the platform's furniture, plus a small breath so
-  // it does not appear to rest on it.
-  const marginV = Math.ceil(frame.height * safe.bottom + capHeight * 0.54);
+  /*
+    The vertical margin, measured from the edge the alignment reads it from.
+
+    Bottom: just above the platform's furniture, plus a small breath so the
+    caption does not appear to rest on it. Top: the mirror of that against
+    the platform's top strip. Middle: libass centres and ignores the margin,
+    which is the point — the middle of the frame belongs to no furniture on
+    any platform this renders for.
+  */
+  const marginV =
+    position === "top"
+      ? Math.ceil(frame.height * safe.top + capHeight * 0.54)
+      : Math.ceil(frame.height * safe.bottom + capHeight * 0.54);
+  const alignment = position === "top" ? 8 : position === "middle" ? 5 : 2;
 
   const maxCharsPerLine = Math.max(8, Math.floor(usableWidth / (capHeight * ADVANCE_PER_CAP)));
 
@@ -664,7 +701,8 @@ export function captionLayout(
     marginL: sideMargin,
     marginR: sideMargin,
     marginV,
-    alignment: 2,
+    alignment,
+    position,
     usableWidth: Math.round(usableWidth),
     maxCharsPerLine,
     maxLines,
@@ -684,11 +722,28 @@ export function collidesWithFurniture(
 ): boolean {
   const safe = safeAreaFor(platform);
   const boxHeight = captionBlockHeight(layout, lines);
-  const boxBottom = layout.marginV;
-  const boxTop = boxBottom + boxHeight;
 
   const bottomForbidden = frame.height * safe.bottom;
   const topForbidden = frame.height * safe.top;
+
+  /*
+    Where the block's two edges land depends on which edge the margin is
+    measured from — the position option made that three cases rather than
+    one, and the watermark note in the brief is exactly this check's job: a
+    top-centred caption and top-right furniture can now actually meet.
+  */
+  let boxBottom: number;
+  let boxTop: number;
+  if (layout.position === "top") {
+    boxTop = frame.height - layout.marginV;
+    boxBottom = boxTop - boxHeight;
+  } else if (layout.position === "middle") {
+    boxBottom = (frame.height - boxHeight) / 2;
+    boxTop = boxBottom + boxHeight;
+  } else {
+    boxBottom = layout.marginV;
+    boxTop = boxBottom + boxHeight;
+  }
 
   if (boxBottom < bottomForbidden) return true;
   if (frame.height - boxTop < topForbidden) return true;

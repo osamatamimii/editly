@@ -4280,9 +4280,25 @@ components:
                   $ref: "#/components/schemas/CaptionWord"
             required: [startMs, endMs, text]
         style:
+          description: >
+            A named look, each a complete tuned combination rendered and
+            measured in both scripts — hormozi (uppercase, heavy edge, green
+            stressed word), beast (yellow with a red stressed word), pill (a
+            box travelling word to word behind the voice), neon (glowing
+            edge), clean (a quiet lower-third), bubble (thick dark rind).
           type: string
-          enum: [bold-white, bold-yellow, karaoke-box]
+          enum: [bold-white, bold-yellow, karaoke-box, hormozi, beast, pill, neon, clean, bubble]
           default: bold-white
+        position:
+          description: Where the caption block sits in the frame.
+          type: string
+          enum: [bottom, middle, top]
+          default: bottom
+        size:
+          description: Three steps on the measured default size, not a free number.
+          type: string
+          enum: [s, m, l]
+          default: m
         animation:
           type: string
           enum: [none, pop, karaoke, kinetic]
@@ -4301,9 +4317,25 @@ components:
           type: string
           enum: [autoCaptions]
         style:
+          description: >
+            A named look, each a complete tuned combination rendered and
+            measured in both scripts — hormozi (uppercase, heavy edge, green
+            stressed word), beast (yellow with a red stressed word), pill (a
+            box travelling word to word behind the voice), neon (glowing
+            edge), clean (a quiet lower-third), bubble (thick dark rind).
           type: string
-          enum: [bold-white, bold-yellow, karaoke-box]
+          enum: [bold-white, bold-yellow, karaoke-box, hormozi, beast, pill, neon, clean, bubble]
           default: bold-white
+        position:
+          description: Where the caption block sits in the frame.
+          type: string
+          enum: [bottom, middle, top]
+          default: bottom
+        size:
+          description: Three steps on the measured default size, not a free number.
+          type: string
+          enum: [s, m, l]
+          default: m
         animation:
           type: string
           enum: [none, pop, karaoke, kinetic]

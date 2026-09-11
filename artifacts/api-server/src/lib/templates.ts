@@ -138,7 +138,14 @@ export function evenlySpacedPunches(durationSeconds: number | null, count: numbe
  * nobody read before it went out.
  */
 function captions(style: "bold-white" | "bold-yellow" | "karaoke-box") {
-  return { type: "autoCaptions" as const, style, animation: "karaoke" as const, dropFillers: true };
+  return {
+    type: "autoCaptions" as const,
+    style,
+    position: "bottom" as const,
+    size: "m" as const,
+    animation: "karaoke" as const,
+    dropFillers: true,
+  };
 }
 
 export const TEMPLATES: Template[] = [

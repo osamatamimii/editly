@@ -735,7 +735,21 @@ export const BurnCaptionsOperation = z.object({
     )
     .min(1)
     .max(MAX_CAPTION_CUES),
-  style: z.enum(["bold-white", "bold-yellow", "karaoke-box"]).default("bold-white"),
+  /*
+    Named looks, not knobs. The six new names are the shapes people actually
+    ask for — hormozi (uppercase, heavy edge, green stressed word), beast
+    (yellow with a red stressed word), pill (a box travelling word to word
+    behind the voice), neon (glowing edge), clean (a quiet lower third) and
+    bubble (thick comic rind). Each is a complete tuned combination in the
+    worker's catalogue; opening colour and outline as fields would hand the
+    person a mixing desk and lose the guarantee that every combination shown
+    has been rendered and measured.
+  */
+  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "hormozi", "beast", "pill", "neon", "clean", "bubble"]).default("bold-white"),
+  /** Where the block sits. The middle of the frame is most of short-form now. */
+  position: z.enum(["bottom", "middle", "top"]).default("bottom"),
+  /** Three steps on the measured default, not a free number. */
+  size: z.enum(["s", "m", "l"]).default("m"),
   /**
    * `kinetic` is the one that needs the words: each arrives with the voice, and
    * the word the speaker leaned on is drawn in the accent colour and pops. It
@@ -777,7 +791,10 @@ export const BurnCaptionsOperation = z.object({
  */
 export const AutoCaptionsOperation = z.object({
   type: z.literal("autoCaptions"),
-  style: z.enum(["bold-white", "bold-yellow", "karaoke-box"]).default("bold-white"),
+  /* The same catalogue as `burnCaptions`, which this becomes. */
+  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "hormozi", "beast", "pill", "neon", "clean", "bubble"]).default("bold-white"),
+  position: z.enum(["bottom", "middle", "top"]).default("bottom"),
+  size: z.enum(["s", "m", "l"]).default("m"),
   /* Same four as `burnCaptions`, because this becomes one. A value that
      existed on one and not the other would be a plan that validates and then
      silently loses the animation it asked for at the moment the worker

@@ -15,6 +15,7 @@
 import type { EditOperation, EditPlan, Platform } from "@workspace/api-zod";
 import { buildCaptionCues, emphasisPoints } from "./captions";
 import { captionLayout } from "./caption-layout";
+import { CAPTION_STYLES, effectiveCaptionFonts } from "./ffmpeg";
 import { faceById } from "@workspace/api-zod/fonts";
 import { defaultHeightFor, frameFor, shapeFor, probeDuration, loudestSample, SILENT_PEAK_DBFS } from "./ffmpeg";
 import { missingCapabilityNotes, type Providers } from "./providers";
@@ -412,7 +413,14 @@ export async function enrichPlan(
       // Group the words for the space the target platform actually leaves, so
       // the grouping and the final wrap agree instead of fighting each other.
       const platform = platformOf(plan);
-      const layout = captionLayout(referenceFrameFor(platform), platform);
+      // With the same position and size the render will lay out with:
+      // grouping against the default band and drawing into a larger or
+      // higher one would truncate captions the frame had room for.
+      const layout = captionLayout(referenceFrameFor(platform), platform, {
+        position: operation.position,
+        size: operation.size,
+        boost: CAPTION_STYLES[operation.style]?.sizeBoost,
+      });
       const cues = buildCaptionCues(transcript, {
         dropFillers: operation.dropFillers,
         maxCharsPerLine: layout.maxCharsPerLine,
@@ -432,7 +440,12 @@ export async function enrichPlan(
           against the Latin face alone truncated a third to three-quarters of
           Arabic captions.
         */
-        lineWidthInCaps: captionLineBudget(layout, operation.font),
+        // Resolved through the style's own default face, because the
+        // grouping has to measure against the face the render will draw.
+        lineWidthInCaps: captionLineBudget(
+          layout,
+          effectiveCaptionFonts(operation.style, operation.font, operation.fontArabic).latin,
+        ),
         maxLines: layout.maxLines,
       });
       if (cues.length === 0) {
@@ -450,6 +463,8 @@ export async function enrichPlan(
           words: cue.words,
         })),
         style: operation.style,
+        position: operation.position,
+        size: operation.size,
         /*
           The animation is passed through, karaoke included.
 

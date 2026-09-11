@@ -1160,6 +1160,42 @@ console.log("\nA caption block is broken evenly, not greedily");
   );
 }
 
+console.log("\nA caption may sit high or in the middle, and still clears the furniture");
+{
+  /*
+    Position became a choice, so the collision check became three cases: the
+    margin is measured from the bottom for a low block, from the top for a
+    high one, and ignored for a centred one. Every platform, every position,
+    every size step, at the deepest block the layout allows — none may land
+    in the strip the platform draws its own controls over.
+  */
+  for (const platform of ["tiktok", "reels", "shorts", "youtube", "square"]) {
+    const frame = platform === "youtube" ? { width: 1920, height: 1080 } : { width: 1080, height: 1920 };
+    for (const position of ["bottom", "middle", "top"]) {
+      for (const size of ["s", "m", "l"]) {
+        const layout = captionLayout(frame, platform, { position, size });
+        check(
+          `${platform} ${position} ${size} clears the furniture at ${layout.maxLines} lines`,
+          !collidesWithFurniture(layout, frame, platform, layout.maxLines),
+          JSON.stringify({ marginV: layout.marginV, alignment: layout.alignment }),
+        );
+      }
+    }
+  }
+  // And the alignment says what the position says, in ASS's own numbers.
+  const frame = { width: 1080, height: 1920 };
+  check("top is alignment 8", captionLayout(frame, "tiktok", { position: "top" }).alignment === 8);
+  check("middle is alignment 5", captionLayout(frame, "tiktok", { position: "middle" }).alignment === 5);
+  check("bottom stays alignment 2", captionLayout(frame, "tiktok", { position: "bottom" }).alignment === 2);
+  // The size steps really are steps on the measured default.
+  const m = captionLayout(frame, "tiktok", { size: "m" }).capHeight;
+  check(
+    "s and l bracket m the way the table says",
+    Math.abs(captionLayout(frame, "tiktok", { size: "s" }).capHeight / m - 0.8) < 0.01 &&
+      Math.abs(captionLayout(frame, "tiktok", { size: "l" }).capHeight / m - 1.25) < 0.01,
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

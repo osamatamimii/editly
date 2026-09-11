@@ -441,6 +441,93 @@ section("And the pop never pushes a line off the frame");
   );
 }
 
+section("Every named look draws, in both scripts");
+{
+  /*
+    The catalogue grew from three looks to nine, and a style is only real
+    here once it has been rendered and counted — described styles are how a
+    "karaoke-box" shipped that had never drawn a box. One cue per style per
+    script, and the frame must carry ink.
+  */
+  const AR = "الكابشن هو أول ما تراه العين";
+  const EN = "captions are what the eye reads first";
+  for (const style of ["hormozi", "beast", "pill", "neon", "clean", "bubble"]) {
+    for (const [scriptName, text] of [["arabic", AR], ["latin", EN]]) {
+      const { file } = await assFor(cueOf(text.split(" ")), "pop", style);
+      const [sample] = frames(file, [1.5]);
+      check(`${style} draws ink in ${scriptName}`, sample.lit > 200, `${sample.lit} lit`);
+    }
+  }
+}
+
+section("The pill travels with the voice, in the direction the script reads");
+{
+  /*
+    The pill look holds the line still and moves a violet box word to word.
+    Counted rather than trusted: the violet pixels' centre must move as the
+    words do — rightward through an English line, leftward through an Arabic
+    one, because the box follows the voice and the voice follows the script.
+  */
+  const violet = (rgb, width, height) => {
+    let n = 0, sx = 0;
+    for (let y = 0; y < height; y += 2) {
+      for (let x = 0; x < width; x += 2) {
+        const i = (width * y + x) * 3;
+        const r = rgb[i], g = rgb[i + 1], b = rgb[i + 2];
+        if (r > 90 && r < 200 && b > 170 && g < 140) { n += 1; sx += x; }
+      }
+    }
+    return { n, cx: n ? sx / n : -1 };
+  };
+  const rawFrame = (file, second) => {
+    const source = at(`pill-${Math.random().toString(36).slice(2, 8)}.mp4`);
+    ff(["-f", "lavfi", "-i", `color=c=black:s=${FRAME.width}x${FRAME.height}:d=4:r=25`,
+        "-vf", `subtitles=${file.replace(/[\\:']/g, "\\$&")}`, "-frames:v", "100", source]);
+    const run = spawnSync(
+      "ffmpeg",
+      ["-hide_banner", "-nostdin", "-v", "error", "-ss", String(second), "-i", source,
+       "-vf", "format=rgb24", "-frames:v", "1", "-f", "rawvideo", "-"],
+      { maxBuffer: 1 << 28 },
+    );
+    if (run.status !== 0) throw new Error("no frame");
+    return run.stdout;
+  };
+
+  const en = await assFor(cueOf(["one", "two", "three", "four", "five", "six"]), "none", "pill");
+  const enEarly = violet(rawFrame(en.file, 0.3), FRAME.width, FRAME.height);
+  const enLate = violet(rawFrame(en.file, 2.7), FRAME.width, FRAME.height);
+  check("the violet box exists early and late in an English line", enEarly.n > 60 && enLate.n > 60, `${enEarly.n}/${enLate.n}`);
+  check("and it travels rightward as the words are said", enLate.cx > enEarly.cx + 20, `${Math.round(enEarly.cx)} -> ${Math.round(enLate.cx)}`);
+
+  const ar = await assFor(cueOf(["كلمة", "ثانية", "ثالثة", "رابعة", "خامسة", "سادسة"]), "none", "pill");
+  const arEarly = violet(rawFrame(ar.file, 0.3), FRAME.width, FRAME.height);
+  const arLate = violet(rawFrame(ar.file, 2.7), FRAME.width, FRAME.height);
+  check("the violet box exists early and late in an Arabic line", arEarly.n > 60 && arLate.n > 60, `${arEarly.n}/${arLate.n}`);
+  check("and it travels leftward, because that is the way the line reads", arLate.cx < arEarly.cx - 20, `${Math.round(arEarly.cx)} -> ${Math.round(arLate.cx)}`);
+}
+
+section("The loud looks are upper-case before they are measured");
+{
+  /*
+    A source property rather than a render one, because the transform lives
+    at the burn site on purpose: capitals run wider than the lower case they
+    replace, so the upper-casing must happen before `wrapToLayout` measures
+    — transforming after the wrap would overflow the band the layout
+    reserved. The render harness here calls `writeSubtitleFile` directly and
+    so cannot see that site; the source can.
+  */
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(path.join(repoRoot, "artifacts/worker/src/ffmpeg.ts"), "utf8");
+  check(
+    "the burn site upper-cases through the style spec before wrapping",
+    /styleSpec\?\.uppercase[\s\S]{0,300}toUpperCase\(\)[\s\S]{0,600}wrapToLayout\(cased/.test(source),
+  );
+  check(
+    "and the styles that want it say so in the catalogue",
+    /"hormozi": \{[\s\S]{0,700}uppercase: true/.test(source) && /"beast": \{[\s\S]{0,700}uppercase: true/.test(source),
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);

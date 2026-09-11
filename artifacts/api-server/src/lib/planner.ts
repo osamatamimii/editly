@@ -138,6 +138,8 @@ function buildSchema(assets: PlannerAsset[]) {
             "platform",
             "captionStyle",
             "captionAnimation",
+            "captionPosition",
+            "captionSize",
             "zoomTo",
             "punchAmount",
             "minSilenceMs",
@@ -177,8 +179,17 @@ function buildSchema(assets: PlannerAsset[]) {
              */
             cutFillers: { type: ["boolean", "null"] },
             cutRepeats: { type: ["boolean", "null"] },
-            captionStyle: { type: ["string", "null"], enum: ["bold-white", "bold-yellow", "karaoke-box", null] },
+            captionStyle: {
+              type: ["string", "null"],
+              enum: [
+                "bold-white", "bold-yellow", "karaoke-box",
+                "hormozi", "beast", "pill", "neon", "clean", "bubble",
+                null,
+              ],
+            },
             captionAnimation: { type: ["string", "null"], enum: ["none", "pop", "karaoke", "kinetic", null] },
+            captionPosition: { type: ["string", "null"], enum: ["bottom", "middle", "top", null] },
+            captionSize: { type: ["string", "null"], enum: ["s", "m", "l", null] },
             /** 1.02–1.5. How far a slow push travels. */
             zoomTo: { type: ["number", "null"] },
             /** 0.02–0.6. How hard a punch hits. */
@@ -356,6 +367,14 @@ function instructionFor(assets: PlannerAsset[]): string {
     "0.25). It only does anything when there are cuts to join, so it goes with removeSilence.",
     "If they just say 'transitions' with nothing else, choose fade and a dissolve transition.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
+    "captionStyle is a named look: bold-white and bold-yellow are heavy outlined text, karaoke-box is an opaque",
+    "bar, hormozi is uppercase with a thick edge and a green stressed word, beast is loud yellow with a red",
+    "stressed word, pill holds a white line still while a coloured box travels word to word with the voice, neon",
+    "has a glowing edge, clean is a quiet lower-third, bubble is white letters in a thick dark rind. Choose the",
+    "named look when they name it or describe it; otherwise bold-white.",
+    "captionPosition is bottom, middle or top of the frame - middle when they ask for captions in the middle or",
+    "centre of the screen, top when they want them up top. Default bottom. captionSize is s, m or l - l when",
+    "they ask for big captions, s for small. Default m.",
     "captionAnimation is how the caption behaves: none is a plain fade, pop grows the whole caption in on entry,",
     "karaoke wipes a fill across each word as it is spoken, and kinetic reveals each word as it is said and draws",
     "the word the speaker leaned on larger and in the accent colour. Choose karaoke when they ask for word by word",
@@ -699,6 +718,8 @@ function toOperation(
         return {
           type,
           style: raw["captionStyle"] ?? "bold-white",
+          position: raw["captionPosition"] ?? "bottom",
+          size: raw["captionSize"] ?? "m",
           animation: raw["captionAnimation"] ?? "pop",
           dropFillers: true,
         };

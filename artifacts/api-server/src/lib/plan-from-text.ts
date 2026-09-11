@@ -600,6 +600,27 @@ const KARAOKE_WORDS =
 const YELLOW_WORDS = /\byellow|gold\b|أصفر|اصفر|ذهبي/i;
 
 /**
+ * The named looks, asked for by name — in both languages, because a style a
+ * person cannot reach from an Arabic sentence does not exist for half the
+ * product. Checked before the older colour words: somebody who says
+ * «هرموزي» has said something more specific than "yellow".
+ */
+const CAPTION_STYLE_WORDS: Array<[RegExp, "hormozi" | "beast" | "pill" | "neon" | "clean" | "bubble"]> = [
+  [/hormozi|هرموزي|هورموزي/i, "hormozi"],
+  [/\bbeast\b|بيست|مستر بيست/i, "beast"],
+  [/خلف الكلمة|صندوق الكلمة|word pill|pill caption|box behind/i, "pill"],
+  [/\bneon\b|نيون|متوهج/i, "neon"],
+  [/\bminimal\b|\bclean caption|كابشن هادئ|كابشن بسيط/i, "clean"],
+  [/\bbubble\b|فقاع/i, "bubble"],
+];
+/** Where the caption sits, said the way people say it. */
+const CAPTION_TOP_WORDS = /كابشن فوق|الكابشن فوق|فوق الشاشة|أعلى الشاشة|اعلى الشاشة|captions? (?:at|on) top|top of the screen/i;
+const CAPTION_MIDDLE_WORDS = /وسط الشاشة|منتصف الشاشة|نص الشاشة|middle of the screen|center(?:ed)? captions?|captions? in the (?:centre|center|middle)/i;
+/** The three sizes, in the words that mean them. */
+const CAPTION_BIG_WORDS = /كابشن كبير|الكابشن كبير|كبّر الكابشن|كبر الكابشن|big captions?|large captions?|bigger captions?/i;
+const CAPTION_SMALL_WORDS = /كابشن صغير|الكابشن صغير|صغّر الكابشن|صغر الكابشن|small(?:er)? captions?/i;
+
+/**
  * Asking for the strongest stretch, in the ways people actually ask.
  *
  * "highlight" alone is deliberately not enough — KARAOKE_WORDS above already
@@ -1194,7 +1215,11 @@ export function planFromText(
   if (CAPTION_WORDS.test(text) && !wantsTranslation && !refusesCaptions) {
     operations.push({
       type: "autoCaptions",
-      style: KARAOKE_WORDS.test(text) ? "karaoke-box" : YELLOW_WORDS.test(text) ? "bold-yellow" : "bold-white",
+      style:
+        CAPTION_STYLE_WORDS.find(([words]) => words.test(text))?.[1] ??
+        (KARAOKE_WORDS.test(text) ? "karaoke-box" : YELLOW_WORDS.test(text) ? "bold-yellow" : "bold-white"),
+      position: CAPTION_TOP_WORDS.test(text) ? "top" : CAPTION_MIDDLE_WORDS.test(text) ? "middle" : "bottom",
+      size: CAPTION_BIG_WORDS.test(text) ? "l" : CAPTION_SMALL_WORDS.test(text) ? "s" : "m",
       /*
         Karaoke first, and the order is the decision.
 

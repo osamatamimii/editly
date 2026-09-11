@@ -968,16 +968,129 @@ interface CaptionColours {
   borderStyle: number;
   outlineWidth: number;
   shadow: number;
+  /**
+   * The colour a stressed word takes, as a `\c` tag wants it
+   * (`&HBBGGRR&`). Part of the style rather than a table beside it, because
+   * emphasis that clashes with the body is the style's problem to solve.
+   */
+  accent: string;
+  /** Override tags opening every event — the neon glow is a `\blur`. */
+  tags?: string;
+  /**
+   * Latin lines are upper-cased before they are measured and wrapped.
+   * Arabic has no case, and `toUpperCase` leaves it byte-for-byte alone, so
+   * the transform is safe to apply to a whole track.
+   */
+  uppercase?: boolean;
+  /**
+   * Word-by-word highlight: the word being spoken gets a filled box behind
+   * it while the rest of the line holds still. Measured before it was
+   * designed: libass draws a BorderStyle-3 box **per layout run**, and an
+   * alpha override starts a new run — so one extra event per word, with
+   * every other word's fill and box made transparent, puts a box behind
+   * exactly the word that is being said. `box` fills it, `ink` is the word's
+   * own colour while it is inside.
+   */
+  pill?: { box: string; ink: string };
+  /** What this style animates like when the plan does not say. */
+  defaultAnimation?: "none" | "pop" | "karaoke" | "kinetic";
+  /**
+   * The style's own scale on the measured default size, on top of the
+   * person's s/m/l. The loud looks are drawn larger by everyone who draws
+   * them — a hormozi caption at subtitle size is not the look — and folding
+   * it into the layout keeps the band maths and the furniture checks honest,
+   * which a raw font-size bump would not.
+   */
+  sizeBoost?: number;
+  /** The faces this style was designed around, used when the plan names none. */
+  defaultFont?: { latin: string; arabic: string };
 }
 
+/**
+ * The style catalogue. Named looks, not knobs: each entry is a complete,
+ * tuned combination, and the six new ones are built from what actually runs
+ * on the platforms today (researched, then rendered, then kept) — the
+ * uppercase heavy-stroke look with a green accent that Hormozi made a genre,
+ * the saturated yellow-with-red of the Beast school, the word-by-word pill
+ * that Opus and Submagic call karaoke, a neon edge, a quiet lower-third, and
+ * a comic bubble. ASS colours are &HAABBGGRR — backwards from every other
+ * format, and the single easiest thing in this file to get wrong.
+ */
 const CAPTION_COLOURS: Record<string, CaptionColours> = {
   "bold-white": {
     primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&HA0000000",
     borderStyle: 1, outlineWidth: 5, shadow: 2,
+    // Yellow on white.
+    accent: "&H00E5FF&",
   },
   "bold-yellow": {
     primary: "&H0000E5FF", secondary: "&H00FFFFFF", outline: "&H00000000", back: "&HA0000000",
     borderStyle: 1, outlineWidth: 5, shadow: 2,
+    // White on yellow: the same pair, the other way round.
+    accent: "&HFFFFFF&",
+  },
+  /* Uppercase Anton, thick black edge, the stressed word in green: the look
+     a generation learned from Hormozi clips and asks for by name. */
+  "hormozi": {
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&HA0000000",
+    borderStyle: 1, outlineWidth: 4, shadow: 2,
+    accent: "&H5EC522&",
+    uppercase: true,
+    defaultAnimation: "kinetic",
+    sizeBoost: 1.25,
+    defaultFont: { latin: "anton", arabic: "cairo-black" },
+  },
+  /* Saturated yellow with a red stressed word and a heavier edge — the
+     Beast-school look, louder than hormozi on purpose. */
+  "beast": {
+    primary: "&H0000D4FF", secondary: "&H00FFFFFF", outline: "&H00000000", back: "&HA0000000",
+    borderStyle: 1, outlineWidth: 6, shadow: 3,
+    accent: "&H303BFF&",
+    uppercase: true,
+    defaultAnimation: "pop",
+    sizeBoost: 1.15,
+    defaultFont: { latin: "archivo-black", arabic: "changa-extrabold" },
+  },
+  /* White line held still, a violet box travelling word to word behind the
+     voice. The body carries only a soft shadow: the pill is the emphasis and
+     an outline under it would double the edges. */
+  "pill": {
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&H80000000",
+    borderStyle: 1, outlineWidth: 1, shadow: 2,
+    accent: "&HF65C8B&",
+    pill: { box: "&H00F65C8B", ink: "&H00FFFFFF" },
+    defaultAnimation: "none",
+  },
+  /* White core, cyan edge, and the edge alone is blurred into a glow — libass
+     blurs the border when there is one, which is exactly the neon trick. */
+  "neon": {
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00EED322", back: "&H00000000",
+    borderStyle: 1, outlineWidth: 2, shadow: 0,
+    accent: "&H00D4FF&",
+    tags: "\\blur5",
+    defaultAnimation: "pop",
+    sizeBoost: 1.2,
+    defaultFont: { latin: "bebas-neue", arabic: "tajawal-black" },
+  },
+  /* The quiet one: sentence case, a thin dark edge and a small shadow, sat
+     low. For the person who wants subtitles rather than a performance. */
+  "clean": {
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&H96000000",
+    borderStyle: 1, outlineWidth: 2, shadow: 2,
+    accent: "&HEED322&",
+    defaultAnimation: "none",
+    defaultFont: { latin: "poppins-extrabold", arabic: "almarai-extrabold" },
+  },
+  /* White letters in a very thick dark rind — the comic-bubble look. libass
+     rounds its outline joins, which is what keeps a 9px edge friendly
+     rather than spiky. */
+  "bubble": {
+    primary: "&H00FFFFFF", secondary: "&H00A0A0A0", outline: "&H0016100B", back: "&H60000000",
+    borderStyle: 1, outlineWidth: 9, shadow: 0,
+    accent: "&H00D4FF&",
+    defaultAnimation: "pop",
+    sizeBoost: 1.1,
+    defaultFont: { latin: "poppins-extrabold", arabic: "noto-kufi-black" },
   },
   /*
     The box style, with the wipe running the way a wipe runs.
@@ -1006,8 +1119,31 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
       shadow under an opaque box is a second rectangle offset from the first.
     */
     borderStyle: 3, outlineWidth: 6, shadow: 0,
+    accent: "&H00E5FF&",
   },
 };
+
+/** The catalogue, exported for the callers that resolve defaults from it. */
+export const CAPTION_STYLES = CAPTION_COLOURS;
+
+/**
+ * The faces a plan's caption actually renders in: what the plan named, or
+ * what the style was designed around, or the product default — in that
+ * order, per script. One resolver, used by the render and by the grouping,
+ * because two callers deciding this separately is how a track gets grouped
+ * for one face and drawn in another.
+ */
+export function effectiveCaptionFonts(
+  style: string,
+  font: string | undefined,
+  fontArabic: string | undefined,
+): { latin: string | undefined; arabic: string | undefined } {
+  const spec = CAPTION_COLOURS[style];
+  return {
+    latin: font ?? spec?.defaultFont?.latin,
+    arabic: fontArabic ?? spec?.defaultFont?.arabic,
+  };
+}
 
 /**
  * The two style names a cue can be drawn in.
@@ -1021,6 +1157,11 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
  */
 const LATIN_STYLE = "Cap";
 const RTL_STYLE = "CapRtl";
+/* The pill layer's rows: same face, size and margins as the base pair —
+   identical geometry is what lets the two layers land letter on letter —
+   with BorderStyle 3, where `Outline` is the box's padding. */
+const LATIN_PILL_STYLE = "CapBox";
+const RTL_PILL_STYLE = "CapRtlBox";
 
 /**
  * The style row, built from the layout rather than frozen in a string.
@@ -1064,6 +1205,27 @@ function captionStyleRow(
     "-1", "0", "0", "0",      // bold, italic, underline, strikeout
     "100", "100", "0", "0",   // scale x/y, spacing, angle
     String(c.borderStyle), String(c.outlineWidth), String(c.shadow),
+    String(layout.alignment), String(layout.marginL), String(layout.marginR), String(layout.marginV),
+    "1",
+  ].join(",");
+}
+
+/** The pill layer's row: the box behind the word being said. */
+function captionPillRow(
+  name: string,
+  face: CaptionFace,
+  pill: { box: string; ink: string },
+  layout: CaptionLayout,
+): string {
+  return [
+    `Style: ${name}`, face.family, String(nominalSizeFor(face, layout)),
+    pill.ink, pill.ink, pill.box, pill.box,
+    "-1", "0", "0", "0",
+    "100", "100", "0", "0",
+    // BorderStyle 3: `Outline` is the box's padding, and 5 is a little over a
+    // sixth of the cap height at the sizes this renders at. No shadow — a
+    // drop shadow under an opaque box is a second rectangle beside the first.
+    "3", "5", "0",
     String(layout.alignment), String(layout.marginL), String(layout.marginR), String(layout.marginV),
     "1",
   ].join(",");
@@ -1155,22 +1317,6 @@ const POP_RISE_MS = 140;
 const POP_FALL_MS = 160;
 
 /**
- * The colour a stressed word takes, per style.
- *
- * Each one is a colour the style does not already use for its body text —
- * emphasis that matches the rest of the line is not emphasis. ASS colours are
- * `&HAABBGGRR`, which is backwards from every other format and the single
- * easiest thing here to get wrong.
- */
-const EMPHASIS_COLOUR: Record<string, string> = {
-  // Yellow on white.
-  "bold-white": "&H00E5FF&",
-  // White on yellow: the same pair, the other way round.
-  "bold-yellow": "&HFFFFFF&",
-  "karaoke-box": "&H00E5FF&",
-};
-
-/**
  * A style colour as an override tag takes it.
  *
  * The table stores `&HAABBGGRR` because that is what a Style row wants; `\c`
@@ -1188,6 +1334,11 @@ function animateCue(
   style: string,
   kinetic: KineticContext | null,
 ): string {
+  /* The style's own opening tags — the neon glow — go in front of whatever
+     the animation writes, as their own block so nothing has to know about
+     them. Applied by wrapping the return value once, at the end. */
+  const opening = CAPTION_COLOURS[style]?.tags ?? "";
+  const finish = (drawn: string) => (opening ? `{${opening}}${drawn}` : drawn);
   // `wrapToLayout` has already chosen where this cue breaks, for a box that
   // clears the platform's furniture. Those are the lines every animation draws.
   const lines = cue.text
@@ -1312,7 +1463,7 @@ function animateCue(
       // the pieces rather than appended to each of them.
       return pieces.reduce((line_, piece, at) => (at === 0 ? piece : `${line_} ${piece}`), "");
     });
-    return drawn.join("\\N");
+    return finish(drawn.join("\\N"));
   }
 
   if (animation === "kinetic" && kinetic && cue.words && cue.words.length > 0) {
@@ -1357,7 +1508,9 @@ function animateCue(
       }
     }
 
-    const accent = EMPHASIS_COLOUR[style] ?? EMPHASIS_COLOUR["bold-white"];
+    // From the style's own row: emphasis is the style's problem to solve,
+    // and a table beside the catalogue was two places to keep one decision.
+    const accent = colours.accent;
     const remaining = [...words];
     let index = 0;
 
@@ -1424,7 +1577,7 @@ function animateCue(
 
     // No fade *in*: the words reveal themselves, and a fade on top of that is
     // the caption arriving twice.
-    return `{\\fad(0,60)}${drawn.join("\\N")}`;
+    return finish(`{\\fad(0,60)}${drawn.join("\\N")}`);
   }
 
   /*
@@ -1440,10 +1593,10 @@ function animateCue(
   if (animation === "pop" || animation === "kinetic") {
     // Overshoot to 108% then settle. 120ms is short enough to feel snappy and
     // long enough not to strobe.
-    return `{\\fad(60,60)\\fscx70\\fscy70\\t(0,120,\\fscx108\\fscy108)\\t(120,200,\\fscx100\\fscy100)}${body}`;
+    return finish(`{\\fad(60,60)\\fscx70\\fscy70\\t(0,120,\\fscx108\\fscy108)\\t(120,200,\\fscx100\\fscy100)}${body}`);
   }
 
-  return `{\\fad(60,60)}${body}`;
+  return finish(`{\\fad(60,60)}${body}`);
 }
 
 /**
@@ -1579,6 +1732,12 @@ export async function writeSubtitleFile(
     "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
     captionStyleRow(LATIN_STYLE, faces.latin, style, layout),
     captionStyleRow(RTL_STYLE, faces.arabic, style, layout),
+    ...(CAPTION_COLOURS[style]?.pill
+      ? [
+          captionPillRow(LATIN_PILL_STYLE, faces.latin, CAPTION_COLOURS[style]!.pill!, layout),
+          captionPillRow(RTL_PILL_STYLE, faces.arabic, CAPTION_COLOURS[style]!.pill!, layout),
+        ]
+      : []),
     "",
     "[Events]",
     "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -1614,14 +1773,60 @@ export async function writeSubtitleFile(
         })()
       : null;
 
+  const pill = CAPTION_COLOURS[style]?.pill;
   const events = cues
     .filter((c) => c.endMs > c.startMs)
-    .map(
-      (c) =>
-        `Dialogue: 0,${toAssTime(c.startMs)},${toAssTime(c.endMs)},${
-          readsRightToLeft(c.text) ? RTL_STYLE : LATIN_STYLE
-        },,0,0,0,,${animateCue(c, animation, style, kinetic)}`,
-    );
+    .flatMap((c) => {
+      const rtl = readsRightToLeft(c.text);
+      const base = `Dialogue: 0,${toAssTime(c.startMs)},${toAssTime(c.endMs)},${
+        rtl ? RTL_STYLE : LATIN_STYLE
+      },,0,0,0,,${animateCue(c, pill ? "none" : animation, style, kinetic)}`;
+      if (!pill || !c.words || c.words.length === 0) return [base];
+      /*
+        The travelling box: one extra event per word, on layer 1, in the pill
+        row. Each event is the *whole* line with every word but one made
+        transparent — fill, box and shadow alike — so the visible word and
+        its box land exactly where the base layer drew that word, and the
+        pill appears to jump word to word while the line holds still.
+
+        The alpha overrides split the layout runs, which is the mechanism
+        (libass draws the BorderStyle-3 box per run, measured before this was
+        designed) and also the trap: runs are set down left to right whatever
+        the script, so a right-to-left line's runs are laid in reverse — the
+        same finding, for the third time, as karaoke and kinetic above.
+
+        Each word's window runs to the *next* word's start rather than its
+        own end, so the pill rests on the word through the pause after it
+        instead of blinking out mid-sentence.
+      */
+      const lines = c.text.replace(/[{}]/g, "").split(/\r?\n/).filter((line) => line.length > 0);
+      const HIDE = "{\\1a&HFF&\\3a&HFF&\\4a&HFF&}";
+      const SHOW = "{\\1a&H00&\\3a&H00&\\4a&H00&}";
+      const words = c.words;
+      const pillEvents: string[] = [];
+      for (let current = 0; current < words.length; current += 1) {
+        const startMs = Math.max(c.startMs, words[current].startMs);
+        const endMs = Math.min(c.endMs, current + 1 < words.length ? words[current + 1].startMs : c.endMs);
+        if (endMs <= startMs) continue;
+        let index = 0;
+        const drawn = lines.map((line) => {
+          const tokens = line.split(/\s+/).filter(Boolean);
+          const runs = tokens.map((token) => {
+            const at = index;
+            index += 1;
+            return `${at === current ? SHOW : HIDE}${isolate(token)} `;
+          });
+          const ordered = rtl ? [...runs].reverse() : runs;
+          return ordered.join("").trimEnd();
+        });
+        pillEvents.push(
+          `Dialogue: 1,${toAssTime(startMs)},${toAssTime(endMs)},${
+            rtl ? RTL_PILL_STYLE : LATIN_PILL_STYLE
+          },,0,0,0,,${drawn.join("\\N")}`,
+        );
+      }
+      return [base, ...pillEvents];
+    });
 
   await writeFile(file, [...header, ...events].join("\n"), "utf8");
 }
@@ -4017,12 +4222,33 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     }));
 
     const subtitlePath = path.join(ctx.workDir, "captions.ass");
-    const layout = captionLayout({ width: frameWidth, height: frameHeight }, reframe?.platform ?? null);
+    const layout = captionLayout({ width: frameWidth, height: frameHeight }, reframe?.platform ?? null, {
+      position: captions.position,
+      size: captions.size,
+      boost: CAPTION_STYLES[captions.style]?.sizeBoost,
+    });
+    /*
+      Uppercase before anything measures. The hormozi and beast looks are
+      upper-case by definition, capitals run wider than the lower case they
+      replace, and the wrap below measures what it is given — transforming
+      after the wrap would overflow the band the layout reserved. `toUpperCase`
+      leaves Arabic byte-for-byte alone, so the whole track is safe.
+    */
+    const styleSpec = CAPTION_STYLES[captions.style];
+    const cased: CaptionCue[] = styleSpec?.uppercase
+      ? cues.map((c) => ({
+          ...c,
+          text: c.text.toUpperCase(),
+          words: c.words?.map((w) => ({ ...w, text: w.text.toUpperCase() })),
+        }))
+      : cues;
     // Resolved once and passed to both, because the wrapper measures against a
     // face's width and the style row names it: two calls that disagreed about
-    // which face this render uses would wrap for one and draw the other.
-    const faces = facePair({ latin: captions.font, arabic: captions.fontArabic }, ctx.faces?.available);
-    const wrapped = wrapToLayout(cues, layout, faces);
+    // which face this render uses would wrap for one and draw the other. The
+    // style's own default faces answer when the plan named none.
+    const fonts = effectiveCaptionFonts(captions.style, captions.font, captions.fontArabic);
+    const faces = facePair({ latin: fonts.latin, arabic: fonts.arabic }, ctx.faces?.available);
+    const wrapped = wrapToLayout(cased, layout, faces);
     /**
      * Words that did not survive the wrap, said out loud.
      *
@@ -4036,7 +4262,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
      * a real output can still differ from the default height, and when it does
      * the person is told which words are missing rather than left to notice.
      */
-    const trimmed = wrapped.filter((cue, i) => cue.text.endsWith("…") && !cues[i].text.endsWith("…")).length;
+    const trimmed = wrapped.filter((cue, i) => cue.text.endsWith("…") && !cased[i].text.endsWith("…")).length;
     if (trimmed > 0) {
       notes.push(
         t(
