@@ -12,7 +12,7 @@
  * Requires: ffmpeg and ffprobe on PATH.
  */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -2946,6 +2946,118 @@ console.log("\nHDR footage is brought into the range this encoder writes");
       JSON.stringify(out.notes),
     );
   }
+}
+
+console.log("\nA machine with no tone-mapper still ships the file, and says the truth twice");
+{
+  /*
+    The one branch of the HDR block nothing covered: `canTonemap()` false.
+    On a machine whose ffmpeg lacks zscale/tonemap the render must still
+    come out (a degraded picture beats a dead job), the note must say the
+    picture was left as it came, and the tags must keep telling the truth —
+    which in THIS branch means still claiming HDR, because the content is
+    still HLG and stamping bt709 on it would be the lie in the other
+    direction (`BT709_TAGS` are pushed only when the map actually ran).
+
+    Exercised for real rather than by mocking the probe: `FFMPEG_PATH` is
+    read at module load, so a child process gets a shim ffmpeg whose
+    `-filters` output has zscale and tonemap grepped out and which passes
+    every other invocation straight through. The pipeline in the child is
+    the same bundle this whole suite runs.
+  */
+  const dir = await scratch();
+  const shim = path.join(dir, "ffmpeg");
+  writeFileSync(
+    shim,
+    // Not `exec cmd | grep`: exec inside a pipeline replaces only that
+    // pipeline's subshell, the loop then falls through, and the last line
+    // runs the real -filters a second time, unfiltered. Measured: the shim's
+    // output contained every line twice, one set with tonemap intact.
+    [
+      "#!/bin/sh",
+      'for a in "$@"; do',
+      '  if [ "$a" = "-filters" ]; then',
+      "    /usr/bin/ffmpeg \"$@\" | grep -Ev ' (zscale|tonemap) '",
+      "    exit 0",
+      "  fi",
+      "done",
+      'exec /usr/bin/ffmpeg "$@"',
+      "",
+    ].join("\n"),
+  );
+  spawnSync("chmod", ["+x", shim]);
+
+  const hlg = path.join(dir, "hlg.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=2",
+    "-pix_fmt", "yuv420p",
+    "-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", hlg,
+  ]);
+
+  const probe = path.join(dir, "no-tonemap.mjs");
+  writeFileSync(
+    probe,
+    [
+      `import { pathToFileURL } from "node:url";`,
+      `const { renderPlan } = await import(pathToFileURL(${JSON.stringify(modulePath)}).href);`,
+      `import { mkdirSync } from "node:fs";`,
+      `const work = process.argv[2];`,
+      `mkdirSync(work, { recursive: true });`,
+      `const out = await renderPlan(${JSON.stringify(hlg)},`,
+      `  { version: 1, operations: [{ type: "normalizeLoudness", targetLufs: -14 }] },`,
+      `  { workDir: work });`,
+      `console.log(JSON.stringify({ output: out.output, notes: out.notes }));`,
+    ].join("\n"),
+  );
+  const child = spawnSync("node", [probe, path.join(dir, "work-shim")], {
+    encoding: "utf8",
+    env: { ...process.env, FFMPEG_PATH: shim },
+  });
+  let degraded = null;
+  try {
+    degraded = JSON.parse(child.stdout.trim().split("\n").pop());
+  } catch {
+    /* fall through to the checks, which will say what happened */
+  }
+  check(
+    "the render survives the missing filter",
+    degraded !== null && existsSync(degraded.output),
+    child.stderr?.slice(-300) ?? "no output",
+  );
+  check(
+    "and the person is told the picture was left as it came",
+    degraded !== null && degraded.notes.some((n) => /no tone-mapping filter|left as it came/.test(n)),
+    degraded ? JSON.stringify(degraded.notes) : "",
+  );
+  if (degraded !== null) {
+    // ffprobe prints stream fields in its own order, not the request's:
+    // measured, the transfer comes first whatever the -show_entries says.
+    const [transfer, primaries] = ffprobe(
+      degraded.output,
+      "stream=color_primaries,color_transfer",
+      ["-select_streams", "v:0"],
+    );
+    check(
+      "and the tags keep telling the truth: still HDR, because the content still is",
+      transfer === "arib-std-b67" && primaries === "bt2020",
+      `${primaries}/${transfer}`,
+    );
+  }
+  // The shim is a shim, not a broken ffmpeg: the same child pipeline with the
+  // real binary maps the same file, which is what proves the degradation came
+  // from the missing filters and not from the harness.
+  const witness = spawnSync("node", [probe, path.join(dir, "work-real")], { encoding: "utf8", env: { ...process.env, FFMPEG_PATH: "/usr/bin/ffmpeg" } });
+  let mapped = null;
+  try {
+    mapped = JSON.parse(witness.stdout.trim().split("\n").pop());
+  } catch { /* checked below */ }
+  check(
+    "while the same pipeline with a whole ffmpeg tone-maps the same file",
+    mapped !== null && mapped.notes.some((n) => /brought into the ordinary range/.test(n)),
+    mapped ? JSON.stringify(mapped.notes) : witness.stderr?.slice(-300) ?? "",
+  );
 }
 
 console.log("\nColour looks are measured on the pixels, not on the filter");
