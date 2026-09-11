@@ -23,8 +23,58 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { db, musicTracksTable } from "@workspace/db";
 import type { MusicMood } from "@workspace/api-zod";
 import { downloadObject, uploadObject } from "./storage";
+import { spawn } from "node:child_process";
 import { beatsOf } from "./beats";
-import { BED_SECONDS, type MusicMaker } from "./providers/music";
+import { guard, LIMITS } from "./deadline";
+import { type MusicMaker } from "./providers/music";
+
+/**
+ * How long an audio file is, asked of the file.
+ *
+ * Its own probe rather than `probeDuration` from the renderer, and the
+ * difference is not style: that one reads a *video* source, and a bed has no
+ * picture in it. Handed an mp3 it answered zero, which this module read as "no
+ * readable audio" and threw every generated bed away — a library that could
+ * never fill itself, with nothing failing anywhere.
+ *
+ * `format=duration` is the container's own answer and is what ffprobe gives
+ * for an audio-only file. Zero on any failure, which the caller treats as a
+ * file that does not play.
+ */
+function audioSeconds(file: string): Promise<number> {
+  return new Promise((resolve) => {
+    const ff = spawn("ffprobe", [
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1",
+      file,
+    ]);
+    /*
+      A deadline, like every other child this worker starts.
+
+      ffprobe on a thirty-second mp3 answers in milliseconds, so this will
+      never fire in practice — which is exactly why it has to be here. The one
+      that wedges is the one nobody expected to, and a child with no deadline
+      holds the render loop open with nothing to report it.
+    */
+    const deadline = guard(ff, { ...LIMITS.analysis, what: "reading the length of a music bed" });
+    let out = "";
+    ff.stdout.on("data", (chunk: Buffer) => {
+      deadline.touch();
+      out += chunk.toString();
+    });
+    ff.on("error", () => {
+      deadline.clear();
+      resolve(0);
+    });
+    ff.on("close", () => {
+      deadline.clear();
+      if (deadline.expired) return resolve(0);
+      const seconds = Number.parseFloat(out.trim());
+      resolve(Number.isFinite(seconds) && seconds > 0 ? seconds : 0);
+    });
+  });
+}
 
 /**
  * Where a bed lives in the bucket.
@@ -151,7 +201,7 @@ async function make(options: {
   const id = randomUUID();
   const file = path.join(workDir, `bed-${id}.mp3`);
 
-  const made = await maker.make({ mood, seconds: BED_SECONDS, file }).catch((error: unknown) => {
+  const made = await maker.make({ mood, file }).catch((error: unknown) => {
     log?.warn({ err: String(error), mood }, "the music generator threw");
     return null;
   });
@@ -169,6 +219,22 @@ async function make(options: {
   const grid = await beatsOf(file).catch(() => null);
   const bpm = grid ? Math.round(grid.bpm * 10) / 10 : null;
 
+  /*
+    And the length, measured for the same reason.
+
+    We never asked for one: Lyria's duration is a property of the model, not a
+    request parameter. So the only number that is true about this file comes
+    out of the file. A bed recorded as thirty seconds because thirty is what
+    the clip model usually makes is a row that will be wrong the first time it
+    is not.
+  */
+  const seconds = await audioSeconds(file);
+  if (!(seconds > 0)) {
+    // Nothing decodable came back. It plays nowhere, so it is not written.
+    log?.warn({ mood }, "a generated bed had no readable duration, so it was discarded");
+    return null;
+  }
+
   const key = bedObjectKey(mood, id);
   try {
     await uploadObject(key, file, "audio/mpeg");
@@ -183,7 +249,7 @@ async function make(options: {
     id,
     mood,
     path: key,
-    seconds: made.seconds,
+    seconds,
     bpm,
     source: maker.name,
     timesUsed: 1,

@@ -272,10 +272,10 @@ function countingMaker(name = "stub") {
   return {
     calls,
     name,
-    async make({ mood, seconds, file }) {
+    async make({ mood, file }) {
       calls.push(mood);
       await realAudio(file);
-      return { file, seconds };
+      return { file };
     },
   };
 }
@@ -346,6 +346,16 @@ section("The tempo is measured, never claimed");
     honestly absent", and for this fixture absent is the right answer.
   */
   check("a bed with no grid in it records no bpm", row === "", `got ${row || "(null)"}`);
+  /*
+    And the length is the file's, not the request's.
+
+    We never ask Lyria for a duration — the model name is the length — so a row
+    saying thirty because thirty is what the clip model usually makes would be
+    a number nobody measured. The fixture is four seconds; if the stored value
+    were the constant, this would read 30.
+  */
+  const stored = Number(psql("select round(seconds::numeric, 1) from music_tracks where mood = 'calm' limit 1"));
+  check("and the stored length was measured from the file", stored > 3.5 && stored < 4.5, String(stored));
   check(
     "and the row records which generator made it, for the day one is recalled",
     psql("select distinct source from music_tracks where mood = 'calm'") === "stub",
@@ -420,14 +430,33 @@ section("The Lyria adapter, against a server that answers like one");
   await realAudio(audioFile);
   const audio = readFileSync(audioFile).toString("base64");
 
+  /*
+    A server that answers the way the real one does, and that is the point of
+    it existing at all.
+
+    The first version of this adapter posted to `/v1beta/models/{model}:generateMusic`
+    and read `{audio:{data}}`, because that is what it was written from —
+    notes, not the live documentation. The real endpoint is `/v1beta/interactions`
+    and the audio is three levels down in `steps[].content[]`. A key added to
+    production would have bought nothing and every render would have said "could
+    not make the bed", truthfully and uselessly.
+
+    So the stub replies in the documented shape, and the checks below assert
+    the *request* as well as the response: what path, what body, what header.
+  */
   let lastRequest = null;
+  const wrap = (data) => JSON.stringify({
+    steps: [
+      { type: "model_output", content: [{ type: "text", data: "verse" }, { type: "audio", data }] },
+    ],
+  });
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
       lastRequest = { url: req.url, headers: req.headers, body: JSON.parse(body || "{}") };
       if (req.url?.includes("empty")) {
-        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ audio: { data: "" } }));
+        res.writeHead(200, { "Content-Type": "application/json" }).end(wrap(""));
         return;
       }
       if (req.url?.includes("tiny")) {
@@ -435,14 +464,20 @@ section("The Lyria adapter, against a server that answers like one");
         // be the right shape, which is the failure worth refusing here rather
         // than handing to ffprobe three steps later.
         res.writeHead(200, { "Content-Type": "application/json" })
-          .end(JSON.stringify({ audio: { data: Buffer.from("not audio!").toString("base64") } }));
+          .end(wrap(Buffer.from("not audio!").toString("base64")));
         return;
       }
       if (req.url?.includes("refuse")) {
         res.writeHead(429).end("{}");
         return;
       }
-      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ audio: { data: audio, mimeType: "audio/mpeg" } }));
+      if (req.url?.includes("convenience")) {
+        // The field the official clients read. Either shape must work.
+        res.writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ output_audio: { data: audio } }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" }).end(wrap(audio));
     });
   });
   await new Promise((r) => server.listen(0, r));
@@ -450,7 +485,7 @@ section("The Lyria adapter, against a server that answers like one");
 
   const lyria = maker.createLyriaMusicMaker({ apiKey: "test-key-not-a-real-one", base, model: "lyria-3-clip-preview" });
   const out = path.join(work, "lyria.mp3");
-  const made = await lyria.make({ mood: "calm", seconds: 30, file: out });
+  const made = await lyria.make({ mood: "calm", file: out });
   check("a well-formed answer becomes a file", made !== null && made.file === out, JSON.stringify(made));
   check("the file really holds the audio", readFileSync(out).length > 1024);
 
@@ -460,19 +495,35 @@ section("The Lyria adapter, against a server that answers like one");
   */
   check("the key is sent as a header", lastRequest.headers["x-goog-api-key"] === "test-key-not-a-real-one");
   check("and never in the path", !lastRequest.url.includes("test-key-not-a-real-one"), lastRequest.url);
-  check("the prompt that was sent is the mood's own", lastRequest.body.prompt.text === maker.promptFor("calm"));
+  check("it posts to the interactions endpoint", lastRequest.url.endsWith("/v1beta/interactions"), lastRequest.url);
+  check("naming the model in the body, which is where this API takes it",
+    lastRequest.body.model === "lyria-3-clip-preview", JSON.stringify(lastRequest.body.model));
+  check("the prompt that was sent is the mood's own", lastRequest.body.input === maker.promptFor("calm"), JSON.stringify(lastRequest.body.input));
+  /*
+    No duration asked for, because this API has no such parameter — the model
+    name is the length. A request carrying one would be a setting that looks
+    like control and is ignored.
+  */
+  check("and no duration is invented", !("durationSeconds" in lastRequest.body) && !lastRequest.body.config,
+    JSON.stringify(lastRequest.body));
   check("and nothing of the customer's goes with it",
     !/video|transcript|user|project|email/i.test(JSON.stringify(lastRequest.body)),
     JSON.stringify(lastRequest.body));
 
   const refused = maker.createLyriaMusicMaker({ apiKey: "k", base: `${base}/refuse` });
-  check("a 429 is no bed rather than a throw", (await refused.make({ mood: "calm", seconds: 30, file: out })) === null);
+  check("a 429 is no bed rather than a throw", (await refused.make({ mood: "calm", file: out })) === null);
 
   const empty = maker.createLyriaMusicMaker({ apiKey: "k", base: `${base}/empty` });
-  check("an empty payload is no bed", (await empty.make({ mood: "calm", seconds: 30, file: out })) === null);
+  check("an empty payload is no bed", (await empty.make({ mood: "calm", file: out })) === null);
 
   const tiny = maker.createLyriaMusicMaker({ apiKey: "k", base: `${base}/tiny` });
-  check("and eleven bytes of JSON is not audio", (await tiny.make({ mood: "calm", seconds: 30, file: out })) === null);
+  check("and eleven bytes of JSON is not audio", (await tiny.make({ mood: "calm", file: out })) === null);
+
+  // Both documented shapes, because a preview API may return either and the
+  // cost of reading only one is a bed that silently never arrives.
+  const convenient = maker.createLyriaMusicMaker({ apiKey: "k", base: `${base}/convenience` });
+  const other = path.join(work, "lyria2.mp3");
+  check("the output_audio shape works too", (await convenient.make({ mood: "calm", file: other })) !== null);
 
   server.close();
 }

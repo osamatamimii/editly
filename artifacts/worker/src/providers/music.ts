@@ -26,8 +26,6 @@ import type { MusicMood } from "@workspace/api-zod";
 
 export interface MusicRequest {
   mood: MusicMood;
-  /** How long a bed to ask for. The model decides whether it can oblige. */
-  seconds: number;
   /** Where to write it. The caller owns the path and the cleanup. */
   file: string;
 }
@@ -42,7 +40,7 @@ export interface MusicMaker {
    * this folder answers null: a bed that could not be made is a worse video,
    * not a failed render. The caller writes a note and carries on.
    */
-  make(request: MusicRequest): Promise<{ file: string; seconds: number } | null>;
+  make(request: MusicRequest): Promise<{ file: string } | null>;
 }
 
 /**
@@ -75,14 +73,24 @@ export function promptFor(mood: MusicMood): string {
 }
 
 /**
- * How long a bed we ask for.
+ * How long a bed is, and why we do not ask.
  *
- * Thirty seconds, looped by the mixer, rather than a bed the length of the
- * video. Three reasons, in order of how much they matter: a looped thirty
- * seconds under speech at -18 dB is indistinguishable from three minutes of
- * through-composed music; the price is per generation and a short one costs
- * less; and a file that serves every video length is a file that can be
- * *reused*, which is the entire economic argument of this module.
+ * Lyria's length is chosen by the *model*, not by a parameter:
+ * `lyria-3-clip-preview` makes thirty-second clips and `lyria-3.5` makes
+ * whole songs. There is no `durationSeconds` in the request and inventing one
+ * would have been a field the API ignores — a setting that looks like control
+ * and is decoration.
+ *
+ * Thirty seconds, looped by the mixer, is the right size anyway, for three
+ * reasons in order of how much they matter: a looped thirty seconds under
+ * speech at -18 dB is indistinguishable from three minutes of through-composed
+ * music; the price is per generation and the clip model is the cheap one; and
+ * a file that serves every video length is a file that can be *reused*, which
+ * is the entire economic argument of this module.
+ *
+ * This is what the clip model produces, kept as the number to compare a
+ * measured duration against — never as the number to record. What lands in
+ * the library is measured from the file.
  */
 export const BED_SECONDS = 30;
 
@@ -95,28 +103,51 @@ interface LyriaOptions {
 }
 
 /**
- * Google's Lyria, through the Gemini API.
+ * Pull the audio out of an interaction response.
  *
- * Chosen over the licensed catalogues after pricing all of them: it is the
- * only provider in the whole search that publishes a number — $0.04 for a
- * thirty-second clip — and sells it self-serve with no contract. Every
- * catalogue that permits redistributing to our customers prices that privately
- * and starts with a sales call, and the one thing this product could not
- * afford was for the music to wait on a negotiation.
- *
- * What it is not: a substitute for a real catalogue. This makes beds, and beds
- * are what a fifteen-second product ad needs. A podcast intro deserves better
- * and should still be the customer's own file.
+ * The shape is `steps[] -> content[] -> {type, data}`, and the walk is written
+ * defensively on purpose: this is a preview API, the response is nested three
+ * deep, and the failure mode of guessing wrong is not an exception — it is
+ * `undefined`, then a zero-byte file, then a render that says it could not
+ * make a bed for a reason nobody can see. `output_audio` is the convenience
+ * field the official clients read; it is tried first and the walk is the
+ * fallback, so a response carrying either one works.
  */
+function audioFrom(body: unknown): string | null {
+  const root = body as {
+    output_audio?: { data?: unknown };
+    steps?: { content?: { type?: unknown; data?: unknown }[] }[];
+  } | null;
+
+  const direct = root?.output_audio?.data;
+  if (typeof direct === "string" && direct.length > 0) return direct;
+
+  for (const step of root?.steps ?? []) {
+    for (const block of step?.content ?? []) {
+      if (block?.type === "audio" && typeof block.data === "string" && block.data.length > 0) {
+        return block.data;
+      }
+    }
+  }
+  return null;
+}
+
 export function createLyriaMusicMaker(options: LyriaOptions): MusicMaker {
+  /*
+    The clip model, not the song model.
+
+    `lyria-3-clip-preview` is thirty seconds and `lyria-3.5` is a whole song of
+    a couple of minutes. A bed wants the first: it loops, it is cheaper, and a
+    song under somebody talking is a song nobody hears the end of.
+  */
   const model = options.model?.trim() || "lyria-3-clip-preview";
   const base = options.base?.trim() || "https://generativelanguage.googleapis.com";
   const doFetch = options.fetchImpl ?? fetch;
 
   return {
     name: `lyria:${model}`,
-    async make({ mood, seconds, file }) {
-      const response = await doFetch(`${base}/v1beta/models/${model}:generateMusic`, {
+    async make({ mood, file }) {
+      const response = await doFetch(`${base}/v1beta/interactions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -125,18 +156,16 @@ export function createLyriaMusicMaker(options: LyriaOptions): MusicMaker {
           "x-goog-api-key": options.apiKey,
         },
         body: JSON.stringify({
-          prompt: { text: promptFor(mood) },
-          config: { durationSeconds: Math.max(5, Math.round(seconds)) },
+          model,
+          input: promptFor(mood),
+          response_format: { type: "audio" },
         }),
       });
 
       if (!response.ok) return null;
 
-      const body = (await response.json().catch(() => null)) as
-        | { audio?: { data?: string; mimeType?: string } }
-        | null;
-      const data = body?.audio?.data;
-      if (typeof data !== "string" || data.length === 0) return null;
+      const data = audioFrom(await response.json().catch(() => null));
+      if (!data) return null;
 
       const bytes = Buffer.from(data, "base64");
       // A response that parsed but carries a handful of bytes is not audio. It
@@ -145,7 +174,16 @@ export function createLyriaMusicMaker(options: LyriaOptions): MusicMaker {
       if (bytes.length < 1024) return null;
 
       await writeFile(file, bytes);
-      return { file, seconds };
+      /*
+        No duration reported, deliberately.
+
+        We did not ask for a length and the model owes us no promise about one,
+        so the only honest number comes from the file. `music-library` measures
+        it before the row is written — the same rule the tempo follows, and for
+        the same reason: a number about audio that did not come from the audio
+        is a number that will be wrong on the day it matters.
+      */
+      return { file };
     },
   };
 }
