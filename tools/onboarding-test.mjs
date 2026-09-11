@@ -279,6 +279,55 @@ section("Storage that throws does not take the dashboard with it");
   check("a browser that refuses storage is treated as not having skipped", /return false;/.test(reads));
 }
 
+section("The ready-made take is real, small, and something the editor can edit");
+{
+  /*
+    The sample the first-run screen offers is the whole answer to "I have no
+    clip handy" — so it has to exist where the button fetches it, fit under
+    the free plan's ceiling (the sample goes through the same `accept()` as a
+    picked file, and a too-big sample would refuse itself), and carry both
+    speech and picture, because every suggested sentence assumes there is
+    something to cut, caption and level.
+  */
+  const { statSync } = await import("node:fs");
+  const { execFileSync } = await import("node:child_process");
+  const samplePath = path.join(repoRoot, "artifacts/editly/public/sample/first-take.mp4");
+  let size = 0;
+  try {
+    size = statSync(samplePath).size;
+  } catch {
+    size = 0;
+  }
+  check("the sample take exists where the button fetches it", size > 0);
+  check("and stays well under the free plan's 50MB door", size > 0 && size < 20 * 1024 * 1024, `${size} bytes`);
+  let probe = { duration: 0, streams: "" };
+  try {
+    const out = execFileSync(
+      "ffprobe",
+      ["-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", samplePath],
+      { encoding: "utf8" },
+    );
+    const parsed = JSON.parse(out);
+    probe = {
+      duration: Number(parsed.format?.duration ?? 0),
+      streams: (parsed.streams ?? []).map((s) => s.codec_type).join(","),
+    };
+  } catch {
+    /* ffprobe missing is reported by the checks below */
+  }
+  check(
+    "it is a short take, not a feature film",
+    probe.duration >= 10 && probe.duration <= 40,
+    `${probe.duration}s`,
+  );
+  check("and it has both picture and speech to edit", probe.streams.includes("video") && probe.streams.includes("audio"), probe.streams);
+  const screen = await read("artifacts/editly/src/pages/onboarding.tsx");
+  check(
+    "the button fetches it only when asked, through the same accept() as a picked file",
+    /sample\/first-take\.mp4/.test(screen) && /accept\(new File\(/.test(screen),
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);

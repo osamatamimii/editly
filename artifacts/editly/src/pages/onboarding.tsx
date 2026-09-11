@@ -134,6 +134,32 @@ export default function Onboarding() {
     setFile(picked);
   };
 
+  /*
+    The sample is a fetch of a static file from our own origin, then an
+    ordinary File object through the same `accept()` every picked file goes
+    through — ceiling check included, so if the sample ever outgrows a plan's
+    limit the person is told rather than stranded on the next screen.
+  */
+  const [fetchingSample, setFetchingSample] = useState(false);
+  const useSampleTake = async () => {
+    setFetchingSample(true);
+    try {
+      const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+      const answer = await fetch(`${base}/sample/first-take.mp4`);
+      if (!answer.ok) throw new Error(String(answer.status));
+      const bytes = await answer.blob();
+      accept(new File([bytes], "sample-podcast-take.mp4", { type: "video/mp4" }));
+    } catch {
+      toast({
+        title: say("Could not fetch the sample", "تعذّر جلب اللقطة التجريبية"),
+        description: say("Please try again in a moment.", "حاول مرّة أخرى بعد قليل."),
+        variant: "destructive",
+      });
+    } finally {
+      setFetchingSample(false);
+    }
+  };
+
   const sentence = (() => {
     if (written.trim()) return written.trim();
     const pick = SUGGESTIONS.find((s) => s.id === chosen);
@@ -287,6 +313,30 @@ export default function Onboarding() {
               data-testid="first-run-file-input"
             />
           </div>
+          {/*
+            The person with no clip ready used to stop at this door — the
+            suggestions below propose sentences, but a sentence needs footage.
+            This hands them a real take (24 seconds of an actual podcast
+            recording, speech and silences and all) as an ordinary File, so
+            everything downstream — the upload, the sentence, the render —
+            runs the true path rather than a special demo one. Fetched only
+            when asked for: it is 5MB that must never ride along with the
+            page.
+          */}
+          {!file && (
+            <button
+              type="button"
+              disabled={fetchingSample}
+              onClick={useSampleTake}
+              className="self-start text-sm text-primary hover:underline disabled:opacity-60 inline-flex items-center gap-2"
+              data-testid="first-run-sample"
+            >
+              {fetchingSample ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              {fetchingSample
+                ? say("Fetching the sample take…", "جاري جلب اللقطة التجريبية…")
+                : say("No clip handy? Try a ready-made take", "ما عندك مقطع جاهز؟ جرّب لقطة جاهزة منّا")}
+            </button>
+          )}
         </section>
 
         {/* ── The sentence ───────────────────────────────────────────────── */}
