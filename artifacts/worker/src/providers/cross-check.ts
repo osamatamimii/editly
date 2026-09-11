@@ -67,19 +67,21 @@ export function createCrossCheckedTranscriber(options: CrossCheckOptions): Trans
         }
 
         if (second.status === "rejected") {
+          const why = whyUnavailable(second.reason);
           return withNotes(first.status === "fulfilled" ? first.value : emptyOf(primary), [
             t(
-              `the second speech model was unavailable (${short(second.reason)}), so the words are as ${primary.name} heard them and were not cross-checked`,
-              `النموذج الثاني للكلام لم يكن متاحًا (${short(second.reason)})، فالكلمات كما سمعها ${primary.name} بلا مقابلة`,
+              `a second reading was not available${why.en}, so the words come from a single pass and were not cross-checked`,
+              `تعذّرت القراءة الثانية${why.ar}، فالكلمات من قراءة واحدة بلا مقابلة`,
             ),
           ]);
         }
 
         if (first.status === "rejected") {
+          const why = whyUnavailable(first.reason);
           return withNotes(second.value, [
             t(
-              `the main speech model was unavailable (${short(first.reason)}), so both the words and the timings come from ${secondary.name} alone`,
-              `النموذج الأساسي للكلام لم يكن متاحًا (${short(first.reason)})، فالكلمات والتوقيتات كلّها من ${secondary.name} وحده`,
+              `the first reading was not available${why.en}, so both the words and the timings come from a single pass`,
+              `تعذّرت القراءة الأولى${why.ar}، فالكلمات والتوقيتات كلّها من قراءة واحدة`,
             ),
           ]);
         }
@@ -161,7 +163,36 @@ function baseLanguage(tag: string): string {
   return tag.toLowerCase().split(/[-_]/)[0];
 }
 
-function short(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.length > 120 ? `${message.slice(0, 117)}…` : message;
+/**
+ * Why a reading did not come back, shaped for a customer note — bilingual,
+ * because these sentences land word for word in the person's chat.
+ *
+ * The one fact a person can act on is the *kind* of failure — was the
+ * service overloaded, so try later, or something else — and nothing more.
+ * The raw error a rejected provider carries is ours to read in a log: a
+ * memory address, a stack frame, a request id or a line of the provider's
+ * own prose in a chat bubble tells the customer nothing and hands them our
+ * internals — and the old note also named the third-party services we run
+ * on. So only the status code is read out of the error, and only when it is
+ * one a person can do something about; the matched text is never echoed, so
+ * nothing else in the message can ride out. Same rule as `enrich.ts`'s
+ * `visionExcuse`, which this deliberately mirrors.
+ *
+ * Ported from another session's fix that was cut against the English-only
+ * version of this file and could not apply here; the behaviour is its, the
+ * bilingual shape is this file's.
+ */
+function whyUnavailable(error: unknown): { en: string; ar: string } {
+  const line = (error instanceof Error ? error.message : String(error)).split("\n")[0];
+  const status = Number(line.match(/\b([45]\d\d)\b/)?.[1] ?? 0);
+  // A rate limit (429) or a service-side error (5xx) is "busy, try again";
+  // any other failure is not something the viewer can act on and gets no
+  // gloss. Only these fixed sentences are ever emitted.
+  if (status === 429 || (status >= 500 && status <= 599)) {
+    return {
+      en: " because the service was busy, and it usually works a little later",
+      ar: " لأن الخدمة كانت مزدحمة، وغالبًا تعود بعد قليل",
+    };
+  }
+  return { en: "", ar: "" };
 }

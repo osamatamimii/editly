@@ -840,7 +840,24 @@ section("The second model is down");
   check("they are the primary's", out.source === "deepgram/nova-3");
   check("confidence is not inflated", flat(out)[0].confidence === 0.9);
   check("and the user is told the check did not happen", (out.notes ?? []).some((n) => /not cross-checked/.test(n)), JSON.stringify(out.notes));
-  check("the error is quoted, not swallowed", (out.notes ?? []).some((n) => /503 upstream/.test(n)));
+  /*
+    The note explains the failure in words a person can act on — a busy
+    service worth retrying — and nothing else. The raw provider line ("503
+    upstream", and worse: memory addresses, stack frames, request ids) is a
+    log line, not a chat bubble, and the old behaviour — asserted right here
+    as "the error is quoted, not swallowed" — pasted it, and the provider's
+    name, into the customer's own conversation.
+  */
+  check(
+    "the note says why in words a person can act on",
+    (out.notes ?? []).some((n) => /busy|usually works/.test(n)),
+    JSON.stringify(out.notes),
+  );
+  check(
+    "and it leaks neither the raw error nor the provider's name",
+    !(out.notes ?? []).some((n) => /503|upstream|deepgram|elevenlabs|nova|scribe/i.test(n)),
+    JSON.stringify(out.notes),
+  );
 }
 
 section("The main model is down");
@@ -853,6 +870,13 @@ section("The main model is down");
   const out = await t.transcribe("/tmp/whatever.mp4");
   check("the second model carries the render", flat(out).length === 5);
   check("and the note says the timings are its own", (out.notes ?? []).some((n) => /timings come from/.test(n)), JSON.stringify(out.notes));
+  // A 402 is not something the viewer can act on: no gloss, and certainly
+  // not the raw line or the provider that produced it.
+  check(
+    "an unactionable failure gets no gloss and no internals",
+    !(out.notes ?? []).some((n) => /402|credit|deepgram|nova/i.test(n)),
+    JSON.stringify(out.notes),
+  );
 }
 
 section("Both are down");
