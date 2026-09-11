@@ -545,6 +545,93 @@ section("The switch switches, and is remembered");
   await context.close();
 }
 
+section("No straight seam crosses the page");
+{
+  /*
+    Osama photographed a faint horizontal line where the stage met the hero —
+    one layer's soft halo cut by its container's edge, another layer's overlay
+    opening mid-value at its first pixel — and said: no separators like this
+    on the platform. This measures for them the way he saw them.
+
+    The page is screenshotted whole and each row's background brightness is
+    sampled in the side margins, where content rarely reaches: a seam runs
+    the entire width including the margins, a card edge does not. A row where
+    both margins step in the same direction, and the step persists for the
+    following rows, is a straight seam.
+
+    The wavy lit horizon is his and stays: anything inside the horizon bands'
+    own boxes is exempt, as are the full-bleed content strips (the marquee of
+    real clips, the footer wordmark) whose edges are pictures, not seams.
+  */
+  const { readPng, luma } = await import(pathToFileURL(path.join(repoRoot, "tools/png-pixels.mjs")).href);
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  await page.goto(ORIGIN + "/", { waitUntil: "networkidle" });
+  await page.waitForTimeout(1200);
+  await page.addStyleTag({
+    content:
+      "*,*::before,*::after{transition:none!important;animation:none!important}.reveal{opacity:1!important;filter:none!important;transform:none!important}",
+  });
+  const pageHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+  for (let y = 0; y < pageHeight; y += 800) {
+    await page.evaluate((v) => window.scrollTo(0, v), y);
+    await page.waitForTimeout(40);
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(300);
+
+  const exempt = await page.evaluate(() => {
+    const boxes = [];
+    for (const selector of [".clip-marquee", ".horizon", ".horizon-band", ".wordmark-band", ".footer-field", "video", "img"]) {
+      for (const el of document.querySelectorAll(selector)) {
+        const rect = el.getBoundingClientRect();
+        boxes.push([rect.top + window.scrollY - 12, rect.bottom + window.scrollY + 12]);
+      }
+    }
+    return boxes;
+  });
+
+  const shot = await page.screenshot({ fullPage: true, animations: "disabled", timeout: 600000 });
+  const img = readPng(shot);
+  const stripMean = (y, x0, x1) => {
+    let sum = 0;
+    let n = 0;
+    for (let x = x0; x < x1; x += 4) {
+      sum += luma(img.at(x, y));
+      n += 1;
+    }
+    return sum / n;
+  };
+  const left = [];
+  const right = [];
+  for (let y = 0; y < img.height; y += 1) {
+    left.push(stripMean(y, 24, 120));
+    right.push(stripMean(y, img.width - 120, img.width - 24));
+  }
+  const SEAM = 2.2;
+  const seams = [];
+  for (let y = 8; y < img.height - 8; y += 1) {
+    if (exempt.some(([top, bottom]) => y >= top && y <= bottom)) continue;
+    const stepL = left[y + 1] - left[y - 1];
+    const stepR = right[y + 1] - right[y - 1];
+    if (Math.abs(stepL) < SEAM || Math.abs(stepR) < SEAM) continue;
+    if (Math.sign(stepL) !== Math.sign(stepR)) continue;
+    const mean = (list, a, b) => list.slice(a, b).reduce((s, v) => s + v, 0) / (b - a);
+    const heldL = mean(left, y + 2, y + 9) - mean(left, y - 8, y - 1);
+    const heldR = mean(right, y + 2, y + 9) - mean(right, y - 8, y - 1);
+    if (Math.abs(heldL) < SEAM || Math.abs(heldR) < SEAM) continue;
+    if (Math.sign(heldL) !== Math.sign(heldR)) continue;
+    if (seams.length === 0 || y - seams[seams.length - 1].y > 4) seams.push({ y, held: +heldL.toFixed(2) });
+    else seams[seams.length - 1].y = y;
+  }
+  check(
+    "no straight full-width seam survives outside the exempted picture strips",
+    seams.length === 0,
+    seams.map((s) => `y=${s.y} step=${s.held}`).join(", "),
+  );
+  await context.close();
+}
+
 await browser.close();
 server.close();
 await rm(buildDir, { recursive: true, force: true });

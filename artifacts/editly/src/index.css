@@ -2513,7 +2513,17 @@ html[data-page-theme="light"] body {
   position: relative;
   width: 100%;
   height: clamp(520px, 54vw, 780px);
-  overflow: hidden;
+  /*
+    No clip on the stage itself. The phone carries a wide soft halo, and a
+    halo cut by its container's edge is a straight line of light across the
+    page — Osama photographed exactly that line at the stage's top and asked
+    for it gone. The only thing that actually overflows this box is the
+    marquee track, and it clips itself (see .clip-marquee), so the stage can
+    let its light dissolve into the sections above and below it the way
+    light does. `landing-test` now walks the whole rendered page looking for
+    straight full-width seams, so a clip reintroduced here would fail before
+    it shipped.
+  */
 }
 
 /* The row of work. A single track holding every card twice, translating its
@@ -2525,6 +2535,13 @@ html[data-page-theme="light"] body {
   inset-inline: 0;
   top: 50%;
   pointer-events: none;
+  /* The track is twice the row of cards and far wider than any screen. The
+     clip lives here, on the strip that owns the overflow, rather than on the
+     stage — an `overflow: hidden` up there was what sliced the phone's halo
+     into a straight seam, and it was also load-bearing for the page's
+     scroll width, which is why removing it moved the clip rather than
+     deleting it. */
+  overflow: hidden;
 }
 .clip-track {
   display: flex;
@@ -2571,7 +2588,10 @@ html[data-page-theme="light"] body {
       rgba(2, 4, 8, 0.42) 55%,
       transparent 78%
     ),
-    linear-gradient(180deg, rgba(2, 4, 8, 0.55), transparent 26%, transparent 72%, rgba(2, 4, 8, 0.6));
+    /* Opens at zero, not at 0.55: an overlay that starts mid-value at its
+       container's first pixel draws a line there, which is the other half of
+       the seam the clip-path note above describes. */
+    linear-gradient(180deg, transparent 0%, rgba(2, 4, 8, 0.5) 9%, transparent 27%, transparent 72%, rgba(2, 4, 8, 0.6));
 }
 
 /* The handset. Drawn, for the same reason as before — a photographed handset
