@@ -27,7 +27,7 @@ import {
   UploadCloud, Play, Pause, ChevronLeft, Send,
   Wand2, Download, CheckCircle2, Loader2,
   Video, Sparkles, VideoOff, ChevronUp, ChevronDown, Scissors, FolderOpen,
-  Maximize2, Minimize2, Type, MapPin, Plus, X } from "lucide-react";
+  Maximize2, Minimize2, Type, MapPin, Plus, X, ScrollText } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { FontPicker, DEFAULT_FONTS, type ChosenFonts } from "@/components/font-picker";
 import type { UploadedFace } from "@/components/font-upload";
@@ -62,6 +62,7 @@ import { waitInWords } from "@/lib/wait-in-words";
 import { VoiceInput, SpeechLanguageToggle } from "@/components/voice/voice-input";
 import { guessSpeechLanguage, type SpeechLanguage } from "@/components/voice/speech-language";
 import { MomentMarks, marksToSentence, type Mark } from "@/components/moment-marks";
+import { TranscriptSurface } from "@/components/transcript-surface";
 import { useLanguage } from "@/lib/language";
 import { COMMON, LOAD } from "@/lib/copy/common";
 import { DASHBOARD } from "@/lib/copy/dashboard";
@@ -388,6 +389,18 @@ export default function ProjectEditor() {
   const hasVideo = Boolean(project?.videoPath ?? project?.videoUrl);
 
   /**
+   * Move the playhead to a moment on the source clock, and say so in state
+   * immediately: `timeupdate` does not fire while paused, and the transcript
+   * decides which word is current from `currentTime` — a seek the state does
+   * not know about is a press that appears to do nothing.
+   */
+  const seekToSource = (sourceMs: number) => {
+    const el = videoRef.current;
+    if (el) el.currentTime = sourceMs / 1000;
+    setCurrentTime(sourceMs / 1000);
+  };
+
+  /**
    * The ratio to draw at, preferring the file itself but falling back to what
    * was measured when it was uploaded.
    *
@@ -416,6 +429,21 @@ export default function ProjectEditor() {
   const SIDE_COLUMN_WIDTH = 320;
   const SIDE_COLUMN_GAP = 16;
   const sideBySide = Boolean(aspect && aspect < 1 && stage.w >= 820);
+
+  /**
+   * The transcript column: the second way of editing, beside the first.
+   *
+   * Osama chose the side-column shape from three drawn options: the words are
+   * always beside the video on a wide stage, because the workflow they exist
+   * for is read-watch-annotate and a panel you must open is a workflow you
+   * must remember. Below 1060px of stage there is no room for a 360px column
+   * next to a picture worth watching, so the same surface moves into the
+   * panel rail with the other panels and nothing about it changes but the
+   * container.
+   */
+  const TRANSCRIPT_COLUMN_WIDTH = 360;
+  const [transcriptOpen, setTranscriptOpen] = useState(true);
+  const transcriptBeside = hasVideo && transcriptOpen && stage.w >= 1060;
 
   /**
    * A phone, decided by measuring the stage rather than by a breakpoint,
@@ -456,7 +484,7 @@ export default function ProjectEditor() {
    * is the same as no reply.
    */
   /** Which of the four side panels is open, if any. See `panelRail`. */
-  const [openPanel, setOpenPanel] = useState<"looks" | "type" | "clips" | "files" | "reference" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"looks" | "type" | "clips" | "files" | "reference" | "transcript" | null>(null);
 
   /*
     The fonts this person has uploaded, and the token that lets them upload
@@ -548,7 +576,10 @@ export default function ProjectEditor() {
    */
   const picture = (() => {
     const ratio = aspect ?? 16 / 9;
-    const availableW = stage.w - (sideBySide ? SIDE_COLUMN_WIDTH + SIDE_COLUMN_GAP : 0);
+    const availableW =
+      stage.w -
+      (sideBySide ? SIDE_COLUMN_WIDTH + SIDE_COLUMN_GAP : 0) -
+      (transcriptBeside ? TRANSCRIPT_COLUMN_WIDTH + SIDE_COLUMN_GAP : 0);
     // Only what is actually *under* the picture is taken out of its height.
     // On a phone that is the note-a-moment row; the controls are on the frame
     // and cost it nothing.
@@ -1626,6 +1657,9 @@ export default function ProjectEditor() {
     { key: "clips" as const, icon: Scissors, label: t(EDITOR.panelClips), available: true },
     { key: "files" as const, icon: FolderOpen, label: t(EDITOR.panelFiles), available: Boolean(project && user?.id) },
     { key: "reference" as const, icon: Sparkles, label: t(EDITOR.panelMatch), available: Boolean(project) },
+    /* Only where the column is not already on screen: a chip that opens a
+       copy of something visible is two of the same surface. */
+    { key: "transcript" as const, icon: ScrollText, label: t(EDITOR.panelTranscript), available: hasVideo && !transcriptBeside },
   ].filter((p) => p.available);
 
   const railChips = PANELS.length > 0 && (
@@ -1650,7 +1684,16 @@ export default function ProjectEditor() {
               type="button"
               role="tab"
               aria-selected={open}
-              onClick={() => setOpenPanel(open ? null : key)}
+              onClick={() => {
+                /* On a stage wide enough for the column, the transcript chip
+                   reopens the column itself rather than a second, smaller
+                   copy of it in the rail. */
+                if (key === "transcript" && stage.w >= 1060) {
+                  setTranscriptOpen(true);
+                  return;
+                }
+                setOpenPanel(open ? null : key);
+              }}
               className={`aura-chip no-default-hover-elevate flex-shrink-0 flex items-center gap-2 rounded-full px-3.5 min-h-11 md:min-h-9 text-xs font-medium ${
                 open ? "text-foreground" : "text-muted-foreground"
               }`}
@@ -1672,6 +1715,11 @@ export default function ProjectEditor() {
       {openPanel === "clips" && clipsPanel}
       {openPanel === "files" && library}
       {openPanel === "reference" && reference}
+      {openPanel === "transcript" && project && (
+        <div className="rounded-2xl glass-panel border border-hairline overflow-hidden py-2" style={{ height: 380 }}>
+          <TranscriptSurface projectId={project.id} currentTime={currentTime} onSeek={seekToSource} />
+        </div>
+      )}
     </>
   );
 
@@ -2200,6 +2248,28 @@ export default function ProjectEditor() {
                   data-testid="side-controls"
                 >
                   {panelRail}
+                </aside>
+              )}
+
+              {transcriptBeside && project && (
+                <aside
+                  className="force-dark flex-shrink-0 min-h-0 flex flex-col rounded-2xl glass-panel border border-hairline text-foreground pt-3 pb-1"
+                  style={{ width: TRANSCRIPT_COLUMN_WIDTH }}
+                  data-testid="transcript-column"
+                >
+                  <div className="flex items-center justify-between px-3 pb-2 flex-shrink-0">
+                    <span className="text-sm font-semibold">{t(EDITOR.panelTranscript)}</span>
+                    <button
+                      type="button"
+                      aria-label={t(EDITOR.transcriptClose)}
+                      onClick={() => setTranscriptOpen(false)}
+                      className="text-muted-foreground hover:text-foreground min-h-11 md:min-h-6 px-1"
+                      data-testid="button-close-transcript"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <TranscriptSurface projectId={project.id} currentTime={currentTime} onSeek={seekToSource} />
                 </aside>
               )}
             </div>

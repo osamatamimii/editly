@@ -91,6 +91,43 @@ export const EDITOR = {
   panelMatch: p("طابِق", "Match"),
   panelRail: p("لوحات التعديل", "Editing panels"),
 
+  /*
+    The transcript surface: the second way of editing. The words are the
+    timeline; a press moves the video, a second press pins a sentence to that
+    instant. The waiting sentence is a state and not an apology, because a
+    project uploaded a minute ago has simply not been heard yet.
+  */
+  panelTranscript: p("النص", "Transcript"),
+  transcriptHint: f<[string]>(
+    (count) => `${count} كلمة · اضغط كلمة للانتقال إليها، ومرة ثانية لكتابة ملاحظة`,
+    (count) => `${count} words · press a word to jump there, press again to leave a note`,
+  ),
+  transcriptWaiting: p("لسّه ما سمعنا الفيديو", "We have not heard the video yet"),
+  transcriptWaitingDetail: p(
+    "التفريغ يلحق الرفع بدقيقة أو اثنتين، وهذه اللوحة تمتلئ وحدها أول ما يجهز.",
+    "Transcription follows the upload by a minute or two, and this panel fills in on its own the moment it is ready.",
+  ),
+  transcriptSilent: p(
+    "هذا الملف بلا كلام مسموع، فلا نص يُعرض له.",
+    "This file has no audible speech, so there is no text to show for it.",
+  ),
+  transcriptTruncated: p(
+    "الحلقة أطول من حد العرض، وما بعد هذه النقطة موجود في التعديل وإن لم يُعرض هنا.",
+    "The episode runs past the display cap; everything after this point is still in the edit even though it is not shown here.",
+  ),
+  notePlaceholder: f<[string]>(
+    (word) => `ملاحظة على «${word}»…`,
+    (word) => `A note on "${word}"...`,
+  ),
+  noteAdd: p("أضف", "Add"),
+  noteCancel: p("إلغاء", "Cancel"),
+  noteLimitReached: f<[string]>(
+    (limit) => `المشروع وصل حده: ${limit} ملاحظة. احذف واحدة لتكتب غيرها.`,
+    (limit) => `This project is at its limit of ${limit} notes. Remove one to write another.`,
+  ),
+  noteDelete: p("حذف الملاحظة", "Remove note"),
+  transcriptClose: p("إخفاء النص", "Hide the transcript"),
+
   noahRole: p("محرّرك الذكي", "Your AI editor"),
   noahTapWhatIDid: p("اضغط لتقرأ ما فعلته", "Tap to read what I did"),
   noahTapConversation: p("اضغط لتقرأ المحادثة", "Tap to read the conversation"),

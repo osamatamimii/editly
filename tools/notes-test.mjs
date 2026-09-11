@@ -213,6 +213,74 @@ section("The words are read from the fields the worker actually wrote");
   }
 }
 
+section("The surface that writes notes keeps the source clock and its own weight");
+{
+  /*
+    The transcript surface is where a person meets these routes, and the two
+    ways it can quietly rot are both here: sending a moment on the wrong
+    clock, and rendering a two-hour episode as one unwindowed DOM. Read the
+    sources and hold them to what the routes promise.
+  */
+  const surface = readFileSync(
+    path.join(repoRoot, "artifacts/editly/src/components/transcript-surface.tsx"),
+    "utf8",
+  );
+  const client = readFileSync(path.join(repoRoot, "lib/api-client-react/src/notes.ts"), "utf8");
+  const editor = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/project-editor.tsx"), "utf8");
+
+  // The note's moment comes from the word's own start, which is already on
+  // the source clock — never from the player's currentTime, which after
+  // phase two will be an edited clock.
+  check(
+    "a note's sourceMs is the word's own start",
+    /sourceMs: word\[0\]/.test(surface),
+    "the only safe clock is the one the transcript carries",
+  );
+  check(
+    "and currentTime is never converted into a sourceMs",
+    !/sourceMs:\s*[^,}]*currentTime/.test(surface),
+  );
+
+  // The DOM is windowed: paragraphs render their words only near the
+  // viewport, and estimate their height otherwise.
+  check(
+    "paragraphs render only near the viewport",
+    /IntersectionObserver/.test(surface) && /minHeight/.test(surface),
+    "a two-hour episode is tens of thousands of words",
+  );
+  check("and long paragraphs are split so no block grows unbounded", /PARAGRAPH_MAX_WORDS/.test(surface));
+
+  // The three states the route distinguishes are all drawn.
+  for (const state of ["transcript-waiting", "transcript-silent", "transcript-truncated"]) {
+    check(`the ${state.replace("transcript-", "")} state is drawn`, surface.includes(`data-testid="${state}"`));
+  }
+
+  // Direction follows the transcript's language, not the page's.
+  check(
+    "the words take their own direction from the response language",
+    /language === "ar" \? "rtl" : "ltr"/.test(surface) && /dir={direction}/.test(surface),
+  );
+
+  // The client stops asking once the words exist, and keeps them for good.
+  check(
+    "the transcript poll stops the moment words arrive",
+    /available \? false : 15000/.test(client) && /staleTime: Infinity/.test(client),
+  );
+  check("and an error stops the poll rather than retrying forever", /status === "error"\) return false/.test(client));
+
+  // The editor seeks through one helper that also tells state, because
+  // timeupdate does not fire while paused.
+  check(
+    "a seek from a word updates state immediately",
+    /const seekToSource = \(sourceMs: number\)[\s\S]{0,400}setCurrentTime\(sourceMs \/ 1000\)/.test(editor),
+  );
+
+  // Both containers host the same surface: the wide column and the rail
+  // panel, so there is one implementation to be right.
+  const mounts = editor.split("<TranscriptSurface").length - 1;
+  check("the column and the rail panel host the same surface", mounts === 2, `${mounts} mounts`);
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) { console.log(`${failures} FAILED`); process.exit(1); }
 console.log("A note survives the next sentence, and wins where it is more specific.");
