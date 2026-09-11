@@ -992,6 +992,14 @@ interface CaptionColours {
    * own colour while it is inside.
    */
   pill?: { box: string; ink: string };
+  /**
+   * A *drawn* rounded box behind each line, replacing libass's BorderStyle-3
+   * bar. BS3 corners are square, and square is the amateur tell on a look
+   * whose whole job is the bar — so the box is a `\p1` bezier path on its
+   * own layer, positioned by the same pixel geometry the focus lockup uses.
+   * `fill` is a bare `&HBBGGRR&`, `alpha` a bare `&HAA&`.
+   */
+  box?: { fill: string; alpha: string };
   /** What this style animates like when the plan does not say. */
   defaultAnimation?: "none" | "pop" | "karaoke" | "kinetic" | "focus";
   /**
@@ -1115,17 +1123,18 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
     dark footage its captions are bare, but the moment the content behind
     them is a white webpage or a screen recording they pick up a soft dark
     pill and nothing else. No stroke, no shadow: the bar *is* the
-    legibility, and `Shadow` stays 0 because BorderStyle 3 already fills
-    behind the line. `Outline` here is the box's padding, not a stroke —
-    same field, same reason as karaoke-box.
+    legibility — and it is *drawn*, not delegated to BorderStyle 3, because
+    libass's box has square corners and the reference's does not. The text
+    row is bare; the rounded bar rides its own layer (`boxedEvents`).
   */
   "label": {
-    // The bar is charcoal, not black, and 40% sees through it — matched
-    // against the reference's pill by eye on the same frame, black at the
-    // same alpha read heavier than theirs.
-    primary: "&H00FFFFFF", secondary: "&H00C8C8C8", outline: "&H64262626", back: "&H64262626",
-    borderStyle: 3, outlineWidth: 7, shadow: 0,
+    primary: "&H00FFFFFF", secondary: "&H00C8C8C8", outline: "&H00000000", back: "&H00000000",
+    borderStyle: 1, outlineWidth: 0, shadow: 0,
     accent: "&H8ECF3E&",
+    // Charcoal, not black, and 40% sees through it — matched against the
+    // reference's pill by eye on the same frame; black at the same alpha
+    // read heavier than theirs.
+    box: { fill: "&H262626&", alpha: "&H64&" },
     defaultAnimation: "none",
     defaultFont: { latin: "poppins-extrabold", arabic: "almarai-extrabold" },
   },
@@ -1350,6 +1359,8 @@ export interface KineticContext {
   fits: (line: string, rtl: boolean, scale: number) => boolean;
   /** The nominal ASS size for a line in this script, for `\fs` overrides. */
   nominalFor: (rtl: boolean) => number;
+  /** A line's drawn width in pixels — the same estimate `wrapToLayout` broke it by. */
+  lineWidthPx: (line: string, rtl: boolean) => number;
   /** The frame and layout, for animations that place events themselves. */
   frame: { width: number; height: number };
   layout: CaptionLayout;
@@ -1390,6 +1401,20 @@ const POP_FALL_MS = 160;
  */
 function bareColour(colour: string): string {
   return `&H${colour.replace(/^&H/i, "").replace(/&$/, "").slice(-6)}&`;
+}
+
+/**
+ * The blur a style rests at, read from its own opening tags.
+ *
+ * Every soft-shadow style carries a small `\blur` in its tags — that is how
+ * the no-stroke doctrine gets its legibility — and an entrance that blurs
+ * *in* has to land on that number, not on zero: settling to `\blur0` on a
+ * style whose resting state is `\blur2.4` would sharpen the caption past
+ * its own look at the exact moment it finishes arriving.
+ */
+function restingBlur(colours: CaptionColours): number {
+  const match = colours.tags?.match(/\\blur([\d.]+)/);
+  return match ? Number(match[1]) : 0;
 }
 
 function animateCue(
@@ -1619,11 +1644,22 @@ function animateCue(
         */
         const hide = colours.borderStyle === 3 ? "\\1a&HFF&\\4a&HFF&" : "\\alpha&HFF&";
         const show = colours.borderStyle === 3 ? "\\1a&H00&\\4a&H00&" : "\\alpha&H00&";
+        /*
+          «حتى عندهم انميشن الكتابة blury فخم» — each word arrives out of
+          focus and resolves, the same 160ms ride the focus lockup uses.
+          Alpha still snaps at the word's instant (blur alone cannot hide a
+          word, and a fade would blunt the rhythm); the blur is what turns
+          the snap from a cut into an arrival. Skipped on a BorderStyle-3
+          style, where `\blur` softens the box's edges, not the letters'.
+        */
+        const blurry = colours.borderStyle === 3
+          ? { from: "", ride: "" }
+          : { from: "\\blur6", ride: `\\t(${inMs},${inMs + 160},\\blur${restingBlur(colours)})` };
         // The fill stated per run: the stressed word's accent would otherwise
         // persist into every word revealed after it. Same finding as focus.
-        let tags = `\\c${bareColour(colours.primary)}${hide}\\t(${inMs},${inMs + 1},${show}`;
+        let tags = `\\c${bareColour(colours.primary)}${blurry.from}${hide}\\t(${inMs},${inMs + 1},${show}`;
         if (at === stressed) tags += `\\c${accent}`;
-        tags += ")";
+        tags += `)${blurry.ride}`;
         if (at === stressed && roomToPop) {
           tags +=
             `\\t(${inMs + 1},${inMs + 1 + POP_RISE_MS},\\fscx${Math.round(POP_SCALE * 100)}\\fscy${Math.round(POP_SCALE * 100)})` +
@@ -1657,9 +1693,27 @@ function animateCue(
     made that sentence a small lie.
   */
   if (animation === "pop" || animation === "kinetic" || animation === "focus") {
-    // Overshoot to 108% then settle. 120ms is short enough to feel snappy and
-    // long enough not to strobe.
-    return finish(`{\\fad(60,60)\\fscx70\\fscy70\\t(0,120,\\fscx108\\fscy108)\\t(120,200,\\fscx100\\fscy100)}${body}`);
+    /*
+      The premium settle, not the cartoon zoom.
+
+      It was `\fad(60,60)` + 70% → 108% → 100%, and starting a caption at
+      two-thirds size while it fades in is the template look Osama keeps
+      pointing away from. The reference edits' words *materialise*: they are
+      opaque from the first frame, a touch small and out of focus, and they
+      resolve — «حتى عندهم انميشن الكتابة blury فخم». So: no entrance fade
+      at all, 92% → 103% → 100% (an overshoot you feel, not see), and the
+      blur riding down to the style's own resting softness in 140ms.
+
+      The blur half is skipped for a BorderStyle-3 style, where `\blur`
+      would soften the box's edges instead of the letters'.
+    */
+    const settle =
+      `\\fscx92\\fscy92\\t(0,140,\\fscx103\\fscy103)\\t(140,240,\\fscx100\\fscy100)`;
+    const focusIn =
+      colours.borderStyle === 3
+        ? ""
+        : `\\blur6\\t(0,140,\\blur${restingBlur(colours)})`;
+    return finish(`{\\fad(0,60)${settle}${focusIn}}${body}`);
   }
 
   /*
@@ -1900,6 +1954,103 @@ function focusEvents(
   return out;
 }
 
+/**
+ * A rounded rectangle as an ASS `\p1` drawing, corners as cubic beziers.
+ *
+ * `\p1` coordinates are raw script pixels, and with `\an5\pos` the drawing's
+ * bounding box is centred on the anchor — so the path starts at (0,0) and the
+ * caller thinks only about width and height. 0.5523 is the circle constant
+ * every vector format uses for a quarter-arc in one cubic.
+ */
+function roundedRectPath(w: number, h: number, radius: number): string {
+  const r = Math.max(1, Math.min(radius, Math.floor(Math.min(w, h) / 2)));
+  const k = Math.round(r * (1 - 0.5523));
+  const n = (v: number) => Math.round(v);
+  return (
+    `m ${n(r)} 0 ` +
+    `l ${n(w - r)} 0 b ${n(w - k)} 0 ${n(w)} ${n(k)} ${n(w)} ${n(r)} ` +
+    `l ${n(w)} ${n(h - r)} b ${n(w)} ${n(h - k)} ${n(w - k)} ${n(h)} ${n(w - r)} ${n(h)} ` +
+    `l ${n(r)} ${n(h)} b ${n(k)} ${n(h)} 0 ${n(h - k)} 0 ${n(h - r)} ` +
+    `l 0 ${n(r)} b 0 ${n(k)} ${n(k)} 0 ${n(r)} 0`
+  );
+}
+
+/**
+ * The label look: each line on its own drawn, rounded, translucent bar.
+ *
+ * BorderStyle 3 was the first version and it is the amateur version: libass's
+ * box has square corners, one bar per layout run (a mixed-script line grew
+ * seams), and padding that doubles where two translucent boxes meet. Drawing
+ * the bar as a `\p1` path on layer 0 and positioning the text over it with the
+ * same `\an5\pos` geometry the focus lockup uses fixes all three at once —
+ * and the corners round, which is most of what separates this look from a
+ * subtitle with a background.
+ *
+ * The animation contract is deliberately narrow: `none` is the reference's
+ * hard swap; `pop` gives bar and line the same settle so they move as one
+ * object. The word-level animations stay with the styles built for them —
+ * a bar that reflowed word by word is the exact "broken, not animated" this
+ * file already documents on the kinetic box styles.
+ */
+function boxedEvents(
+  cue: CaptionCue,
+  style: string,
+  kinetic: KineticContext,
+  rtl: boolean,
+  styleName: string,
+  animation: string,
+): string[] {
+  const colours = CAPTION_COLOURS[style]!;
+  const box = colours.box!;
+  const lines = cue.text
+    .replace(/[{}]/g, "")
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) return [];
+
+  const { frame, layout } = kinetic;
+  const nominal = kinetic.nominalFor(rtl);
+  // The bar wraps the glyphs with a little air: height on the em, padding on
+  // the cap. Ratios, not constants, so s/m/l and sizeBoost carry through.
+  const padX = Math.round(layout.capHeight * 0.6);
+  const boxH = Math.round(nominal * 1.22);
+  const gap = Math.round(nominal * 0.14);
+  const total = lines.length * boxH + gap * (lines.length - 1);
+
+  let top: number;
+  if (layout.position === "top") top = layout.marginV;
+  else if (layout.position === "bottom") top = frame.height - layout.marginV - total;
+  else top = Math.round(frame.height * 0.47 - total / 2);
+  const cx = Math.round(frame.width / 2);
+
+  const motion =
+    animation === "pop"
+      ? `\\fad(0,60)\\fscx92\\fscy92\\t(0,140,\\fscx103\\fscy103)\\t(140,240,\\fscx100\\fscy100)`
+      : "";
+
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const cy = top + i * (boxH + gap) + Math.round(boxH / 2);
+    const w = Math.min(
+      Math.round(kinetic.lineWidthPx(line, rtl)) + padX * 2,
+      frame.width - 8,
+    );
+    const path = roundedRectPath(w, boxH, Math.round(boxH * 0.26));
+    // The bar: bordered and shadowed by nothing, softened at the edge by a
+    // whisper of blur so it sits *in* the footage rather than on it.
+    out.push(
+      `Dialogue: 0,${toAssTime(cue.startMs)},${toAssTime(cue.endMs)},${styleName},,0,0,0,,` +
+        `{\\an5\\pos(${cx},${cy})\\1c${box.fill}\\1a${box.alpha}\\bord0\\shad0\\blur0.7${motion}\\p1}${path}`,
+    );
+    out.push(
+      `Dialogue: 1,${toAssTime(cue.startMs)},${toAssTime(cue.endMs)},${styleName},,0,0,0,,` +
+        `{\\an5\\pos(${cx},${cy})${motion}}${isolate(line)}`,
+    );
+  }
+  return out;
+}
+
 export async function writeSubtitleFile(
   file: string,
   cues: CaptionCue[],
@@ -1978,7 +2129,7 @@ export async function writeSubtitleFile(
     picture and the caption cannot end up emphasising different words.
   */
   const kinetic: KineticContext | null =
-    animation === "kinetic" || animation === "focus"
+    animation === "kinetic" || animation === "focus" || CAPTION_COLOURS[style]?.box
       ? (() => {
           const durations = cues
             .flatMap((c) => c.words ?? [])
@@ -1994,6 +2145,8 @@ export async function writeSubtitleFile(
               allowed !== null &&
               widthInCaps(line, (rtl ? faces.arabic : faces.latin).widthScale) * scale <= allowed,
             nominalFor: (rtl) => nominalSizeFor(rtl ? faces.arabic : faces.latin, layout),
+            lineWidthPx: (line, rtl) =>
+              widthInCaps(line, (rtl ? faces.arabic : faces.latin).widthScale) * layout.capHeight,
             frame,
             layout,
           };
@@ -2007,6 +2160,9 @@ export async function writeSubtitleFile(
       const rtl = readsRightToLeft(c.text);
       if (animation === "focus" && kinetic && c.words && c.words.length > 0) {
         return focusEvents(c, style, kinetic, rtl, rtl ? RTL_STYLE : LATIN_STYLE);
+      }
+      if (CAPTION_COLOURS[style]?.box && kinetic) {
+        return boxedEvents(c, style, kinetic, rtl, rtl ? RTL_STYLE : LATIN_STYLE, animation);
       }
       const base = `Dialogue: 0,${toAssTime(c.startMs)},${toAssTime(c.endMs)},${
         rtl ? RTL_STYLE : LATIN_STYLE

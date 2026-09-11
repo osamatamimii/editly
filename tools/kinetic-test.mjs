@@ -305,7 +305,72 @@ section("Without word timings it says so instead of pretending");
     has no way to find out why.
   */
   check("it falls back rather than emitting a broken reveal", !/\\alpha&HFF&/.test(event));
-  check("and what it falls back to is the pop", /\\fscx70\\fscy70/.test(event));
+  check("and what it falls back to is the pop", /\\fscx92\\fscy92/.test(event));
+}
+
+section("The entrance is a settle, not the cartoon zoom");
+{
+  /*
+    The premium arrival, measured off the reference edits: words are opaque
+    from the first frame — no entrance fade — a touch small and out of
+    focus, resolving in 140ms with an overshoot felt rather than seen.
+    The old 70% → 108% under a fade is the template look this replaces.
+  */
+  const pop = await assFor(cueOf(["a", "premium", "arrival"]), "pop", "clean");
+  const event = pop.text.split("[Events]")[1];
+  check("no entrance fade — opaque from the first frame", /\\fad\(0,60\)/.test(event) && !/\\fad\(60/.test(event));
+  check(
+    "92 to 103 to 100 — an overshoot you feel, not see",
+    /\\fscx92\\fscy92/.test(event) && /\\t\(0,140,\\fscx103\\fscy103\)/.test(event) && /\\t\(140,240,\\fscx100\\fscy100\)/.test(event),
+  );
+  check(
+    "and it blurs in, down to the style's own resting softness",
+    /\\blur6\\t\(0,140,\\blur2\b/.test(event),
+    event.split("\n").find((l) => l.startsWith("Dialogue:")),
+  );
+  // A box style keeps its edges: blur there would soften the box, not the
+  // letters, so the settle arrives alone.
+  const boxed = await assFor(cueOf(["box", "stays", "crisp"]), "pop", "karaoke-box");
+  check("a box style settles without the blur", !/\\blur6/.test(boxed.text.split("[Events]")[1]));
+}
+
+section("Kinetic words arrive out of focus and resolve");
+{
+  /*
+    «حتى عندهم انميشن الكتابة blury فخم». Alpha still snaps on the word's
+    instant — blur cannot hide a word — but each run opens at \blur6 and
+    rides down to the style's resting softness over 160ms, which is the
+    difference between a cut and an arrival. Read from the file: a frame
+    sample cannot tell 60ms of blur from antialiasing.
+  */
+  const { text } = await assFor(cueOf(["words", "resolve", "here"]), "kinetic", "hormozi");
+  const event = text.split("[Events]")[1];
+  const runs = event.match(/\\blur6/g) ?? [];
+  check("every word's run opens blurred", runs.length >= 3, `${runs.length} of 3`);
+  check(
+    "and rides down to the style's resting blur, not to zero",
+    /\\t\(\d+,\d+,\\blur2\.6\)/.test(event),
+  );
+  // The reveal itself is still the snap — the rhythm the reference cuts at.
+  check("while the alpha still snaps on the instant", /\\t\(\d+,\d+,\\alpha&H00&/.test(event));
+}
+
+section("The label bar is drawn, and its corners are round");
+{
+  /*
+    BorderStyle 3 was the first label and its corners are square — the
+    amateur tell on a look whose whole job is the bar. Now the bar is a
+    `\p1` bezier path on layer 0 with the text positioned over it, so the
+    file must carry a drawing, and the drawing must carry curves.
+  */
+  const { text } = await assFor(cueOf(["a", "rounded", "bar"]), "none", "label");
+  const events = text.split("[Events]")[1];
+  check("the bar is a drawing on its own layer", /Dialogue: 0.*\\p1\}m /.test(events));
+  check("with bezier corners, not l-corners", /\\p1\}m [^\n]*b /.test(events));
+  check("translucent charcoal, by override", /\\1c&H262626&\\1a&H64&/.test(events));
+  check("and the text rides its own positioned event", /Dialogue: 1.*\\an5\\pos\(/.test(events));
+  // The hard swap survives the drawn form: label's default is still none.
+  check("and none still means none on both layers", !/\\fad/.test(events));
 }
 
 // ── The pixels ──────────────────────────────────────────────────────────────

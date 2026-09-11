@@ -656,7 +656,7 @@ console.log("\nCaption files");
   const popped = path.join(dir, "p.ass");
   await writeSubtitleFile(popped, [{ startMs: 0, endMs: 900, text: "hi" }], "bold-yellow", "pop", { width: 1080, height: 1920 });
   const pText = readFileSync(popped, "utf8");
-  check("pop overshoots then settles", /\\t\(0,120,\\fscx108/.test(pText) && /\\t\(120,200,\\fscx100/.test(pText), pText.split("\n").pop());
+  check("pop settles without the cartoon zoom", /\\t\(0,140,\\fscx103/.test(pText) && /\\t\(140,240,\\fscx100/.test(pText), pText.split("\n").pop());
   check("the frame size is written into the script", /PlayResY: 1920/.test(pText), "");
 
   await rm(dir, { recursive: true, force: true });
