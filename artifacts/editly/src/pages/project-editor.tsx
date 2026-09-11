@@ -30,6 +30,7 @@ import {
   Maximize2, Minimize2, Type, MapPin, Plus, X, ScrollText } from "lucide-react";
 import { BackButton } from "@/components/back-button";
 import { FontPicker, DEFAULT_FONTS, type ChosenFonts } from "@/components/font-picker";
+import { LookPicker, lookSpeaks, type ChosenLook } from "@/components/look-picker";
 import type { UploadedFace } from "@/components/font-upload";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -266,6 +267,15 @@ export default function ProjectEditor() {
          tomorrow. Better than refusing to change it. */
     }
   };
+  /*
+    The caption look, and deliberately NOT in localStorage the way the fonts
+    are. `habits.ts` records why: a stated preference is a worse signal than a
+    demonstrated one, and a remembered setting is a second place to say the
+    same thing. This is one session's act of pointing — it rides with the next
+    message or render, the sentence still wins where it named a look, and the
+    renders it produces are what the habits arithmetic learns from.
+  */
+  const [look, setLook] = useState<ChosenLook>({});
   /** The area the picture gets to live in, measured rather than assumed. */
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
@@ -954,7 +964,7 @@ export default function ProjectEditor() {
         // queue through this door as often as through a template, and a
         // preference that only applies to one of them is a preference that
         // looks broken half the time.
-        data: { content, fonts }
+        data: { content, fonts, ...(lookSpeaks(look) ? { look } : {}) }
       }) as unknown as { plan?: EditPlan | null; render?: { id: string } | null };
       /*
         Whatever the reply promised is exactly what Generate Edit will build —
@@ -1054,7 +1064,7 @@ export default function ProjectEditor() {
    */
   const handleApplyTemplate = async (templateId: string) => {
     try {
-      await startRender.mutateAsync({ id, templateId, fonts });
+      await startRender.mutateAsync({ id, templateId, fonts, ...(lookSpeaks(look) ? { look } : {}) });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
       toast({ title: t(EDITOR.renderQueued), description: t(EDITOR.renderQueuedDetail) });
     } catch (error: unknown) {
@@ -1110,7 +1120,7 @@ export default function ProjectEditor() {
     // The server adds it from the subscription now, on every render path.
 
     try {
-      await startRender.mutateAsync({ id, plan: { version: 1, operations } });
+      await startRender.mutateAsync({ id, plan: { version: 1, operations }, ...(lookSpeaks(look) ? { look } : {}) });
       queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(id) });
       toast({
         title: t(EDITOR.renderQueued),
@@ -1615,7 +1625,11 @@ export default function ProjectEditor() {
 
   const typePanel = (
     <div className="rounded-xl glass-panel border border-hairline flex flex-col gap-3 px-4 py-4 mt-3">
-      <div className="flex items-center gap-2">
+      {/* The look first, the face under it: the look is the decision people
+          recognise from the reels they watch, and the face is a refinement of
+          it. Same panel, because both answer "what do my captions look like". */}
+      <LookPicker value={look} onChange={setLook} disabled={isProcessingEdit} />
+      <div className="flex items-center gap-2 pt-1 border-t border-hairline">
         <Type className="w-4 h-4 text-secondary flex-shrink-0" />
         <span className="text-sm font-medium text-muted-foreground">{t(EDITOR.captionType)}</span>
       </div>

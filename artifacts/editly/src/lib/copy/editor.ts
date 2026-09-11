@@ -301,3 +301,42 @@ export const PROJECT_CLIPS = {
   ),
   earlierSets: f<[number]>((count) => `مجموعات أقدم (${count})`, (count) => `Earlier sets (${count})`),
 } as const;
+
+/**
+ * The caption looks, named for the picker.
+ *
+ * Names, not descriptions: the chip already shows the look drawn as itself
+ * (see `LookPicker`), so the word underneath is a handle for the habit the
+ * person will later type, and it matches the vocabulary `plan-from-text`
+ * hears — someone who chooses «هرموزي» here and types it tomorrow is saying
+ * the same thing through two doors.
+ */
+export const LOOKS = {
+  lead: p(
+    "شكل الكابشن للتنفيذ القادم. الجملة التي تسمّي شكلًا تسبق هذا الاختيار.",
+    "How captions look on the next render. A sentence that names a look wins over this choice.",
+  ),
+  styleNames: {
+    "bold-white": p("أبيض عريض", "Bold white"),
+    "bold-yellow": p("أصفر عريض", "Bold yellow"),
+    "hormozi": p("هرموزي", "Hormozi"),
+    "beast": p("بيست", "Beast"),
+    "pill": p("خلف الكلمة", "Word pill"),
+    "neon": p("نيون", "Neon"),
+    "clean": p("هادئ", "Clean"),
+    "bubble": p("فقاعة", "Bubble"),
+    "creator": p("كرييتور", "Creator"),
+    "karaoke-light": p("شريط أبيض", "White bar"),
+    "karaoke-box": p("كاريوكي", "Karaoke"),
+    "label": p("شريط رمادي", "Grey bar"),
+  },
+  animationHeading: p("الحركة", "Motion"),
+  animationNames: {
+    none: p("تبديل حاد", "Hard swap"),
+    pop: p("استقرار", "Settle"),
+    karaoke: p("كاريوكي", "Karaoke"),
+    kinetic: p("كلمة كلمة", "Word by word"),
+    focus: p("كلمة بارزة", "Big keyword"),
+  },
+  quickPace: p("إيقاع سريع: كلمة إلى ثلاث كلمات في اللقطة", "Quick pace: one to three words at a time"),
+} as const;

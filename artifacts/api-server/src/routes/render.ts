@@ -19,6 +19,7 @@ import { isUnattended, waitEstimate } from "../lib/queue-health";
 import { newestWorkerSeenAt, renderCapacity, workAheadOf } from "../lib/worker-presence";
 import { startRenderForProject } from "../lib/start-render";
 import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
+import { withCaptionLook } from "../lib/caption-look";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 import { badRequest } from "../lib/bad-request";
 import { cancelJobs } from "../lib/cancel-render";
@@ -156,6 +157,7 @@ router.post("/projects/:id/render", rateLimit(LIMITS.render), async (req, res): 
   // was made. Only the caption operations, and only where the plan has not
   // already named a face itself.
   requested = withCaptionFonts({ version: 1, operations: requested }, body.data.fonts, await myFaceIds(userId)).operations;
+  requested = withCaptionLook({ version: 1, operations: requested }, body.data.look).operations;
 
   // What "asked" becomes "queued" through lives in one place — the same place
   // the chat door uses — so the browser has no vote in the allowance, the

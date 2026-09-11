@@ -616,6 +616,73 @@ section("The voice curve is never applied over a music bed");
   check("start-render applies the rule to what it is about to queue", /levelAgainstTheBed\(/.test(door));
 }
 
+section("The look picked in the panel is an act, not an override");
+{
+  /*
+    `withCaptionLook` rides the same seam as `withCaptionFonts` and defers
+    the same way: a sentence that named a style keeps it, and the picker only
+    fills fields still at their defaults. The table this depends on is that
+    no default is reachable by name — checked against the matcher's source
+    below, so the day someone adds a bold-white word to CAPTION_STYLE_WORDS
+    this section names the assumption that broke.
+  */
+  const { withCaptionLook } = await import(
+    build("artifacts/api-server/src/lib/caption-look.ts", "caption-look.mjs")
+  );
+  const plan = (op) => ({ version: 1, operations: [op] });
+  const captions = EditPlan.parse(plan({ type: "autoCaptions" })).operations[0];
+
+  const styled = withCaptionLook(plan(captions), { style: "creator", animation: "focus", pace: "quick" });
+  check(
+    "defaults yield to the picker, all three fields",
+    styled.operations[0].style === "creator" &&
+      styled.operations[0].animation === "focus" &&
+      styled.operations[0].pace === "quick",
+    JSON.stringify(styled.operations[0]),
+  );
+
+  const spoke = EditPlan.parse(
+    plan({ type: "autoCaptions", style: "hormozi", animation: "karaoke", pace: "quick" }),
+  ).operations[0];
+  const kept = withCaptionLook(plan(spoke), { style: "creator", animation: "focus", pace: "normal" });
+  check(
+    "a sentence that named its look keeps every named field",
+    kept.operations[0].style === "hormozi" &&
+      kept.operations[0].animation === "karaoke" &&
+      kept.operations[0].pace === "quick",
+    JSON.stringify(kept.operations[0]),
+  );
+
+  const burn = EditPlan.parse(
+    plan({ type: "burnCaptions", cues: [{ startMs: 0, endMs: 900, text: "hello there" }] }),
+  ).operations[0];
+  const burned = withCaptionLook(plan(burn), { style: "label", animation: "none", pace: "quick" });
+  check(
+    "burnCaptions takes the style and the animation and has no pace to take",
+    burned.operations[0].style === "label" &&
+      burned.operations[0].animation === "none" &&
+      !("pace" in burned.operations[0]),
+    JSON.stringify(burned.operations[0]),
+  );
+
+  const untouched = withCaptionLook(plan(captions), undefined);
+  check("no look leaves the plan byte-for-byte alone", untouched.operations[0] === captions);
+  const other = EditPlan.parse(plan({ type: "kenBurns" })).operations[0];
+  check(
+    "and a non-caption operation is never touched",
+    withCaptionLook(plan(other), { style: "creator" }).operations[0] === other,
+  );
+
+  // The assumption the whole deferral rests on: no default is nameable.
+  const matcher = await read("artifacts/api-server/src/lib/plan-from-text.ts");
+  check(
+    "no matcher word maps to a caption default",
+    !/"bold-white"\]|,\s*"pop"\]|"normal"\]/.test(
+      matcher.slice(matcher.indexOf("CAPTION_STYLE_WORDS"), matcher.indexOf("CAPTION_QUICK_WORDS")),
+    ),
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

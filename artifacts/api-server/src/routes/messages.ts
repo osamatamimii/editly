@@ -14,6 +14,7 @@ import { currentUserId } from "../middlewares/auth";
 import { replyFor, becauseIn } from "../lib/plan-from-text";
 import { createPlanner } from "../lib/planner";
 import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
+import { withCaptionLook } from "../lib/caption-look";
 import { applyHabits, habitsFor } from "../lib/habits";
 import { direct, withDirection, type Reading } from "../lib/direct";
 import { asksForAnEdit, saysOnlyThis, clockOf } from "../lib/plan-from-text";
@@ -139,6 +140,12 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     { version: 1, operations: intent.operations },
     parsed.data.fonts,
     await myFaceIds(userId),
+  ).operations;
+  // And the look picked in the panel, on the same seam and with the same
+  // deference: a sentence that named a style keeps it.
+  intent.operations = withCaptionLook(
+    { version: 1, operations: intent.operations },
+    parsed.data.look,
   ).operations;
 
   /*

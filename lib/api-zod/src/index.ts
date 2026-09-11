@@ -507,10 +507,32 @@ export type RegisterFaceBody = z.infer<typeof RegisterFaceBody>;
 
 export const DeleteFaceParams = z.object({ id: z.string().min(1) });
 
+/**
+ * A caption look picked in the editor, travelling with one message or one
+ * render — an *act*, not a setting.
+ *
+ * Deliberately not persisted anywhere server-side, and every field optional:
+ * `habits.ts` records the reasoned decision that a stated preference is a
+ * worse signal than a demonstrated one, and this type respects it. The picker
+ * is a faster way to say «هرموزي» than typing it; what the person actually
+ * renders with it is what the habits arithmetic then learns from, through the
+ * same door as every typed sentence.
+ */
+export const CaptionLookChoice = z.object({
+  style: z
+    .enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "label"])
+    .optional(),
+  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus"]).optional(),
+  pace: z.enum(["normal", "quick"]).optional(),
+});
+export type CaptionLookChoice = z.infer<typeof CaptionLookChoice>;
+
 export const SendMessageBody = z.object({
   content: z.string().min(1).max(MAX_MESSAGE_LENGTH),
   /* The same choice, on the other door a plan comes through. */
   fonts: CaptionFontChoice.optional(),
+  /* The look picked in the panel, if one was. See `CaptionLookChoice`. */
+  look: CaptionLookChoice.optional(),
 });
 export type SendMessageBody = z.infer<typeof SendMessageBody>;
 
@@ -1674,8 +1696,8 @@ export type StartRenderParams = z.infer<typeof StartRenderParams>;
  */
 
 export const StartRenderBody = z.union([
-  z.object({ plan: EditPlan, fonts: CaptionFontChoice.optional() }),
-  z.object({ templateId: z.string().min(1), fonts: CaptionFontChoice.optional() }),
+  z.object({ plan: EditPlan, fonts: CaptionFontChoice.optional(), look: CaptionLookChoice.optional() }),
+  z.object({ templateId: z.string().min(1), fonts: CaptionFontChoice.optional(), look: CaptionLookChoice.optional() }),
 ]);
 export type StartRenderBody = z.infer<typeof StartRenderBody>;
 

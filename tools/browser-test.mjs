@@ -3235,6 +3235,50 @@ section("The long waits announce themselves, and the buttons have names");
   );
 }
 
+section("The caption looks are choosable by sight, and the choice is an act");
+{
+  /*
+    The catalogue was reachable only by name, and a person who does not know
+    «هرموزي» cannot ask for it. The picker shows every look drawn as itself —
+    and stays an *act*, not a setting: `habits.ts` records why a stated
+    preference is refused a home, so the one thing this section would most
+    like to red on is the choice growing a localStorage key.
+  */
+  const picker = readFileSync(path.join(repoRoot, "artifacts/editly/src/components/look-picker.tsx"), "utf8");
+  const editor = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/project-editor.tsx"), "utf8");
+  const worker = readFileSync(path.join(repoRoot, "artifacts/worker/src/ffmpeg.ts"), "utf8");
+
+  // Every style the worker can draw has a chip, and no chip names a style
+  // the worker cannot draw — read from the catalogue itself, so a style
+  // added tomorrow reds here until it is choosable.
+  const catalogue = [...worker.matchAll(/^  "([a-z-]+)": \{/gm)].map((m) => m[1]);
+  const chips = [...picker.matchAll(/id: "([a-z-]+)"/g)].map((m) => m[1]).filter((id) => !["none", "pop", "karaoke", "kinetic", "focus"].includes(id));
+  check(
+    "every catalogue style has a chip",
+    catalogue.length >= 12 && catalogue.every((id) => chips.includes(id)),
+    `catalogue ${catalogue.join(",")} vs chips ${chips.join(",")}`,
+  );
+  check(
+    "and no chip invents a style",
+    chips.every((id) => catalogue.includes(id)),
+    chips.filter((id) => !catalogue.includes(id)).join(","),
+  );
+
+  check("the choice rides with the sentence", /data: \{ content, fonts, \.\.\.\(lookSpeaks\(look\) \? \{ look \} : \{\}\) \}/.test(editor));
+  check(
+    "and with both render doors, but never with a retry",
+    /templateId, fonts, \.\.\.\(lookSpeaks\(look\)/.test(editor) &&
+      /operations \}, \.\.\.\(lookSpeaks\(look\)/.test(editor) &&
+      !/mutateAsync\(\{ id, plan, \.\.\./.test(editor),
+    "a retry repeats the failed render exactly; a look injected there quietly runs something else",
+  );
+  check(
+    "an act, not a setting: the look never touches localStorage",
+    !/localStorage[\s\S]{0,80}look|look[\s\S]{0,80}localStorage/i.test(picker) &&
+      !/editly:caption-look/.test(editor),
+  );
+}
+
 await rm(entryDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

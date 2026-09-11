@@ -601,6 +601,8 @@ paths:
                       $ref: "#/components/schemas/EditPlan"
                     fonts:
                       $ref: "#/components/schemas/CaptionFontChoice"
+                    look:
+                      $ref: "#/components/schemas/CaptionLookChoice"
                   required: [plan]
                 - type: object
                   properties:
@@ -608,6 +610,8 @@ paths:
                       type: string
                     fonts:
                       $ref: "#/components/schemas/CaptionFontChoice"
+                    look:
+                      $ref: "#/components/schemas/CaptionLookChoice"
                   required: [templateId]
       responses:
         "202":
@@ -2914,6 +2918,8 @@ components:
           type: string
         fonts:
           $ref: "#/components/schemas/CaptionFontChoice"
+        look:
+          $ref: "#/components/schemas/CaptionLookChoice"
       required:
         - content
 
@@ -2931,6 +2937,24 @@ components:
           type: string
         arabic:
           type: string
+
+    CaptionLookChoice:
+      description: >-
+        A caption look picked in the editor's panel, riding with one message
+        or one render. An act, not a setting: nothing is stored, a sentence
+        that names a style/animation/pace wins over it, and it only fills
+        fields the sentence left at their defaults. Every field optional.
+      type: object
+      properties:
+        style:
+          type: string
+          enum: [bold-white, bold-yellow, karaoke-box, karaoke-light, hormozi, beast, pill, neon, clean, bubble, creator, label]
+        animation:
+          type: string
+          enum: [none, pop, karaoke, kinetic, focus]
+        pace:
+          type: string
+          enum: [normal, quick]
 
     MessagePair:
       type: object
