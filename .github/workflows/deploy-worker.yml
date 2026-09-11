@@ -151,6 +151,14 @@ jobs:
           [ -n "${DEEPGRAM_API_KEY:-}" ] && args+=(DEEPGRAM_API_KEY="$DEEPGRAM_API_KEY")
           [ -n "${ELEVENLABS_API_KEY:-}" ] && args+=(ELEVENLABS_API_KEY="$ELEVENLABS_API_KEY")
           [ -n "${GEMINI_API_KEY:-}" ] && args+=(GEMINI_API_KEY="$GEMINI_API_KEY")
+          # Music, and its own key on purpose though it is Google's too. This is
+          # the only capability here priced per finished video rather than per
+          # minute of source, so turning it on is a business decision and must
+          # not ride along with scene reading. A deployment with no LYRIA key
+          # lays beds only from tracks people uploaded themselves, which is what
+          # this product did for its whole life and is not a degraded state.
+          [ -n "${LYRIA_API_KEY:-}" ] && args+=(LYRIA_API_KEY="$LYRIA_API_KEY")
+          [ -n "${LYRIA_MODEL:-}" ] && args+=(LYRIA_MODEL="$LYRIA_MODEL")
           # And the mail provider, optional for the same reason and with a
           # quieter consequence: with neither of these set the sender says so
           # once, at info, and every render still finishes. The worker started
@@ -219,6 +227,9 @@ jobs:
           DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LYRIA_API_KEY: ${{ secrets.LYRIA_API_KEY }}
+          # A model name, not a credential.
+          LYRIA_MODEL: ${{ vars.LYRIA_MODEL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
           # A setting, not a credential — `on` or `dry`, and `dry` is what the

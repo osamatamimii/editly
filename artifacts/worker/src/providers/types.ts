@@ -164,6 +164,12 @@ export interface ProviderStatus {
   transcription: NotePair | null;
   vision: NotePair | null;
   /**
+   * Null when a music generator is configured. Unlike its neighbours, absent
+   * is the normal state: music is opt-in in this product, so most deployments
+   * and most renders never need one.
+   */
+  music: NotePair | null;
+  /**
    * Null when two speech models are configured and the words get corroborated.
    * Otherwise why they do not — a capability that is *half* configured is the
    * easiest one to lose without noticing, because everything still works.

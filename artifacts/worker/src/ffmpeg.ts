@@ -3071,7 +3071,15 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
    * all. A clip with no audio track and a bed under it still has to come out
    * with sound.
    */
-  const musicAsset = music ? (ctx.assets?.get(music.assetId) ?? null) : null;
+  /*
+    `music.assetId` is optional in the contract now, because a bed can be asked
+    for by mood instead. By the time a plan reaches the renderer the worker has
+    resolved any mood into a real file and written its id here — see
+    `resolveMusicBed` in index.ts. An operation that still carries no id at
+    this point is a bed that could not be made, and it is reported as that
+    rather than silently skipped.
+  */
+  const musicAsset = music?.assetId ? (ctx.assets?.get(music.assetId) ?? null) : null;
   const musicUsable = musicAsset !== null && musicAsset.kind === "audio";
   const soundEffects = find("soundEffects");
   /**
@@ -5315,7 +5323,15 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       // Same distinction as the overlay above, and it matters more here: the
       // music is the thing somebody notices missing.
       notes.push(
-        ctx.unreachableAssetIds?.has(music.assetId)
+        !music.assetId
+          ? // Asked for by mood, and no bed came back. The mood is named so the
+            // sentence is about the thing they asked for rather than about an
+            // id they never saw.
+            t(
+              `could not make the ${music.mood ?? "music"} bed this time, so the edit runs without one`,
+              `لم أتمكّن من صنع الفرشة (${music.mood ?? "موسيقى"}) هذه المرّة، فالتعديل يمشي بلا موسيقى`,
+            )
+          : ctx.unreachableAssetIds?.has(music.assetId)
           ? t(
               "skipped the music: that track is in your project and we could not fetch it this time",
               "تخطّيت الموسيقى: ذلك المقطع موجود في مشروعك ولم نتمكّن من جلبه هذه المرّة",

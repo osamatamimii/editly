@@ -201,11 +201,29 @@ const PAIRS = [
     expect: ["transition"],
   },
   {
+    /*
+      This pair used to assert a refusal, and the refusal was correct for as
+      long as the only possible bed was somebody else's recording: a track we
+      hand out is a licence we bought on the customer's behalf.
+
+      It is now a bed we generate ourselves, which is ours to give away, so
+      "add background music" on an empty project lays one instead of sending
+      the person away to find music. The pair is rewritten rather than deleted
+      because what it guards has not changed: whatever English gets, Arabic
+      gets, and neither language may be the one that still hears "no".
+    */
     what: "music with nothing uploaded",
     en: "add background music",
     ar: "ضيف موسيقى خلفية",
-    expect: [],
-    refuses: "upload the track you have the rights to",
+    expect: ["addMusic"],
+  },
+  {
+    // And the mood travels with it. «موسيقى حماسية» must not quietly become a
+    // calm bed because the mood words were only ever written in English.
+    what: "music in a mood",
+    en: "add some upbeat music",
+    ar: "ضيف موسيقى حماسية",
+    expect: ["addMusic"],
   },
   {
     what: "B-roll with no clips",
@@ -364,11 +382,15 @@ for (const type of [...emitted].sort()) {
  */
 console.log("\nthe refusals read like English");
 const SPOKEN = [
-  "add background music",
+  // "add background music" used to sit here and no longer refuses anything:
+  // a bed is generated now. Replaced with two sentences that still have a
+  // genuine no in them, because what this list checks is the *shape* of a
+  // refusal, and a list of sentences that all succeed checks nothing.
+  "cut it to the beat",
   "cut in some b-roll and put my logo on it",
   "add emojis",
   "translate it to english",
-  "ضيف موسيقى خلفية",
+  "قص على الإيقاع",
   "ترجم الفيديو للإنجليزي",
 ];
 for (const sentence of SPOKEN) {

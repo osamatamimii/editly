@@ -19,6 +19,7 @@ import { createDeepgramTranscriber } from "./deepgram";
 import { createElevenLabsTranscriber } from "./elevenlabs";
 import { createGeminiSceneReader } from "./gemini";
 import { createGeminiStructureReader } from "./gemini-structure";
+import { createLyriaMusicMaker, type MusicMaker } from "./music";
 import type { ProviderStatus, SceneReader, StructureReader, Transcriber } from "./types";
 import { pick, sayIn, type Say } from "../say";
 
@@ -33,6 +34,17 @@ export interface Providers {
    * other is not.
    */
   structureReader: StructureReader | null;
+  /**
+   * Makes a music bed from a mood, for somebody who owns no music.
+   *
+   * Its own key rather than sharing the Gemini one, though both are Google's,
+   * and that is not tidiness. Music is the only capability here that costs
+   * money *per finished video* rather than per minute of source, and the
+   * decision to spend it is a business decision. Sharing a key would mean
+   * every deployment that turned on scene reading silently started buying
+   * music too.
+   */
+  musicMaker: MusicMaker | null;
   /** Null where the capability is available; otherwise why it is not. */
   status: ProviderStatus;
 }
@@ -47,6 +59,8 @@ export interface ProviderEnv {
   GEMINI_MEDIA_RESOLUTION?: string;
   /** Overrides `GEMINI_MODEL` for the transcript reading alone. */
   GEMINI_STRUCTURE_MODEL?: string;
+  LYRIA_API_KEY?: string;
+  LYRIA_MODEL?: string;
 }
 
 export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv): Providers {
@@ -82,6 +96,11 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
   // The same key as the scene reader, and deliberately its own field: the two
   // are separate capabilities on one account, and a deployment that turns the
   // expensive one off should not lose the cheap one with it.
+  const lyriaKey = trimmed(env.LYRIA_API_KEY);
+  const musicMaker = lyriaKey
+    ? createLyriaMusicMaker({ apiKey: lyriaKey, model: trimmed(env.LYRIA_MODEL) })
+    : null;
+
   const structureReader = geminiKey
     ? createGeminiStructureReader({
         apiKey: geminiKey,
@@ -93,6 +112,7 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
     transcriber,
     sceneReader,
     structureReader,
+    musicMaker,
     status: {
       transcription: transcriber
         ? null
@@ -115,6 +135,19 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
                 ar: "نموذج كلام واحد فقط مُهيّأ، فالكابشن يستند إلى قراءة واحدة بدل قراءتين تتّفقان",
               }
             : null,
+      /*
+        Absent is the ordinary state here, unlike every other line in this
+        object. Music is off by default in this product — a bed is laid only
+        when somebody asks for one in words — so a deployment with no music key
+        is a deployment working as intended, and this note is only ever read by
+        a render whose plan actually asked for a bed.
+      */
+      music: musicMaker
+        ? null
+        : {
+            en: "no music generator is configured, so a bed can only come from a track you uploaded yourself",
+            ar: "لا يوجد مولّد موسيقى مُهيّأ، فالفرشة لا تأتي إلّا من مقطوعة رفعتها بنفسك",
+          },
       structure: structureReader
         ? null
         : {

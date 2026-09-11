@@ -3318,12 +3318,27 @@ components:
 
     AddMusicOperation:
       description: >
-        Lay a music bed under the whole edit, from a track already in this
-        project's library. There is no catalogue here and there will not be
-        one: a track we handed out would be a licence bought on the customer's
-        behalf. Unlike every other operation this one carries no `at` — a bed
-        runs the length of the finished edit by definition, so it is the one
-        thing placed on the output clock rather than the source clock.
+        Lay a music bed under the whole edit. Exactly one of `assetId` and
+        `mood` is required, and they are two different sources.
+
+
+        `assetId` is a track already in this project's library - the person's
+        own file, which is what an id rather than a path is for. This was for a
+        long time the only source, because a track handed out of a catalogue is
+        a licence bought on the customer's behalf.
+
+
+        `mood` is a bed generated to our own account and therefore ours to give
+        away. It names one of six moods rather than a track, and the worker
+        resolves it against a library that fills itself: the first request for
+        a mood pays for a bed to be made, and everyone after is served the same
+        file. Music is never added unasked - it is laid only when a person asks
+        for it in words.
+
+
+        Unlike every other operation this one carries no `at` - a bed runs the
+        length of the finished edit by definition, so it is the one thing
+        placed on the output clock rather than the source clock.
       type: object
       properties:
         type:
@@ -3331,10 +3346,16 @@ components:
           enum: [addMusic]
         assetId:
           description: >
-            Must name an audio file already in this project. Checked against
-            the kind as well as the id: a video file here is a plan asking to
-            play a picture as a song.
+            An audio file already in this project. Checked against the kind as
+            well as the id: a video file here is a plan asking to play a
+            picture as a song. Mutually exclusive with `mood`.
           type: string
+        mood:
+          description: >
+            Make a bed in this mood instead, for somebody who has no track of
+            their own. Mutually exclusive with `assetId`.
+          type: string
+          enum: [calm, upbeat, cinematic, dark, playful, warm]
         gainDb:
           description: >
             How far under the programme the bed sits. -18 dB is a bed you feel

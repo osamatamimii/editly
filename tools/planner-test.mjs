@@ -1134,11 +1134,20 @@ console.log("\nWhat we cannot do yet is claimed no wider than it is");
     JSON.stringify([colour.operations, colour.cannotYet]),
   );
 
+  /*
+    Music stopped being on the "cannot yet" list.
+
+    It was there for as long as the only possible bed was a recording somebody
+    else owned. A bed generated to our own account is ours to hand on, so a
+    project with no audio file gets one instead of an apology. What is checked
+    here now is that the *bed still happens* without a library, which is the
+    thing that changed and the thing that could regress.
+  */
   const music = await planner.plan("add music to it", {});
   check(
-    "and what really is missing is still refused plainly",
-    music.cannotYet.map(inEnglish).some((c) => /music/i.test(c)),
-    JSON.stringify(music.cannotYet),
+    "and a project with no library still gets a bed, from a mood",
+    music.operations.some((o) => o.type === "addMusic" && typeof o.mood === "string" && !o.assetId),
+    JSON.stringify([music.operations, music.cannotYet]),
   );
 }
 
@@ -1255,13 +1264,22 @@ console.log("\nMusic comes from the person's own library or not at all");
     JSON.stringify(withTrack.willDo),
   );
 
-  // No catalogue. The honest answer names the fix, not the limitation.
+  /*
+    No library, and a bed anyway — made rather than borrowed.
+
+    This pair used to assert the refusal, and the refusal was right while the
+    only source was somebody else's catalogue. Generated audio is ours, so the
+    person who owns no music is no longer sent away to find some. Their own
+    upload still wins where it exists: the check above proves that, and it is
+    the one that must never flip.
+  */
   const without = await planner.plan("can you put background music on this", { assets: [] });
-  check("with nothing to play, no bed is invented", !without.operations.some((o) => o.type === "addMusic"), JSON.stringify(without.operations));
+  const made = without.operations.find((o) => o.type === "addMusic");
+  check("with nothing to play, a bed is made rather than refused", !!made, JSON.stringify(without.operations));
   check(
-    "and the reply asks for the track rather than refusing music",
-    without.cannotYet.map(inEnglish).some((c) => /upload the track you have the rights to/i.test(c)),
-    JSON.stringify(without.cannotYet),
+    "and it names a mood rather than an id it could not have",
+    typeof made?.mood === "string" && !made?.assetId,
+    JSON.stringify(made),
   );
 
   // Cutting to the beat, which stopped being on the "cannot yet" list this
@@ -1708,10 +1726,17 @@ console.log("\n\"no music\" is a refusal, not a request for music");
   // And a project with no track does not offer music to someone who declined it.
   const noTrack = (asked) => {
     const intent = planFromText(asked, { assets: [] });
-    return [...(intent.willDo ?? []), ...(intent.cannotYet ?? [])].some((p) => /add music|أضيف موسيق/i.test(JSON.stringify(p)));
+    // "bed" as well as "music", because the sentence changed when the source
+    // did: a project with no track is now told a bed will be laid, not asked
+    // to go and upload one.
+    return [...(intent.willDo ?? []), ...(intent.cannotYet ?? [])].some((p) =>
+      /add music|أضيف موسيق|\bbed\b|فرشة/i.test(JSON.stringify(p)),
+    );
   };
   check("a refusal with no track offers nothing", noTrack("no music") === false);
-  check("but an actual request with no track still offers the upload path", noTrack("add music") === true);
+  // And a request with no track is answered with a bed, in words, rather than
+  // with the upload instruction it used to get.
+  check("but an actual request with no track is still answered", noTrack("add music") === true);
   void offersMusic;
 }
 

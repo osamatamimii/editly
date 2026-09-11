@@ -1028,14 +1028,56 @@ export const InsertBRollOperation = z.object({
  * wrong for the other.
  */
 /**
+ * The moods a bed can be asked for.
+ *
+ * A closed list rather than free text, and the reason is money as much as
+ * taste. A free-text prompt is a new generation on every render, at a price
+ * per render forever. A mood is a *key*: the first person to ask for a calm
+ * bed pays for it to be made, and everybody after that is served the same
+ * file. The cost of the music library is therefore bounded by how many moods
+ * there are, not by how many videos are cut.
+ *
+ * Six, because they are the six a person actually asks for, and because each
+ * one has to be distinguishable from the others by ear — a list with "gentle"
+ * and "soft" in it is a list where nobody can tell which one they got.
+ */
+export const MusicMood = z.enum(["calm", "upbeat", "cinematic", "dark", "playful", "warm"]);
+export type MusicMood = z.infer<typeof MusicMood>;
+
+/**
+ * What each mood is called to the person, in both languages.
+ *
+ * Here rather than in the two places that need it, because they are two:
+ * the planner writes "I'll lay a calm bed under it" before the render, and the
+ * worker writes "laid a calm bed, 92 bpm" after it. Two copies of this table
+ * is one of them being translated and the other quietly shipping «فرشة
+ * (calm)» to somebody reading Arabic — which is exactly what the first draft
+ * of this did.
+ */
+export const MUSIC_MOOD_NAMES: Record<MusicMood, { en: string; ar: string }> = {
+  calm: { en: "calm", ar: "هادئة" },
+  upbeat: { en: "upbeat", ar: "حماسية" },
+  cinematic: { en: "cinematic", ar: "سينمائية" },
+  dark: { en: "dark", ar: "غامضة" },
+  playful: { en: "playful", ar: "مرحة" },
+  warm: { en: "warm", ar: "دافئة" },
+};
+
+/**
  * Lay a music bed under the whole edit.
  *
- * The asset is named by id, like b-roll and overlays, and for the same reason:
- * an id is checked against the project's own library, a path is a request to
- * render whatever the caller can spell. The library is also the *only* source
- * of music here. We ship no catalogue, and we will not, because a track we
- * hand you is a licence we would have to have bought on your behalf — so this
- * operation carries what the person already owns, and nothing else.
+ * Two sources, and exactly one of them per operation.
+ *
+ * `assetId` is a file the project already holds — the person's own track,
+ * checked against their own library, which is what an id rather than a path is
+ * for. This was for a long time the *only* source, because a track we hand out
+ * is a licence we would have bought on somebody's behalf.
+ *
+ * `mood` is the other one, and it exists because that argument turns out to
+ * have an answer: audio we generate ourselves is audio we own. It names a
+ * mood, not a track, and the worker resolves it against a library that fills
+ * itself — see `music_tracks`. A merchant who has no music and no intention of
+ * finding any can now have a bed, and nobody bought a licence for them.
  *
  * It has no `at`: a bed runs the length of the edit by definition. Everything
  * else in this file is placed on the source clock and moved through the cut
@@ -1044,7 +1086,13 @@ export const InsertBRollOperation = z.object({
  */
 export const AddMusicOperation = z.object({
   type: z.literal("addMusic"),
-  assetId: z.string().min(1),
+  /**
+   * A track in this project's library. Optional now, and still the first
+   * choice where it exists: somebody who uploaded a track chose it.
+   */
+  assetId: z.string().min(1).optional(),
+  /** Or a mood to make one in, when they have no track of their own. */
+  mood: MusicMood.optional(),
   /**
    * How far under the programme the bed sits. -18 dB is a bed you feel and
    * stop hearing, which is what a bed is for; 0 would put the music level with
@@ -1063,7 +1111,19 @@ export const AddMusicOperation = z.object({
   fromSeconds: z.number().min(0).max(3600).default(0),
   /** Repeat the track if it runs out before the edit does. */
   loop: z.boolean().default(true),
-});
+})
+  /*
+    One source or the other, and never neither.
+
+    Checked here rather than left to the worker because an `addMusic` carrying
+    neither is not a bed that fails to play — it is a plan that promised music
+    and named nothing, which the renderer would report as "the track this plan
+    names is not in this project" about a track nobody ever named.
+  */
+  .refine((op) => Boolean(op.assetId) !== Boolean(op.mood), {
+    message: "addMusic needs either an assetId or a mood, and not both",
+    path: ["assetId"],
+  });
 
 export const OverlayImageOperation = z.object({
   type: z.literal("overlayImage"),

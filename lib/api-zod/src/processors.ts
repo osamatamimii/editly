@@ -124,6 +124,29 @@ export const PROCESSORS: readonly Processor[] = [
     always: false,
   },
   {
+    /*
+      Same company and same host as the entry above, and a separate row anyway.
+
+      This page answers "who gets my things", and the answer here is unusual
+      enough to be worth its own line: **nothing of yours is sent**. Making a
+      music bed sends one word — "calm", "upbeat" — and gets thirty seconds of
+      instrumental audio back. No frame, no transcript, no file, no account.
+
+      Folding it into the Gemini row would have been tidier and would have
+      implied that asking for music sends your video somewhere, which is the
+      opposite of true.
+    */
+    name: "Google (Lyria)",
+    hosts: ["generativelanguage.googleapis.com"],
+    role: "library",
+    sends: { en: "a mood word, and nothing of yours", ar: "كلمة مزاج واحدة، ولا شيء من ملفّاتك" },
+    because: {
+      en: "to make the music bed, when you ask for one and have not uploaded a track",
+      ar: "لصنع الفرشة الموسيقية حين تطلبها ولم ترفع مقطوعة",
+    },
+    always: false,
+  },
+  {
     name: "OpenAI",
     hosts: ["api.openai.com"],
     role: "understanding",

@@ -11,7 +11,8 @@
  * model behind this, the model's job is to emit one of these plans; everything
  * downstream stays as it is.
  */
-import type { EditOperation, GradeLook, Platform, TransitionStyle } from "@workspace/api-zod";
+import type { EditOperation, GradeLook, MusicMood, Platform, TransitionStyle } from "@workspace/api-zod";
+import { MUSIC_MOOD_NAMES } from "@workspace/api-zod";
 
 /**
  * One thing to say, in both languages.
@@ -169,6 +170,62 @@ const MUSIC_WORDS =
  */
 const NO_MUSIC_WORDS =
   /\bno (?:music|soundtrack|song|backing track)|without (?:music|a soundtrack|a song)|\bdon'?t (?:add|put|want|use) (?:any )?(?:music|a soundtrack|a song)|(?:remove|take out|get rid of|kill|drop|no) (?:the )?music|بدون موسيق|بلا موسيق|من غير موسيق|من دون موسيق|لا موسيق|لا (?:تحط|تضع|تضيف|تريد) (?:موسيق|أغنية|اغنية)|شيل (?:ال)?موسيق|احذف (?:ال)?موسيق|بدون أغنية|بدون اغنية|بلا أغنية/i;
+
+/**
+ * Which mood a bed is asked for in.
+ *
+ * Read *inside* the music branch and nowhere else, which is what makes words
+ * this loose safe: «هادئة» on its own is not a request for anything, and a
+ * sentence that already asked for music and then said "calm" is describing the
+ * music. The same arrangement `SFX_QUIET_WORDS` has, for the same reason.
+ *
+ * No `\b` on the Arabic alternatives. A word boundary in JavaScript is defined
+ * against `\w`, which is ASCII, so it matches nothing beside an Arabic letter
+ * and quietly makes the pattern dead — the trap that once made «ومضة»
+ * invisible to the transition matcher.
+ *
+ * Order matters where two could match: "dark cinematic" is cinematic, because
+ * the named genre is the stronger statement.
+ */
+const MUSIC_MOODS: { mood: MusicMood; patterns: RegExp }[] = [
+  {
+    mood: "cinematic",
+    patterns: /\bcinematic\b|\bepic\b|\bdramatic\b|\btrailer\b|\borchestral\b|سينمائي|سينمائية|ملحمي|ملحمية|درامية|أوركسترا/i,
+  },
+  {
+    mood: "upbeat",
+    patterns: /\bupbeat\b|\benergetic\b|\bhype\b|\bexciting\b|\bdriving\b|\bpunchy\b|\bfast\b|حماسي|حماسية|نشيطة|نشيط|سريعة|قوية|طاقة/i,
+  },
+  {
+    mood: "dark",
+    patterns: /\bdark\b|\btense\b|\bmoody\b|\bsuspense\b|\bserious\b|مظلمة|غامضة|متوتّرة|متوترة|جادّة|جادة|مشوّقة/i,
+  },
+  {
+    mood: "playful",
+    patterns: /\bplayful\b|\bfun\b|\bcute\b|\bquirky\b|\bcheerful\b|\bhappy\b|مرحة|مرح|لطيفة|بهيجة|مبهجة|ظريفة/i,
+  },
+  {
+    mood: "warm",
+    patterns: /\bwarm\b|\blo-?fi\b|\bchill ?hop\b|\bcozy\b|\bcosy\b|\bsmooth\b|دافئة|دافئ|ناعمة|ناعم/i,
+  },
+  {
+    mood: "calm",
+    patterns: /\bcalm\b|\bquiet\b|\bsoft\b|\bgentle\b|\bchill\b|\brelax\w*|\bmellow\b|\bambient\b|هادئة|هادئ|هادي|هادية|رايقة|خفيفة|خفيف/i,
+  },
+];
+
+/**
+ * The mood a sentence asked for, and the one it gets when it did not say.
+ *
+ * Calm is the default and it is not a coin toss: a bed sits under somebody
+ * talking at eighteen decibels below them, and of the six this is the one that
+ * is hardest to be wrong about. A person who wanted something louder will say
+ * so on the next message; a person who got something loud under a quiet piece
+ * to camera has had their video damaged by a guess.
+ */
+export function musicMoodFrom(text: string): MusicMood {
+  return MUSIC_MOODS.find((entry) => entry.patterns.test(text))?.mood ?? "calm";
+}
 
 /**
  * Asking for a beat *cut*, which we do not do.
@@ -933,6 +990,34 @@ export function parseClips(typed: string): { count: number; targetSeconds: numbe
  */
 const PUNCH_WORDS =
   /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b|زوم|تقريب|قرّب|قرِّب|حماس|طاقة|حيوية/i;
+
+/**
+ * The half of `PUNCH_WORDS` that names the move rather than a feeling.
+ *
+ * "zoom", "punch in", «تقريب», «قرّب» are requests about the *picture* and mean
+ * nothing else. The rest — energetic, energy, dynamic, hype, «حماس», «طاقة»,
+ * «حيوية» — are adjectives, and an adjective attaches to whatever noun is
+ * nearest.
+ *
+ * Which is how «ضيف موسيقى حماسية» came to add zoom punches. The sentence asks
+ * for *music* that is energetic; «حماسية» matched the punch list; the person
+ * got their bed and four zoom punches they never mentioned. English was
+ * unaffected, because "upbeat" is not in the list — so this was also a
+ * bilingual asymmetry, and the Arabic half was the one that got the surprise.
+ *
+ * The rule below is the smallest one that fixes it without making the matcher
+ * timid: an adjective alone does not ask for punches when the sentence is
+ * asking for music. Say "zoom" and you get zooms, music or no music.
+ */
+const PUNCH_MOVE_WORDS = /\bzoom|punch|emphasi[sz]\b|زوم|تقريب|قرّب|قرِّب/i;
+
+/** Whether this sentence is really asking for punch-ins. */
+function asksForPunches(text: string): boolean {
+  if (PUNCH_MOVE_WORDS.test(text)) return true;
+  // Only an energy adjective is left. It belongs to the music if music is what
+  // the sentence is about.
+  return PUNCH_WORDS.test(text) && !MUSIC_WORDS.test(text);
+}
 const PUSH_WORDS =
   /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b|زوم بطيء|تقريب بطيء|حركة بطيئة|حركة سينمائية|كين بيرنز/i;
 
@@ -1295,7 +1380,7 @@ export function planFromText(
   if (PUSH_WORDS.test(text)) {
     operations.push({ type: "kenBurns", to: 1.08 });
     willDo.push(say("add a slow push so the frame is not static", "أضيف حركة بطيئة كي لا تبقى الصورة ثابتة"));
-  } else if (PUNCH_WORDS.test(text)) {
+  } else if (asksForPunches(text)) {
     // Where they pointed, if they pointed anywhere. An empty list still means
     // "you choose", and the worker still puts them on the emphasis — so a
     // sentence with no moment in it behaves exactly as it always has.
@@ -1426,16 +1511,36 @@ export function planFromText(
 
   const tracks = library.filter((a) => a.kind === "audio");
 
-  // Music is the person's own file or it is nothing. We ship no catalogue and
-  // will not: a track we handed out would be a licence we bought on their
-  // behalf. So the honest reply when the library is empty names the fix rather
-  // than the limitation — upload the track and it goes under.
+  /*
+    Their file first, and a bed we make when they have none.
+
+    The refusal that used to live here was right for as long as the only
+    possible source was a catalogue: a track we hand out is a licence we bought
+    on somebody's behalf. It stopped being right when the bed could be
+    *generated* — audio made to our own account is ours to give away, and the
+    person who asked for music and owns none is no longer told to go and find
+    some.
+
+    Their own upload still wins wherever it exists, and that is not politeness:
+    they chose that track, and a piece of music somebody picked beats one a
+    mood name produced every time.
+  */
   if (MUSIC_WORDS.test(text) && !NO_MUSIC_WORDS.test(text)) {
     if (tracks.length === 0) {
-      cannotYet.push(
+      const mood = musicMoodFrom(text);
+      operations.push({
+        type: "addMusic",
+        mood,
+        gainDb: -18,
+        duck: true,
+        fadeSeconds: 1.5,
+        fromSeconds: 0,
+        loop: true,
+      });
+      willDo.push(
         say(
-          "add music yet, because this project has no audio file. Upload the track you have the rights to and I will lay it under the whole edit",
-          "أضيف موسيقى بعد، لأن المشروع لا يحوي ملفًّا صوتيًّا، ارفع المقطوعة التي تملك حقوقها وأضعها تحت التعديل كلّه",
+          `lay a ${MUSIC_MOOD_NAMES[mood].en} bed under the whole edit, ducking under your voice`,
+          `أضع فرشة ${MUSIC_MOOD_NAMES[mood].ar} تحت التعديل كلّه، تنخفض تحت صوتك`,
         ),
       );
     } else {

@@ -348,6 +348,7 @@ jobs:
       - run: node tools/overlay-test.mjs
       - run: node tools/motion-test.mjs
       - run: node tools/beat-test.mjs
+      - run: node tools/music-test.mjs
       - run: node tools/checkout-test.mjs
       - run: node tools/stock-test.mjs
       # Beside browser-test, and for the failure browser-test cannot see: a React

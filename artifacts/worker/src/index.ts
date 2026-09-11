@@ -16,7 +16,7 @@ import { hostname } from "node:os";
 import { sql, eq, and } from "drizzle-orm";
 import pino from "pino";
 import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTable, comprehensionsTable, transcriptsTable, workerHeartbeatsTable, type Job } from "@workspace/db";
-import { EditPlan, type EditOperation } from "@workspace/api-zod";
+import { EditPlan, MUSIC_MOOD_NAMES, type EditOperation } from "@workspace/api-zod";
 import { CANCELLED_MID_RENDER_MESSAGE } from "@workspace/api-zod/limits";
 import { downloadObject, uploadObject, bytesPulled, objectBytes, objectStamp, reportTransferRetries, StorageTransferError } from "./storage";
 import { roomFor, noRoomMessage, sweepStaleWork } from "./disk";
@@ -39,6 +39,7 @@ import { applyRemovals, chooseRemovals, retentionFrom, type SweepableClip, type 
 import { objectStoreFrom } from "@workspace/object-store";
 import { serveHealth, HEALTH_PORT } from "./health";
 import { buildStillsReel, imageSize } from "./stills";
+import { bedFor } from "./music-library";
 
 const WORKER_ID = `${hostname()}-${randomUUID().slice(0, 8)}`;
 const POLL_INTERVAL_MS = Number(process.env["POLL_INTERVAL_MS"] ?? 5000);
@@ -887,6 +888,52 @@ async function processJob(job: Job): Promise<void> {
     // `fontsdir`, never installed. Two renders run side by side on some
     // machines, and a family name is all it would take for one to draw the
     // other's font.
+    /*
+      A mood becomes a file, before the renderer is ever told about it.
+
+      `addMusic` carries either an `assetId` — a track the person uploaded —
+      or a `mood`, and this is where the second becomes the first. The bed is
+      fetched or made, put into the same assets map every other file goes into
+      under an id of its own, and the operation is rewritten to name it. From
+      the renderer's side there is then no such thing as generated music:
+      there is a bed with an id, exactly like one somebody uploaded, and the
+      whole mixing path is the one that already exists and is already tested.
+
+      The same move `stillsReel` makes one screen up, for the same reason: the
+      place to resolve what a plan *means* is here, where the job knows who it
+      belongs to and what it may open, and never inside a filter graph.
+    */
+    const moodOp = enriched.plan.operations.find(
+      (op): op is Extract<EditOperation, { type: "addMusic" }> =>
+        op.type === "addMusic" && !op.assetId && Boolean(op.mood),
+    );
+    if (moodOp?.mood) {
+      await reportProgress(job.id, 11, say("Finding the music", "أبحث عن الموسيقى"));
+      const bed = await bedFor({
+        mood: moodOp.mood,
+        workDir,
+        maker: providers.musicMaker,
+        log,
+      });
+      if (bed) {
+        const bedId = `bed-${moodOp.mood}`;
+        assets.set(bedId, { file: bed.file, kind: "audio" });
+        moodOp.assetId = bedId;
+        const named = MUSIC_MOOD_NAMES[moodOp.mood];
+        reelNotes.push(
+          bed.bpm === null
+            ? say(`laid a ${named.en} bed under it`, `وضعت تحته فرشة ${named.ar}`)
+            : say(
+                `laid a ${named.en} bed under it, ${bed.bpm} bpm`,
+                `وضعت تحته فرشة ${named.ar} بإيقاع ${bed.bpm}`,
+              ),
+        );
+      }
+      // No bed and no note here: the renderer writes that sentence, because it
+      // is the one place that knows whether the operation survived the rest of
+      // the plan. See the `!music.assetId` branch in ffmpeg.ts.
+    }
+
     const faces = await fetchUploadedFaces(
       job.userId,
       enriched.plan.operations.flatMap((op) =>
