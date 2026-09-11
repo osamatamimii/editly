@@ -2069,6 +2069,18 @@ export default function Home() {
 
       <div className="absolute inset-x-0 top-0 h-[clamp(680px,60vw,900px)] pointer-events-none -z-10 overflow-hidden">
         {/*
+          The sky's exit, before its container can cut it.
+
+          This box ends mid-page, and everything painted in it — the key
+          light's lower reach, the faintest stars — was being chopped at that
+          edge in a straight line across the whole screen, right behind the
+          phone. Osama calls these the stupid separators, correctly. The last
+          fifth of the box now fades its contents into the page's own ground,
+          so the sky ends because it dims, not because it hit a wall. Stacked
+          over its siblings by z-index, so source order does not matter.
+        */}
+        <div className="sky-foot" aria-hidden="true" />
+        {/*
           The key light, and it is the loudest thing on the page above the
           fold, which is what the reference does.
 
@@ -3047,7 +3059,11 @@ export default function Home() {
               signing up rather than after. In the last row rather than a column
               of their own: they are not a feature, and putting them beside the
               product links would suggest they are. */}
-          <div className="mt-10 pt-6 border-t border-hairline-faint flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground/70">
+          {/* No drawn rule above this row. The line that was here was the
+              second of the two straight separators Osama pointed at, and the
+              row does not need it: the gap and the type size already say
+              "smaller matters live here". */}
+          <div className="mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground/70">
             <span dir="ltr">© {new Date().getFullYear()} Editly</span>
             <span className="flex items-center gap-4">
               <Link href="/privacy" className="min-h-11 inline-flex items-center hover:text-foreground transition-colors">{t(LANDING.footer.privacy)}</Link>
