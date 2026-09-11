@@ -3060,6 +3060,129 @@ console.log("\nA machine with no tone-mapper still ships the file, and says the 
   );
 }
 
+console.log("\nA LUT from the library grades the picture, and a fake one cannot kill the render");
+{
+  /*
+    The .cube ingestion (تكليف ٠٦ ب), measured the way the looks below are:
+    on the channels of a drawn frame, not on the filter string. The cube here
+    is written by the test and is the smallest legal one — size 2, identity
+    on green and blue, red crushed to zero — so "the LUT was applied" is a
+    red channel that measurably died while the others held.
+
+    The failure paths matter as much: `lut3d` on a file that is not a LUT
+    does not degrade, it kills the whole job, so the worker gates the file
+    first. A garbage file and an oversize file must each come out as a note
+    and a picture without the LUT — a worse render, never no render.
+  */
+  const dir = await scratch();
+  const colourful = path.join(dir, "colourful.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "color=c=0x808080:size=320x240:rate=25:duration=2,drawbox=color=0xB06040@1:t=fill:w=160:h=240:x=0:y=0",
+    "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "veryfast", colourful,
+  ]);
+
+  const killRed = path.join(dir, "kill-red.cube");
+  writeFileSync(
+    killRed,
+    [
+      "# a legal minimal cube: identity on G and B, red to zero",
+      "LUT_3D_SIZE 2",
+      "0.0 0.0 0.0",
+      "0.0 0.0 0.0",
+      "0.0 1.0 0.0",
+      "0.0 1.0 0.0",
+      "0.0 0.0 1.0",
+      "0.0 0.0 1.0",
+      "0.0 1.0 1.0",
+      "0.0 1.0 1.0",
+      "",
+    ].join("\n"),
+  );
+  const assets = new Map([["lut1", { file: killRed, kind: "lut" }]]);
+
+  // One key per probe: ffprobe prints fields in its own order whatever the
+  // -show_entries order says (the HDR section above measured the same), so a
+  // multi-key read mislabels silently.
+  const channelMean = (file, key) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},trim=start=0.5:end=0.56,signalstats`,
+        "-show_entries", `frame_tags=lavfi.signalstats.${key}`,
+        "-of", "default=nw=1:nk=1",
+      ],
+      { encoding: "utf8" },
+    );
+    const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number);
+    return vals[0];
+  };
+
+  const plain = await renderPlan(
+    colourful,
+    { version: 1, operations: [{ type: "grade", saturation: 1, look: "none" }] },
+    { workDir: await scratch() },
+  );
+  const graded = await renderPlan(
+    colourful,
+    { version: 1, operations: [{ type: "grade", saturation: 1, look: "none", lut: "lut1" }] },
+    { workDir: await scratch(), assets },
+  );
+  check(
+    "the note says the LUT went on, before the captions and the mark",
+    graded.notes.some((n) => /applied your LUT/.test(n)),
+    JSON.stringify(graded.notes),
+  );
+  const beforeV = channelMean(plain.output, "VAVG");
+  const afterV = channelMean(graded.output, "VAVG");
+  // Killing red pulls V (the red-difference channel) hard toward the low
+  // side; the orange half of the fixture is exactly what feeds it.
+  check(
+    "and the pixels moved the way killing red moves them",
+    Number.isFinite(beforeV) && Number.isFinite(afterV) && beforeV - afterV > 15,
+    `V ${beforeV} -> ${afterV}`,
+  );
+
+  const garbage = path.join(dir, "garbage.cube");
+  writeFileSync(garbage, "this is not a cube at all\n".repeat(50));
+  const survived = await renderPlan(
+    colourful,
+    { version: 1, operations: [{ type: "grade", saturation: 1, look: "none", lut: "bad" }] },
+    { workDir: await scratch(), assets: new Map([["bad", { file: garbage, kind: "lut" }]]) },
+  );
+  check("a file that is not a LUT becomes a note, not a dead job", existsSync(survived.output));
+  check(
+    "and the note says which kind of wrong it was",
+    survived.notes.some((n) => /does not read as a \.cube/.test(n)),
+    JSON.stringify(survived.notes),
+  );
+
+  const huge = path.join(dir, "huge.cube");
+  writeFileSync(huge, `LUT_3D_SIZE 65\n${"0.5 0.5 0.5\n".repeat(700_000)}`);
+  const refusedBig = await renderPlan(
+    colourful,
+    { version: 1, operations: [{ type: "grade", saturation: 1, look: "none", lut: "big" }] },
+    { workDir: await scratch(), assets: new Map([["big", { file: huge, kind: "lut" }]]) },
+  );
+  check(
+    "an implausibly large cube is refused by size, before lut3d reads it into memory",
+    existsSync(refusedBig.output) && refusedBig.notes.some((n) => /larger than any real colour cube/.test(n)),
+    JSON.stringify(refusedBig.notes),
+  );
+
+  const missing = await renderPlan(
+    colourful,
+    { version: 1, operations: [{ type: "grade", saturation: 1, look: "none", lut: "nowhere" }] },
+    { workDir: await scratch(), assets: new Map() },
+  );
+  check(
+    "a LUT id the project does not have is said, not silently dropped",
+    missing.notes.some((n) => /is not in this project/.test(n)),
+    JSON.stringify(missing.notes),
+  );
+}
+
 console.log("\nColour looks are measured on the pixels, not on the filter");
 {
   const dir = await scratch();

@@ -831,10 +831,19 @@ async function processJob(job: Job): Promise<void> {
         enriched.plan.operations
           .filter((op) => NAMES_AN_ASSET.has(op.type))
           .map((op) => (op as { assetId: string }).assetId)
+          // The grade names its asset under a different key, because a LUT is
+          // a field of the grade rather than an operation — the exact shape
+          // the four-names-where-there-should-be-three bug above warns about,
+          // so it is collected here, beside the warning, not in a second list.
+          .concat(
+            enriched.plan.operations
+              .filter((op) => op.type === "grade")
+              .map((op) => (op as { lut?: string }).lut as string),
+          )
           .filter((id): id is string => typeof id === "string" && id.length > 0),
       ),
     ];
-    const assets = new Map<string, { file: string; kind: "video" | "image" | "audio" }>();
+    const assets = new Map<string, { file: string; kind: "video" | "image" | "audio" | "lut" }>();
     /** Assets this project really has and this render could not fetch. */
     const unreachableAssetIds = new Set<string>();
     if (wantedAssetIds.length > 0) {
@@ -856,7 +865,7 @@ async function processJob(job: Job): Promise<void> {
         try {
           const file = path.join(workDir, `asset-${row.id}`);
           await downloadObject(row.path, file);
-          assets.set(row.id, { file, kind: row.kind as "video" | "image" | "audio" });
+          assets.set(row.id, { file, kind: row.kind as "video" | "image" | "audio" | "lut" });
         } catch (error) {
           /*
             One missing overlay is a worse render, not a failed one — and the
@@ -1646,7 +1655,7 @@ async function renderClipSet(args: {
   /** What the material is, when something has read it. Null falls back to density. */
   reading: Reading | null;
   words: Array<{ start: number; end: number; filler: boolean; text?: string; speaker?: number }>;
-  assets: Map<string, { file: string; kind: "video" | "image" | "audio" }>;
+  assets: Map<string, { file: string; kind: "video" | "image" | "audio" | "lut" }>;
   unreachableAssetIds: ReadonlySet<string>;
   /** Where the job's download counter stood when it started. See `bytesIn`. */
   pulledAtStart: number;

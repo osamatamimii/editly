@@ -927,6 +927,24 @@ export const GradeOperation = z.object({
    * decides how much colour.
    */
   look: GradeLook.default("none"),
+  /**
+   * A `.cube` LUT from the project's library, by asset id — never by path,
+   * for the same reason every other asset field here is an id: an id is
+   * checked against the person's own library, a path is a request to render
+   * whatever the caller can spell.
+   *
+   * A field on `grade` rather than its own operation, because a LUT *is* a
+   * grade and belongs in the grade's one slot in the chain — before the
+   * captions and the watermark, whose whites must not drift with it. When a
+   * look rides along, the LUT is applied first and the look on top: the LUT
+   * is the base transform, the look a mood over it, the saturation
+   * multiplier last — ordered, not merged, like everything else here.
+   *
+   * The worker validates the file itself (a real LUT_3D_SIZE header, within
+   * the size cap) and degrades to a note rather than a dead render when the
+   * file is not what it claims.
+   */
+  lut: z.string().min(1).optional(),
 });
 
 /**
@@ -983,7 +1001,7 @@ export const NormalizeLoudnessOperation = z.object({
 export const Asset = z.object({
   id: z.string(),
   projectId: z.string(),
-  kind: z.enum(["video", "image", "audio"]),
+  kind: z.enum(["video", "image", "audio", "lut"]),
   label: z.string().nullable(),
   bytes: z.number(),
   durationSeconds: z.number().nullable(),
@@ -1145,7 +1163,7 @@ export const RegisterAssetParams = z.object({ id: z.string().min(1) });
 export const RegisterAssetBody = z.object({
   /** Storage object path, `<userId>/<projectId>/<name>`. Checked, not trusted. */
   path: z.string().min(3).max(400),
-  kind: z.enum(["video", "image", "audio"]),
+  kind: z.enum(["video", "image", "audio", "lut"]),
   label: z.string().max(200).optional(),
   bytes: z.number().int().min(0).max(50_000_000_000).default(0),
   durationSeconds: z.number().min(0).max(86_400).optional(),

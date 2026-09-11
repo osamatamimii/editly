@@ -2582,6 +2582,51 @@ const GRADE_LOOKS: Record<
 };
 
 /**
+ * The most bytes a real `.cube` can plausibly be.
+ *
+ * The format tops out at LUT_3D_SIZE 65 by its own spec, and a 65³ cube of
+ * three floats written as text is about seven megabytes. Eight leaves room
+ * for comments and long mantissas; anything past it is not a colour cube,
+ * it is a file wearing the extension — and `lut3d` would read all of it
+ * into memory on a one-gigabyte machine before deciding.
+ */
+export const MAX_LUT_BYTES = 8_000_000;
+
+/**
+ * Whether a file can be handed to `lut3d` without killing the render.
+ *
+ * `lut3d` does not degrade on a bad file, it fails the whole job — so the
+ * two properties that decide life or death are checked here first: the size
+ * (against the cap above, from `stat` rather than from a row somebody
+ * wrote), and the header (a `LUT_3D_SIZE n` line with n in the format's own
+ * 2..65, looked for in the first chunk because that is where the spec puts
+ * it). This is a gate, not a parser: a file that passes and is still
+ * malformed fails the render the honest way, loudly.
+ */
+export async function lutUsable(
+  file: string,
+): Promise<{ ok: true; size: number } | { ok: false; why: "tooBig" | "notACube" }> {
+  try {
+    const { stat, open } = await import("node:fs/promises");
+    const info = await stat(file);
+    if (info.size > MAX_LUT_BYTES) return { ok: false, why: "tooBig" };
+    const handle = await open(file, "r");
+    try {
+      const head = Buffer.alloc(Math.min(info.size, 64_000));
+      await handle.read(head, 0, head.length, 0);
+      const match = head.toString("utf8").match(/^\s*LUT_3D_SIZE\s+(\d+)\s*$/m);
+      const size = match ? Number(match[1]) : NaN;
+      if (!Number.isInteger(size) || size < 2 || size > 65) return { ok: false, why: "notACube" };
+      return { ok: true, size };
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return { ok: false, why: "notACube" };
+  }
+}
+
+/**
  * How many channels the source's audio has, or 2 when it cannot be read.
  *
  * Two is the safe default in both directions: it never under-encodes a stereo
@@ -2908,7 +2953,7 @@ export interface RenderContext {
    * can open an arbitrary path is one plan away from reading someone else's
    * project.
    */
-  assets?: Map<string, { file: string; kind: "video" | "image" | "audio" }>;
+  assets?: Map<string, { file: string; kind: "video" | "image" | "audio" | "lut" }>;
   /**
    * Assets the project really has and this render could not fetch.
    *
@@ -4664,6 +4709,61 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // captions and the mark are not. A watermark whose white drifted with the
   // saturation of the footage under it would read as a rendering fault.
   if (grade) {
+    /*
+      The LUT first, then the look, then the reference multiplier — three
+      layers that compose rather than argue: the LUT is the base transform
+      (it usually *is* the whole look somebody was handed by a colourist),
+      a named look is a mood on top, and the saturation multiplier decides
+      how much colour survives the pair. Ordered, not merged, like the two
+      that were already here.
+
+      The file is checked before it is trusted with the render. `lut3d` on a
+      file that is not a LUT does not degrade, it kills the job — so a
+      missing header or an implausible size becomes a note and a picture
+      without the LUT, which is a worse render rather than no render. The
+      cap and the parse are the ingestion the brief asked for; the id has
+      already been resolved against the person's own library upstream, the
+      same as every b-roll and bed.
+    */
+    if (grade.lut) {
+      const asset = ctx.assets?.get(grade.lut);
+      if (!asset) {
+        notes.push(
+          ctx.unreachableAssetIds?.has(grade.lut)
+            ? t(
+                "your LUT could not be fetched this time, so the grade ran without it. It is still in your library, and the next render will try again",
+                "تعذّر جلب ملف LUT هذه المرّة، فجرى التدريج بدونه. الملف ما زال في مكتبتك وسيحاول التنفيذ القادم مجددًا",
+              )
+            : t(
+                "the LUT this plan names is not in this project, so the grade ran without it",
+                "ملف LUT الذي تسمّيه هذه الخطة ليس في هذا المشروع، فجرى التدريج بدونه",
+              ),
+        );
+      } else {
+        const usable = await lutUsable(asset.file);
+        if (!usable.ok) {
+          notes.push(
+            usable.why === "tooBig"
+              ? t(
+                  "that LUT file is larger than any real colour cube, so it was not applied",
+                  "ملف LUT أكبر من أي مكعّب ألوان حقيقي، فلم يُطبَّق",
+                )
+              : t(
+                  "that file does not read as a .cube LUT, so it was not applied",
+                  "هذا الملف لا يُقرأ كملف ‎.cube، فلم يُطبَّق",
+                ),
+          );
+        } else {
+          videoParts.push(`lut3d=file='${asset.file.replace(/[\\:']/g, "\\$&")}'`);
+          notes.push(
+            t(
+              "applied your LUT to the whole picture, before the captions and the mark",
+              "طبّقت ملف LUT على الصورة كلّها، قبل الكابشن والعلامة",
+            ),
+          );
+        }
+      }
+    }
     // The look first, then the reference multiplier, so the two compose rather
     // than argue: the look decides the mood and the match decides how much
     // colour there is. Ordered, not merged — merging them would mean deciding

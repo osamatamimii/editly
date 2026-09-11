@@ -3214,7 +3214,7 @@ components:
           type: string
         kind:
           type: string
-          enum: [video, image, audio]
+          enum: [video, image, audio, lut]
         label:
           type: string
           nullable: true
@@ -3251,7 +3251,7 @@ components:
           type: string
         kind:
           type: string
-          enum: [video, image, audio]
+          enum: [video, image, audio, lut]
         label:
           type: string
           nullable: true
@@ -4509,6 +4509,13 @@ components:
           minimum: 0.5
           maximum: 1.5
           default: 1
+        lut:
+          description: >
+            A .cube LUT from the project's library, by asset id. Applied first,
+            before the look and the saturation, in the grade's one slot in the
+            chain (before captions and the watermark). The worker validates the
+            file itself and degrades to a note when it is not a real LUT.
+          type: string
         look:
           description: >
             A named look, for people who cannot hand us a reference clip.
