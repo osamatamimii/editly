@@ -41,12 +41,13 @@ import type {
   UploadedPart,
   ObjectAddress,
   ObjectStore,
+  SignedGetOptions,
   SignedPutOptions,
   SignedUpload,
   StoreFacts,
   StoredObject,
 } from "./index";
-import { guardKey, guardPrefix, MIN_PART_BYTES, ObjectStoreError } from "./index";
+import { guardKey, guardPrefix, MIN_PART_BYTES, ObjectStoreError, safeFilename } from "./index";
 import { presign, R2_REGION, type SigningIdentity } from "./sigv4";
 
 export interface R2StoreConfig {
@@ -197,9 +198,24 @@ export function createR2Store(config: R2StoreConfig): ObjectStore {
       a custom domain is a bucket configuration question rather than a reason
       for this function to stop signing.
     */
-    async signedGet(key: string, expiresInSeconds: number): Promise<string> {
+    async signedGet(key: string, expiresInSeconds: number, options?: SignedGetOptions): Promise<string> {
       guardKey(key);
-      return sign("GET", key, expiresInSeconds);
+      /*
+        The disposition is signed, not appended.
+
+        S3 reads `response-content-disposition` off the query string and echoes
+        it onto the response — and because every one of our signatures covers
+        the whole query string, a name added after signing invalidates it. So
+        it goes in here or it does not go in at all.
+
+        The filename is quoted and stripped of quotes and control characters
+        rather than escaped: it lands in a response header, and a header is
+        exactly the place where a smuggled newline stops being a filename.
+      */
+      const query = options?.download
+        ? { "response-content-disposition": `attachment; filename="${safeFilename(options.download)}"` }
+        : undefined;
+      return sign("GET", key, expiresInSeconds, query);
     },
 
     /*

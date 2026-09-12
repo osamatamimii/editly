@@ -302,6 +302,67 @@ section("A playback URL is signed and expires, whatever the bucket also answers 
   check("while the audit still knows the bucket answers unsigned too", facts?.publicReads === true);
 }
 
+section("A download is signed to be saved, and the two stores get there differently");
+{
+  /*
+    The name has to be decided at signing time, and that is the whole reason
+    this option exists rather than the caller appending something.
+
+    `<a download="name.mp4">` is ignored for a cross-origin href, and every
+    object URL here is cross-origin. So without this the tab plays the finished
+    video full screen, with no filename and no obvious way to keep it, and
+    nothing has failed — the person is simply looking at their film wondering
+    where it went.
+
+    The two drivers reach the same behaviour by routes that share no shape: S3
+    signs the entire query string, so the disposition goes *inside* the
+    signature; Supabase mints a token for the object alone, so it is appended
+    afterwards. Which is the argument for the seam in one paragraph — a browser
+    cannot be taught this, and was never told, which is why reads went on
+    pointing at Supabase after the writes had moved.
+  */
+  const r2 = store.objectStoreFrom(
+    {},
+    {
+      provider: "r2",
+      bucket: "editly-media",
+      r2: { endpoint: "https://acc.r2.cloudflarestorage.com", accessKeyId: "AK", secretAccessKey: "SK" },
+    },
+  );
+
+  const plain = await r2.signedGet("u/p/render.mp4", 900);
+  check("no disposition is asked for when nobody wants one", !/response-content-disposition/.test(plain));
+
+  const saved = await r2.signedGet("u/p/render.mp4", 900, { download: "my film.mp4" });
+  check(
+    "the disposition is part of what was signed",
+    /X-Amz-SignedHeaders=/.test(saved) && /response-content-disposition=/.test(saved),
+    saved.slice(0, 200),
+  );
+  check(
+    "and it asks for an attachment under the name given",
+    decodeURIComponent(saved).includes('attachment; filename="my film.mp4"'),
+    decodeURIComponent(saved).slice(0, 240),
+  );
+  check(
+    "changing the name changes the signature, because it is covered by it",
+    (await r2.signedGet("u/p/render.mp4", 900, { download: "other.mp4" })).match(/X-Amz-Signature=([a-f0-9]+)/)?.[1] !==
+      saved.match(/X-Amz-Signature=([a-f0-9]+)/)?.[1],
+  );
+
+  /*
+    A filename is on its way into a response header, and it came from a person.
+    A quote ends the value early and a newline ends the header, so both are
+    removed rather than escaped.
+  */
+  const hostile = await r2.signedGet("u/p/render.mp4", 900, {
+    download: 'x".mp4\r\nX-Injected: yes',
+  });
+  const disposition = decodeURIComponent(hostile);
+  check("a quote cannot end the header value early", !/filename="x"\.mp4/.test(disposition), disposition.slice(0, 200));
+  check("and a newline cannot start a second header", !/\r|\n/.test(disposition));
+}
+
 section("Misconfiguration fails at the deploy, not at a customer's upload");
 {
   let threw = false;

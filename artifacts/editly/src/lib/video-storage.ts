@@ -1091,12 +1091,48 @@ async function uploadErrorText(response: Response, size?: number): Promise<strin
  */
 const RESIGN_EVERY_MS = 45 * 60 * 1000;
 
-export async function signedVideoUrl(path: string, expiresInSeconds = 3600): Promise<string | null> {
-  const { data, error } = await supabase.storage
-    .from(VIDEOS_BUCKET)
-    .createSignedUrl(path, expiresInSeconds);
-  if (error) return null;
-  return data?.signedUrl ?? null;
+/**
+ * Asked of our own API, for the same reason the upload is.
+ *
+ * This used to be `supabase.storage.from(VIDEOS_BUCKET).createSignedUrl(path)`
+ * — the Supabase client, the Supabase bucket, the Supabase signature — while
+ * the *write* had already moved behind a ticket our server mints. Half a seam
+ * is not a seam: with the store switched to R2 the bytes went to R2 and this
+ * line went on asking Supabase, which does not have them. It answered "not
+ * found", this returned `null`, and every poster, player and download in the
+ * product quietly showed nothing.
+ *
+ * Nothing threw. The upload said it worked, because it had; the project row
+ * was right, because it was; and the screen was empty. The only visible fact
+ * was the one that was fine, which is why the upload was blamed for a week.
+ *
+ * There is no version of this the browser can do for itself, either: S3 signs
+ * the whole query string and Supabase mints a token for the object alone, so
+ * "sign a read" has two answers with nothing in common. `POST /api/media/url`
+ * is where that choice lives now.
+ */
+async function readUrl(path: string, download?: string): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (!accessToken) return null;
+  try {
+    const response = await fetch("/api/media/url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify(download ? { path, download } : { path }),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { url?: string };
+    return body.url ?? null;
+  } catch {
+    // Same answer as every other failure here: `null`, which every caller
+    // already renders as "no picture yet" rather than as an error.
+    return null;
+  }
+}
+
+export async function signedVideoUrl(path: string, _expiresInSeconds = 3600): Promise<string | null> {
+  return readUrl(path);
 }
 
 /**
@@ -1120,13 +1156,9 @@ export async function signedVideoUrl(path: string, expiresInSeconds = 3600): Pro
 export async function downloadableVideoUrl(
   path: string,
   filename: string,
-  expiresInSeconds = 3600,
+  _expiresInSeconds = 3600,
 ): Promise<string | null> {
-  const { data, error } = await supabase.storage
-    .from(VIDEOS_BUCKET)
-    .createSignedUrl(path, expiresInSeconds, { download: filename });
-  if (error) return null;
-  return data?.signedUrl ?? null;
+  return readUrl(path, filename);
 }
 
 /*

@@ -23,6 +23,7 @@ import shopifyRouter, { shopifyWebhookRouter } from "./shopify";
 import productAdsRouter from "./product-ads";
 import fontsRouter from "./fonts";
 import uploadsRouter from "./uploads";
+import mediaRouter from "./media";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -100,6 +101,7 @@ router.use(projectsRouter);
 // before them: permission to upload is minted here, and every other upload
 // path in this product is the browser reporting back afterwards.
 router.use(uploadsRouter);
+router.use(mediaRouter);
 router.use(socialRouter);
 router.use(fontsRouter);
 router.use(messagesRouter);

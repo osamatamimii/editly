@@ -803,6 +803,70 @@ console.log("\nA large file goes up in parts, and only this API assembles them")
     /export function isOwnedObjectPrefix/.test(storage) && /SAFE_SEGMENT\.test/.test(storage),
   );
 
+  /*
+    ── The other half of the seam ──────────────────────────────────────────
+
+    Every check above is about the browser *writing* through our permission.
+    It was built so that changing storage provider would be a variable rather
+    than a rewrite — and the browser went on *reading* with
+    `supabase.storage.from(bucket).createSignedUrl(path)`, which is that same
+    rewrite, still outstanding, in the one place nobody looked.
+
+    With the store switched to R2 the bytes went to R2 and this line asked
+    Supabase, which does not have them. Supabase answered "not found", the
+    helper returned `null`, and every poster, player and download in the
+    product showed nothing. The upload said it worked because it had; the
+    project row was correct because it was; and the screen was empty. The only
+    step visibly involved was the one that was fine, so the upload was blamed.
+
+    This is the check that catches it: the browser may not sign a read against
+    a named store, on any provider, ever. It is a grep rather than a behaviour
+    because the failure has no behaviour — it is a correct call to the wrong
+    building.
+  */
+  const clientFiles = [
+    "artifacts/editly/src/lib/video-storage.ts",
+    "artifacts/editly/src/lib/supabase.ts",
+  ];
+  for (const file of clientFiles) {
+    const source = read(file);
+    // Comments explain the history and must not count as the thing itself.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*(\/\/|\*).*$/gm, "");
+    check(
+      `${file.split("/").pop()} signs no read against a store of its own`,
+      !/storage\s*\.?\s*\n?\s*\.from\([\s\S]{0,40}\)\s*\n?\s*\.createSignedUrl/.test(code),
+      "the browser cannot choose how a read is signed: S3 covers the query string and Supabase mints an object token",
+    );
+  }
+
+  check(
+    "playback asks our own API instead",
+    read("artifacts/editly/src/lib/video-storage.ts").includes('fetch("/api/media/url"'),
+  );
+
+  const media = read("artifacts/api-server/src/routes/media.ts");
+  check("the read door exists", media.includes('router.post("/media/url"'));
+  check(
+    "and it checks the key belongs to the caller",
+    /isOwnedObjectPrefix\(path, userId\)/.test(media),
+  );
+  check(
+    "a key outside the caller's folder is a 404 there too",
+    /isOwnedObjectPrefix[\s\S]{0,200}?status\(404\)/.test(media),
+  );
+  check(
+    "the read goes through the seam rather than naming a provider",
+    /objectStoreFrom\(\)\.signedGet\(/.test(media) && !/supabase/i.test(media.replace(/\/\*[\s\S]*?\*\//g, "")),
+  );
+  check(
+    "a store that will not sign is a 503, not a 404 that reads as 'your video is gone'",
+    /storage would not sign a read[\s\S]{0,200}?status\(503\)/.test(media),
+  );
+  check(
+    "the read door is mounted behind the login",
+    /router\.use\(requireAuth\)[\s\S]*router\.use\(mediaRouter\)/.test(read("artifacts/api-server/src/routes/index.ts")),
+  );
+
   // ── And the browser's half ───────────────────────────────────────────────
   const client = read("artifacts/editly/src/lib/video-storage.ts");
   check("the browser sends the parts the ticket names", /how\.mode === "multipart"/.test(client));

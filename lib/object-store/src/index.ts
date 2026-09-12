@@ -162,7 +162,7 @@ export interface ObjectStore {
   address(key: string, method: "GET" | "PUT" | "HEAD" | "DELETE", options?: AddressOptions): ObjectAddress;
 
   /** A URL somebody else may GET. Carries no credential of ours. */
-  signedGet(key: string, expiresInSeconds: number): Promise<string | null>;
+  signedGet(key: string, expiresInSeconds: number, options?: SignedGetOptions): Promise<string | null>;
 
   /** A URL somebody else may write to. Carries no credential of ours. */
   signedPut(key: string, options: SignedPutOptions): Promise<SignedUpload | null>;
@@ -225,6 +225,40 @@ export interface AddressOptions {
   /** Overwrite rather than refuse when the key exists. */
   upsert?: boolean;
   contentLength?: number;
+}
+
+export interface SignedGetOptions {
+  /**
+   * A filename, when the browser should save the object rather than play it.
+   *
+   * `<a download="name.mp4">` is ignored for a cross-origin href, and every
+   * object URL this product hands a browser is cross-origin. So the decision
+   * has to be made at signing time, where it becomes part of the signature:
+   * the store is asked to answer with `Content-Disposition: attachment` and
+   * this name. Without it the tab plays the video full-screen and the person
+   * is left looking at their finished film wondering where it was saved.
+   */
+  download?: string;
+}
+
+/**
+ * A filename fit to put inside a response header.
+ *
+ * The name comes from the browser, which got it from a person, and it is on
+ * its way into `Content-Disposition`. Quotes end the value early and a newline
+ * ends the header — so both are removed rather than escaped, along with every
+ * other control character and the path separators that would make the name
+ * read as a location. What is left is a filename, and anything that was not
+ * one becomes `download`.
+ */
+export function safeFilename(name: string, fallback = "download"): string {
+  const cleaned = name
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f"\\/]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return cleaned || fallback;
 }
 
 export interface SignedPutOptions {

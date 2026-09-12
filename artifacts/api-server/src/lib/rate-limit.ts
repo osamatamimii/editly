@@ -578,6 +578,27 @@ export const LIMITS = {
     perPerson: 30,
     message: "That's a lot of searching at once. Give it a minute and carry on.",
   },
+  /**
+   * Minting a URL to *look at* something the person already owns.
+   *
+   * Its own bucket rather than `write`'s, because the shape of the traffic is
+   * completely different and `write`'s sixty per person would break the
+   * dashboard: one poster is one call, so opening a list of twenty projects
+   * spends twenty of them before anybody has done anything, and a player
+   * re-signs on a timer on top of that. Three page loads would have been a
+   * rate limit on looking at your own work.
+   *
+   * Generous on purpose, and still a ceiling: every answer is a signature over
+   * a key the caller has already proved is theirs, so the thing being bounded
+   * is load rather than exposure.
+   */
+  read: {
+    name: "read",
+    limit: 3000,
+    windowMs: 10 * 60 * 1000,
+    perPerson: 600,
+    message: "That's a lot of requests at once. Give it a moment and try again.",
+  },
   /** Cheap, but the path that mints signed storage URLs, so worth a ceiling. */
   write: {
     name: "write",

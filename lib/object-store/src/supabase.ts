@@ -22,12 +22,13 @@ import type {
   ListOptions,
   ObjectAddress,
   ObjectStore,
+  SignedGetOptions,
   SignedPutOptions,
   SignedUpload,
   StoreFacts,
   StoredObject,
 } from "./index";
-import { guardKey, guardPrefix, ObjectStoreError } from "./index";
+import { guardKey, guardPrefix, ObjectStoreError, safeFilename } from "./index";
 
 export interface SupabaseStoreConfig {
   bucket: string;
@@ -116,7 +117,7 @@ export function createSupabaseStore(config: SupabaseStoreConfig): ObjectStore {
       return { url: objectUrl(key), method: method === "PUT" ? "POST" : method, headers };
     },
 
-    async signedGet(key: string, expiresInSeconds: number): Promise<string | null> {
+    async signedGet(key: string, expiresInSeconds: number, options?: SignedGetOptions): Promise<string | null> {
       guardKey(key);
       const body = await json(`/object/sign/${bucket}/${encodeKey(key)}`, {
         method: "POST",
@@ -125,7 +126,17 @@ export function createSupabaseStore(config: SupabaseStoreConfig): ObjectStore {
       });
       // Supabase answers with a path beginning `/object/sign/...`, not a URL.
       const signed = (body as { signedURL?: string } | null)?.signedURL;
-      return signed ? `${base}${signed.startsWith("/") ? "" : "/"}${signed}` : null;
+      if (!signed) return null;
+      const url = `${base}${signed.startsWith("/") ? "" : "/"}${signed}`;
+      /*
+        Supabase takes the filename as an ordinary query parameter rather than
+        inside the signature — its token covers the object and the expiry, not
+        the rest of the URL. So unlike S3 this is appended, and the two drivers
+        reach the same behaviour by different routes, which is the whole reason
+        the caller asks the seam instead of either store.
+      */
+      if (!options?.download) return url;
+      return `${url}${url.includes("?") ? "&" : "?"}download=${encodeURIComponent(safeFilename(options.download))}`;
     },
 
     /*

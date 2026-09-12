@@ -180,6 +180,35 @@ export const CompleteUploadBody = z.object({
 });
 export type CompleteUploadBody = z.infer<typeof CompleteUploadBody>;
 
+/**
+ * Permission to *read* one object, which is the other half of this file.
+ *
+ * The write half moved to signed tickets so that changing storage provider
+ * would be a variable rather than a rewrite. The read half did not, and the
+ * cost of that was exact: the browser went on asking Supabase for a playback
+ * URL with `supabase.storage.createSignedUrl`, so on R2 every upload succeeded
+ * and then nothing could be seen. No poster, no player, no download — the
+ * project row correct, the object present, and `null` where the URL goes.
+ *
+ * There is nothing provider-specific a browser can be taught here, because the
+ * two stores sign reads in genuinely different ways — S3 covers the whole
+ * query string and Supabase mints a token for the object alone. So the browser
+ * stops choosing and asks us, exactly as it now does to upload.
+ */
+export const ReadUrlBody = z.object({
+  /** The object's key, which the browser was given when it wrote it. */
+  path: z.string().min(1).max(500),
+  /**
+   * The name to save it as, when this is a download rather than playback.
+   *
+   * Its presence is what makes the difference: with it the store is asked to
+   * answer `Content-Disposition: attachment`, and that decision is baked into
+   * the signature, so it cannot be added to a URL afterwards.
+   */
+  download: z.string().min(1).max(200).optional(),
+});
+export type ReadUrlBody = z.infer<typeof ReadUrlBody>;
+
 /** Giving up on one, so the provider stops holding its parts. */
 export const AbortUploadBody = z.object({
   path: z.string().min(1).max(500),
