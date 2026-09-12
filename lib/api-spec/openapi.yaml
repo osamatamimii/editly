@@ -2493,6 +2493,66 @@ paths:
         "400": { description: A body that could not be read }
         "404": { description: A key outside the caller's own folder }
 
+  /media/url:
+    post:
+      operationId: readUrl
+      tags: [uploads]
+      summary: Mint a short-lived URL for an object the caller owns
+      description: >
+        The other half of the storage seam. /uploads decides where a file goes
+        and signs the write; this signs the read - the poster on a card, the
+        source in the player, the finished render, the download button.
+
+        It exists because the browser cannot sign a read itself and should not
+        try. S3 covers the entire query string in its signature while Supabase
+        mints a token for the object alone, so "how is a read signed" has two
+        answers that share no shape. The browser used to call
+        supabase.storage.createSignedUrl directly, which was correct until the
+        store changed and then asked a store that did not have the object -
+        every upload succeeding and nothing at all appearing on screen.
+
+        One thing is checked: the key is inside the asking account's own
+        folder. Every key this product mints begins with the verified user id,
+        so ownership is readable from the key. Deliberately not checked is
+        whether the object is there - a signed URL for a missing key is a 404
+        from the store, which is the truth and costs no round trip here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path: { type: string }
+                download:
+                  type: string
+                  description: >
+                    The name to save it as. Its presence asks the store to
+                    answer Content-Disposition: attachment, which is baked into
+                    the signature and cannot be added to a URL afterwards -
+                    a download attribute is ignored on a cross-origin link, and
+                    every object URL here is cross-origin.
+              required: [path]
+      responses:
+        "200":
+          description: A URL, good for an hour
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: { type: string }
+                  expiresAt: { type: string, format: date-time }
+                required: [url, expiresAt]
+        "400": { description: A body that could not be read }
+        "404": { description: A key outside the caller's own folder }
+        "503":
+          description: Storage would not sign it, which is a deployment fault rather than a missing file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /social/connect/{platform}:
     post:
       operationId: startSocialConnection

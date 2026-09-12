@@ -181,6 +181,21 @@ const jwksServer = http.createServer((req, res) => {
       .writeHead(200, { "content-type": facts.contentType, "content-length": String(facts.bytes) })
       .end();
   }
+  /*
+    Signing a read, which is what `/media/url` asks the store for.
+
+    Without this the stub 404s, the driver throws, and the route answers its
+    honest 503 — so the check that Alice *is* given a URL could only ever have
+    failed. A stub that answers every question but one turns the positive half
+    of an isolation test into decoration.
+  */
+  if (req.method === "POST" && req.url?.startsWith("/storage/v1/object/sign/videos/")) {
+    const key = decodeURIComponent(req.url.slice("/storage/v1/object/sign/videos/".length));
+    storageCalls.push({ op: "sign", key });
+    return res
+      .writeHead(200, { "content-type": "application/json" })
+      .end(JSON.stringify({ signedURL: `/object/sign/videos/${key}?token=stub-token` }));
+  }
   res.writeHead(404).end();
 });
 await new Promise((r) => jwksServer.listen(JWKS_PORT, r));
@@ -575,6 +590,82 @@ let aliceProjectId;
 
   const expStatus = await call(BOB, `/api/projects/${aliceProjectId}/export/status`);
   check("Bob cannot poll Alice's export status", expStatus.status === 404, `got ${expStatus.status}`);
+
+  /*
+    Notes and the transcript, which are the most personal thing in a project.
+
+    These four endpoints had no suite at all — `inventory.mjs --check` has been
+    reporting `notes.ts` as an area nobody tests since it was added. A note is
+    something somebody wrote about their own footage and a transcript is every
+    word they said on camera, so "can another account read this" is not a
+    formality here; it is the question.
+  */
+  const noteInject = await call(BOB, `/api/projects/${aliceProjectId}/notes`, "POST", {
+    sourceMs: 1000,
+    text: "inject",
+  });
+  check("Bob cannot write a note on Alice's project", noteInject.status === 404, `got ${noteInject.status}`);
+
+  const aliceNote = await call(ALICE, `/api/projects/${aliceProjectId}/notes`, "POST", {
+    sourceMs: 1000,
+    text: "the bit where the dog walks in",
+  });
+  const noteId = aliceNote.json?.id ?? aliceNote.json?.note?.id ?? null;
+
+  const notesPeek = await call(BOB, `/api/projects/${aliceProjectId}/notes`);
+  check(
+    "Bob cannot read Alice's notes",
+    notesPeek.status === 404 ||
+      (notesPeek.status === 200 && !JSON.stringify(notesPeek.json ?? []).includes("the dog walks in")),
+    `${notesPeek.status} ${JSON.stringify(notesPeek.json).slice(0, 160)}`,
+  );
+
+  if (noteId) {
+    const noteDelete = await call(BOB, `/api/projects/${aliceProjectId}/notes/${noteId}`, "DELETE");
+    check("Bob cannot delete Alice's note", noteDelete.status === 404, `got ${noteDelete.status}`);
+    const stillThere = await call(ALICE, `/api/projects/${aliceProjectId}/notes`);
+    check(
+      "and the note is still Alice's to read",
+      JSON.stringify(stillThere.json ?? []).includes("the dog walks in"),
+      JSON.stringify(stillThere.json).slice(0, 160),
+    );
+  }
+
+  const transcript = await call(BOB, `/api/projects/${aliceProjectId}/transcript`);
+  check("Bob cannot read every word Alice said on camera", transcript.status === 404, `got ${transcript.status}`);
+}
+
+console.log("\nA read URL is minted only for the person who owns the object");
+{
+  /*
+    The read door, which is new and is the one place a key from somebody else's
+    folder could be turned into a URL that works.
+
+    A key is not a secret — the browser that uploaded it was told it, and it
+    appears in the project row — so the question is not whether Bob can guess
+    Alice's path. It is what happens when he has it, which he does here.
+  */
+  const alicePath = `${ALICE}/${aliceProjectId}/source.mp4`;
+
+  const stolen = await call(BOB, "/api/media/url", "POST", { path: alicePath });
+  check("Bob cannot mint a URL for Alice's video", stolen.status === 404, `got ${stolen.status}`);
+
+  const stolenDownload = await call(BOB, "/api/media/url", "POST", { path: alicePath, download: "hers.mp4" });
+  check("nor one that saves it to his disk", stolenDownload.status === 404, `got ${stolenDownload.status}`);
+
+  const traversal = await call(BOB, "/api/media/url", "POST", { path: `${BOB}/../${ALICE}/x/source.mp4` });
+  check("nor spell his way out of his own folder", traversal.status === 404, `got ${traversal.status}`);
+
+  const own = await call(ALICE, "/api/media/url", "POST", { path: alicePath });
+  check("while Alice is given one for her own", own.status === 200 && typeof own.json?.url === "string", `${own.status} ${JSON.stringify(own.json).slice(0, 120)}`);
+  check(
+    "and it is dated, so nothing here is permanent",
+    typeof own.json?.expiresAt === "string" && Date.parse(own.json.expiresAt) > Date.now(),
+    JSON.stringify(own.json?.expiresAt),
+  );
+
+  const malformed = await call(ALICE, "/api/media/url", "POST", {});
+  check("a body with no path is a 400 rather than a signature over nothing", malformed.status === 400, `got ${malformed.status}`);
 }
 
 console.log("\nClips are the owner's, and their paths reach only the owner");

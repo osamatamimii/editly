@@ -880,8 +880,61 @@ console.log("\nA large file goes up in parts, and only this API assembles them")
   );
   check(
     "progress never goes backwards on a retry",
-    /landed \+ inFlight/.test(client),
+    /landed \+ moving/.test(client) && /inFlight\.set\(part\.partNumber, 0\)/.test(client),
     "progress is computed from the current request alone, so a retried part rewinds the bar",
+  );
+  /*
+    The window, and the three things it is only safe with.
+
+    Sending parts one at a time wastes most of a domestic uplink: a single
+    stream spends the start of every part growing its congestion window and
+    stops for a round trip between them, so the line sits idle while the
+    person waits. A few at once closes that gap — and introduces three ways to
+    be wrong that sequential code could not be.
+  */
+  check(
+    "parts go up several at a time",
+    /const PARTS_AT_ONCE = \d+;/.test(client) && /Math\.min\(PARTS_AT_ONCE, queue\.length\)/.test(client),
+  );
+  check(
+    "with a bounded window rather than every part at once",
+    (Number(client.match(/const PARTS_AT_ONCE = (\d+);/)?.[1]) || 0) > 1 &&
+      (Number(client.match(/const PARTS_AT_ONCE = (\d+);/)?.[1]) || 0) <= 6,
+    client.match(/const PARTS_AT_ONCE = (\d+);/)?.[1],
+  );
+  check(
+    "each request in flight is counted on its own, so the bar stays smooth",
+    /const inFlight = new Map<number, number>\(\)/.test(client) &&
+      /inFlight\.set\(part\.partNumber, sent\)/.test(client),
+  );
+  /*
+    The one that is silent when wrong. Parts finish in whatever order the
+    network returns them, and `completeMultipart` concatenates the list as
+    given — so an unsorted list is a video with its middle in the wrong place,
+    or an `InvalidPartOrder`, depending on the provider. Nothing about the
+    upload looks wrong on the way.
+  */
+  check(
+    "the receipts are put back in order before the parts are assembled",
+    /finished\.sort\(\(a, b\) => a\.partNumber - b\.partNumber\)/.test(client),
+    "parts complete out of order, and the store concatenates the list exactly as it is given",
+  );
+  check(
+    "a cancel reaches every request in the air, not only the last one",
+    /const live = new Set<XMLHttpRequest>\(\)/.test(client) && /for \(const xhr of \[\.\.\.live\]\) xhr\.abort\(\)/.test(client),
+    "one slot for the current request aborts one part and leaves the others uploading",
+  );
+  check(
+    "and a request that finishes stops being something to cancel",
+    /const release = hold\?\.\(xhr\)/.test(client) && /return \(\) => live\.delete\(xhr\)/.test(client),
+  );
+  check(
+    "the first failure is the one reported, not the last to arrive",
+    /failure \?\?= error/.test(client),
+  );
+  check(
+    "and nothing new starts once one part has failed",
+    /if \(failure !== null\) return;/.test(client),
   );
   check(
     "giving up tells the provider to stop holding the parts",

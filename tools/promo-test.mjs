@@ -494,6 +494,59 @@ section("What a code is not, written where somebody will look for it");
   check("and the console says the same thing to the person minting one", /checkout|جهة الدفع/.test(copy));
 }
 
+console.log("\nThe door itself, which is the only public thing here");
+{
+  /*
+    Everything above tests the rules with no database and no server, which is
+    the right way round — and left `promo.ts` as an area `inventory.mjs --check`
+    reported as tested by nothing, because no suite named its one endpoint.
+
+    That is not a bookkeeping complaint. This route is the only place in the
+    product where a plan is granted without a payment, and it is reachable by
+    anybody with an account and a guess. What it must do is checked here
+    against the route as written: the guess is rate limited, the seat is
+    claimed in the same statement that checks it is still free, and the
+    refusals from the pure rules above are the ones actually sent.
+  */
+  const route = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/promo.ts"), "utf8");
+
+  check("the door is POST /promo/redeem", route.includes('router.post("/promo/redeem"'));
+  check(
+    "and it is rate limited, because it is a credential a stranger can type",
+    /rateLimit\(LIMITS\.promoRedeem\)/.test(route),
+  );
+  check("the typed word is normalised before anything is looked up", /normaliseCode\(/.test(route));
+  check("the refusal comes from the pure rules rather than being restated here", /refuseRedemption\(/.test(route));
+  check(
+    "and its status is the one those rules chose, not one restated at the door",
+    /res\.status\(answer\.status\)\.json\(\{ error: answer\.error, reason: answer\.reason \}\)/.test(route),
+  );
+  check(
+    "a code nobody has heard of answers the same as one that does not exist",
+    /refusal \?\? \{ status: 404, reason: "unknown"/.test(route),
+  );
+  check("the grant written is the one the rules computed", /grantFrom\(/.test(route));
+  check(
+    "the seat is claimed under the condition that it is still free",
+    /applyRedemption\(/.test(readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/promo.ts"), "utf8")),
+  );
+
+  const grant = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/promo-grant.ts"), "utf8");
+  check(
+    "and that claim is one conditional UPDATE, not a read followed by a write",
+    /\.update\(promoCodesTable\)[\s\S]{0,600}?redeemedCount\} < \$\{promoCodesTable\.maxRedemptions\}/.test(grant),
+    "two people redeeming the last seat at the same moment must not both win it",
+  );
+  check(
+    "the count is incremented by the database rather than by a number we read",
+    /redeemedCount: sql`\$\{promoCodesTable\.redeemedCount\} \+ 1`/.test(grant),
+  );
+  check(
+    "inside a transaction, so the count and the redemption cannot disagree",
+    /transaction\(/.test(grant),
+  );
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

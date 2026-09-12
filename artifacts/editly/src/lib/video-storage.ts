@@ -321,8 +321,15 @@ interface TransferOptions {
   body: Blob;
   accessToken: string;
   onProgress?: (percent: number, loaded: number, total: number) => void;
-  /** Somewhere to leave the request in flight, so a cancel can reach it. */
-  hold?: (xhr: XMLHttpRequest | null) => void;
+  /**
+   * Somewhere to leave a request in flight, so a cancel can reach it.
+   *
+   * Returns a release, and that is the part that matters: with parts going up
+   * several at a time there is no single "current request" to overwrite, and a
+   * caller keeping one slot would abort whichever registered last and leave the
+   * rest running — a cancel button that works one time in three.
+   */
+  hold?: (xhr: XMLHttpRequest) => () => void;
   isCancelled?: () => boolean;
 }
 
@@ -341,7 +348,34 @@ async function transfer(options: TransferOptions): Promise<string> {
 }
 
 /**
- * A large file, one signed part at a time.
+ * How many parts are in the air at once.
+ *
+ * This reverses what the note here used to say. The old reasoning was that
+ * parts share one uplink, so sending three at once only makes each of them
+ * crawl — the transfer is bounded by the uplink, not by round trips. The first
+ * half is true and the conclusion does not follow, because it assumes one
+ * request can reach that bound. It usually cannot: a single TCP connection to a
+ * storage endpoint a continent away spends the early seconds of every part
+ * growing its congestion window from nothing, gives back much of that on each
+ * loss, and stops entirely for a round trip between parts. On a domestic line
+ * to a distant region one stream routinely sits at a fraction of the available
+ * upstream, and the rest of the line is not busy — it is idle.
+ *
+ * So the ceiling is the uplink and the floor is what one stream can fill, and
+ * the gap between them is what this window is for. Where one stream already
+ * saturates the line the parts share it and the total is unchanged; where it
+ * does not, this is the difference between a twelve-minute video taking twenty
+ * minutes and taking seven. Nobody is made slower.
+ *
+ * Three, not more. Past a small number the gain flattens — the window covers
+ * latency, it does not buy bandwidth — while every extra stream is another
+ * request to abort, another retry in flight, and another slice of the file
+ * held in memory at once on a phone.
+ */
+const PARTS_AT_ONCE = 3;
+
+/**
+ * A large file, in signed parts.
  *
  * The point of the whole mode is what happens when something goes wrong in the
  * middle: a part that fails is sent again, and everything already up stays up.
@@ -349,27 +383,47 @@ async function transfer(options: TransferOptions): Promise<string> {
  * going wrong once is the *expected* case, and the single PUT this replaces
  * answered it by starting from zero.
  *
- * Sequential rather than parallel, deliberately. Two or three parts at once
- * finish a fast connection sooner and make a slow one worse — they share the
- * same uplink, so each part crawls, the progress bar moves in jumps, and a
- * cancel has three requests to catch. The transfer this is for is bounded by
- * the uplink, not by round trips.
+ * The two real objections to sending several at once are answered here rather
+ * than dismissed:
+ *
+ *   - **Progress moving in jumps.** It would, if progress were "parts
+ *     finished". It is not: every request in flight reports its own bytes and
+ *     they are summed with what has landed, so the number moves as smoothly
+ *     with three as with one.
+ *   - **A cancel having three requests to catch.** It does, so `hold` hands
+ *     back a release rather than overwriting a single slot, and the caller
+ *     keeps a set. The old contract would have caught only whichever request
+ *     registered last — a cancel button that works one time in three.
  */
 async function sendInParts(options: TransferOptions, how: MultipartTransfer): Promise<string> {
   const { ticket, body, accessToken, onProgress, hold, isCancelled } = options;
   const finished: Array<{ partNumber: number; etag: string }> = [];
   /** Bytes in the parts that are wholly up, so progress never goes backwards on a retry. */
   let landed = 0;
+  /*
+    What each request in the air has sent so far, by part number.
 
-  const report = (inFlight: number) => {
-    const done = Math.min(body.size, landed + inFlight);
+    A map rather than a single number because several are moving at once, and
+    the point of keeping them apart is that a retry can put one back to zero
+    without the bar jumping backwards past the others.
+  */
+  const inFlight = new Map<number, number>();
+
+  const report = () => {
+    let moving = 0;
+    for (const bytes of inFlight.values()) moving += bytes;
+    const done = Math.min(body.size, landed + moving);
     onProgress?.(Math.min(99, Math.round((done / body.size) * 100)), done, body.size);
   };
 
   const sendPart = (part: { partNumber: number; url: string }, chunk: Blob): Promise<string> =>
     new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      hold?.(xhr);
+      const release = hold?.(xhr);
+      const settle = (finish: () => void) => {
+        release?.();
+        finish();
+      };
       xhr.open("PUT", part.url, true);
       /*
         No Content-Type on a part, and that is the signature's doing rather
@@ -381,11 +435,12 @@ async function sendInParts(options: TransferOptions, how: MultipartTransfer): Pr
       xhr.upload.onprogress = (event) => {
         if (!event.lengthComputable) return;
         sent = Math.max(sent, event.loaded);
-        report(event.loaded);
+        inFlight.set(part.partNumber, sent);
+        report();
       };
       xhr.onload = () => {
         if (xhr.status < 200 || xhr.status >= 300) {
-          reject(new UploadError(shaped(TRANSFER.failed, xhr.status), worthAnotherGo(xhr.status)));
+          settle(() => reject(new UploadError(shaped(TRANSFER.failed, xhr.status), worthAnotherGo(xhr.status))));
           return;
         }
         const etag = xhr.getResponseHeader("etag");
@@ -393,19 +448,21 @@ async function sendInParts(options: TransferOptions, how: MultipartTransfer): Pr
         // retrying: the next part will be just as unreadable, and the sentence
         // says what to change instead of asking a person to try again.
         if (!etag) {
-          reject(new UploadError(said(TRANSFER.noReceipt), false));
+          settle(() => reject(new UploadError(said(TRANSFER.noReceipt), false)));
           return;
         }
-        resolve(etag);
+        settle(() => resolve(etag));
       };
       // A part that never left is refused for a reason retrying cannot change,
       // and the sentence says which. A part that moved and then stopped is the
       // case this whole retry exists for.
       xhr.onerror = () =>
-        sent > 0
-          ? reject(new UploadError(said(TRANSFER.networkError), true))
-          : reject(new UploadError(said(TRANSFER.neverLeft), false));
-      xhr.onabort = () => reject(new UploadError(said(TRANSFER.cancelled), false));
+        settle(() =>
+          sent > 0
+            ? reject(new UploadError(said(TRANSFER.networkError), true))
+            : reject(new UploadError(said(TRANSFER.neverLeft), false)),
+        );
+      xhr.onabort = () => settle(() => reject(new UploadError(said(TRANSFER.cancelled), false)));
       xhr.send(chunk);
     });
 
@@ -419,20 +476,33 @@ async function sendInParts(options: TransferOptions, how: MultipartTransfer): Pr
     }).catch(() => undefined);
   };
 
-  for (const part of how.parts) {
-    if (isCancelled?.()) {
-      await give();
-      throw new UploadError(said(TRANSFER.cancelled));
-    }
+  /*
+    Only the parts the file actually reaches.
 
-    const from = (part.partNumber - 1) * how.partBytes;
-    if (from >= body.size) break; // The ticket signed a part the file does not reach.
-    const chunk = body.slice(from, Math.min(from + how.partBytes, body.size));
+    The ticket is signed against the size the browser declared, and the last
+    part of that plan can fall entirely beyond the end of the blob. Filtering
+    here rather than breaking out of a loop, because with a window there is no
+    single "rest of the loop" left to break out of.
+  */
+  const queue = how.parts
+    .map((part) => ({ part, from: (part.partNumber - 1) * how.partBytes }))
+    .filter(({ from }) => from < body.size)
+    .map(({ part, from }) => ({ part, chunk: body.slice(from, Math.min(from + how.partBytes, body.size)) }));
 
+  /*
+    One part, with its retries — the loop that was the body of the old
+    sequential version, lifted out so several can run at once.
+  */
+  const sendWithRetries = async (part: { partNumber: number; url: string }, chunk: Blob): Promise<void> => {
     let etag: string | null = null;
     let lastError: UploadError | null = null;
     for (let attempt = 0; attempt < 3 && etag === null; attempt += 1) {
       if (attempt > 0) await new Promise((wait) => setTimeout(wait, 400 * attempt));
+      // A retry starts this part's contribution again from nothing, and the
+      // parts beside it keep theirs, which is the whole reason these are
+      // counted separately.
+      inFlight.set(part.partNumber, 0);
+      report();
       try {
         etag = await sendPart(part, chunk);
       } catch (error) {
@@ -443,15 +513,71 @@ async function sendInParts(options: TransferOptions, how: MultipartTransfer): Pr
       }
     }
 
+    inFlight.delete(part.partNumber);
     if (etag === null) {
-      await give();
-      throw lastError ?? new UploadError(shaped(TRANSFER.partFailed, part.partNumber, how.parts.length));
+      throw lastError ?? new UploadError(shaped(TRANSFER.partFailed, part.partNumber, queue.length));
     }
-
     finished.push({ partNumber: part.partNumber, etag });
     landed += chunk.size;
-    report(0);
+    report();
+  };
+
+  /*
+    The window itself: a few workers sharing one queue rather than a fixed
+    split of the parts between them.
+
+    A split would finish at the speed of whichever worker drew the slowest
+    parts. Taking the next index means a stream that gets through its part
+    quickly immediately starts another, and the last part is claimed by
+    whoever is free — so the transfer ends when the bytes end, not when the
+    unluckiest worker does.
+
+    The first failure stops the others from *starting* anything new; what is
+    already in the air is allowed to finish rather than being torn down, so
+    `give()` runs once, after everything has settled, with nothing still
+    writing behind it.
+  */
+  let next = 0;
+  let failure: unknown = null;
+
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (failure !== null) return;
+      if (isCancelled?.()) {
+        failure ??= new UploadError(said(TRANSFER.cancelled));
+        return;
+      }
+      const item = queue[next];
+      if (!item) return;
+      next += 1;
+      try {
+        await sendWithRetries(item.part, item.chunk);
+      } catch (error) {
+        // The first one told is the one reported: the others are usually the
+        // same cause arriving a moment later, and a person is owed the
+        // sentence that explains it rather than whichever landed last.
+        failure ??= error;
+        return;
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(PARTS_AT_ONCE, queue.length) }, () => worker()));
+
+  if (failure !== null) {
+    await give();
+    throw failure;
   }
+
+  /*
+    Back into the order the store assembles in.
+
+    The parts finish in whatever order the network returns them, and
+    `completeMultipart` is a list S3 concatenates as given — an unsorted list
+    is a video whose middle is in the wrong place, or an `InvalidPartOrder`,
+    depending on the provider. Cheap to do, silent to get wrong.
+  */
+  finished.sort((a, b) => a.partNumber - b.partNumber);
 
   /*
     And the assembly, which only our own server may do — `MultipartTransfer`
@@ -484,7 +610,8 @@ function sendInOneRequest(options: TransferOptions, how: SignedTransfer): Promis
   const { ticket, body, onProgress, hold } = options;
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    hold?.(xhr);
+    const release = hold?.(xhr);
+    xhr.addEventListener("loadend", () => release?.());
     xhr.open(how.method, how.url, true);
     // Exactly the headers the signature was computed over. Adding one of our
     // own here is how a signed PUT becomes a 403 that names no cause.
@@ -851,7 +978,15 @@ export function uploadProjectVideo(options: {
     honoured at the first place that looks, rather than being lost and then
     surprising somebody with a completed upload they stopped.
   */
-  let current: XMLHttpRequest | null = null;
+  /*
+    Every request currently in the air, not just the latest one.
+
+    This was a single slot while parts went up one at a time, and a window of
+    three turns that into a cancel button that aborts one request and leaves
+    two uploading — the bar keeps moving after somebody has stopped it, which
+    is worse than no button at all.
+  */
+  const live = new Set<XMLHttpRequest>();
   let cancelled = false;
 
   const done = (async () => {
@@ -869,7 +1004,8 @@ export function uploadProjectVideo(options: {
       accessToken,
       onProgress,
       hold: (xhr) => {
-        current = xhr;
+        live.add(xhr);
+        return () => live.delete(xhr);
       },
       isCancelled: () => cancelled,
     });
@@ -879,7 +1015,9 @@ export function uploadProjectVideo(options: {
     done,
     cancel: () => {
       cancelled = true;
-      current?.abort();
+      // A copy, because aborting fires `loadend`, which releases the hold and
+      // mutates this set while it is being walked.
+      for (const xhr of [...live]) xhr.abort();
     },
   };
 }
@@ -958,7 +1096,8 @@ function sendResumably(options: TransferOptions, how: ResumableTransfer): Promis
     return new Promise((resolve, reject) => {
       const chunk = body.slice(offset, Math.min(offset + CHUNK_BYTES, body.size));
       const xhr = new XMLHttpRequest();
-      hold?.(xhr);
+      const release = hold?.(xhr);
+      xhr.addEventListener("loadend", () => release?.());
 
       xhr.open("PATCH", url, true);
       for (const [key, value] of Object.entries(auth)) xhr.setRequestHeader(key, value);
