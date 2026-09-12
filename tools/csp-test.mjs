@@ -274,6 +274,61 @@ section("Every host the page reaches for is named in the policy");
   }
 }
 
+/*
+  The directive nothing on our side can see being wrong.
+
+  An upload leaves the browser for the storage host directly, and `connect-src`
+  is the one thing between them. When the policy does not name that host the
+  request never opens: no status, no CORS message, no log line on the API that
+  minted the ticket a second earlier — `fetch` throws `TypeError: Failed to
+  fetch` and the person is told "network error during upload" while their
+  connection is fine.
+
+  That is exactly what happened. The policy was written when Supabase was the
+  only store, it named `*.supabase.co`, and the move to R2 changed an
+  environment variable in one place and a header in another that nobody
+  connected. Every upload on the new store was blocked by our own page, and the
+  three places somebody would look — the API log, the bucket's CORS policy, the
+  browser's network panel — each said everything was fine.
+
+  So the policy is checked against the *providers the store supports* rather
+  than against a host somebody remembered to add. The endpoint itself is an
+  environment variable and cannot be read here, but the shape of its hostname is
+  fixed by the provider, and a provider added to that union without a line here
+  turns this red instead of turning uploads off.
+*/
+section("Every host the bytes are sent to is named in the policy");
+{
+  const d = directivesOf(shipped?.value);
+  const named = (directive, host) =>
+    (d[directive] ?? []).some((t) => {
+      const bare = t.replace(/^https:\/\//, "").replace(/^wss:\/\//, "");
+      if (bare === host) return true;
+      if (bare.startsWith("*.")) return host.endsWith(bare.slice(1));
+      return false;
+    });
+
+  /* The hostname every signed URL from that provider carries. */
+  const STORAGE_HOSTS = {
+    supabase: "x.supabase.co",
+    r2: "x.r2.cloudflarestorage.com",
+  };
+
+  const storeSource = readFileSync(path.join(repoRoot, "lib/object-store/src/index.ts"), "utf8");
+  const union = storeSource.match(/export type Provider = ([^;]+);/)?.[1] ?? "";
+  const providers = [...union.matchAll(/"([a-z0-9-]+)"/g)].map((m) => m[1]);
+
+  check("the object store's providers can be read", providers.length > 0, union.trim());
+  for (const provider of providers) {
+    const host = STORAGE_HOSTS[provider];
+    check(
+      `connect-src allows the ${provider} store`,
+      Boolean(host) && named("connect-src", host),
+      host ? `nothing in connect-src matches ${host}` : `no host is known for the provider "${provider}" — add one here and to vercel.json`,
+    );
+  }
+}
+
 // ── what a report becomes before it is written down ──────────────────────────
 
 section("A report is cut to size here, not trusted from the sender");
