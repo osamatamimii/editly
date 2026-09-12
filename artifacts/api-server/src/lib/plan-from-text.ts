@@ -1126,7 +1126,7 @@ const HOOK_WORDS =
  * between the shots" are different requests and only one of them is about the
  * transition.
  */
-/** The nine shaped styles as the reply says them. */
+/** The shaped styles as the reply says them. */
 const STYLE_IN_WORDS: Record<Exclude<TransitionStyle, "dissolve">, string> = {
   wipeLeft: "wipe to the left",
   wipeRight: "wipe to the right",
@@ -1137,12 +1137,14 @@ const STYLE_IN_WORDS: Record<Exclude<TransitionStyle, "dissolve">, string> = {
   slideUp: "slide upward",
   slideDown: "slide downward",
   flash: "flash of white",
+  flashBlack: "blink to black",
+  flashGrey: "pass through grey",
   whipPan: "whip pan",
   zoomBlur: "zoom through a blur",
   glitch: "glitch at the seams",
 };
 
-/** The same nine, as the reply says them in Arabic. */
+/** The same, as the reply says them in Arabic. */
 const STYLE_IN_WORDS_AR: Record<Exclude<TransitionStyle, "dissolve">, string> = {
   wipeLeft: "مسحة إلى اليسار",
   wipeRight: "مسحة إلى اليمين",
@@ -1153,6 +1155,8 @@ const STYLE_IN_WORDS_AR: Record<Exclude<TransitionStyle, "dissolve">, string> = 
   slideUp: "انزلاقة إلى الأعلى",
   slideDown: "انزلاقة إلى الأسفل",
   flash: "ومضة بيضاء",
+  flashBlack: "إطفاءة إلى السواد",
+  flashGrey: "مرورة عبر الرمادي",
   whipPan: "سحبة سريعة",
   zoomBlur: "تقريب بضبابية سريعة",
   glitch: "جليتش عند الوصلات",
@@ -1176,6 +1180,17 @@ const TRANSITION_STYLES: Array<{ patterns: RegExp; style: TransitionStyle }> = [
   { patterns: /\bslide\s*(?:to\s*the\s*)?up|\bpush\s*up/i, style: "slideUp" },
   { patterns: /\bslide\s*(?:to\s*the\s*)?down|\bpush\s*down/i, style: "slideDown" },
   { patterns: /\bslide|\bpush\b|\bswipe|انزلاق/i, style: "slideLeft" },
+  /*
+    The coloured joins, and the colour first.
+
+    "Flash to black" and "flash" are the same word with opposite meanings — one
+    is a full stop between two sections, the other is energy inside one — so the
+    named colour is checked before the bare word, the way every other pair in
+    this list is ordered. A bare flash stays white, which is what the word means
+    when nobody says otherwise.
+  */
+  { patterns: /\b(?:flash|blink|cut)\s*(?:to|through)?\s*black\b|\bblack flash\b|ومضة\s*(?:إلى\s*)?(?:سوداء|السواد)|فلاش أسود/i, style: "flashBlack" },
+  { patterns: /\b(?:flash|fade)\s*(?:to|through)?\s*gr[ae]y(?:s)?\b|ومضة\s*رمادية|عبر الرمادي/i, style: "flashGrey" },
   { patterns: /\bflash\b|white flash|ومضة|فلاش/i, style: "flash" },
 ];
 
@@ -1212,6 +1227,28 @@ const DISSOLVE_WORDS =
   /\bcross ?-?fade|\bdissolve|\bblend (?:between|the cuts)|smooth(?:er)? (?:the )?(?:cuts|joins|transitions?)|(?:cuts|joins|transitions?) smooth(?:er)?|less jump(?:y|ing)|between (?:the )?(?:cuts|clips)|تلاش(?:ي|ٍ) بين|مزج|انتقال ناعم|بين القصات|بين القطعات|ذوّب|ذوب بين|تذويب|بين المقاطع/i;
 
 const FADE_WORDS = /\bfade|fade[- ]?(?:in|out)|to black|soft (?:opening|ending|start|end)|تلاشي|تلاشى/i;
+
+/**
+ * The cutaway's own edge, which is not the joins.
+ *
+ * A cutaway is a second picture over one that keeps running, so "dissolve into
+ * the b-roll" is a different request from "dissolve between the cuts". Until
+ * this existed the first was heard as the second: a dissolve went onto every
+ * seam in the timeline and the cutaway carried on popping, which is the exact
+ * opposite of what was asked for.
+ */
+const SOFT_CUTAWAY =
+  /\b(?:dissolve|fade|blend|ease|cross ?-?fade)\s+(?:in\s*)?(?:to|into)?\s*(?:the\s*)?(?:b-?roll|cutaways?)\b|\b(?:b-?roll|cutaways?)\s+(?:should\s+)?(?:dissolve|fade)|(?:ذوّب|ذوب|تلاشى?|مزج)\s*(?:عند|إلى|في)?\s*(?:اللقطات|لقطات|اللقطة)\s*(?:المساندة|المسانده)?/i;
+
+/**
+ * Whether the sentence named the *timeline's* cuts, rather than the cutaway.
+ *
+ * Read only to settle the one ambiguity the two vocabularies share: "dissolve
+ * into the b-roll" contains the word dissolve, and the bare word is enough on
+ * its own to ask for a transition between every scene. A sentence that names
+ * the cutaway edge and says nothing about the cuts has not asked for one.
+ */
+const CUTS_NAMED = /\bcuts?\b|\bjoins?\b|\bshots?\b|\btransitions?\b|بين|القص|القطعات|انتقال/i;
 
 export function planFromText(
   asked: string,
@@ -1544,7 +1581,14 @@ export function planFromText(
   */
   const wantsAnyTransition = /\btransitions?\b|انتقال|ترانز[يی]?شن/i.test(text);
   const shapedStyle = transitionStyleFrom(text);
-  const wantsDissolve = DISSOLVE_WORDS.test(text);
+  /*
+    A cutaway edge is not a join, and the bare word "dissolve" belongs to
+    whichever of the two the sentence actually named. "Dissolve into the
+    b-roll" asked for one thing; reading it as both puts a dissolve on every
+    seam in the timeline that nobody asked for.
+  */
+  const softCutaway = SOFT_CUTAWAY.test(text);
+  const wantsDissolve = DISSOLVE_WORDS.test(text) && !(softCutaway && !CUTS_NAMED.test(text));
   /*
     Where they want them, when they said.
 
@@ -1648,8 +1692,16 @@ export function planFromText(
           durationSeconds: CUTAWAY_DURATION,
           fit: "cover",
           keepSourceAudio: true,
+          edge: softCutaway ? "dissolve" : "cut",
         });
-        willDo.push(say(`cut away to ${describeFile(clip)} at ${at}s`, `أقطع إلى ${describeFile(clip)} عند الثانية ${at}`));
+        willDo.push(
+          softCutaway
+            ? say(
+                `dissolve into ${describeFile(clip)} at ${at}s`,
+                `أذوّب إلى ${describeFile(clip)} عند الثانية ${at}`,
+              )
+            : say(`cut away to ${describeFile(clip)} at ${at}s`, `أقطع إلى ${describeFile(clip)} عند الثانية ${at}`),
+        );
       });
     }
   }

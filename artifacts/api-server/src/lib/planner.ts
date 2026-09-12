@@ -161,6 +161,8 @@ function buildSchema(assets: PlannerAsset[]) {
             "punchOn",
             "punchAt",
             "transitionStyle",
+            "transitionWhere",
+            "brollEdge",
             "gainDb",
             "duck",
             "sfxPalette",
@@ -275,11 +277,34 @@ function buildSchema(assets: PlannerAsset[]) {
                 "slideUp",
                 "slideDown",
                 "flash",
+                "flashBlack",
+                "flashGrey",
                 "whipPan",
                 "zoomBlur",
                 "glitch",
                 null,
               ],
+            },
+            /**
+             * For transition: which seams get one.
+             *
+             * The same shape of hole the style was in until it was found — the
+             * renderer decides per join, the matcher can say either answer, and
+             * a model with no property to put it in can only ever get the
+             * default. Which is the right default, so nothing would look
+             * broken: the one person who asked for a join on every cut would
+             * quietly not get it, on the deployment that pays for a key.
+             */
+            transitionWhere: {
+              type: ["string", "null"],
+              enum: ["scenes", "everyCut", null],
+            },
+            /**
+             * For insertBRoll: how the cutaway arrives and leaves.
+             */
+            brollEdge: {
+              type: ["string", "null"],
+              enum: ["cut", "dissolve", null],
             },
             /**
              * For addMusic: the two knobs the instructions have always
@@ -375,14 +400,20 @@ function instructionFor(assets: PlannerAsset[]): string {
     "out, or a soft opening or ending. durationSeconds is how long each fade runs (0.1-2, default 0.5). It never",
     "goes between cuts, only at the ends.",
     "transition is the other one: it joins each cut to the next instead of jumping. style is one of dissolve,",
-    "wipeLeft, wipeRight, wipeUp, wipeDown, slideLeft, slideRight, slideUp, slideDown, flash, whipPan, zoomBlur,",
-    "glitch - dissolve mixes the",
+    "wipeLeft, wipeRight, wipeUp, wipeDown, slideLeft, slideRight, slideUp, slideDown, flash, flashBlack,",
+    "flashGrey, whipPan, zoomBlur, glitch - dissolve mixes the",
     "two shots, a wipe pushes a hard edge across, a slide pushes the whole frame, flash goes through white.",
+    "flashBlack blinks to black, which is a full stop between two sections rather than energy inside one, and",
+    "flashGrey passes through grey - choose those when they ask to flash or cut to black, or for a softer flash.",
     "whipPan is a fast camera whip with motion blur, zoomBlur zooms through a blur, glitch keeps the hard cut",
     "and breaks the picture for a blink at each seam - choose these when they ask for montage-style, fast-paced,",
     "or tiktok-style transitions, a whip, a zoom transition, or a glitch.",
     "Default dissolve unless they name a shape. durationSeconds is how long each join overlaps (0.08-1, default",
     "0.25). It only does anything when there are cuts to join, so it goes with removeSilence.",
+    "transitionWhere is scenes or everyCut and defaults to scenes: scenes puts a join only where the recording",
+    "actually jumps - a reorder, or more than a second and a half taken out - and leaves every tidying cut hard,",
+    "because a dissolve on a removed breath shows the same shot melting into itself. Choose everyCut only when",
+    "they ask for one on every cut, or for a montage or slideshow where every seam is a change of shot.",
     "If they just say 'transitions' with nothing else, choose fade and a dissolve transition.",
     "autoCaptions takes the words from the video itself; you only choose whether captions are wanted and how they look.",
     "captionStyle is a named look: bold-white and bold-yellow are heavy outlined text, karaoke-box is an opaque",
@@ -743,10 +774,15 @@ function toOperation(
         const asked = typeof raw["transitionStyle"] === "string" ? raw["transitionStyle"] : "";
         const parsed = TransitionStyle.safeParse(asked);
         const style = parsed.success ? parsed.data : "dissolve";
+        // Anything but the one other answer is the default, for the same
+        // reason the style is coerced: the person asked for a transition, and
+        // a model that invents a word for where they go should not turn that
+        // into no transition at all.
         return {
           type,
           style,
           durationMs: Math.min(1000, Math.max(80, Math.round(numberOr(raw["durationSeconds"], 0.25) * 1000))),
+          where: raw["transitionWhere"] === "everyCut" ? "everyCut" : "scenes",
         };
       }
       case "formatForPlatform":
@@ -852,6 +888,7 @@ function toOperation(
           fit: "cover",
           // A cutaway that silences the speaker is not a cutaway, it is a cut.
           keepSourceAudio: true,
+          edge: raw["brollEdge"] === "dissolve" ? "dissolve" : "cut",
         };
       }
       case "addMusic": {

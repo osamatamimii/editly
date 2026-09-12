@@ -2979,6 +2979,17 @@ async function sfxFile(name: string): Promise<string | null> {
  */
 const DECLICK_SECONDS = 0.015;
 /**
+ * How long a cutaway takes to arrive, when it was asked to arrive rather than
+ * appear.
+ *
+ * Shorter than a dissolve between shots, and deliberately: a cutaway is not a
+ * change of scene, it is a second picture over the same one, and a long ramp
+ * there reads as the video losing its grip rather than as an edit. A sixth of a
+ * second is enough to stop it reading as a glitch and short enough that nobody
+ * watching would call it a transition.
+ */
+const BROLL_EDGE_SECONDS = 0.16;
+/**
  * Our style names to ffmpeg's.
  *
  * A map rather than passing the value straight through, because the contract's
@@ -2997,6 +3008,8 @@ const XFADE_STYLE: Record<TransitionStyle, string> = {
   slideUp: "slideup",
   slideDown: "slidedown",
   flash: "fadewhite",
+  flashBlack: "fadeblack",
+  flashGrey: "fadegrays",
   /* The montage pair rides xfade and adds its burst after the chain —
      see the join block. glitch never consults this table: it is a hard
      cut with effects at the seam, not an overlap. */
@@ -3018,6 +3031,8 @@ const STYLE_IN_WORDS_AR: Record<TransitionStyle, string> = {
   slideUp: "انزلقت إلى الأعلى بين القصّات",
   slideDown: "انزلقت إلى الأسفل بين القصّات",
   flash: "ومضت بيضاء بين القصّات",
+  flashBlack: "أطفأت إلى السواد بين القصّات",
+  flashGrey: "مررت عبر الرمادي بين القصّات",
   whipPan: "سحبت الكاميرا سحبة سريعة بين القصّات",
   zoomBlur: "قرّبت بضبابية سريعة بين القصّات",
   glitch: "قطعت بجليتش عند الوصلات",
@@ -3034,6 +3049,8 @@ const STYLE_IN_WORDS: Record<TransitionStyle, string> = {
   slideUp: "slid up between the cuts",
   slideDown: "slid down between the cuts",
   flash: "flashed white between the cuts",
+  flashBlack: "blinked to black between the cuts",
+  flashGrey: "passed through grey between the cuts",
   whipPan: "whipped between the cuts",
   zoomBlur: "zoomed through a blur between the cuts",
   glitch: "glitched at the seams",
@@ -5774,22 +5791,55 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
             ? `scale=${frameWidth}:${frameHeight}:force_original_aspect_ratio=increase:flags=lanczos,crop=${frameWidth}:${frameHeight}`
             : `scale=${frameWidth}:${frameHeight}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${frameWidth}:${frameHeight}:(ow-iw)/2:(oh-ih)/2:black`;
         const rate = still ? `,fps=${source.fps.toFixed(4)}` : "";
+        /*
+          The two edges of the cutaway, when it was asked to have them.
+
+          A cutaway is a second picture laid over one that keeps running, so its
+          edges are not the joins `transition` is about and they are not made
+          the same way: there is no overlap to open and nothing to shorten. It
+          is an alpha ramp on the thing on top, and the picture underneath comes
+          through it — which is what a dissolve into a cutaway is.
+
+          `format=yuva420p` is stated rather than relied upon. A recording has
+          no alpha channel, and the graph gets one either way: `fade` with
+          `alpha=1` requests an alpha-capable format and ffmpeg negotiates the
+          conversion in, which was checked both by removing this and by forcing
+          `yuv420p` in its place — the ramp survived both. So this is the same
+          decision the cut path makes with `aformat`: state the requirement, and
+          do not leave a correctness property depending on what a filter three
+          nodes downstream happens to accept.
+
+          The ramps are written before the timestamps are shifted, so `st` is in
+          the clip's own seconds rather than the edit's. And they are clamped to
+          a third of the cutaway each: a 0.2s b-roll with a 0.16s ramp either
+          side is never once fully on screen, which is not a cutaway.
+        */
+        const soft = op.edge === "dissolve" ? Math.min(BROLL_EDGE_SECONDS, covered / 3) : 0;
+        const edges =
+          soft > 0
+            ? `,format=yuva420p,fade=t=in:st=0:d=${soft.toFixed(3)}:alpha=1` +
+              `,fade=t=out:st=${Math.max(0, covered - soft).toFixed(3)}:d=${soft.toFixed(3)}:alpha=1`
+            : "";
         overlayLinks.push(
-          `[${idx}:v]${fit},setsar=1${rate},trim=0:${covered.toFixed(3)},setpts=PTS-STARTPTS+${start.toFixed(3)}/TB[br${idx}]`,
+          `[${idx}:v]${fit},setsar=1${rate},trim=0:${covered.toFixed(3)}${edges},setpts=PTS-STARTPTS+${start.toFixed(3)}/TB[br${idx}]`,
         );
         overlayLinks.push(
           `[${inLabel}][br${idx}]overlay=0:0:` +
             `enable='between(t,${start.toFixed(3)},${(start + covered).toFixed(3)})':eof_action=pass[${outLabel}]`,
         );
+        // "Cut to" and "dissolved into" are different things to have done, and
+        // the note is the only place a customer learns which one happened.
+        const how = soft > 0 ? "dissolved into b-roll" : "cut to b-roll";
+        const howAr = soft > 0 ? "ذوّبت إلى لقطة مساندة" : "قطعت إلى لقطة مساندة";
         notes.push(
           shortAsset
             ? t(
-                `cut to b-roll at ${start.toFixed(1)}s for ${covered.toFixed(1)}s. That clip is only ${covered.toFixed(1)}s long, and ${wanted.toFixed(1)}s was asked for`,
-                `قطعت إلى لقطة مساندة عند الثانية ${start.toFixed(1)} لمدّة ${covered.toFixed(1)} ثانية. طول ذلك المقطع ${covered.toFixed(1)} ثانية فقط، والمطلوب كان ${wanted.toFixed(1)}`,
+                `${how} at ${start.toFixed(1)}s for ${covered.toFixed(1)}s. That clip is only ${covered.toFixed(1)}s long, and ${wanted.toFixed(1)}s was asked for`,
+                `${howAr} عند الثانية ${start.toFixed(1)} لمدّة ${covered.toFixed(1)} ثانية. طول ذلك المقطع ${covered.toFixed(1)} ثانية فقط، والمطلوب كان ${wanted.toFixed(1)}`,
               )
             : t(
-                `cut to b-roll at ${start.toFixed(1)}s for ${covered.toFixed(1)}s`,
-                `قطعت إلى لقطة مساندة عند الثانية ${start.toFixed(1)} لمدّة ${covered.toFixed(1)} ثانية`,
+                `${how} at ${start.toFixed(1)}s for ${covered.toFixed(1)}s`,
+                `${howAr} عند الثانية ${start.toFixed(1)} لمدّة ${covered.toFixed(1)} ثانية`,
               ),
         );
       }

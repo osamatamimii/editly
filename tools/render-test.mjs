@@ -2093,6 +2093,144 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
     JSON.stringify(flashed.notes),
   );
 
+  /*
+    The other two colours, which the style had been missing.
+
+    A flash through white is energy inside a section; a blink to black is the
+    full stop between two of them, and grey is the quiet version for footage
+    already bright enough that white would not register as an event. ffmpeg has
+    all three and this product shipped one.
+
+    Black is measured on the same white-to-black fixture, as the *darkest*
+    instant of the join: a dissolve is halfway grey in the middle and a blink is
+    black there, which is a difference of about a hundred units of luma and
+    cannot be produced by measuring a moment early.
+  */
+  const troughOver = (file, from, to) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},trim=start=${from}:end=${to},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.YAVG",
+        "-of", "default=nw=1:nk=1",
+      ],
+      { encoding: "utf8" },
+    );
+    const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number).filter(Number.isFinite);
+    return vals.length > 0 ? Math.min(...vals) : NaN;
+  };
+  const blinked = await renderPlan(
+    twoShots,
+    { version: 1, operations: [...cutOps, { type: "transition", style: "flashBlack", durationMs: 400 }] },
+    { workDir: await scratch() },
+  );
+  const blinkTrough = troughOver(blinked.output, midway - 0.07, midway + 0.07);
+  const dissolveTrough = troughOver(soft.output, midway - 0.07, midway + 0.07);
+  check(
+    "a blink goes to black in the middle of the join",
+    blinkTrough < 40,
+    String(blinkTrough),
+  );
+  check(
+    "and the dissolve does not, across the same window",
+    dissolveTrough > blinkTrough + 40,
+    `blink ${blinkTrough}, dissolve ${dissolveTrough}`,
+  );
+  check(
+    "and it says which colour it went through",
+    blinked.notes.some((n) => /blinked to black between the cuts/.test(n)),
+    JSON.stringify(blinked.notes),
+  );
+
+  /*
+    Grey cannot be measured on a fixture that is already greyscale: a dissolve
+    between white and black is grey in the middle too. So it is measured on
+    colour, as saturation — `fadegrays` desaturates on the way through, and a
+    plain dissolve between red and blue is a saturated purple at the same
+    instant.
+  */
+  /*
+    Two colours near each other in hue, and that is the measurement talking.
+
+    Mixed opposites desaturate on their own — a dissolve from red to blue is
+    nearly grey in the middle by arithmetic, not by intent — so a fixture built
+    from opposites makes the two styles look alike at the one instant a lazy
+    check would sample. Red into orange stays saturated all the way across when
+    it is dissolved, so anything grey in the middle got there on purpose.
+  */
+  const redBlue = path.join(dir, "red-orange.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y",
+    "-f", "lavfi", "-i", "color=c=0xCC2222:size=320x240:rate=25:duration=4",
+    "-f", "lavfi", "-i", "color=c=0xCC8822:size=320x240:rate=25:duration=4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-filter_complex",
+    "[0:v][1:v]concat=n=2:v=1:a=0[v];[2:a][3:a][4:a]concat=n=3:v=0:a=1[a]",
+    "-map", "[v]", "-map", "[a]",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", redBlue,
+  ]);
+  const saturationAt = (file, at) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},trim=start=${at}:end=${at + 0.06},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.SATAVG",
+        "-of", "default=nw=1:nk=1",
+      ],
+      { encoding: "utf8" },
+    );
+    const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number).filter(Number.isFinite);
+    return vals.length > 0 ? vals[0] : NaN;
+  };
+  const colourPlan = (style) => ({
+    version: 1,
+    operations: [...cutOps, { type: "transition", style, durationMs: 400 }],
+  });
+  const greyed = await renderPlan(redBlue, colourPlan("flashGrey"), { workDir: await scratch() });
+  const mixed = await renderPlan(redBlue, colourPlan("dissolve"), { workDir: await scratch() });
+  /*
+    The middle of the one join, worked out the way the block above does it: the
+    splice is one kept piece from the end of the hard cut, and the join is the
+    overlap that ends there. Both files are the same length, so the instant is
+    the same in each.
+  */
+  const colourHard = await renderPlan(redBlue, { version: 1, operations: cutOps }, { workDir: await scratch() });
+  const colourSplice = Number(ffprobe(colourHard.output, "format=duration")[0]) - 3;
+  /*
+    Read early in the join as well as at its middle.
+
+    `fadegrays` takes the colour out first and puts the other shot's back in
+    afterwards, so the two styles are furthest apart in the first half and have
+    almost converged by the end of it. Measured across the join at a fifth, a
+    third, half, seven tenths and six sevenths of the way through: grey reads
+    2, 6, 22, 44, 59 against a dissolve's 73, 71, 68, 66, 65. The samples below
+    are where that difference lives, and the last two are deliberately not
+    asserted — by then the style has finished doing the thing it is named for.
+  */
+  const third = colourSplice - 0.4 + 0.4 * 0.3;
+  const middle = colourSplice - 0.4 / 2;
+  const greySat = saturationAt(greyed.output, third);
+  const mixSat = saturationAt(mixed.output, third);
+  check(
+    "a grey flash has the colour taken out of it on the way through",
+    greySat < mixSat * 0.3,
+    `grey ${greySat}, dissolve ${mixSat}`,
+  );
+  check(
+    "and is still the paler of the two at the middle of the join",
+    saturationAt(greyed.output, middle) < saturationAt(mixed.output, middle) * 0.6,
+    `grey ${saturationAt(greyed.output, middle)}, dissolve ${saturationAt(mixed.output, middle)}`,
+  );
+  check(
+    "and says so",
+    greyed.notes.some((n) => /passed through grey between the cuts/.test(n)),
+    JSON.stringify(greyed.notes),
+  );
+
   // Nothing to dissolve between is not an error, and not silence either.
 
   const nothingToJoin = await renderPlan(

@@ -197,6 +197,107 @@ console.log("\nA photograph cut in as b-roll");
   await rm(ctx.workDir, { recursive: true, force: true });
 }
 
+console.log("\nThe cutaway's own edge");
+{
+  /*
+    A cutaway has two edges, and until now both were hard.
+
+    That is not a defect — short form pops its b-roll, and a hard cutaway over
+    a talking head reads as deliberate — but it was the only thing this
+    operation could do, and the documentary edge is the one that stops a
+    cutaway reading as a glitch when the two pictures are close in brightness.
+    So it is a field, and `cut` stays the default: a stored plan replayed has
+    to produce what it produced before.
+
+    Measured on black under green, because a ramp between them is a number: a
+    frame 80ms into a 160ms dissolve is neither, and a frame 80ms into a hard
+    cut is already fully the cutaway. One fixture, two plans, the same sample
+    times.
+  */
+  const plan = (edge) => ({
+    version: 1,
+    operations: [
+      { type: "insertBRoll", assetId: "asset-broll", at: 2, durationSeconds: 3, fit: "cover", keepSourceAudio: true, edge },
+    ],
+  });
+  const runWith = async (edge) => {
+    const ctx = {
+      workDir: await mkdtemp(path.join(tmpdir(), `editly-edge-${edge}-`)),
+      assets: new Map([["asset-broll", { file: broll, kind: "video" }]]),
+    };
+    const result = await renderPlan(source, plan(edge), ctx);
+    const read = {
+      notes: result.notes,
+      // 80ms in: halfway through a 160ms ramp, and long past a hard cut.
+      opening: averageColourAt(result.output, 2.08),
+      middle: averageColourAt(result.output, 3.5),
+      // 80ms before the end of the window, which is the out ramp's midpoint.
+      closing: averageColourAt(result.output, 4.92),
+      after: averageColourAt(result.output, 5.6),
+    };
+    await rm(ctx.workDir, { recursive: true, force: true });
+    return read;
+  };
+
+  const hard = await runWith("cut");
+  const soft = await runWith("dissolve");
+  /*
+    Measured against the cutaway itself, not against full green.
+
+    `color=c=green` is (0,128,0) and not (0,255,0), so a threshold written
+    against the top of the range would have called a fully present cutaway
+    half present. The hard cut's middle *is* the cutaway at full strength, by
+    construction, so every reading below is a fraction of that — which also
+    means the check keeps working if the fixture's colour ever changes.
+  */
+  const full = hard.middle ? hard.middle[1] : NaN;
+  const greenness = (c) => (c && full > 0 ? c[1] / full : NaN);
+  check("the fixture is a colour this can be measured against", full > 60, String(full));
+
+  check(
+    "a hard cutaway is fully there one frame in",
+    greenness(hard.opening) > 0.7,
+    `rgb(${hard.opening})`,
+  );
+  check(
+    "and a dissolved one is only part way",
+    greenness(soft.opening) > 0.1 && greenness(soft.opening) < 0.7,
+    `rgb(${soft.opening}) against hard rgb(${hard.opening})`,
+  );
+  check(
+    "which is the whole difference: at the same instant, one is arriving and the other has arrived",
+    greenness(soft.opening) < greenness(hard.opening) - 0.15,
+    `soft ${greenness(soft.opening).toFixed(2)}, hard ${greenness(hard.opening).toFixed(2)}`,
+  );
+  check(
+    "it leaves the same way it came",
+    greenness(soft.closing) > 0.1 && greenness(soft.closing) < 0.7,
+    `rgb(${soft.closing})`,
+  );
+  /*
+    And the middle is the check that the ramp is an edge rather than a veil.
+
+    The failure it is for is a ramp that never finishes. A fade written over
+    the whole length of the cutaway instead of over its first sixth leaves the
+    picture half transparent for its entire life, which is not a dissolve into
+    b-roll, it is a b-roll nobody can see. Measured by doing it: the middle
+    read 32 against the 129 below, while "arriving softly" and "leaving softly"
+    both still passed, because a veil is soft at both ends too.
+  */
+  check(
+    "and is fully the cutaway in between, not a veil over the whole of it",
+    greenness(soft.middle) > 0.7,
+    `rgb(${soft.middle})`,
+  );
+  check("the source is back afterwards", greenness(soft.after) < 0.2, `rgb(${soft.after})`);
+  check(
+    "and the note says which of the two it did",
+    hard.notes.some((n) => /cut to b-roll/.test(n)) &&
+      soft.notes.some((n) => /dissolved into b-roll/.test(n)),
+    JSON.stringify([hard.notes, soft.notes]),
+  );
+}
+
 console.log("\nAn asset the project does not have");
 {
   const ctx = { workDir: await mkdtemp(path.join(tmpdir(), "editly-miss-run-")), assets: new Map() };

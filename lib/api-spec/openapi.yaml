@@ -3656,6 +3656,25 @@ components:
         keepSourceAudio:
           type: boolean
           default: true
+        edge:
+          description: >
+            How the cutaway arrives and leaves. A cutaway has two edges of its
+            own and they are not the joins the transition operation is about:
+            those are seams in the timeline, this is a second picture laid over
+            one that keeps running underneath. So a plan that dissolves its cuts
+            has not thereby said anything about how its b-roll should appear,
+            and a plan with no transition at all can still want a cutaway that
+            arrives softly.
+
+
+            cut is the default because it is what this has always done and
+            because it is not wrong: short form pops its b-roll, and a hard
+            cutaway over a talking head reads as deliberate. dissolve is the
+            documentary edge, and the one that stops a cutaway reading as a
+            glitch when the two pictures are close in brightness.
+          type: string
+          enum: [cut, dissolve]
+          default: cut
       required: [type, assetId, at]
 
     OverlayImageOperation:
@@ -4413,7 +4432,7 @@ components:
             that happens.
           type: string
           enum:
-            [dissolve, wipeLeft, wipeRight, wipeUp, wipeDown, slideLeft, slideRight, slideUp, slideDown, flash, whipPan, zoomBlur, glitch]
+            [dissolve, wipeLeft, wipeRight, wipeUp, wipeDown, slideLeft, slideRight, slideUp, slideDown, flash, flashBlack, flashGrey, whipPan, zoomBlur, glitch]
           default: dissolve
         durationMs:
           description: How long each join overlaps, in milliseconds.

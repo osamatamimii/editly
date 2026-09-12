@@ -172,6 +172,11 @@ export function planForProductAd(
         // is a picture of a picture.
         fit: "cover",
         keepSourceAudio: true,
+        // Hard, and said out loud rather than inherited from the default. An
+        // advertisement cuts: the pace is the argument, and a cutaway that
+        // arrives softly is a cutaway that takes a third of a second to say
+        // what it is a picture of.
+        edge: "cut",
       });
     }
   }

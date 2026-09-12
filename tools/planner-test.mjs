@@ -986,6 +986,29 @@ console.log("\nAsking for a dissolve is a plan for the joins");
     );
   }
 
+  /*
+    The other two colours of the flash, and the bare word staying white.
+
+    "Flash to black" and "flash" are the same word with opposite meanings: one
+    is the full stop between two sections, the other is energy inside one. The
+    colour is checked before the bare word for the same reason "wipe left" is
+    checked before "wipe", and the bare word keeps meaning white, which is what
+    it means when nobody says otherwise.
+  */
+  for (const [sentence, style] of [
+    ["cut the silences and flash to black between the cuts", "flashBlack"],
+    ["cut the silences and put a black flash between the shots", "flashBlack"],
+    ["cut the silences and flash through grey between the cuts", "flashGrey"],
+    ["cut the silences and flash between the cuts", "flash"],
+  ]) {
+    const asked = await planner.plan(sentence, {});
+    check(
+      `"${sentence}" is a ${style}`,
+      asked.operations.find((o) => o.type === "transition")?.style === style,
+      JSON.stringify(asked.operations.find((o) => o.type === "transition")),
+    );
+  }
+
   const emphatic = await planner.plan("cut the silences and add transitions to all of it", {});
   check(
     "but an emphasis on the whole video is not an instruction about the seams",

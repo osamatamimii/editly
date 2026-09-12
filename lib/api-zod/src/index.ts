@@ -1093,6 +1093,24 @@ export const InsertBRollOperation = z.object({
   fit: z.enum(["cover", "contain"]).default("cover"),
   /** Keep the main audio under the b-roll, which is what a cutaway is. */
   keepSourceAudio: z.boolean().default(true),
+  /**
+   * How the cutaway arrives and leaves.
+   *
+   * A cutaway has two edges of its own, and they are not the joins the
+   * `transition` operation is about: those are seams in the timeline, this is a
+   * second picture laid over one that keeps running underneath. Which is why it
+   * is a field here rather than a behaviour inherited from that operation — a
+   * plan that dissolves its cuts has not thereby said anything about how its
+   * b-roll should appear, and a plan with no transition at all can still want a
+   * cutaway that arrives softly.
+   *
+   * `cut` is the default because it is what this has always done and because it
+   * is not wrong: short form pops its b-roll, and a hard cutaway over a talking
+   * head reads as deliberate. `dissolve` is the documentary edge, and it is the
+   * one that stops a cutaway reading as a glitch when the two pictures are
+   * close in brightness.
+   */
+  edge: z.enum(["cut", "dissolve"]).default("cut"),
 });
 
 /**
@@ -1497,8 +1515,24 @@ export const TransitionStyle = z.enum([
   "slideRight",
   "slideUp",
   "slideDown",
-  /** Through white. The short-form cut that reads as energy rather than as time passing. */
+  /*
+    Through a colour rather than through the other shot.
+
+    `flash` is the short-form cut that reads as energy rather than as time
+    passing. `flashBlack` is the same beat with the opposite meaning — a blink
+    to black is a full stop, the thing that goes between two sections rather
+    than inside one — and `flashGrey` is the quieter version of it, which is
+    what a flash reads as when the footage is already bright and white would
+    not register as an event.
+
+    Three values and not one with a colour field, for the reason the whole enum
+    is named this way: a colour that is silently ignored by the other twelve
+    styles is a field that will be set wrongly and never noticed. ffmpeg has
+    all three as separate transitions, which is the shape this list follows.
+  */
   "flash",
+  "flashBlack",
+  "flashGrey",
   /*
     The montage three — the joins short-form is actually cut with today,
     each built from filters the worker already ships rather than from a new
