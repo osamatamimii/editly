@@ -4076,7 +4076,13 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       );
     } else {
       const asked = transition.durationMs / 1000;
-      overlaps = transitionJoins(kept!, { seconds: asked, where: transition.where });
+      overlaps = transitionJoins(kept!, {
+        seconds: asked,
+        where: transition.where,
+        // The same grid the cuts were snapped onto, so the two sides of every
+        // join and the join itself are all whole frames of one clock.
+        fps: grid.fps,
+      });
 
       /*
         What the graph will actually cost, now that the seams are known.
@@ -4128,30 +4134,52 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           sentence for all of them would be a lie about the edit.
 
           The machine running out of room has already been said above. What is
-          left is either that every seam is a tidying cut — which is the common
-          and correct outcome on a talking head, and is not a failure — or that
-          the pieces are too short to hold a join at all.
+          left is either that the overlap the plan asked for is shorter than
+          two frames of this recording, or that every seam is a tidying cut —
+          which is the common and correct outcome on a talking head, and is not
+          a failure — or that the pieces are too short to hold a join at all.
+
+          Which of the last two it is gets asked of the same function that made
+          the decision, with the scene test turned off: if any seam in this edit
+          would have had room for the join we wanted, then room was never the
+          problem and the seams were. Asking it a second way — a copy of the
+          two-fifths rule and the floor, inlined here — is how a sentence about
+          the edit starts disagreeing with the edit, silently, the first time
+          either number moves. It already had one number the room test no longer
+          uses: the join is whole frames now, and a copy would not have known.
         */
-        const anyRoom = kept!.some(
-          (_, i) =>
-            i < joins &&
-            Math.min(
-              kept![i]!.end - kept![i]!.start,
-              kept![i + 1]!.end - kept![i + 1]!.start,
-            ) *
-              0.4 >=
-              0.08,
-        );
+        const anyRoom = transitionJoins(kept!, {
+          seconds: asked,
+          where: "everyCut",
+          fps: grid.fps,
+        }).some((one) => one > 0);
+        /*
+          The first of the three, and it is new with the frame grid.
+
+          `durationMs` bottoms out at 80 in the contract, and 80ms is under two
+          frames on anything at 24fps or slower. One frame of blend is a hard
+          cut with one strange frame in it, so the join is not made, and the
+          reason has to be said in the plan's own units: "the pieces are too
+          short" would be a sentence about the recording when the true answer is
+          a sentence about the number the plan chose, and the person would go
+          looking for the fault in their footage.
+        */
+        const tooFewFrames = asked * grid.fps < 2;
         notes.push(
-          anyRoom
+          tooFewFrames
             ? t(
-                "every cut in this edit tidies up a pause rather than moving somewhere else, so they all stay hard rather than joining a shot to itself",
-                "كل قصّة في هذا التعديل تُنظّف وقفة ولا تنتقل إلى مكان آخر، فتبقى كلّها حادّة بدل أن تصل اللقطة بنفسها",
+                `an overlap of ${transition.durationMs}ms is under two frames at this recording's ${grid.fps} fps, which is not something anybody can see, so the cuts stay hard`,
+                `مراكبة ${transition.durationMs} مللي أقلّ من إطارين عند ${grid.fps} إطارًا في الثانية لهذا التسجيل، وهذا ما لا يراه أحد، فتبقى القصّات حادّة`,
               )
-            : t(
-                "the pieces this edit is cut into are too short to put a transition between, so the cuts stay hard",
-                "القطع التي قُسّم إليها هذا التعديل أقصر من أن أضع بينها انتقالًا، فتبقى القصّات حادّة",
-              ),
+            : anyRoom
+              ? t(
+                  "every cut in this edit tidies up a pause rather than moving somewhere else, so they all stay hard rather than joining a shot to itself",
+                  "كل قصّة في هذا التعديل تُنظّف وقفة ولا تنتقل إلى مكان آخر، فتبقى كلّها حادّة بدل أن تصل اللقطة بنفسها",
+                )
+              : t(
+                  "the pieces this edit is cut into are too short to put a transition between, so the cuts stay hard",
+                  "القطع التي قُسّم إليها هذا التعديل أقصر من أن أضع بينها انتقالًا، فتبقى القصّات حادّة",
+                ),
         );
       } else if (made > 0) {
         joinStyle = XFADE_STYLE[transition.style];

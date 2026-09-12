@@ -2577,6 +2577,159 @@ console.log("\nA transition marks where the recording jumped, and nothing else")
   );
 }
 
+console.log("\nA join is a whole number of frames, and the clock says so");
+{
+  /*
+    The defect this section exists for.
+
+    `xfade` takes its duration in seconds and then overlaps a whole number of
+    frames, because frames are all it has. The renderer handed it 0.35s and kept
+    0.35s in its own arithmetic, and the two are not the same number: at 25fps
+    that ask is eight and three quarter frames, and what came back was eight
+    frames at one join and nine at the other. The same asked length, two
+    different real overlaps, in one edit.
+
+    Nothing failed. The file was 8.32s long and the renderer said 8.30s, and
+    that 0.02s is not lost time, it is the distance between the clock every
+    caption, overlay, cutaway, punch and sound effect is placed against and the
+    clock the file actually keeps. It is also intermittent: the same fixture
+    with a 0.38s ask drifted by nothing at all, because that one happened to
+    land where ffmpeg was rounding anyway. A defect that appears at one
+    duration and not the next one up is not a defect anybody reports.
+
+    Measured, before and after, on the fixture below:
+
+      asked   frames used   renderer said   file was
+      0.35    8 + 9 = 17    8.30            8.32     <- the bug
+      0.35    8 + 8 = 16    8.36            8.36     <- now
+
+    Two scenes elided, so both joins are scene joins and both are made.
+  */
+  const dir = await scratch();
+  const twoScenes = path.join(dir, "two-scenes.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y",
+    "-f", "lavfi", "-i", "color=c=white:size=320x240:rate=25:duration=13.8",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2.4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2.4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-filter_complex", "[1:a][2:a][3:a][4:a][5:a]concat=n=5:v=0:a=1[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", twoScenes,
+  ]);
+
+  const FPS = 25;
+  const framesIn = (file) =>
+    Number(ffprobe(file, "stream=nb_read_frames", ["-select_streams", "v:0", "-count_frames"])[0]);
+  const cutOps = [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 400, paddingMs: 0 }];
+
+  const hard = await renderPlan(twoScenes, { version: 1, operations: cutOps }, { workDir: await scratch() });
+  // 350 and not 400 on purpose: a quarter of a frame short of nine, which is
+  // the shape of ask that used to split into two different overlaps. A round
+  // 400ms at 25fps is exactly ten frames and would have passed all of this
+  // before the rounding existed.
+  const joined = await renderPlan(
+    twoScenes,
+    { version: 1, operations: [...cutOps, { type: "transition", style: "dissolve", durationMs: 350 }] },
+    { workDir: await scratch() },
+  );
+
+  check(
+    "both joins are made, so there are two of them to disagree",
+    joined.notes.some((n) => /at all 2 joins/.test(n)),
+    JSON.stringify(joined.notes),
+  );
+  /*
+    The note says what was done, not what was asked.
+
+    0.32 is eight frames. Reporting the 0.35 it was handed would be the product
+    describing an edit that does not exist, which is the same class of lie as
+    "dissolved between the cuts" on an edit where every cut stayed hard.
+  */
+  check(
+    "the note reports the overlap the file got, not the one the plan asked for",
+    joined.notes.some((n) => /over 0\.32s/.test(n)),
+    JSON.stringify(joined.notes),
+  );
+  /*
+    The renderer's own clock lands on a frame.
+
+    This is the check that bites, and it needs no tolerance at all: the clock
+    every other operation is placed against is either a whole number of frames
+    of the grid the cut was snapped onto or it is not. Before the rounding it
+    was 8.30s, which is 207.5 frames, and half a frame is not a place.
+  */
+  const said = joined.estimatedSeconds * FPS;
+  check(
+    "the clock the renderer hands every other operation lands on a frame",
+    Math.abs(said - Math.round(said)) < 1e-6,
+    `${joined.estimatedSeconds}s is ${said} frames`,
+  );
+  /*
+    And the file is that many frames. Exactly, not nearly.
+
+    The length check further up this file allows a tenth of a second, because it
+    is asking whether one overlap happened rather than two. This one is asking
+    whether the model and the file are the same object, so the only honest
+    tolerance is zero.
+  */
+  check(
+    "and the file is exactly as many frames as the renderer said",
+    framesIn(joined.output) === Math.round(said),
+    `file ${framesIn(joined.output)}, said ${Math.round(said)}`,
+  );
+  /*
+    Both joins the same length as each other.
+
+    An odd number here is the original defect in one integer: two joins asked
+    for the same overlap, given different ones, because each landed on a
+    different quarter of a frame.
+  */
+  const spent = framesIn(hard.output) - framesIn(joined.output);
+  check(
+    "the two joins spend the same number of frames as each other",
+    spent === 16,
+    `${spent} frames across two joins`,
+  );
+
+  /*
+    And the floor, said in the units the person chose.
+
+    The contract lets `durationMs` go down to 80, and 80ms is one and nine
+    tenths of a frame at 24fps. One frame of blend between two shots is a hard
+    cut with one strange frame in the middle, so it is refused. The check that
+    matters is not the refusal, it is the sentence: "the pieces are too short"
+    would send somebody looking at their footage for a fault that is in the
+    number they typed.
+  */
+  const slow = path.join(dir, "two-scenes-24.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y",
+    "-f", "lavfi", "-i", "color=c=white:size=320x240:rate=24:duration=13.8",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2.4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2.4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-filter_complex", "[1:a][2:a][3:a][4:a][5:a]concat=n=5:v=0:a=1[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", slow,
+  ]);
+  const tiny = await renderPlan(
+    slow,
+    { version: 1, operations: [...cutOps, { type: "transition", style: "dissolve", durationMs: 80 }] },
+    { workDir: await scratch() },
+  );
+  check(
+    "an overlap shorter than two frames is refused in the plan's own units, not blamed on the footage",
+    tiny.notes.some((n) => /under two frames at this recording's 24 fps/.test(n)) &&
+      !tiny.notes.some((n) => /too short to put a transition between/.test(n)),
+    JSON.stringify(tiny.notes),
+  );
+}
+
 console.log("\nThe montage joins: a whip is a blur, a zoom is a blur, a glitch is a hard cut that breaks");
 {
   /*

@@ -511,6 +511,16 @@ export const SCENE_GAP_SECONDS = 1.5;
 export const MIN_JOIN_SECONDS = 0.08;
 
 /**
+ * The fewest whole frames a join can overlap and still be an overlap.
+ *
+ * Two. One frame of blend between two shots is a hard cut with one strange
+ * frame in the middle of it: nobody reads it as a transition, and on a
+ * compressed upload it reads as a decode error. `MIN_JOIN_SECONDS` is the same
+ * floor said in the contract's units; this one is the floor the picture has.
+ */
+const MIN_JOIN_FRAMES = 2;
+
+/**
  * How much of a piece a join is allowed to eat.
  *
  * Two fifths, and it is checked against the *shorter of the two pieces the join
@@ -595,25 +605,60 @@ export function sceneJoins(
  * anything and so cannot run out of room. Folding the room test into the
  * predicate would have silently suppressed a glitch between two short pieces,
  * which is a join that costs nothing.
+ *
+ * Every length that comes back is a whole number of frames on the grid the cut
+ * was rounded onto, so that the clock this list builds and the clock in the
+ * encoded file are the same clock. See the note where the rounding happens.
  */
 export function transitionJoins(
   kept: readonly Segment[],
   {
     seconds,
     where = "scenes",
+    fps,
   }: {
     /** What the plan asked for, in seconds. */
     seconds: number;
     where?: "scenes" | "everyCut";
+    /**
+     * The grid the cut was rounded onto.
+     *
+     * Required rather than optional: a default here would be a guess about the
+     * recording, and the one caller already knows the answer. See the note on
+     * the return value for why the grid is not the renderer's business alone.
+     */
+    fps: number;
   },
 ): number[] {
   const scenes = sceneJoins(kept, where);
+  const cell = 1 / fps;
   return scenes.map((isScene, i) => {
     if (!isScene) return 0;
     // Local room, not global. See JOIN_ROOM.
     const room =
       Math.min(kept[i]!.end - kept[i]!.start, kept[i + 1]!.end - kept[i + 1]!.start) * JOIN_ROOM;
     const length = Math.min(seconds, room);
-    return length < MIN_JOIN_SECONDS ? 0 : length;
+    if (length < MIN_JOIN_SECONDS) return 0;
+    /*
+      Down to the frame, never up.
+
+      `xfade` takes its duration in seconds and then overlaps a whole number of
+      frames, because frames are the only thing it has. Asking for 0.25s at
+      30fps asks for seven and a half of them and gets seven, and the 0.0167s
+      nobody asked about is not lost — it is the distance between the clock this
+      file hands the captions, the overlays, the b-roll and the sound effects,
+      and the clock the encoded file actually keeps. Measured: two three-second
+      clips, 0.25s dissolve at 30fps, 173 frames out where the arithmetic here
+      predicted 174.6. One join is half a frame of drift and nobody would see
+      it; a talking head with eight scene joins in it is a caption arriving a
+      tenth of a second after the word, and nothing anywhere reports it.
+
+      So the join is rounded here, once, and every consumer of the list is
+      exactly right afterwards. Down rather than to the nearest, because up can
+      cross the room test two lines above — the point of which is that a piece
+      is never entirely inside its own transitions.
+    */
+    const frames = Math.floor(length * fps + 1e-6);
+    return frames < MIN_JOIN_FRAMES ? 0 : frames * cell;
   });
 }

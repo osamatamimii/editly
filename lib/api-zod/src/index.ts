@@ -1564,7 +1564,17 @@ export type TransitionStyle = z.infer<typeof TransitionStyle>;
 export const TransitionOperation = z.object({
   type: z.literal("transition"),
   style: TransitionStyle.default("dissolve"),
-  /** How long each join overlaps. */
+  /**
+   * How long each join overlaps.
+   *
+   * Milliseconds because that is the unit a person thinks in, but the renderer
+   * spends it in whole frames of the recording's own rate, rounding down: 250ms
+   * on a 30fps file is seven frames and 233ms, and the note the render writes
+   * says the number it spent rather than the number it was handed. The floor
+   * here is 80, which is under two frames on anything at 24fps or slower, and
+   * an overlap of one frame is a hard cut with one strange frame in it, so
+   * those are refused and the render says so.
+   */
   durationMs: z.number().min(80).max(1000).default(250),
   /**
    * Which seams get one.
