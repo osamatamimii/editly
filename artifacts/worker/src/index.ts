@@ -20,7 +20,7 @@ import { EditPlan, MUSIC_MOOD_NAMES, type EditOperation } from "@workspace/api-z
 import { CANCELLED_MID_RENDER_MESSAGE } from "@workspace/api-zod/limits";
 import { downloadObject, uploadObject, bytesPulled, objectBytes, objectStamp, reportTransferRetries, StorageTransferError } from "./storage";
 import { roomFor, noRoomMessage, sweepStaleWork } from "./disk";
-import { renderPlan, probeDuration, probeSource, grabPosterFrame, shapeFor, frameFor, defaultHeightFor, FfmpegError } from "./ffmpeg";
+import { renderPlan, probeDuration, probeSource, grabPosterFrame, shapeFor, frameFor, defaultHeightFor, loudestSample, SILENT_PEAK_DBFS, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
 import { LIMITS, deliverableSourceMinutes } from "./deadline";
 import { reviewOutput } from "./review";
@@ -555,6 +555,122 @@ async function reportProgress(jobId: string, progress: number, stage: string): P
   await heartbeat();
 }
 
+/**
+ * A job that only listens.
+ *
+ * The transcript panel tells a person that the words follow the upload on
+ * their own. Nothing was keeping that sentence: `transcripts` is written in
+ * one place, as a side effect of a render whose plan happened to need the
+ * words, so a video nobody has captioned has none and the panel waits for
+ * ever. This is the path that makes the sentence true — bought when somebody
+ * opens the panel, which is the moment they asked.
+ *
+ * It is deliberately the smallest possible neighbour of a render rather than a
+ * second worker. Same queue, same lock, same attempts, same heartbeat, same
+ * requeue when a machine dies mid-job. What it does not do is everything a
+ * render does *after* hearing: no plan, no reframe, no score, no encode, no
+ * output, and nothing billed — the meter charges for video that exists and
+ * this produces none.
+ *
+ * The three steps it does share are shared for a reason, and each one of them
+ * is a bill this avoids:
+ *
+ *   - **Room.** The same disk check, because the download is the same
+ *     download; a machine that cannot hold the file should hand the row back
+ *     rather than find out at the end.
+ *   - **Silence.** `loudestSample` before the provider, because a screen
+ *     recording with the microphone muted would otherwise buy a transcript to
+ *     be told there are no words in it. One second of ffmpeg against a
+ *     provider call and a wait.
+ *   - **The store.** Loaded before buying and saved after, keyed on the
+ *     source's own stamp — so this and the render that follows it are the same
+ *     purchase. Reading the words and then captioning them costs what
+ *     captioning them alone used to cost, not twice.
+ */
+async function listenOnly(job: Job, log: pino.Logger): Promise<void> {
+  const workDir = await mkdtemp(path.join(tmpdir(), "editly-listen-"));
+  const language: Language = job.language === "ar" ? "ar" : "en";
+  const say = Object.assign(sayIn(language), { language });
+
+  try {
+    if (!providers.transcriber) {
+      /*
+        No speech model configured is a deployment fact, not this person's
+        fault and not something a retry fixes. Failed rather than left queued,
+        so the panel stops waiting and says so.
+      */
+      throw new Error("no transcription provider is configured on this deployment");
+    }
+
+    const sourceBytes = await objectBytes(job.inputPath);
+    if (sourceBytes !== null) {
+      const room = await roomFor(sourceBytes, workDir);
+      if (!room.enough) {
+        log.warn({ freeBytes: room.freeBytes, neededBytes: room.neededBytes }, noRoomMessage(room));
+        throw new NoRoomHereError(noRoomMessage(room));
+      }
+    }
+
+    const store = await transcriptStoreFor(job, providers, log);
+    const kept = await store?.load();
+    if (kept) {
+      // Someone else bought them between the door's check and this claim — a
+      // render that needed captions, most likely. Nothing to do, and saying
+      // "done" is the truth: the words this job exists to produce exist.
+      log.info({ project: job.projectId }, "the words were already known by the time this was claimed");
+      await db
+        .update(jobsTable)
+        .set({ status: "done", progress: 100, stage: null, error: null, errorDetail: null })
+        .where(eq(jobsTable.id, job.id));
+      return;
+    }
+
+    await reportProgress(job.id, 10, say("Fetching your video", "أجيب الفيديو"));
+    const inputFile = path.join(workDir, "input.mp4");
+    await downloadObject(job.inputPath, inputFile);
+
+    const probe = await probeSource(inputFile);
+    await db.update(jobsTable).set({ sourceSeconds: probe.duration }).where(eq(jobsTable.id, job.id));
+
+    const peak = await loudestSample(inputFile);
+    if (peak === null || peak < SILENT_PEAK_DBFS) {
+      /*
+        Nothing was said, and that is an answer rather than a failure.
+
+        An empty transcript is stored so the panel can say "there is nothing
+        spoken here" instead of spinning, and so that opening the panel again
+        does not buy the same silence a second time.
+      */
+      log.info({ project: job.projectId, peak }, "there is nothing spoken on this source");
+      await store?.save({
+        segments: [],
+        language: null,
+        source: providers.transcriber.name,
+        notes: [],
+      });
+      await db
+        .update(jobsTable)
+        .set({ status: "done", progress: 100, stage: null, error: null, errorDetail: null })
+        .where(eq(jobsTable.id, job.id));
+      return;
+    }
+
+    await reportProgress(job.id, 40, say("Listening to what was said", "أستمع إلى ما قيل"));
+    const transcript = await providers.transcriber.transcribe(inputFile, {
+      ...(language ? { expected: language, notesIn: language } : {}),
+    });
+
+    await store?.save(transcript);
+    await db
+      .update(jobsTable)
+      .set({ status: "done", progress: 100, stage: null, error: null, errorDetail: null })
+      .where(eq(jobsTable.id, job.id));
+    log.info({ project: job.projectId, language: transcript.language }, "the words are known");
+  } finally {
+    await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function processJob(job: Job): Promise<void> {
   const log = logger.child({ jobId: job.id, projectId: job.projectId });
   const workDir = await mkdtemp(path.join(tmpdir(), "editly-render-"));
@@ -581,6 +697,22 @@ async function processJob(job: Job): Promise<void> {
   const say = Object.assign(sayIn(language), { language });
 
   try {
+    /*
+      A job that only listens leaves here, before the plan is parsed.
+
+      It is claimed, locked, retried and requeued by everything above this
+      line, and shares none of what is below it: there is no plan on the row to
+      parse, no minutes to check, no file to produce. Placed inside the `try`
+      so that a failure lands in the same handler every other job's does — the
+      panel that is waiting is told, rather than being left spinning by a throw
+      nobody wrote a sentence for.
+    */
+    if (job.kind === "transcribe") {
+      await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+      await listenOnly(job, log);
+      return;
+    }
+
     const plan = EditPlan.parse(job.plan);
 
     log.info({ operations: plan.operations.map((o) => o.type) }, "claimed job");

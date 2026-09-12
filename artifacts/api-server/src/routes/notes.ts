@@ -9,8 +9,8 @@
  */
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { and, asc, eq, sql } from "drizzle-orm";
-import { db, notesTable, projectsTable, transcriptsTable } from "@workspace/db";
+import { and, asc, count, eq, gte, inArray, sql } from "drizzle-orm";
+import { db, notesTable, jobsTable, projectsTable, subscriptionsTable, transcriptsTable } from "@workspace/db";
 import {
   CreateNoteBody,
   DeleteNoteParams,
@@ -24,6 +24,7 @@ import type { StoredSegment } from "../lib/notes-store";
 import { currentUserId } from "../middlewares/auth";
 import { badRequest } from "../lib/bad-request";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
+import { servedPlan } from "../lib/plan-limits";
 
 const router: IRouter = Router();
 
@@ -171,6 +172,169 @@ router.delete("/projects/:id/notes/:noteId", async (req, res): Promise<void> => 
  * draw that state, and answering 404 would make "not yet" and "no such
  * project" the same reply.
  */
+/**
+ * How many videos a free account may have read to it in a day.
+ *
+ * Transcription is the only thing in this product that spends real money
+ * without producing a file, so it is the one thing the meter cannot bound: the
+ * meter charges for video that exists, and this makes none. Without some
+ * ceiling a free account can upload podcasts and have them read, for ever, at
+ * about nine tenths of a cent a source minute.
+ *
+ * A count of videos rather than of minutes, because the upload ceiling already
+ * bounds how long any one of them is, and because a number somebody can hold
+ * in their head is the kind of limit that can be explained in a sentence.
+ * Three is more than a trial needs and far less than a business runs on.
+ *
+ * Paying accounts have no ceiling here at all. They are already bounded by
+ * what they can upload, and a subscriber who opens a panel to read their own
+ * video should not meet a limit at all.
+ */
+const FREE_LISTENS_PER_DAY = 3;
+
+/**
+ * Ask for the words, which is what the panel does when it finds none.
+ *
+ * The panel has always told a person that "the transcription follows the
+ * upload by a minute or two, and this panel fills in on its own the moment it
+ * is ready". Nothing in this repository was trying to keep that: `transcripts`
+ * is written only as a side effect of a render whose plan needed the words, so
+ * a video nobody has captioned has none, and the panel spun in front of a
+ * promise for as long as the feature has existed.
+ *
+ * The worker's own reason for not simply transcribing everything is the right
+ * one — "paying a speech model on its behalf so that a *later* request might
+ * be better planned would be charging somebody for a feature they did not ask
+ * for" — and it is an argument for *asking*, not for the silence we had.
+ * Opening the panel is the asking, so this is the door it knocks on.
+ *
+ * Every answer is a 200 with a state rather than an error, because none of
+ * these is a failure: already read, being read now, nothing to read from.
+ * The panel polls the transcript itself and shows what is happening; a 409
+ * here would make it invent an apology for a video that is simply still being
+ * listened to.
+ */
+router.post("/projects/:id/transcript", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  const params = ProjectNoteParams.safeParse(req.params);
+  if (!params.success) {
+    badRequest(res, params.error);
+    return;
+  }
+  const projectId = params.data.id;
+
+  const [project] = await db
+    .select({ id: projectsTable.id, videoPath: projectsTable.videoPath })
+    .from(projectsTable)
+    .where(and(eq(projectsTable.id, projectId), eq(projectsTable.userId, userId)))
+    .limit(1);
+  if (!project) {
+    res.status(404).json({ error: "Project not found." });
+    return;
+  }
+
+  // Already bought. Said before anything else, because the panel asks on every
+  // open and the common answer after the first time is this one.
+  const [existing] = await db
+    .select({ projectId: transcriptsTable.projectId })
+    .from(transcriptsTable)
+    .where(and(eq(transcriptsTable.projectId, projectId), eq(transcriptsTable.userId, userId)))
+    .limit(1);
+  if (existing) {
+    res.json({ status: "ready" });
+    return;
+  }
+
+  if (!project.videoPath) {
+    res.json({ status: "no-source" });
+    return;
+  }
+
+  /*
+    Anything already working on this project, of either kind.
+
+    `jobs_one_active_per_project` allows exactly one, so a second insert would
+    be refused by the index rather than by a sentence — and it would be refused
+    for a render, too, which is the case that matters: somebody opening the
+    panel while their edit is in the queue must not be able to push the edit
+    out of the way. A render that needs the words writes them anyway, and the
+    panel is polling, so waiting here costs nothing and is usually free.
+  */
+  const [working] = await db
+    .select({ id: jobsTable.id })
+    .from(jobsTable)
+    .where(
+      and(
+        eq(jobsTable.projectId, projectId),
+        eq(jobsTable.userId, userId),
+        inArray(jobsTable.status, ["queued", "running"]),
+      ),
+    )
+    .limit(1);
+  if (working) {
+    res.json({ status: "working" });
+    return;
+  }
+
+  /*
+    The free plan's daily ceiling, counted in videos read today.
+
+    Only the free plan meets this. A subscriber reading their own video is
+    doing the thing they pay for, and the upload ceiling already bounds how
+    much any one of them can be.
+  */
+  const [subscription] = await db
+    .select({ plan: subscriptionsTable.plan, planExpiresAt: subscriptionsTable.planExpiresAt })
+    .from(subscriptionsTable)
+    .where(eq(subscriptionsTable.userId, userId))
+    .limit(1);
+  if (servedPlan(subscription) === "free") {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [today] = await db
+      .select({ used: count() })
+      .from(jobsTable)
+      .where(
+        and(
+          eq(jobsTable.userId, userId),
+          eq(jobsTable.kind, "transcribe"),
+          gte(jobsTable.createdAt, since),
+        ),
+      );
+    if (Number(today?.used ?? 0) >= FREE_LISTENS_PER_DAY) {
+      res.json({ status: "enough-for-today", limit: FREE_LISTENS_PER_DAY });
+      return;
+    }
+  }
+
+  try {
+    await db.insert(jobsTable).values({
+      id: randomUUID(),
+      userId,
+      projectId,
+      kind: "transcribe",
+      status: "queued",
+      // Nothing to plan. The column is `notNull` because every render has one,
+      // and a nullable plan would make every reader of a plan check for a
+      // state only one kind can be in.
+      plan: {},
+      inputPath: project.videoPath,
+      // Whichever language this person is reading the product in, so the
+      // provider's own notes come back in it. Not a claim about the audio.
+      language: req.get("accept-language")?.toLowerCase().startsWith("ar") ? "ar" : "en",
+    });
+  } catch {
+    /*
+      The index got there first: something was queued between the check above
+      and this insert. That is the same answer as finding it there, and it is
+      not a failure — one of the two is going to read this video.
+    */
+    res.json({ status: "working" });
+    return;
+  }
+
+  res.status(202).json({ status: "queued" });
+});
+
 router.get("/projects/:id/transcript", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const params = ProjectNoteParams.safeParse(req.params);

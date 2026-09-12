@@ -23,6 +23,7 @@ import { Loader2, X } from "lucide-react";
 import {
   useCreateNote,
   useDeleteNote,
+  useAskForTranscript,
   useProjectNotes,
   useTranscript,
   type ProjectNote,
@@ -175,6 +176,31 @@ export function TranscriptSurface({
   const { t, fmt } = useLanguage();
   const transcript = useTranscript(projectId);
   const notes = useProjectNotes(projectId, { enabled: transcript.data?.available === true });
+
+  /*
+    Asking for the words, once, when the panel finds none.
+
+    The panel has always said they arrive on their own after the upload, and
+    nothing was making that true: the words were written only as a side effect
+    of a render that happened to need them, so a video nobody had captioned had
+    none and this panel waited for ever.
+
+    Opening it is the asking. Once per mount and not on every poll — the door
+    is idempotent, but a request every fifteen seconds to be told "yes, still
+    working" is noise on a screen that is already polling for the answer
+    itself. `asked` is a ref rather than state because changing it must not
+    re-render a panel that is displaying somebody's video.
+  */
+  const ask = useAskForTranscript(projectId);
+  const asked = useRef(false);
+  const askOnce = ask.mutate;
+  useEffect(() => {
+    if (asked.current) return;
+    if (transcript.isLoading || transcript.data?.available !== false) return;
+    asked.current = true;
+    askOnce();
+  }, [transcript.isLoading, transcript.data?.available, askOnce]);
+  const answer = ask.data?.status ?? null;
   const createNote = useCreateNote(projectId);
   const deleteNote = useDeleteNote(projectId);
 
@@ -264,6 +290,29 @@ export function TranscriptSurface({
   }
 
   if (!transcript.data?.available) {
+    /*
+      Three different waits, and they are not the same sentence.
+
+      "No source" is not a wait at all — there is nothing to listen to, and a
+      spinner in front of that is a lie with a moving part. "Enough for today"
+      is a limit somebody met, and it has to name itself or it reads as the
+      product being broken. Everything else really is being worked on.
+    */
+    if (answer === "no-source") {
+      return (
+        <div className="flex items-center justify-center h-full min-h-32 px-6 text-center" data-testid="transcript-no-source">
+          <p className="text-sm text-muted-foreground">{t(EDITOR.transcriptNoSource)}</p>
+        </div>
+      );
+    }
+    if (answer === "enough-for-today") {
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 h-full min-h-40 px-6 text-center" data-testid="transcript-enough">
+          <p className="text-sm font-medium">{t(EDITOR.transcriptEnough)}</p>
+          <p className="text-xs text-muted-foreground max-w-64">{t(EDITOR.transcriptEnoughDetail)}</p>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col items-center justify-center gap-2 h-full min-h-40 px-6 text-center" data-testid="transcript-waiting">
         <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />

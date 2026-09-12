@@ -633,6 +633,75 @@ let aliceProjectId;
 
   const transcript = await call(BOB, `/api/projects/${aliceProjectId}/transcript`);
   check("Bob cannot read every word Alice said on camera", transcript.status === 404, `got ${transcript.status}`);
+
+  const listen = await call(BOB, `/api/projects/${aliceProjectId}/transcript`, "POST");
+  check("nor spend money having it read to him", listen.status === 404, `got ${listen.status}`);
+}
+
+console.log("\nAsking for the words is a job, and it is asked for once");
+{
+  /*
+    The door that makes the panel's promise true.
+
+    It said the transcription follows the upload on its own, and nothing was
+    keeping that: the words are written only as a side effect of a render that
+    needed them, so a video nobody had captioned was never heard and the panel
+    waited for ever. Opening the panel is the asking now, so this is a door the
+    browser knocks on every time a panel opens — which makes idempotence the
+    property that matters most, not an optimisation.
+  */
+  const created = await call(ALICE, "/api/projects", "POST", { title: "Words please" });
+  const id = created.json?.id;
+  check("a project to be heard", created.status === 201 && typeof id === "string", `${created.status}`);
+
+  const withoutVideo = await call(ALICE, `/api/projects/${id}/transcript`, "POST");
+  check(
+    "a project with no video says so rather than queueing a job about nothing",
+    withoutVideo.status === 200 && withoutVideo.json?.status === "no-source",
+    JSON.stringify(withoutVideo.json),
+  );
+
+  await call(ALICE, `/api/projects/${id}`, "PATCH", {
+    videoPath: `${ALICE}/${id}/source.mp4`,
+    status: "ready",
+    duration: 30,
+  });
+
+  const first = await call(ALICE, `/api/projects/${id}/transcript`, "POST");
+  check("asking queues one", first.status === 202 && first.json?.status === "queued", JSON.stringify(first.json));
+
+  const again = await call(ALICE, `/api/projects/${id}/transcript`, "POST");
+  check(
+    "asking twice does not queue a second",
+    again.status === 200 && again.json?.status === "working",
+    JSON.stringify(again.json),
+  );
+
+  const queued = psqlGlobalRead(
+    `select count(*) from jobs where project_id = '${id}' and kind = 'transcribe'`,
+  ).trim();
+  check("and the queue holds exactly one", queued === "1", queued);
+
+  const row = psqlGlobalRead(
+    `select kind || '|' || plan::text || '|' || coalesce(output_path, 'none') from jobs where project_id = '${id}'`,
+  ).trim();
+  check("it is written as the kind the worker branches on", row.startsWith("transcribe|"), row);
+  check("with nothing to plan and nothing to produce", row === "transcribe|{}|none", row);
+
+  /*
+    And it must not be able to push a render out of the way. One job per
+    project is an index, so the only way to find out whether the door respects
+    it is to ask while something else holds the slot.
+  */
+  const whileWorking = await call(ALICE, `/api/projects/${id}/transcript`, "POST");
+  check(
+    "a project already working on something is left alone",
+    whileWorking.json?.status === "working",
+    JSON.stringify(whileWorking.json),
+  );
+
+  psqlGlobal(`delete from jobs where project_id = '${id}'`);
+  await call(ALICE, `/api/projects/${id}`, "DELETE");
 }
 
 console.log("\nA read URL is minted only for the person who owns the object");

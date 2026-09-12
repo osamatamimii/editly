@@ -26,7 +26,32 @@ export const jobsTable = pgTable(
     /** queued → running → done | failed */
     status: text("status").notNull().default("queued"),
 
-    /** The edit plan the worker executes. See lib/api-zod EditPlan. */
+    /**
+     * What this job is for.
+     *
+     * `render` is everything this table held until now: a plan is executed, a
+     * file is produced, and the meter charges for what it produced.
+     *
+     * `transcribe` buys the words and nothing else. It exists because the
+     * transcript panel promises a person that the words arrive on their own
+     * after an upload, and nothing was keeping that promise: the `transcripts`
+     * table is written only as a side effect of a render whose plan happened to
+     * need the words, so a video nobody has captioned has no transcript and the
+     * panel spins for ever. It carries no plan worth parsing, produces no file,
+     * and is billed nothing — the meter charges for video that exists.
+     *
+     * Defaulted rather than required, so a row written by an older API is a
+     * render, which is what it is.
+     */
+    kind: text("kind").notNull().default("render"),
+
+    /**
+     * The edit plan the worker executes. See lib/api-zod EditPlan.
+     *
+     * Empty on a `transcribe` job: there is nothing to plan. Kept `notNull`
+     * because every render has one and a nullable column here would make every
+     * reader of a plan check for something that only one kind can be.
+     */
     plan: jsonb("plan").notNull(),
 
     /** Storage object keys, in the private "videos" bucket. */

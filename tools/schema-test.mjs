@@ -599,6 +599,57 @@ section("The rules the schema itself enforces");
     `table ${allowedKinds.join(",")} vs api ${declaredKinds.join(",")}`,
   );
 
+  /*
+    The same pairing for what a *job* is, which is new and therefore is exactly
+    when to write the check rather than after the first thing it would catch.
+
+    `jobs.kind` separates a render — a plan, a file, a charge — from a job that
+    only listens and produces nothing. The worker branches on the word, the
+    door writes it, and the table constrains it. Three places, and the failure
+    if they drift is the quiet kind: a kind the API queues and the table
+    refuses is an insert that throws inside a request nobody is watching.
+  */
+  const { rows: jobKindRule } = await pool.query(`
+    SELECT pg_get_constraintdef(oid) AS definition
+      FROM pg_constraint
+     WHERE conname = 'jobs_kind_check' AND connamespace = 'public'::regnamespace`);
+  const allowedJobKinds = [...(jobKindRule[0]?.definition ?? "").matchAll(/'([a-z]+)'::text/g)].map((m) => m[1]);
+
+  check("the jobs table has a rule about its kinds", allowedJobKinds.length >= 2, JSON.stringify(jobKindRule));
+  check(
+    "a render is one of them, because everything already in the table is one",
+    allowedJobKinds.includes("render"),
+    allowedJobKinds.join(","),
+  );
+  check(
+    "and so is the job that only listens",
+    allowedJobKinds.includes("transcribe"),
+    allowedJobKinds.join(","),
+  );
+
+  /*
+    Read from the worker rather than from a list here: the branch in
+    `processJob` is what actually decides what a kind *does*, so a kind the
+    worker knows and the table refuses would queue and then fail on insert,
+    and a kind the table allows and the worker does not know would be claimed
+    and silently run as a render.
+  */
+  const workerSource = readFileSync(path.join(repoRoot, "artifacts/worker/src/index.ts"), "utf8");
+  const workerKinds = [...workerSource.matchAll(/job\.kind === "([a-z]+)"/g)].map((m) => m[1]);
+  check(
+    "every kind the worker branches on is one the table allows",
+    workerKinds.length > 0 && workerKinds.every((kind) => allowedJobKinds.includes(kind)),
+    `worker ${workerKinds.join(",")} vs table ${allowedJobKinds.join(",")}`,
+  );
+
+  const doorSource = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/notes.ts"), "utf8");
+  const queuedKinds = [...doorSource.matchAll(/kind: "([a-z]+)"/g)].map((m) => m[1]);
+  check(
+    "and every kind a door queues is one the worker knows what to do with",
+    queuedKinds.every((kind) => kind === "render" || workerKinds.includes(kind)),
+    `queued ${queuedKinds.join(",")} vs worker ${workerKinds.join(",")}`,
+  );
+
   const onJobs = keys.filter((k) => k.child === "jobs");
   check(
     "nothing cascades onto jobs, because a render that happened stays counted",

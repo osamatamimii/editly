@@ -24,6 +24,18 @@ export interface Transcript {
   truncated: boolean;
 }
 
+/**
+ * What the door answers when the panel asks to have the video read.
+ *
+ * Every one of these is a 200, because none of them is a failure — the words
+ * are already here, somebody is already reading it, there is nothing to read
+ * from, or this free account has had its three for today.
+ */
+export interface ListenRequest {
+  status: "ready" | "queued" | "working" | "no-source" | "enough-for-today";
+  limit?: number;
+}
+
 export interface ProjectNote {
   id: string;
   sourceMs: number;
@@ -64,6 +76,33 @@ export function useTranscript(
       return query.state.data?.available ? false : 15000;
     },
     staleTime: Infinity,
+  });
+}
+
+/**
+ * Ask for the words, which is what opening the panel means.
+ *
+ * The panel's own sentence has always said the transcription follows the
+ * upload on its own — and nothing was making that true, because the words were
+ * only ever written as a side effect of a render that needed them. So a video
+ * nobody had captioned had none, and the panel waited in front of a promise.
+ *
+ * Asking on open rather than on upload is the difference between paying for
+ * every file somebody sends us and paying for the ones somebody sits down to
+ * read. The store keys the words to the source, so the render that follows
+ * does not buy them again: this moves the cost earlier, it does not add one.
+ */
+export function useAskForTranscript(projectId: string): UseMutationResult<ListenRequest, Error, void> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => customFetch<ListenRequest>(getTranscriptUrl(projectId), { method: "POST" }),
+    onSuccess: (answer) => {
+      // "ready" means somebody else's render bought them while this page was
+      // open. Nothing is polling for that, so ask once here.
+      if (answer.status === "ready") {
+        void queryClient.invalidateQueries({ queryKey: getTranscriptQueryKey(projectId) });
+      }
+    },
   });
 }
 

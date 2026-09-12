@@ -1781,6 +1781,59 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
 
   /projects/{id}/transcript:
+    post:
+      operationId: askForTranscript
+      tags: [notes]
+      summary: Ask for this project's source to be listened to
+      description: >
+        The panel's own sentence has always told a person that the
+        transcription follows the upload by a minute or two and that the panel
+        fills in on its own. Nothing was keeping it: the words are written only
+        as a side effect of a render whose plan needed them, so a video nobody
+        had captioned had none and the panel waited in front of a promise for
+        as long as the feature existed.
+
+        The worker's reason for not transcribing everything is the right one -
+        paying a speech model so that a later request might be better planned
+        charges somebody for a feature they did not ask for - and it is an
+        argument for asking rather than for silence. Opening the panel is the
+        asking, so this is what it knocks on, on every open. Idempotence is
+        therefore the property that matters: a second ask while one is in
+        flight is answered, not queued.
+
+        Queues a job of kind `transcribe`: no plan, no output, nothing billed,
+        because the meter charges for video that exists and this produces none.
+        The words are stored against the source's own stamp, so the render that
+        follows does not buy them again - this moves the cost earlier rather
+        than adding one.
+
+        Every answer is a 200 or 202 with a state rather than an error. None of
+        these is a failure, and a 409 would make the panel invent an apology
+        for a video that is simply still being listened to.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListenRequest"
+        "200":
+          description: >
+            Nothing was queued, and the reason is a state rather than a fault -
+            the words are already here, something is already working on this
+            project, there is no video to listen to, or this free account has
+            had its allowance of readings for today.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListenRequest"
+        "404": { description: Not this person's project }
     get:
       operationId: getTranscript
       tags: [notes]
@@ -3045,6 +3098,27 @@ components:
         - status
         - database
 
+    ListenRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, queued, working, no-source, enough-for-today]
+          description: >
+            `ready` - the words are already stored, so nothing was queued.
+            `queued` - a transcribe job is now in the queue.
+            `working` - something is already running on this project, of either
+            kind; one job per project is an index, and a person opening the
+            panel must not be able to push their own render out of the way.
+            `no-source` - the project has no video yet.
+            `enough-for-today` - a free account's daily allowance of readings
+            is spent. Transcription is the one thing that costs real money and
+            produces no file, so the meter cannot bound it; subscribers meet no
+            limit here at all.
+        limit:
+          type: integer
+          description: Present with `enough-for-today`, so the sentence can name the number.
     ErrorResponse:
       type: object
       properties:

@@ -102,10 +102,29 @@ export const EDITOR = {
     (count) => `${count} كلمة · اضغط كلمة للانتقال إليها، ومرة ثانية لكتابة ملاحظة`,
     (count) => `${count} words · press a word to jump there, press again to leave a note`,
   ),
-  transcriptWaiting: p("لسّه ما سمعنا الفيديو", "We have not heard the video yet"),
+  transcriptWaiting: p("عم نسمع الفيديو", "We are listening to the video"),
+  /*
+    It used to say the transcription "follows the upload by a minute or two",
+    which was a sentence nothing in the product was trying to keep: the words
+    were bought only by a render that needed them, so a video nobody had
+    captioned was never heard at all and this panel waited for ever.
+
+    Now opening the panel is what asks, so the sentence can say what actually
+    happens — including the part a person is owed before they wonder: it takes
+    about as long as the video is long, and they do not have to sit here.
+  */
   transcriptWaitingDetail: p(
-    "التفريغ يلحق الرفع بدقيقة أو اثنتين، وهذه اللوحة تمتلئ وحدها أول ما يجهز.",
-    "Transcription follows the upload by a minute or two, and this panel fills in on its own the moment it is ready.",
+    "أول ما تفتح هذه اللوحة نبدأ نسمع الفيديو. يأخذ قريبًا من طول الفيديو نفسه، وتمتلئ وحدها أول ما تجهز — ما في داعي تنتظر هنا.",
+    "Opening this panel starts us listening. It takes roughly as long as the video is long, and this fills in on its own the moment it is ready — you do not have to wait here.",
+  ),
+  transcriptNoSource: p(
+    "ما في فيديو بهذا المشروع بعد، فما في شي نسمعه.",
+    "There is no video in this project yet, so there is nothing to listen to.",
+  ),
+  transcriptEnough: p("خلصت قراءات اليوم", "That is today's reading done"),
+  transcriptEnoughDetail: p(
+    "الخطة المجانية تقرأ ثلاثة فيديوهات باليوم. بكرة تتجدّد، وأي اشتراك بيشيل الحدّ.",
+    "The free plan has three videos read a day. It resets tomorrow, and any subscription removes the limit.",
   ),
   transcriptSilent: p(
     "هذا الملف بلا كلام مسموع، فلا نص يُعرض له.",
