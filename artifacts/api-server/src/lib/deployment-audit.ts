@@ -33,6 +33,18 @@
 import { UPLOAD_CONTENT_TYPES } from "@workspace/api-zod";
 import { objectStoreFrom, type StoreFacts } from "@workspace/object-store";
 import { VIDEOS_BUCKET, FALLBACK_UPLOAD_BYTES, UNCAPPED_STORE_BYTES } from "./storage-limits";
+import { probeBucketCors } from "./cors-probe";
+import { appOrigin } from "./allowed-origins";
+
+/**
+ * The key the preflight asks about, which nothing will ever write.
+ *
+ * A preflight is answered by the route rather than by the object, so the key
+ * only has to be a legal one. It is named for what it is so that anybody
+ * reading a bucket's access log can see why an OPTIONS arrived for a key that
+ * does not exist.
+ */
+const CORS_PROBE_KEY = "cors-probe/preflight.bin";
 
 export type Verdict = "ok" | "wrong" | "unknown";
 
@@ -107,6 +119,66 @@ export async function auditDeployment(env: NodeJS.ProcessEnv = process.env): Pro
       actual: `${facts.provider}, bucket ${facts.bucket}`,
       consequence: "",
     });
+
+    /*
+      And whether a browser may speak to it, which is the one thing about this
+      bucket that neither the API nor the browser can see on its own.
+
+      Every other finding here compares a setting against what the code
+      believes. This one asks the question a browser asks — a CORS preflight —
+      because a bucket that refuses the app's origin produces the least
+      actionable failure in the product: the API logs an authorised upload, the
+      person is shown "network error", their connection is fine, and there is
+      no third place to look. A new R2 bucket is in that state by default.
+    */
+    const browserOrigin = appOrigin();
+    const probe = await probeBucketCors(objectStoreFrom().address(CORS_PROBE_KEY, "PUT").url, browserOrigin).catch(
+      () => null,
+    );
+
+    if (!probe || !probe.asked) {
+      findings.push({
+        id: "storage.cors",
+        verdict: "unknown",
+        expected: `the bucket answers a browser at ${browserOrigin}`,
+        actual: probe?.detail ? `the preflight did not complete: ${probe.detail}` : "the preflight could not be sent",
+        consequence: "whether uploads reach the bucket from a browser is unchecked",
+      });
+    } else if (!probe.allowsOrigin || !probe.allowsPut) {
+      findings.push({
+        id: "storage.cors",
+        verdict: "wrong",
+        expected: `the bucket allows PUT from ${browserOrigin}`,
+        actual: probe.detail,
+        consequence:
+          "every upload fails with 'network error' before a byte is sent, on a connection that is working. The bucket's CORS policy is what needs the origin added",
+      });
+    } else if (!probe.exposesEtag) {
+      /*
+        Allowed to upload and not to read the receipt.
+
+        A single PUT does not care. A multipart upload cares completely: every
+        part lands, the browser cannot read the ETag each one came back with,
+        and the assembly it needs them for never happens. A bucket in this
+        state accepts gigabytes and finishes nothing.
+      */
+      findings.push({
+        id: "storage.cors",
+        verdict: "wrong",
+        expected: `the bucket exposes the etag header to ${browserOrigin}, which a large upload needs to assemble its parts`,
+        actual: probe.detail,
+        consequence:
+          "small files upload and large ones transfer completely and then fail at the last step, which reads as a size limit that is not there",
+      });
+    } else {
+      findings.push({
+        id: "storage.cors",
+        verdict: "ok",
+        expected: `the bucket allows PUT from ${browserOrigin} and exposes the etag`,
+        actual: probe.detail,
+        consequence: "",
+      });
+    }
 
     const allowed = facts.allowedContentTypes;
 

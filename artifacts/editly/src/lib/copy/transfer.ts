@@ -43,6 +43,25 @@ export const TRANSFER = {
     (size) => `Storage refused this file as too large at ${size}.`,
   ),
   networkError: p("خطأ في الشبكة أثناء الرفع.", "Network error during upload."),
+  /*
+    The same browser event, and a different thing entirely.
+
+    `xhr.onerror` fires with nothing readable in it whether the connection
+    dropped mid-transfer or the browser refused to make the request at all —
+    and the second is what a storage bucket with no CORS policy for this site
+    looks like from in here. The two are told apart by a fact the browser will
+    give us: whether any byte was ever reported as sent. Zero bytes moved in a
+    request that was going to send a gigabyte is not a network that failed, it
+    is a request that never left.
+
+    Worth its own sentence because the advice is opposite. "Try again" is right
+    for a tunnel and useless for a bucket that will refuse every attempt for
+    the rest of the day.
+  */
+  neverLeft: p(
+    "لم يقبل التخزين الاتصال من هذا الموقع، فلم تُرسل أي بايت. هذا إعداد في الدلو (سياسة CORS) لا مشكلة في ملفك ولا في شبكتك.",
+    "Storage would not accept a connection from this site, so no bytes were sent. That is a setting on the bucket (its CORS policy) rather than anything about your file or your connection.",
+  ),
   cancelled: p("أُلغي الرفع.", "Upload cancelled."),
   noDestination: p("لم يعطنا التخزين مكانًا للرفع إليه.", "Storage did not return somewhere to upload to."),
   /*

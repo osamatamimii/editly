@@ -377,8 +377,11 @@ async function sendInParts(options: TransferOptions, how: MultipartTransfer): Pr
         belongs to the finished object. A header here that the URL was not
         signed over is a 403 naming no cause.
       */
+      let sent = 0;
       xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) report(event.loaded);
+        if (!event.lengthComputable) return;
+        sent = Math.max(sent, event.loaded);
+        report(event.loaded);
       };
       xhr.onload = () => {
         if (xhr.status < 200 || xhr.status >= 300) {
@@ -395,7 +398,13 @@ async function sendInParts(options: TransferOptions, how: MultipartTransfer): Pr
         }
         resolve(etag);
       };
-      xhr.onerror = () => reject(new UploadError(said(TRANSFER.networkError), true));
+      // A part that never left is refused for a reason retrying cannot change,
+      // and the sentence says which. A part that moved and then stopped is the
+      // case this whole retry exists for.
+      xhr.onerror = () =>
+        sent > 0
+          ? reject(new UploadError(said(TRANSFER.networkError), true))
+          : reject(new UploadError(said(TRANSFER.neverLeft), false));
       xhr.onabort = () => reject(new UploadError(said(TRANSFER.cancelled), false));
       xhr.send(chunk);
     });
@@ -481,8 +490,14 @@ function sendInOneRequest(options: TransferOptions, how: SignedTransfer): Promis
     // own here is how a signed PUT becomes a 403 that names no cause.
     for (const [name, value] of Object.entries(how.headers)) xhr.setRequestHeader(name, value);
 
+    /*
+      Whether anything ever left, which is what tells a dropped connection from
+      a request the browser refused to make. See `TRANSFER.neverLeft`.
+    */
+    let sent = 0;
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return;
+      sent = Math.max(sent, event.loaded);
       const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
       onProgress?.(percent, event.loaded, event.total);
     };
@@ -511,7 +526,8 @@ function sendInOneRequest(options: TransferOptions, how: SignedTransfer): Promis
       reject(new UploadError(message));
     };
 
-    xhr.onerror = () => reject(new UploadError(said(TRANSFER.networkError)));
+    xhr.onerror = () =>
+      reject(new UploadError(said(sent > 0 ? TRANSFER.networkError : TRANSFER.neverLeft)));
     xhr.onabort = () => reject(new UploadError(said(TRANSFER.cancelled)));
 
     xhr.send(body);

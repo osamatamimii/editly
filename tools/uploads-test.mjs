@@ -840,6 +840,105 @@ console.log("\nA large file goes up in parts, and only this API assembles them")
   check("nothing is called done until this API says the parts were assembled", assembled.ok, assembled.why);
 }
 
+console.log("\nA bucket that refuses the browser is a finding, not a mystery");
+{
+  /*
+    The failure neither side can see, and the reason this section exists.
+
+    A bucket with no CORS policy for the app's origin stops the upload inside
+    the browser: no status, no body, nothing readable, so `xhr.onerror` fires
+    empty. The API has already logged a 201 for an upload it authorised. The
+    person is told "network error" on a connection that is working. There is no
+    third place to look — which is how it cost an afternoon the first time and
+    would have cost one again on the next bucket.
+
+    Two answers, because there are two audiences. The deployment asks the
+    bucket the same question a browser asks and reports it on the console. And
+    the browser tells the two cases apart by a fact it has: whether a single
+    byte was ever reported as sent.
+  */
+  const probe = await import(build("artifacts/api-server/src/lib/cors-probe.ts", "cors-probe.mjs"));
+  const answer = (headers) => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => new Response(null, { status: 200, headers });
+    return () => {
+      globalThis.fetch = original;
+    };
+  };
+
+  {
+    const restore = answer({});
+    const verdict = await probe.probeBucketCors("https://bucket.example/key", "https://app.editlyai.io");
+    restore();
+    check("a bucket with no policy is read from the missing headers, not a status", verdict.asked && !verdict.allowsOrigin, JSON.stringify(verdict));
+    check("and the line says so in words somebody can act on", /no CORS policy/.test(verdict.detail), verdict.detail);
+  }
+
+  {
+    const restore = answer({
+      "access-control-allow-origin": "https://app.editlyai.io",
+      "access-control-allow-methods": "GET, PUT, HEAD",
+      "access-control-expose-headers": "etag",
+    });
+    const verdict = await probe.probeBucketCors("https://bucket.example/key", "https://app.editlyai.io");
+    restore();
+    check("a configured bucket passes all three", verdict.allowsOrigin && verdict.allowsPut && verdict.exposesEtag, JSON.stringify(verdict));
+  }
+
+  {
+    // The expensive middle state: uploads are allowed and the receipts are not
+    // readable, so every part of a large file lands and the assembly never
+    // happens. It reads to a person as a size limit that does not exist.
+    const restore = answer({
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "put",
+      "access-control-expose-headers": "content-length",
+    });
+    const verdict = await probe.probeBucketCors("https://bucket.example/key", "https://app.editlyai.io");
+    restore();
+    check("a wildcard origin counts, because a browser accepts one", verdict.allowsOrigin);
+    check("the method is read case-insensitively, as a header value is", verdict.allowsPut);
+    check("and a bucket that allows the upload but hides the etag is caught", !verdict.exposesEtag, verdict.detail);
+  }
+
+  {
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => {
+      throw new Error("getaddrinfo ENOTFOUND bucket.example");
+    };
+    const verdict = await probe.probeBucketCors("https://bucket.example/key", "https://app.editlyai.io");
+    globalThis.fetch = original;
+    check("a bucket that does not answer is unknown rather than broken", !verdict.asked, JSON.stringify(verdict));
+  }
+
+  const audit = read("artifacts/api-server/src/lib/deployment-audit.ts");
+  check("the console asks the bucket about the app's origin", /appOrigin\(\)/.test(audit) && /probeBucketCors\(/.test(audit));
+  check(
+    "and never about the origin of whoever opened the console",
+    !/req\.headers|request\.headers/.test(audit),
+    "the audit reads an origin off the caller, so an operator on localhost would see green while customers are blocked",
+  );
+  check(
+    "a refused origin is reported wrong, with the fix named",
+    /CORS policy is what needs the origin added/.test(audit),
+  );
+
+  const client = read("artifacts/editly/src/lib/video-storage.ts");
+  check(
+    "the browser tells a refused request from a dropped one",
+    /sent > 0 \? TRANSFER\.networkError : TRANSFER\.neverLeft/.test(client),
+  );
+  check(
+    "and does not retry the one that will be refused every time",
+    /reject\(new UploadError\(said\(TRANSFER\.neverLeft\), false\)\)/.test(client),
+  );
+  const copy = read("artifacts/editly/src/lib/copy/transfer.ts");
+  check(
+    "the sentence names the bucket's policy rather than the person's connection",
+    /CORS/.test(copy) && /neverLeft/.test(copy),
+  );
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);
