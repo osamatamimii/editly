@@ -212,6 +212,25 @@ section("A code is refused for reasons that are not the same reason");
     "a paying subscriber is turned away rather than stamped with an end date",
     reasonOf(code(), account({ plan: "pro", licenseId: "lic_123", planExpiresAt: null })) === "paid-account",
   );
+  /*
+    The owner's own account, and the refusal it was given.
+
+    `license_id` is the record of what the merchant of record last said, and it
+    outlives what it said: a cancellation, a refund, or — as here — a test
+    event that granted nothing. The rule read "a licence and no end date" as
+    "is paying", so a row sitting on **free** with a stale licence id was
+    turned away as a paying customer whose card must not be disturbed. Nobody
+    is charged for free, and a row serving nothing has nothing for a grant to
+    take away.
+  */
+  check(
+    "a free row carrying a spent licence id is not a paying customer",
+    reasonOf(code(), account({ plan: "free", licenseId: "2021110", planExpiresAt: null })) === null,
+  );
+  check(
+    "while a paid plan behind that same licence still is",
+    reasonOf(code(), account({ plan: "pro", licenseId: "2021110", planExpiresAt: null })) === "paid-account",
+  );
   check(
     "but a lapsed paid account — a licence and an end date behind it — may redeem",
     reasonOf(

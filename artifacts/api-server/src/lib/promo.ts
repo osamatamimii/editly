@@ -195,14 +195,26 @@ export function refuseRedemption(
   /*
     Never onto a paid subscription, and this is the refusal that matters most.
 
-    A licence with no expiry is somebody's card being charged every month. If a
-    code wrote its plan and its end date over that row, the account would keep
-    being charged and would drop to free twelve months later — the product
-    taking away something that is still being paid for, from a person who did
-    nothing but try a code they were given. There is no version of applying a
-    grant here that is safe, so it is refused with the reason said out loud.
+    A licence behind a paid plan, with no end date, is somebody's card being
+    charged every month. If a code wrote its plan and its end date over that
+    row, the account would keep being charged and would drop to free twelve
+    months later — the product taking away something still being paid for, from
+    a person who did nothing but try a code they were given.
+
+    **What a licence id alone does not mean.** The condition was
+    `licenseId && !planExpiresAt`, which reads as "is paying" and is not: that
+    column is the record of what the merchant of record last said about this
+    account, and it outlives what it said — a cancellation, a refund, or a test
+    event that granted nothing. The owner's own row is exactly that shape, free
+    with a licence id from a test, and it was turned away as a paying customer
+    whose card must not be disturbed. Nobody is charged for free, and a row
+    serving nothing has nothing for a grant to take away.
+
+    So the question is what that licence is actually doing right now: holding a
+    paid plan, with no date on it. That is the row a grant must not touch.
   */
-  if (account.licenseId && !account.planExpiresAt) {
+  const holding = planKeyFrom(account.plan);
+  if (account.licenseId && !account.planExpiresAt && holding !== "free") {
     return {
       status: 409,
       reason: "paid-account",
@@ -217,7 +229,6 @@ export function refuseRedemption(
     only reading of a downgrade is that we took it.
   */
   const granting = planKeyFrom(code.plan);
-  const holding = planKeyFrom(account.plan);
   const stillHeld = !account.planExpiresAt || account.planExpiresAt.getTime() > now.getTime();
   if (stillHeld && RANK[granting] <= RANK[holding] && RANK[holding] > 0) {
     return {
