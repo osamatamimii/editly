@@ -291,6 +291,10 @@ jobs:
       - run: node tools/clipping-test.mjs
       - run: node tools/reference-test.mjs
       - run: node tools/billing-test.mjs
+      # Beside the billing suite, because it is the other way a plan can change
+      # hands: a word somebody types rather than a payment somebody makes. It
+      # shipped without a line here, which `deploy-test` is the check for.
+      - run: node tools/promo-test.mjs
       # Beside billing, because the webhook is the one place that sends today.
       # Its real question is whether a message can go out twice: a redelivered
       # event is the ordinary case for that endpoint, and an email cannot be

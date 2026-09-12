@@ -56,7 +56,7 @@ if (built.status !== 0) {
   console.error("could not bundle the ffmpeg module");
   process.exit(1);
 }
-const { renderPlan, maxOverlappedPieces } = await import(pathToFileURL(modulePath).href);
+const { renderPlan, maxOverlappedStreams } = await import(pathToFileURL(modulePath).href);
 
 // The templates are plans we wrote and ship, and until now nothing rendered
 // one. They are also the first thing a new customer clicks, which makes them
@@ -537,12 +537,12 @@ console.log("\nAn overlapped edit only holds so many pieces open");
     nine times. Both ends matter: the number for a full-size frame is the one
     the measurement above produced, and it has to fall as the frame grows.
   */
-  check("a 1080p frame holds four pieces open", maxOverlappedPieces(1920, 1080) === 4, String(maxOverlappedPieces(1920, 1080)));
-  check("a 4K frame holds fewer", maxOverlappedPieces(3840, 2160) < maxOverlappedPieces(1920, 1080));
+  check("a 1080p frame holds four streams open", maxOverlappedStreams(1920, 1080) === 4, String(maxOverlappedStreams(1920, 1080)));
+  check("a 4K frame holds fewer", maxOverlappedStreams(3840, 2160) < maxOverlappedStreams(1920, 1080));
   check(
     "and a small one holds more, up to the limit on the graph itself",
-    maxOverlappedPieces(320, 240) === 12,
-    String(maxOverlappedPieces(320, 240)),
+    maxOverlappedStreams(320, 240) === 12,
+    String(maxOverlappedStreams(320, 240)),
   );
   const measured = Number(ffprobe(many.output, "format=duration")[0]);
   check(

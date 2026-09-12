@@ -2142,6 +2142,109 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
   );
 }
 
+console.log("\nA wipe crosses the frame somebody watches, not the one that was recorded");
+{
+  /*
+    The defect, as a number.
+
+    A directional transition is a shape crossing a frame, and the join was
+    built at the recording's size while the reframe cropped the result. On a
+    16:9 recording delivered to 9:16 the visible window is 32% of the source
+    width, so a wipe stood still, crossed the picture in a third of its
+    duration, and stood still again — while the audio crossfaded underneath it
+    for the whole second.
+
+    Measured on the old graph, a 1.00s wipeLeft, fraction of the visible row
+    that had become the second shot:
+
+        +0.05  0.00      +0.50  0.56
+        +0.20  0.00      +0.65  1.00
+        +0.35  0.00      +0.80  1.00
+
+    Nothing failed. The wipe was simply three times too fast, with two thirds
+    of a second of nothing either side of it, on every vertical delivery.
+  */
+  const dir = await scratch();
+  const wide = path.join(dir, "wide.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y",
+    "-f", "lavfi", "-i", "color=c=0xCC3344:size=1280x720:rate=25:duration=4",
+    "-f", "lavfi", "-i", "color=c=0x2255CC:size=1280x720:rate=25:duration=4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    // Two seconds, so the join is a scene rather than a tidying cut.
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-filter_complex",
+    "[0:v][1:v]concat=n=2:v=1:a=0[v];[2:a][3:a][4:a]concat=n=3:v=0:a=1[a]",
+    "-map", "[v]", "-map", "[a]",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", wide,
+  ]);
+
+  const wiped = await renderPlan(
+    wide,
+    {
+      version: 1,
+      operations: [
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 400, paddingMs: 0 },
+        { type: "formatForPlatform", platform: "tiktok" },
+        { type: "transition", style: "wipeLeft", durationMs: 1000 },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  check("it is delivered vertical", ffprobe(wiped.output, "stream=width,height").join("x") === "1080x1920", ffprobe(wiped.output, "stream=width,height").join("x"));
+  check("and the wipe happened", wiped.notes.some((n) => /wiped left between the cuts/.test(n)), JSON.stringify(wiped.notes));
+
+  /*
+    How much of the picture has become the second shot, along one row.
+
+    A row rather than a frame because a horizontal wipe is a vertical boundary:
+    the fraction of the row that has changed colour *is* the progress of the
+    wipe, and reading it needs no assumption about which side it enters from.
+  */
+  const crossed = (at) => {
+    const frame = path.join(dir, `w-${at}.png`);
+    spawnSync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-ss", String(at), "-i", wiped.output, "-frames:v", "1", "-vf", "scale=108:192", frame,
+    ]);
+    // One row of pixels out of the PNG, without a decoder: ask ffmpeg for it
+    // as raw RGB and count the samples whose blue beats their red.
+    const raw = spawnSync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error",
+      "-i", frame, "-vf", "crop=108:1:0:96", "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+    ], { encoding: "buffer", maxBuffer: 1 << 20 }).stdout;
+    if (!raw || raw.length < 108 * 3) return NaN;
+    let blue = 0;
+    for (let i = 0; i < 108; i += 1) if (raw[i * 3 + 2] > raw[i * 3]) blue += 1;
+    return blue / 108;
+  };
+
+  // The join runs from 2.0s to 3.0s on the output clock: three seconds of kept
+  // material either side, less the one overlap.
+  const readings = [2.05, 2.35, 2.5, 2.65, 2.95].map((at) => ({ at, part: crossed(at) }));
+  check(
+    "the wipe has begun early in the join and is not finished late in it",
+    readings[0].part > 0.01 && readings[0].part < 0.25 && readings[4].part > 0.75,
+    JSON.stringify(readings),
+  );
+  check(
+    "and it crosses the picture steadily rather than in one third of the time",
+    readings.every((r, i) => i === 0 || r.part > readings[i - 1].part + 0.05),
+    JSON.stringify(readings),
+  );
+  /*
+    The midpoint is the one reading that catches the old graph on its own
+    terms: it was 0.56 there too. What it could not do is be halfway at the
+    midpoint *and* still be moving at both ends.
+  */
+  check(
+    "and is about halfway across at the middle of the join",
+    Math.abs(readings[2].part - 0.5) < 0.15,
+    String(readings[2].part),
+  );
+}
+
 console.log("\nA transition marks where the recording jumped, and nothing else");
 {
   /*

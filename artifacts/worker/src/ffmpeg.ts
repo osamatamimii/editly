@@ -2421,40 +2421,43 @@ export function sfxLayerOffsetDb(programmePeakDb: number | null): number {
 const MAX_PUNCHES = 40;
 
 /**
- * The shortest join the contract admits, in seconds.
+ * How many streams an overlapped edit may hold open on this machine.
  *
- * `TransitionOperation.durationMs` is `.min(80)`, so eighty milliseconds is
- * the shortest dissolve anybody can ask for. Named here because the renderer
- * has to decide what to do when the pieces cannot hold even that, and the
- * answer has to be the same number the contract uses.
- */
-const MIN_TRANSITION_SECONDS = 0.08;
-
-/**
- * How many pieces an overlapped edit may be cut into on this machine.
+ * `xfade` reads two streams in lockstep and the chain holds every side of every
+ * join open at once, so the cost is the frame size times the number of streams.
+ * Measured on a 1080p source with a 0.25s dissolve, peak resident memory for
+ * the whole ffmpeg process: 505 MB for four, 1633 MB for eight — about 130 MB
+ * each, which is 62 bytes for every pixel in a frame.
  *
- * `xfade` reads two streams in lockstep and the chain holds every piece open
- * at once, so the cost is the frame size times the number of pieces. Measured
- * on a 1080p source with a 0.25s dissolve, peak resident memory for the whole
- * ffmpeg process: 505 MB for four pieces, 1633 MB for eight — about 130 MB per
- * piece, which is 62 bytes for every pixel in a frame.
+ * It used to be read against the number of *pieces*, and that was right for
+ * the graph it was written for: every piece had its own decoder. On the
+ * flagship path it was also fatal — a talking head with its silences removed
+ * is twenty pieces against the four a 1080p source pays for, so the transition
+ * was dropped on every edit this product actually makes. A side of a join is a
+ * run of hard-cut pieces the select path streams out of one decode, so the
+ * count is now of sides and the name says so.
+ *
+ * Measured before the sides are cropped, which is the conservative direction:
+ * the reframe is applied to each side before the join now, so a vertical
+ * delivery blends 1080x1920 rather than the recording's frame and costs less
+ * than this table says.
  *
  * The worker has 1 GB (fly.toml) and shares it with Node, so the budget here
- * is 600 MB of xfade. That puts 1080p at four pieces, which is what the number
- * was when it was a constant — and lets a small frame have as many joins as it
- * can pay for, because a 320x240 piece costs a twenty-seventh of a 1080p one
- * and refusing it a dissolve was arithmetic that had never been done.
+ * is 600 MB of xfade. That puts 1080p at four, which is what the number was
+ * when it was a constant — and lets a small frame have as many joins as it can
+ * pay for, because a 320x240 stream costs a twenty-seventh of a 1080p one and
+ * refusing it a dissolve was arithmetic that had never been done.
  *
  * The ceiling is a limit on the graph rather than on the memory: a chain of
  * fifty xfades is its own problem.
  */
 const XFADE_BUDGET_BYTES = 600_000_000;
-const XFADE_BYTES_PER_PIXEL_PER_PIECE = 62;
-const MAX_OVERLAPPED_PIECES = 12;
+const XFADE_BYTES_PER_PIXEL_PER_STREAM = 62;
+const MAX_OVERLAPPED_STREAMS = 12;
 
-export function maxOverlappedPieces(width: number, height: number): number {
-  const perPiece = Math.max(1, width * height) * XFADE_BYTES_PER_PIXEL_PER_PIECE;
-  return Math.max(2, Math.min(MAX_OVERLAPPED_PIECES, Math.floor(XFADE_BUDGET_BYTES / perPiece)));
+export function maxOverlappedStreams(width: number, height: number): number {
+  const perStream = Math.max(1, width * height) * XFADE_BYTES_PER_PIXEL_PER_STREAM;
+  return Math.max(2, Math.min(MAX_OVERLAPPED_STREAMS, Math.floor(XFADE_BUDGET_BYTES / perStream)));
 }
 
 /**
@@ -2582,17 +2585,6 @@ function groupsAcross(kept: Segment[], overlaps: readonly number[]): Segment[][]
     else groups[groups.length - 1]!.push(kept[i]!);
   }
   return groups;
-}
-
-/**
- * Do these pieces play in the order they appear in the file?
- *
- * True for every edit that only *removes* material, which is all of them
- * except a cold open. See the transition block for why the difference matters
- * to ffmpeg and not to anything else.
- */
-function inSourceOrder(kept: Segment[]): boolean {
-  return kept.every((segment, i) => i === 0 || segment.start >= kept[i - 1]!.start);
 }
 
 /**
@@ -3821,6 +3813,35 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // a different rate through different joins and every reader of it has to be
   // told which. See `transitionJoins`.
   let overlaps: number[] = [];
+  /**
+   * The sides of the overlapped joins, and when each one starts playing.
+   *
+   * Empty unless the edit is stitched with `xfade`. It exists so that the
+   * reframe can put the frame the viewer will actually see *before* the join
+   * rather than after it — see `groupCrop` below for the defect that made
+   * necessary, and `graphParts` at the bottom of this function for where the
+   * two halves are joined up.
+   */
+  let joinedGroups: Array<{ from: string; to: string; startsAt: number }> = [];
+  /**
+   * What each side of a join is scaled and cropped by, before it is joined.
+   *
+   * A directional transition is a shape crossing a frame, and until now it
+   * crossed the *source* frame: the join was built at the recording's size and
+   * the reframe cropped the result. On a 16:9 recording delivered to 9:16 the
+   * visible window is 32% of the source width, so a one-second wipe stood still
+   * for 0.35s, crossed the picture in 0.30s, and stood still for another 0.35s
+   * while the audio crossfaded underneath it for the whole second. Measured,
+   * not deduced: a wipe over 1.00s on a 1280x720 source reframed for TikTok
+   * moved the boundary across the visible frame between t+0.35 and t+0.65 and
+   * nowhere else.
+   *
+   * A filter graph is a graph and not a sequence, so the fix does not need the
+   * reframe to be decided any earlier than it is: the join is written to read
+   * labels that do not exist yet, and this function fills them in once the crop
+   * is known. `null` means nothing to do, and the sides are passed through.
+   */
+  let groupCrop: ((group: { from: string; to: string; startsAt: number }) => string) | null = null;
   /** The ffmpeg name for the style asked for. */
   let joinStyle = "fade";
   /*
@@ -3884,7 +3905,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       const decoders = groups.reduce((sum, group) => sum + orderedRuns(group).length, 0);
       /** Set when the machine, not the edit, is the reason nothing was joined. */
       let refused = false;
-      if (decoders > maxOverlappedPieces(source.width, source.height)) {
+      if (decoders > maxOverlappedStreams(source.width, source.height)) {
         // Still possible: `everyCut` on a twenty-piece edit is twenty groups.
         // Trading a missing dissolve for an OOM kill is not a trade — the kill
         // takes the whole render with it and says nothing.
@@ -4177,10 +4198,24 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       const groupLengths = groups.map((group) =>
         group.reduce((sum, segment) => sum + (segment.end - segment.start), 0),
       );
+      /*
+        Where each side starts on the finished clock, which is what the reframe
+        needs to shift a moving crop by: the expression it builds is written in
+        seconds into the *edit*, and inside a side's own stream `t` is seconds
+        into that side.
+      */
+      {
+        let at = 0;
+        joinedGroups = groups.map((_, g) => {
+          const startsAt = at;
+          at += (groupLengths[g] ?? 0) - (joinLengths[g] ?? 0);
+          return { from: `gv${g}`, to: `gvc${g}`, startsAt };
+        });
+      }
       let elapsed = groupLengths[0]!;
       /** Everything the joins made so far overlap, which is what pulls the rest earlier. */
       let pulled = 0;
-      let vPrevious = "gv0";
+      let vPrevious = "gvc0";
       let aPrevious = groupAudio[0] ?? "ga0";
       const lastGroup = groups.length - 1;
       /* The burst lands exactly on each join's window, so the windows are
@@ -4197,7 +4232,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         const vOut = g === lastGroup ? (burst ? "xvjoin" : "cutv") : `xv${g}`;
         joinWindows.push([Math.max(0, offset), Math.max(0, offset) + length]);
         pieces.push(
-          `[${vPrevious}][gv${g}]xfade=transition=${joinStyle}:duration=${length.toFixed(4)}:` +
+          `[${vPrevious}][gvc${g}]xfade=transition=${joinStyle}:duration=${length.toFixed(4)}:` +
             `offset=${Math.max(0, offset).toFixed(4)}[${vOut}]`,
         );
         vPrevious = vOut;
@@ -4729,6 +4764,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     // Where the crop sits horizontally, as an ffmpeg expression. A number when
     // the window holds still, which is the usual and the preferred answer.
     let cropXExpr = String(cropX);
+    /** The path the crop follows, when it follows one. See `chain` below. */
+    let trackedKeyframes: Array<{ t: number; x: number }> | null = null;
 
     if (scaledWidth > cropW + 2) {
       ctx.onProgress?.(0.12, t("Finding your subject in the frame", "أبحث عن الموضوع في الإطار"));
@@ -4804,6 +4841,9 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           a highlight and a reframe in the same plan by default.
         */
         const keyframes = kept ? pathWithinCut(path.keyframes, kept, overlaps) : path.keyframes;
+        // Kept as well as compiled, because a crop that moves has to be
+        // compiled once per side of a join, against that side's own clock.
+        trackedKeyframes = keyframes;
         cropXExpr = cropExpression(keyframes, scaledWidth, cropW);
         const moves = (keyframes.length - 1) / 2;
         notes.push(
@@ -4843,11 +4883,43 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       }
     }
 
-    videoParts.push(
-      `scale=${cropW}:${cropH}:force_original_aspect_ratio=increase:flags=lanczos`,
-      `crop=${cropW}:${cropH}:'${cropXExpr}':(ih-oh)/2`,
-      "setsar=1",
-    );
+    /*
+      Before the join, when there is one.
+
+      A directional transition is a shape crossing a frame, and the frame it
+      has to cross is the one somebody watches. Applied here, after the stitch,
+      it crosses the recording's frame and the crop then keeps a third of it —
+      see `groupCrop` for the measurement. Pushed onto each side of each join
+      instead, the wipe is a wipe.
+
+      The crop can move, and inside a side's own stream `t` is seconds into
+      that side rather than into the edit. So the expression is rebuilt per
+      side from keyframes shifted by where that side starts, which is the same
+      correction every other clock on this timeline gets and the reason
+      `joinedGroups` carries the offset at all.
+
+      It costs nothing: the sides are scaled and cropped separately instead of
+      the stitch being scaled and cropped once, so the pixel count is the same,
+      and `xfade` then blends the delivered frame rather than the larger one —
+      which makes the join cheaper than the memory table that sized its cap.
+    */
+    const chain = (shiftBy: number): string => {
+      const expression =
+        trackedKeyframes && shiftBy !== 0
+          ? cropExpression(
+              trackedKeyframes.map((frame) => ({ ...frame, t: frame.t - shiftBy })),
+              scaledWidth,
+              cropW,
+            )
+          : cropXExpr;
+      return [
+        `scale=${cropW}:${cropH}:force_original_aspect_ratio=increase:flags=lanczos`,
+        `crop=${cropW}:${cropH}:'${expression}':(ih-oh)/2`,
+        "setsar=1",
+      ].join(",");
+    };
+    if (joinedGroups.length > 0) groupCrop = (group) => chain(group.startsAt);
+    else videoParts.push(chain(0));
     notes.push(
       t(`reframed to ${target.w}x${target.h} for ${reframe.platform}`, `أُعيد التأطير إلى ${target.w}x${target.h} لـ${reframe.platform}`),
     );
@@ -4877,10 +4949,19 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     // (see above), so this neither grows nor shrinks the picture.
     const cropW = Math.round((source.width * overscan) / 2) * 2;
     const cropH = Math.round((source.height * overscan) / 2) * 2;
-    if (cropW !== source.width || cropH !== source.height) {
-      videoParts.push(`scale=${cropW}:${cropH}:flags=lanczos`);
-    }
-    videoParts.push("setsar=1");
+    const chain = [
+      cropW !== source.width || cropH !== source.height
+        ? `scale=${cropW}:${cropH}:flags=lanczos`
+        : null,
+      "setsar=1",
+    ]
+      .filter((part): part is string => part !== null)
+      .join(",");
+    // Before the join for the same reason the reframe above is, though nothing
+    // here changes the frame's shape: keeping the two paths the same means the
+    // next person does not have to work out which of them the join reads.
+    if (joinedGroups.length > 0) groupCrop = () => chain;
+    else videoParts.push(chain);
   }
 
   // ── Motion ────────────────────────────────────────────────────────────────
@@ -6204,6 +6285,19 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // about which label holds the finished picture.
   const hasOverlays = overlayLinks.length > 0;
   const mainVideoOut = hasOverlays ? "OVBASE" : "vout";
+  /*
+    The sides of each join, given the frame they will be watched in.
+
+    Written here rather than in the join block because the crop is not decided
+    until several hundred lines later, and a filter graph is a graph: the join
+    above reads labels that are produced down here, and ffmpeg connects them by
+    name rather than by the order they appear in. `null` is a real answer and
+    not an omission — an edit with no reframe joins the sides as they are.
+  */
+  for (const group of joinedGroups) {
+    const chain = groupCrop ? groupCrop(group) : "null";
+    graphParts.push(`[${group.from}]${chain}[${group.to}]`);
+  }
   if (videoParts.length > 0) graphParts.push(`[${vLabel}]${videoParts.join(",")}[${mainVideoOut}]`);
   else if (hasOverlays) graphParts.push(`[${kept ? vLabel : "0:v"}]null[OVBASE]`);
   graphParts.push(...overlayLinks);
