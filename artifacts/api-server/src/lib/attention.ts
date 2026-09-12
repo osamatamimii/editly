@@ -458,9 +458,25 @@ export async function attention(now: Date = new Date()): Promise<Attention> {
   for (const row of spent) {
     const included = PLAN_LIMITS[planFor.get(row.userId) ?? DEFAULT_PLAN].minutesPerMonth;
     if (included <= 0) continue;
-    const used = minutesFrom(Number(row.seconds ?? 0));
-    if (used >= included) capped.push({ userId: row.userId, used, included, over: true });
-    else if (used >= included * NEARLY) capped.push({ userId: row.userId, used, included, over: false });
+    const seconds = Number(row.seconds ?? 0);
+    /*
+      Both questions are asked in seconds, and only the answer is in minutes.
+
+      `minutesFrom` rounds up, because that is how the meter bills — a
+      sixty-one second render costs two minutes. Asking "are they nearly out"
+      of that rounded number made the warning unreachable on the smallest plan,
+      which is the plan where it matters: free includes three minutes, so the
+      warning band is [2.4, 3) minutes, and a rounded count of whole minutes
+      never lands inside it. Two minutes was quiet, and anything above was
+      already over. Nobody on the free plan was ever told they were nearly out.
+
+      Compared in seconds, 2m 33s of a three-minute plan is the warning it
+      obviously is. The `used` that goes out to the console stays the billed
+      number, so the row still says what the invoice would.
+    */
+    const used = minutesFrom(seconds);
+    if (seconds >= included * 60) capped.push({ userId: row.userId, used, included, over: true });
+    else if (seconds >= included * 60 * NEARLY) capped.push({ userId: row.userId, used, included, over: false });
   }
   counts["minutes-spent"] = capped.filter((row) => row.over).length;
   counts["minutes-nearly-spent"] = capped.filter((row) => !row.over).length;

@@ -80,6 +80,41 @@ const built = spawnSync(
 if (built.status !== 0) process.exit(1);
 const { attention } = await import(pathToFileURL(outfile).href);
 
+/*
+  The free plan's allowance, read rather than typed.
+
+  This section used to say "five minutes" in four places, because that is what
+  free was when it was written. Free is three now — a deliberate change, with a
+  paragraph in `plan-limits.ts` about why five was a home rather than a trial —
+  and every number here went stale with it: six minutes was "over", four was
+  "eighty per cent", and both became "over" the moment the ceiling moved. Three
+  checks red, describing a rule that had not changed at all.
+
+  So the ceiling comes from the same table the product bills against, and the
+  seconds below are computed from it. The rule under test is "over is a fault,
+  近 is a warning, well under is nothing", and that rule survives any price.
+*/
+const limitsFile = path.join(buildDir, "plan-limits.mjs");
+const limitsBuilt = spawnSync(
+  require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/api-server"] }),
+  [
+    path.join(repoRoot, "artifacts/api-server/src/lib/plan-limits.ts"),
+    "--bundle", "--platform=node", "--format=esm", "--target=node22",
+    `--outfile=${limitsFile}`, "--log-level=error",
+  ],
+  { stdio: "inherit" },
+);
+if (limitsBuilt.status !== 0) process.exit(1);
+const { PLAN_LIMITS } = await import(pathToFileURL(limitsFile).href);
+/** What a free account is given each month, and the three points around it. */
+const FREE_MINUTES = PLAN_LIMITS.free.minutesPerMonth;
+/** Over the line: one whole minute past it, so the rounding is never the reason. */
+const OVER_SECONDS = (FREE_MINUTES + 1) * 60;
+/** Inside it, and at or above the 0.8 `NEARLY` line in `attention.ts`. */
+const NEARLY_SECONDS = Math.round(FREE_MINUTES * 0.85 * 60);
+/** Nowhere near it: half a minute, which is nobody's problem on any plan. */
+const QUIET_SECONDS = 30;
+
 let checks = 0;
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -403,12 +438,14 @@ section("Who is at their ceiling, counted across the table rather than a page");
     was a question it could not answer at all - and a sortable column there
     would have answered it from an arbitrary fifty.
 
-    Alice is on free, five minutes a month. Six minutes of billed render is
-    over; four is eighty per cent of it and not over.
+    Alice is on free. A minute past its allowance is over; eighty-five per
+    cent of it is the warning; half a minute is nothing. All three are computed
+    from `PLAN_LIMITS` above, so this stays a check about the rule rather than
+    about what the free plan happened to include the day it was written.
   */
   await job("att_spend", ALICE, {
     status: "done",
-    billed_seconds: 360,
+    billed_seconds: OVER_SECONDS,
     finished_at: new Date(),
   });
   let out = await attention();
@@ -416,11 +453,11 @@ section("Who is at their ceiling, counted across the table rather than a page");
   check("an account past its allowance is a row", out.counts["minutes-spent"] === 1, JSON.stringify(out.counts));
   check(
     "and it carries both numbers, because one of them is not a conversation",
-    over?.used === 6 && over?.included === 5,
+    over?.used === FREE_MINUTES + 1 && over?.included === FREE_MINUTES,
     JSON.stringify([over?.used, over?.included]),
   );
 
-  await pool.query("update jobs set billed_seconds = 240 where id = 'att_spend'");
+  await pool.query("update jobs set billed_seconds = $1 where id = 'att_spend'", [NEARLY_SECONDS]);
   out = await attention();
   check(
     "at eighty per cent it is a warning rather than a fault",
@@ -432,11 +469,35 @@ section("Who is at their ceiling, counted across the table rather than a page");
     out.items.find((i) => i.kind === "minutes-nearly-spent")?.severity === "warning",
     String(out.items.find((i) => i.kind === "minutes-nearly-spent")?.severity),
   );
+  /*
+    The warning has to be *reachable*, and on the smallest plan it was not.
 
-  await pool.query("update jobs set billed_seconds = 30 where id = 'att_spend'");
+    The meter rounds up — a sixty-one second render bills two minutes — and the
+    band is 80% to 100% of the allowance. Asked of whole rounded minutes on a
+    three-minute plan, that band is [2.4, 3) and no whole number lands in it:
+    two was quiet, three was already over. The plan where running out matters
+    most was the one plan whose customers were never told it was coming.
+
+    So the row here reports three billed minutes of a three-minute plan and is
+    still a warning rather than a fault — which is only possible because the
+    comparison happens in seconds and only the display is rounded.
+  */
+  const nearly = out.items.find((i) => i.kind === "minutes-nearly-spent");
+  check(
+    "the warning is reachable on the smallest plan, where it matters most",
+    nearly !== undefined && nearly.included === FREE_MINUTES,
+    JSON.stringify(nearly ?? null),
+  );
+  check(
+    "and it still reports what the meter would bill, rounded up",
+    nearly?.used === Math.ceil(NEARLY_SECONDS / 60),
+    `${nearly?.used} from ${NEARLY_SECONDS}s`,
+  );
+
+  await pool.query("update jobs set billed_seconds = $1 where id = 'att_spend'", [QUIET_SECONDS]);
   out = await attention();
   check(
-    "half a minute of a five minute plan is nobody's problem",
+    "half a minute of a month's allowance is nobody's problem",
     out.counts["minutes-spent"] === 0 && out.counts["minutes-nearly-spent"] === 0,
     JSON.stringify(out.counts),
   );

@@ -52,12 +52,44 @@ export type UploadVerdict =
 const ACCEPTED = new Set<string>(UPLOAD_CONTENT_TYPES);
 
 /**
+ * Which slot a key is being written into, because they do not accept the same
+ * things.
+ *
+ * `source` is the video a project *is*, and its reference. `asset` is the
+ * library beside it: b-roll, a logo, a bed, a colour cube, a font somebody
+ * brought.
+ *
+ * The distinction was missing and the gap opened by itself. This gate asked
+ * one question — "is this a content type the product stores anywhere" — and
+ * the product's list grew: fonts, and then `text/plain` for `.cube` LUTs. Both
+ * are legitimate uploads and neither is a video, so from the day the LUT door
+ * opened, `PATCH /projects/:id` would accept a text file as a project's source
+ * and mark the project ready. The refusal's own sentence had been saying the
+ * right rule all along — "Send a video, an image, or an audio file" — while
+ * the condition under it checked something else.
+ */
+export type UploadSlot = "source" | "asset";
+
+/**
+ * What a source may be: something with a picture or a sound in it.
+ *
+ * Prefix rather than a second list, so a format added to `UPLOAD_CONTENT_TYPES`
+ * lands on the right side of this by its own type. `image/*` is here because a
+ * still is a legitimate source — a person edits a photo into a video — and
+ * `image/gif` is b-roll people actually have.
+ */
+const SOURCE_PREFIXES = ["video/", "image/", "audio/"];
+
+const acceptableFor = (slot: UploadSlot, type: string): boolean =>
+  ACCEPTED.has(type) && (slot === "asset" || SOURCE_PREFIXES.some((prefix) => type.startsWith(prefix)));
+
+/**
  * What the store says is at this key.
  *
  * Never throws, and answers `{ ok: true }` whenever it cannot tell — see the
  * header. The reason strings are written for the person who uploaded the file.
  */
-export async function checkUploadedObject(key: string): Promise<UploadVerdict> {
+export async function checkUploadedObject(key: string, slot: UploadSlot = "source"): Promise<UploadVerdict> {
   let found: Awaited<ReturnType<ReturnType<typeof objectStoreFrom>["head"]>>;
   try {
     found = await objectStoreFrom().head(key);
@@ -89,10 +121,13 @@ export async function checkUploadedObject(key: string): Promise<UploadVerdict> {
     not.
   */
   const type = (found.contentType ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-  if (type && type !== "application/octet-stream" && !ACCEPTED.has(type)) {
+  if (type && type !== "application/octet-stream" && !acceptableFor(slot, type)) {
     return {
       ok: false,
-      reason: `That file is a ${type}, which is not something we can edit. Send a video, an image, or an audio file.`,
+      reason:
+        slot === "source"
+          ? `That file is a ${type}, which is not something we can edit. Send a video, an image, or an audio file.`
+          : `That file is a ${type}, which is not something this project can use.`,
     };
   }
 

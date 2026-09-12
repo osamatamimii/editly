@@ -3568,10 +3568,37 @@ console.log("\nA project is not ready because the browser says so");
   const empty = await call(ALICE, `/api/projects/${id}`, "PATCH", { videoPath: pathTo("empty.mp4") });
   check("a zero-byte upload is refused too", empty.status === 400, `got ${empty.status}`);
 
-  // A file that is not any kind of media.
+  /*
+    A file that is not any kind of media.
+
+    `text/plain` is a type this product *does* store — a `.cube` colour LUT is
+    plain text by its own spec — which is exactly how this check went red: the
+    gate asked "is this something we store anywhere" rather than "is this
+    something a project can be", so from the day the LUT door opened a text
+    file could be registered as somebody's source video. The slot is part of
+    the question now.
+  */
   storageObjectFacts.set(pathTo("notes.mp4"), { bytes: 812, contentType: "text/plain" });
   const wrong = await call(ALICE, `/api/projects/${id}`, "PATCH", { videoPath: pathTo("notes.mp4") });
   check("and a text file wearing an .mp4 name is refused", wrong.status === 400, `got ${wrong.status}`);
+
+  // The same hole, older and quieter: fonts have been an accepted upload since
+  // people could bring their own caption face, and a face is not a video.
+  storageObjectFacts.set(pathTo("brand.mp4"), { bytes: 40_000, contentType: "font/ttf" });
+  const face = await call(ALICE, `/api/projects/${id}`, "PATCH", { videoPath: pathTo("brand.mp4") });
+  check("and so is a font wearing one", face.status === 400, `got ${face.status}`);
+
+  // And the reference video, which is the other slot on this route that names
+  // a file the renderer has to be able to look at.
+  storageObjectFacts.set(pathTo("ref.cube"), { bytes: 900, contentType: "text/plain" });
+  const ref = await call(ALICE, `/api/projects/${id}`, "PATCH", { referenceVideoPath: pathTo("ref.cube") });
+  check("a colour cube is not a reference video either", ref.status === 400, `got ${ref.status}`);
+
+  // What must still pass: a still image is a legitimate source — a person edits
+  // a photo into a video — so the rule is about media, not about video alone.
+  storageObjectFacts.set(pathTo("poster.png"), { bytes: 90_000, contentType: "image/png" });
+  const still = await call(ALICE, `/api/projects/${id}`, "PATCH", { videoPath: pathTo("poster.png") });
+  check("and a still image is still accepted, because it is one", still.status === 200, `got ${still.status}`);
   check("naming what it actually is", /text\/plain/.test(wrong.json?.error ?? ""), JSON.stringify(wrong.json));
 
   /*
