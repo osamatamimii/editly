@@ -9,6 +9,7 @@
     "./limits": "./src/limits.ts",
     "./uploads": "./src/uploads.ts",
     "./fonts": "./src/fonts.ts",
+    "./caption-default": "./src/caption-default.ts",
     "./processors": "./src/processors.ts"
   },
   "dependencies": {

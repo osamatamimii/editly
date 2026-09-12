@@ -633,9 +633,16 @@ const NO_SILENCE_WORDS =
  * asked-for edit there is, and until now `add captions` worked and «ضيف ترجمة»
  * produced *nothing* — the reply fell through to "I'm not sure what to change
  * from that". The product could do the thing and could not be asked for it.
+ *
+ * «كابشن» arrived late and is the same bug one word further in. It is the word
+ * the product's own interface uses — the panel is «شكل الكابشن», the position
+ * patterns below have always read «كابشن فوق» — and it was missing from the
+ * pattern that decides whether captions were asked for at all. So «ضيف كابشن»
+ * matched a position rule and never reached it: the most natural way to ask,
+ * in the product's own vocabulary, produced nothing.
  */
 const CAPTION_WORDS =
-  /\bcaption|subtitle|sub ?titles?|text on screen|on-?screen text\b|ترجمة|ترجمه|سبتايتل|كتابة على الشاشة|نص على الشاشة|مكتوب على الشاشة/i;
+  /\bcaption|subtitle|sub ?titles?|text on screen|on-?screen text\b|ترجمة|ترجمه|سبتايتل|كابشن|كتابة على الشاشة|نص على الشاشة|مكتوب على الشاشة/i;
 
 /**
  * The one word that is two different requests.
@@ -680,6 +687,16 @@ const FOCUS_WORDS = /الكلمة الكبيرة|كلمة بارزة|كلمة ك
 /** Where the caption sits, said the way people say it. */
 const CAPTION_TOP_WORDS = /كابشن فوق|الكابشن فوق|فوق الشاشة|أعلى الشاشة|اعلى الشاشة|captions? (?:at|on) top|top of the screen/i;
 const CAPTION_MIDDLE_WORDS = /وسط الشاشة|منتصف الشاشة|نص الشاشة|middle of the screen|center(?:ed)? captions?|captions? in the (?:centre|center|middle)/i;
+/*
+  And the bottom, which needed no words for as long as it was the default.
+
+  It is not the default any more — `DEFAULT_CAPTION_LOOK` puts a caption where
+  short-form has put it for years — so "at the bottom" has to be a thing a
+  person can ask for. A default that cannot be asked back is a preference the
+  product took away rather than a choice it made for you.
+*/
+const CAPTION_BOTTOM_WORDS =
+  /كابشن تحت|الكابشن تحت|أسفل الشاشة|اسفل الشاشة|تحت الشاشة|captions? (?:at|on|near) the bottom|bottom of the screen|lower third/i;
 /** The three sizes, in the words that mean them. */
 const CAPTION_BIG_WORDS = /كابشن كبير|الكابشن كبير|كبّر الكابشن|كبر الكابشن|big captions?|large captions?|bigger captions?/i;
 const CAPTION_SMALL_WORDS = /كابشن صغير|الكابشن صغير|صغّر الكابشن|صغر الكابشن|small(?:er)? captions?/i;
@@ -692,6 +709,17 @@ const CAPTION_SMALL_WORDS = /كابشن صغير|الكابشن صغير|صغّ�
  */
 const CAPTION_QUICK_WORDS =
   /fast captions?|quick captions?|rapid captions?|snappy captions?|punchy captions?|short chunks|كابشن سريع|الكابشن سريع|كابشن متسارع|كابشن قصير سريع|إيقاع سريع للكابشن|ايقاع سريع للكابشن/i;
+
+/*
+  The other half of the same axis, for the same reason as the bottom above.
+
+  Quick is the default now, so the slower grouping — whole phrases, a cue that
+  sits for a couple of seconds — is the one that has to be sayable. Somebody
+  captioning a lecture or an interview wants sentences, not three words twice a
+  second, and until these words existed there was no way to say so.
+*/
+const CAPTION_CALM_WORDS =
+  /slow(?:er)? captions?|calm captions?|steady captions?|normal captions?|full sentences?|whole sentences?|كابشن هادئ|كابشن بطيء|الكابشن بطيء|إيقاع هادئ|ايقاع هادئ|جمل كاملة|جملة كاملة/i;
 
 /**
  * Asking for the strongest stretch, in the ways people actually ask.
@@ -1329,35 +1357,71 @@ export function planFromText(
   }
 
   if (CAPTION_WORDS.test(text) && !wantsTranslation && !refusesCaptions) {
+    /*
+      Only what the sentence actually said.
+
+      Every one of these used to end in a fallback — `?? "bold-white"`,
+      `: "bottom"`, `: "m"`, `: "pop"`, `: "normal"` — and that is where the
+      product's default was really decided: not in the schema, not in a named
+      constant, but in the last branch of five ternaries in a keyword matcher.
+      A person who typed "add captions" got the same object as a person who
+      typed "white captions at the bottom", and nothing downstream could tell
+      them apart.
+
+      Now a field is written only when a word chose it, and everything else is
+      left off for `DEFAULT_CAPTION_LOOK` to answer at the last moment — which
+      is what lets the picker style an unstyled plan, the habits apply what
+      somebody always does, and the default itself change without rewriting
+      this file.
+    */
+    const style =
+      CAPTION_STYLE_WORDS.find(([words]) => words.test(text))?.[1] ??
+      (KARAOKE_WORDS.test(text) ? "karaoke-box" : YELLOW_WORDS.test(text) ? "bold-yellow" : undefined);
+    const position = CAPTION_TOP_WORDS.test(text)
+      ? "top"
+      : CAPTION_MIDDLE_WORDS.test(text)
+        ? "middle"
+        : CAPTION_BOTTOM_WORDS.test(text)
+          ? "bottom"
+          : undefined;
+    const size = CAPTION_BIG_WORDS.test(text) ? "l" : CAPTION_SMALL_WORDS.test(text) ? "s" : undefined;
+    /*
+      Karaoke first, and the order is the decision.
+
+      "Word by word" reaches both patterns, and it has meant the wipe since
+      the wipe shipped. A new animation that quietly took an established
+      phrase would change what an existing sentence produces — which is the
+      shape of regression this file keeps finding — so `kinetic` only answers
+      the words the wipe never claimed.
+
+      The last branch is `undefined` rather than "pop": a sentence that says
+      nothing about movement leaves the style to bring its own, which is the
+      whole point of every row in the catalogue carrying a `defaultAnimation`
+      that nothing read for as long as this line said "pop".
+    */
+    const animation = FOCUS_WORDS.test(text)
+      ? "focus"
+      : KARAOKE_WORDS.test(text)
+        ? "karaoke"
+        : KINETIC_CAPTION_WORDS.test(text)
+          ? "kinetic"
+          : CAPTION_QUICK_WORDS.test(text)
+            ? // The reference fast-cut look, asked for in words: at two swaps a
+              // second any entrance animation reads as flicker, so quick pace
+              // asked for on its own brings the hard swap with it. Not applied
+              // to the *default* quick pace, which gets the style's own
+              // animation — `creator` was built with focus and measured with it.
+              "none"
+            : undefined;
+    const pace = CAPTION_QUICK_WORDS.test(text) ? "quick" : CAPTION_CALM_WORDS.test(text) ? "normal" : undefined;
+
     operations.push({
       type: "autoCaptions",
-      style:
-        CAPTION_STYLE_WORDS.find(([words]) => words.test(text))?.[1] ??
-        (KARAOKE_WORDS.test(text) ? "karaoke-box" : YELLOW_WORDS.test(text) ? "bold-yellow" : "bold-white"),
-      position: CAPTION_TOP_WORDS.test(text) ? "top" : CAPTION_MIDDLE_WORDS.test(text) ? "middle" : "bottom",
-      size: CAPTION_BIG_WORDS.test(text) ? "l" : CAPTION_SMALL_WORDS.test(text) ? "s" : "m",
-      /*
-        Karaoke first, and the order is the decision.
-
-        "Word by word" reaches both patterns, and it has meant the wipe since
-        the wipe shipped. A new animation that quietly took an established
-        phrase would change what an existing sentence produces — which is the
-        shape of regression this file keeps finding — so `kinetic` only answers
-        the words the wipe never claimed.
-      */
-      animation: FOCUS_WORDS.test(text)
-        ? "focus"
-        : KARAOKE_WORDS.test(text)
-          ? "karaoke"
-          : KINETIC_CAPTION_WORDS.test(text)
-            ? "kinetic"
-            : CAPTION_QUICK_WORDS.test(text)
-              ? // The reference fast-cut look: at two swaps a second any
-                // entrance animation reads as flicker, so quick pace asked
-                // for on its own brings the hard swap with it.
-                "none"
-              : "pop",
-      pace: CAPTION_QUICK_WORDS.test(text) ? "quick" : "normal",
+      ...(style ? { style } : {}),
+      ...(position ? { position } : {}),
+      ...(size ? { size } : {}),
+      ...(animation ? { animation } : {}),
+      ...(pace ? { pace } : {}),
       dropFillers: true,
     });
     willDo.push(

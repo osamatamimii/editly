@@ -5,21 +5,27 @@
  * the queue through more than one door and the choice belongs to the person,
  * so it is applied once at the point every plan passes through.
  *
- * ## Why it only writes over a field still at its default
+ * ## Why it only writes a field the sentence left alone
  *
- * The zod schemas default every caption field, so by the time a plan is here
- * there is no "unset" left to look at — a sentence that named no style and a
- * sentence that could not have named one both arrive as `bold-white`/`pop`/
- * `normal`. What there *is*: none of those defaults is reachable by name.
- * `CAPTION_STYLE_WORDS` has no entry for bold-white, no animation word maps
- * to pop, no pace word maps to normal — a person cannot ask for a default in
- * words, so a default value is always the parser having heard nothing on that
- * subject, and the picker is allowed to speak. A named value is a sentence
- * that spoke («هرموزي», «كلمة كلمة»), and the sentence wins over the panel:
- * the panel was set before the words were typed, and the words are newer.
+ * A caption field is absent when nobody said — that is the whole of
+ * `DEFAULT_CAPTION_LOOK`, and it is what makes this module three lines of
+ * logic instead of an argument.
  *
- * If a default ever becomes nameable, this trades correctness for it — the
- * check in `direct-test` that encodes this table is where that shows up.
+ * It used to be an argument. The schema defaulted every field, so by the time
+ * a plan arrived there was no "unset" left to look at: a sentence that named
+ * no style and a sentence that could not have named one both said
+ * `bold-white`. This file compared against those default *values* and wrote
+ * over anything still holding one, which worked only because no default was
+ * reachable by name — no caption word maps to bold-white, none to pop, none
+ * to normal — so a default value could be read as "the parser heard nothing".
+ * The comment here said out loud that the day a default became nameable, the
+ * trick would start overwriting real choices. That day arrived with
+ * `creator`, which is both the new default and a look a person can ask for by
+ * name.
+ *
+ * So the test is presence. A field the sentence set is a sentence that spoke
+ * («هرموزي», «كلمة كلمة»), and the sentence wins over the panel — the panel
+ * was set before the words were typed, and the words are newer.
  *
  * ## Where it runs
  *
@@ -49,10 +55,10 @@ export function withCaptionLook(
       if (operation.type !== "autoCaptions" && operation.type !== "burnCaptions") return operation;
       return {
         ...operation,
-        ...(look.style && operation.style === "bold-white" ? { style: look.style } : {}),
-        ...(look.animation && operation.animation === "pop" ? { animation: look.animation } : {}),
+        ...(look.style && operation.style === undefined ? { style: look.style } : {}),
+        ...(look.animation && operation.animation === undefined ? { animation: look.animation } : {}),
         /* Pace is a grouping decision and only `autoCaptions` groups. */
-        ...(look.pace && operation.type === "autoCaptions" && operation.pace === "normal"
+        ...(look.pace && operation.type === "autoCaptions" && operation.pace === undefined
           ? { pace: look.pace }
           : {}),
       };

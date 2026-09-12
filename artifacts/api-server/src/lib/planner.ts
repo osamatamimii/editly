@@ -389,18 +389,19 @@ function instructionFor(assets: PlannerAsset[]): string {
     "bar, hormozi is uppercase with a thick edge and a green stressed word, beast is loud yellow with a red",
     "stressed word, pill holds a white line still while a coloured box travels word to word with the voice, neon",
     "has a glowing edge, clean is a quiet lower-third, bubble is white letters in a thick dark rind. Choose the",
-    "named look when they name it or describe it; otherwise bold-white. creator is the polished creator-reel"
+    "named look when they name it or describe it; otherwise leave captionStyle null. creator is the polished creator-reel"
     + " look: rounded heavy face, soft shadow, no outline, and with the focus animation one mint keyword drawn"
     + " large. karaoke-light is the same wipe in a",
     "white bar with dark words, for a bright look. label is a quiet white line on a grey translucent bar -",
     "choose it when the footage is bright, a screen recording, or they ask for a backing behind the words",
     "without a loud look.",
     "captionPosition is bottom, middle or top of the frame - middle when they ask for captions in the middle or",
-    "centre of the screen, top when they want them up top. Default bottom. captionSize is s, m or l - l when",
-    "they ask for big captions, s for small. Default m.",
+    "centre of the screen, top when they want them up top, bottom when they ask for them at the bottom or as a",
+    "lower third. captionSize is s, m or l - l when they ask for big captions, s for small.",
     "captionPace is normal or quick. quick is the fast-cut rhythm: one to three words on screen at a time,",
     "swapping roughly twice a second - choose it when they ask for fast captions, punchy short captions, word",
-    "chunks, or the style of fast-paced tiktok edits. Default normal, which reads as subtitles.",
+    "chunks, or the style of fast-paced tiktok edits. normal groups whole phrases and reads as subtitles - choose",
+    "it when they ask for slower or calmer captions, or for full sentences on screen.",
     "captionAnimation is how the caption behaves: none is a hard swap on the exact frame - choose it with quick",
     "pace for the professional fast-cut look. pop grows the whole caption in on entry,",
     "karaoke wipes a fill across each word as it is spoken, and kinetic reveals each word as it is said and draws",
@@ -408,7 +409,11 @@ function instructionFor(assets: PlannerAsset[]): string {
     "sentence is drawn about twice the size in the accent colour and the small words gather around it as they are",
     "said - choose it when they ask for the big-keyword look, creator-style openings, or one word standing out.",
     "Choose karaoke when they ask for word by word or a highlight that follows the voice, and kinetic when they",
-    "ask for animated or emphasised captions, or for the captions to pop or to move. Default pop.",
+    "ask for animated or emphasised captions, or for the captions to pop or to move.",
+    "Every one of these five caption fields is a *choice*, not a setting with a house value: leave it null when",
+    "the person said nothing about it. Null is not 'no captions' and not a mistake - it means they did not say,",
+    "and the product has a measured default for exactly that. Filling one in with your own taste takes a decision",
+    "away from a person who never made it.",
     "motionTitle animates words onto the screen. Use the person's own words. Never write copy they did not ask for.",
     "titleStyle: card is a full sentence held in the middle; lower-third is a name or label along the bottom;",
     "word is kinetic type, where the words land one after another - choose it when they ask for words that move,",
@@ -747,13 +752,24 @@ function toOperation(
       case "formatForPlatform":
         return { type, platform: raw["platform"] ?? defaultPlatform ?? "tiktok" };
       case "autoCaptions":
+        /*
+          Only the fields the model actually chose.
+
+          These five each ended in a fallback, so a model that answered null —
+          which the schema tells it to do when the person said nothing about a
+          look — produced a fully specified caption indistinguishable from one
+          somebody described in detail. The look the product gives when nobody
+          asked is `DEFAULT_CAPTION_LOOK`'s to decide, and it cannot decide
+          anything about an operation that already has an answer for every
+          question.
+        */
         return {
           type,
-          style: raw["captionStyle"] ?? "bold-white",
-          position: raw["captionPosition"] ?? "bottom",
-          size: raw["captionSize"] ?? "m",
-          animation: raw["captionAnimation"] ?? "pop",
-          pace: raw["captionPace"] ?? "normal",
+          ...(raw["captionStyle"] ? { style: raw["captionStyle"] } : {}),
+          ...(raw["captionPosition"] ? { position: raw["captionPosition"] } : {}),
+          ...(raw["captionSize"] ? { size: raw["captionSize"] } : {}),
+          ...(raw["captionAnimation"] ? { animation: raw["captionAnimation"] } : {}),
+          ...(raw["captionPace"] ? { pace: raw["captionPace"] } : {}),
           dropFillers: true,
         };
       case "kenBurns":

@@ -20,7 +20,8 @@ import path from "node:path";
 import { criticise, settlePunches } from "./critic";
 import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle } from "./motion";
 import { beatsOf, everyNth } from "./beats";
-import type { EditOperation, EditPlan, GradeLook, TransitionStyle } from "@workspace/api-zod";
+import { DEFAULT_CAPTION_LOOK } from "@workspace/api-zod/caption-default";
+import type { CaptionStyleName, EditOperation, EditPlan, GradeLook, TransitionStyle } from "@workspace/api-zod";
 import {
   captionLayout,
   nominalSizeFor,
@@ -1193,6 +1194,55 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
 
 /** The catalogue, exported for the callers that resolve defaults from it. */
 export const CAPTION_STYLES = CAPTION_COLOURS;
+
+/** What a caption operation carries once the schema has stopped filling it in. */
+interface CaptionLookFields {
+  style?: CaptionStyleName;
+  position?: "bottom" | "middle" | "top";
+  size?: "s" | "m" | "l";
+  animation?: "none" | "pop" | "karaoke" | "kinetic" | "focus";
+  pace?: "normal" | "quick";
+}
+
+/** The same four, decided. */
+export interface ResolvedCaptionLook {
+  style: CaptionStyleName;
+  position: "bottom" | "middle" | "top";
+  size: "s" | "m" | "l";
+  animation: "none" | "pop" | "karaoke" | "kinetic" | "focus";
+  pace: "normal" | "quick";
+}
+
+/**
+ * What a caption operation actually looks like, filling in only what nobody
+ * said.
+ *
+ * The caption fields lost their zod defaults so that "absent" survives all the
+ * way down here — `DEFAULT_CAPTION_LOOK` explains why, and this is the last
+ * moment before the cues are grouped and drawn, which is the right place to
+ * stop having an unanswered question.
+ *
+ * The animation is the interesting one. Each row in the catalogue above
+ * carries `defaultAnimation` — "what this style animates like when the plan
+ * does not say" — and for as long as the schema stamped `pop` on every
+ * operation, the plan *always* said, so that field was read by nothing at all.
+ * Twelve looks, each tuned with an animation in mind, and every one of them
+ * popped. It is consulted here, which is what makes choosing `creator` give
+ * you the focus lockup it was built around rather than a generic scale-up.
+ */
+export function resolveCaptionLook(operation: CaptionLookFields): ResolvedCaptionLook {
+  const style: CaptionStyleName = operation.style ?? DEFAULT_CAPTION_LOOK.style;
+  return {
+    style,
+    position: operation.position ?? DEFAULT_CAPTION_LOOK.position,
+    size: operation.size ?? DEFAULT_CAPTION_LOOK.size,
+    // The style's own, then the old universal default for a style that names
+    // none — never a throw: an unknown style id is a plan from a build that
+    // knew a look this one does not, and it renders rather than fails.
+    animation: operation.animation ?? CAPTION_COLOURS[style]?.defaultAnimation ?? "pop",
+    pace: operation.pace ?? DEFAULT_CAPTION_LOOK.pace,
+  };
+}
 
 /**
  * The faces a plan's caption actually renders in: what the plan named, or
@@ -5011,10 +5061,20 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     }));
 
     const subtitlePath = path.join(ctx.workDir, "captions.ass");
+    /*
+      Decided once, here, and used by everything below.
+
+      A plan that reaches the renderer without a style is a plan nobody styled,
+      and there are three answers to give it — the band it sits in, the face it
+      is drawn with, the way it moves — which have to be the same three answers
+      for the layout, the wrap and the ASS file. Resolving at each use is how
+      a caption gets grouped for one position and drawn in another.
+    */
+    const look = resolveCaptionLook(captions);
     const layout = captionLayout({ width: frameWidth, height: frameHeight }, reframe?.platform ?? null, {
-      position: captions.position,
-      size: captions.size,
-      boost: CAPTION_STYLES[captions.style]?.sizeBoost,
+      position: look.position,
+      size: look.size,
+      boost: CAPTION_STYLES[look.style]?.sizeBoost,
     });
     /*
       Uppercase before anything measures. The hormozi and beast looks are
@@ -5023,7 +5083,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       after the wrap would overflow the band the layout reserved. `toUpperCase`
       leaves Arabic byte-for-byte alone, so the whole track is safe.
     */
-    const styleSpec = CAPTION_STYLES[captions.style];
+    const styleSpec = CAPTION_STYLES[look.style];
     const cased: CaptionCue[] = styleSpec?.uppercase
       ? cues.map((c) => ({
           ...c,
@@ -5035,7 +5095,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     // face's width and the style row names it: two calls that disagreed about
     // which face this render uses would wrap for one and draw the other. The
     // style's own default faces answer when the plan named none.
-    const fonts = effectiveCaptionFonts(captions.style, captions.font, captions.fontArabic);
+    const fonts = effectiveCaptionFonts(look.style, captions.font, captions.fontArabic);
     const faces = facePair({ latin: fonts.latin, arabic: fonts.arabic }, ctx.faces?.available);
     const wrapped = wrapToLayout(cased, layout, faces);
     /**
@@ -5063,8 +5123,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     await writeSubtitleFile(
       subtitlePath,
       wrapped,
-      captions.style,
-      captions.animation,
+      look.style,
+      look.animation,
       { width: frameWidth, height: frameHeight },
       layout,
       faces,
@@ -5089,14 +5149,14 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
      * that returns only sentences cannot carry them.
      */
     const wipeable = cues.some((cue) => cue.words && cue.words.length > 0);
-    if (captions.animation === "karaoke" && !wipeable) {
+    if (look.animation === "karaoke" && !wipeable) {
       notes.push(
         t(
           `burned ${cues.length} captions, but the words came back without their own timings, so they fade in rather than wiping across`,
           `حرقت ${countedAr(cues.length, AR_NOUNS.caption)}، لكن الكلمات عادت بلا توقيت خاصّ بها، فتظهر بتلاشٍ بدل المسح كلمةً كلمة`,
         ),
       );
-    } else if (captions.animation === "kinetic" && !wipeable) {
+    } else if (look.animation === "kinetic" && !wipeable) {
       /*
         The same admission as the wipe's, for the same reason.
 
@@ -5113,7 +5173,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         ),
       );
     } else {
-      notes.push(t(`burned ${cues.length} captions (${captions.animation})`, `حرقت ${countedAr(cues.length, AR_NOUNS.caption)} (${captions.animation})`));
+      notes.push(t(`burned ${cues.length} captions (${look.animation})`, `حرقت ${countedAr(cues.length, AR_NOUNS.caption)} (${look.animation})`));
     }
   }
 

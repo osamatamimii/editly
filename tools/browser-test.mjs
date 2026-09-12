@@ -3252,7 +3252,17 @@ section("The caption looks are choosable by sight, and the choice is an act");
   // the worker cannot draw — read from the catalogue itself, so a style
   // added tomorrow reds here until it is choosable.
   const catalogue = [...worker.matchAll(/^  "([a-z-]+)": \{/gm)].map((m) => m[1]);
-  const chips = [...picker.matchAll(/id: "([a-z-]+)"/g)].map((m) => m[1]).filter((id) => !["none", "pop", "karaoke", "kinetic", "focus"].includes(id));
+  /*
+    Read from the styles array rather than from the whole file.
+
+    It was every `id:` in the module minus a hand-written list of the animation
+    names, which is a list that has to be remembered — and was not, the moment
+    the pace became two chips of its own: `quick` and `normal` read as two
+    styles the worker cannot draw. Scoped to the block that holds the styles,
+    the exclusions are unnecessary and a third row of chips cannot break it.
+  */
+  const stylesBlock = picker.slice(picker.indexOf("export const LOOK_STYLES"), picker.indexOf("const ANIMATIONS"));
+  const chips = [...stylesBlock.matchAll(/id: "([a-z-]+)"/g)].map((m) => m[1]);
   check(
     "every catalogue style has a chip",
     catalogue.length >= 12 && catalogue.every((id) => chips.includes(id)),
@@ -3262,6 +3272,23 @@ section("The caption looks are choosable by sight, and the choice is an act");
     "and no chip invents a style",
     chips.every((id) => catalogue.includes(id)),
     chips.filter((id) => !catalogue.includes(id)).join(","),
+  );
+
+  /*
+    Both paces, and the panel says what an untouched panel gives you.
+
+    The pace was a tick box whose unticked state meant the calm grouping — true
+    only while calm was the product's default. It is quick now, so an unticked
+    box would have been a way of asking for nothing dressed as a way of asking
+    for something, and the calm pace would have had no chip at all.
+  */
+  check(
+    "the pace is two chips, so the calm one is still choosable",
+    /data-testid={`look-pace-\${id}`}/.test(picker) && /\{ id: "quick" \}, \{ id: "normal" \}/.test(picker),
+  );
+  check(
+    "and an untouched panel says what it will give you",
+    /data-testid="look-untouched"/.test(picker),
   );
 
   check("the choice rides with the sentence", /data: \{ content, fonts, \.\.\.\(lookSpeaks\(look\) \? \{ look \} : \{\}\) \}/.test(editor));

@@ -27,7 +27,17 @@ import { LOOKS } from "@/lib/copy/editor";
 export interface ChosenLook {
   style?: string;
   animation?: "none" | "pop" | "karaoke" | "kinetic" | "focus";
-  pace?: "quick";
+  /*
+    Both paces, not a checkbox.
+
+    It was `pace?: "quick"` — a tick box whose unticked state meant "normal",
+    which was true for exactly as long as normal was the product's default.
+    The default is quick now (`DEFAULT_CAPTION_LOOK`), so an unticked box would
+    have quietly become a way of asking for nothing while looking like a way of
+    asking for the calm grouping. Two chips, either deselectable: unchosen is
+    unchosen, and the calm pace is sayable again.
+  */
+  pace?: "quick" | "normal";
 }
 
 /** True when the choice would change anything — an empty look is not sent. */
@@ -167,6 +177,8 @@ const ANIMATIONS: Array<{ id: NonNullable<ChosenLook["animation"]> }> = [
   { id: "none" }, { id: "pop" }, { id: "karaoke" }, { id: "kinetic" }, { id: "focus" },
 ];
 
+const PACES: Array<{ id: NonNullable<ChosenLook["pace"]> }> = [{ id: "quick" }, { id: "normal" }];
+
 export function LookPicker({
   value,
   onChange,
@@ -235,16 +247,34 @@ export function LookPicker({
         })}
       </div>
 
-      <label className="flex items-center gap-2 text-[11px] text-muted-foreground cursor-pointer select-none">
-        <input
-          type="checkbox"
-          disabled={disabled}
-          checked={value.pace === "quick"}
-          onChange={(e) => onChange({ ...value, pace: e.target.checked ? "quick" : undefined })}
-          data-testid="look-pace-quick"
-        />
-        {t(LOOKS.quickPace)}
-      </label>
+      <div className="flex flex-wrap items-center gap-1.5" data-testid="look-paces">
+        <span className="text-[11px] text-muted-foreground me-1">{t(LOOKS.paceHeading)}</span>
+        {PACES.map(({ id }) => {
+          const chosen = value.pace === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange({ ...value, pace: chosen ? undefined : id })}
+              aria-pressed={chosen}
+              className={`rounded-full border px-2.5 py-1 text-[11px] ${
+                chosen ? "border-secondary/70 text-foreground" : "border-hairline text-muted-foreground"
+              }`}
+              data-testid={`look-pace-${id}`}
+            >
+              {t(LOOKS.paceNames[id])}
+            </button>
+          );
+        })}
+        <span className="text-[11px] text-muted-foreground w-full">{t(LOOKS.paceHint)}</span>
+      </div>
+
+      {/* What an untouched panel gives you, said rather than left to be
+          discovered on the render. */}
+      <p className="text-[11px] leading-snug text-muted-foreground" data-testid="look-untouched">
+        {t(LOOKS.untouched)}
+      </p>
     </div>
   );
 }

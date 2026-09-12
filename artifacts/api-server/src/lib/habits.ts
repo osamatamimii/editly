@@ -264,14 +264,24 @@ export function applyHabits(
 
   const captions = habitBy(habits, "captions");
   if (!spoke.captions && captions?.value === "yes" && !next.some(isCaption)) {
-    const style = habitBy(habits, "captionStyle")?.value ?? "bold-white";
-    const animation = habitBy(habits, "captionAnimation")?.value ?? "pop";
+    /*
+      A habit or nothing. These read `?? "bold-white"` and `?? "pop"`, which
+      meant a person whose evidence said only "they always caption" had a style
+      and an animation invented for them here — and, because the fields were
+      filled, invented *silently*: nothing downstream could tell that choice
+      from one they had made.
+
+      Left off, the product's own default answers (`DEFAULT_CAPTION_LOOK`), and
+      this module goes back to adding exactly what it has evidence for.
+    */
+    const style = habitBy(habits, "captionStyle")?.value;
+    const animation = habitBy(habits, "captionAnimation")?.value;
     const latin = habitBy(habits, "latinFont")?.value;
     const arabic = habitBy(habits, "arabicFont")?.value;
     next.push({
       type: "autoCaptions",
-      style,
-      animation,
+      ...(style ? { style } : {}),
+      ...(animation ? { animation } : {}),
       // The one field with a default rather than a habit: somebody who has
       // never turned filler-dropping off has expressed no view on it, and
       // "um" in a caption is not a thing anybody wants and did not ask for.

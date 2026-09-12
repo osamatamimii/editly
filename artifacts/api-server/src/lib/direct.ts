@@ -286,7 +286,14 @@ export function direct(input: DirectionInput): Direction {
   */
   if (input.hasSpeech && !input.spoke.captions) {
     add(
-      { type: "autoCaptions", style: "bold-white", position: "bottom", size: "m", animation: "pop", pace: "normal", dropFillers: true },
+      /*
+        The look is left off on purpose: nobody asked for captions at all here,
+        so nobody asked for a style, a position or a rhythm either. This is the
+        one place in the product that decides captions *for* a person, and
+        writing five values it invented would make that decision unreadable
+        everywhere downstream. `DEFAULT_CAPTION_LOOK` answers it instead.
+      */
+      { type: "autoCaptions", dropFillers: true },
       say("put captions on it, because most of this is watched with the sound off", "أضع كابشنز، لأن أكثره يُشاهَد بلا صوت"),
     );
   }

@@ -15,7 +15,7 @@
 import type { EditOperation, EditPlan, Platform } from "@workspace/api-zod";
 import { buildCaptionCues, emphasisPoints } from "./captions";
 import { captionLayout } from "./caption-layout";
-import { CAPTION_STYLES, effectiveCaptionFonts } from "./ffmpeg";
+import { CAPTION_STYLES, effectiveCaptionFonts, resolveCaptionLook } from "./ffmpeg";
 import { faceById } from "@workspace/api-zod/fonts";
 import { defaultHeightFor, frameFor, shapeFor, probeDuration, loudestSample, SILENT_PEAK_DBFS } from "./ffmpeg";
 import { missingCapabilityNotes, type Providers } from "./providers";
@@ -413,13 +413,24 @@ export async function enrichPlan(
       // Group the words for the space the target platform actually leaves, so
       // the grouping and the final wrap agree instead of fighting each other.
       const platform = platformOf(plan);
+      /*
+        The look, decided here and carried down, rather than four separate
+        `?? default`s spread across this block and the renderer.
+
+        The grouping and the render have to agree about all of it: the band a
+        cue is grouped for is the band it is drawn in, and the face measured
+        against is the face drawn with. `resolveCaptionLook` is the one place
+        that turns "nobody said" into an answer — see `DEFAULT_CAPTION_LOOK`
+        for why nobody saying is now a state that survives this far.
+      */
+      const look = resolveCaptionLook(operation);
       // With the same position and size the render will lay out with:
       // grouping against the default band and drawing into a larger or
       // higher one would truncate captions the frame had room for.
       const layout = captionLayout(referenceFrameFor(platform), platform, {
-        position: operation.position,
-        size: operation.size,
-        boost: CAPTION_STYLES[operation.style]?.sizeBoost,
+        position: look.position,
+        size: look.size,
+        boost: CAPTION_STYLES[look.style]?.sizeBoost,
       });
       const cues = buildCaptionCues(transcript, {
         dropFillers: operation.dropFillers,
@@ -444,7 +455,7 @@ export async function enrichPlan(
         // grouping has to measure against the face the render will draw.
         lineWidthInCaps: captionLineBudget(
           layout,
-          effectiveCaptionFonts(operation.style, operation.font, operation.fontArabic).latin,
+          effectiveCaptionFonts(look.style, operation.font, operation.fontArabic).latin,
         ),
         /*
           One line, always. Osama's rule, verbatim: «ما بدنا سطور زي هيك
@@ -467,7 +478,7 @@ export async function enrichPlan(
           of four long Arabic words that cannot fit one line is split by
           measurement before it is ever drawn.
         */
-        ...(operation.pace === "quick"
+        ...(look.pace === "quick"
           ? { maxWordsPerCue: 3, maxCueMs: 1100, breakOnPauseMs: 280 }
           : { maxWordsPerCue: 4, maxCueMs: 2600 }),
       });
@@ -485,9 +496,12 @@ export async function enrichPlan(
           text: cue.text,
           words: cue.words,
         })),
-        style: operation.style,
-        position: operation.position,
-        size: operation.size,
+        // Written down as decided, not left absent: the operation that reaches
+        // the renderer is the record of what this render actually did, and a
+        // plan replayed against a future default must produce the same video.
+        style: look.style,
+        position: look.position,
+        size: look.size,
         /*
           The animation is passed through, karaoke included.
 
@@ -500,7 +514,7 @@ export async function enrichPlan(
           guard that is not on the line under it is worse than no comment,
           because the next person reads it instead of the code.
         */
-        animation: operation.animation,
+        animation: look.animation,
         ...(operation.font ? { font: operation.font } : {}),
         ...(operation.fontArabic ? { fontArabic: operation.fontArabic } : {}),
       });

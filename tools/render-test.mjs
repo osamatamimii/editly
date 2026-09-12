@@ -3759,6 +3759,23 @@ console.log("\nThe captions can draw Arabic, not just accept it");
             type: "burnCaptions",
             style: "bold-white",
             animation: "pop",
+            /*
+              The position is stated because this section *measures a band*.
+
+              `BAND` below crops the bottom of the frame, and every check here
+              counts ink inside it — so where the caption sits is part of the
+              apparatus, not part of what is under test. It was left unset while
+              the product's default happened to be `bottom`; the default is
+              mid-frame now (`DEFAULT_CAPTION_LOOK`), and seven checks about
+              Arabic shaping went red reporting "no ink" for a caption that was
+              rendered perfectly, two hundred pixels higher.
+
+              Pinned rather than following the default, because a test of
+              whether the font covers the script should not move when somebody
+              changes where captions sit. That the default itself lands
+              mid-frame is measured in `tools/caption-default-test.mjs`.
+            */
+            position: "bottom",
             cues: [{ startMs: 0, endMs: 2000, text }],
           },
         ],
@@ -3941,6 +3958,10 @@ console.log("\nThe captions can draw Arabic, not just accept it");
             type: "burnCaptions",
             style: "karaoke-box",
             animation,
+            // Stated, like the shaping section above: these checks weigh the
+            // two halves of a band near the bottom of the frame, so the band
+            // is apparatus. The product's default sits mid-frame now.
+            position: "bottom",
             cues: [{ startMs: 0, endMs: 2000, text, words }],
           },
         ],

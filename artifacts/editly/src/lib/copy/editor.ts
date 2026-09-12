@@ -338,5 +338,26 @@ export const LOOKS = {
     kinetic: p("كلمة كلمة", "Word by word"),
     focus: p("كلمة بارزة", "Big keyword"),
   },
-  quickPace: p("إيقاع سريع: كلمة إلى ثلاث كلمات في اللقطة", "Quick pace: one to three words at a time"),
+  paceHeading: p("الإيقاع", "Pace"),
+  paceNames: {
+    quick: p("سريع", "Quick"),
+    normal: p("هادئ", "Calm"),
+  },
+  paceHint: p(
+    "سريع: كلمة إلى ثلاث في اللقطة. هادئ: جملة كاملة تبقى ثانيتين.",
+    "Quick is one to three words at a time. Calm holds a whole phrase for a couple of seconds.",
+  ),
+  /*
+    What happens when nothing here is chosen.
+
+    The picker is opt-in: an untouched panel means «لم أقل»، and the product
+    answers that with its own look. Said out loud because an unchosen state
+    that silently means something is the same trap the old defaults were —
+    a person should be able to see what they are getting before they decide
+    they want something else.
+  */
+  untouched: p(
+    "بلا اختيار: لوك «كرييتور»، وسط الشاشة، بإيقاع سريع.",
+    "Choose nothing and captions come out Creator, mid-frame, at a quick pace.",
+  ),
 } as const;

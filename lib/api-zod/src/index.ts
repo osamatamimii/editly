@@ -531,10 +531,19 @@ export const DeleteFaceParams = z.object({ id: z.string().min(1) });
  * renders with it is what the habits arithmetic then learns from, through the
  * same door as every typed sentence.
  */
+/**
+ * The caption looks, in one list.
+ *
+ * It was written out three times — the picker's choice, `burnCaptions` and
+ * `autoCaptions` — and the three had to stay identical by hand. A look present
+ * on the plan a person builds and absent from the operation it becomes is a
+ * caption that validates, renders, and comes back in a style nobody asked for.
+ */
+export const CaptionStyleName = z.enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "label"]);
+export type CaptionStyleName = z.infer<typeof CaptionStyleName>;
+
 export const CaptionLookChoice = z.object({
-  style: z
-    .enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "label"])
-    .optional(),
+  style: CaptionStyleName.optional(),
   animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus"]).optional(),
   pace: z.enum(["normal", "quick"]).optional(),
 });
@@ -810,18 +819,18 @@ export const BurnCaptionsOperation = z.object({
     person a mixing desk and lose the guarantee that every combination shown
     has been rendered and measured.
   */
-  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "label"]).default("bold-white"),
+  style: CaptionStyleName.optional(),
   /** Where the block sits. The middle of the frame is most of short-form now. */
-  position: z.enum(["bottom", "middle", "top"]).default("bottom"),
+  position: z.enum(["bottom", "middle", "top"]).optional(),
   /** Three steps on the measured default, not a free number. */
-  size: z.enum(["s", "m", "l"]).default("m"),
+  size: z.enum(["s", "m", "l"]).optional(),
   /**
    * `kinetic` is the one that needs the words: each arrives with the voice, and
    * the word the speaker leaned on is drawn in the accent colour and pops. It
    * degrades to `pop` when a provider returned sentences without word timings,
    * the same way `karaoke` does, and says so rather than pretending.
    */
-  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus"]).default("pop"),
+  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus"]).optional(),
   /*
     Which face, per script.
 
@@ -854,12 +863,17 @@ export const BurnCaptionsOperation = z.object({
  * the same video produces the same captions, and against a different video
  * produces that video's words.
  */
+/* The default itself lives in `caption-default.ts`, with no zod behind it, so
+   the worker can read the value without bundling the schema layer. Re-exported
+   here because this is where every caller has always looked. */
+export { DEFAULT_CAPTION_LOOK } from "./caption-default";
+
 export const AutoCaptionsOperation = z.object({
   type: z.literal("autoCaptions"),
   /* The same catalogue as `burnCaptions`, which this becomes. */
-  style: z.enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "label"]).default("bold-white"),
-  position: z.enum(["bottom", "middle", "top"]).default("bottom"),
-  size: z.enum(["s", "m", "l"]).default("m"),
+  style: CaptionStyleName.optional(),
+  position: z.enum(["bottom", "middle", "top"]).optional(),
+  size: z.enum(["s", "m", "l"]).optional(),
   /*
     How fast the cues turn over — the rhythm, separated from the look.
 
@@ -871,12 +885,12 @@ export const AutoCaptionsOperation = z.object({
     has already been chosen, and a field here that pretended to re-group
     somebody's hand-written cues would be a knob wired to nothing.
   */
-  pace: z.enum(["normal", "quick"]).default("normal"),
+  pace: z.enum(["normal", "quick"]).optional(),
   /* Same four as `burnCaptions`, because this becomes one. A value that
      existed on one and not the other would be a plan that validates and then
      silently loses the animation it asked for at the moment the worker
      rewrites it. */
-  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus"]).default("pop"),
+  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus"]).optional(),
   /* Carried through to the `burnCaptions` this becomes. See it for why there
      are two. */
   font: z.string().max(64).optional(),
