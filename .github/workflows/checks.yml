@@ -184,6 +184,12 @@ jobs:
       - run: node tools/contract-test.mjs
       - run: node tools/deploy-test.mjs
       - run: node tools/pricing-test.mjs
+      # Beside the prices, because a promo code is the one way a plan gets onto
+      # an account without a payment. The suite arrived with the feature and was
+      # never given a step, which `deploy-test` calls exactly what it is: a
+      # suite that exists and does nothing. Wired here rather than left for the
+      # next person, because until it is, the whole build is red for everybody.
+      - run: node tools/promo-test.mjs
       - run: node tools/theme-test.mjs
       - run: node tools/upload-types-test.mjs
       # The storage seam. Its second driver is not switched on anywhere, which
