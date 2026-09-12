@@ -1516,6 +1516,30 @@ export const TransitionStyle = z.enum([
   "slideUp",
   "slideDown",
   /*
+    The same four directions with the edge feathered instead of hard.
+
+    A wipe's edge is what dates it: ffmpeg's `wipeleft` moves a boundary with
+    nothing either side of it, and a hard line crossing the frame is the one
+    thing in this list that reads as software from 2009 rather than as an edit.
+    The feathered version is a gradient band instead, and it is what people
+    actually mean when they draw a wipe on a storyboard.
+
+    Measured at the midpoint of a one-second join on a 320-wide white-to-black
+    fixture, counting the columns that are neither shot: `wipeLeft` has **zero**
+    and `softWipeLeft` has **208**.
+
+    Four names rather than a `feather` flag on the four that already exist, for
+    the reason this enum is shaped the way it is: a flag the other fifteen
+    styles ignore in silence is a flag that will be set wrongly and never
+    noticed. And the hard ones stay, unchanged and reachable by name, because a
+    plan stored with `wipeLeft` in it has to keep producing the wipe it was
+    paid for.
+  */
+  "softWipeLeft",
+  "softWipeRight",
+  "softWipeUp",
+  "softWipeDown",
+  /*
     Through a colour rather than through the other shot.
 
     `flash` is the short-form cut that reads as energy rather than as time

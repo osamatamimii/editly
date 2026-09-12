@@ -1085,9 +1085,27 @@ console.log("\nA transition with a shape is heard as that shape");
     return plan.operations.find((o) => o.type === "transition")?.style ?? null;
   };
 
-  check("'wipe' alone is a left wipe", (await styleOf("cut the silences and wipe between the shots")) === "wipeLeft");
-  check("'wipe right' is the other way", (await styleOf("wipe right between the shots")) === "wipeRight");
-  check("'wipe up' too", (await styleOf("wipe up between the cuts")) === "wipeUp");
+  /*
+    A wipe asked for by the bare word is the soft-edged one.
+
+    The edge is the whole of how a wipe reads, and ffmpeg's hard one is a line
+    crossing the frame with nothing either side of it — the slideshow look, and
+    the one shape in the vocabulary that dates the video it is in. Somebody who
+    writes "wipe" has not asked for that; they have not said anything about the
+    edge at all, and this is the answer that is right when they have not.
+
+    A stored plan is untouched by this. `wipeLeft` still renders the hard wipe,
+    and a job row replayed produces the video it was paid for; what changed is
+    which style a *sentence* turns into.
+  */
+  check("'wipe' alone is the soft-edged one", (await styleOf("cut the silences and wipe between the shots")) === "softWipeLeft");
+  check("'wipe right' is the other way", (await styleOf("wipe right between the shots")) === "softWipeRight");
+  check("'wipe up' too", (await styleOf("wipe up between the cuts")) === "softWipeUp");
+  // And the hard edge is one word away, in both languages.
+  check("a hard edge asked for by name is the hard one", (await styleOf("hard wipe between the shots")) === "wipeLeft");
+  check("and to the right as well", (await styleOf("a sharp wipe to the right between the cuts")) === "wipeRight");
+  check("and in Arabic", (await styleOf("مسحة حادة بين القصات")) === "wipeLeft");
+  check("while the plain Arabic word stays soft", (await styleOf("مسحة بين القصات")) === "softWipeLeft");
   check("'slide' alone is a left slide", (await styleOf("slide between the shots")) === "slideLeft");
   check("'push right' is a slide, because that is what people call it", (await styleOf("push right between the shots")) === "slideRight");
   check("'flash' is the white one", (await styleOf("put a white flash between the cuts")) === "flash");
@@ -1098,7 +1116,7 @@ console.log("\nA transition with a shape is heard as that shape");
   // else's question.
   check(
     "a named shape wins over a bare 'transitions'",
-    (await styleOf("add transitions, wipe between the cuts")) === "wipeLeft",
+    (await styleOf("add transitions, wipe between the cuts")) === "softWipeLeft",
   );
   check("and with nothing named it is still the dissolve", (await styleOf("add some transitions please")) === "dissolve");
 

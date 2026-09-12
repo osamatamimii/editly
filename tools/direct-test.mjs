@@ -422,7 +422,11 @@ section("The join it chooses is the join this video wants");
       .matchAll(/"([a-zA-Z]+)"/g),
   ].map((m) => m[1]);
   check("the set is readable", chosen.length >= 2, JSON.stringify(chosen));
-  const DECORATIVE = ["wipeLeft", "wipeRight", "wipeUp", "wipeDown", "slideLeft", "slideRight", "slideUp", "slideDown", "zoomBlur", "glitch", "flash", "flashGrey"];
+  // The soft wipes are in this list too, and the reason is worth writing down:
+  // they are the better-looking wipe and that is exactly why they would be the
+  // tempting one to reach for unasked. A wipe nobody requested is a wipe nobody
+  // requested however well its edge is drawn.
+  const DECORATIVE = ["wipeLeft", "wipeRight", "wipeUp", "wipeDown", "softWipeLeft", "softWipeRight", "softWipeUp", "softWipeDown", "slideLeft", "slideRight", "slideUp", "slideDown", "zoomBlur", "glitch", "flash", "flashGrey"];
   check(
     "and holds nothing decorative",
     DECORATIVE.every((style) => !chosen.includes(style)),

@@ -1151,6 +1151,10 @@ const STYLE_IN_WORDS: Record<Exclude<TransitionStyle, "dissolve">, string> = {
   slideRight: "slide to the right",
   slideUp: "slide upward",
   slideDown: "slide downward",
+  softWipeLeft: "soft-edged wipe to the left",
+  softWipeRight: "soft-edged wipe to the right",
+  softWipeUp: "soft-edged wipe upward",
+  softWipeDown: "soft-edged wipe downward",
   flash: "flash of white",
   flashBlack: "blink to black",
   flashGrey: "pass through grey",
@@ -1169,6 +1173,10 @@ const STYLE_IN_WORDS_AR: Record<Exclude<TransitionStyle, "dissolve">, string> = 
   slideRight: "انزلاقة إلى اليمين",
   slideUp: "انزلاقة إلى الأعلى",
   slideDown: "انزلاقة إلى الأسفل",
+  softWipeLeft: "مسحة بحافّة ناعمة إلى اليسار",
+  softWipeRight: "مسحة بحافّة ناعمة إلى اليمين",
+  softWipeUp: "مسحة بحافّة ناعمة إلى الأعلى",
+  softWipeDown: "مسحة بحافّة ناعمة إلى الأسفل",
   flash: "ومضة بيضاء",
   flashBlack: "إطفاءة إلى السواد",
   flashGrey: "مرورة عبر الرمادي",
@@ -1187,10 +1195,22 @@ const TRANSITION_STYLES: Array<{ patterns: RegExp; style: TransitionStyle }> = [
   { patterns: /whip\s*-?pan|\bwhip\b|سحبة|سحبه سريعة/i, style: "whipPan" },
   { patterns: /zoom\s*-?blur|zoom transition|انتقال زوم|زوم بلور|تقريب سريع بين/i, style: "zoomBlur" },
   { patterns: /\bglitch|جليتش|غليتش|قليتش/i, style: "glitch" },
-  { patterns: /\bwipe\s*(?:to\s*the\s*)?right|مسح(?:ة)?\s*لليمين/i, style: "wipeRight" },
-  { patterns: /\bwipe\s*(?:to\s*the\s*)?up|\bwipe\s*upward/i, style: "wipeUp" },
-  { patterns: /\bwipe\s*(?:to\s*the\s*)?down|\bwipe\s*downward/i, style: "wipeDown" },
-  { patterns: /\bwipe|مسح(?:ة)?/i, style: "wipeLeft" },
+  /*
+    The wipes, soft by default.
+
+    A wipe's edge is the whole of how it reads, and ffmpeg's hard one is a line
+    crossing the frame with nothing either side of it: the 2009 slideshow. The
+    feathered version is what a person drawing a wipe on a storyboard means, so
+    the bare word gets it and the hard edge is reachable by saying so.
+
+    This changes what a *sentence* produces and not what a *plan* produces: a
+    stored plan carries the style it was written with, and `wipeLeft` still
+    renders the hard wipe it always did. See `HARD_EDGE` below.
+  */
+  { patterns: /\bwipe\s*(?:to\s*the\s*)?right|مسح(?:ة)?\s*لليمين/i, style: "softWipeRight" },
+  { patterns: /\bwipe\s*(?:to\s*the\s*)?up|\bwipe\s*upward/i, style: "softWipeUp" },
+  { patterns: /\bwipe\s*(?:to\s*the\s*)?down|\bwipe\s*downward/i, style: "softWipeDown" },
+  { patterns: /\bwipe|مسح(?:ة)?/i, style: "softWipeLeft" },
   { patterns: /\bslide\s*(?:to\s*the\s*)?right|\bpush\s*right|انزلاق\s*لليمين/i, style: "slideRight" },
   { patterns: /\bslide\s*(?:to\s*the\s*)?up|\bpush\s*up/i, style: "slideUp" },
   { patterns: /\bslide\s*(?:to\s*the\s*)?down|\bpush\s*down/i, style: "slideDown" },
@@ -1224,10 +1244,31 @@ const TRANSITION_STYLES: Array<{ patterns: RegExp; style: TransitionStyle }> = [
 const JOIN_CONTEXT =
   /\bbetween\b|\btransitions?\b|\bcuts?\b|\bshots?\b|\bclips?\b|\bjoins?\b|بين|انتقال|القصات|القطعات|اللقطات/i;
 
+/**
+ * "Hard" said about a wipe, which is the only thing it can be said about.
+ *
+ * One qualifier and a table of four rather than eight more patterns in the
+ * list above, because "hard" is not a different join, it is the same join with
+ * the edge undone. Eight patterns would also have to be ordered against the
+ * direction words all over again, which is the kind of list that is right the
+ * day it is written and wrong the first time anybody adds to it.
+ */
+const HARD_EDGE = /\bhard[- ]?edged?\b|\bhard wipe\b|\bsharp wipe\b|مسح(?:ة)?\s*حادّ?ة?|حافّ?ة\s*حادّ?ة?/i;
+
+/** Each soft wipe's hard original. Nothing else has two edges to choose from. */
+const HARD_WIPE: Partial<Record<TransitionStyle, TransitionStyle>> = {
+  softWipeLeft: "wipeLeft",
+  softWipeRight: "wipeRight",
+  softWipeUp: "wipeUp",
+  softWipeDown: "wipeDown",
+};
+
 /** Which shaped join a sentence asks for, if any. */
 function transitionStyleFrom(text: string): TransitionStyle | null {
   if (!JOIN_CONTEXT.test(text)) return null;
-  return TRANSITION_STYLES.find((entry) => entry.patterns.test(text))?.style ?? null;
+  const style = TRANSITION_STYLES.find((entry) => entry.patterns.test(text))?.style ?? null;
+  if (style && HARD_EDGE.test(text)) return HARD_WIPE[style] ?? style;
+  return style;
 }
 
 /**

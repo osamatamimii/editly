@@ -2383,6 +2383,125 @@ console.log("\nA wipe crosses the frame somebody watches, not the one that was r
   );
 }
 
+console.log("\nA wipe has an edge, and which edge it has is the whole of how it reads");
+{
+  /*
+    What was missing, and it was a look rather than a fault.
+
+    ffmpeg's `wipeleft` moves a boundary with nothing either side of it: a hard
+    line crossing the frame, which is the one shape in this vocabulary that
+    reads as slideshow software rather than as an edit. The feathered version
+    is a gradient band, and it is what a person drawing a wipe on a storyboard
+    means. Both are kept, because a plan stored with `wipeLeft` in it has to go
+    on producing the wipe it was paid for; what changed is which one the bare
+    word "wipe" turns into, and that is a question about sentences, not plans.
+
+    White into black, so the measurement needs no assumption about direction:
+    a column is either one shot, the other, or the edge between them.
+  */
+  const dir = await scratch();
+  const bw = path.join(dir, "white-to-black.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-f", "lavfi", "-i", "color=c=white:size=640x360:rate=25:duration=4",
+    "-f", "lavfi", "-i", "color=c=black:size=640x360:rate=25:duration=4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+    // Two seconds of silence, so the join is a scene change and gets made.
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+    "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v];[2:a][3:a][4:a]concat=n=3:v=0:a=1[a]",
+    "-map", "[v]", "-map", "[a]",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", bw,
+  ]);
+
+  /*
+    The width of the edge, in columns, along one row.
+
+    Neither shot is a mid grey, so every column that is neither is the edge
+    itself. A hard wipe has one such column — the boundary pixel that scaling
+    leaves behind — and a feathered one has a band.
+  */
+  const edgeWidth = (file, at) => {
+    const raw = spawnSync(
+      "ffmpeg",
+      [
+        "-hide_banner", "-loglevel", "error",
+        "-ss", String(at), "-i", file, "-frames:v", "1",
+        "-vf", "scale=320:180,crop=320:1:0:90",
+        "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+      ],
+      { encoding: "buffer", maxBuffer: 1 << 20 },
+    ).stdout;
+    if (!raw || raw.length < 320 * 3) return NaN;
+    let between = 0;
+    for (let i = 0; i < 320; i += 1) {
+      const v = raw[i * 3];
+      if (v > 20 && v < 235) between += 1;
+    }
+    return between;
+  };
+  const widest = async (style) => {
+    const out = await renderPlan(
+      bw,
+      {
+        version: 1,
+        operations: [
+          { type: "removeSilence", thresholdDb: -32, minSilenceMs: 400, paddingMs: 0 },
+          { type: "transition", style, durationMs: 1000 },
+        ],
+      },
+      { workDir: await scratch() },
+    );
+    const samples = [3.1, 3.3, 3.5, 3.7, 3.9].map((at) => edgeWidth(out.output, at));
+    return { out, samples, widest: Math.max(...samples.filter(Number.isFinite)) };
+  };
+
+  const hard = await widest("wipeLeft");
+  const soft = await widest("softWipeLeft");
+  /*
+    Measured, out of 320 columns, across the join:
+
+      wipeLeft      0 · 1 · 1 · 1 · 1
+      softWipeLeft  0 · 42 · 204 · 165 · 5
+  */
+  check(
+    "the hard wipe is a line, not a gradient",
+    hard.widest <= 3,
+    JSON.stringify(hard.samples),
+  );
+  check(
+    "and the soft one is a band wide enough to be seen as one",
+    soft.widest >= 60,
+    JSON.stringify(soft.samples),
+  );
+  /*
+    And the note says which it was.
+
+    Two joins that look this different and describe themselves the same way is
+    the shape of every defect in this file: a sentence that is true of two
+    videos, one of which nobody wanted.
+  */
+  check(
+    "the note names the edge rather than calling both of them a wipe",
+    hard.out.notes.some((n) => /wiped left between the cuts/.test(n)) &&
+      soft.out.notes.some((n) => /wiped left on a soft edge between the cuts/.test(n)),
+    JSON.stringify([hard.out.notes, soft.out.notes]),
+  );
+  /*
+    And a stored plan is untouched by any of it.
+
+    The only thing that changed for `wipeLeft` is that fewer sentences produce
+    it. A job row is a billing record, and replaying one has to produce the
+    video it was paid for, which is why the hard four are still here at all.
+  */
+  check(
+    "the hard wipe is still reachable by the name it was stored under",
+    hard.out.notes.some((n) => /wiped left between the cuts/.test(n)) &&
+      !hard.out.notes.some((n) => /soft edge/.test(n)),
+    JSON.stringify(hard.out.notes),
+  );
+}
+
 console.log("\nA transition marks where the recording jumped, and nothing else");
 {
   /*
