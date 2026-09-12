@@ -177,6 +177,11 @@ jobs:
           [ -n "${RETENTION_SWEEP:-}" ] && args+=(RETENTION_SWEEP="$RETENTION_SWEEP")
           [ -n "${OBJECT_STORE_PROVIDER:-}" ] && args+=(OBJECT_STORE_PROVIDER="$OBJECT_STORE_PROVIDER")
           [ -n "${OBJECT_STORE_BUCKET:-}" ] && args+=(OBJECT_STORE_BUCKET="$OBJECT_STORE_BUCKET")
+          # Both spellings of the bucket, because the code now reads both and
+          # the deployment that found this had it under the second one. On R2
+          # a machine with neither refuses to start, which is the point: the
+          # old default was the Supabase bucket, and on R2 that names nothing.
+          [ -n "${R2_BUCKET:-}" ] && args+=(R2_BUCKET="$R2_BUCKET")
           [ -n "${R2_ENDPOINT:-}" ] && args+=(R2_ENDPOINT="$R2_ENDPOINT")
           [ -n "${R2_ACCESS_KEY_ID:-}" ] && args+=(R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID")
           [ -n "${R2_SECRET_ACCESS_KEY:-}" ] && args+=(R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY")
@@ -237,6 +242,7 @@ jobs:
           RETENTION_SWEEP: ${{ vars.RETENTION_SWEEP }}
           OBJECT_STORE_PROVIDER: ${{ vars.OBJECT_STORE_PROVIDER }}
           OBJECT_STORE_BUCKET: ${{ vars.OBJECT_STORE_BUCKET }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
           R2_ENDPOINT: ${{ vars.R2_ENDPOINT }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
