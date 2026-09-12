@@ -56,7 +56,12 @@ import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { and, eq, count } from "drizzle-orm";
 import { db, assetsTable, captionFacesTable, projectsTable, subscriptionsTable } from "@workspace/db";
-import { UploadTicketBody, type UploadTicket } from "@workspace/api-zod/uploads";
+import {
+  UploadTicketBody,
+  CompleteUploadBody,
+  AbortUploadBody,
+  type UploadTicket,
+} from "@workspace/api-zod/uploads";
 import { objectStoreFrom } from "@workspace/object-store";
 import { currentUserId } from "../middlewares/auth";
 import { logger } from "../lib/logger";
@@ -68,9 +73,12 @@ import { MAX_FACES } from "./fonts";
 import {
   planUpload,
   worthResuming,
+  partPlanFor,
   ticketTtlFor,
+  MULTIPART_TTL_SECONDS,
   type UploadQuota,
 } from "../lib/upload-policy";
+import { isOwnedObjectPrefix } from "../lib/storage";
 
 const router: IRouter = Router();
 
@@ -245,6 +253,66 @@ router.post("/uploads", rateLimit(LIMITS.write), async (req, res): Promise<void>
     return;
   }
 
+  /*
+    A large file, cut into parts our server signed one by one.
+
+    Taken whenever the provider can do it — `beginMultipart` answers null on a
+    store that cannot, and Supabase's tus branch above has already claimed the
+    case where that is the right answer. So this is R2 today and any S3 store
+    tomorrow, with no third thing to decide.
+
+    What it buys is the thing `resumable` was a substitute for: a dropped
+    connection costs one part. What it costs is a completion step, because
+    assembling the parts is a signed request carrying every part's ETag and a
+    browser that could mint that could assemble somebody else's upload. That is
+    `POST /api/uploads/complete` below.
+
+    The whole set of URLs shares one window, opened wider than a single PUT's:
+    a person on a phone uploading a three-gigabyte source is doing something
+    that legitimately takes longer than an hour, and a signature that expires
+    at part sixty is a transfer that cannot be finished by waiting.
+  */
+  if (worthResuming(bytes)) {
+    const plan = partPlanFor(bytes);
+    if (plan) {
+      const begun = await store
+        .beginMultipart(key, {
+          expiresInSeconds: MULTIPART_TTL_SECONDS,
+          totalBytes: bytes,
+          parts: plan.parts,
+          contentType,
+        })
+        .catch((error: unknown) => {
+          // Not fatal: the single PUT below still works, and an upload that
+          // goes up in one request is better than no upload at all. Logged
+          // loudly because it is the provider refusing something it advertises.
+          logger.error({ err: error, userId, purpose, bytes }, "could not open a multipart upload");
+          return null;
+        });
+
+      if (begun) {
+        const ticket: UploadTicket = {
+          path: key,
+          contentType,
+          maxBytes,
+          expiresAt: begun.expiresAt,
+          transfer: {
+            mode: "multipart",
+            uploadId: begun.uploadId,
+            partBytes: plan.partBytes,
+            parts: begun.parts.map((part) => ({ partNumber: part.partNumber, url: part.url })),
+          },
+        };
+        logger.info(
+          { userId, purpose, bytes, mode: "multipart", parts: plan.parts, partBytes: plan.partBytes },
+          "authorised an upload",
+        );
+        res.status(201).json(ticket);
+        return;
+      }
+    }
+  }
+
   const signed = await store.signedPut(key, {
     // Short for the small purposes. The declared ceiling is advice the storage
     // provider does not enforce, so the window is what bounds a replay.
@@ -275,6 +343,76 @@ router.post("/uploads", rateLimit(LIMITS.write), async (req, res): Promise<void>
   };
   logger.info({ userId, purpose, bytes, mode: "signed" }, "authorised an upload");
   res.status(201).json(ticket);
+});
+
+/**
+ * The two ends of a multipart upload that only the server may reach.
+ *
+ * Both take the key back from the browser, and both check it the same way the
+ * ticket built it: a key outside the caller's own folder is refused before the
+ * provider is touched. The key is not a secret — the browser was told it — so
+ * the check is not about guessing it, it is about what somebody can do with one
+ * they saw: completing or destroying another account's upload in flight.
+ */
+router.post("/uploads/complete", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  const parsed = CompleteUploadBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "That completion is missing something." });
+    return;
+  }
+  const { path, uploadId, parts } = parsed.data;
+  if (!isOwnedObjectPrefix(path, userId)) {
+    logger.warn({ userId, path }, "refused to complete an upload outside its own folder");
+    res.status(404).json({ error: "No upload to finish there." });
+    return;
+  }
+
+  try {
+    await objectStoreFrom().completeMultipart(path, uploadId, parts);
+  } catch (error) {
+    logger.error({ err: error, userId, path, parts: parts.length }, "could not assemble a multipart upload");
+    res.status(502).json({
+      error:
+        "Every part arrived and they could not be assembled. Nothing of yours was lost; starting the upload again is the fastest way through.",
+    });
+    return;
+  }
+
+  logger.info({ userId, path, parts: parts.length }, "assembled a multipart upload");
+  res.status(200).json({ path });
+});
+
+router.post("/uploads/abort", rateLimit(LIMITS.write), async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  const parsed = AbortUploadBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "That request is missing something." });
+    return;
+  }
+  const { path, uploadId } = parsed.data;
+  if (!isOwnedObjectPrefix(path, userId)) {
+    logger.warn({ userId, path }, "refused to abort an upload outside its own folder");
+    res.status(404).json({ error: "No upload to stop there." });
+    return;
+  }
+
+  /*
+    Best effort, and it answers 204 either way.
+
+    An abort is the browser being tidy on its way out of a transfer that has
+    already failed for some other reason. Telling a person that giving up did
+    not work is noise about a thing they are no longer doing, and the parts
+    cost nothing to leave: R2 charges for storage and an unassembled upload is
+    swept by the bucket's own lifecycle rule.
+  */
+  try {
+    await objectStoreFrom().abortMultipart(path, uploadId);
+    logger.info({ userId, path }, "abandoned a multipart upload");
+  } catch (error) {
+    logger.warn({ err: error, userId, path }, "could not abandon a multipart upload");
+  }
+  res.status(204).end();
 });
 
 export default router;

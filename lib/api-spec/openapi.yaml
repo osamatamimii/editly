@@ -2330,11 +2330,18 @@ paths:
                     type: string
                   transfer:
                     type: object
-                    description: Either a signed URL, or the resumable endpoint and the metadata to create with.
+                    description: >
+                      One of three. "signed" is a URL this API minted, sent in
+                      one request. "resumable" is Supabase's tus endpoint, for
+                      a large file on a provider whose multipart upload cannot
+                      be signed. "multipart" is that provider's answer: the
+                      file cut into parts, each with its own signed URL, which
+                      the browser sends and then reports back to
+                      /uploads/complete.
                     properties:
                       mode:
                         type: string
-                        enum: [signed, resumable]
+                        enum: [signed, resumable, multipart]
                       url:
                         type: string
                       method:
@@ -2348,7 +2355,22 @@ paths:
                         type: object
                         additionalProperties:
                           type: string
-                    required: [mode, url, headers]
+                      uploadId:
+                        type: string
+                        description: multipart only. The provider's handle, echoed back on complete and abort.
+                      partBytes:
+                        type: integer
+                        description: multipart only. How many bytes go in every part but the last.
+                      parts:
+                        type: array
+                        description: multipart only. One signed URL per part, in order.
+                        items:
+                          type: object
+                          properties:
+                            partNumber: { type: integer }
+                            url: { type: string }
+                          required: [partNumber, url]
+                    required: [mode]
                 required: [path, contentType, maxBytes, expiresAt, transfer]
         "400":
           description: A type this product cannot use, a purpose with no project, or a body that could not be read
@@ -2389,6 +2411,87 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  /uploads/complete:
+    post:
+      operationId: completeUpload
+      tags: [uploads]
+      summary: Assemble a multipart upload from the parts the browser sent
+      description: >
+        Only this API may assemble one: the request S3 wants is a signed POST
+        carrying every part's ETag, and a browser able to mint it could
+        assemble somebody else's upload. So the browser reports the receipts
+        and the server does the assembling - which is also the moment the
+        object begins to exist, and therefore the right moment to check the key
+        was the caller's all along. Until this succeeds there is nothing at the
+        key: a multipart upload whose parts have all landed is still not an
+        object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path: { type: string }
+                uploadId: { type: string }
+                parts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      partNumber: { type: integer }
+                      etag:
+                        type: string
+                        description: >
+                          As the provider returned it for that part. The browser
+                          can only read it when the bucket exposes the etag
+                          header to the site's origin.
+                    required: [partNumber, etag]
+              required: [path, uploadId, parts]
+      responses:
+        "200":
+          description: Assembled, and the object exists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path: { type: string }
+                required: [path]
+        "400": { description: A body that could not be read }
+        "404": { description: A key outside the caller's own folder }
+        "502":
+          description: Every part arrived and the provider would not assemble them
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /uploads/abort:
+    post:
+      operationId: abortUpload
+      tags: [uploads]
+      summary: Give up on a multipart upload
+      description: >
+        The browser being tidy on its way out of a transfer that has already
+        failed. It answers 204 whether or not the provider agreed: telling
+        somebody that giving up did not work is noise about a thing they are no
+        longer doing, and unassembled parts cost nothing to leave.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path: { type: string }
+                uploadId: { type: string }
+              required: [path, uploadId]
+      responses:
+        "204": { description: Forgotten, one way or another }
+        "400": { description: A body that could not be read }
+        "404": { description: A key outside the caller's own folder }
 
   /social/connect/{platform}:
     post:

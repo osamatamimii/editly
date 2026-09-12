@@ -416,3 +416,80 @@ export function planUpload(request: UploadRequest, context: UploadContext): Uplo
 export function worthResuming(bytes: number): boolean {
   return bytes > RESUMABLE_ABOVE_BYTES;
 }
+
+/**
+ * How many URLs one ticket is willing to carry.
+ *
+ * Every part is a presigned URL of about four hundred characters, so the part
+ * count is the size of the answer this endpoint sends. A hundred is forty
+ * kilobytes of JSON — unremarkable — and it is also the number that keeps the
+ * arithmetic below honest at the top of the range: the largest object this
+ * product accepts is five gigabytes, which at a hundred parts is fifty
+ * megabytes each, still a reasonable thing to retry over a bad connection.
+ *
+ * S3's own ceiling is ten thousand parts and is not the constraint here.
+ */
+export const MAX_SIGNED_PARTS = 100;
+
+/**
+ * How long every part URL of one upload stays good for: six hours.
+ *
+ * Longer than any single signature this product mints, and deliberately: the
+ * window has to cover the whole transfer rather than one request, and the
+ * transfers this mode exists for are the ones measured in hours. Three
+ * gigabytes on a twelve-megabit connection is over half an hour with nothing
+ * going wrong, and the person it is likeliest to happen to — a phone on a
+ * train, a café, a Middle Eastern ADSL line — is exactly the person who will
+ * need to leave it running and come back.
+ *
+ * What a longer window risks is a replay, and the shape of the risk is narrower
+ * here than on a single PUT: a part URL writes one numbered part of one upload
+ * id that our server opened, and nothing exists at the key until our own
+ * completion call assembles it. A stolen part URL can spoil an upload in
+ * progress; it cannot write an object.
+ */
+export const MULTIPART_TTL_SECONDS = 6 * 60 * 60;
+
+/**
+ * The smallest part worth cutting a file into.
+ *
+ * S3 requires every part but the last to be at least five megabytes, and this
+ * is eight: the floor plus room, so that rounding the part size up to a whole
+ * megabyte can never land underneath it. A part is also the unit of retry, and
+ * eight megabytes is a few seconds on a home connection and about a minute on
+ * a bad phone — which is the length of thing a person will sit through twice.
+ */
+export const MIN_UPLOAD_PART_BYTES = 8 * 1024 * 1024;
+
+export interface PartPlan {
+  /** How many parts, all equal but the last. */
+  parts: number;
+  /** How many bytes in each of them but the last. */
+  partBytes: number;
+}
+
+/**
+ * How to cut a file into parts, or null when it is not worth cutting.
+ *
+ * Null for anything that comes out as a single part: one part is a multipart
+ * upload with all of its bookkeeping — an id to hold, a completion call, an
+ * abort to remember — and none of its benefit, which is that a dropped
+ * connection costs one part rather than the file.
+ *
+ * The part size is derived from the file rather than fixed, because a fixed
+ * size is wrong at both ends: eight megabytes makes a four-gigabyte upload five
+ * hundred URLs, and fifty megabytes makes a sixty-megabyte upload two parts of
+ * which the first is most of the file. So the size grows with the file until
+ * the count stops growing, and is rounded up to a whole megabyte because a part
+ * size of 15.37 MB is a number nobody can check by eye.
+ */
+export function partPlanFor(bytes: number): PartPlan | null {
+  if (!Number.isFinite(bytes) || bytes <= 0) return null;
+
+  const MEGABYTE = 1024 * 1024;
+  const evenly = Math.ceil(bytes / MAX_SIGNED_PARTS);
+  const partBytes = Math.max(MIN_UPLOAD_PART_BYTES, Math.ceil(evenly / MEGABYTE) * MEGABYTE);
+  const parts = Math.ceil(bytes / partBytes);
+
+  return parts > 1 ? { parts, partBytes } : null;
+}

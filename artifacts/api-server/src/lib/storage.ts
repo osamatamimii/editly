@@ -100,6 +100,27 @@ export function isOwnedObjectPath(path: string, userId: string, projectId: strin
 }
 
 /**
+ * Whose folder a key is in, without asking which project it belongs to.
+ *
+ * The two checks above each know the shape they are guarding — a project's
+ * three segments, a font's fixed middle — and both are the right check at the
+ * door they stand at. This is for the doors that are handed a key they already
+ * minted and only need to know it has not been swapped for somebody else's:
+ * finishing or abandoning a multipart upload, where the project is not part of
+ * the question and a font key is as legitimate as a source video's.
+ *
+ * Same whitelist, same reason — see `SAFE_SEGMENT` above. Weaker than the other
+ * two by exactly one fact, and never a substitute for them at their own doors.
+ */
+export function isOwnedObjectPrefix(path: string, userId: string): boolean {
+  if (!path || path.startsWith("/") || path.endsWith("/")) return false;
+  const segments = path.split("/");
+  if (segments.length < 2) return false;
+  if (!segments.every((s) => SAFE_SEGMENT.test(s))) return false;
+  return segments[0] === userId;
+}
+
+/**
  * A font's object path, which is a person's and not a project's.
  *
  * The same whitelist as above, with two segments instead of three: a font

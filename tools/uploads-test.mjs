@@ -694,6 +694,152 @@ console.log("\nA ticket only names a deadline it actually has");
   );
 }
 
+console.log("\nA large file goes up in parts, and only this API assembles them");
+{
+  /*
+    The mode that was missing, and the reason it was missing is worth keeping:
+    `lib/object-store` has been able to open, sign, complete and abort a
+    multipart upload since R2 was added, and no route asked. So a three-gigabyte
+    source went to R2 as one PUT that starts again from zero when a phone
+    changes cell — forty minutes of upload with one chance.
+
+    The arithmetic is the part that can be quietly wrong, so it is exercised
+    directly rather than described.
+  */
+  const { partPlanFor, MAX_SIGNED_PARTS, MIN_UPLOAD_PART_BYTES, RESUMABLE_ABOVE_BYTES } = policy;
+  const MB = 1024 * 1024;
+
+  check("a file that fits in one part is not cut up", partPlanFor(7 * MB) === null, JSON.stringify(partPlanFor(7 * MB)));
+  check("and neither is an empty or impossible one", partPlanFor(0) === null && partPlanFor(-5) === null);
+
+  const small = partPlanFor(60 * MB);
+  check("a sixty-megabyte file is eight parts of eight", small?.parts === 8 && small?.partBytes === 8 * MB, JSON.stringify(small));
+
+  const large = partPlanFor(3200 * MB);
+  check(
+    "three gigabytes stays inside the ticket's hundred URLs",
+    large !== null && large.parts <= MAX_SIGNED_PARTS,
+    JSON.stringify(large),
+  );
+  check("by growing the part rather than the count", large !== null && large.partBytes > MIN_UPLOAD_PART_BYTES, JSON.stringify(large));
+
+  /*
+    The floor S3 enforces and nothing else can: every part but the last must be
+    at least five megabytes, and a plan that breaks it is refused by the
+    provider after the person has waited. Checked across the whole range rather
+    than at one size, because the failure is arithmetic and arithmetic fails at
+    boundaries.
+  */
+  const sizes = [9, 16, 41, 60, 100, 267, 512, 1024, 2048, 3200, 5120].map((mb) => mb * MB);
+  const plans = sizes.map((bytes) => ({ bytes, plan: partPlanFor(bytes) }));
+  check(
+    "every part but the last clears S3's five-megabyte floor",
+    plans.every(({ plan }) => plan !== null && plan.partBytes >= 5 * MB),
+    JSON.stringify(plans.map(({ bytes, plan }) => [bytes / MB, plan?.partBytes / MB])),
+  );
+  check(
+    "and every plan covers the whole file",
+    plans.every(({ bytes, plan }) => plan !== null && plan.parts * plan.partBytes >= bytes),
+    JSON.stringify(plans.map(({ bytes, plan }) => [bytes / MB, plan?.parts])),
+  );
+  check(
+    "no plan asks for more URLs than the ticket carries",
+    plans.every(({ plan }) => plan !== null && plan.parts <= MAX_SIGNED_PARTS),
+  );
+  check(
+    "the part size is a whole number of megabytes, so it can be checked by eye",
+    plans.every(({ plan }) => plan !== null && plan.partBytes % MB === 0),
+  );
+  check(
+    "and the smallest file that gets cut up is one the resume threshold already calls large",
+    partPlanFor(RESUMABLE_ABOVE_BYTES + 1) === null || RESUMABLE_ABOVE_BYTES >= MIN_UPLOAD_PART_BYTES,
+    "a file can be cut into parts before it is even worth resuming",
+  );
+
+  // ── The wiring, read, like the rest of this suite ────────────────────────
+  const route = read("artifacts/api-server/src/routes/uploads.ts");
+  const at = (needle) => route.indexOf(needle);
+
+  check("the route opens a multipart upload for a large file", at("beginMultipart(") > 0);
+  check(
+    "after the decision, like everything else that touches storage",
+    at("planUpload(") > 0 && at("planUpload(") < at("beginMultipart("),
+    "a multipart upload is opened before the request has been judged",
+  );
+  check(
+    "and only when the file is worth resuming",
+    /if \(worthResuming\(bytes\)\) \{\s*const plan = partPlanFor\(bytes\)/.test(route),
+  );
+  check(
+    "a provider that cannot do it falls through to the single PUT",
+    at("beginMultipart(") < at("signedPut("),
+    "the signed branch no longer follows the multipart one, so a store without multipart has nowhere to go",
+  );
+  check(
+    "and a failure to open one is logged rather than fatal",
+    /could not open a multipart upload/.test(route) && /return null;/.test(route),
+  );
+
+  /*
+    Both ends check the key, and the check is the same one the ticket used to
+    build it. The key is not a secret — the browser was told it — so this is
+    not about guessing one: it is about what somebody can do with a key they
+    saw, which is complete or destroy another account's upload mid-flight.
+  */
+  check("completing checks the key belongs to the caller", /uploads\/complete[\s\S]{0,900}isOwnedObjectPrefix\(path, userId\)/.test(route));
+  check("and so does abandoning one", /uploads\/abort[\s\S]{0,900}isOwnedObjectPrefix\(path, userId\)/.test(route));
+  check(
+    "a key outside the caller's folder is a 404, not a 403",
+    (route.match(/refused to (?:complete|abort) an upload outside its own folder[\s\S]{0,200}?status\(404\)/g) ?? []).length === 2,
+  );
+  check(
+    "and the abort answers the same either way, because giving up cannot fail",
+    /abandon a multipart upload[\s\S]{0,400}res\.status\(204\)/.test(route),
+  );
+
+  const storage = read("artifacts/api-server/src/lib/storage.ts");
+  check(
+    "the prefix check is the same whitelist as the per-project one",
+    /export function isOwnedObjectPrefix/.test(storage) && /SAFE_SEGMENT\.test/.test(storage),
+  );
+
+  // ── And the browser's half ───────────────────────────────────────────────
+  const client = read("artifacts/editly/src/lib/video-storage.ts");
+  check("the browser sends the parts the ticket names", /how\.mode === "multipart"/.test(client));
+  check(
+    "a part that fails is sent again rather than the file",
+    /for \(let attempt = 0; attempt < 3 && etag === null/.test(client),
+  );
+  check(
+    "but a refusal is not retried, because a 403 does not become a 200 by being repeated",
+    /if \(!lastError\.retryable\) break;/.test(client),
+  );
+  check(
+    "progress never goes backwards on a retry",
+    /landed \+ inFlight/.test(client),
+    "progress is computed from the current request alone, so a retried part rewinds the bar",
+  );
+  check(
+    "giving up tells the provider to stop holding the parts",
+    /\/api\/uploads\/abort/.test(client),
+  );
+  check(
+    "and an unreadable receipt says what to change rather than 'upload failed'",
+    /TRANSFER\.noReceipt/.test(client) && /etag/.test(read("artifacts/editly/src/lib/copy/transfer.ts")),
+  );
+  /*
+    And the last of them through `order()`, for the reason that helper exists:
+    a bare `indexOf < indexOf` passes most loudly when the left-hand thing has
+    been deleted, which here would be the completion call disappearing.
+  */
+  const assembled = order(
+    client,
+    "/api/uploads/complete",
+    "onProgress?.(100, body.size, body.size);\n  return ticket.path;",
+  );
+  check("nothing is called done until this API says the parts were assembled", assembled.ok, assembled.why);
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);

@@ -42,6 +42,15 @@
  * the type and the ceiling are still settled and logged here before a byte
  * moves. On a provider whose multipart upload can be signed per part, this mode
  * is simply never chosen, and nothing on either side has to change for that.
+ *
+ * `multipart` is that provider, arrived: on R2 a large file is cut into parts
+ * and each part gets its own signed URL, so a dropped connection costs one part
+ * instead of the file and nothing of the person's session leaves for the
+ * storage host. The driver could always do it — `beginMultipart`, `signPart`,
+ * `completeMultipart` and `abortMultipart` have been in `lib/object-store`
+ * since R2 was added — and no route asked, so every large upload to R2 went as
+ * one request that started again from zero. A three-gigabyte source is forty
+ * minutes of that.
  */
 import { z } from "zod";
 
@@ -107,6 +116,77 @@ export const ResumableTransfer = z.object({
 });
 export type ResumableTransfer = z.infer<typeof ResumableTransfer>;
 
+/**
+ * One part of a large file, and where it goes.
+ *
+ * The URL is signed the same way the single PUT is — it carries the part
+ * number and the upload id, and no credential of ours.
+ */
+export const SignedUploadPart = z.object({
+  /** One-based, and the order the provider assembles them in. */
+  partNumber: z.number().int().positive(),
+  url: z.string(),
+});
+export type SignedUploadPart = z.infer<typeof SignedUploadPart>;
+
+/**
+ * A file cut into parts, each with its own signed URL.
+ *
+ * This is what `resumable` above was a substitute for. Supabase's tus endpoint
+ * exists because its multipart upload cannot be signed per part; S3's can, so
+ * on R2 a large file goes up as a hundred independent PUTs that our server
+ * authorised in one decision — a dropped connection costs one part rather than
+ * the whole transfer, and no session token ever leaves for the storage host.
+ *
+ * The completion is deliberately *not* a URL in here. Assembling the parts is a
+ * signed POST carrying an XML document of every part's ETag, and a browser that
+ * could mint it could also assemble somebody else's upload. So the browser
+ * reports the ETags to `POST /api/uploads/complete` and our server does the
+ * assembling — which is also the moment the object exists, so it is the right
+ * place to be sure the key belonged to the person all along.
+ */
+export const MultipartTransfer = z.object({
+  mode: z.literal("multipart"),
+  /** The provider's handle for this upload, echoed back on complete and abort. */
+  uploadId: z.string(),
+  /** How many bytes go in every part but the last. The browser slices on it. */
+  partBytes: z.number().int().positive(),
+  parts: z.array(SignedUploadPart).min(2).max(10_000),
+});
+export type MultipartTransfer = z.infer<typeof MultipartTransfer>;
+
+/** What the browser reports once every part has landed. */
+export const CompleteUploadBody = z.object({
+  path: z.string().min(1).max(500),
+  uploadId: z.string().min(1).max(500),
+  parts: z
+    .array(
+      z.object({
+        partNumber: z.number().int().positive(),
+        /**
+         * As the provider returned it on that part's response.
+         *
+         * The browser can only read this header if the bucket exposes it —
+         * `ExposeHeaders: ["etag"]` in the CORS policy. A bucket that does not
+         * is the one configuration mistake that lets every part succeed and
+         * the assembly fail, so the route says exactly that rather than
+         * repeating the provider's own sentence about a malformed request.
+         */
+        etag: z.string().min(1).max(200),
+      }),
+    )
+    .min(1)
+    .max(10_000),
+});
+export type CompleteUploadBody = z.infer<typeof CompleteUploadBody>;
+
+/** Giving up on one, so the provider stops holding its parts. */
+export const AbortUploadBody = z.object({
+  path: z.string().min(1).max(500),
+  uploadId: z.string().min(1).max(500),
+});
+export type AbortUploadBody = z.infer<typeof AbortUploadBody>;
+
 export const UploadTicket = z.object({
   /** The storage key, chosen here. What the browser reports back once the bytes land. */
   path: z.string(),
@@ -132,7 +212,7 @@ export const UploadTicket = z.object({
    * Absent means there is nothing to expire.
    */
   expiresAt: z.string().optional(),
-  transfer: z.discriminatedUnion("mode", [SignedTransfer, ResumableTransfer]),
+  transfer: z.discriminatedUnion("mode", [SignedTransfer, ResumableTransfer, MultipartTransfer]),
 });
 export type UploadTicket = z.infer<typeof UploadTicket>;
 

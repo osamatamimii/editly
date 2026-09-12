@@ -45,6 +45,27 @@ export const TRANSFER = {
   networkError: p("خطأ في الشبكة أثناء الرفع.", "Network error during upload."),
   cancelled: p("أُلغي الرفع.", "Upload cancelled."),
   noDestination: p("لم يعطنا التخزين مكانًا للرفع إليه.", "Storage did not return somewhere to upload to."),
+  /*
+    The one failure a person cannot act on and an operator can.
+
+    Every part of the file arrived, and the browser could not read the receipt
+    the provider returned for it — which happens for exactly one reason: the
+    bucket does not expose `etag` to this origin in its CORS policy. Saying
+    "upload failed" there would send somebody to try a smaller file all
+    afternoon on a bucket that is accepting every byte they send.
+  */
+  noReceipt: p(
+    "وصلت كل أجزاء الملف، لكن التخزين لم يُعطِ المتصفّح إيصال كل جزء (ترويسة etag محجوبة عن هذا الموقع في إعداد CORS للدلو). الملف سليم والإعداد هو ما يحتاج تصحيحًا.",
+    "Every part of the file arrived, and the browser could not read the receipt for them (the bucket's CORS policy does not expose the etag header to this site). Nothing is wrong with the file; the bucket's settings are what need a change.",
+  ),
+  partFailed: f<[number, number]>(
+    (part, of) => `تعذّر رفع الجزء ${part} من ${of} بعد عدّة محاولات.`,
+    (part, of) => `Part ${part} of ${of} could not be uploaded after several tries.`,
+  ),
+  couldNotAssemble: p(
+    "وصلت كل الأجزاء ولم يستطع التخزين تجميعها. لم يضع شيء من ملفك؛ إعادة الرفع أسرع طريق.",
+    "Every part arrived and storage could not assemble them. Nothing of your file was lost; starting again is the fastest way through.",
+  ),
   referenceTooBig: f<[string, string]>(
     (size, ceiling) =>
       `هذا المرجع ${size}. نحن نقرأ أوّل دقيقتين منه فقط، فأبقِه دون ${ceiling}. مقطع قصير بالستايل الذي تريده يكفي.`,

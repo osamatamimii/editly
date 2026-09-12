@@ -23,6 +23,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 import { VIDEO_UPLOAD_EXTENSIONS, uploadKindFor } from "@workspace/api-zod/limits";
 import type {
+  MultipartTransfer,
   ResumableTransfer,
   SignedTransfer,
   UploadPurpose,
@@ -334,7 +335,133 @@ interface TransferOptions {
  */
 async function transfer(options: TransferOptions): Promise<string> {
   const how = options.ticket.transfer;
-  return how.mode === "resumable" ? sendResumably(options, how) : sendInOneRequest(options, how);
+  if (how.mode === "resumable") return sendResumably(options, how);
+  if (how.mode === "multipart") return sendInParts(options, how);
+  return sendInOneRequest(options, how);
+}
+
+/**
+ * A large file, one signed part at a time.
+ *
+ * The point of the whole mode is what happens when something goes wrong in the
+ * middle: a part that fails is sent again, and everything already up stays up.
+ * A three-gigabyte source over a phone connection is a transfer where something
+ * going wrong once is the *expected* case, and the single PUT this replaces
+ * answered it by starting from zero.
+ *
+ * Sequential rather than parallel, deliberately. Two or three parts at once
+ * finish a fast connection sooner and make a slow one worse — they share the
+ * same uplink, so each part crawls, the progress bar moves in jumps, and a
+ * cancel has three requests to catch. The transfer this is for is bounded by
+ * the uplink, not by round trips.
+ */
+async function sendInParts(options: TransferOptions, how: MultipartTransfer): Promise<string> {
+  const { ticket, body, accessToken, onProgress, hold, isCancelled } = options;
+  const finished: Array<{ partNumber: number; etag: string }> = [];
+  /** Bytes in the parts that are wholly up, so progress never goes backwards on a retry. */
+  let landed = 0;
+
+  const report = (inFlight: number) => {
+    const done = Math.min(body.size, landed + inFlight);
+    onProgress?.(Math.min(99, Math.round((done / body.size) * 100)), done, body.size);
+  };
+
+  const sendPart = (part: { partNumber: number; url: string }, chunk: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      hold?.(xhr);
+      xhr.open("PUT", part.url, true);
+      /*
+        No Content-Type on a part, and that is the signature's doing rather
+        than a preference: the type was declared when the upload was opened and
+        belongs to the finished object. A header here that the URL was not
+        signed over is a 403 naming no cause.
+      */
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) report(event.loaded);
+      };
+      xhr.onload = () => {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new UploadError(shaped(TRANSFER.failed, xhr.status), worthAnotherGo(xhr.status)));
+          return;
+        }
+        const etag = xhr.getResponseHeader("etag");
+        // Readable only if the bucket exposes it to this origin. Not worth
+        // retrying: the next part will be just as unreadable, and the sentence
+        // says what to change instead of asking a person to try again.
+        if (!etag) {
+          reject(new UploadError(said(TRANSFER.noReceipt), false));
+          return;
+        }
+        resolve(etag);
+      };
+      xhr.onerror = () => reject(new UploadError(said(TRANSFER.networkError), true));
+      xhr.onabort = () => reject(new UploadError(said(TRANSFER.cancelled), false));
+      xhr.send(chunk);
+    });
+
+  const give = async (): Promise<void> => {
+    // Tidy on the way out, so the provider stops holding parts nobody will
+    // assemble. Never allowed to throw over the failure that caused it.
+    await fetch("/api/uploads/abort", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ path: ticket.path, uploadId: how.uploadId }),
+    }).catch(() => undefined);
+  };
+
+  for (const part of how.parts) {
+    if (isCancelled?.()) {
+      await give();
+      throw new UploadError(said(TRANSFER.cancelled));
+    }
+
+    const from = (part.partNumber - 1) * how.partBytes;
+    if (from >= body.size) break; // The ticket signed a part the file does not reach.
+    const chunk = body.slice(from, Math.min(from + how.partBytes, body.size));
+
+    let etag: string | null = null;
+    let lastError: UploadError | null = null;
+    for (let attempt = 0; attempt < 3 && etag === null; attempt += 1) {
+      if (attempt > 0) await new Promise((wait) => setTimeout(wait, 400 * attempt));
+      try {
+        etag = await sendPart(part, chunk);
+      } catch (error) {
+        lastError = error instanceof UploadError ? error : new UploadError(said(TRANSFER.networkError), true);
+        // A refusal is a refusal — a 403 on an expired signature does not
+        // become a 200 by being sent again — and cancelling is a decision.
+        if (!lastError.retryable) break;
+      }
+    }
+
+    if (etag === null) {
+      await give();
+      throw lastError ?? new UploadError(shaped(TRANSFER.partFailed, part.partNumber, how.parts.length));
+    }
+
+    finished.push({ partNumber: part.partNumber, etag });
+    landed += chunk.size;
+    report(0);
+  }
+
+  /*
+    And the assembly, which only our own server may do — `MultipartTransfer`
+    says why. Until this answers, nothing exists at the key: a multipart upload
+    whose parts are all up is still not an object.
+  */
+  const assembled = await fetch("/api/uploads/complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ path: ticket.path, uploadId: how.uploadId, parts: finished }),
+  }).catch(() => null);
+
+  if (!assembled || !assembled.ok) {
+    const failure = assembled ? ((await assembled.json().catch(() => ({}))) as { error?: string }) : {};
+    throw new UploadError(failure.error ?? said(TRANSFER.couldNotAssemble));
+  }
+
+  onProgress?.(100, body.size, body.size);
+  return ticket.path;
 }
 
 /**
