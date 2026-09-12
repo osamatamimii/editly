@@ -37,6 +37,8 @@
  * phrase that returns a refusal.
  */
 
+import { MAX_MESSAGE_LENGTH } from "@workspace/api-zod/limits";
+
 export interface Suggestion {
   /** Stable, and what the test names when one of them stops parsing. */
   id: string;
@@ -160,4 +162,62 @@ export function skipFirstRun(): void {
     // Nothing to do and nothing to say. The screen shows again next time,
     // which is a small annoyance and not a failure.
   }
+}
+
+/*
+  Written as escapes rather than as the characters themselves, because half of
+  them are invisible in an editor and a rule nobody can see in the source is a
+  rule that gets "tidied" away.
+*/
+const BIDI_AND_CONTROL =
+  /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+
+/**
+ * The sentence somebody pressed on the landing page, if they pressed one.
+ *
+ * The features section on the landing page puts a real request under each
+ * feature - "Cut the silences and caption it" - and pressing it carries that
+ * sentence here, in the URL, so the first screen after signing up already has
+ * the thing they asked for written in the box. The alternative is what the
+ * product did before: somebody presses a sentence, signs up, and lands on an
+ * empty field with no memory of what they came for.
+ *
+ * In the URL and not in a module variable, because a sign-in happens in
+ * between. `App.tsx` carries `pathname + search` through `?next=`, so the
+ * sentence survives the round trip; anything held in memory would not survive
+ * the page load the redirect back performs.
+ *
+ * ## What this refuses, and why it refuses rather than trusts
+ *
+ * A query string is written by whoever made the link, which on a public page
+ * is anybody. This one lands in a text box and then in a message the person
+ * sends themselves, so the damage available is small - but "small" is not a
+ * reason to accept a megabyte of text, a line break that turns one sentence
+ * into a fake conversation, or the control characters that make a box render
+ * something other than what it holds.
+ *
+ * So: every run of whitespace, line breaks included, becomes one space; every
+ * C0/C1 control character and every bidirectional override is dropped - the
+ * overrides because this product is bilingual and U+202E is precisely the
+ * character that makes Arabic and English render in an order the text does not
+ * actually have; and the result is cut to the same ceiling the server puts on
+ * a message, so a link cannot place a sentence the API would refuse anyway.
+ *
+ * Returns "" for anything missing, empty, or malformed, and never throws:
+ * `URLSearchParams` is forgiving, but a screen seeded from this while it
+ * mounts must not be able to fail to mount because of a link.
+ */
+export function askedSentence(search: string): string {
+  let raw: string | null = null;
+  try {
+    raw = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).get("ask");
+  } catch {
+    return "";
+  }
+  if (!raw) return "";
+  const cleaned = raw
+    .replace(BIDI_AND_CONTROL, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.slice(0, MAX_MESSAGE_LENGTH);
 }

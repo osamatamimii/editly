@@ -45,7 +45,7 @@ import {
   formatBytes,
   servedCeiling,
 } from "@/lib/video-storage";
-import { SUGGESTIONS, skipFirstRun } from "@/lib/first-run";
+import { SUGGESTIONS, skipFirstRun, askedSentence } from "@/lib/first-run";
 import { useLanguage } from "@/lib/language";
 
 export default function Onboarding() {
@@ -59,7 +59,28 @@ export default function Onboarding() {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [chosen, setChosen] = useState<string | null>(null);
-  const [written, setWritten] = useState("");
+  /*
+    Seeded from the link, because somebody may already have said what they want.
+
+    The landing page's features section puts a real request under each feature
+    and carries the one that was pressed here in `?ask=`. Without this the
+    sentence they chose was thrown away at the door: they press "cut the
+    silences and caption it", sign up, and are asked from scratch what they
+    want - which reads as the product not having listened.
+
+    Placed in the box rather than acted on, which is the same rule the
+    suggestions follow and for the same reason: this screen exists to teach
+    that a sentence is the interface, and somebody who presses send themselves
+    knows what to type the second time.
+
+    `useState` with an initialiser, so it is read once, at mount. Reading it on
+    every render would mean a person who edits the sentence watches their edit
+    reverted by the next render, which is the kind of fight with a text box
+    nobody reports and everybody abandons.
+  */
+  const [written, setWritten] = useState(() =>
+    typeof window === "undefined" ? "" : askedSentence(window.location.search),
+  );
   /*
     The product's language, not this screen's guess at it.
 

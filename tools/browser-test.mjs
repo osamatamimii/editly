@@ -1925,14 +1925,27 @@ section("The landing page's feature list keeps up with what is actually built");
   // that shipped and never made the list is the page understating the product.
   //
   // The sentences moved to `lib/landing-copy.ts` when the page learned to speak
-  // Arabic, and the claims are read from there now. The page itself is still
-  // read for the *drawings*, which live in the JSX because they are markup
-  // rather than words.
+  // Arabic, and the claims are read from there. The *section* they are rendered
+  // in moved to `components/feature-scroller.tsx`, and its mechanics are held
+  // by `tools/feature-scroll-test.mjs`; what is checked here is only what the
+  // page claims the product does.
   const copy = readFileSync(path.join(repoRoot, "artifacts/editly/src/lib/landing-copy.ts"), "utf8");
-  const home = readFileSync(path.join(repoRoot, "artifacts/editly/src/pages/home.tsx"), "utf8");
+  /*
+    The block, not the file.
+
+    Every check below asks whether something is *in the feature list*, and a
+    file-wide search answers yes for a word that appears anywhere on the page —
+    which is how a check like this passes while the list it guards is empty.
+  */
+  const features = (() => {
+    const at = copy.indexOf("  features: {");
+    const close = copy.indexOf("\n  },", at);
+    return at === -1 || close === -1 ? "" : copy.slice(at, close);
+  })();
+  check("the feature list is where this expects to find it", features.length > 500, String(features.length));
   check(
     "clips are on the list now that they exist",
-    /cut into separate clips/i.test(copy),
+    /cut into separate clips/i.test(features),
     "the clips feature shipped but the landing page does not mention it",
   );
   // The claim, not the sentence. Pinning the exact prose makes this a check on
@@ -1941,7 +1954,7 @@ section("The landing page's feature list keeps up with what is actually built");
   // the test to match the page — the opposite of what it is for.
   check(
     "and the line sells the titles, which is what makes them worth having",
-    /titled by (its speaker's own words|what the speaker actually said)/i.test(copy),
+    /titled by (its speaker's own words|what the speaker actually said)/i.test(features),
     "the clips line must say the titles come from the speaker, not from a template",
   );
   // The same claim in the other language, because the Arabic page is the one
@@ -1949,29 +1962,43 @@ section("The landing page's feature list keeps up with what is actually built");
   // and not the other is a page that is honest in English only.
   check(
     "and the Arabic says it too",
-    /قصاصات منفصلة/.test(copy) && /معنونة بما قاله المتحدّث/.test(copy),
+    /قصاصات منفصلة/.test(features) && /معنونة بما قاله المتحدّث/.test(features),
     "the clips line is English-only in the copy file",
   );
+  /*
+    Transitions used to be a labelled cell on a grid of four drawings. The grid
+    is gone — five outcomes now get a screen each rather than eleven mechanics
+    getting a tile each — but the fade still ships, and a mechanic that ships
+    and is claimed nowhere is the same understatement in a quieter form. It is
+    a sentence now, in both languages, and that is what is held.
+  */
   check(
-    "the transitions cell is on the grid, because the fade ships",
-    /label: p\("[^"]+", "Transitions"\)/.test(copy),
-    "the fade shipped but the grid does not show a transitions cell at all",
+    "the fade is still claimed somewhere, because it still ships",
+    /Dissolves between the cuts/i.test(features) && /ذوبان بين القطعات/.test(features),
+    "the transitions grid cell went away and took the only mention of the fade with it",
   );
   check(
-    "and nothing on the grid is marked as not built yet",
-    !/(dimmed: true|coming soon|not yet|soon\b)/i.test(
-      copy.slice(copy.indexOf("grid: ["), copy.indexOf("grid: [") + 900),
-    ),
-    "a cell in the feature grid is presented as future work",
+    "and nothing on the list is presented as future work",
+    !/(dimmed: true|coming soon|not yet|soon\b)/i.test(features),
+    "a feature on the landing list is presented as something not built yet",
   );
-  // Every cell is drawn, not written. A grid of words on a page selling a video
-  // tool was the emptiest thing on it; each cell carries its own artwork now,
-  // and a cell that loses it falls back to being a label again silently.
-  const gridCells = home.slice(home.indexOf("LANDING.features.grid[0].label"), home.indexOf("].map((cell"));
+  /*
+    Every feature is drawn, not written. A column of words on a page selling a
+    video tool was the emptiest thing on it. The drawings live in
+    `components/feature-art.tsx` and are matched to the list by position, so the
+    failure this catches is a sixth feature added to the copy with no drawing
+    behind it — which renders as a panel with a hole in it and throws nothing.
+  */
+  const art = readFileSync(path.join(repoRoot, "artifacts/editly/src/components/feature-art.tsx"), "utf8");
+  const drawn = (() => {
+    const at = art.indexOf("export const FEATURE_ART");
+    const close = art.indexOf("];", at);
+    return at === -1 || close === -1 ? [] : art.slice(at, close).match(/^\s{2}\w+,$/gm) ?? [];
+  })();
   check(
-    "every cell in the grid draws the thing it names",
-    (gridCells.match(/art: \(/g) ?? []).length === (gridCells.match(/LANDING\.features\.grid\[\d\]\.label/g) ?? []).length,
-    "a feature-grid cell has a label but no artwork",
+    "every feature on the list has a drawing behind it",
+    drawn.length === (features.match(/\n        title: p\(/g) ?? []).length && drawn.length >= 4,
+    `${drawn.length} drawings for ${(features.match(/\n        title: p\(/g) ?? []).length} features`,
   );
 }
 

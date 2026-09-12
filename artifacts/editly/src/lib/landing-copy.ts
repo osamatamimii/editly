@@ -247,10 +247,33 @@ export const LANDING = {
     },
   },
 
+  /*
+   * What it does, one claim at a time.
+   *
+   * Five outcomes, not eleven mechanics. This was a checklist of everything the
+   * renderer can do, one switch per line, and a list that long is read as a
+   * list — skimmed, and none of it landing. Nothing has been dropped from the
+   * product: each line here is the result, with the mechanics that produce it
+   * underneath where they belong.
+   *
+   * Kept honest by hand: everything named works today, and what is not built
+   * stays off the list. That honesty cuts both ways, so `browser-test` checks
+   * the claims against what shipped in both directions.
+   *
+   * `prompt` is the sentence under each one, and it is not decoration. Every
+   * one of them is run through the product's own keyword planner by
+   * `tools/feature-scroll-test.mjs`, in both languages, and pressing it carries
+   * the sentence into the app. A prompt on a landing page that the product
+   * would not understand is the most embarrassing lie available to us.
+   */
   features: {
     eyebrow: p("الميزات", "Features"),
     title: p("ما الذي يفعله اليوم", "What it does today"),
-    tryIt: p("جرّبه بنفسك", "Try it yourself"),
+    lead: p(
+      "خمسة أشياء، كل واحد منها يعمل الآن. مرّر لترى الواحد تلو الآخر، أو اضغط اسمًا للذهاب إليه.",
+      "Five things, every one of them working today. Scroll to take them one at a time, or press a name to jump to it.",
+    ),
+    tryIt: p("جرّب:", "Try:"),
     list: [
       {
         title: p("تسجيل خام يصير منشورًا", "A raw take becomes a post"),
@@ -258,6 +281,7 @@ export const LANDING = {
           "كل صمت وكل وقفة تُقصّ، والكادر يُعاد لتيك توك وريلز وشورتس (أو يوتيوب، أو مربّع)، والمستويات تُضبط. من جملة واحدة.",
           "Every silence and pause cut, framed for TikTok, Reels and Shorts (or YouTube, or square), and the levels fixed. From one sentence.",
         ),
+        prompt: p("اقصص الصمت وضيف ترجمة، عمودي لتيك توك", "Cut the silences and caption it, vertical for TikTok"),
       },
       {
         title: p("اللحظات التي تستحقّ، تُلتقَط لك", "The moments worth keeping, found for you"),
@@ -265,6 +289,7 @@ export const LANDING = {
           "أقوى ثلاثين ثانية في تسجيل طويل، أو التسجيل كلّه مقصوصًا إلى قصاصات منفصلة، كل واحدة معنونة بما قاله المتحدّث فعلًا. افتح أيّها وواصل التعديل.",
           "The strongest thirty seconds of a long take, or the whole thing cut into separate clips, each titled by what the speaker actually said. Open any of them and keep editing.",
         ),
+        prompt: p("قسّمه إلى 3 مقاطع لريلز", "Cut it into 3 clips for Reels"),
       },
       {
         title: p("كابشن بكلامك أنت", "Captions in your own words"),
@@ -272,6 +297,7 @@ export const LANDING = {
           "محروق من كلامك لا من قالب. بالعربية أو الإنجليزية، ومصفوف في الاتجاه الذي تُقرأ به اللغة.",
           "Burned in from what you said, not from a template. In English or Arabic, laid out in the direction that language reads.",
         ),
+        prompt: p("ضيف ترجمة وظبط الصوت ليوتيوب", "Caption it and level the audio for YouTube"),
       },
       {
         title: p("يبدو معدَّلًا لا معالَجًا", "It looks edited, not processed"),
@@ -279,6 +305,7 @@ export const LANDING = {
           "ذوبان بين القطعات، وموسيقاك تنخفض من طريق صوتك حين تتكلّم، ولوك لوني: دافئ، أو سينمائي، أو مطابق لمقطع أعجبك لونه.",
           "Dissolves between the cuts, your own music ducking out of the way while you talk, and a grade: warm, cinematic, or matched to a clip whose colour you liked.",
         ),
+        prompt: p("خلّيه سينمائي مع تلاشي بالبداية والنهاية", "Make it cinematic, fade in and out"),
       },
       {
         title: p("ينهي العمل من دونك", "It finishes without you"),
@@ -286,24 +313,7 @@ export const LANDING = {
           "أغلق التبويب ويكمل الرندر. ولقطاتك تبقى خاصّة بحسابك وحده.",
           "Close the tab and the render carries on. Your footage stays private to your account.",
         ),
-      },
-    ],
-    grid: [
-      {
-        label: p("لقطات إضافية", "B-roll"),
-        hint: p("تُقحَم فوق التسجيل", "cut in over the take"),
-      },
-      {
-        label: p("الفراغات", "Dead air"),
-        hint: p("تُقصّ، لا تُشذَّب يدويًّا", "cut, not trimmed by hand"),
-      },
-      {
-        label: p("الكابشن", "Captions"),
-        hint: p("من كلامك أنت", "from what you said"),
-      },
-      {
-        label: p("الانتقالات", "Transitions"),
-        hint: p("ذوبان، لا قطع جافّ", "dissolved, not dropped"),
+        prompt: p("شدّه وابدأ بالأقوى", "Tighten it up and start with the best bit"),
       },
     ],
   },

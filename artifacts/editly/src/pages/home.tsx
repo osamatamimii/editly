@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Link } from "wouter";
-import { Play, Sparkles, Zap, CheckCircle2, ArrowRight, Check, Upload, MessageSquareText, Send, ChevronLeft, Download } from "lucide-react";
+import { Play, Sparkles, Zap, ArrowRight, Check, Upload, MessageSquareText, Send, ChevronLeft, Download } from "lucide-react";
 import { useGetSubscription, useUpdateSubscription, getGetSubscriptionQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { fetchCheckoutConfig, openCheckout } from "@/lib/checkout";
@@ -18,6 +18,7 @@ import {
   type Phrase,
 } from "@/lib/landing-copy";
 import { useLanguage } from "@/lib/language";
+import { FeatureScroller } from "@/components/feature-scroller";
 
 /**
  * How long `.reveal`'s filter transition is given before the filter is dropped.
@@ -704,8 +705,6 @@ function useLandingLanguage(): [Language, (next: Language) => void] {
  * backwards.
  */
 const MIRROR = "translate(320,0) scale(-1,1)";
-/** The same, for the square cells in the feature grid. */
-const MIRROR_CELL = "translate(120,0) scale(-1,1)";
 
 /**
  * A text anchor, moved to the other side of a mirrored drawing.
@@ -2478,193 +2477,20 @@ export default function Home() {
         <Horizon foot />
         <div className="horizon-grain" aria-hidden="true" />
 
-      {/* ── Features ── */}
-      <section id="features" className="relative w-full max-w-7xl mx-auto px-6 pt-32 pb-24 sm:pt-40">
-        <div className="grid md:grid-cols-2 gap-16 items-center">
-          <div>
-            <div className="reveal">
-              <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.features.eyebrow)}</p>
-              <h2 className="text-4xl font-bold mb-6 leading-tight">
-                <Sweep>{t(LANDING.features.title)}</Sweep>
-              </h2>
-            </div>
-            {/* Five outcomes, not eleven mechanics.
-                This was a checklist of everything the renderer can do, one
-                switch per line — and a list that long is read as a list, which
-                means it is skimmed and none of it lands. Nothing has been
-                dropped from the product: each line here is the result, with the
-                mechanics that produce it underneath, where they belong. Still
-                kept honest by hand: everything named works today. */}
-            <ul className="space-y-6">
-              {LANDING.features.list
-                .map((entry) => ({ title: t(entry.title), detail: t(entry.detail) }))
-                .map((feat, i) => (
-                  <li
-                    key={feat.title}
-                    className="reveal flex items-start gap-4 group"
-                    style={{ transitionDelay: `${i * 80}ms` }}
-                  >
-                    <div className="icon-tile w-10 h-9 mt-0.5 flex-shrink-0">
-                      <CheckCircle2 className="w-[18px] h-[18px]" strokeWidth={2.4} />
-                    </div>
-                    <div>
-                      <span className="block text-lg font-semibold group-hover:text-foreground transition-colors">
-                        {feat.title}
-                      </span>
-                      <span className="block text-muted-foreground mt-1 leading-relaxed">{feat.detail}</span>
-                    </div>
-                  </li>
-                ))}
-            </ul>
-            <div className="mt-10 reveal">
-              <Link
-                href="/dashboard"
-                className="group inline-flex items-center gap-2 min-h-[44px] text-primary hover:text-secondary font-semibold transition-colors"
-              >
-                {t(LANDING.features.tryIt)}
-                <Zap className="w-4 h-4 transition-transform group-hover:scale-125 group-hover:rotate-12" />
-              </Link>
-            </div>
-          </div>
+      {/* ── Features ──
+          Five outcomes, one screen each, handed over by scrolling.
 
-          {/* Four things, drawn rather than labelled.
-              This was four squares with the words "B-Roll", "Captions" and
-              "Transitions" in them — a legend for a picture that was not there,
-              and on a page selling a *video* tool the emptiest thing on it.
-              Each cell now shows the mechanic it names, in twenty lines of SVG:
-              a cutaway laid over the main shot, a caption filling word by word,
-              two shots dissolving across each other. No screenshots, and no
-              stock — they are the shapes themselves. */}
-          <div className="relative reveal">
-            {/* A wash, painted rather than blurred.
-                This was a solid circle with `blur(100px)` on it: a 334,000px
-                surface the compositor re-rasterised through the filter pipeline
-                on every frame it was on screen. A radial gradient produces the
-                same soft falloff in one paint, for nothing. */}
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background:
-                  "radial-gradient(ellipse at 50% 50%, hsl(var(--secondary) / 0.20) 0%, hsl(var(--secondary) / 0.10) 38%, transparent 72%)",
-              }}
-            />
-            <div className="glass-panel glass-flat p-4 sm:p-6 rounded-2xl relative z-10 transition-all duration-500 hover:shadow-[0_0_60px_rgba(80,161,237,0.2)]">
-              <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                {[
-                  {
-                    label: t(LANDING.features.grid[0].label),
-                    hint: t(LANDING.features.grid[0].hint),
-                    art: (
-                      <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
-                        <g transform={rtl ? MIRROR_CELL : undefined}>
-                        <rect x="10" y="24" width="76" height="52" rx="6" className="fill-[var(--art-base)]" />
-                        <rect x="10" y="24" width="76" height="52" rx="6" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
-                        {/* The cutaway, lifted off the shot beneath it. */}
-                        <rect x="46" y="44" width="64" height="46" rx="6" className="fill-[var(--art-accent-soft)]" />
-                        <rect x="46" y="44" width="64" height="46" rx="6" className="fill-none stroke-[var(--art-accent)]" strokeWidth="2" />
-                        <path d="M62 60l18 9-18 9z" className="fill-[var(--art-accent)]" />
-                        </g>
-                      </svg>
-                    ),
-                  },
-                  {
-                    label: t(LANDING.features.grid[1].label),
-                    hint: t(LANDING.features.grid[1].hint),
-                    accent: true,
-                    art: (
-                      <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
-                        <g transform={rtl ? MIRROR_CELL : undefined}>
-                        {/* The waveform, with the flat stretches lifted out of
-                            it — the one thing every take needs doing to it. */}
-                        <g className="fill-[var(--art-accent)]">
-                          {[6, 14, 22, 9, 26, 18].map((h, n) => (
-                            <rect key={`a${n}`} x={16 + n * 8} y={60 - h} width="4" height={h * 2} rx="2" />
-                          ))}
-                        </g>
-                        <g className="fill-[var(--art-line)]">
-                          {[0, 1, 2].map((n) => (
-                            <rect key={`g${n}`} x={64 + n * 8} y="58" width="4" height="4" rx="2" />
-                          ))}
-                        </g>
-                        <g className="fill-[var(--art-accent)]">
-                          {[20, 11, 24].map((h, n) => (
-                            <rect key={`b${n}`} x={90 + n * 8} y={60 - h} width="4" height={h * 2} rx="2" />
-                          ))}
-                        </g>
-                        {/* and where they went. */}
-                        <path
-                          d="M64 84h24"
-                          className="stroke-[var(--art-accent)]"
-                          strokeWidth="2"
-                          strokeDasharray="4 4"
-                          strokeLinecap="round"
-                        />
-                        <path d="M76 96l-5-6h10z" className="fill-[var(--art-accent)]" />
-                        </g>
-                      </svg>
-                    ),
-                  },
-                  {
-                    label: t(LANDING.features.grid[2].label),
-                    hint: t(LANDING.features.grid[2].hint),
-                    art: (
-                      <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
-                        <g transform={rtl ? MIRROR_CELL : undefined}>
-                        <rect x="14" y="18" width="92" height="84" rx="8" className="fill-[var(--art-base)]" />
-                        <rect x="14" y="18" width="92" height="84" rx="8" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
-                        {/* Filled, then half-filled, then waiting — the wipe. */}
-                        <rect x="26" y="62" width="34" height="10" rx="5" className="fill-[var(--art-accent)]" />
-                        <rect x="64" y="62" width="30" height="10" rx="5" className="fill-[var(--art-line)]" />
-                        <rect x="64" y="62" width="13" height="10" rx="5" className="fill-[var(--art-accent)]" />
-                        <rect x="26" y="78" width="46" height="10" rx="5" className="fill-[var(--art-line)]" />
-                        </g>
-                      </svg>
-                    ),
-                  },
-                  {
-                    label: t(LANDING.features.grid[3].label),
-                    hint: t(LANDING.features.grid[3].hint),
-                    art: (
-                      <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
-                        <defs>
-                          <linearGradient id="dissolve-a" x1="0" x2="1">
-                            <stop offset="0.35" stopColor="var(--art-accent)" stopOpacity="0.85" />
-                            <stop offset="1" stopColor="var(--art-accent)" stopOpacity="0" />
-                          </linearGradient>
-                          <linearGradient id="dissolve-b" x1="0" x2="1">
-                            <stop offset="0" stopColor="var(--art-line)" stopOpacity="0" />
-                            <stop offset="0.65" stopColor="var(--art-line)" stopOpacity="1" />
-                          </linearGradient>
-                        </defs>
-                        <g transform={rtl ? MIRROR_CELL : undefined}>
-                        <rect x="8" y="34" width="70" height="52" rx="6" fill="url(#dissolve-a)" />
-                        <rect x="42" y="34" width="70" height="52" rx="6" fill="url(#dissolve-b)" />
-                        <rect x="8" y="34" width="104" height="52" rx="6" className="fill-none stroke-[var(--art-line)]" strokeWidth="1.5" />
-                        </g>
-                      </svg>
-                    ),
-                  },
-                ].map((cell, i) => (
-                  <div
-                    key={i}
-                    className={`aspect-square rounded-xl overflow-hidden border transition-all duration-300 cursor-default flex flex-col
-                      ${cell.accent
-                        ? "bg-primary/15 border-primary/40 shadow-[0_0_20px_rgba(80,161,237,0.18)] hover:shadow-[0_0_35px_rgba(80,161,237,0.4)]"
-                        : "bg-band border-hairline-faint hover:border-hairline hover:bg-surface-1"
-                      }`}
-                  >
-                    <div className="flex-1 min-h-0 p-2 sm:p-3">{cell.art}</div>
-                    <div className="px-3 pb-3">
-                      <p className="text-sm font-semibold leading-tight">{cell.label}</p>
-                      <p className="text-xs text-muted-foreground leading-snug mt-0.5">{cell.hint}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+          This was a column of five bullets beside a grid of four small
+          drawings: everything the product does, all of it visible at once, at
+          the size a bullet gets. The claims were right and none of them landed,
+          because a list that long is read as a list and a list is skimmed.
+
+          The mechanism lives in `components/feature-scroller.tsx` and the
+          arithmetic under it in `lib/feature-scroll.ts` — a tall section held
+          still with `position: sticky`, not a scroll this page takes away from
+          anybody. Below `md`, and for anyone who has asked for less motion,
+          there is no pin at all. See that file's header for the rest. */}
+      <FeatureScroller />
 
       {/* ── One recording, a week of posts ──
           The product has cut clips out of a long take since the renderer
