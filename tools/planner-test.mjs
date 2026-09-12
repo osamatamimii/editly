@@ -1009,6 +1009,31 @@ console.log("\nAsking for a dissolve is a plan for the joins");
     );
   }
 
+  /*
+    And the model is told the rule the director obeys.
+
+    Read out of the instructions rather than exercised, because exercising it
+    would mean asking a model to not do something, which passes by luck. What
+    can be checked is that the sentence is in front of it at all: a model free
+    to put a wipe on somebody's podcast because nobody mentioned it is the same
+    hole as a schema with no property for the style, and that one shipped for
+    months.
+  */
+  const told = readFileSync(
+    path.join(repoRoot, "artifacts/api-server/src/lib/planner.ts"),
+    "utf8",
+  );
+  check(
+    "the model is told not to reach for a decorative join on its own",
+    /Never choose a wipe, a slide, zoomBlur or glitch unless they ask/.test(told),
+    "the sentence is not in the instructions",
+  );
+  check(
+    "and is told which three it may choose",
+    /three you may choose on your own are dissolve, whipPan/.test(told),
+    "the three are not named",
+  );
+
   const emphatic = await planner.plan("cut the silences and add transitions to all of it", {});
   check(
     "but an emphasis on the whole video is not an instruction about the seams",

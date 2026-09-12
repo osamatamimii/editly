@@ -2,6 +2,7 @@ import type { EditOperation, Platform } from "@workspace/api-zod";
 import type { Habit } from "./habits";
 import type { PlannerAsset } from "./planner";
 import type { SpokenSubjects } from "./plan-from-text";
+import { joinFor } from "./join-style";
 
 /**
  * The edit this material wants, before anybody asks for one.
@@ -413,12 +414,51 @@ export function direct(input: DirectionInput): Direction {
     their hard cuts, and only the jump is joined.
   */
   if (cutsSoFar()) {
+    /*
+      And which join, which was the same one for every video until now.
+
+      A quarter-second dissolve is the right answer for most of them and is
+      plainly the wrong one for two: a montage cut to music, where a dissolve is
+      what a slideshow does, and an hour of conversation, where a quarter of a
+      second is over before it has said anything. Nothing failed in either case;
+      they came out looking like they had been through a machine with one idea.
+
+      `joinFor` reads the four facts this file already has and picks from the
+      set the product is allowed to choose on its own. The music question is
+      asked the same way the music block below asks it, and deliberately not by
+      looking at the operations already added — the bed is decided further down,
+      and a rule that depended on the order these blocks happen to be written in
+      is a rule that breaks the day somebody moves one.
+    */
+    const musicUnder =
+      input.spoke.music
+        ? input.spokenTypes.has("addMusic")
+        : input.assets.some((a) => a.kind === "audio") && longEnoughToRestructure;
+    const join = joinFor({
+      hasSpeech: input.hasSpeech,
+      seconds: known ? (seconds as number) : null,
+      chapters: input.reading?.chapters ?? null,
+      musicUnder,
+      vertical,
+    });
     add(
-      { type: "transition", style: "dissolve", durationMs: 250, where: "scenes" },
-      say(
-        "join the cuts where the recording jumps rather than at every cut",
-        "أصل بين القطع حيث يقفز التسجيل لا عند كل قصّة",
-      ),
+      { type: "transition", style: join.style, durationMs: join.durationMs, where: "scenes" },
+      // The sentence names the join, because "join the cuts" is true of all
+      // three and tells somebody nothing about what they are about to watch.
+      join.style === "whipPan"
+        ? say(
+            "whip between the shots where the recording jumps, in time with the track",
+            "أسحب الكاميرا بين اللقطات حيث يقفز التسجيل، على إيقاع المقطوعة",
+          )
+        : join.style === "flashBlack"
+          ? say(
+              "blink to black between the sections, and leave the tidying cuts hard",
+              "أُطفئ إلى السواد بين الأقسام، وأترك قصّات التنظيف حادّة",
+            )
+          : say(
+              "join the cuts where the recording jumps rather than at every cut",
+              "أصل بين القطع حيث يقفز التسجيل لا عند كل قصّة",
+            ),
     );
   }
 

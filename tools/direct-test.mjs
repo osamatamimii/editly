@@ -338,6 +338,109 @@ section("A cold open is the best seam in the edit, and now gets the transition")
   );
 }
 
+section("The join it chooses is the join this video wants");
+{
+  /*
+    One quarter-second dissolve for every video, whatever the video was.
+
+    That is the right answer for most of them and plainly the wrong one for two.
+    A montage cut to music wants motion on its joins — a dissolve there is what
+    a slideshow does — and an hour of conversation wants a join that takes its
+    time, because a quarter of a second is over before it has said anything.
+    Nothing failed either way: the videos came out looking like they had been
+    through a machine with one idea.
+  */
+  const withMusic = of({
+    platform: "tiktok",
+    assets: [{ id: "track", kind: "audio", label: "beat.mp3" }],
+    reading: { peaks: [], hook: null, chapters: 2, how: "model" },
+  });
+  const musical = withMusic.operations.find((op) => op.type === "transition");
+  check(
+    "a montage under a track is whipped, not dissolved",
+    musical?.style === "whipPan",
+    JSON.stringify(musical),
+  );
+  check(
+    "and the reply says so, because all three are not 'join the cuts'",
+    withMusic.willDo.some((p) => /whip between the shots/.test(p.en)),
+    JSON.stringify(withMusic.willDo.map((p) => p.en)),
+  );
+
+  /*
+    Both halves required, and this is the pair that shows why. Length alone is a
+    lecture recorded in one sitting with nothing to punctuate; chapters alone is
+    a three-minute explainer changing topic quickly. Neither wants a half-second
+    black between its cuts.
+  */
+  const longTalk = of({
+    platform: "youtube",
+    sourceSeconds: 3600,
+    reading: { peaks: [], hook: null, chapters: 6, how: "model" },
+  });
+  const sectioned = longTalk.operations.find((op) => op.type === "transition");
+  check(
+    "an hour of conversation with sections blinks to black between them",
+    sectioned?.style === "flashBlack",
+    JSON.stringify(sectioned),
+  );
+  const longNoSections = of({
+    platform: "youtube",
+    sourceSeconds: 3600,
+    reading: { peaks: [], hook: null, chapters: 1, how: "model" },
+  });
+  check(
+    "but an hour with nothing to punctuate is dissolved like anything else",
+    longNoSections.operations.find((op) => op.type === "transition")?.style === "dissolve",
+    JSON.stringify(longNoSections.operations.find((op) => op.type === "transition")),
+  );
+
+  const ordinary = of();
+  check(
+    "and the ordinary video is still the quarter-second dissolve",
+    ordinary.operations.find((op) => op.type === "transition")?.style === "dissolve" &&
+      ordinary.operations.find((op) => op.type === "transition")?.durationMs === 250,
+    JSON.stringify(ordinary.operations.find((op) => op.type === "transition")),
+  );
+
+  /*
+    And whatever it learns about a recording, it can never decide on somebody's
+    behalf that their video should have a wipe in it.
+
+    Read off the source rather than listed here, so a fourth branch added next
+    month is held to the same rule without anybody remembering to add it. The
+    check that matters is the one about the set, not the one about today's three
+    answers.
+  */
+  const source = readFileSync(
+    path.join(repoRoot, "artifacts/api-server/src/lib/join-style.ts"),
+    "utf8",
+  );
+  const chosen = [
+    ...source
+      .slice(source.indexOf("CHOSEN_UNPROMPTED"), source.indexOf("export function mayChoose"))
+      .matchAll(/"([a-zA-Z]+)"/g),
+  ].map((m) => m[1]);
+  check("the set is readable", chosen.length >= 2, JSON.stringify(chosen));
+  const DECORATIVE = ["wipeLeft", "wipeRight", "wipeUp", "wipeDown", "slideLeft", "slideRight", "slideUp", "slideDown", "zoomBlur", "glitch", "flash", "flashGrey"];
+  check(
+    "and holds nothing decorative",
+    DECORATIVE.every((style) => !chosen.includes(style)),
+    JSON.stringify(chosen.filter((style) => DECORATIVE.includes(style))),
+  );
+  const picked = [
+    ...source
+      .slice(source.indexOf("export function joinFor"))
+      .matchAll(/style: "([a-zA-Z]+)"/g),
+  ].map((m) => m[1]);
+  check("the chooser picks something", picked.length >= 2, JSON.stringify(picked));
+  check(
+    "and every branch of it picks from that set",
+    picked.every((style) => chosen.includes(style)),
+    JSON.stringify(picked.filter((style) => !chosen.includes(style))),
+  );
+}
+
 section("What it will not decide on its own");
 
 // The product refuses, by name, to grade to a look it does not have. Inventing
