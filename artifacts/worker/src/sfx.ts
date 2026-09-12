@@ -48,6 +48,8 @@
  */
 
 /** What a sound is for. The role decides which moments it is eligible for. */
+import { overlapAt, overlapBefore, type Overlaps } from "./timeline";
+
 export type SfxRole = "whoosh" | "impact" | "riser" | "accent";
 
 /**
@@ -269,7 +271,7 @@ export const MIN_EDIT_SECONDS = 2.5;
  * un-overlapped map would drift further out of sync with every join it
  * survived.
  */
-export function joinTimes(kept: readonly { start: number; end: number }[], overlap = 0): number[] {
+export function joinTimes(kept: readonly { start: number; end: number }[], overlap: Overlaps = 0): number[] {
   const joins: number[] = [];
   let elapsed = 0;
   for (let i = 0; i < kept.length; i += 1) {
@@ -283,7 +285,18 @@ export function joinTimes(kept: readonly { start: number; end: number }[], overl
       visibly changed. Half an overlap later is the frame where the picture has
       changed as much as it is going to, which is what a cut accent is for.
     */
-    if (i > 0) joins.push(Math.max(0, elapsed - i * overlap + overlap / 2));
+    /*
+      The sum of the joins before this one, and this join's own half.
+
+      It was `i * overlap`, which was right while every join overlapped by the
+      same amount and is wrong the moment they do not: a transition now happens
+      where the recording jumps and not at the tidying cuts, so an accent placed
+      by the uniform arithmetic drifts further from its cut with every hard join
+      it passes. And the half is this join's own half, which is zero at a hard
+      cut — where the middle of the join and its beginning are the same instant,
+      because there is no stretch.
+    */
+    if (i > 0) joins.push(Math.max(0, elapsed - overlapBefore(overlap, i) + overlapAt(overlap, i - 1) / 2));
     elapsed += kept[i]!.end - kept[i]!.start;
   }
   return joins;

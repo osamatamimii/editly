@@ -61,7 +61,7 @@
  * only way a rule like "not more than one change every two seconds" gets
  * checked at all, rather than being a sentence in a comment.
  */
-import type { Segment } from "./timeline";
+import { overlapBefore, type Overlaps, type Segment } from "./timeline";
 
 /** Shorter than this is a glimpse. The size it is shown at is not a decision. */
 export const MIN_SHOT_SECONDS = 1.2;
@@ -102,7 +102,7 @@ export interface Take {
  */
 export function shotsFrom(
   kept: Segment[] | null,
-  overlap: number,
+  overlap: Overlaps,
   duration: number,
 ): Shot[] {
   if (!(duration > 0)) return [];
@@ -112,7 +112,10 @@ export function shotsFrom(
   let elapsed = 0;
   for (let i = 0; i < kept.length - 1; i += 1) {
     elapsed += kept[i].end - kept[i].start;
-    const join = elapsed - (i + 1) * Math.max(0, overlap);
+    // The sum of the joins before this one, not the index times one overlap:
+    // the transitions are not uniform, so the second is wrong by a growing
+    // amount after the first hard cut in a transitioned edit.
+    const join = elapsed - overlapBefore(overlap, i + 1);
     // A join that has collapsed onto the one before it, or that sits past the
     // end, is not a join anybody can see. Dropping it here keeps every shot a
     // real stretch of time, so nothing downstream has to defend itself against
@@ -193,7 +196,7 @@ export function alternateShots(shots: Shot[]): Take[] {
 /** The whole decision, from what the renderer already knows about the cut. */
 export function takesFrom(
   kept: Segment[] | null,
-  overlap: number,
+  overlap: Overlaps,
   duration: number,
 ): Take[] {
   return alternateShots(shotsFrom(kept, overlap, duration));

@@ -425,16 +425,23 @@ const LIMITS = [
   );
 
   /*
-    First the separation itself, measured. With no library, three project-level
+    First the separation itself, measured. With no library, project-level
     refusals appear that a full library removes; if that ever stops being true
     the corpus below stops isolating product limits and every check under it
     would be measuring the wrong set.
+
+    It was three and is two, and the missing one is a feature rather than a
+    regression: music no longer needs anything in the project, because the
+    product ships a library of its own now. The floor is the property this
+    check is about — that an empty project is refused things a full one is not —
+    and pinning it to the exact count made a check about separation go red the
+    day a refusal was correctly removed.
   */
   const emptyLibrary = refusalsFor("add b-roll and music and put my logo on it", []);
   const fullLibrary = refusalsFor("add b-roll and music and put my logo on it");
   check(
     "an empty project refuses things a full one does not",
-    emptyLibrary.length >= 3 && fullLibrary.length === 0,
+    emptyLibrary.length >= 2 && fullLibrary.length === 0,
     `${emptyLibrary.length} with nothing, ${fullLibrary.length} with everything`,
   );
 

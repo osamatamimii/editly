@@ -28,7 +28,7 @@
  */
 import { spawn } from "node:child_process";
 import { guard, LIMITS } from "./deadline";
-import { remapTime, type Segment } from "./timeline";
+import { remapTime, type Overlaps, type Segment } from "./timeline";
 
 /** Columns the frame is reduced to. Enough to place a person, cheap to read. */
 export const COLUMNS = 64;
@@ -380,7 +380,7 @@ export function subjectPath(samples: SubjectSample[], windowFraction: number): S
 export function pathWithinCut(
   keyframes: Array<{ t: number; x: number }>,
   kept: Segment[],
-  overlap = 0,
+  overlap: Overlaps = 0,
 ): Array<{ t: number; x: number }> {
   if (kept.length === 0) return keyframes;
   const from = Math.min(...kept.map((s) => s.start));

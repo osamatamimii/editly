@@ -163,9 +163,46 @@ export function keepSegmentsFrom(
  * shortens the video without shortening the number the caption clock is checked
  * against pushes the last caption past the end of the file.
  */
-export function outputDuration(kept: Segment[], overlap = 0): number {
+export function outputDuration(kept: Segment[], overlap: Overlaps = 0): number {
   const spanned = kept.reduce((sum, s) => sum + (s.end - s.start), 0);
-  return spanned - Math.max(0, kept.length - 1) * overlap;
+  return spanned - overlapBefore(overlap, Math.max(0, kept.length - 1));
+}
+
+/**
+ * How long each join runs both shots at once.
+ *
+ * One number means the same at every join, which is what this was until
+ * transitions stopped happening at every join. An array is one entry per join,
+ * `kept.length - 1` of them, and a zero in it is a hard cut.
+ *
+ * Both shapes rather than only the array, because every caller that has a
+ * single number would otherwise have to build a list to say a thing it already
+ * knows, and a helper that is annoying to call from the simple case is a helper
+ * people route around. Passing `0` is the old behaviour exactly.
+ */
+export type Overlaps = number | readonly number[];
+
+/** The overlap at one join, counting joins from zero. */
+export function overlapAt(overlap: Overlaps, join: number): number {
+  if (typeof overlap === "number") return overlap;
+  return overlap[join] ?? 0;
+}
+
+/**
+ * Everything the first `joins` joins overlap, added up.
+ *
+ * The quantity every clock on this timeline is corrected by: a piece is pulled
+ * earlier by the sum of the overlaps *before* it, not by its index times one
+ * overlap, the moment the overlaps stop being equal. Written once because four
+ * files did that multiplication, and four places that each rediscover the same
+ * arithmetic are four places for the caption clock to disagree with the file.
+ */
+export function overlapBefore(overlap: Overlaps, joins: number): number {
+  if (joins <= 0) return 0;
+  if (typeof overlap === "number") return joins * overlap;
+  let sum = 0;
+  for (let i = 0; i < joins && i < overlap.length; i += 1) sum += overlap[i] ?? 0;
+  return sum;
 }
 
 /**
@@ -180,19 +217,25 @@ export function outputDuration(kept: Segment[], overlap = 0): number {
  * first join earlier, and a caption placed by the un-overlapped map drifts
  * further out of sync with every join it survives. Passing zero is the old
  * behaviour exactly.
+ *
+ * It takes a list as readily as a number, and that is not a convenience. Once a
+ * transition happens at some seams and not others, "index times overlap" is
+ * wrong for every moment after the first hard cut in a transitioned edit, and
+ * wrong by a growing amount. There is no version of this where the caller can
+ * keep passing one number and be right.
  */
-export function remapTime(seconds: number, kept: Segment[], overlap = 0): number {
+export function remapTime(seconds: number, kept: Segment[], overlap: Overlaps = 0): number {
   // Where each kept stretch lands in the output, in the order the concat will
   // play them — which since the cold open exists is no longer necessarily the
-  // order they occur in the source. Each join after the first pulls everything
-  // that follows it earlier by the length of the overlap.
+  // order they occur in the source. Each join before a piece pulls it and
+  // everything after it earlier by that join's own overlap.
   let elapsed = 0;
   const placed = kept.map((segment, i) => {
-    const at = Math.max(0, elapsed - i * overlap);
+    const at = Math.max(0, elapsed - overlapBefore(overlap, i));
     elapsed += segment.end - segment.start;
     return { segment, at };
   });
-  const total = Math.max(0, elapsed - Math.max(0, kept.length - 1) * overlap);
+  const total = Math.max(0, elapsed - overlapBefore(overlap, Math.max(0, kept.length - 1)));
 
   for (const { segment, at } of placed) {
     if (seconds >= segment.start && seconds <= segment.end) {
@@ -437,4 +480,140 @@ export function snapToSpeechBreaks(
   const moved = { start: Math.max(floor, startAt), end: Math.min(options.duration, endAt) };
   if (moved.end - moved.start < asked / 2) return window;
   return moved;
+}
+
+/**
+ * The shortest stretch that counts as an elision rather than a tidy-up.
+ *
+ * A transition is punctuation for something taken out. Under a second and a
+ * half the two shots either side of a join are recognisably the same moment
+ * continuing: the same face, in the same place, in the same light, a breath
+ * later. Dissolving there shows a viewer one face melting into the same face
+ * slightly displaced, which is the jump dissolve every editing manual warns
+ * about and the single most amateur-looking thing a machine editor does.
+ *
+ * Above it, enough of the recording is gone that the picture either side has
+ * genuinely moved on, and the dissolve is doing the job dissolves have done
+ * since film: saying that time passed here.
+ *
+ * It is a threshold about human perception and not about this product, which is
+ * why it is a constant with an argument rather than a number read off the plan.
+ */
+export const SCENE_GAP_SECONDS = 1.5;
+
+/**
+ * The least a join can overlap and still be a transition rather than a smear.
+ *
+ * The contract's own floor for `durationMs`. Below it there is nothing anybody
+ * would read as a transition, and the honest answer is that the cut stayed
+ * hard.
+ */
+export const MIN_JOIN_SECONDS = 0.08;
+
+/**
+ * How much of a piece a join is allowed to eat.
+ *
+ * Two fifths, and it is checked against the *shorter of the two pieces the join
+ * sits between* rather than against the shortest piece in the edit. Those are
+ * the same number only when every piece is the same length, and the difference
+ * is a real defect: one 0.15s sliver anywhere in a forty-cut edit flattened
+ * every transition in it to sixty milliseconds, including the ones between
+ * pieces ten seconds long. A join is a local fact and it is now measured
+ * locally.
+ *
+ * An interior piece is transitioned into on its way in and out of on its way
+ * out, so two fifths leaves a fifth of it on screen by itself. Anything more
+ * and the piece is never alone, which is not a transition, it is a smear.
+ */
+const JOIN_ROOM = 0.4;
+
+/**
+ * Which seams are a change of scene rather than a tidying cut.
+ *
+ * One entry per join, `kept.length - 1` of them, in the order the edit plays.
+ *
+ * The whole point of this function is that **a transition is not a setting, it
+ * is a judgement about a particular seam**. Applying one style uniformly to
+ * every join is what a filter does; deciding per join is what an editor does,
+ * and the two produce visibly different videos from the same plan. A talking
+ * head with forty breaths removed and a dissolve on every one of them looks
+ * like a mistake forty times. The same edit with a dissolve only where the
+ * recording actually jumped looks edited.
+ *
+ * Two things make a seam a scene, and both are facts about the kept list rather
+ * than guesses about the picture:
+ *
+ *   **The edit went backwards.** `next.start < previous.end` can only happen
+ *   because something reordered the recording: a cold open lifting the hook out
+ *   of the middle, reordered highlights, a clip boundary. The viewer is being
+ *   moved somewhere else, and that is exactly what a transition is for.
+ *
+ *   **Enough was taken out.** More than `SCENE_GAP_SECONDS` of source between
+ *   the two pieces. Under that the join is a removed breath or a deleted filler
+ *   and belongs to the shot it is inside.
+ *
+ * `everyCut` is the old behaviour, and it stays reachable because somebody
+ * asking for a transition on every cut is asking for a thing, not making a
+ * mistake — a montage of six-second shots wants one at every seam. It is not
+ * the default because the default is what happens to the person who typed
+ * "add transitions" and meant "make this look edited".
+ */
+export function sceneJoins(
+  kept: readonly Segment[],
+  where: "scenes" | "everyCut" = "scenes",
+): boolean[] {
+  const joins = Math.max(0, kept.length - 1);
+  const out: boolean[] = [];
+  for (let i = 0; i < joins; i += 1) {
+    if (where === "everyCut") {
+      out.push(true);
+      continue;
+    }
+    const before = kept[i]!;
+    const after = kept[i + 1]!;
+    /*
+      Backwards in the source, which only a reorder does.
+
+      The tolerance is a millisecond and not zero because `kept` has been
+      rounded onto the frame grid by the time anybody asks, and a piece that
+      begins on the exact frame the last one ended on is contiguous rather than
+      reordered.
+    */
+    const wentBack = after.start < before.end - 0.001;
+    out.push(wentBack || after.start - before.end >= SCENE_GAP_SECONDS);
+  }
+  return out;
+}
+
+/**
+ * The same seams, with a length each: how long every join runs both shots at
+ * once, zero where the cut stays hard.
+ *
+ * Separate from `sceneJoins` because two callers want different halves of the
+ * question. An overlapped transition needs both the judgement and the room to
+ * make it; a glitch needs only the judgement, because it does not overlap
+ * anything and so cannot run out of room. Folding the room test into the
+ * predicate would have silently suppressed a glitch between two short pieces,
+ * which is a join that costs nothing.
+ */
+export function transitionJoins(
+  kept: readonly Segment[],
+  {
+    seconds,
+    where = "scenes",
+  }: {
+    /** What the plan asked for, in seconds. */
+    seconds: number;
+    where?: "scenes" | "everyCut";
+  },
+): number[] {
+  const scenes = sceneJoins(kept, where);
+  return scenes.map((isScene, i) => {
+    if (!isScene) return 0;
+    // Local room, not global. See JOIN_ROOM.
+    const room =
+      Math.min(kept[i]!.end - kept[i]!.start, kept[i + 1]!.end - kept[i + 1]!.start) * JOIN_ROOM;
+    const length = Math.min(seconds, room);
+    return length < MIN_JOIN_SECONDS ? 0 : length;
+  });
 }

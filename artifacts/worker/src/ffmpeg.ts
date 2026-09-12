@@ -46,7 +46,7 @@ import {
 } from "./framing";
 import { trackSubject, trackNote } from "./subject";
 import { overscanFor, scaleFor, takesFrom } from "./shots";
-import { keepSegmentsFrom, mergeSpans, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, MOTION_OVERSCAN, type RemovableSpan, type Segment, type SpokenWord } from "./timeline";
+import { keepSegmentsFrom, mergeSpans, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, transitionJoins, sceneJoins, overlapAt, overlapBefore, MOTION_OVERSCAN, SCENE_GAP_SECONDS, type RemovableSpan, type Segment, type SpokenWord } from "./timeline";
 import { tighten, type TightenResult } from "./tighten";
 import { placeSoundEffects, joinTimes, MIN_EDIT_SECONDS as SFX_MIN_EDIT_SECONDS, type SfxPalette } from "./sfx";
 import { chooseHighlight } from "./highlight";
@@ -2509,6 +2509,32 @@ function orderedRuns(kept: Segment[]): Segment[][] {
 }
 
 /**
+ * The pieces, split into the sides of the joins that overlap.
+ *
+ * A transitioned join is the only seam `xfade` has to hold two streams open
+ * for. Every other seam is a hard cut, and a hard cut belongs *inside* one side
+ * rather than between two of them: the select path can stream a whole run of
+ * hard-cut pieces out of a single decode, and it already does for the edits
+ * that have no transition at all.
+ *
+ * This is the function that turns "one decoder per piece" into "one decoder per
+ * side", which is the difference between a cold-open talking head getting the
+ * dissolve it was promised and being told the machine has no room for it.
+ *
+ * `overlaps` is one entry per join, zero for a hard cut. The result always has
+ * one more group than there are non-zero entries.
+ */
+function groupsAcross(kept: Segment[], overlaps: readonly number[]): Segment[][] {
+  if (kept.length === 0) return [];
+  const groups: Segment[][] = [[kept[0]!]];
+  for (let i = 1; i < kept.length; i += 1) {
+    if ((overlaps[i - 1] ?? 0) > 0) groups.push([kept[i]!]);
+    else groups[groups.length - 1]!.push(kept[i]!);
+  }
+  return groups;
+}
+
+/**
  * Do these pieces play in the order they appear in the file?
  *
  * True for every edit that only *removes* material, which is all of them
@@ -3728,15 +3754,23 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   const grid = cutGridFor(source.fps);
   if (kept) kept = snapCutsToGrid(kept, grid.fps);
 
-  // ── The join ──────────────────────────────────────────────────────────────
+  // ── The joins ─────────────────────────────────────────────────────────────
   //
   // How long each cut overlaps the next. Zero is a hard cut, which is what
-  // every edit before this one was. It is decided here, before a single filter
-  // is written, because it is not only a look: it is the rate the output clock
-  // runs at through every join, and captions, punches, overlays and titles are
-  // all placed against that clock further down. One number, computed once,
-  // handed to everything.
-  let overlap = 0;
+  // every edit before this one was. Decided here, before a single filter is
+  // written, because it is not only a look: it is the rate the output clock
+  // runs at through each join, and captions, punches, overlays and titles are
+  // all placed against that clock further down.
+  //
+  // A list and not a number, one entry per join, and that is the change this
+  // block exists for. A transition used to happen at every seam or at none,
+  // which is a filter rather than an edit: a talking head with forty breaths
+  // taken out of it and a dissolve on every one of them shows the same face
+  // melting into itself forty times. Now a seam gets one when the recording
+  // actually jumped there and stays hard when it did not, so the clock runs at
+  // a different rate through different joins and every reader of it has to be
+  // told which. See `transitionJoins`.
+  let overlaps: number[] = [];
   /** The ffmpeg name for the style asked for. */
   let joinStyle = "fade";
   /*
@@ -3772,56 +3806,119 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       );
     } else {
       const asked = transition.durationMs / 1000;
-      // The overlap has to fit inside the shortest thing it joins — twice, in
-      // fact, since an interior piece is transitioned into on its way in and
-      // out of on its way out. Two fifths keeps both inside it with room left
-      // that is actually the shot itself; anything more and the shortest piece
-      // is never on screen alone, which is not a transition, it is a smear.
-      const shortest = Math.min(...kept!.map((segment) => segment.end - segment.start));
-      const room = shortest * 0.4;
-      /*
-        The floor is the shortest transition the contract admits.
+      overlaps = transitionJoins(kept!, { seconds: asked, where: transition.where });
 
-        It was 0.05, which is under `TransitionOperation.durationMs`'s own
-        minimum of 80 — so a single short piece anywhere in the edit produced a
-        sixty-millisecond dissolve nobody could have asked for and nobody would
-        read as a dissolve. Below the contract's minimum there is no transition
-        worth making, and saying the cuts stayed hard is the truthful answer.
+      /*
+        What the graph will actually cost, now that the seams are known.
+
+        The cap used to be read against the number of *pieces*, and that was
+        right for the graph the renderer used to build: every piece got its own
+        decoder because `xfade` reads two streams in lockstep. On the flagship
+        path it was also fatal. A talking head with its silences removed is
+        twenty pieces, a 1080p source allows four, so the transition was dropped
+        on every edit this product actually makes — the plan said dissolve, the
+        render said the cuts stayed hard, and the two had been disagreeing since
+        the day the feature shipped.
+
+        The pieces are not what `xfade` holds open. What it holds open is the
+        two sides of a join, and a side is a *run* of pieces the cheap select
+        path can stream out of one decode. An edit of twenty pieces with one
+        scene join in it is two sides, not twenty, and costs two decoders.
+
+        So the cost is counted here, off the seams that were chosen, as the
+        number of runs the grouped graph will open. `orderedRuns` is the same
+        splitter the hard-cut path uses, because a group that plays out of order
+        cannot come out of one decode there either.
       */
-      if (room < MIN_TRANSITION_SECONDS) {
+      const groups = groupsAcross(kept!, overlaps);
+      const decoders = groups.reduce((sum, group) => sum + orderedRuns(group).length, 0);
+      /** Set when the machine, not the edit, is the reason nothing was joined. */
+      let refused = false;
+      if (decoders > maxOverlappedPieces(source.width, source.height)) {
+        // Still possible: `everyCut` on a twenty-piece edit is twenty groups.
+        // Trading a missing dissolve for an OOM kill is not a trade — the kill
+        // takes the whole render with it and says nothing.
+        overlaps = [];
+        refused = true;
         notes.push(
           t(
-            "the pieces this edit is cut into are too short to put a transition between, so the cuts stay hard",
-            "القطع التي قُسّم إليها هذا التعديل أقصر من أن أضع بينها انتقالًا، فتبقى القصّات حادّة",
+            `this edit needs ${decoders} streams open at once to overlap its joins, more than this machine has room for, so the cuts stay hard`,
+            `هذا التعديل يحتاج فتح ${decoders} مجرًى معًا لمراكبة وصلاته، أكثر ممّا تتّسع له هذه الماكينة، فتبقى القصّات حادّة`,
           ),
         );
-      } else if (kept!.length > maxOverlappedPieces(source.width, source.height)) {
-        // Overlapping the joins of an out-of-order edit costs one decoder per
-        // piece, and past four of them on a 1080p source that is more memory
-        // than the worker has. Trading a missing dissolve for an OOM kill is
-        // not a trade: the kill takes the whole render with it and says
-        // nothing. See `maxOverlappedPieces` for the measurements.
-        notes.push(
-          t(
-            `this edit is cut into ${kept!.length} pieces, too many to overlap the joins of on this machine, so the cuts stay hard`,
-            `هذا التعديل مقسوم إلى ${kept!.length} قطعة، أكثر من أن أراكب وصلاتها على هذه الماكينة، فتبقى القصّات حادّة`,
-          ),
+      }
+      const made = overlaps.filter((one) => one > 0).length;
+      const longest = Math.max(0, ...overlaps);
+      const named = STYLE_IN_WORDS[transition.style];
+      const namedAr = STYLE_IN_WORDS_AR[transition.style];
+
+      if (made === 0 && !refused) {
+        /*
+          Nothing was joined, and the reasons are different enough that one
+          sentence for all of them would be a lie about the edit.
+
+          The machine running out of room has already been said above. What is
+          left is either that every seam is a tidying cut — which is the common
+          and correct outcome on a talking head, and is not a failure — or that
+          the pieces are too short to hold a join at all.
+        */
+        const anyRoom = kept!.some(
+          (_, i) =>
+            i < joins &&
+            Math.min(
+              kept![i]!.end - kept![i]!.start,
+              kept![i + 1]!.end - kept![i + 1]!.start,
+            ) *
+              0.4 >=
+              0.08,
         );
-      } else {
-        overlap = Math.min(asked, room);
-        joinStyle = XFADE_STYLE[transition.style];
-        const named = STYLE_IN_WORDS[transition.style];
         notes.push(
-          overlap < asked - 0.001
+          anyRoom
             ? t(
-                `${named} over ${overlap.toFixed(2)}s, shorter than asked, so the shortest piece is still on screen by itself`,
-                `${STYLE_IN_WORDS_AR[transition.style]} خلال ${overlap.toFixed(2)} ثانية، أقصر ممّا طُلب، كي تبقى أقصر قطعة على الشاشة وحدها`,
+                "every cut in this edit tidies up a pause rather than moving somewhere else, so they all stay hard rather than joining a shot to itself",
+                "كل قصّة في هذا التعديل تُنظّف وقفة ولا تنتقل إلى مكان آخر، فتبقى كلّها حادّة بدل أن تصل اللقطة بنفسها",
               )
-            : t(`${named} over ${overlap.toFixed(2)}s`, `${STYLE_IN_WORDS_AR[transition.style]} خلال ${overlap.toFixed(2)} ثانية`),
+            : t(
+                "the pieces this edit is cut into are too short to put a transition between, so the cuts stay hard",
+                "القطع التي قُسّم إليها هذا التعديل أقصر من أن أضع بينها انتقالًا، فتبقى القصّات حادّة",
+              ),
         );
+      } else if (made > 0) {
+        joinStyle = XFADE_STYLE[transition.style];
+        /*
+          What was done, and what was deliberately not done.
+
+          The second half of the sentence is the important half. An operator or
+          a customer reading "dissolve over 0.25s" on an edit with thirty cuts
+          will assume thirty dissolves, and the note has to say that twenty-six
+          of those cuts were left alone on purpose — otherwise the most
+          defensible decision this renderer makes looks like a bug in it.
+        */
+        const skipped = joins - made;
+        notes.push(
+          skipped > 0
+            ? t(
+                `${named} where the recording jumps, at ${made} of ${joins} joins over ${longest.toFixed(2)}s; the other ${skipped} tidy up a pause and stay hard`,
+                `${namedAr} حيث يقفز التسجيل، عند ${made} من ${joins} وصلة خلال ${longest.toFixed(2)} ثانية؛ والباقيات ${skipped} تُنظّف وقفات فتبقى حادّة`,
+              )
+            : t(
+                `${named} over ${longest.toFixed(2)}s, at ${made === 1 ? "the one join" : `all ${made} joins`}`,
+                `${namedAr} خلال ${longest.toFixed(2)} ثانية، عند ${made === 1 ? "الوصلة الوحيدة" : `الوصلات ${made} كلّها`}`,
+              ),
+        );
+        if (longest < asked - 0.001) {
+          notes.push(
+            t(
+              `shorter than the ${(asked * 1000).toFixed(0)}ms asked for, so the shortest piece either side is still on screen by itself`,
+              `أقصر من ${(asked * 1000).toFixed(0)} مللي ثانية المطلوبة، كي تبقى أقصر قطعة على أي من الجانبين على الشاشة وحدها`,
+            ),
+          );
+        }
       }
     }
   }
+  /** Which seams the glitch breaks at. Empty unless the style is glitch. */
+  let glitchSeams: boolean[] = [];
   if (transition && glitch) {
     const joins = kept ? kept.length - 1 : 0;
     if (joins < 1) {
@@ -3832,14 +3929,38 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         ),
       );
     } else {
-      // No duration note: a glitch has no overlap to report, and no piece
-      // cap to apologise for. The seams stay where the cut put them.
-      notes.push(
-        t(
-          "glitched at the seams, a hard cut with the picture breaking for a blink",
-          "قطعت بجليتش عند الوصلات: قصّة حادّة تنكسر الصورة عندها للحظة",
-        ),
-      );
+      /*
+        The same judgement as every other style, and none of the arithmetic.
+
+        A glitch does not overlap anything, so it cannot run out of room and has
+        no piece cap to apologise for — but it is still a mark on a seam, and a
+        mark on every removed breath is the same mistake a dissolve there would
+        be, flickering instead of melting. `sceneJoins` is the predicate both
+        paths share.
+      */
+      glitchSeams = sceneJoins(kept!, transition.where);
+      const made = glitchSeams.filter(Boolean).length;
+      const skipped = joins - made;
+      if (made === 0) {
+        notes.push(
+          t(
+            "every cut in this edit tidies up a pause rather than moving somewhere else, so they all stay clean",
+            "كل قصّة في هذا التعديل تُنظّف وقفة ولا تنتقل إلى مكان آخر، فتبقى كلّها نظيفة",
+          ),
+        );
+      } else {
+        notes.push(
+          skipped > 0
+            ? t(
+                `glitched at ${made} of ${joins} seams, where the recording jumps: a hard cut with the picture breaking for a blink; the other ${skipped} tidy up a pause and stay clean`,
+                `جليتش عند ${made} من ${joins} وصلة، حيث يقفز التسجيل: قصّة حادّة تنكسر الصورة عندها للحظة؛ والباقيات ${skipped} تُنظّف وقفات فتبقى نظيفة`,
+              )
+            : t(
+                "glitched at the seams, a hard cut with the picture breaking for a blink",
+                "قطعت بجليتش عند الوصلات: قصّة حادّة تنكسر الصورة عندها للحظة",
+              ),
+        );
+      }
     }
   }
 
@@ -3864,84 +3985,154 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     const last = kept.length - 1;
     /** Whether the finished soundtrack passed through the seam declick. */
     let declicked = false;
+    /** Whether the glitch filter was actually written. See below. */
+    let glitchDrawn = false;
+    /** The label carrying each overlapped group's finished audio. */
+    const groupAudio: string[] = [];
 
-    if (overlap > 0) {
+    if (overlaps.some((one) => one > 0)) {
       /**
-       * Every piece decoded on its own, because the joins overlap.
+       * One decoder per side of a join, not one per piece.
        *
-       * `xfade` reads two streams in lockstep, so the pieces have to exist as
-       * separate streams however they are made — and made as `trim` branches
-       * off one shared decode they are ruinous: ffmpeg feeds those branches in
-       * the order the decoder produces frames, so the frames of every later
-       * piece pile up in memory while the first join is still being made.
-       * Measured on a 1080p source with a 0.25s dissolve, peak resident memory
-       * for the whole process:
+       * `xfade` reads two streams in lockstep, so the two sides of a join have
+       * to exist as separate streams however they are made — and made as `trim`
+       * branches off one shared decode they are ruinous: ffmpeg feeds those
+       * branches in the order the decoder produces frames, so the frames of
+       * every later piece pile up in memory while the first join is still being
+       * made. Measured on a 1080p source with a 0.25s dissolve, peak resident
+       * memory for the whole process:
        *
        *      pieces   trim branches   own input
        *           4         1170 MB      505 MB
        *           8         2802 MB     1633 MB
        *          12         4211 MB     3196 MB
        *
-       * The worker has 1 GB (fly.toml). So an input each, always — and the cap
-       * below applies to every overlapped edit rather than only to the ones
-       * that play out of order, which is what it always should have been: the
-       * in-order path was the cheaper-looking one and was in fact the one over
-       * the box.
+       * The worker has 1 GB (fly.toml). So an input each — but each for *what*
+       * is the question this block used to get wrong. It gave every piece its
+       * own input, which made the cost the length of the edit rather than the
+       * number of transitions in it, and on the flagship path that meant no
+       * transition at all: a talking head with the silences taken out is twenty
+       * pieces, a 1080p source pays for four, and the dissolve was dropped on
+       * every edit this product actually makes.
        *
-       * A cold open additionally *cannot* share a decode: chained `acrossfade`
-       * over branches that want the file out of order does not come out wrong,
-       * it deadlocks — three out-of-order pieces measured never finishing at
-       * all. Seeking each piece on its own input removes both problems at once.
+       * A side is a *group*: a run of pieces with only hard cuts between them.
+       * Hard cuts inside a group are made by `select` out of one decode, which
+       * is the same machinery the no-transition path uses and costs nothing per
+       * cut. A cold-open talking head with one scene join is two groups and two
+       * decoders, whatever it is cut into.
+       *
+       * A group that plays out of order still needs one decode per forward run
+       * inside it, for the reason the hard-cut path documents: chained
+       * `acrossfade` over branches that want the file out of order does not
+       * come out wrong, it deadlocks.
        */
-      kept.forEach((segment, i) => {
-        // Forced onto the grid: xfade walks two streams frame by frame and a
-        // variable frame rate walks them out of step.
-        const cadence = `,fps=${grid.fps.toFixed(4)}`;
-        // `-ss` before `-i` is an input seek: ffmpeg lands on the keyframe
-        // before the mark and decodes forward to it, so the piece is
-        // frame-accurate and the reading is cheap. `-t` bounds it.
-        const idx = addInput(
-          "-ss", segment.start.toFixed(4),
-          "-t", (segment.end - segment.start).toFixed(4),
-          "-i", input,
-        );
-        pieces.push(`[${idx}:v]setpts=PTS-STARTPTS${cadence}[cv${i}]`);
+      const groups = groupsAcross(kept, overlaps);
+      /** The joins between groups, in order. One shorter than `groups`. */
+      const joinLengths = overlaps.filter((one) => one > 0);
+      const halfFrame = 0.5 / grid.fps;
+      const halfCell = (0.5 * grid.samplesPerCell) / CUT_AUDIO_RATE;
+      const within = (spans: Segment[], shift: number): string =>
+        spans.map((s) => `between(t,${(s.start - shift).toFixed(6)},${(s.end - shift).toFixed(6)})`).join("+");
+      /** Whether anything has taken input 0, which is the file already open. */
+      let usedMainInput = false;
+
+      groups.forEach((group, g) => {
+        const runs = orderedRuns(group);
+        runs.forEach((run, r) => {
+          const idx = usedMainInput
+            ? addInput("-ss", run[0]!.start.toFixed(4), "-copyts", "-i", input)
+            : 0;
+          usedMainInput = true;
+          // Forced onto the grid whether or not the source needs retiming:
+          // xfade walks two streams frame by frame, and two streams that
+          // disagree about the frame rate walk out of step. The hard-cut path
+          // can leave a conformant source alone; this one cannot.
+          pieces.push(
+            `[${idx}:v]fps=${grid.fps.toFixed(4)},select='${within(run, halfFrame)}',setpts=N/FRAME_RATE/TB[g${g}v${r}]`,
+          );
+          if (!withAudio) return;
+          const runAudio =
+            `[${idx}:a]aformat=sample_rates=${CUT_AUDIO_RATE},asetnsamples=n=${grid.samplesPerCell}:p=0,` +
+            `aselect='${within(run, halfCell)}',asetpts=N/SR/TB[g${g}a${r}]`;
+          pieces.push(runAudio);
+          audioPieces.push(runAudio);
+        });
+
+        if (runs.length === 1) {
+          pieces.push(`[g${g}v0]null[gv${g}]`);
+          if (withAudio) {
+            pieces.push(`[g${g}a0]anull[ga${g}]`);
+            audioPieces.push(`[g${g}a0]anull[ga${g}]`);
+          }
+        } else {
+          pieces.push(
+            `${runs.map((_, r) => (withAudio ? `[g${g}v${r}][g${g}a${r}]` : `[g${g}v${r}]`)).join("")}` +
+              `concat=n=${runs.length}:v=1:a=${withAudio ? 1 : 0}[gv${g}]${withAudio ? `[ga${g}]` : ""}`,
+          );
+          if (withAudio) {
+            audioPieces.push(
+              `${runs.map((_, r) => `[g${g}a${r}]`).join("")}concat=n=${runs.length}:v=0:a=1[ga${g}]`,
+            );
+          }
+        }
+
         if (!withAudio) return;
-        // Every audio edge gets a blink-long ramp (15ms — under any perceptual
-        // threshold for a fade, well over the one for a click). A cut lands
-        // wherever the detector put it, which is rarely a zero crossing, and a
-        // waveform that jumps mid-cycle is a broadband click stitched into the
-        // join.
-        //
-        // An edge that a dissolve is about to cross fade over does not get
-        // one: the crossfade already ramps it, over a hundred times longer,
-        // and two ramps stacked on one edge is an audible dip in the middle of
-        // the transition. The outer two edges are still hard cuts out of the
-        // source and still get theirs.
-        const len = segment.end - segment.start;
-        const ramp = Math.min(DECLICK_SECONDS, len / 4);
-        const rampIn = i > 0 ? 0 : ramp;
-        const rampOut = i < last ? 0 : ramp;
-        const fades = [
-          rampIn > 0 ? `afade=t=in:st=0:d=${rampIn.toFixed(4)}` : null,
-          rampOut > 0 ? `afade=t=out:st=${Math.max(0, len - rampOut).toFixed(4)}:d=${rampOut.toFixed(4)}` : null,
+        /*
+          The declick, at this group's own seams.
+
+          Every hard cut gets a 15ms notch — under any perceptual threshold for
+          a fade, well over the one for a click, because a cut lands wherever
+          the detector put it and a waveform that jumps mid-cycle is a broadband
+          click stitched into the join. The seams are inside the group's stream
+          now rather than between two pieces, so the notch is written on the
+          finished group, on the output clock, which is exact because the cut is
+          on the grid.
+
+          The two edges that a crossfade is about to cover get nothing: the
+          crossfade already ramps them, a hundred times longer, and two ramps on
+          one edge is an audible dip in the middle of the transition. The very
+          first and very last edges of the whole edit are hard cuts out of the
+          source and still get theirs.
+        */
+        const lengths = group.map((segment) => segment.end - segment.start);
+        const total = lengths.reduce((sum, len) => sum + len, 0);
+        const notches: string[] = [];
+        let at = 0;
+        for (let i = 0; i < group.length - 1; i += 1) {
+          at += lengths[i]!;
+          const ramp = Math.min(DECLICK_SECONDS, Math.min(lengths[i]!, lengths[i + 1]!) / 4);
+          if (ramp > 0) notches.push(`max(0,1-abs(t-${at.toFixed(5)})/${ramp.toFixed(5)})`);
+        }
+        const edge = Math.min(DECLICK_SECONDS, total / 4);
+        const chain = [
+          notches.length > 0 ? `volume=eval=frame:volume='1-(${notches.join("+")})'` : null,
+          g === 0 && edge > 0 ? `afade=t=in:st=0:d=${edge.toFixed(4)}` : null,
+          g === groups.length - 1 && edge > 0
+            ? `afade=t=out:st=${Math.max(0, total - edge).toFixed(4)}:d=${edge.toFixed(4)}`
+            : null,
         ].filter((part): part is string => part !== null);
-        const cutAudio =
-          `[${idx}:a]asetpts=PTS-STARTPTS` +
-          (fades.length > 0 ? `,${fades.join(",")}` : "") +
-          `[ca${i}]`;
-        pieces.push(cutAudio);
-        audioPieces.push(cutAudio);
+        if (chain.length > 0) {
+          const line = `[ga${g}]${chain.join(",")}[gd${g}]`;
+          pieces.push(line);
+          audioPieces.push(line);
+        }
+        groupAudio[g] = chain.length > 0 ? `gd${g}` : `ga${g}`;
       });
 
       // Chained pairwise, because that is the only shape xfade has. Each join
-      // starts `overlap` before the end of everything already stitched — and
-      // everything already stitched is shorter than the sum of its parts by one
-      // overlap per join made so far, which is the whole reason the output
-      // clock needs correcting downstream.
-      let elapsed = kept[0]!.end - kept[0]!.start;
-      let vPrevious = "cv0";
-      let aPrevious = "ca0";
+      // starts its own overlap before the end of everything already stitched —
+      // and everything already stitched is shorter than the sum of its parts by
+      // the overlaps used so far, which is the whole reason the output clock
+      // needs correcting downstream.
+      const groupLengths = groups.map((group) =>
+        group.reduce((sum, segment) => sum + (segment.end - segment.start), 0),
+      );
+      let elapsed = groupLengths[0]!;
+      /** Everything the joins made so far overlap, which is what pulls the rest earlier. */
+      let pulled = 0;
+      let vPrevious = "gv0";
+      let aPrevious = groupAudio[0] ?? "ga0";
+      const lastGroup = groups.length - 1;
       /* The burst lands exactly on each join's window, so the windows are
          collected from the same arithmetic that places the xfades. */
       const burst =
@@ -3950,53 +4141,50 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           : transition?.style === "zoomBlur"
             ? "gblur=sigma=7:steps=2"
             : null;
-      for (let i = 1; i < kept.length; i += 1) {
-        const offset = elapsed - i * overlap;
-        const vOut = i === last ? (burst ? "xvjoin" : "cutv") : `xv${i}`;
-        joinWindows.push([Math.max(0, offset), Math.max(0, offset) + overlap]);
+      for (let g = 1; g <= lastGroup; g += 1) {
+        const length = joinLengths[g - 1]!;
+        const offset = elapsed - pulled - length;
+        const vOut = g === lastGroup ? (burst ? "xvjoin" : "cutv") : `xv${g}`;
+        joinWindows.push([Math.max(0, offset), Math.max(0, offset) + length]);
         pieces.push(
-          `[${vPrevious}][cv${i}]xfade=transition=${joinStyle}:duration=${overlap.toFixed(4)}:` +
+          `[${vPrevious}][gv${g}]xfade=transition=${joinStyle}:duration=${length.toFixed(4)}:` +
             `offset=${Math.max(0, offset).toFixed(4)}[${vOut}]`,
         );
         vPrevious = vOut;
         if (withAudio) {
-          const aOut = i === last ? "cuta" : `xa${i}`;
+          const aOut = g === lastGroup ? "cuta" : `xa${g}`;
           // `qsin` and not `tri`: two triangular ramps crossing sum to 0.71 of
           // either one at the midpoint, which is a 2.9 dB hole measured in the
           // middle of every dissolve. Equal-power curves sum to 1.
-          const cross = `[${aPrevious}][ca${i}]acrossfade=d=${overlap.toFixed(4)}:c1=qsin:c2=qsin[${aOut}]`;
+          const cross = `[${aPrevious}][${groupAudio[g] ?? `ga${g}`}]acrossfade=d=${length.toFixed(4)}:c1=qsin:c2=qsin[${aOut}]`;
           pieces.push(cross);
           audioPieces.push(cross);
           aPrevious = aOut;
         }
-        elapsed += kept[i]!.end - kept[i]!.start;
+        elapsed += groupLengths[g]!;
+        pulled += length;
       }
       if (burst && joinWindows.length > 0) {
         /*
           One windowed filter on the finished stitch, not one per join: the
           `enable` expression carries every window, so however many joins the
           edit has, the graph grows by a single node and zero decoders. That
-          is what keeps `maxOverlappedPieces` honest after this feature.
-          Measured, four pieces of 1080p30, peak resident for the whole
-          process: dissolve 890 MB, whip 919 MB, zoom blur 918 MB — three per
-          cent for the burst, inside the cap's own safety margin. (The same
-          edit glitched: 564 MB, because glitch never opens an overlap at
-          all — see its branch on the select path.)
+          is what keeps the cap honest after this feature. Measured, four
+          pieces of 1080p30, peak resident for the whole process: dissolve
+          890 MB, whip 919 MB, zoom blur 918 MB — three per cent for the
+          burst, inside the cap's own safety margin. (The same edit glitched:
+          564 MB, because glitch never opens an overlap at all — see its branch
+          on the select path.)
         */
         const windows = joinWindows
           .map(([from, to]) => `between(t,${from.toFixed(4)},${to.toFixed(4)})`)
           .join("+");
         pieces.push(`[xvjoin]${burst}:enable='${windows}'[cutv]`);
       }
-      if (kept.length === 1) {
-        // One piece and an overlap is not a state the join block produces, but
-        // the labels have to exist for the rest of the graph either way.
-        pieces.push(`[cv0]null[cutv]`);
-        if (withAudio) {
-          pieces.push(`[ca0]anull[cuta]`);
-          audioPieces.push(`[ca0]anull[cuta]`);
-        }
-      }
+      // The crossfades have already ramped every edge they cover, and the
+      // group notches covered the hard cuts inside each side, so the audio
+      // coming out of the chain is finished.
+      declicked = false;
     } else {
       /**
        * The cut as a selection, not as a piece per branch.
@@ -4095,7 +4283,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         }
       }
 
-      if (glitch && kept.length > 1) {
+      if (glitch && kept.length > 1 && glitchSeams.some(Boolean)) {
         /*
           The break at each seam: an RGB split and a flicker of temporal
           noise, for 90ms either side of the cut. The windows sit on the
@@ -4109,12 +4297,20 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         let at = 0;
         for (let i = 0; i < kept.length - 1; i += 1) {
           at += lengths[i]!;
+          if (!glitchSeams[i]) continue;
           seams.push(`between(t,${Math.max(0, at - 0.09).toFixed(4)},${(at + 0.09).toFixed(4)})`);
         }
-        const windows = seams.join("+");
-        pieces.push(
-          `[cutv]rgbashift=rh=6:bv=-6:enable='${windows}',noise=alls=18:allf=t:enable='${windows}'[glv]`,
-        );
+        // The label is only swapped for `glv` when something was actually
+        // drawn; an enable expression with no windows in it is a filter that
+        // runs on every frame and does nothing, and an empty one is a syntax
+        // error.
+        if (seams.length > 0) {
+          const windows = seams.join("+");
+          pieces.push(
+            `[cutv]rgbashift=rh=6:bv=-6:enable='${windows}',noise=alls=18:allf=t:enable='${windows}'[glv]`,
+          );
+          glitchDrawn = true;
+        }
       }
 
       if (withAudio) {
@@ -4157,11 +4353,11 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
     graphPrefix = `${pieces.join(";")};`;
     if (withAudio && audioPieces.length > 0) audioPrefix = `${audioPieces.join(";")};`;
-    vLabel = glitch && overlap === 0 && kept.length > 1 ? "glv" : "cutv";
+    vLabel = glitchDrawn ? "glv" : "cutv";
     if (withAudio) aLabel = declicked ? "cutd" : "cuta";
   }
 
-  const effectiveDuration = kept ? outputDuration(kept, overlap) : source.duration;
+  const effectiveDuration = kept ? outputDuration(kept, overlaps) : source.duration;
 
   // ── The critic ────────────────────────────────────────────────────────────
   //
@@ -4183,7 +4379,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       language: ctx.language,
       kept,
       effectiveDuration,
-      overlap,
+      overlap: overlaps,
       words: ctx.words,
     });
     notes.push(...reviewed.notes);
@@ -4329,7 +4525,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         const at = settlePunches(chosen, {
           kept,
           effectiveDuration,
-          overlap,
+          overlap: overlaps,
           holdSeconds: (zoomPunch.holdMs ?? 1200) / 1000,
         }).at;
         if (at.length === 0) {
@@ -4388,7 +4584,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // mode this repository keeps finding, and "alternate the framing" on a clip
   // with one cut in it is exactly the shape of it.
   const framingAmount = alternateFraming?.amount ?? 0;
-  const takes = alternateFraming ? takesFrom(kept, overlap, effectiveDuration) : [];
+  const takes = alternateFraming ? takesFrom(kept, overlaps, effectiveDuration) : [];
   if (alternateFraming && takes.length === 0) {
     notes.push(
       t(
@@ -4557,7 +4753,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           `extractClips` and `coldOpen` all take this path, and `direct.ts` puts
           a highlight and a reframe in the same plan by default.
         */
-        const keyframes = kept ? pathWithinCut(path.keyframes, kept, overlap) : path.keyframes;
+        const keyframes = kept ? pathWithinCut(path.keyframes, kept, overlaps) : path.keyframes;
         cropXExpr = cropExpression(keyframes, scaledWidth, cropW);
         const moves = (keyframes.length - 1) / 2;
         notes.push(
@@ -5047,8 +5243,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   if (titleOps.length > 0) {
     const titles: MotionTitle[] = [];
     for (const op of titleOps) {
-      const start = kept ? remapTime(op.at, kept, overlap) : op.at;
-      const end = kept ? remapTime(op.at + op.durationSeconds, kept, overlap) : op.at + op.durationSeconds;
+      const start = kept ? remapTime(op.at, kept, overlaps) : op.at;
+      const end = kept ? remapTime(op.at + op.durationSeconds, kept, overlaps) : op.at + op.durationSeconds;
       if (end - start < 0.2) {
         notes.push(
           t("dropped a title whose moment did not survive the cut", "أسقطت عنوانًا لم تنجُ لحظته من القصّ"),
@@ -5150,8 +5346,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
       const startSrc = op.at;
       const endSrc = op.at + op.durationSeconds;
-      const start = kept ? remapTime(startSrc, kept, overlap) : startSrc;
-      const end = kept ? remapTime(endSrc, kept, overlap) : endSrc;
+      const start = kept ? remapTime(startSrc, kept, overlaps) : startSrc;
+      const end = kept ? remapTime(endSrc, kept, overlaps) : endSrc;
       if (end - start < 0.1) {
         // The whole stretch it was pinned to was cut away.
         notes.push(
@@ -5317,7 +5513,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           // Joins on the *output* clock, overlap included — a whoosh placed by
           // the un-overlapped map drifts further out of sync with every join it
           // survives, which is the same arithmetic every caption is placed by.
-          joins: kept ? joinTimes(kept, overlap) : [],
+          joins: kept ? joinTimes(kept, overlaps) : [],
           // `zoomPunch.at` is already on the output clock here: the critic
           // remapped the emphasis moments and the beat grid was never on any
           // other clock. This is the first line in the file where both are true.

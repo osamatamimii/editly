@@ -253,7 +253,16 @@ export const TEMPLATES: Template[] = [
           // 220ms: long enough to read as a dissolve rather than a glitch,
           // short enough that a one-second piece is still on screen by itself.
           // The renderer shortens it further on pieces too short to carry it.
-          { type: "transition", style: "dissolve", durationMs: 220 },
+          //
+          // `scenes`, which is the default and is said out loud here anyway,
+          // because this template is the exact case it exists for: a person
+          // talking, with their breaths taken out, is a shot that continues
+          // across almost every one of its cuts. A dissolve on each of those
+          // is the same face melting into itself twenty times. The template's
+          // own note above says the transition "makes those joins stop reading
+          // as jump cuts", and that is true of the joins where the recording
+          // moved on and false of the rest.
+          { type: "transition", style: "dissolve", durationMs: 220, where: "scenes" },
           { type: "formatForPlatform", platform: context.platform },
           // The grade goes on the picture and not on what is drawn over it, so
           // the captions below stay white rather than drifting with the look.
@@ -370,7 +379,12 @@ export const TEMPLATES: Template[] = [
           // A flash on a cut that lands on the beat is the oldest music-video
           // trick there is, and it only works because the cut is already there:
           // the silence removal makes the joins, this makes them read.
-          { type: "transition", style: "flash", durationMs: 140 },
+          //
+          // `everyCut`, and it is the one template that asks for it. A flash is
+          // rhythm rather than punctuation: it works by landing on every beat,
+          // and one that fires at four of thirty cuts is not a subtler version
+          // of the effect, it is a fault in it.
+          { type: "transition", style: "flash", durationMs: 140, where: "everyCut" },
           // No high-pass under a track. Below 80Hz there is room tone on a
           // talking clip and the bottom octave of a kick drum here, and this
           // is the one look somebody picked *for* the music.

@@ -1443,10 +1443,67 @@ export function planFromText(
   // with nothing else said means both — the ends and the joins — because that
   // is what the word means to someone who has never seen this menu, and both
   // now exist. Naming one gets exactly the one named.
-  const wantsAnyTransition = /\btransitions?\b|\bانتقال|انتقالات/i.test(text);
+  /*
+    The word for it, and the trap it fell into.
+
+    This read `/\btransitions?\b|\bانتقال|انتقالات/i`, and the `\b` in front of
+    the Arabic could never match. A boundary sits between a word character and a
+    non-word one; every Arabic letter is a non-word character to a JavaScript
+    regular expression, so `\bانتقال` can only fire where a Latin letter or a
+    digit is touching the alif. «حط انتقال بين القصّات» has a space there, so the
+    singular Arabic word for a transition produced nothing at all — the plural
+    worked, because the `انتقالات` alternative beside it carries no `\b`. The
+    same trap is documented in four other places in this file; this is the
+    fifth, and it was sitting on the feature's own name.
+
+    Bare stems and no suffixes, because Arabic prefixes and suffixes attach to
+    the word: «انتقال» is inside «الانتقال», «انتقالات» and «الانتقالات», and
+    matching the stem catches all four without four alternatives to keep in
+    step. Writing `انتقالات?` instead would have been a third bug in one line —
+    that is «انتقالا» with an optional «ت», which is not a word.
+
+    The transliterations are here because that is what people actually type.
+    The request that led to this change was written «الترانزشنز», which this
+    product did not understand at all.
+  */
+  const wantsAnyTransition = /\btransitions?\b|انتقال|ترانز[يی]?شن/i.test(text);
   const shapedStyle = transitionStyleFrom(text);
   const wantsDissolve = DISSOLVE_WORDS.test(text);
-  if (FADE_WORDS.test(text) || wantsAnyTransition) {
+  /*
+    Where they want them, when they said.
+
+    The renderer puts a transition where the recording jumps and leaves every
+    tidying cut hard, which is what somebody who typed "add transitions" meant
+    and is not what somebody who typed "a transition between every cut" meant.
+    The second is a real ask — a montage, a slideshow, a flash on the beat —
+    and it is narrow on purpose: "every", "each" or "all" has to be next to the
+    word for a cut, because "add transitions to all of it" is the first sentence
+    again with an emphasis on it.
+
+    No `\b` before the Arabic, which does not work in front of an Arabic letter:
+    `\b` is a boundary between a word character and a non-word one, and every
+    Arabic letter is a non-word character to a JavaScript regular expression, so
+    `\bكل` can only ever match where a Latin letter touches it. The trap is
+    documented in four other places in this file and this is the fifth.
+  */
+  const EVERY_CUT_WORDS =
+    /\b(?:every|each|all)\s+(?:single\s+)?(?:cut|cuts|join|joins|seam|seams|clip|clips|shot|shots)\b|(?:كل|بين كل)\s*(?:قصّ?ة|قصّ?ات|وصلة|وصلات|مقطع|مقاطع|لقطة|لقطات)/i;
+  const everyCut = EVERY_CUT_WORDS.test(text);
+  /*
+    The ends, and only when the ends are what was meant.
+
+    A bare "transitions" means both halves of the word — the fade at the ends
+    and the join between the cuts — because that is what it means to somebody
+    who has never seen this menu, and both exist. But «انتقال ناعم بين
+    المقاطع» and "a soft transition between the cuts" have already said which
+    half, and adding a fade to black on top of that is answering the vaguer
+    reading of a sentence that was not vague.
+
+    The same rule is applied to the style ten lines down, and this is where it
+    should always have started: a named shape wins over the general ask.
+  */
+  const namedTheJoins = wantsDissolve || shapedStyle !== null;
+  if (FADE_WORDS.test(text) || (wantsAnyTransition && !namedTheJoins)) {
     operations.push({ type: "fade", durationMs: 500 });
     willDo.push(say("open it from black and close it to black", "أفتحه من السواد وأُغلقه إليه"));
   }
@@ -1461,14 +1518,39 @@ export function planFromText(
     // the pair works and the promise is good again. The note is left here
     // because the two features still interact, and the next person to touch
     // either one should know that they do.
-    operations.push({ type: "transition", style, durationMs: 250 });
+    operations.push({
+      type: "transition",
+      style,
+      durationMs: 250,
+      where: everyCut ? "everyCut" : "scenes",
+    });
+    /*
+      And the reply says which, because the difference is visible in the file.
+
+      Somebody told "dissolve between the cuts" who then watches a thirty-cut
+      edit with four dissolves in it has been misled by the sentence rather than
+      by the render. The narrower promise is also the more impressive one: it
+      says the product looked at the cuts instead of treating them all alike.
+    */
+    const named = style === "dissolve" ? null : STYLE_IN_WORDS[style];
+    const namedAr = style === "dissolve" ? null : STYLE_IN_WORDS_AR[style];
     willDo.push(
-      style === "dissolve"
-        ? say("dissolve between the cuts instead of jumping", "أذوّب بين القصّات بدل القفز بينها")
-        : say(
-            `join the cuts with a ${STYLE_IN_WORDS[style]} instead of jumping`,
-            `أصل القصّات بـ${STYLE_IN_WORDS_AR[style]} بدل القفز بينها`,
-          ),
+      everyCut
+        ? named
+          ? say(
+              `join every cut with a ${named}`,
+              `أصل كل قصّة بـ${namedAr}`,
+            )
+          : say("dissolve between every cut", "أذوّب بين كل قصّة وأختها")
+        : named
+          ? say(
+              `join the cuts with a ${named} where the recording jumps rather than at every cut`,
+              `أصل القصّات بـ${namedAr} حيث يقفز التسجيل لا عند كل قصّة`,
+            )
+          : say(
+              "dissolve where the recording jumps rather than between every cut",
+              "أذوّب حيث يقفز التسجيل لا بين كل قصّة وأختها",
+            ),
     );
   }
 

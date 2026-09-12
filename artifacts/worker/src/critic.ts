@@ -23,7 +23,7 @@
  * thing it will not do is leave a decision in place that it knows is wrong.
  */
 import type { EditOperation } from "@workspace/api-zod";
-import { remapTime, MOTION_OVERSCAN, type Segment, type SpokenWord } from "./timeline";
+import { remapTime, overlapAt, overlapBefore, MOTION_OVERSCAN, type Overlaps, type Segment, type SpokenWord } from "./timeline";
 import { sayIn, countedAr, AR_NOUNS, type Language } from "./say";
 
 export interface CriticInput {
@@ -42,7 +42,7 @@ export interface CriticInput {
    * join, so a critic reading the un-overlapped clock would guard the wrong
    * splices and reject punches that are comfortably inside the file.
    */
-  overlap?: number;
+  overlap?: Overlaps;
   /**
    * What was said and when, on the source clock, where a transcript exists.
    *
@@ -371,7 +371,7 @@ function capZoom(
  */
 export function settlePunches(
   seconds: readonly number[],
-  options: { kept: Segment[] | null; effectiveDuration: number; overlap: number; holdSeconds: number },
+  options: { kept: Segment[] | null; effectiveDuration: number; overlap: Overlaps; holdSeconds: number },
 ): { at: number[]; crowded: number } {
   // A punch needs room to open and close. One that starts with less than its
   // own hold left plays as a zoom that never comes back.
@@ -392,7 +392,7 @@ export function settlePunches(
   };
 }
 
-function nudgeOffSplice(seconds: number, kept: Segment[] | null, limit: number, overlap = 0): number {
+function nudgeOffSplice(seconds: number, kept: Segment[] | null, limit: number, overlap: Overlaps = 0): number {
   if (!kept || kept.length < 2) return seconds;
 
   // Where the joins land on the edited clock. With a dissolve a join is not an
@@ -414,12 +414,22 @@ function nudgeOffSplice(seconds: number, kept: Segment[] | null, limit: number, 
       quarter-second dissolve it was landing there by construction.
 
       The join between piece i and piece i+1 runs from
-      `sum(0..i) - (i+1)·overlap` to `sum(0..i) - i·overlap`; the second of
-      those is what a punch has to clear.
+      `sum(0..i) - overlapBefore(i+1)` to `sum(0..i) - overlapBefore(i)`; the
+      second of those is what a punch has to clear.
+
+      Written against the sum of the joins before this one rather than against
+      the index times one overlap, because the overlaps are not all the same
+      any more: a transition happens where the recording jumps and not at the
+      tidying cuts, so a guard that multiplied by the index would walk further
+      out of place with every hard cut it passed. `own` is this join's own
+      length, which is zero at a hard cut — and a zero-length join is still a
+      join a punch must not open on top of, which is why the guard is measured
+      around it either way.
     */
-    const joinEnd = elapsed - i * overlap;
-    if (joinEnd - overlap >= limit) break;
-    if (seconds > joinEnd - overlap - SPLICE_GUARD_SECONDS && seconds < joinEnd + SPLICE_GUARD_SECONDS) {
+    const joinEnd = elapsed - overlapBefore(overlap, i);
+    const own = overlapAt(overlap, i);
+    if (joinEnd - own >= limit) break;
+    if (seconds > joinEnd - own - SPLICE_GUARD_SECONDS && seconds < joinEnd + SPLICE_GUARD_SECONDS) {
       return Math.min(joinEnd + SPLICE_GUARD_SECONDS, limit);
     }
   }

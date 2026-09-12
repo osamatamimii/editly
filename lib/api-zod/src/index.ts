@@ -1518,6 +1518,26 @@ export const TransitionOperation = z.object({
   style: TransitionStyle.default("dissolve"),
   /** How long each join overlaps. */
   durationMs: z.number().min(80).max(1000).default(250),
+  /**
+   * Which seams get one.
+   *
+   * This shipped with only one answer, `everyCut`, and it was not written down
+   * as a choice because nobody had noticed it was one. It is the difference
+   * between a filter and an edit: a talking head with forty breaths taken out
+   * of it and a dissolve on every one of them shows the same face melting into
+   * itself forty times, which is the jump dissolve, and it is the most
+   * recognisably machine-made thing this product could do.
+   *
+   * `scenes` puts one where the recording actually jumped — a reorder, or
+   * enough taken out that a viewer would feel it — and leaves every tidying cut
+   * hard. It is the default because it is what the person who typed "add
+   * transitions" meant.
+   *
+   * `everyCut` stays reachable because it is a real ask rather than a mistake:
+   * a montage of six-second shots wants one at every seam, and so does a
+   * slideshow. See `transitionJoins` in the worker for the rule.
+   */
+  where: z.enum(["scenes", "everyCut"]).default("scenes"),
 });
 
 /**

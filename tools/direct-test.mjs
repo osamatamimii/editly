@@ -280,22 +280,47 @@ section("The cold open, which is the most designed moment short-form has");
   check("and nothing is lifted out of a video that plays whole", !types(of({ platform: "youtube", reading: { peaks: [], hook: { at: 30 }, chapters: 2, how: "model" } })).includes("coldOpen"));
 }
 
-section("A cold open is not also promised a transition it will not get");
+section("A cold open is the best seam in the edit, and now gets the transition");
 {
   /*
-    A cold open reorders the timeline, and the renderer refuses to overlap the
-    joins of an out-of-order edit past four pieces — which a speech clip with
-    the silences removed always is — so the dissolve is dropped and the cuts
-    stay hard. Promising it here makes the reply say "joined the cuts" while the
-    render says they did not. So an edit that opens on a hook offers no
-    transition, and an edit that plays in order still does.
+    This section used to assert the opposite, and the reason it did is gone.
+
+    A cold open reorders the timeline, and the renderer gave every piece its own
+    decoder to overlap a join — so a speech clip with the silences removed, which
+    is always more pieces than a 1080p source could pay for, had the dissolve
+    dropped and the cuts left hard. Promising it here made the reply say "joined
+    the cuts" while the render said they did not, so the director withheld it.
+
+    The renderer now opens one stream per *side* of a join rather than one per
+    piece, and the sides of a cold open's seam are two whatever the edit is
+    chopped into. And that seam is the best candidate in the whole edit: it is
+    the one place the recording deliberately jumps somewhere else, which is
+    exactly what `where: "scenes"` selects for. Withholding the transition from
+    the edit that most deserves it was a workaround, and workarounds outlive
+    their reasons unless something says so out loud.
   */
   const withHook = of({ reading: { peaks: [], hook: { at: 30 }, chapters: 2, how: "model" } });
   check("the cold open is decided", types(withHook).includes("coldOpen"));
   check(
-    "and no transition is promised on top of it",
-    !types(withHook).includes("transition"),
+    "and the transition is offered on top of it",
+    types(withHook).includes("transition"),
     JSON.stringify(types(withHook)),
+  );
+  const hookPlan = withHook.operations.find((op) => op.type === "transition");
+  check(
+    "at the seams where the recording jumps, rather than at every cut",
+    hookPlan?.where === "scenes",
+    JSON.stringify(hookPlan),
+  );
+  /*
+    And the promise says which, because the difference is visible in the file.
+    Somebody told "joined the cuts" who then counts four dissolves in a
+    thirty-cut edit has been misled by the sentence rather than by the render.
+  */
+  check(
+    "and the reply says where they will be, not that every cut gets one",
+    withHook.willDo.some((p) => /where the recording jumps rather than at every cut/.test(p.en)),
+    JSON.stringify(withHook.willDo.map((p) => p.en)),
   );
   // The in-order edit — no hook to open on — still gets its dissolve.
   const inOrder = of();
@@ -304,11 +329,11 @@ section("A cold open is not also promised a transition it will not get");
     types(inOrder).includes("transition"),
     JSON.stringify(types(inOrder)),
   );
-  // Even when the person names the cold open themselves, the transition stays off.
+  // And so does one where the person named the cold open themselves.
   const spokenHook = of({ spokenTypes: new Set(["coldOpen"]) });
   check(
-    "a spoken cold open suppresses the transition too",
-    !types(spokenHook).includes("transition"),
+    "a spoken cold open gets one too",
+    types(spokenHook).includes("transition"),
     JSON.stringify(types(spokenHook)),
   );
 }

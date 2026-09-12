@@ -934,8 +934,63 @@ console.log("\nAsking for a dissolve is a plan for the joins");
   );
   check(
     "the reply says what the viewer will see",
-    /dissolve between the cuts/.test(asked.willDo.map(inEnglish).join(" ")),
+    /dissolve where the recording jumps/.test(asked.willDo.map(inEnglish).join(" ")),
     JSON.stringify(asked.willDo),
+  );
+  /*
+    Where, and the default is the judgement rather than the filter.
+
+    "Crossfade between the cuts" is the sentence somebody types when they mean
+    "make this look edited", and the renderer answers it by dissolving where the
+    recording jumps and leaving every removed breath as a hard cut. A person who
+    actually wants one on all of them has to say so, and a montage or a
+    slideshow is a real reason to.
+  */
+  check("and they are put where the edit moves, not on every cut", dissolve?.where === "scenes", String(dissolve?.where));
+
+  for (const sentence of [
+    "cut the silences and put a transition between every cut",
+    "cut the silences and dissolve on each cut",
+    "اقصّ الصمت وحط انتقال بين كل قصّة",
+    "اقصّ الصمت وحط انتقال بين كل مقطع",
+  ]) {
+    const insisted = await planner.plan(sentence, {});
+    const join = insisted.operations.find((o) => o.type === "transition");
+    check(
+      `"${sentence}" asks for one on every cut and gets it`,
+      join?.where === "everyCut",
+      JSON.stringify(join),
+    );
+  }
+  /*
+    And the near-miss stays a judgement. "All of it" is an emphasis on the
+    sentence, not an instruction about the seams, and a rule that read "all" on
+    its own would turn the most ordinary phrasing there is into the filter.
+  */
+  /*
+    And the Arabic for it works at all, which it did not.
+
+    `\bانتقال` can never match: a boundary sits between a word character and a
+    non-word one, and every Arabic letter is a non-word character to a
+    JavaScript regular expression. So the singular Arabic word for a transition
+    produced nothing, on the one feature whose name it is. The plural happened
+    to work, because the alternative beside it carried no `\b` — which is how a
+    dead branch survives, by sitting next to a live one.
+  */
+  for (const sentence of ["اقصّ الصمت وحط انتقال", "اقصّ الصمت وحط انتقالات", "اشتغل على الترانزشنز"]) {
+    const arabic = await planner.plan(sentence, {});
+    check(
+      `"${sentence}" is heard`,
+      arabic.operations.some((o) => o.type === "transition"),
+      JSON.stringify(arabic.operations.map((o) => o.type)),
+    );
+  }
+
+  const emphatic = await planner.plan("cut the silences and add transitions to all of it", {});
+  check(
+    "but an emphasis on the whole video is not an instruction about the seams",
+    emphatic.operations.find((o) => o.type === "transition")?.where === "scenes",
+    JSON.stringify(emphatic.operations.find((o) => o.type === "transition")),
   );
 
   // "fade to black" and "crossfade" are opposite ends of the same word. The
@@ -1595,7 +1650,7 @@ console.log("\nA hook and a transition happen together again");
   check("with nothing withheld", both.cannotYet.length === 0, JSON.stringify(both.cannotYet));
 
   const reply = replyFor(both, { hasVideo: true });
-  check("and the reply promises both", /open on the strongest moment/.test(reply) && /dissolve between the cuts/.test(reply), reply);
+  check("and the reply promises both", /open on the strongest moment/.test(reply) && /dissolve where the recording jumps/.test(reply), reply);
 
   const faded = await planner.plan("give it a hook and fade it in and out", {});
   check(

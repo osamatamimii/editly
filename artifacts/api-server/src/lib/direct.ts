@@ -184,9 +184,9 @@ export function direct(input: DirectionInput): Direction {
    * so the one person who was most explicit about wanting a cut was the person
    * the director decided had not cut anything: no transition on the joins, no
    * change of shot size, no sound on the cut. Nothing failed; the edit was
-   * quietly plainer for having been asked for clearly. `opensOnHook`, twenty
-   * lines below, already reads both — this is the same question asked the same
-   * way.
+   * quietly plainer for having been asked for clearly. Every other question
+   * this file asks about what the customer already said reads both lists, and
+   * this is the same question asked the same way.
    */
   const CUTTING = ["removeSilence", "tighten", "extractHighlight"] as const;
   const cutsSoFar = (): boolean =>
@@ -390,22 +390,28 @@ export function direct(input: DirectionInput): Direction {
     itself: invisible, and a quarter of a second of nothing at the front of
     somebody's video. So it is emitted only where something above actually cuts.
 
-    And not on a cold open. A cold open reorders the timeline, and overlapping
-    the joins of an out-of-order edit costs one decoder per piece; past four
-    pieces on a 1080p source — which a speech clip with the silences removed is,
-    every time — the renderer refuses the overlap rather than risk an OOM kill,
-    leaves the cuts hard, and says so (see MAX_SEPARATE_DECODES in ffmpeg.ts).
-    Promising the dissolve here is a promise the render breaks the moment it is
-    made: the reply says "joined the cuts" while the note from the render says
-    they stayed hard. So when this edit opens on a hook, the transition is not
-    offered — the hook is the open, and it stands on its own.
+    It used to be withheld from a cold open, and that refusal is gone because
+    the thing it was avoiding is gone. The renderer gave every piece its own
+    decoder to overlap a join, so a reordered speech clip with its silences
+    removed — twenty pieces, four affordable on a 1080p source — had the
+    overlap refused and the cuts left hard, and offering the dissolve here was
+    promising something the render then broke. It now opens one stream per
+    *side* of a join rather than one per piece, so a hook and the body it cuts
+    back to are two streams whatever the edit is chopped into.
+
+    And the seam a cold open makes is the best one in the edit: it is the only
+    place the recording jumps somewhere else on purpose, which is exactly what
+    `where: "scenes"` selects and what a transition is for. The default is that
+    setting, so the sentence below is true of the breaths as well: they keep
+    their hard cuts, and only the jump is joined.
   */
-  const opensOnHook =
-    operations.some((op) => op.type === "coldOpen") || input.spokenTypes.has("coldOpen");
-  if (cutsSoFar() && !opensOnHook) {
+  if (cutsSoFar()) {
     add(
-      { type: "transition", style: "dissolve", durationMs: 250 },
-      say("join the cuts rather than jumping between them", "أصل بين القطع بدل القفز بينها"),
+      { type: "transition", style: "dissolve", durationMs: 250, where: "scenes" },
+      say(
+        "join the cuts where the recording jumps rather than at every cut",
+        "أصل بين القطع حيث يقفز التسجيل لا عند كل قصّة",
+      ),
     );
   }
 

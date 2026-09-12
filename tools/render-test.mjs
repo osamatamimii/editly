@@ -1875,19 +1875,27 @@ console.log("\nThe fade opens from black, closes to black, and touches no clock"
 console.log("\nThe dissolve mixes one shot into the next, and the clock knows it");
 {
   // Built so the join is visible as a number: white for the first kept
-  // stretch, black for the second, a second of silence between them for the
+  // stretch, black for the second, a stretch of silence between them for the
   // cut to find. A hard cut goes white-frame straight to black-frame and no
   // frame is ever grey. A dissolve has to produce one — and the file has to
   // come out exactly one overlap shorter, because that is the property every
   // caption in the edit is then placed against.
+  //
+  // Two seconds of silence and not one, which is the fixture answering a
+  // question it did not used to ask. The renderer now puts a transition where
+  // the recording jumps and leaves a tidying cut hard, so a join that skips one
+  // second of source is a hard cut by design — and this whole section measures
+  // what a transition *looks* like, which needs one to exist. Two seconds is
+  // over `SCENE_GAP_SECONDS`, so these run through the default rule rather than
+  // around it. The join that stays hard is measured in its own section below.
   const dir = await scratch();
   const twoShots = path.join(dir, "two-shots.mp4");
   spawnSync("ffmpeg", [
     "-hide_banner", "-y",
     "-f", "lavfi", "-i", "color=c=white:size=320x240:rate=25:duration=4",
-    "-f", "lavfi", "-i", "color=c=black:size=320x240:rate=25:duration=3",
+    "-f", "lavfi", "-i", "color=c=black:size=320x240:rate=25:duration=4",
     "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
-    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=1",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2",
     "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
     "-filter_complex",
     "[0:v][1:v]concat=n=2:v=1:a=0[v];[2:a][3:a][4:a]concat=n=3:v=0:a=1[a]",
@@ -1924,7 +1932,7 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
 
   check(
     "the dissolve says what it did, at the length it did it",
-    soft.notes.some((n) => /dissolved between the cuts over 0\.40s/.test(n)),
+    soft.notes.some((n) => /dissolved between the cuts over 0\.40s, at the one join/.test(n)),
     JSON.stringify(soft.notes),
   );
   check(
@@ -2098,7 +2106,7 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
     JSON.stringify(nothingToJoin.notes),
   );
   const untouched = Number(ffprobe(nothingToJoin.output, "format=duration")[0]);
-  check("and leaves the video exactly as long as it was", Math.abs(untouched - 7) < 0.3, String(untouched));
+  check("and leaves the video exactly as long as it was", Math.abs(untouched - 8) < 0.3, String(untouched));
 
   // An overlap that will not fit inside the shortest piece is shortened to
   // fit rather than refused — and admitted. Built from half-second bursts:
@@ -2113,17 +2121,218 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
     "-map", "0:v", "-map", "1:a",
     "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", staccato,
   ]);
+  // `everyCut`, because the room rule and the scene rule are different
+  // questions and this one is about room. Every gap here is 0.7s, so under the
+  // default every one of these joins is a tidying cut and stays hard — which is
+  // correct, and measures nothing about whether an overlap is shortened to fit
+  // the shot it sits inside.
   const greedy = await renderPlan(
     staccato,
-    { version: 1, operations: [...cutOps, { type: "transition", style: "dissolve", durationMs: 400 }] },
+    {
+      version: 1,
+      operations: [...cutOps, { type: "transition", style: "dissolve", durationMs: 400, where: "everyCut" }],
+    },
     { workDir: await scratch() },
   );
   check(
     "an overlap longer than the pieces allow is shrunk, and says so",
-    greedy.notes.some((n) =>
-      /dissolved between the cuts over 0\.\d\ds, shorter than asked, so the shortest piece/.test(n),
-    ),
+    greedy.notes.some((n) => /dissolved between the cuts over 0\.\d\ds/.test(n)) &&
+      greedy.notes.some((n) => /shorter than the 400ms asked for/.test(n)),
     JSON.stringify(greedy.notes),
+  );
+}
+
+console.log("\nA transition marks where the recording jumped, and nothing else");
+{
+  /*
+    The defect this section exists for, drawn as pixels.
+
+    The renderer put the transition on every join or on none. A person talking
+    with their breaths taken out is one shot continuing across almost every one
+    of its cuts, and a dissolve on each of those shows the same face melting
+    into itself — the jump dissolve, and the most recognisably machine-made
+    thing this product could do. Nothing failed; the video was simply worse, and
+    the note said "dissolved between the cuts" either way.
+
+    Built white throughout, so the picture cannot tell the seams apart, and the
+    only thing that distinguishes one join from another is how much source sits
+    between the pieces. Two silences: a short one a person would read as a
+    breath, and a long one they would read as having skipped ahead.
+
+      0.0 - 3.0  tone      kept
+      3.0 - 3.6  silence   a breath, 0.6s
+      3.6 - 6.6  tone      kept
+      6.6 - 9.0  silence   an elision, 2.4s
+      9.0 - 12.0 tone      kept
+  */
+  const dir = await scratch();
+  const twoGaps = path.join(dir, "two-gaps.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y",
+    "-f", "lavfi", "-i", "color=c=white:size=320x240:rate=25:duration=12",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=0.6",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2.4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-filter_complex", "[1:a][2:a][3:a][4:a][5:a]concat=n=5:v=0:a=1[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", twoGaps,
+  ]);
+
+  const cutOps = [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 400, paddingMs: 0 }];
+  const hard = await renderPlan(twoGaps, { version: 1, operations: cutOps }, { workDir: await scratch() });
+  const hardSeconds = Number(ffprobe(hard.output, "format=duration")[0]);
+
+  const judged = await renderPlan(
+    twoGaps,
+    { version: 1, operations: [...cutOps, { type: "transition", style: "dissolve", durationMs: 400 }] },
+    { workDir: await scratch() },
+  );
+  const judgedSeconds = Number(ffprobe(judged.output, "format=duration")[0]);
+
+  check(
+    "one of the two joins is dissolved and the other is not",
+    judged.notes.some((n) => /at 1 of 2 joins/.test(n)),
+    JSON.stringify(judged.notes),
+  );
+  check(
+    "and the note says why the other one was left alone",
+    judged.notes.some((n) => /tidy up a pause and stay hard/.test(n)),
+    JSON.stringify(judged.notes),
+  );
+  /*
+    The length is the proof, and it is exact.
+
+    One overlap and not two. This is also the check that would catch the
+    per-join arithmetic being wrong anywhere downstream: `outputDuration` is
+    what the caption clock, the fade, the music trim and the critic are all
+    measured against, and if it still multiplied an index by one overlap the
+    file and the model would disagree by exactly one dissolve.
+  */
+  check(
+    "the file is shorter by exactly the one overlap that was used",
+    Math.abs(hardSeconds - judgedSeconds - 0.4) < 0.12,
+    `hard ${hardSeconds}, judged ${judgedSeconds}`,
+  );
+
+  const everyCut = await renderPlan(
+    twoGaps,
+    {
+      version: 1,
+      operations: [...cutOps, { type: "transition", style: "dissolve", durationMs: 400, where: "everyCut" }],
+    },
+    { workDir: await scratch() },
+  );
+  const everySeconds = Number(ffprobe(everyCut.output, "format=duration")[0]);
+  check(
+    "asking for one on every cut gets one on every cut",
+    everyCut.notes.some((n) => /at all 2 joins/.test(n)),
+    JSON.stringify(everyCut.notes),
+  );
+  check(
+    "and that file is shorter by two overlaps, not one",
+    Math.abs(hardSeconds - everySeconds - 0.8) < 0.12,
+    `hard ${hardSeconds}, every ${everySeconds}`,
+  );
+
+  /*
+    And the clock the captions are placed against survives a mixed set of joins.
+
+    The seam this measures is the *second* one, which is after a hard cut and
+    after a dissolve — the exact position where "index times overlap" gives the
+    wrong answer. A caption written for the last moment of the recording lands
+    at the end of the file or it does not.
+  */
+  const captioned = await renderPlan(
+    twoGaps,
+    {
+      version: 1,
+      operations: [
+        ...cutOps,
+        { type: "transition", style: "dissolve", durationMs: 400 },
+        {
+          type: "burnCaptions",
+          style: "bold-white",
+          animation: "none",
+          // Source 10.0s, which is one second into the third kept piece. That
+          // piece begins at source 9.0 and is preceded by two joins, one hard
+          // and one dissolved — so the answer is 3.0 + 3.0 + 1.0 - 0.4 = 6.6,
+          // and an arithmetic that multiplies the index by one overlap gets
+          // 7.0 or 6.2 depending on which overlap it picked. Neither is 6.6.
+          cues: [{ startMs: 10000, endMs: 10600, text: "HERE" }],
+        },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  /*
+    Found in the picture, not in the model.
+
+    The file length alone cannot catch this: ffmpeg shortens the output by the
+    overlap it was handed whatever the model believes, so a model that
+    disagrees with the file produces a correct-length video with everything
+    drawn on it in the wrong place.
+
+    The measurement is the darkest pixel in the frame. `bold-white` is white
+    text with a dark outline on a white field, so an uncaptioned frame reads 235
+    and a captioned one reads 154 — the outline, not the letter, which is why
+    the threshold is 200 rather than something that assumes black.
+  */
+  const darkestAt = (file, at) => {
+    const r = spawnSync(
+      "ffprobe",
+      [
+        "-v", "error", "-f", "lavfi",
+        "-i", `movie=${file},trim=start=${at}:end=${at + 0.04},signalstats`,
+        "-show_entries", "frame_tags=lavfi.signalstats.YMIN",
+        "-of", "default=nw=1:nk=1",
+      ],
+      { encoding: "utf8" },
+    );
+    const vals = r.stdout.trim().split("\n").filter(Boolean).map(Number);
+    return vals.length > 0 ? vals[0] : NaN;
+  };
+  let drawnAt = NaN;
+  for (let at = 5.6; at < 7.8; at += 0.1) {
+    if (darkestAt(captioned.output, at) < 200) {
+      drawnAt = at;
+      break;
+    }
+  }
+  check(
+    "a caption after one hard join and one dissolved one is drawn on the frame it names",
+    Number.isFinite(drawnAt) && Math.abs(drawnAt - 6.6) < 0.25,
+    `drawn at ${drawnAt}, expected 6.6`,
+  );
+
+  /*
+    The cold open, which is the case the old graph could never draw.
+
+    A hook lifted out of the middle makes the edit go backwards in the source,
+    which is the clearest scene change there is — and the old renderer gave
+    every piece its own decoder to overlap a join, so a reordered edit of more
+    than a handful of pieces had the transition refused and the cuts left hard.
+    It now opens one stream per side of a join, so an edit in five pieces with
+    one scene join in it is two streams.
+  */
+  const hooked = await renderPlan(
+    twoGaps,
+    {
+      version: 1,
+      operations: [
+        ...cutOps,
+        { type: "coldOpen", seconds: 2 },
+        { type: "transition", style: "dissolve", durationMs: 400 },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  check(
+    "an edit that opens on a hook is joined rather than refused for want of room",
+    hooked.notes.some((n) => /dissolved between the cuts/.test(n)) &&
+      !hooked.notes.some((n) => /streams open at once/.test(n)),
+    JSON.stringify(hooked.notes),
   );
 }
 
@@ -2143,9 +2352,13 @@ console.log("\nThe montage joins: a whip is a blur, a zoom is a blur, a glitch i
     "-hide_banner", "-y",
     "-f", "lavfi", "-i",
     "nullsrc=size=320x240:rate=25:duration=4,geq=lum='if(mod(floor(X/4),2),235,16)':cb=128:cr=128",
-    "-f", "lavfi", "-i", "color=c=black:size=320x240:rate=25:duration=3",
+    "-f", "lavfi", "-i", "color=c=black:size=320x240:rate=25:duration=4",
     "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
-    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=1",
+    // Two seconds, for the reason the white/black fixture above carries: a
+    // join that skips one second of source is a tidying cut and stays hard by
+    // design, and this section measures what the montage joins look like when
+    // they happen.
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2",
     "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
     "-filter_complex",
     "[0:v][1:v]concat=n=2:v=1:a=0[v];[2:a][3:a][4:a]concat=n=3:v=0:a=1[a]",
