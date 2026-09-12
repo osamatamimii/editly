@@ -338,6 +338,7 @@ export const LOOKS = {
     karaoke: p("كاريوكي", "Karaoke"),
     kinetic: p("كلمة كلمة", "Word by word"),
     focus: p("كلمة بارزة", "Big keyword"),
+    rise: p("كلمة بارزة صاعدة", "Rising keyword"),
   },
   paceHeading: p("الإيقاع", "Pace"),
   paceNames: {

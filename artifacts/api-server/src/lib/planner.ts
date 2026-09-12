@@ -192,7 +192,7 @@ function buildSchema(assets: PlannerAsset[]) {
                 null,
               ],
             },
-            captionAnimation: { type: ["string", "null"], enum: ["none", "pop", "karaoke", "kinetic", "focus", null] },
+            captionAnimation: { type: ["string", "null"], enum: ["none", "pop", "karaoke", "kinetic", "focus", "rise", null] },
             captionPosition: { type: ["string", "null"], enum: ["bottom", "middle", "top", null] },
             captionSize: { type: ["string", "null"], enum: ["s", "m", "l", null] },
             captionPace: { type: ["string", "null"], enum: ["normal", "quick", null] },

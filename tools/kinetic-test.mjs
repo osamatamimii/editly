@@ -845,6 +845,181 @@ section("The cold look: a halo that stays, ink that is nearly white, a keyword t
   }
 }
 
+section("The rise: every word arrives from below its line and eases onto it");
+{
+  /*
+    The one thing the lockup was still missing, measured off the reference at
+    its own 25fps on the shot whose caption reads «the hardest part isn't /
+    building».
+
+    Every word there — the four small ones and the big one — fades in about a
+    line and a third below where it belongs and climbs onto it over some
+    twenty-two frames, and *nothing scales*: the small row's ink box is 49px
+    tall in the frame it appears and 49px tall when it lands. Words arrive
+    three frames apart while the settle runs for twenty-odd, so the row is a
+    staircase with the newest word lowest and the oldest already flat. That
+    staircase is the gesture, and our lockup had the blur resolve instead of
+    it, which is why it read as words switching on rather than words arriving.
+
+    Three of the four claims below fail silently if they are wrong. A `\move`
+    written but not rendered, a halo that stays put while its word climbs, a
+    row that reaches its line at the wrong height — each of those is a caption
+    that draws, logs nothing, and is not the thing anybody asked for.
+  */
+  const { facePair } = layoutMod;
+  const fonts = ffmpegMod.effectiveCaptionFonts("glow", undefined, undefined);
+  const faces = facePair({ latin: fonts.latin, arabic: fonts.arabic });
+
+  /** The same five-word cue under either motion, so the two are comparable. */
+  async function lockup(animation) {
+    const words = "the hardest part is not building".split(" ");
+    const file = at(`rise-${animation}-${Math.random().toString(36).slice(2, 8)}.ass`);
+    const cue = {
+      startMs: 0,
+      endMs: 3000,
+      text: words.join(" "),
+      words: words.map((text, i) => ({
+        text,
+        startMs: i * 380,
+        // The held last word is the keyword, so everything before it lands in
+        // the one small row above — which is the row this section measures.
+        endMs: i * 380 + (i === words.length - 1 ? 900 : 220),
+      })),
+    };
+    await writeSubtitleFile(file, wrapToLayout([cue], LAYOUT, faces), "glow", animation, FRAME, LAYOUT, faces);
+    return { file, text: await readFile(file, "utf8") };
+  }
+
+  /** Where the lit pixels start and stop, top to bottom. */
+  function span(rgb) {
+    let top = -1, bottom = -1;
+    for (let y = 0; y < FRAME.height; y += 1) {
+      for (let x = 0; x < FRAME.width; x += 2) {
+        const i = (FRAME.width * y + x) * 3;
+        if (rgb[i] + rgb[i + 1] + rgb[i + 2] > 300) {
+          if (top < 0) top = y;
+          bottom = y;
+          break;
+        }
+      }
+    }
+    return { top, bottom };
+  }
+
+  function shot(file, seconds) {
+    const source = at(`rs-${Math.random().toString(36).slice(2, 8)}.mp4`);
+    ff(["-f", "lavfi", "-i", `color=c=black:s=${FRAME.width}x${FRAME.height}:d=4:r=25`,
+        "-vf", `subtitles=${file.replace(/[\\:']/g, "\\$&")}`, "-frames:v", "100", source]);
+    return seconds.map((sec) => {
+      const run = spawnSync(
+        "ffmpeg",
+        ["-hide_banner", "-nostdin", "-v", "error", "-ss", String(sec), "-i", source,
+         "-vf", "format=rgb24", "-frames:v", "1", "-f", "rawvideo", "-"],
+        { maxBuffer: 1 << 28 },
+      );
+      if (run.status !== 0 || run.stdout.length < FRAME.width * FRAME.height * 3) {
+        throw new Error(`no frame at ${sec}s`);
+      }
+      return span(run.stdout);
+    });
+  }
+
+  const rise = await lockup("rise");
+  const focus = await lockup("focus");
+  const riseEvents = rise.text.split("[Events]")[1];
+  const focusEventsText = focus.text.split("[Events]")[1];
+
+  const moves = [...riseEvents.matchAll(/\\move\((\d+),(\d+),(\d+),(\d+),0,(\d+)\)/g)];
+  check("the rise is written as moves at all", moves.length > 0, `${moves.length} moves`);
+  check(
+    "and every one of them travels upward, none sideways",
+    moves.every(([, x1, y1, x2, y2]) => x1 === x2 && Number(y1) > Number(y2)),
+    "a move that goes down or across is not this animation",
+  );
+  /*
+    Both copies, or the light comes off the letters. The halo is a second
+    event on its own layer carrying the same word; if only the ink moved, the
+    word would climb out of its own glow for most of a second.
+  */
+  const movesOnLayer = (n) =>
+    new Set(
+      riseEvents
+        .split("\n")
+        .filter((line) => line.startsWith(`Dialogue: ${n},`))
+        .flatMap((line) => line.match(/\\move\([^)]*\)/g) ?? []),
+    );
+  const halo = movesOnLayer(0);
+  const ink = movesOnLayer(1);
+  check(
+    "the halo travels with its word rather than staying behind",
+    halo.size > 0 && halo.size === ink.size && [...halo].every((m) => ink.has(m)),
+    `halo ${halo.size} moves, ink ${ink.size}`,
+  );
+  /*
+    And no pop underneath it. The reference's big word is the same width in
+    the frame it appears as in the frame it lands; playing both would be a
+    word that grows *and* climbs, which is a third thing neither edit does.
+  */
+  check("a rising keyword does not also scale", !/\\fscx112/.test(riseEvents));
+  check("while the lockup it was built beside still does", /\\fscx112/.test(focusEventsText));
+
+  check(
+    "no event is written backwards or empty by a cue that ends mid-rise",
+    riseEvents
+      .split("\n")
+      .filter((line) => line.startsWith("Dialogue:"))
+      .every((line) => {
+        const [, start, end] = line.split(",");
+        return start < end;
+      }),
+  );
+
+  /*
+    Now the frames, which is the only place any of the above becomes true.
+
+    Three samples on the way up, and the claim is that the top of the caption
+    is strictly higher each time — not that it moved, which a single pair
+    would also show for a jitter.
+  */
+  const [early, middle, late, settled] = shot(rise.file, [0.06, 0.32, 0.7, 2.4]);
+  check("the caption is drawn from the first sample on", early.top > 0, `top at ${early.top}`);
+  check(
+    "and climbs, sample after sample, rather than appearing in place",
+    early.top > middle.top && middle.top > late.top && late.top >= settled.top,
+    `${early.top} → ${middle.top} → ${late.top} → ${settled.top}`,
+  );
+  /*
+    Landing where it was going to land anyway. The rise is an entrance, not a
+    new layout: a settled rising row has to sit exactly where the same row
+    under `focus` sits, or the whole lockup has quietly moved down the frame.
+  */
+  const [focusSettled] = shot(focus.file, [2.4]);
+  check(
+    "and lands on the line the lockup already used",
+    Math.abs(settled.top - focusSettled.top) <= 2,
+    `rise settles at ${settled.top}, focus at ${focusSettled.top}`,
+  );
+  check(
+    "having travelled about the distance the reference travels",
+    early.top - settled.top > 40 && early.top - settled.top < 160,
+    `${early.top - settled.top}px: the reference's small row starts 123px low against a nominal of 93`,
+  );
+
+  /*
+    The staircase itself, which is what separates this from every word rising
+    on the same timer. Sampled while three words are up and the keyword is
+    not: under `focus` they are one flat line, so the lit band is one line of
+    ink; under `rise` the newest is still low and the band is taller.
+  */
+  const [staggered] = shot(rise.file, [0.88]);
+  const [flat] = shot(focus.file, [0.88]);
+  check(
+    "words that arrived at different moments sit at different heights",
+    staggered.bottom - staggered.top > (flat.bottom - flat.top) + 15,
+    `rise spans ${staggered.bottom - staggered.top}px where focus spans ${flat.bottom - flat.top}px`,
+  );
+}
+
 section("The loud looks are upper-case before they are measured");
 {
   /*

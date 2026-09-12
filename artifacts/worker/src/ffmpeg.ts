@@ -1033,7 +1033,7 @@ interface CaptionColours {
    */
   keyword?: { ramp?: { top: string; bottom: string }; ink?: string };
   /** What this style animates like when the plan does not say. */
-  defaultAnimation?: "none" | "pop" | "karaoke" | "kinetic" | "focus";
+  defaultAnimation?: "none" | "pop" | "karaoke" | "kinetic" | "focus" | "rise";
   /**
    * The style's own scale on the measured default size, on top of the
    * person's s/m/l. The loud looks are drawn larger by everyone who draws
@@ -1181,7 +1181,18 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
     bold: false,
     glow: { colour: "&HE0A63C&", blur: 12 },
     keyword: { ink: "&HFAF4E6&" },
-    defaultAnimation: "focus",
+    /*
+      The lockup that also *moves* like the reference's.
+
+      `focus` is the same three rows and was built from the same shot; what it
+      was missing is that every word in that shot arrives from below its line
+      and eases up. `rise` is `focus` plus that, and this is the style the
+      reference was measured on, so it is the one that carries it. `creator`
+      keeps `focus` — it was measured and signed off with the pop, and a motion
+      that changes under a look nobody asked to change is the kind of surprise
+      this file exists to avoid.
+    */
+    defaultAnimation: "rise",
     defaultFont: { latin: "inter-bold", arabic: "cairo-bold" },
   },
   /* White core, cyan edge, and the edge alone is blurred into a glow — libass
@@ -1287,7 +1298,7 @@ interface CaptionLookFields {
   style?: CaptionStyleName;
   position?: "bottom" | "middle" | "top";
   size?: "s" | "m" | "l";
-  animation?: "none" | "pop" | "karaoke" | "kinetic" | "focus";
+  animation?: "none" | "pop" | "karaoke" | "kinetic" | "focus" | "rise";
   pace?: "normal" | "quick";
 }
 
@@ -1296,7 +1307,7 @@ export interface ResolvedCaptionLook {
   style: CaptionStyleName;
   position: "bottom" | "middle" | "top";
   size: "s" | "m" | "l";
-  animation: "none" | "pop" | "karaoke" | "kinetic" | "focus";
+  animation: "none" | "pop" | "karaoke" | "kinetic" | "focus" | "rise";
   pace: "normal" | "quick";
 }
 
@@ -1529,6 +1540,43 @@ export const POP_SCALE = 1.15;
 /** Up, then back. Long enough to read as weight, short enough not to strobe. */
 const POP_RISE_MS = 140;
 const POP_FALL_MS = 160;
+
+/**
+ * The rise: how a word in the focus lockup arrives, when the style asks for it.
+ *
+ * Measured off the reference at its own 25fps, on the shot whose caption reads
+ * «the hardest part isn't / building». Every word — the four small ones and the
+ * big one — fades in *below* its line and eases up onto it, and nothing scales:
+ * the small row's ink box is 49px tall in the frame it appears and 49px tall
+ * when it lands. The words arrive three frames apart and the settle runs for
+ * twenty-odd, so at any instant the row is a staircase with the newest word
+ * lowest and the oldest already flat. That staircase is the gesture. Our lockup
+ * had the blur resolve and not this, which is why it read as words switching on
+ * rather than words arriving.
+ *
+ * `RISE_OF_NOMINAL` — how far below the line, as a multiple of the layout's
+ * nominal size. The reference's small row starts 123px low and its big word
+ * about 145, against a nominal of ~93: the offset barely scales with the type
+ * even though the type doubles, so one number for the whole lockup sits inside
+ * both errors. The part that matters more than either error is that the rows
+ * then move at one rate — rows rising by their own size arrive out of step with
+ * each other, and three rows on three timings read as three animations.
+ *
+ * `RISE_MS` — the reference is within a pixel of its line twenty-two frames
+ * after the word appears.
+ *
+ * `RISE_CURVE` — the offsets a word passes through on the way, as fractions of
+ * where it started. The measured settle is exponential (it gives up 0.855 of
+ * what is left every frame) and **ASS has no eased move**: `\move` is linear
+ * and `\t` cannot touch position at all. So a rising word is drawn as one
+ * event per leg of a piecewise-linear walk along that exponential — sampled
+ * from the curve rather than chosen by eye, three legs, ending at zero. A
+ * fourth leg buys three pixels of drift nobody can see and costs a third more
+ * subtitle file on every caption in the product.
+ */
+const RISE_OF_NOMINAL = 1.32;
+const RISE_MS = 900;
+const RISE_CURVE = [1, 0.2875, 0.0676, 0];
 
 /**
  * A style colour as an override tag takes it.
@@ -1831,7 +1879,7 @@ function animateCue(
     "pop in rather than arriving a word at a time", and a plain fade would have
     made that sentence a small lie.
   */
-  if (animation === "pop" || animation === "kinetic" || animation === "focus") {
+  if (animation === "pop" || animation === "kinetic" || animation === "focus" || animation === "rise") {
     /*
       The premium settle, not the cartoon zoom.
 
@@ -1991,6 +2039,15 @@ function focusEvents(
   kinetic: KineticContext,
   rtl: boolean,
   styleName: string,
+  /**
+   * Whether every word arrives from below, the way the reference's does.
+   *
+   * A parameter rather than a second function because the lockup — which word
+   * is the keyword, where the three rows sit, what the keyword is painted with
+   * — is the same lockup either way, and two copies of that geometry would
+   * drift apart on the first change to either.
+   */
+  rising = false,
 ): string[] {
   const words = cue.words!;
   const colours = CAPTION_COLOURS[style] ?? CAPTION_COLOURS["bold-white"]!;
@@ -2054,6 +2111,48 @@ function focusEvents(
   const revealAt = (word: CaptionWord) => Math.max(0, Math.round(word.startMs - cue.startMs));
   const event = (layer: number, body: string) =>
     `Dialogue: ${layer},${toAssTime(cue.startMs)},${toAssTime(cue.endMs)},${styleName},,0,0,0,,${body}`;
+  /** The same, for the legs of a rise, which are shorter than the cue. */
+  const eventAt = (layer: number, fromMs: number, toMs: number, body: string) =>
+    `Dialogue: ${layer},${toAssTime(cue.startMs + fromMs)},${toAssTime(cue.startMs + toMs)},${styleName},,0,0,0,,${body}`;
+
+  const cueMs = cue.endMs - cue.startMs;
+  const risePx = rising ? Math.round(nominal * RISE_OF_NOMINAL) : 0;
+  const legMs = RISE_MS / (RISE_CURVE.length - 1);
+
+  /**
+   * One word's journey to its line, as a list of events waiting to be written.
+   *
+   * Each leg is a straight `\move` between two points on the measured curve;
+   * the last entry is the word at rest and runs to the end of the cue. Only
+   * that last entry carries the fade out, because `\fad` fades the *event*,
+   * and a fade on a leg that the next leg is about to replace would blink the
+   * word out three times on its way up.
+   *
+   * A cue can end mid-rise — the reference's own big word never finishes — so
+   * a leg is clipped at the cue's end rather than dropped, and `\move` keeps
+   * its full duration so a clipped leg travels at the speed it would have.
+   */
+  const legsFor = (at: number) => {
+    const legs: Array<{ from: number; to: number; fromMs: number; toMs: number; moving: boolean }> = [];
+    if (risePx > 0) {
+      for (let k = 0; k < RISE_CURVE.length - 1; k += 1) {
+        const fromMs = at + legMs * k;
+        if (fromMs >= cueMs) break;
+        legs.push({
+          from: Math.round(risePx * RISE_CURVE[k]),
+          to: Math.round(risePx * RISE_CURVE[k + 1]),
+          fromMs,
+          toMs: Math.min(fromMs + legMs, cueMs),
+          moving: true,
+        });
+      }
+    }
+    const rest = risePx > 0 ? at + RISE_MS : at;
+    if (rest < cueMs || legs.length === 0) {
+      legs.push({ from: 0, to: 0, fromMs: Math.min(rest, cueMs), toMs: cueMs, moving: false });
+    }
+    return legs;
+  };
 
   const out: string[] = [];
 
@@ -2079,14 +2178,76 @@ function focusEvents(
         */
         return `{\\fs${smallPx}${paint}\\blur${arriveBlur}\\alpha&HFF&\\t(${at},${at + 1},\\alpha&H00&)\\t(${at},${at + 160},\\blur${restBlur})}${isolate(wordText(word))} `;
       });
+    const y = centres.get(kind)!;
     const lay = (runs: string[], layer: number) => {
       const ordered = rtl ? [...runs].reverse() : runs;
-      out.push(event(layer, `{\\an5\\pos(${cx},${centres.get(kind)})\\fad(0,60)}${ordered.join("").trimEnd()}`));
+      out.push(event(layer, `{\\an5\\pos(${cx},${y})\\fad(0,60)}${ordered.join("").trimEnd()}`));
     };
+
+    /*
+      The rising row: one event per word instead of one per row, and each of
+      those events draws the **whole** row with every other word held at
+      `\alpha&HFF&`.
+
+      Carrying the invisible words is the point, not waste. Each word needs its
+      own `\move`, `\move` is a property of the event, and an event holding
+      one word would need that word's x — which nothing here knows. The width
+      table in `caption-layout.ts` is an estimate by its own admission and
+      libass rewraps what it gets wrong; placing words by it would space this
+      row by a guess and show the guess. Handing libass the identical run every
+      time and hiding all but one costs bytes and cannot be wrong: the layout
+      is the same layout, so the visible word lands exactly where the row puts
+      it. The override block already sits in front of every word, so the runs
+      split the same way in every copy — including the RTL rows, which are
+      emitted reversed for the same reason they already were.
+
+      The hidden words are drawn at `\\blur0`, not at the row's resting blur:
+      blur is a raster effect and changes no advance, so the layout is
+      identical either way, and a transparent word is not worth a Gaussian on
+      every frame of every caption in the product.
+    */
+    const riseRow = (paint: string, arriveBlur: number, restBlur: number, layer: number) => {
+      list.forEach((word, j) => {
+        const legs = legsFor(revealAt(word));
+        legs.forEach((leg, index) => {
+          /*
+            `\\alpha&H00&` on the shown word is not decoration.
+
+            An override block carries forward: once a hidden word ahead of this
+            one has said `\\alpha&HFF&`, every run after it in the same event
+            is transparent until something says otherwise. Without this the
+            first word of a row drew and the rest of the row was a correct,
+            silent, invisible layout — which is this repo's own house bug in
+            its purest form, and it is why the shown word states its alpha
+            rather than trusting the default.
+          */
+          const shown =
+            index === 0
+              ? `\\alpha&H00&\\blur${arriveBlur}\\t(0,160,\\blur${restBlur})`
+              : `\\alpha&H00&\\blur${restBlur}`;
+          const runs = list.map(
+            (other, k) =>
+              `{\\fs${smallPx}${paint}${k === j ? shown : "\\blur0\\alpha&HFF&"}}${isolate(wordText(other))} `,
+          );
+          const ordered = rtl ? [...runs].reverse() : runs;
+          const place = leg.moving
+            ? `\\move(${cx},${y + leg.from},${cx},${y + leg.to},0,${Math.round(legMs)})`
+            : `\\pos(${cx},${y})`;
+          const fade = index === legs.length - 1 ? "\\fad(0,60)" : "";
+          out.push(eventAt(layer, leg.fromMs, leg.toMs, `{\\an5${place}${fade}}${ordered.join("").trimEnd()}`));
+        });
+      });
+    };
+
+    const draw = (paint: string, arriveBlur: number, restBlur: number, layer: number) => {
+      if (rising) riseRow(paint, arriveBlur, restBlur, layer);
+      else lay(runsWith(paint, arriveBlur, restBlur), layer);
+    };
+
     if (colours.glow) {
       // Wider on arrival than at rest, so the word blooms and then holds a
       // halo rather than snapping to one.
-      lay(runsWith(`\\c${colours.glow.colour}\\shad0`, colours.glow.blur + 6, colours.glow.blur), 0);
+      draw(`\\c${colours.glow.colour}\\shad0`, colours.glow.blur + 6, colours.glow.blur, 0);
     }
     /*
       Crisper when there is a halo under it. 1.4 is the right resting softness
@@ -2096,7 +2257,7 @@ function focusEvents(
       reads as mist rather than as words. The light is the halo's job; the
       letters' job is to be letters.
     */
-    lay(runsWith(`\\c${bareColour(colours.primary)}`, 6, colours.glow ? 0.6 : 1.4), 1);
+    draw(`\\c${bareColour(colours.primary)}`, 6, colours.glow ? 0.6 : 1.4, 1);
   };
   if (pre.length > 0) smallRow(pre, "pre");
   if (post.length > 0) smallRow(post, "post");
@@ -2141,15 +2302,51 @@ function focusEvents(
     paint: string,
     arriveBlur: number,
     restBlur: number,
-    { clip = "", shadow = true }: { clip?: string; shadow?: boolean } = {},
-  ) =>
-    out.push(
-      event(
-        layer,
-        `{\\an5\\pos(${cx},${keyCentre})\\fs${bigPx}${shadow ? "" : "\\shad0"}\\blur${arriveBlur}${paint}${clip}` +
-          `\\alpha&HFF&\\t(${at},${at + 1},\\alpha&H00&)\\t(${at},${at + 180},\\blur${restBlur})${popTags}\\fad(0,60)}${isolate(wordText(keyword))}`,
-      ),
-    );
+    { band, shadow = true }: { band?: { y0: number; y1: number }; shadow?: boolean } = {},
+  ) => {
+    const size = `\\fs${bigPx}${shadow ? "" : "\\shad0"}`;
+    if (!rising) {
+      const clip = band ? `\\clip(0,${band.y0},${frame.width},${band.y1})` : "";
+      out.push(
+        event(
+          layer,
+          `{\\an5\\pos(${cx},${keyCentre})${size}\\blur${arriveBlur}${paint}${clip}` +
+            `\\alpha&HFF&\\t(${at},${at + 1},\\alpha&H00&)\\t(${at},${at + 180},\\blur${restBlur})${popTags}\\fad(0,60)}${isolate(wordText(keyword))}`,
+        ),
+      );
+      return;
+    }
+    /*
+      Rising, the keyword loses the pop and keeps everything else.
+
+      The pop and the rise are two answers to the same question and the
+      reference gives the second one: its big word is the same width in the
+      frame it appears as in the frame it lands, and only its height above the
+      baseline changes. Playing both would be a word that grows *and* climbs,
+      which is a third thing neither reference does.
+
+      A ramp band's `\clip` is in frame coordinates, so it has to travel with
+      the word or the gradient stays nailed to the picture while the letters
+      slide through it. `\t` does animate a rectangular clip even though it
+      will not animate a position, so each leg carries the band at its own two
+      offsets.
+    */
+    const legs = legsFor(at);
+    legs.forEach((leg, index) => {
+      const blur = index === 0 ? `\\blur${arriveBlur}\\t(0,180,\\blur${restBlur})` : `\\blur${restBlur}`;
+      const place = leg.moving
+        ? `\\move(${cx},${keyCentre + leg.from},${cx},${keyCentre + leg.to},0,${Math.round(legMs)})`
+        : `\\pos(${cx},${keyCentre})`;
+      const clip = !band
+        ? ""
+        : leg.moving
+          ? `\\clip(0,${band.y0 + leg.from},${frame.width},${band.y1 + leg.from})` +
+            `\\t(0,${Math.round(legMs)},\\clip(0,${band.y0 + leg.to},${frame.width},${band.y1 + leg.to}))`
+          : `\\clip(0,${band.y0},${frame.width},${band.y1})`;
+      const fade = index === legs.length - 1 ? "\\fad(0,60)" : "";
+      out.push(eventAt(layer, leg.fromMs, leg.toMs, `{\\an5${place}${size}${blur}${paint}${clip}${fade}}${isolate(wordText(keyword))}`));
+    });
+  };
 
   /*
     The halo first, so the word sits on it rather than under it.
@@ -2180,7 +2377,7 @@ function focusEvents(
       const colour = `&H${b.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${r.toString(16).padStart(2, "0")}&`.toUpperCase();
       const y0 = Math.round(keyTop + ((keyBottom - keyTop) * band) / BANDS);
       const y1 = Math.round(keyTop + ((keyBottom - keyTop) * (band + 1)) / BANDS) + 1;
-      keyEvent(3, `\\c${colour}`, 7, 0, { clip: `\\clip(0,${y0},${frame.width},${y1})`, shadow: false });
+      keyEvent(3, `\\c${colour}`, 7, 0, { band: { y0, y1 }, shadow: false });
     }
   }
   return out;
@@ -2361,7 +2558,7 @@ export async function writeSubtitleFile(
     picture and the caption cannot end up emphasising different words.
   */
   const kinetic: KineticContext | null =
-    animation === "kinetic" || animation === "focus" || CAPTION_COLOURS[style]?.box
+    animation === "kinetic" || animation === "focus" || animation === "rise" || CAPTION_COLOURS[style]?.box
       ? (() => {
           const durations = cues
             .flatMap((c) => c.words ?? [])
@@ -2390,8 +2587,8 @@ export async function writeSubtitleFile(
     .filter((c) => c.endMs > c.startMs)
     .flatMap((c) => {
       const rtl = readsRightToLeft(c.text);
-      if (animation === "focus" && kinetic && c.words && c.words.length > 0) {
-        return focusEvents(c, style, kinetic, rtl, rtl ? RTL_STYLE : LATIN_STYLE);
+      if ((animation === "focus" || animation === "rise") && kinetic && c.words && c.words.length > 0) {
+        return focusEvents(c, style, kinetic, rtl, rtl ? RTL_STYLE : LATIN_STYLE, animation === "rise");
       }
       if (CAPTION_COLOURS[style]?.box && kinetic) {
         return boxedEvents(c, style, kinetic, rtl, rtl ? RTL_STYLE : LATIN_STYLE, animation);

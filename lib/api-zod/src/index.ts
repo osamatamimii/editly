@@ -544,7 +544,7 @@ export type CaptionStyleName = z.infer<typeof CaptionStyleName>;
 
 export const CaptionLookChoice = z.object({
   style: CaptionStyleName.optional(),
-  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus"]).optional(),
+  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus", "rise"]).optional(),
   pace: z.enum(["normal", "quick"]).optional(),
 });
 export type CaptionLookChoice = z.infer<typeof CaptionLookChoice>;
@@ -830,7 +830,7 @@ export const BurnCaptionsOperation = z.object({
    * degrades to `pop` when a provider returned sentences without word timings,
    * the same way `karaoke` does, and says so rather than pretending.
    */
-  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus"]).optional(),
+  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus", "rise"]).optional(),
   /*
     Which face, per script.
 
@@ -890,7 +890,7 @@ export const AutoCaptionsOperation = z.object({
      existed on one and not the other would be a plan that validates and then
      silently loses the animation it asked for at the moment the worker
      rewrites it. */
-  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus"]).optional(),
+  animation: z.enum(["none", "pop", "karaoke", "kinetic", "focus", "rise"]).optional(),
   /* Carried through to the `burnCaptions` this becomes. See it for why there
      are two. */
   font: z.string().max(64).optional(),

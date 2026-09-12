@@ -26,7 +26,7 @@ import { LOOKS } from "@/lib/copy/editor";
 
 export interface ChosenLook {
   style?: string;
-  animation?: "none" | "pop" | "karaoke" | "kinetic" | "focus";
+  animation?: "none" | "pop" | "karaoke" | "kinetic" | "focus" | "rise";
   /*
     Both paces, not a checkbox.
 
@@ -192,7 +192,7 @@ export const LOOK_STYLES: Array<{
 ];
 
 const ANIMATIONS: Array<{ id: NonNullable<ChosenLook["animation"]> }> = [
-  { id: "none" }, { id: "pop" }, { id: "karaoke" }, { id: "kinetic" }, { id: "focus" },
+  { id: "none" }, { id: "pop" }, { id: "karaoke" }, { id: "kinetic" }, { id: "focus" }, { id: "rise" },
 ];
 
 const PACES: Array<{ id: NonNullable<ChosenLook["pace"]> }> = [{ id: "quick" }, { id: "normal" }];

@@ -696,6 +696,21 @@ const CAPTION_STYLE_WORDS: Array<[RegExp, "hormozi" | "beast" | "pill" | "neon" 
 ];
 /** The big-keyword lockup, asked for the way people describe it. */
 const FOCUS_WORDS = /الكلمة الكبيرة|كلمة بارزة|كلمة كبيرة|big keyword|keyword caption|one word big|focus caption/i;
+/*
+  The rise, and it is asked for **before** the lockup it is a version of.
+
+  Every sentence that reaches `rise` also reaches `FOCUS_WORDS` — «كلمة بارزة
+  صاعدة» contains «كلمة بارزة», "rising keyword" contains "keyword" — so a row
+  after it could never win. The wipe/kinetic pair above is ordered for the same
+  reason and says so; `\b` is no help here because it is defined on ASCII and
+  does nothing against Arabic.
+
+  «من تحت» on its own is deliberately not in here. It is how half the people
+  who want the caption at the *bottom* say it — «حط الكابشن من تحت» — and a row
+  that took it would answer a question about position with an answer about
+  motion, and put the caption back in the middle while it did.
+*/
+const RISE_WORDS = /صاعد|تصعد|يطلع من تحت|تطلع من تحت|rising|rise up|float up|lift up/i;
 /** Where the caption sits, said the way people say it. */
 const CAPTION_TOP_WORDS = /كابشن فوق|الكابشن فوق|فوق الشاشة|أعلى الشاشة|اعلى الشاشة|captions? (?:at|on) top|top of the screen/i;
 const CAPTION_MIDDLE_WORDS = /وسط الشاشة|منتصف الشاشة|نص الشاشة|middle of the screen|center(?:ed)? captions?|captions? in the (?:centre|center|middle)/i;
@@ -1448,20 +1463,23 @@ export function planFromText(
       whole point of every row in the catalogue carrying a `defaultAnimation`
       that nothing read for as long as this line said "pop".
     */
-    const animation = FOCUS_WORDS.test(text)
-      ? "focus"
-      : KARAOKE_WORDS.test(text)
-        ? "karaoke"
-        : KINETIC_CAPTION_WORDS.test(text)
-          ? "kinetic"
-          : CAPTION_QUICK_WORDS.test(text)
-            ? // The reference fast-cut look, asked for in words: at two swaps a
-              // second any entrance animation reads as flicker, so quick pace
-              // asked for on its own brings the hard swap with it. Not applied
-              // to the *default* quick pace, which gets the style's own
-              // animation — `creator` was built with focus and measured with it.
-              "none"
-            : undefined;
+    const animation = RISE_WORDS.test(text)
+      ? "rise"
+      : FOCUS_WORDS.test(text)
+        ? "focus"
+        : KARAOKE_WORDS.test(text)
+          ? "karaoke"
+          : KINETIC_CAPTION_WORDS.test(text)
+            ? "kinetic"
+            : CAPTION_QUICK_WORDS.test(text)
+              ? // The reference fast-cut look, asked for in words: at two swaps
+                // a second any entrance animation reads as flicker, so quick
+                // pace asked for on its own brings the hard swap with it. Not
+                // applied to the *default* quick pace, which gets the style's
+                // own animation — `creator` was built with focus and measured
+                // with it.
+                "none"
+              : undefined;
     const pace = CAPTION_QUICK_WORDS.test(text) ? "quick" : CAPTION_CALM_WORDS.test(text) ? "normal" : undefined;
 
     operations.push({

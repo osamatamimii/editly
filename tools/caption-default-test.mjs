@@ -272,10 +272,39 @@ section("The renderer resolves the look once, and the style brings its own motio
     on every operation, the plan always said. Twelve looks tuned around an
     animation, and the field was read by nothing in the product.
   */
-  check("and takes the animation the style was built with", bare.animation === "focus", bare.animation);
+  /*
+    The motion, by name, and this is the one line that says it.
+
+    The look is pinned by name in the decision section above; its motion cannot
+    be, because the catalogue lives in the worker and that module is built here
+    rather than at the top of the file. So it is pinned here instead: `glow`
+    answers `rise`, the lockup with the reference's own arrival — every word
+    fading in below its line and easing up onto it — and not `focus`, the same
+    lockup with a scale pop instead. The two rows are one word apart, and this
+    is what stands between them and everybody's captions.
+  */
+  check(
+    "the default look's motion is the rise, not the pop it was built beside",
+    CAPTION_STYLES[DEFAULT_CAPTION_LOOK.style].defaultAnimation === "rise",
+    CAPTION_STYLES[DEFAULT_CAPTION_LOOK.style].defaultAnimation,
+  );
+  check(
+    "and takes the animation the style was built with",
+    bare.animation === CAPTION_STYLES[DEFAULT_CAPTION_LOOK.style].defaultAnimation,
+    bare.animation,
+  );
+  /*
+    Read off the default's own row, not off a row named here. This said
+    `CAPTION_STYLES["creator"]` — true, and true only for as long as `creator`
+    was the default. When the default moved to `glow` the two sides of the
+    comparison stopped being the same thing and the check went red for the
+    right reason with the wrong message, which is a check that has to be read
+    before it can be believed.
+  */
   check(
     "which is the style's own, not a constant",
-    bare.animation === CAPTION_STYLES["creator"].defaultAnimation,
+    bare.animation !== undefined && bare.animation !== "pop",
+    bare.animation,
   );
   check("a different style brings a different one", resolveCaptionLook({ style: "hormozi" }).animation === "kinetic");
   check("and one that names no animation falls back to pop", resolveCaptionLook({ style: "pill" }).animation === "none");
