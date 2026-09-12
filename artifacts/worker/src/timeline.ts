@@ -570,13 +570,20 @@ const JOIN_ROOM = 0.4;
  */
 export function sceneJoins(
   kept: readonly Segment[],
-  where: "scenes" | "everyCut" = "scenes",
+  where: "scenes" | "everyCut" | "named" = "scenes",
 ): boolean[] {
   const joins = Math.max(0, kept.length - 1);
   const out: boolean[] = [];
   for (let i = 0; i < joins; i += 1) {
     if (where === "everyCut") {
       out.push(true);
+      continue;
+    }
+    if (where === "named") {
+      // No seam is a scene by this rule, so the only joins made are the ones
+      // the person listed. The rule is not weakened, it is switched off, which
+      // is a different thing and has its own name in the contract.
+      out.push(false);
       continue;
     }
     const before = kept[i]!;
@@ -610,16 +617,73 @@ export function sceneJoins(
  * was rounded onto, so that the clock this list builds and the clock in the
  * encoded file are the same clock. See the note where the rounding happens.
  */
+/**
+ * How far from a seam a person may name it and still mean it.
+ *
+ * They are watching the edit and pointing at a join; the moment they point at
+ * is stored on the source clock and will not be the seam's own instant. Two
+ * seconds is wider than any click is wrong and narrower than the gap between
+ * two joins in anything but a montage, and a named seam that matches nothing
+ * is reported rather than dropped, so the cost of being too narrow is a
+ * sentence and not a silence.
+ */
+export const JOIN_REACH_SECONDS = 2;
+
+/**
+ * Which join a moment on the **source** clock names, or -1 for none.
+ *
+ * A join is not an instant in the recording, it is the place two instants were
+ * brought together, so a named seam is matched against both of them:
+ *
+ *   **A removed stretch.** `previous.end <= next.start`, and everything the cut
+ *   took out lies between them. A moment anywhere inside it is on the seam
+ *   exactly, because all of it is the thing that is gone.
+ *
+ *   **A reorder.** `previous.end > next.start`, and there is no stretch, only
+ *   two distinct instants the edit jumps between. Treating the span between
+ *   them as the seam would make a cold open swallow every moment from the top
+ *   of the file to the hook, so the distance is to the nearer of the two.
+ *
+ * Ties go to the earlier join, which only matters when two seams are equally
+ * far from a point that is between them, and then either answer is a guess.
+ */
+export function joinAtSource(
+  kept: readonly Segment[],
+  sourceSeconds: number,
+  reach = JOIN_REACH_SECONDS,
+): number {
+  let best = -1;
+  let bestDistance = Infinity;
+  for (let i = 0; i < kept.length - 1; i += 1) {
+    const from = kept[i]!.end;
+    const to = kept[i + 1]!.start;
+    const distance =
+      from <= to
+        ? sourceSeconds < from
+          ? from - sourceSeconds
+          : sourceSeconds > to
+            ? sourceSeconds - to
+            : 0
+        : Math.min(Math.abs(sourceSeconds - from), Math.abs(sourceSeconds - to));
+    if (distance < bestDistance - 1e-9) {
+      bestDistance = distance;
+      best = i;
+    }
+  }
+  return bestDistance <= reach ? best : -1;
+}
+
 export function transitionJoins(
   kept: readonly Segment[],
   {
     seconds,
     where = "scenes",
     fps,
+    per,
   }: {
     /** What the plan asked for, in seconds. */
     seconds: number;
-    where?: "scenes" | "everyCut";
+    where?: "scenes" | "everyCut" | "named";
     /**
      * The grid the cut was rounded onto.
      *
@@ -628,16 +692,32 @@ export function transitionJoins(
      * the return value for why the grid is not the renderer's business alone.
      */
     fps: number;
+    /**
+     * Seams the person named, one entry per join, and they beat the rule.
+     *
+     * `0` is a hard cut asked for by name, a positive number is a join asked
+     * for by name, and `null` or a missing entry leaves that seam to the scene
+     * test. A named seam overrides the judgement because the judgement is a
+     * default about a recording and the person is looking at the picture.
+     *
+     * What it does **not** override is the room and the frame grid below. Those
+     * are not opinions about the edit, they are what the two pieces either side
+     * can physically hold, and a seam that cannot hold a join does not acquire
+     * the ability by being pointed at.
+     */
+    per?: ReadonlyArray<number | null | undefined>;
   },
 ): number[] {
   const scenes = sceneJoins(kept, where);
   const cell = 1 / fps;
   return scenes.map((isScene, i) => {
-    if (!isScene) return 0;
+    const named = per?.[i];
+    if (named === 0) return 0;
+    if (!isScene && (named === null || named === undefined)) return 0;
     // Local room, not global. See JOIN_ROOM.
     const room =
       Math.min(kept[i]!.end - kept[i]!.start, kept[i + 1]!.end - kept[i + 1]!.start) * JOIN_ROOM;
-    const length = Math.min(seconds, room);
+    const length = Math.min(named ?? seconds, room);
     if (length < MIN_JOIN_SECONDS) return 0;
     /*
       Down to the frame, never up.

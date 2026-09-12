@@ -47,7 +47,7 @@ import {
 } from "./framing";
 import { trackSubject, trackNote } from "./subject";
 import { overscanFor, scaleFor, takesFrom } from "./shots";
-import { keepSegmentsFrom, mergeSpans, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, transitionJoins, sceneJoins, overlapAt, overlapBefore, MOTION_OVERSCAN, SCENE_GAP_SECONDS, type RemovableSpan, type Segment, type SpokenWord } from "./timeline";
+import { keepSegmentsFrom, mergeSpans, outputDuration, remapTime, snapToWords, snapToSpeechBreaks, transitionJoins, sceneJoins, joinAtSource, overlapAt, overlapBefore, MOTION_OVERSCAN, SCENE_GAP_SECONDS, type RemovableSpan, type Segment, type SpokenWord } from "./timeline";
 import { tighten, type TightenResult } from "./tighten";
 import { placeSoundEffects, joinTimes, MIN_EDIT_SECONDS as SFX_MIN_EDIT_SECONDS, type SfxPalette } from "./sfx";
 import { chooseHighlight } from "./highlight";
@@ -3215,6 +3215,20 @@ const XFADE_STYLE: Record<TransitionStyle, string> = {
   glitch: "fade",
 };
 
+/**
+ * The burst a style adds after the chain, for the two that add one.
+ *
+ * A table rather than a pair of ternaries, because the question is now asked
+ * per join instead of per plan: an edit can name a whip at one seam and a zoom
+ * blur at another, and the graph has to know which windows belong to which
+ * filter. Every other style answers `undefined`, which is the whole list of
+ * styles that are only an `xfade`.
+ */
+const BURST_FILTER: Partial<Record<TransitionStyle, string>> = {
+  whipPan: "dblur=angle=0:radius=14",
+  zoomBlur: "gblur=sigma=7:steps=2",
+};
+
 /** The same ten, as the render notes say them. */
 /** The same ten in Arabic, for the note the render writes. */
 const STYLE_IN_WORDS_AR: Record<TransitionStyle, string> = {
@@ -4240,6 +4254,14 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   let groupCrop: ((group: { from: string; to: string; startsAt: number }) => string) | null = null;
   /** The ffmpeg name for the style asked for. */
   let joinStyle = "fade";
+  /**
+   * The style of each join that was actually made, in the order they play.
+   *
+   * One entry per non-zero overlap, so it lines up with `joinLengths` rather
+   * than with `overlaps`. Empty means every join uses `joinStyle`, which is
+   * every edit where nobody named a seam.
+   */
+  let madeStyles: TransitionStyle[] = [];
   /*
     The montage joins.
 
@@ -4273,12 +4295,53 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       );
     } else {
       const asked = transition.durationMs / 1000;
+      /*
+        The seams the person named, matched to joins on the source clock.
+
+        `style` and `where` are a sentence about a whole edit and they are the
+        right default; this is the scope under it, for the person watching
+        their own video who has an opinion about one join. The match is done
+        here, once, and both the picture and the note downstream read the
+        result.
+
+        Two overrides landing on the same seam: the last one wins, the way the
+        last thing somebody says about a thing is what they meant. A seam that
+        matches none of them is counted and said below, because an override
+        that quietly did nothing is the failure this whole layer is written to
+        avoid.
+      */
+      const perJoin: Array<number | null> = new Array(joins).fill(null);
+      const namedStyle: Array<TransitionStyle | null> = new Array(joins).fill(null);
+      let unmatched = 0;
+      for (const override of transition.joins ?? []) {
+        const i = joinAtSource(kept!, override.sourceMs / 1000);
+        if (i < 0) {
+          unmatched += 1;
+          continue;
+        }
+        if (override.join === "hard") {
+          perJoin[i] = 0;
+          namedStyle[i] = null;
+        } else {
+          perJoin[i] = (override.durationMs ?? transition.durationMs) / 1000;
+          namedStyle[i] = override.join;
+        }
+      }
+      if (unmatched > 0) {
+        notes.push(
+          t(
+            `${unmatched} seam${unmatched === 1 ? "" : "s"} you named ${unmatched === 1 ? "is" : "are"} not near any cut in this edit, so ${unmatched === 1 ? "it was" : "they were"} left out rather than moved to the nearest one`,
+            `${unmatched} درزًا سمّيتَه ليس قرب أي قصّة في هذا التعديل، فتُرك بدل أن يُنقل إلى أقربها`,
+          ),
+        );
+      }
       overlaps = transitionJoins(kept!, {
         seconds: asked,
         where: transition.where,
         // The same grid the cuts were snapped onto, so the two sides of every
         // join and the join itself are all whole frames of one clock.
         fps: grid.fps,
+        per: perJoin,
       });
 
       /*
@@ -4322,8 +4385,32 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       }
       const made = overlaps.filter((one) => one > 0).length;
       const longest = Math.max(0, ...overlaps);
-      const named = STYLE_IN_WORDS[transition.style];
-      const namedAr = STYLE_IN_WORDS_AR[transition.style];
+      /*
+        The style of every join that was made, in the order they play.
+
+        Lined up with the *made* joins rather than with all of them, because
+        that is the list the graph walks. A seam nobody named takes the plan's
+        own style, so an edit with no overrides produces the same string at
+        every join it always did.
+      */
+      overlaps.forEach((one, i) => {
+        if (one > 0) madeStyles.push(namedStyle[i] ?? transition.style);
+      });
+      /*
+        And what to call the result.
+
+        One style everywhere is the sentence this note has always written. An
+        edit with two is not that sentence, and writing it anyway would name a
+        style for joins that are not it — the note saying "dissolved between the
+        cuts, at all 2 joins" about an edit whose second join is a whip pan is
+        precisely the kind of confident wrong sentence this file spends its
+        length avoiding. So the headline goes neutral and the styles are listed
+        under it, each with its own count.
+      */
+      const distinct = [...new Set(madeStyles)];
+      const mixed = distinct.length > 1;
+      const named = mixed ? "joined between the cuts" : STYLE_IN_WORDS[distinct[0] ?? transition.style];
+      const namedAr = mixed ? "وُصلت بين القصّات" : STYLE_IN_WORDS_AR[distinct[0] ?? transition.style];
 
       if (made === 0 && !refused) {
         /*
@@ -4362,12 +4449,28 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           looking for the fault in their footage.
         */
         const tooFewFrames = asked * grid.fps < 2;
+        /*
+          And a fourth, for the scope that has no rule behind it.
+
+          `named` means the seams the person listed and nothing else, so "every
+          cut in this edit tidies up a pause" would be an answer to a question
+          nobody asked: the rule was switched off, and what failed is that none
+          of the named seams could be joined. The unmatched ones have already
+          been counted above; this is the sentence for the ones that matched a
+          cut with no room in it.
+        */
+        const onlyNamed = transition.where === "named";
         notes.push(
           tooFewFrames
             ? t(
                 `an overlap of ${transition.durationMs}ms is under two frames at this recording's ${grid.fps} fps, which is not something anybody can see, so the cuts stay hard`,
                 `مراكبة ${transition.durationMs} مللي أقلّ من إطارين عند ${grid.fps} إطارًا في الثانية لهذا التسجيل، وهذا ما لا يراه أحد، فتبقى القصّات حادّة`,
               )
+            : onlyNamed
+              ? t(
+                  "this edit joins only the seams you name, and none of them landed on a cut with room for a join, so the cuts stay hard",
+                  "هذا التعديل يصل الدروز التي تسمّيها وحدها، ولم يقع أيّ منها على قصّة فيها متّسع لوصلة، فتبقى القصّات حادّة",
+                )
             : anyRoom
               ? t(
                   "every cut in this edit tidies up a pause rather than moving somewhere else, so they all stay hard rather than joining a shot to itself",
@@ -4389,9 +4492,33 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           of those cuts were left alone on purpose — otherwise the most
           defensible decision this renderer makes looks like a bug in it.
         */
-        const skipped = joins - made;
+        /*
+          What the person chose, counted apart from what the rule chose.
+
+          The clause at the end of the headline says the seams left hard are
+          seams that tidy up a pause, and on an edit where somebody asked for
+          one of them to stay hard that is a sentence about the recording
+          describing a decision the person made. So the rule is asked what it
+          would have done alone — the same function, with the named seams taken
+          away, which is not a copy of anything — and a seam it would have
+          joined and the person turned off is counted as theirs.
+        */
+        const byRuleAlone = transitionJoins(kept!, {
+          seconds: asked,
+          where: transition.where,
+          fps: grid.fps,
+        });
+        const heldHard = byRuleAlone.filter((one, i) => one > 0 && perJoin[i] === 0).length;
+        const madeByHand = perJoin.filter((one) => one !== null && one > 0).length;
+        const skipped = joins - made - heldHard;
+        const onlyNamed = transition.where === "named";
         notes.push(
-          skipped > 0
+          onlyNamed
+            ? t(
+                `${named} at the ${made === 1 ? "one seam" : `${made} seams`} you named, over ${longest.toFixed(2)}s; every other cut stays hard`,
+                `${namedAr} عند ${made === 1 ? "الدرز الوحيد الذي سمّيتَه" : `الدروز ${made} التي سمّيتَها`}، خلال ${longest.toFixed(2)} ثانية؛ وكل قصّة أخرى تبقى حادّة`,
+              )
+            : skipped > 0
             ? t(
                 `${named} where the recording jumps, at ${made} of ${joins} joins over ${longest.toFixed(2)}s; the other ${skipped} tidy up a pause and stay hard`,
                 `${namedAr} حيث يقفز التسجيل، عند ${made} من ${joins} وصلة خلال ${longest.toFixed(2)} ثانية؛ والباقيات ${skipped} تُنظّف وقفات فتبقى حادّة`,
@@ -4401,6 +4528,44 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
                 `${namedAr} خلال ${longest.toFixed(2)} ثانية، عند ${made === 1 ? "الوصلة الوحيدة" : `الوصلات ${made} كلّها`}`,
               ),
         );
+        // Not said again under `named`, where every join is one they named and
+        // the sentence above has already said exactly that.
+        if (!onlyNamed && (madeByHand > 0 || heldHard > 0)) {
+          const said: string[] = [];
+          const saidAr: string[] = [];
+          if (madeByHand > 0) {
+            said.push(
+              madeByHand === 1
+                ? "one of them is a seam you named yourself"
+                : `${madeByHand} of them are seams you named yourself`,
+            );
+            saidAr.push(
+              madeByHand === 1 ? "أحدها درز سمّيتَه بنفسك" : `${madeByHand} منها دروز سمّيتَها بنفسك`,
+            );
+          }
+          if (heldHard > 0) {
+            said.push(
+              heldHard === 1
+                ? "one more you asked to stay hard"
+                : `${heldHard} more you asked to stay hard`,
+            );
+            saidAr.push(heldHard === 1 ? "وواحد آخر طلبتَ بقاءه حادًّا" : `و${heldHard} أخرى طلبتَ بقاءها حادّة`);
+          }
+          notes.push(t(said.join(", and "), saidAr.join("، ")));
+        }
+        if (mixed) {
+          // Listed under the neutral headline, each with its own count, because
+          // an edit with two styles in it has no single true sentence.
+          for (const style of distinct) {
+            const count = madeStyles.filter((one) => one === style).length;
+            notes.push(
+              t(
+                `${STYLE_IN_WORDS[style]} at ${count} of them`,
+                `${STYLE_IN_WORDS_AR[style]} عند ${count} منها`,
+              ),
+            );
+          }
+        }
         if (longest < asked - 0.001) {
           notes.push(
             t(
@@ -4434,8 +4599,48 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         paths share.
       */
       glitchSeams = sceneJoins(kept!, transition.where);
+      /*
+        Named seams, on the path that has no overlap to give them.
+
+        "Leave this one alone" is carried out here exactly as it is on the
+        other path: the break is a mark on a seam either way, and suppressing
+        one costs nothing. Naming a *style* is not, because every other style
+        is an overlap and this path is a hard cut with the picture breaking
+        around it — carrying it out would mean building the other graph for one
+        join in the middle of this one. So it is refused out loud. A named seam
+        that silently stayed a glitch is the whole class of fault this feature
+        was added to stop.
+      */
+      let notGlitched = 0;
+      let heldClean = 0;
+      for (const override of transition.joins ?? []) {
+        const i = joinAtSource(kept!, override.sourceMs / 1000);
+        if (i < 0 || !glitchSeams[i]) continue;
+        if (override.join === "hard") {
+          glitchSeams[i] = false;
+          heldClean += 1;
+        } else notGlitched += 1;
+      }
+      if (heldClean > 0) {
+        notes.push(
+          t(
+            `${heldClean} seam${heldClean === 1 ? "" : "s"} you asked to stay clean did, so the picture does not break there`,
+            `${heldClean} درزًا طلبتَ بقاءه نظيفًا بقي كذلك، فلا تنكسر الصورة عنده`,
+          ),
+        );
+      }
+      if (notGlitched > 0) {
+        notes.push(
+          t(
+            `${notGlitched} seam${notGlitched === 1 ? "" : "s"} you gave another style to stayed a glitch: a glitch is a hard cut with the picture breaking around it, and the rest are overlaps, so the two cannot sit in one edit`,
+            `${notGlitched} درزًا أعطيتَه نمطًا آخر بقي جليتشًا: الجليتش قصّة حادّة تنكسر الصورة حولها، والبقيّة مراكبات، فلا يجتمعان في تعديل واحد`,
+          ),
+        );
+      }
       const made = glitchSeams.filter(Boolean).length;
-      const skipped = joins - made;
+      // The seams the person turned off are not seams that tidy up a pause,
+      // and the sentence below says which the rest are.
+      const skipped = joins - made - heldClean;
       if (made === 0) {
         notes.push(
           t(
@@ -4643,20 +4848,25 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       let aPrevious = groupAudio[0] ?? "ga0";
       const lastGroup = groups.length - 1;
       /* The burst lands exactly on each join's window, so the windows are
-         collected from the same arithmetic that places the xfades. */
-      const burst =
-        transition?.style === "whipPan"
-          ? "dblur=angle=0:radius=14"
-          : transition?.style === "zoomBlur"
-            ? "gblur=sigma=7:steps=2"
-            : null;
+         collected from the same arithmetic that places the xfades. Kept per
+         filter rather than as one list, because two joins in one edit can now
+         be two different styles and a whip's smear is not a zoom's blur. */
+      const burstWindows = new Map<string, Array<[number, number]>>();
+      const anyBurst = madeStyles.some((style) => BURST_FILTER[style]);
       for (let g = 1; g <= lastGroup; g += 1) {
         const length = joinLengths[g - 1]!;
+        // The style of *this* join. Without an override it is the plan's own,
+        // so the string emitted here is the string that was emitted before.
+        const style = madeStyles[g - 1];
         const offset = elapsed - pulled - length;
-        const vOut = g === lastGroup ? (burst ? "xvjoin" : "cutv") : `xv${g}`;
-        joinWindows.push([Math.max(0, offset), Math.max(0, offset) + length]);
+        const vOut = g === lastGroup ? (anyBurst ? "xvjoin" : "cutv") : `xv${g}`;
+        const window: [number, number] = [Math.max(0, offset), Math.max(0, offset) + length];
+        joinWindows.push(window);
+        const filter = style ? BURST_FILTER[style] : undefined;
+        if (filter) burstWindows.set(filter, [...(burstWindows.get(filter) ?? []), window]);
         pieces.push(
-          `[${vPrevious}][gvc${g}]xfade=transition=${joinStyle}:duration=${length.toFixed(4)}:` +
+          `[${vPrevious}][gvc${g}]xfade=transition=${style ? XFADE_STYLE[style] : joinStyle}:` +
+            `duration=${length.toFixed(4)}:` +
             `offset=${Math.max(0, offset).toFixed(4)}[${vOut}]`,
         );
         vPrevious = vOut;
@@ -4673,7 +4883,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         elapsed += groupLengths[g]!;
         pulled += length;
       }
-      if (burst && joinWindows.length > 0) {
+      if (burstWindows.size > 0) {
         /*
           One windowed filter on the finished stitch, not one per join: the
           `enable` expression carries every window, so however many joins the
@@ -4684,11 +4894,23 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           burst, inside the cap's own safety margin. (The same edit glitched:
           564 MB, because glitch never opens an overlap at all — see its branch
           on the select path.)
+
+          One node per *filter* now rather than one node, because an edit can
+          name a whip at one seam and a zoom blur at another. Two is the most
+          there can ever be, since those are the only two styles that carry a
+          burst, and the common case of one style everywhere is the node it
+          always was.
         */
-        const windows = joinWindows
-          .map(([from, to]) => `between(t,${from.toFixed(4)},${to.toFixed(4)})`)
-          .join("+");
-        pieces.push(`[xvjoin]${burst}:enable='${windows}'[cutv]`);
+        const entries = [...burstWindows.entries()];
+        let previous = "xvjoin";
+        entries.forEach(([filter, windows], i) => {
+          const out = i === entries.length - 1 ? "cutv" : `xvb${i}`;
+          const enable = windows
+            .map(([from, to]) => `between(t,${from.toFixed(4)},${to.toFixed(4)})`)
+            .join("+");
+          pieces.push(`[${previous}]${filter}:enable='${enable}'[${out}]`);
+          previous = out;
+        });
       }
       // The crossfades have already ramped every edge they cover, and the
       // group notches covered the hard cuts inside each side, so the audio

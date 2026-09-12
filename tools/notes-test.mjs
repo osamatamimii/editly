@@ -281,6 +281,64 @@ section("The surface that writes notes keeps the source clock and its own weight
   check("the column and the rail panel host the same surface", mounts === 2, `${mounts} mounts`);
 }
 
+section("A seam is a verb now, because the plan finally has a field for one");
+{
+  /*
+    The gap this section closes, and why it was a gap and not an oversight.
+
+    This file's own rule is that a verb is real only if the plan can already
+    say it, and "make this one a dissolve" could not be said: `transition` had
+    one style and one duration for a whole edit and nowhere to name a seam. So
+    the sentence was refused, correctly, and permanently. `joins` is the field
+    that changes the answer.
+  */
+  check("a hard cut is a verb", verbOf("make this a hard cut") === "hard");
+  check("and so is its Arabic", verbOf("قطع حادّ هنا") === "hard");
+  check("a dissolve is a verb", verbOf("dissolve here") === "join");
+  check("and so is its Arabic", verbOf("ذوّب هنا") === "join");
+  /*
+    "no dissolve here" says both words and means the refusal.
+
+    The order in `verbOf` is the only thing that decides it, which is why the
+    sentence is checked rather than the order.
+  */
+  check("a sentence with both words means the refusal", verbOf("no dissolve here, cut it hard") === "hard");
+  check("and none of them has eaten the older verbs", verbOf("leave this pause") === "keep" && verbOf("push in here") === "punch");
+
+  /*
+    Into the operation that exists, union rather than replacement.
+
+    The same rule `protect` is under: two writers of one list and one of them
+    overwriting is how somebody's own instruction disappears with nothing to
+    show for it.
+  */
+  const existing = { type: "transition", style: "dissolve", durationMs: 400, where: "scenes", joins: [{ sourceMs: 1000, join: "hard" }] };
+  const { operations } = applyNotes([existing], [{ sourceMs: 9600, text: "dissolve here" }]);
+  const joined = operations.find((o) => o.type === "transition");
+  check("the seam is added to the operation that is there", joined.joins.length === 2, JSON.stringify(joined.joins));
+  check("and the one that was already there is still there", joined.joins[0].sourceMs === 1000, JSON.stringify(joined.joins));
+  check("and nothing else about the operation moved", joined.style === "dissolve" && joined.where === "scenes");
+
+  /*
+    And with no transition operation at all, one is added — under `named`.
+
+    This is the line the third `where` value exists for. An operation added
+    here with `where: "scenes"` would join every scene change in the video off
+    the back of somebody pointing at one seam, which changes joins they never
+    mentioned and is the more expensive kind of wrong.
+  */
+  const fresh = applyNotes([SILENCE], [{ sourceMs: 4200, text: "hard cut here" }]);
+  const added = fresh.operations.find((o) => o.type === "transition");
+  check("a named seam with nowhere to live gets somewhere to live", Boolean(added));
+  check(
+    "and it is scoped to the seams named, not to every scene in the video",
+    added.where === "named",
+    String(added?.where),
+  );
+  check("the cut operation is untouched", JSON.stringify(fresh.operations[0]) === JSON.stringify(SILENCE));
+  check("and the note is applied rather than unread", fresh.applied.length === 1 && fresh.unread.length === 0);
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) { console.log(`${failures} FAILED`); process.exit(1); }
 console.log("A note survives the next sentence, and wins where it is more specific.");

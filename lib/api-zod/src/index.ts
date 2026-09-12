@@ -1561,6 +1561,44 @@ export type TransitionStyle = z.infer<typeof TransitionStyle>;
  * `dissolve` is now one style among ten rather than the name of the whole
  * idea, which is what it always was.
  */
+/**
+ * One seam, named by the person, and what it should be.
+ *
+ * ## Anchored to the source, never to the edit
+ *
+ * `sourceMs` is a moment in the recording that was uploaded, not a moment in
+ * the finished video. That is the same decision a pinned note makes and for the
+ * same reason: a seam named on the edit clock moves the instant anything
+ * earlier in the plan changes, so a person who trims one more silence finds
+ * their dissolve on a different join, silently, which is the worst way for an
+ * edit to be wrong.
+ *
+ * The renderer matches it to the join whose removed stretch it falls in, or to
+ * the nearest seam within reach, and says so when it matches none. A named
+ * seam that quietly matched nothing would be the note that parses and does
+ * nothing.
+ *
+ * ## Why a single field rather than a style and a flag
+ *
+ * "hard" and a style name are the same question answered two ways, and two
+ * fields could be set to contradict each other. One field cannot.
+ */
+export const JoinOverride = z.object({
+  /** Where the seam is, on the recording's own clock. */
+  sourceMs: z.number().min(0),
+  /**
+   * What this seam is: `hard` keeps the cut, a style name joins it.
+   *
+   * `hard` is here because it is the more common of the two asks. A person
+   * reviewing an edit that dissolved somewhere they did not want it has to be
+   * able to say so, and "use a shorter dissolve" is not the same sentence.
+   */
+  join: z.union([z.literal("hard"), TransitionStyle]),
+  /** How long this one overlaps. Absent means the operation's own duration. */
+  durationMs: z.number().min(80).max(1000).optional(),
+});
+export type JoinOverride = z.infer<typeof JoinOverride>;
+
 export const TransitionOperation = z.object({
   type: z.literal("transition"),
   style: TransitionStyle.default("dissolve"),
@@ -1594,8 +1632,29 @@ export const TransitionOperation = z.object({
    * `everyCut` stays reachable because it is a real ask rather than a mistake:
    * a montage of six-second shots wants one at every seam, and so does a
    * slideshow. See `transitionJoins` in the worker for the rule.
+   *
+   * `named` is neither: no seam gets one except the ones listed in `joins`. It
+   * exists because a person who points at one join and says "dissolve here" is
+   * asking for one dissolve, and the only operation that could carry that
+   * before would have put one at every scene change in the video as well.
    */
-  where: z.enum(["scenes", "everyCut"]).default("scenes"),
+  where: z.enum(["scenes", "everyCut", "named"]).default("scenes"),
+  /**
+   * Seams the person named, which beat the rule above.
+   *
+   * `style` and `where` describe a whole edit, and until this existed that was
+   * the only scope there was: one answer for every seam in the video. It is the
+   * right default and it is not enough, because the person watching their own
+   * edit has an opinion about *one* join, and until now there was nowhere to
+   * put it. `notes.ts` refuses a note whose verb the plan cannot carry out,
+   * which was the honest behaviour and meant "make this one a dissolve" was
+   * refused forever.
+   *
+   * Absent rather than empty by default, like `removeSilence.protect`, which
+   * is the same shape of field: a list a person adds to a plan that already
+   * works without it. A stored plan that never had one replays byte for byte.
+   */
+  joins: z.array(JoinOverride).max(60).optional(),
 });
 
 /**

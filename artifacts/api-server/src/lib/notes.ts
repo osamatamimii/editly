@@ -58,7 +58,7 @@ export interface AnchorWord {
 }
 
 /** What a note turned out to mean, or that it meant nothing this layer knows. */
-export type NoteVerb = "keep" | "punch" | null;
+export type NoteVerb = "keep" | "punch" | "join" | "hard" | null;
 
 /*
  * The vocabulary, in both languages, and refusals are not in it.
@@ -76,18 +76,42 @@ const KEEP_WORDS =
 const PUNCH_WORDS =
   /\bzoom\b|\bpunch\b|\bpush in\b|\bemphasi[sz]e\b|\bcloser\b|\btighter here\b|قرّب|قرب|كبّر|كبر|زوم|شدّ هنا|أكّد|اكد/i;
 
+/*
+ * The two seam verbs, which the plan could not carry until it had a field.
+ *
+ * These were refused for as long as `transition` described a whole edit and
+ * nothing else: "make this one a dissolve" parses easily and there was nowhere
+ * to put it, and this file's own rule is that a verb is only real if the plan
+ * can already say it. `TransitionOperation.joins` is where it goes now.
+ *
+ * `hard` is listed first below because it is the one people write more often.
+ * Somebody watching an edit that dissolved somewhere they did not want it says
+ * so; nobody asks for a dissolve at a seam they have not seen joined wrong.
+ */
+const HARD_WORDS =
+  /\bhard cut\b|\bcut hard\b|\bstraight cut\b|\bno (?:transition|dissolve|fade) here\b|قطع حاد|قطعة حاد|قصّ?ة حاد|بلا انتقال|بدون انتقال|بلا ذوبان/i;
+
+const JOIN_WORDS =
+  /\bdissolve\b|\bcross ?fade\b|\bsmooth(?:er)? here\b|\btransition here\b|ذوّب|ذوب هنا|انتقال هنا|نعّم|نعم هنا|وصلة ناعمة/i;
+
 /**
  * What one note means.
  *
- * Order is priority and there are only two, so the only thing it decides is a
- * sentence that says both — "keep this and push in on it", which is a real
- * thing to write. `keep` wins because it is the destructive one: getting the
- * punch and losing the pause is a worse outcome than the reverse, and a person
- * who wanted both will notice the missing push-in and say so, where a pause
- * that was cut out is gone without a trace.
+ * Order is priority, and it decides the sentences that say more than one thing.
+ * `keep` still wins over everything for the reason it always did: getting the
+ * punch and losing the pause is a worse outcome than the reverse, and a pause
+ * that was cut out is gone without a trace where a missing push-in is visible
+ * and can be asked for again.
+ *
+ * `hard` comes before `join` because "no dissolve here, a hard cut" says both
+ * words and means one of them, and the one it means is the refusal. Both come
+ * before `punch` because neither vocabulary overlaps it and the order between
+ * them is then only about which is checked first.
  */
 export function verbOf(text: string): NoteVerb {
   if (KEEP_WORDS.test(text)) return "keep";
+  if (HARD_WORDS.test(text)) return "hard";
+  if (JOIN_WORDS.test(text)) return "join";
   if (PUNCH_WORDS.test(text)) return "punch";
   return null;
 }
@@ -179,6 +203,8 @@ export function applyNotes(
 
   const keeps: Array<{ startMs: number; endMs: number }> = [];
   const punches: number[] = [];
+  /** Seams the notes named, in the shape the contract takes them. */
+  const seams: Array<{ sourceMs: number; join: "hard" | "dissolve" }> = [];
 
   for (const note of notes) {
     const verb = verbOf(note.text);
@@ -190,6 +216,12 @@ export function applyNotes(
     applied.push({ note, verb, atMs });
     if (verb === "keep") {
       keeps.push({ startMs: Math.max(0, atMs - KEEP_PADDING_MS), endMs: atMs + KEEP_PADDING_MS });
+    } else if (verb === "hard" || verb === "join") {
+      /* The raw anchor, not the padded one: a seam is an instant and the
+         renderer does its own matching against the joins either side of it.
+         `KEEP_PADDING_MS` exists because a protected stretch is a stretch;
+         this is not one. */
+      seams.push({ sourceMs: atMs, join: verb === "hard" ? "hard" : "dissolve" });
     } else {
       punches.push(atMs / 1000);
     }
@@ -203,6 +235,13 @@ export function applyNotes(
          is the schema's. */
       const merged = [...(operation.protect ?? []), ...keeps].slice(0, 60);
       return { ...operation, protect: merged };
+    }
+    if (operation.type === "transition" && seams.length > 0) {
+      /* Union with whatever is already there, for the reason `protect` is a
+         union: two writers of one field and one of them overwriting is how a
+         person's own instruction disappears without an error. */
+      const merged = [...(operation.joins ?? []), ...seams].slice(0, 60);
+      return { ...operation, joins: merged };
     }
     if (operation.type === "zoomPunch" && punches.length > 0) {
       const merged = [...(operation.at ?? []), ...punches].slice(0, 40);
@@ -226,6 +265,30 @@ export function applyNotes(
    */
   if (punches.length > 0 && !next.some((operation) => operation.type === "zoomPunch")) {
     next.push({ type: "zoomPunch", at: punches.slice(0, 40), amount: 0.12, holdMs: 1200, on: "emphasis" });
+  }
+
+  /*
+   * And a named seam with no transition operation to live in gets one.
+   *
+   * The same reasoning as the punch, and the same trap avoided: an operation
+   * added here with `where: "scenes"` would join every scene change in the
+   * video off the back of somebody pointing at one seam, which is not what
+   * they asked for and is the more expensive kind of wrong — it changes joins
+   * they never mentioned. `named` is the value that means this and nothing
+   * else, and it exists for this line.
+   *
+   * A note that only says "hard" still adds the operation, and it is not
+   * pointless: it is the row that keeps the seam hard the day a later prompt
+   * asks for transitions everywhere. That is the persistence notes are for.
+   */
+  if (seams.length > 0 && !next.some((operation) => operation.type === "transition")) {
+    next.push({
+      type: "transition",
+      style: "dissolve",
+      durationMs: 250,
+      where: "named",
+      joins: seams.slice(0, 60),
+    });
   }
 
   return { operations: next, applied, unread };

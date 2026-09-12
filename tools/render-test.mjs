@@ -2730,6 +2730,228 @@ console.log("\nA join is a whole number of frames, and the clock says so");
   );
 }
 
+console.log("\nA seam the person named beats the rule, and the note says whose decision it was");
+{
+  /*
+    The gap this section exists for, and it was a gap rather than a defect.
+
+    `style`, `durationMs` and `where` describe a whole edit, and that was the
+    only scope there was. The person watching their own video has an opinion
+    about *one* join — "not there", "make this one softer" — and there was
+    nowhere in the contract to put it, so `notes.ts` refused the sentence. That
+    refusal was the honest behaviour and it was permanent: a verb is only real
+    if the plan can say it, and the plan could not.
+
+    Two elided scenes, so both joins are scene joins and the rule makes both of
+    them. Everything below is about taking one of them away or changing it.
+  */
+  const dir = await scratch();
+  const twoScenes = path.join(dir, "named-seams.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-y", "-loglevel", "error",
+    "-f", "lavfi", "-i", "color=c=white:size=320x240:rate=25:duration=13.8",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2.4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2.4",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+    "-filter_complex", "[1:a][2:a][3:a][4:a][5:a]concat=n=5:v=0:a=1[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", twoScenes,
+  ]);
+  const cutOps = [{ type: "removeSilence", thresholdDb: -32, minSilenceMs: 400, paddingMs: 0 }];
+  const both = await renderPlan(
+    twoScenes,
+    { version: 1, operations: [...cutOps, { type: "transition", style: "dissolve", durationMs: 400 }] },
+    { workDir: await scratch() },
+  );
+
+  /*
+    "Not this one."
+
+    The first seam is at source 3.0 to 5.4 — the removed stretch — so 4.2 is
+    inside it, which is the seam exactly. The file gets longer by one overlap
+    because one fewer join was made, and that is the measurement: the note
+    could say anything, the length cannot.
+  */
+  const held = await renderPlan(
+    twoScenes,
+    {
+      version: 1,
+      operations: [
+        ...cutOps,
+        { type: "transition", style: "dissolve", durationMs: 400, joins: [{ sourceMs: 4200, join: "hard" }] },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  check(
+    "a seam named hard is left hard, and the file is one overlap longer for it",
+    Math.abs(held.estimatedSeconds - both.estimatedSeconds - 0.4) < 1e-6,
+    `${both.estimatedSeconds} against ${held.estimatedSeconds}`,
+  );
+  /*
+    And the sentence does not blame the recording for it.
+
+    The headline's last clause says the seams left hard are seams that tidy up
+    a pause. On this edit that clause would be describing the person's own
+    decision as a fact about their footage, which is the quiet kind of wrong
+    this file exists to catch.
+  */
+  check(
+    "and the note says it was asked for rather than calling it a tidied pause",
+    held.notes.some((n) => /one more you asked to stay hard/.test(n)) &&
+      !held.notes.some((n) => /tidy up a pause and stay hard/.test(n)),
+    JSON.stringify(held.notes),
+  );
+
+  /*
+    "This one, but a whip."
+
+    A second style in one edit, which the graph could not express at all before:
+    `joinStyle` was one string for the whole chain, and the burst that a whip
+    adds was one filter over every join's window.
+  */
+  const mixed = await renderPlan(
+    twoScenes,
+    {
+      version: 1,
+      operations: [
+        ...cutOps,
+        {
+          type: "transition",
+          style: "dissolve",
+          durationMs: 400,
+          joins: [{ sourceMs: 9600, join: "whipPan", durationMs: 200 }],
+        },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  check(
+    "a seam given its own style and length is made at that length",
+    Math.abs(mixed.estimatedSeconds - both.estimatedSeconds - 0.2) < 1e-6,
+    `${both.estimatedSeconds} against ${mixed.estimatedSeconds}`,
+  );
+  /*
+    And the headline stops naming a style it cannot name for all of them.
+
+    "dissolved between the cuts, at all 2 joins" about an edit whose second
+    join is a whip pan is a confident wrong sentence, which is worse than a
+    vague right one. The verb goes neutral and the styles are listed under it.
+  */
+  check(
+    "the note names both styles rather than claiming the plan's for both",
+    mixed.notes.some((n) => /joined between the cuts/.test(n)) &&
+      mixed.notes.some((n) => /dissolved between the cuts at 1 of them/.test(n)) &&
+      mixed.notes.some((n) => /whipped between the cuts at 1 of them/.test(n)),
+    JSON.stringify(mixed.notes),
+  );
+
+  /*
+    Only the seams named, and nothing else.
+
+    This is the scope a pinned note needs. Without it the only operation that
+    could carry "dissolve here" would also have joined every other scene change
+    in the video, which is not what the person pointed at.
+  */
+  const onlyNamed = await renderPlan(
+    twoScenes,
+    {
+      version: 1,
+      operations: [
+        ...cutOps,
+        {
+          type: "transition",
+          style: "dissolve",
+          durationMs: 400,
+          where: "named",
+          joins: [{ sourceMs: 9600, join: "dissolve" }],
+        },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  check(
+    "naming one seam under 'named' joins that seam and no other",
+    Math.abs(onlyNamed.estimatedSeconds - both.estimatedSeconds - 0.4) < 1e-6 &&
+      onlyNamed.notes.some((n) => /at the one seam you named/.test(n)),
+    `${onlyNamed.estimatedSeconds}: ${JSON.stringify(onlyNamed.notes)}`,
+  );
+
+  /*
+    A seam that is nowhere near a cut is reported, not moved.
+
+    Source 0.1s is 2.9s from the nearest seam, past the reach. Snapping it to
+    the nearest join anyway would put a dissolve somewhere nobody pointed at,
+    and dropping it silently is the note that parses and does nothing.
+  */
+  const lost = await renderPlan(
+    twoScenes,
+    {
+      version: 1,
+      operations: [
+        ...cutOps,
+        {
+          type: "transition",
+          style: "dissolve",
+          durationMs: 400,
+          where: "named",
+          joins: [{ sourceMs: 100, join: "dissolve" }],
+        },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  check(
+    "a named seam near no cut is said out loud and nothing is joined",
+    lost.notes.some((n) => /not near any cut in this edit/.test(n)) &&
+      Math.abs(lost.estimatedSeconds - (both.estimatedSeconds + 0.8)) < 1e-6,
+    `${lost.estimatedSeconds}: ${JSON.stringify(lost.notes)}`,
+  );
+
+  /*
+    And the path with no overlap to give answers both halves honestly.
+
+    "Leave this one alone" costs a glitch nothing, so it is carried out. Naming
+    another style is not, because every other style is an overlap and this one
+    is a hard cut with the picture breaking around it. Refused out loud rather
+    than silently ignored.
+  */
+  const glitchHeld = await renderPlan(
+    twoScenes,
+    {
+      version: 1,
+      operations: [
+        ...cutOps,
+        { type: "transition", style: "glitch", durationMs: 200, joins: [{ sourceMs: 4200, join: "hard" }] },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  check(
+    "a glitch seam asked to stay clean stays clean",
+    glitchHeld.notes.some((n) => /asked to stay clean did/.test(n)),
+    JSON.stringify(glitchHeld.notes),
+  );
+  const glitchStyled = await renderPlan(
+    twoScenes,
+    {
+      version: 1,
+      operations: [
+        ...cutOps,
+        { type: "transition", style: "glitch", durationMs: 200, joins: [{ sourceMs: 4200, join: "dissolve" }] },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  check(
+    "and a style named on a glitch is refused in words rather than ignored",
+    glitchStyled.notes.some((n) => /stayed a glitch/.test(n)),
+    JSON.stringify(glitchStyled.notes),
+  );
+}
+
 console.log("\nThe montage joins: a whip is a blur, a zoom is a blur, a glitch is a hard cut that breaks");
 {
   /*
