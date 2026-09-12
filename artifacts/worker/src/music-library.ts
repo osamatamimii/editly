@@ -94,11 +94,14 @@ export function bedObjectKey(mood: MusicMood, id: string): string {
  *
  * Not one, because a creator who cuts four videos a week would hear the same
  * thirty seconds under all of them and would be right to notice. Not many,
- * because each one is bought. Four is the number at which the repeat is a
- * fortnight away rather than a day, and the whole library is twenty-four
- * files.
+ * because each one is bought where a paid maker is configured.
+ *
+ * Six puts the repeat a fortnight away for somebody posting three times a
+ * week. Across twelve moods the whole library is seventy-two files — which is
+ * free with the built-in synthesiser and under three dollars if every one of
+ * them were bought from Lyria at four cents.
  */
-export const VARIANTS_PER_MOOD = 4;
+export const VARIANTS_PER_MOOD = 6;
 
 export interface Bed {
   /** Local path to the audio, ready to hand to the renderer. */

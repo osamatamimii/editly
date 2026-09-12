@@ -162,6 +162,41 @@ const MUSIC_WORDS =
   /\bmusic|music ?bed|sound ?track|\bsong\b|\bbeat under\b|\btrack under\b|موسيق|أغنية|اغنية|خلفية موسيقية|صوت خلفي/i;
 
 /**
+ * Naming a genre is asking for music.
+ *
+ * «حط بيت تراب» and "add a boom bap beat" are how people who actually make
+ * short-form ads ask — they name the beat, not the category it belongs to —
+ * and neither sentence contains the word *music* in either language, so both
+ * were read as asking for nothing at all. The mood table underneath already
+ * knew what trap and boom bap were; the door above it did not.
+ *
+ * Each of these is a genre and only a genre. The bare word «تراب» is not here,
+ * because on its own it is soil, and the bare English "beat" is not here
+ * either: "cut to the beat" is a request about the picture, and putting it in
+ * this list would lay a bed under every sentence that asked for the cuts to
+ * land — a bed nobody mentioned, which is the one failure this whole feature
+ * is arranged to avoid.
+ */
+const MUSIC_GENRE_WORDS =
+  /\btrap beat\b|\b808s?\b|\bboom ?bap\b|\blo-?fi\b|\bchill ?hop\b|\bsynth ?wave\b|\b(?:hip ?hop|rap|drill) beat\b|بيت تراب|إيقاع تراب|ايقاع تراب|بيت هيب ?هوب|بيت راب|لو ?فاي|لوفاي/i;
+
+/**
+ * Is this sentence about music at all?
+ *
+ * One function rather than three copies of `MUSIC_WORDS.test(text)`, because
+ * the genre words have to reach every place that asks the question and not
+ * only the place that lays the bed. There are three, and each one is a
+ * different way to get it wrong: the branch that adds the bed; `spoke.music`,
+ * which stops a later layer from adding a second one; and `asksForPunches`,
+ * where an energy adjective belongs to the music rather than to the picture.
+ * «حط بيت تراب حماسي» is a request for one bed and no zooms, and it is only
+ * that in all three.
+ */
+function asksAboutMusic(text: string): boolean {
+  return MUSIC_WORDS.test(text) || MUSIC_GENRE_WORDS.test(text);
+}
+
+/**
  * Declining a music bed — the same phrases as `MUSIC_WORDS` contain the word,
  * so without this a person saying "no music", "remove the music" or «بدون
  * موسيقى» matched `MUSIC_WORDS` and was *given* a bed, or, on a project with no
@@ -169,7 +204,7 @@ const MUSIC_WORDS =
  * phrasing accepted for the request is another refusal swallowed.
  */
 const NO_MUSIC_WORDS =
-  /\bno (?:music|soundtrack|song|backing track)|without (?:music|a soundtrack|a song)|\bdon'?t (?:add|put|want|use) (?:any )?(?:music|a soundtrack|a song)|(?:remove|take out|get rid of|kill|drop|no) (?:the )?music|بدون موسيق|بلا موسيق|من غير موسيق|من دون موسيق|لا موسيق|لا (?:تحط|تضع|تضيف|تريد) (?:موسيق|أغنية|اغنية)|شيل (?:ال)?موسيق|احذف (?:ال)?موسيق|بدون أغنية|بدون اغنية|بلا أغنية/i;
+  /\bno (?:music|soundtrack|song|backing track)|without (?:music|a soundtrack|a song)|\bdon'?t (?:add|put|want|use) (?:any )?(?:music|a soundtrack|a song)|(?:remove|take out|get rid of|kill|drop|no) (?:the )?music|بدون موسيق|بلا موسيق|من غير موسيق|من دون موسيق|لا موسيق|لا (?:تحط|تضع|تضيف|تريد) (?:موسيق|أغنية|اغنية)|شيل (?:ال)?موسيق|احذف (?:ال)?موسيق|بدون أغنية|بدون اغنية|بلا أغنية|\bno (?:trap|lo-?fi|boom ?bap|synth ?wave|808s?)\b|\bno beat\b|\bwithout a beat\b|بدون بيت|بلا بيت/i;
 
 /**
  * Which mood a bed is asked for in.
@@ -188,9 +223,43 @@ const NO_MUSIC_WORDS =
  * the named genre is the stronger statement.
  */
 const MUSIC_MOODS: { mood: MusicMood; patterns: RegExp }[] = [
+  /*
+    The named genres come first, because a genre is a stronger statement than
+    a feeling: "dark trap" is trap, and "upbeat lo-fi" is lo-fi. A person who
+    types the name of a genre has told us more than one who types an adjective.
+  */
+  {
+    mood: "trap",
+    patterns: /\btrap\b|\b808s?\b|\bdrill\b|تراب|ثماني ?مئة|إيقاع تراب/i,
+  },
+  {
+    mood: "lofi",
+    patterns: /\blo-?fi\b|\bchill ?hop\b|\bstudy beats?\b|لو ?فاي|لوفاي/i,
+  },
+  {
+    mood: "boombap",
+    patterns: /\bboom ?bap\b|\bhip ?hop\b|\brap beat\b|\bold ?school\b|هيب ?هوب|راب|بوم ?باب/i,
+  },
+  {
+    mood: "retro",
+    patterns: /\bretro\b|\bsynth ?wave\b|\b80s\b|\beighties\b|\bvapor ?wave\b|\bneon\b|ريترو|ثمانينات|ثمانينيّ|سينث/i,
+  },
+  {
+    mood: "corporate",
+    patterns: /\bcorporate\b|\bclean\b|\bprofessional\b|\bbusiness\b|\bexplainer\b|\bproduct video\b|كوربوريت|احترافية|احترافي|رسمية|نظيفة|شركات/i,
+  },
+  {
+    mood: "epic",
+    patterns: /\bepic\b|\btrailer\b|\bheroic\b|\bmassive\b|\bgrand\b|ملحمي|ملحمية|بطولية|تريلر|ضخمة/i,
+  },
   {
     mood: "cinematic",
-    patterns: /\bcinematic\b|\bepic\b|\bdramatic\b|\btrailer\b|\borchestral\b|سينمائي|سينمائية|ملحمي|ملحمية|درامية|أوركسترا/i,
+    /*
+      "epic" and "trailer" used to land here. They have their own mood now —
+      brighter, faster and with the drums forward — and leaving them in both
+      lists would mean whichever entry came first silently won.
+    */
+    patterns: /\bcinematic\b|\bdramatic\b|\borchestral\b|\bfilm ?score\b|سينمائي|سينمائية|درامية|أوركسترا/i,
   },
   {
     mood: "upbeat",
@@ -205,8 +274,14 @@ const MUSIC_MOODS: { mood: MusicMood; patterns: RegExp }[] = [
     patterns: /\bplayful\b|\bfun\b|\bcute\b|\bquirky\b|\bcheerful\b|\bhappy\b|مرحة|مرح|لطيفة|بهيجة|مبهجة|ظريفة/i,
   },
   {
+    /*
+      "lo-fi" and "chill hop" used to be listed here as well, from when warm
+      was the closest thing we had to that genre. They belong to `lofi` now,
+      and `lofi` is read first, so the copies here never matched anything —
+      the same quiet duplication the note above `cinematic` is about.
+    */
     mood: "warm",
-    patterns: /\bwarm\b|\blo-?fi\b|\bchill ?hop\b|\bcozy\b|\bcosy\b|\bsmooth\b|دافئة|دافئ|ناعمة|ناعم/i,
+    patterns: /\bwarm\b|\bcozy\b|\bcosy\b|\bsmooth\b|\bsoulful\b|\btender\b|دافئة|دافئ|ناعمة|ناعم|حنونة/i,
   },
   {
     mood: "calm",
@@ -1071,7 +1146,7 @@ function asksForPunches(text: string): boolean {
   if (PUNCH_MOVE_WORDS.test(text)) return true;
   // Only an energy adjective is left. It belongs to the music if music is what
   // the sentence is about.
-  return PUNCH_WORDS.test(text) && !MUSIC_WORDS.test(text);
+  return PUNCH_WORDS.test(text) && !asksAboutMusic(text);
 }
 const PUSH_WORDS =
   /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b|زوم بطيء|تقريب بطيء|حركة بطيئة|حركة سينمائية|كين بيرنز/i;
@@ -1354,7 +1429,7 @@ export function planFromText(
     // own when a track is present, and without this a person who said "no music"
     // — having named the subject, and been given no bed here — still had one
     // added there, because "not requested" and "refused" looked the same to it.
-    music: MUSIC_WORDS.test(text) || NO_MUSIC_WORDS.test(text),
+    music: asksAboutMusic(text) || NO_MUSIC_WORDS.test(text),
     /*
      * Coverage and effects, request or refusal alike, and both were missing.
      *
@@ -1794,7 +1869,7 @@ export function planFromText(
     they chose that track, and a piece of music somebody picked beats one a
     mood name produced every time.
   */
-  if (MUSIC_WORDS.test(text) && !NO_MUSIC_WORDS.test(text)) {
+  if (asksAboutMusic(text) && !NO_MUSIC_WORDS.test(text)) {
     if (tracks.length === 0) {
       const mood = musicMoodFrom(text);
       operations.push({

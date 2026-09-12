@@ -74,6 +74,31 @@ function hz(semitonesAboveA0: number): number {
 }
 
 /**
+ * Four waveforms, because a saw and a sine at the same pitch are two
+ * instruments and that is the cheapest timbral distance there is.
+ *
+ * `phase` is in turns, so one whole number is one cycle. The saw and square
+ * are the naive forms and will alias above a few kilohertz; every voice that
+ * uses them goes through the low-pass below, which is what keeps that from
+ * being audible as fizz.
+ */
+function osc(wave: Wave, phase: number): number {
+  const p = phase - Math.floor(phase);
+  switch (wave) {
+    case "sine":
+      return Math.sin(2 * Math.PI * p);
+    case "tri":
+      return 4 * Math.abs(p - Math.floor(p + 0.75) + 0.25) - 1;
+    case "saw":
+      return 2 * p - 1;
+    case "square":
+      // Slightly narrow rather than square, which is thinner and sits under a
+      // voice better than the hollow 50% duty cycle does.
+      return p < 0.45 ? 1 : -1;
+  }
+}
+
+/**
  * A one-pole low-pass, which is all the filtering a bed needs.
  *
  * Written out rather than imported because the worker has no DSP dependency
@@ -99,6 +124,9 @@ function envelope(t: number, attack: number, decay: number): number {
   return fell >= 1 ? 0 : Math.pow(1 - fell, 2);
 }
 
+type Wave = "sine" | "tri" | "saw" | "square";
+type Kit = "acoustic" | "eight08" | "brush" | "boom";
+
 interface Recipe {
   bpm: number;
   /** Root of the key, in semitones above A0. */
@@ -107,36 +135,77 @@ interface Recipe {
   chords: number[];
   /** Major or minor third in the triad. */
   third: 3 | 4;
-  /** How present the drums are. 0 leaves the mood without a grid to cut to. */
+  /** The pad's timbre. A saw and a sine at the same pitch are two instruments. */
+  wave: Wave;
+  /** How present the drums are. */
   drums: number;
-  /** How bright the pad is, in hertz of low-pass cutoff. */
+  /** Which drums. This is the axis that separates a genre from a mood. */
+  kit: Kit;
+  /** Hats per beat: 2 is an offbeat tick, 4 is sixteenths, 8 is a trap roll. */
+  hats: number;
+  /** How late the offbeats sit, as a fraction of the subdivision. 0 is straight. */
+  swing: number;
+  /**
+   * How bright the pad is, in hertz of low-pass cutoff.
+   *
+   * It only bites on `tri`, `saw` and `square`. A sine has no harmonics to
+   * remove, so a "bright" sine mood is a claim the synthesis does not deliver
+   * — which is exactly how `corporate` came to measure as dark as `dark`
+   * while its recipe said 5 kHz. Brightness is a choice of waveform first and
+   * a cutoff second.
+   */
   cutoff: number;
-  /** Whether a plucked line plays over the pad. */
+  /** A plucked line over the pad. */
   pluck: boolean;
+  /** A sixteenth-note arpeggio through the chord, which reads as movement. */
+  arp: boolean;
+  /** Weight of a sub-bass sine an octave below the bass. 0 for none. */
+  sub: number;
+  /** Vinyl hiss and crackle, which is most of what makes lo-fi sound lo-fi. */
+  vinyl: number;
 }
 
 /**
  * Each mood, as numbers.
  *
- * The tempos are chosen inside the range `beats.ts` will look in (50-200 bpm)
- * and away from its edges, and every mood carries some drum energy — including
- * the quiet ones. That is deliberate: a bed with no onsets is a bed whose
- * tempo cannot be measured, and `music_tracks.bpm` would be null for it, which
- * means the zoom punches have nothing to land on. A soft pulse under a calm
- * pad costs nothing and keeps the grid findable.
+ * Three rules govern this table and none of them is taste.
+ *
+ * **Every tempo sits inside the window `beats.ts` searches** (50-200 bpm) and
+ * away from its edges. **Every mood carries drums**: a bed with no transients
+ * is a bed whose tempo cannot be measured, `music_tracks.bpm` would be null
+ * for it, and the zoom punches would have nothing to land on.
+ *
+ * **And every pair has to be tellable apart by ear.** That is not a claim made
+ * here — `music-test` renders all of them, measures seven acoustic features
+ * from the rendered audio, and fails when any two moods land too close
+ * together. The list is as long as it can be *and still be honest*: a
+ * vocabulary where "corporate" and "calm" produce the same bed lies to the
+ * person choosing from it, which is worse than a short list.
  */
 const RECIPES: Record<MusicMood, Recipe> = {
   // A minor: i - VI - III - VII, the progression that sounds like waiting.
-  calm: { bpm: 72, root: 12, chords: [0, 8, 3, 10], third: 3, drums: 0.75, cutoff: 1400, pluck: false },
+  calm: { bpm: 72, root: 12, chords: [0, 8, 3, 10], third: 3, wave: "sine", drums: 0.75, kit: "brush", hats: 2, swing: 0, cutoff: 1400, pluck: false, arp: false, sub: 0, vinyl: 0 },
   // C major: I - V - vi - IV.
-  upbeat: { bpm: 120, root: 15, chords: [0, 7, 9, 5], third: 4, drums: 1, cutoff: 3200, pluck: true },
-  // D minor, slow and wide.
-  dark: { bpm: 90, root: 17, chords: [0, 10, 8, 7], third: 3, drums: 0.8, cutoff: 900, pluck: false },
-  cinematic: { bpm: 80, root: 17, chords: [0, 5, 8, 10], third: 3, drums: 1, cutoff: 1200, pluck: false },
+  upbeat: { bpm: 120, root: 15, chords: [0, 7, 9, 5], third: 4, wave: "tri", drums: 1, kit: "acoustic", hats: 2, swing: 0, cutoff: 3200, pluck: true, arp: false, sub: 0, vinyl: 0 },
+  cinematic: { bpm: 76, root: 17, chords: [0, 5, 8, 10], third: 3, wave: "saw", drums: 0.8, kit: "boom", hats: 0, swing: 0, cutoff: 800, pluck: false, arp: false, sub: 0.3, vinyl: 0 },
+  dark: { bpm: 90, root: 17, chords: [0, 10, 8, 7], third: 3, wave: "square", drums: 0.8, kit: "acoustic", hats: 2, swing: 0, cutoff: 900, pluck: false, arp: false, sub: 0.6, vinyl: 0 },
   // G major, bright and bouncing.
-  playful: { bpm: 110, root: 22, chords: [0, 9, 5, 7], third: 4, drums: 0.85, cutoff: 4000, pluck: true },
+  playful: { bpm: 110, root: 22, chords: [0, 9, 5, 7], third: 4, wave: "tri", drums: 0.85, kit: "acoustic", hats: 4, swing: 0, cutoff: 4000, pluck: true, arp: false, sub: 0, vinyl: 0 },
   // F major, mellow.
-  warm: { bpm: 92, root: 20, chords: [0, 5, 9, 7], third: 4, drums: 0.75, cutoff: 2200, pluck: true },
+  warm: { bpm: 92, root: 20, chords: [0, 5, 9, 7], third: 4, wave: "sine", drums: 0.75, kit: "brush", hats: 2, swing: 0.12, cutoff: 2200, pluck: true, arp: false, sub: 0, vinyl: 0 },
+
+  /*
+    The six added after the first six were heard. Chosen by what short-form
+    video actually uses rather than by what makes a varied-looking list — trap
+    first, because it is the sound of the feed and its absence was the largest
+    hole in the vocabulary.
+  */
+  trap: { bpm: 140, root: 8, chords: [0, 0, 10, 8], third: 3, wave: "square", drums: 1, kit: "eight08", hats: 8, swing: 0, cutoff: 1100, pluck: false, arp: false, sub: 1, vinyl: 0 },
+  lofi: { bpm: 78, root: 18, chords: [0, 5, 9, 7], third: 4, wave: "tri", drums: 0.7, kit: "boom", hats: 4, swing: 0.3, cutoff: 1600, pluck: true, arp: false, sub: 0.2, vinyl: 0.7 },
+  corporate: { bpm: 100, root: 15, chords: [0, 5, 7, 5], third: 4, wave: "tri", drums: 0.9, kit: "acoustic", hats: 4, swing: 0, cutoff: 6000, pluck: false, arp: true, sub: 0, vinyl: 0 },
+  epic: { bpm: 106, root: 15, chords: [0, 8, 5, 10], third: 3, wave: "saw", drums: 1.2, kit: "boom", hats: 4, swing: 0, cutoff: 3400, pluck: true, arp: false, sub: 0.9, vinyl: 0 },
+  retro: { bpm: 126, root: 12, chords: [0, 10, 8, 7], third: 3, wave: "square", drums: 1.1, kit: "eight08", hats: 2, swing: 0, cutoff: 3000, pluck: false, arp: true, sub: 0.55, vinyl: 0 },
+  boombap: { bpm: 86, root: 10, chords: [0, 7, 5, 10], third: 3, wave: "tri", drums: 0.95, kit: "boom", hats: 4, swing: 0.3, cutoff: 1400, pluck: true, arp: false, sub: 0.25, vinyl: 0.35 },
 };
 
 /** What the recipe says the tempo is. Exported so a suite can hold the beat
@@ -208,7 +277,7 @@ export function renderBed(mood: MusicMood, seed: number): Float32Array {
       let value = 0;
       for (const [voice, frequency] of notes.entries()) {
         const f = frequency * (voice === 1 ? detune : 1);
-        value += Math.sin(2 * Math.PI * f * t) / notes.length;
+        value += osc(recipe.wave, f * t) / notes.length;
       }
       pad[index] = value * shape * 0.5;
     }
@@ -218,7 +287,19 @@ export function renderBed(mood: MusicMood, seed: number): Float32Array {
     for (let i = 0; i < Math.round(bar * SAMPLE_RATE) && barIndex * Math.round(bar * SAMPLE_RATE) + i < total; i += 1) {
       const index = barIndex * Math.round(bar * SAMPLE_RATE) + i;
       const t = i / SAMPLE_RATE;
-      bass[index] = Math.sin(2 * Math.PI * rootHz * t) * envelope(t, 0.02, bar * 0.9) * 0.6;
+      const held = envelope(t, 0.02, bar * 0.9);
+      bass[index] = Math.sin(2 * Math.PI * rootHz * t) * held * 0.6;
+      /*
+        And an octave below it, where the 808 lives.
+
+        A sub is not a louder bass: it is a different band. It is what makes a
+        trap bed feel like one on a phone speaker that cannot reproduce a note
+        of it, and it is the single feature that separates that mood from
+        everything else in the table when the features are measured.
+      */
+      if (recipe.sub > 0) {
+        bass[index] += Math.sin(2 * Math.PI * (rootHz / 2) * t) * held * 0.55 * recipe.sub;
+      }
     }
 
     /*
@@ -227,10 +308,46 @@ export function renderBed(mood: MusicMood, seed: number): Float32Array {
       Only where the recipe asks for it. A pluck over a cinematic drone is a
       music box in a trailer.
     */
+    /*
+      A sixteenth-note arpeggio through the chord.
+
+      What "corporate" is made of, and "retro": constant motion at a fixed
+      subdivision rather than notes placed where they feel right. It reads as
+      busy and purposeful, which is exactly the quality those two are asked
+      for, and it puts a very different onset density into the measurement
+      than a pad does.
+    */
+    if (recipe.arp) {
+      const steps = [0, recipe.third, 7, 12, 7, recipe.third];
+      for (let step = 0; step < 16; step += 1) {
+        const at = start + step * (beat / 4);
+        const note = hz(recipe.root + chord + steps[step % steps.length]! + 12);
+        const from = Math.round(at * SAMPLE_RATE);
+        for (let i = 0; i < Math.round(0.2 * SAMPLE_RATE) && from + i < total; i += 1) {
+          const t = i / SAMPLE_RATE;
+          lead[from + i] += osc(recipe.wave === "saw" ? "tri" : recipe.wave, note * t) * envelope(t, 0.003, 0.18) * 0.13;
+        }
+      }
+    }
+
     if (recipe.pluck) {
       for (let eighth = 0; eighth < 8; eighth += 1) {
         if (random() < 0.45) continue;
-        const at = start + eighth * (beat / 2);
+        /*
+          Swung, like the hats.
+
+          The swing parameter was decoration until this line: it moved the hats
+          alone, and the hats are the quietest thing in the mix, so a bed
+          declared at 0.22 swing measured as straight. A number in a recipe
+          that does not change the output is worse than no number, because the
+          next person reads it and believes it.
+
+          The backbeat itself stays exactly on the beat. That is both what a
+          swung groove actually does and what keeps `beatsOf` able to find the
+          grid.
+        */
+        const late = eighth % 2 === 1 ? recipe.swing / 2 : 0;
+        const at = start + (eighth + late) * (beat / 2);
         const note = hz(recipe.root + chord + [0, recipe.third, 7, 12][Math.floor(random() * 4)]! + 12);
         const from = Math.round(at * SAMPLE_RATE);
         for (let i = 0; i < Math.round(0.45 * SAMPLE_RATE) && from + i < total; i += 1) {
@@ -254,28 +371,43 @@ export function renderBed(mood: MusicMood, seed: number): Float32Array {
   const beats = Math.floor(seconds / beat);
   for (let b = 0; b < beats; b += 1) {
     const at = Math.round(b * beat * SAMPLE_RATE);
+    /*
+      A backbeat: kick on the odd beats, snare on the even ones, so **every
+      beat carries an onset of comparable weight**.
+
+      This replaced a strong/weak accent pattern that put the kick on beats one
+      and three and something quieter between them. That is more musical and it
+      measured wrong: the strongest period in the file became two beats, and
+      `beatsOf` answered half tempo for five of the twelve moods and nothing at
+      all for three more. The detector was right about the audio each time.
+
+      A backbeat is also simply what these genres are. The fix and the better
+      music turned out to be the same change, which is not always how it goes.
+    */
+    const onKick = b % 2 === 0;
+    const weight = 1;
 
     /*
-      One kick on every beat, not every other one.
+      The kick, and the kit is what makes a genre out of a mood.
 
-      The first version put it on alternate beats, which is more musical and
-      measured wrong: `beatsOf` read the strongest period as two beats and
-      answered 60 bpm for a track built at 120, and 55 for one built at 110.
-      The detector was right about what was actually in the file — the onsets
-      really were half a beat apart in strength — and the number would have
-      gone into `music_tracks.bpm` and put every zoom punch on the offbeat.
-
-      So the grid is one onset per beat, with the first and third accented so
-      it still reads as a bar rather than a metronome. Measured after the
-      change, not assumed: `music-test` holds each mood's detected tempo to the
-      one the recipe built.
+      `acoustic` is a swept sine gone in a fifth of a second. `eight08` holds
+      for two-thirds of a second at a much lower pitch, which is the note you
+      feel rather than hear and is most of what "trap" means. `boom` is the
+      big slow hit a trailer uses. `brush` barely thumps at all and is there to
+      keep a grid findable under a quiet pad rather than to be listened to.
     */
-    const accented = b % 4 === 0 || b % 4 === 2;
-    const weight = accented ? 1 : 0.72;
-    for (let i = 0; i < Math.round(0.22 * SAMPLE_RATE) && at + i < total; i += 1) {
+    const kick = {
+      acoustic: { from: 120, to: 45, fall: 28, decay: 0.2, level: 1 },
+      eight08: { from: 90, to: 32, fall: 9, decay: 0.66, level: 1.15 },
+      boom: { from: 150, to: 40, fall: 16, decay: 0.45, level: 1.2 },
+      brush: { from: 90, to: 55, fall: 30, decay: 0.14, level: 0.55 },
+    }[recipe.kit];
+
+    if (onKick) for (let i = 0; i < Math.round((kick.decay + 0.05) * SAMPLE_RATE) && at + i < total; i += 1) {
       const t = i / SAMPLE_RATE;
-      const frequency = 45 + 75 * Math.exp(-t * 28);
-      drums[at + i] += Math.sin(2 * Math.PI * frequency * t) * envelope(t, 0.002, 0.2) * recipe.drums * weight;
+      const frequency = kick.to + (kick.from - kick.to) * Math.exp(-t * kick.fall);
+      drums[at + i] +=
+        Math.sin(2 * Math.PI * frequency * t) * envelope(t, 0.002, kick.decay) * recipe.drums * weight * kick.level;
     }
 
     /*
@@ -293,16 +425,72 @@ export function renderBed(mood: MusicMood, seed: number): Float32Array {
     */
     for (let i = 0; i < Math.round(0.004 * SAMPLE_RATE) && at + i < total; i += 1) {
       const t = i / SAMPLE_RATE;
-      drums[at + i] += (random() * 2 - 1) * envelope(t, 0.0004, 0.0035) * 0.22 * recipe.drums * weight;
+      drums[at + i] += (random() * 2 - 1) * envelope(t, 0.0004, 0.0035) * 0.24 * recipe.drums;
     }
 
-    // Hat: filtered noise on the offbeat, short enough to read as a tick. It
-    // is between the beats on purpose, so it colours the groove without
-    // competing with the grid the kick is laying down.
-    const offbeat = Math.round((b + 0.5) * beat * SAMPLE_RATE);
-    for (let i = 0; i < Math.round(0.05 * SAMPLE_RATE) && offbeat + i < total; i += 1) {
-      const t = i / SAMPLE_RATE;
-      drums[offbeat + i] += (random() * 2 - 1) * envelope(t, 0.001, 0.045) * 0.085 * recipe.drums;
+    /*
+      The hats, at whatever subdivision the recipe asks for, swung where it
+      asks for that too.
+
+      `hats: 8` is the trap roll and it is deliberately uneven: a machine-exact
+      roll is the thing that makes a generated beat sound generated. Every hat
+      sits *between* the beats the kick is laying down, so it colours the
+      groove without competing with the grid `beatsOf` has to find.
+    */
+    for (let h = 1; h < recipe.hats; h += 1) {
+      const fraction = h / recipe.hats;
+      // Swing pushes the second half of each pair later, which is the whole
+      // difference between a straight beat and one that walks.
+      const swung = fraction + (h % 2 === 1 ? recipe.swing / recipe.hats : 0);
+      const offbeat = Math.round((b + swung) * beat * SAMPLE_RATE);
+      // Swung kits play their hats louder, because a groove nobody can hear
+      // is not a groove. Straight kits keep them as colour.
+      const heard = recipe.swing > 0.1 ? 0.11 : 0.06;
+      const level = recipe.hats >= 8 && random() < 0.3 ? 0.03 : heard;
+      for (let i = 0; i < Math.round(0.05 * SAMPLE_RATE) && offbeat + i < total; i += 1) {
+        const t = i / SAMPLE_RATE;
+        drums[offbeat + i] += (random() * 2 - 1) * envelope(t, 0.001, 0.045) * level * recipe.drums;
+      }
+    }
+
+    /*
+      A snare on two and four, for the kits that have one.
+
+      It is what makes boom bap and trap read as beats rather than as pulses,
+      and it is noise plus a tuned body, which is what a snare is.
+    */
+    if (!onKick) {
+      /*
+        A snare where the kick is not, so the grid is even.
+
+        `brush` gets a rim tick rather than a crack: it is the kit for a bed
+        that must not be listened to, and a full snare on every other beat of a
+        calm pad is a drum solo under somebody talking.
+      */
+      const crack = recipe.kit === "brush" ? 0.22 : 0.62;
+      for (let i = 0; i < Math.round(0.18 * SAMPLE_RATE) && at + i < total; i += 1) {
+        const t = i / SAMPLE_RATE;
+        const body = Math.sin(2 * Math.PI * 190 * t) * 0.4;
+        drums[at + i] += ((random() * 2 - 1) * 0.6 + body) * envelope(t, 0.001, 0.16) * crack * recipe.drums;
+      }
+    }
+  }
+
+  /*
+    Vinyl: hiss all the way through, and a crackle every so often.
+
+    Almost all of what makes lo-fi sound like lo-fi, and it costs six lines.
+    It is also a real acoustic difference rather than a stylistic claim — it
+    puts broadband noise into the measurement that no other mood has.
+  */
+  if (recipe.vinyl > 0) {
+    for (let i = 0; i < total; i += 1) {
+      drums[i] += (random() * 2 - 1) * 0.012 * recipe.vinyl;
+      if (random() < 0.00018) {
+        for (let j = 0; j < 120 && i + j < total; j += 1) {
+          drums[i + j] += (random() * 2 - 1) * Math.exp(-j / 25) * 0.09 * recipe.vinyl;
+        }
+      }
     }
   }
 

@@ -114,7 +114,14 @@ const zod = await bundle("lib/api-zod/src/index.ts", "zod.mjs");
 section("Every mood asks for something a bed can be");
 {
   const moods = zod.MusicMood.options;
-  check("there are six moods", moods.length === 6, moods.join(","));
+  /*
+    Twelve, and the number is written down so that widening the list is a
+    decision rather than a side effect. The list may only be as long as the
+    separation section at the bottom of this file can prove distinguishable;
+    a thirteenth mood that measures like an existing one is a longer menu
+    offering the same bed twice.
+  */
+  check("there are twelve moods", moods.length === 12, moods.join(","));
 
   for (const mood of moods) {
     const prompt = maker.promptFor(mood);
@@ -278,6 +285,163 @@ section("The built-in synthesiser makes what it says it makes");
   await rm(work, { recursive: true, force: true });
 }
 
+section("No two moods sound the same");
+{
+  /*
+    The check that bounds how long the list may be.
+
+    A vocabulary is only worth its length if a person can tell its entries
+    apart. Twelve moods where "corporate" and "calm" produce the same bed is
+    worse than six that differ, because the extra six are a promise the product
+    cannot keep — and nobody would ever find out, since both sound fine on
+    their own.
+
+    So every mood is rendered and seven features are measured from the audio:
+    tempo, the proportion of energy in the low and middle bands, the brightness
+    of what is left once the bass and kick are taken out, crest factor, the
+    noise floor between hits, and onset density. Each is z-scored across the
+    twelve, and every pair must differ by at least `MIN_GAP` in **at least one**
+    of them.
+
+    The largest single gap, not the sum of the gaps, and that is the whole
+    design of this check: a listener does not add up seven small differences.
+    They need one respect in which two things are plainly not the same.
+
+    Three real faults came out of this while the list was being written, none
+    of which reading the code would have found:
+
+      * `cinematic` and `epic` were near-duplicates, 0.87 apart.
+      * `corporate` was declared bright — a 5 kHz cutoff — on a **sine** pad,
+        which has no harmonics to cut. It measured exactly as dark as `dark`.
+        Brightness is a choice of waveform first and a cutoff second.
+      * `swing` was decoration: it moved the hats alone, and the hats are the
+        quietest thing in the mix, so a bed declared at 0.22 swing measured as
+        straight.
+
+    `MIN_GAP` is set below the worst pair this list actually achieves (0.97),
+    with enough margin that seed-to-seed variation does not make it flaky. It
+    is not tuned until green: it was 0.85 before the three faults above were
+    found, and it found them.
+  */
+  const MIN_GAP = 0.85;
+  const synth = await bundle("artifacts/worker/src/providers/synth-music.ts", "synth-sep.mjs");
+  const moods = zod.MusicMood.options;
+  const work = await mkdtemp(path.join(tmpdir(), "editly-sep-"));
+
+  const pcm = (file) => {
+    const out = spawnSync("ffmpeg", ["-v", "error", "-i", file, "-ac", "1", "-ar", "22050", "-f", "f32le", "-"], {
+      maxBuffer: 1 << 28,
+      encoding: "buffer",
+    }).stdout;
+    return new Float32Array(out.buffer, out.byteOffset, Math.floor(out.length / 4));
+  };
+  const onepole = (x, cut) => {
+    const rc = 1 / (2 * Math.PI * cut);
+    const dt = 1 / 22050;
+    const a = dt / (rc + dt);
+    const y = new Float32Array(x.length);
+    let last = 0;
+    for (let i = 0; i < x.length; i += 1) {
+      last += a * (x[i] - last);
+      y[i] = last;
+    }
+    return y;
+  };
+  const rms = (x) => {
+    let sum = 0;
+    for (const v of x) sum += v * v;
+    return Math.sqrt(sum / x.length);
+  };
+
+  const rows = [];
+  for (const mood of moods) {
+    const file = path.join(work, `${mood}.mp3`);
+    await synth.createSynthMusicMaker({ seed: 4242 }).make({ mood, file });
+    const x = pcm(file);
+    const lp200 = onepole(x, 200);
+    const lp2000 = onepole(x, 2000);
+    const mid = new Float32Array(x.length);
+    const high = new Float32Array(x.length);
+    for (let i = 0; i < x.length; i += 1) {
+      mid[i] = lp2000[i] - lp200[i];
+      high[i] = x[i] - lp2000[i];
+    }
+    const eL = rms(lp200) ** 2;
+    const eM = rms(mid) ** 2;
+    const eH = rms(high) ** 2;
+    const sum = eL + eM + eH || 1e-12;
+    const total = rms(x) || 1e-9;
+    let peak = 0;
+    for (const v of x) peak = Math.max(peak, Math.abs(v));
+    const frame = Math.floor(0.05 * 22050);
+    const frames = [];
+    for (let i = 0; i + frame < x.length; i += frame) frames.push(rms(x.subarray(i, i + frame)));
+    frames.sort((a, b) => a - b);
+    const env = beatsLib.onsetEnvelope(x);
+    const mean = env.reduce((a, b) => a + b, 0) / env.length;
+    let onsets = 0;
+    for (let i = 1; i < env.length - 1; i += 1) {
+      if (env[i] > mean * 2.2 && env[i] >= env[i - 1] && env[i] > env[i + 1]) onsets += 1;
+    }
+    const grid = await beatsLib.beatsOf(file);
+    rows.push({
+      mood,
+      bpm: grid ? grid.bpm : 0,
+      lowR: eL / sum,
+      midR: eM / sum,
+      // Brightness of the musical content with the bass and kick removed. Band
+      // proportions of the whole signal cannot see it: the low band is 0.8 to
+      // 0.95 of the energy in every bed.
+      tone: eH / (eM + eH || 1e-12),
+      crest: peak / total,
+      floorR: (frames[Math.floor(frames.length * 0.1)] ?? 0) / total,
+      onsets: onsets / (x.length / 22050),
+    });
+  }
+
+  const keys = ["bpm", "lowR", "midR", "tone", "crest", "floorR", "onsets"];
+  const z = rows.map((row) =>
+    keys.map((key) => {
+      const values = rows.map((r) => r[key]);
+      const mean = values.reduce((a, b) => a + b, 0) / values.length;
+      const sd = Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length) || 1;
+      return (row[key] - mean) / sd;
+    }),
+  );
+
+  let worst = { gap: Infinity, a: "", b: "", on: "" };
+  for (let i = 0; i < rows.length; i += 1) {
+    for (let j = i + 1; j < rows.length; j += 1) {
+      let best = 0;
+      let on = "";
+      for (let k = 0; k < keys.length; k += 1) {
+        const gap = Math.abs(z[i][k] - z[j][k]);
+        if (gap > best) {
+          best = gap;
+          on = keys[k];
+        }
+      }
+      if (best < worst.gap) worst = { gap: best, a: rows[i].mood, b: rows[j].mood, on };
+    }
+  }
+
+  check(
+    `every pair of moods differs clearly in at least one measured feature`,
+    worst.gap >= MIN_GAP,
+    `closest: ${worst.a} and ${worst.b}, ${worst.gap.toFixed(2)} apart on ${worst.on}`,
+  );
+  // Said out loud even when it passes, so the margin is visible in the log
+  // rather than only in a failure.
+  console.log(`    closest pair: ${worst.a} / ${worst.b} — ${worst.gap.toFixed(2)} on ${worst.on}`);
+
+  // And no two share a tempo, which is the one a person notices immediately
+  // when two moods are asked for back to back.
+  const tempos = moods.map((m) => synth.bpmFor(m));
+  check("and no two are built at the same tempo", new Set(tempos).size === tempos.length, tempos.join(","));
+
+  await rm(work, { recursive: true, force: true });
+}
+
 section("The contract refuses a bed that names nothing");
 {
   const base = { type: "addMusic", gainDb: -18, duck: true, fadeSeconds: 1.5, fromSeconds: 0, loop: true };
@@ -305,18 +469,77 @@ section("A mood is heard in both languages");
     return plan.operations.find((o) => o.type === "addMusic")?.mood ?? null;
   };
 
+  /*
+    Every mood the contract offers, asked for in both languages. A mood that
+    cannot be asked for is a mood nobody will ever hear, so this table is
+    checked against the contract below rather than kept in step by hand.
+  */
   const pairs = [
     ["add some upbeat music", "ضيف موسيقى حماسية", "upbeat"],
     ["put calm music under it", "حط موسيقى هادئة", "calm"],
     ["add cinematic music", "ضيف موسيقى سينمائية", "cinematic"],
     ["add dark music to this", "ضيف موسيقى غامضة", "dark"],
     ["add playful music", "ضيف موسيقى مرحة", "playful"],
-    ["add warm lofi music", "ضيف موسيقى دافئة", "warm"],
+    ["add warm music underneath", "ضيف موسيقى دافئة", "warm"],
+    ["put a trap beat under it", "حط بيت تراب", "trap"],
+    ["add lofi music", "ضيف موسيقى لو فاي", "lofi"],
+    ["add corporate music", "ضيف موسيقى احترافية", "corporate"],
+    ["add epic trailer music", "ضيف موسيقى ملحمية", "epic"],
+    ["add retro synthwave music", "ضيف موسيقى ريترو", "retro"],
+    ["add a boom bap beat", "ضيف بيت هيب هوب", "boombap"],
   ];
   for (const [en, ar, want] of pairs) {
     check(`"${en}" is ${want}`, moodOf(en) === want, String(moodOf(en)));
     check(`and «${ar}» is the same`, moodOf(ar) === want, String(moodOf(ar)));
   }
+  check(
+    "and every mood in the contract can be asked for",
+    zod.MusicMood.options.every((m) => pairs.some(([, , want]) => want === m)),
+    zod.MusicMood.options.filter((m) => !pairs.some(([, , w]) => w === m)).join(",") || "all covered",
+  );
+
+  /*
+    A genre beats an adjective. Both words are in the sentence and both are
+    moods we make; the rule is that naming a genre says more than naming a
+    feeling, and `warm` carried a stale copy of the lo-fi words until this
+    check said which one should win.
+  */
+  /*
+    Naming a beat is asking for a bed.
+
+    All three of these came back as no music at all until the genre words were
+    let through the door as well: the mood table knew what boom bap was, but
+    the sentence never reached it, because none of these says "music".
+  */
+  check("naming a beat and no genre-less word still asks for music", moodOf("add a boom bap beat") === "boombap", String(moodOf("add a boom bap beat")));
+  check("and «حط بيت تراب» too", moodOf("حط بيت تراب") === "trap", String(moodOf("حط بيت تراب")));
+  check("and «ضيف بيت هيب هوب»", moodOf("ضيف بيت هيب هوب") === "boombap", String(moodOf("ضيف بيت هيب هوب")));
+  check("and the refusal still refuses one", moodOf("cut it fast but no trap beat") === null, String(moodOf("cut it fast but no trap beat")));
+  /*
+    The same asymmetry as «ضيف موسيقى حماسية», one door further along. An
+    energy adjective belongs to the music when the sentence is about music,
+    and a sentence is about music when it names a genre — so this has to be
+    the same question in all three places that ask it, not a copy of the
+    music words in the one that lays the bed.
+  */
+  const genrePunch = planning.planFromText("حط بيت تراب حماسي", { assets: [] });
+  check(
+    "a trap beat asked for with energy is one bed and no zooms",
+    genrePunch.operations.filter((o) => o.type === "addMusic").length === 1
+      && !genrePunch.operations.some((o) => o.type === "zoomPunch"),
+    genrePunch.operations.map((o) => o.type).join(","),
+  );
+  /*
+    The bare word "beat" is deliberately not a music word. Asking for the cuts
+    to land on the music is a request about the picture, and a bed laid under
+    every sentence that said "beat" would be money spent on a word.
+  */
+  check("but «قص على الإيقاع» alone lays no bed", moodOf("قص على الإيقاع") === null, String(moodOf("قص على الإيقاع")));
+  check("and neither does \"cut on the beat\"", moodOf("cut on the beat") === null, String(moodOf("cut on the beat")));
+
+  check('"warm lofi" is lofi, not warm', moodOf("add warm lofi music") === "lofi", String(moodOf("add warm lofi music")));
+  check('"dark trap" is trap, not dark', moodOf("add dark trap music") === "trap", String(moodOf("add dark trap music")));
+  check('"upbeat corporate" is corporate', moodOf("add upbeat corporate music") === "corporate", String(moodOf("add upbeat corporate music")));
 
   // Said without a mood, and the answer is the one hardest to be wrong about.
   check("music with no mood named is calm", moodOf("add some music") === "calm", String(moodOf("add some music")));

@@ -1130,11 +1130,31 @@ export const InsertBRollOperation = z.object({
  * file. The cost of the music library is therefore bounded by how many moods
  * there are, not by how many videos are cut.
  *
- * Six, because they are the six a person actually asks for, and because each
- * one has to be distinguishable from the others by ear — a list with "gentle"
- * and "soft" in it is a list where nobody can tell which one they got.
+ * The list is as long as it can be while every entry is still tellable apart
+ * by ear. That is not a matter of opinion here: `music-test` renders all of
+ * them, measures five acoustic features from the rendered audio, and fails
+ * when any two land too close together. A list with "gentle" and "soft" in it
+ * is a list where nobody can tell which one they got, and a vocabulary that
+ * lies about its own range is worse than a short one.
+ *
+ * The names are what a person types, not what a musician would call it:
+ * `corporate` is the sound of a product video, `boombap` is what people mean
+ * by "hip hop beat", and `trap` is the sound of the feed.
  */
-export const MusicMood = z.enum(["calm", "upbeat", "cinematic", "dark", "playful", "warm"]);
+export const MusicMood = z.enum([
+  "calm",
+  "upbeat",
+  "cinematic",
+  "dark",
+  "playful",
+  "warm",
+  "trap",
+  "lofi",
+  "corporate",
+  "epic",
+  "retro",
+  "boombap",
+]);
 export type MusicMood = z.infer<typeof MusicMood>;
 
 /**
@@ -1154,6 +1174,12 @@ export const MUSIC_MOOD_NAMES: Record<MusicMood, { en: string; ar: string }> = {
   dark: { en: "dark", ar: "غامضة" },
   playful: { en: "playful", ar: "مرحة" },
   warm: { en: "warm", ar: "دافئة" },
+  trap: { en: "trap", ar: "تراب" },
+  lofi: { en: "lo-fi", ar: "لو-فاي" },
+  corporate: { en: "clean", ar: "نظيفة" },
+  epic: { en: "epic", ar: "ملحمية" },
+  retro: { en: "retro", ar: "ريترو" },
+  boombap: { en: "boom bap", ar: "هيب هوب" },
 };
 
 /**

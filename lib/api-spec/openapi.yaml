@@ -3718,7 +3718,7 @@ components:
             Make a bed in this mood instead, for somebody who has no track of
             their own. Mutually exclusive with `assetId`.
           type: string
-          enum: [calm, upbeat, cinematic, dark, playful, warm]
+          enum: [calm, upbeat, cinematic, dark, playful, warm, trap, lofi, corporate, epic, retro, boombap]
         gainDb:
           description: >
             How far under the programme the bed sits. -18 dB is a bed you feel

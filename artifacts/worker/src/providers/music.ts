@@ -64,6 +64,12 @@ const PROMPTS: Record<MusicMood, string> = {
   dark: "Instrumental background music, no vocals. Low brooding bass, sparse muted percussion, steady tense pulse, minor tonality, no sudden hits. Suitable as a bed under speech.",
   playful: "Instrumental background music, no vocals. Light bouncy marimba and plucked notes, steady cheerful pulse, simple and clean, nothing shrill. Suitable as a bed under speech.",
   warm: "Instrumental background music, no vocals. Mellow electric piano and soft bass, relaxed steady groove, gentle and friendly, even dynamics. Suitable as a bed under speech.",
+  trap: "Instrumental trap beat, no vocals. Deep 808 sub bass, crisp rolling hi-hats, sparse dark keys, steady hard-hitting pulse around 140 BPM, half-time feel. Suitable as a bed under speech.",
+  lofi: "Instrumental lo-fi hip hop, no vocals. Dusty vinyl crackle, mellow Rhodes chords, soft swung boom-bap drums holding a steady groove around 78 BPM, warm upright bass, relaxed and hazy. Suitable as a bed under speech.",
+  corporate: "Instrumental background music, no vocals. Clean bright piano and plucked synth arpeggios, light claps, steady optimistic pulse, uncluttered and professional. Suitable as a bed under a product video.",
+  epic: "Instrumental cinematic trailer music, no vocals. Wide sustained strings, low brass swells, big slow taiko drums, steady building pulse, serious and grand. Suitable as a bed under speech.",
+  retro: "Instrumental 1980s synthwave, no vocals. Analogue square-wave arpeggios, gated drums, warm analogue bass, steady driving pulse around 118 BPM, nostalgic and neon. Suitable as a bed under speech.",
+  boombap: "Instrumental boom bap hip hop, no vocals. Swung dusty drums around 86 BPM, warm upright bass, mellow sampled keys, head-nodding groove. Suitable as a bed under speech.",
 };
 
 /** The prompt a mood asks for. Exported so the suites can read it rather than
