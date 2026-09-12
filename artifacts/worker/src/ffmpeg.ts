@@ -5915,6 +5915,12 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           // the un-overlapped map drifts further out of sync with every join it
           // survives, which is the same arithmetic every caption is placed by.
           joins: kept ? joinTimes(kept, overlaps) : [],
+          // And which of them the recording actually jumped at. The picture has
+          // decided this since the transition learned to read a seam; the sound
+          // was still choosing by counting through the list, which is how the
+          // one real scene change in a forty-cut edit ends up silent while the
+          // breaths around it are marked.
+          scenes: kept ? sceneJoins(kept, transition?.where ?? "scenes") : [],
           // `zoomPunch.at` is already on the output clock here: the critic
           // remapped the emphasis moments and the beat grid was never on any
           // other clock. This is the first line in the file where both are true.
@@ -6489,9 +6495,30 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         const riserLaid = laid.some((c) => c.reason === "open");
         const parts: string[] = [];
         const partsAr: string[] = [];
+        /*
+          How many of the cut accents are on a seam that is a seam.
+
+          "11 on the cuts" on a forty-cut edit says nothing about the one join
+          the recording actually jumps at, and that is the only one of the forty
+          anybody would have asked about. The accents go to the scene changes
+          first now, so the sentence has an answer and should give it.
+        */
+        const atScenes = laid.filter((c) => c.reason === "cut" && c.scene).length;
         if (cuts > 0) {
-          parts.push(`${cuts} on the cuts`);
-          partsAr.push(`${cuts} على القصّات`);
+          const where =
+            atScenes === 0
+              ? ""
+              : atScenes === cuts
+                ? ", every one where the recording jumps"
+                : `, ${atScenes} of them where the recording jumps`;
+          const whereAr =
+            atScenes === 0
+              ? ""
+              : atScenes === cuts
+                ? "، كلّها حيث يقفز التسجيل"
+                : `، منها ${atScenes} حيث يقفز التسجيل`;
+          parts.push(`${cuts} on the cuts${where}`);
+          partsAr.push(`${cuts} على القصّات${whereAr}`);
         }
         if (hits > 0) {
           parts.push(`${hits} under the punch-ins`);

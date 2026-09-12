@@ -302,6 +302,7 @@ section("A moment that could not take an accent is counted, not swallowed");
   const crowded = sfx.placeSoundEffects({
     duration: 16,
     joins: [2, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2],
+    scenes: [],
     punches: [],
     onCuts: true,
     onPunches: false,
@@ -331,6 +332,7 @@ section("The riser's two refusals are two different sentences");
   const early = sfx.placeSoundEffects({
     duration: 20,
     joins: [0.9],
+    scenes: [],
     punches: [],
     onCuts: false,
     onPunches: false,
@@ -342,6 +344,7 @@ section("The riser's two refusals are two different sentences");
   const none = sfx.placeSoundEffects({
     duration: 20,
     joins: [],
+    scenes: [],
     punches: [3, 6, 9],
     onCuts: false,
     onPunches: true,
@@ -374,6 +377,7 @@ section("Every palette names sounds that exist, and every sound is reachable");
       const placed = sfx.placeSoundEffects({
         duration: 60,
         joins: shape.joins,
+        scenes: [],
         punches: shape.punches,
         palette,
         onCuts: shape.onCuts,
@@ -487,6 +491,9 @@ const spread = (n, step, from = 0) => Array.from({ length: n }, (_, i) => from +
 const ask = (over) => ({
   duration: 60,
   joins: [],
+  // No scene flags unless a check is about them: an empty list is "nothing is
+  // known about these seams", which is how every check here was written.
+  scenes: [],
   punches: [],
   palette: "clean",
   onCuts: true,
@@ -1049,6 +1056,176 @@ section("Levelling that could not happen is said, not dropped");
     "and nothing claims a level it did not reach",
     !notes.some((n) => /-14 LUFS|LUFS/.test(n)),
     notes.join(" | "),
+  );
+  await rm(dir, { recursive: true, force: true });
+}
+
+section("The accents go to the seams that are seams, not to every n-th one");
+{
+  /*
+    The defect this section exists for.
+
+    A budget is almost always smaller than the number of joins: a minute of
+    finished video allows 24 accents, and a minute of talking head with the
+    silences taken out is routinely cut into forty or eighty pieces. Which of
+    them keep their sound was decided by `spread`, which steps through the list
+    by index, and an index knows nothing about the recording.
+
+    So on an edit whose joins are thirty-nine removed breaths and one real
+    scene change, the one seam in the video that is actually a seam had no
+    better chance of being marked than any breath, and could be skipped by
+    arithmetic. Nothing failed and the note said "24 on the cuts" either way.
+
+    The fixture is chosen to make that certain rather than likely: forty joins,
+    a budget of 24, and the scene change at index 2 - which is exactly one of
+    the sixteen indices `spread` steps over.
+  */
+  const joins = Array.from({ length: 40 }, (_, i) => 1 + i);
+  const scenes = joins.map((_, i) => i === 2);
+  const momentsOf = (placed) =>
+    placed.cues
+      .filter((c) => c.reason === "cut")
+      .map((c) => c.at + sfx.LEAD_SECONDS + sfx.soundNamed(c.sound).anchorSeconds);
+  const near = (list, t) => list.some((m) => Math.abs(m - t) < 0.01);
+
+  const blind = sfx.placeSoundEffects(ask({ duration: 60, joins, onPunches: false }));
+  const told = sfx.placeSoundEffects(ask({ duration: 60, joins, scenes, onPunches: false }));
+
+  check(
+    "counting through the list walks straight past the scene change",
+    !near(momentsOf(blind), 3),
+    JSON.stringify(momentsOf(blind).slice(0, 6)),
+  );
+  check(
+    "and knowing which seam it is puts an accent on it",
+    near(momentsOf(told), 3),
+    JSON.stringify(momentsOf(told).slice(0, 6)),
+  );
+  /*
+    And the layer is not thinned to one sound.
+
+    The scene changes take their places first; they do not take the budget. A
+    whoosh on a jump cut is not a mistake, it is the look - the head snaps
+    position and the air sells it - so the breaths still get everything that is
+    left, and the count is the same count as before.
+  */
+  check(
+    "the tidying cuts keep every accent the budget still has for them",
+    momentsOf(told).length === momentsOf(blind).length,
+    `${momentsOf(told).length} against ${momentsOf(blind).length}`,
+  );
+  check(
+    "the accent on the scene change is marked as one, so the note can say it",
+    told.cues.filter((c) => c.reason === "cut" && c.scene).length === 1,
+    JSON.stringify(told.cues.filter((c) => c.scene).map((c) => c.sound)),
+  );
+  /*
+    Evenness survives inside each group.
+
+    `spread` is still what thins both lists, so the worst gap between accents is
+    not allowed to grow: serving one seam first must not clear the accents out
+    of a third of the video, which is the failure the whole function is built to
+    avoid.
+  */
+  const gaps = (list) => list.slice(1).map((m, i) => m - list[i]);
+  const worst = (list) => Math.max(...gaps(list.slice().sort((a, b) => a - b)));
+  check(
+    "and no stretch of the video is left emptier than it already was",
+    worst(momentsOf(told)) <= worst(momentsOf(blind)) + 1e-9,
+    `${worst(momentsOf(told))} against ${worst(momentsOf(blind))}`,
+  );
+
+  /*
+    `everyCut` means every join is a scene, and that is the old list exactly.
+
+    A person who asked for an accent on every cut has said the thing the flags
+    are there to infer, and the function must not then re-rank anything.
+  */
+  const all = sfx.placeSoundEffects(
+    ask({ duration: 60, joins, scenes: joins.map(() => true), onPunches: false }),
+  );
+  check(
+    "asking for every cut gets the same list it always got",
+    JSON.stringify(momentsOf(all)) === JSON.stringify(momentsOf(blind)),
+    JSON.stringify(momentsOf(all).slice(0, 6)),
+  );
+}
+
+section("And the note says which of the accents is on a scene change");
+{
+  /*
+    Said, because it is the only one of them anybody would have asked about.
+
+    "2 on the cuts" is true of an edit that marked the scene change and of one
+    that marked two breaths and missed it, and those are not the same edit.
+
+    The fixture has one of each seam on purpose: a 0.6s gap, which is a breath,
+    and a 2.4s gap, which is enough of the recording gone that the viewer has
+    been moved somewhere else.
+  */
+  const dir = await scratch();
+  const source = path.join(dir, "one-of-each.mp4");
+  spawnSync("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=15",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=4",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=0.6",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=4",
+    "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2.4",
+    "-f", "lavfi", "-i", "sine=frequency=300:duration=4",
+    "-filter_complex", "[1:a][2:a][3:a][4:a][5:a]concat=n=5:v=0:a=1,volume=12dB[a]",
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", source,
+  ]);
+
+  const out = await render.renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 400, paddingMs: 0 },
+        { type: "soundEffects", gainDb: 0, palette: "clean", onCuts: true, onPunches: false, onOpen: false },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  check(
+    "the note counts the accents that landed where the recording jumps",
+    out.notes.some((n) => /on the cuts, 1 of them where the recording jumps/.test(n)),
+    JSON.stringify(out.notes),
+  );
+
+  /*
+    And the picture and the sound now agree about which seam that is.
+
+    A glitch is the case where it matters most, because it is the one style
+    with no sound of its own: it does not overlap anything, so there is no
+    crossfade under it, and a picture that breaks over clean audio reads as a
+    decode fault rather than as a decision. Both paths ask `sceneJoins` the
+    same question now, so the accent lands on the seam that breaks rather than
+    on a breath somewhere else in the edit.
+  */
+  const broken = await render.renderPlan(
+    source,
+    {
+      version: 1,
+      operations: [
+        { type: "removeSilence", thresholdDb: -32, minSilenceMs: 400, paddingMs: 0 },
+        { type: "transition", style: "glitch", durationMs: 200 },
+        { type: "soundEffects", gainDb: 0, palette: "clean", onCuts: true, onPunches: false, onOpen: false },
+      ],
+    },
+    { workDir: await scratch() },
+  );
+  check(
+    "the picture breaks at one seam of the two",
+    broken.notes.some((n) => /glitched at 1 of 2 seams/.test(n)),
+    JSON.stringify(broken.notes),
+  );
+  check(
+    "and the accent is on that seam, not on the breath",
+    broken.notes.some((n) => /on the cuts, 1 of them where the recording jumps/.test(n)),
+    JSON.stringify(broken.notes),
   );
   await rm(dir, { recursive: true, force: true });
 }

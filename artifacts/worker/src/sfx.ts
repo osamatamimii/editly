@@ -177,6 +177,14 @@ export interface SfxCue {
   at: number;
   /** What this one is answering — carried so the note can say it. */
   reason: "cut" | "punch" | "open";
+  /**
+   * For a cut accent, whether the seam under it is a change of scene.
+   *
+   * Carried so the note can say it. "11 on the cuts" on a forty-cut edit does
+   * not tell anybody whether the one place the recording jumps is among the
+   * eleven, and that is the only one of the forty they would have asked about.
+   */
+  scene?: boolean;
   /** The sound's own trim. The plan's `gainDb` is applied by the renderer. */
   trimDb: number;
   /** How long the file runs, so the renderer can trim its tail at the end. */
@@ -201,6 +209,25 @@ export interface SfxRequest {
   duration: number;
   /** Joins between the kept pieces, on the output clock. See `joinTimes`. */
   joins: readonly number[];
+  /**
+   * Which of those joins is a change of scene, one entry per join.
+   *
+   * The same judgement the picture makes, from `sceneJoins`: the recording went
+   * backwards, or enough of it was taken out that the viewer has been moved
+   * somewhere else. Everything else is a breath removed.
+   *
+   * The sound needs it for a different reason than the picture does. A whoosh
+   * on a jump cut is not a mistake, it is the look — the head snaps position
+   * and the air sells it. What was wrong is that when there is no room for all
+   * of them, the ones kept were chosen by counting: every n-th join in the
+   * list. On a talking head with forty breaths taken out and one real scene
+   * change, that arithmetic marks breaths and can walk straight past the one
+   * seam in the video that is actually a seam, and nothing anywhere says so.
+   *
+   * An empty list means nothing is known and every join is treated alike,
+   * which is what this did before it was told.
+   */
+  scenes: readonly boolean[];
   /** Punch-in moments, on the output clock — `zoomPunch.at` after the critic. */
   punches: readonly number[];
   palette: SfxPalette;
@@ -351,13 +378,18 @@ export function placeSoundEffects(request: SfxRequest): SfxPlacement {
    * the three files the default palette rotates through on every cut — landed
    * 380ms after the picture changed.
    */
-  const place = (moment: number, name: string, reason: SfxCue["reason"]): boolean => {
+  const place = (
+    moment: number,
+    name: string,
+    reason: SfxCue["reason"],
+    scene = false,
+  ): boolean => {
     const sound = byName.get(name);
     if (!sound) return false;
     const at = moment - LEAD_SECONDS - sound.anchorSeconds;
     if (at < 0 || at > latest) return false;
     if (cues.some((c) => Math.abs(c.at - at) < MIN_GAP)) return false;
-    cues.push({ sound: name, at, reason, trimDb: sound.trimDb, seconds: sound.seconds });
+    cues.push({ sound: name, at, reason, trimDb: sound.trimDb, seconds: sound.seconds, scene });
     return true;
   };
 
@@ -382,16 +414,36 @@ export function placeSoundEffects(request: SfxRequest): SfxPlacement {
   }
 
   if (request.onCuts) {
-    const joins = usable(request.joins);
+    /*
+      The scene changes first, then the tidying cuts into what is left.
+
+      Both still get sounds, and the density is still even inside each group,
+      because `spread` is what is doing the thinning in both. What has changed
+      is the order of the claim on a budget that is usually smaller than the
+      number of joins: a two-minute talking head allows about 34 accents and is
+      routinely cut into eighty pieces, so more than half the joins lose their
+      sound every time. Deciding which half by counting through the list is
+      deciding it by nothing.
+
+      When no scene flags are supplied, or every join is one — which is what
+      `everyCut` means — this is the same list in the same order as before.
+    */
+    const scenes: number[] = [];
+    const tidying: number[] = [];
+    request.joins.forEach((at, i) => (request.scenes[i] ? scenes : tidying).push(at));
     const remaining = Math.max(0, budget - cues.length);
-    const chosen = spread(joins, remaining);
+    const keptScenes = spread(usable(scenes), remaining);
+    const keptTidying = spread(usable(tidying), Math.max(0, remaining - keptScenes.length));
+    const joins = usable(request.joins);
+    const chosen = [...keptScenes, ...keptTidying].sort((a, b) => a - b);
     thinned += joins.length - chosen.length;
+    const sceneTimes = new Set(keptScenes);
     let placed = 0;
     for (const at of chosen) {
       // The rotation counter advances only on a sound that was actually laid
       // down, so a join dropped for sitting next to a punch does not also skip
       // a variant and leave two identical whooshes either side of the hole.
-      if (place(at, palette.cut[placed % palette.cut.length]!, "cut")) placed += 1;
+      if (place(at, palette.cut[placed % palette.cut.length]!, "cut", sceneTimes.has(at))) placed += 1;
       else thinned += 1;
     }
   }
