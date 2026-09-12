@@ -923,6 +923,29 @@ console.log("\nA bucket that refuses the browser is a finding, not a mystery");
     /CORS policy is what needs the origin added/.test(audit),
   );
 
+  /*
+    The audit's own key, judged by the guard that will judge it.
+
+    `address()` calls `assertSafeKey` before it builds a URL, and the constant
+    here was `cors-probe/preflight.bin` — two segments where the rule asks for
+    three. So the console's deployment page threw on the first storage finding
+    and answered 500: the page written to say what is wrong was the thing that
+    was wrong, and it said nothing at all. A literal in one file measured
+    against a rule in another is exactly the pair a suite exists for.
+  */
+  const probeKey = audit.match(/const CORS_PROBE_KEY = "([^"]+)"/)?.[1];
+  check("the console's probe key can be read", Boolean(probeKey), probeKey ?? "not found");
+  check(
+    "and it is a key the object store will actually address",
+    Boolean(probeKey) && keys.isSafeKey(probeKey),
+    `${probeKey} has ${probeKey ? probeKey.split("/").length : 0} segments`,
+  );
+  check(
+    "the audit cannot throw while addressing it, whatever it is",
+    /try \{\s+probeUrl = objectStoreFrom\(\)\.address\(CORS_PROBE_KEY, "PUT"\)\.url;/.test(audit),
+    "address() throws on a key the store refuses, and this page must report rather than fail",
+  );
+
   const client = read("artifacts/editly/src/lib/video-storage.ts");
   check(
     "the browser tells a refused request from a dropped one",

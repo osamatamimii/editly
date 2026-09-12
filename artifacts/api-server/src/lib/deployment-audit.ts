@@ -43,8 +43,15 @@ import { appOrigin } from "./allowed-origins";
  * only has to be a legal one. It is named for what it is so that anybody
  * reading a bucket's access log can see why an OPTIONS arrived for a key that
  * does not exist.
+ *
+ * **Legal means three segments.** `keys.ts` requires at least three of them,
+ * because every real key is `<user>/<project>/<name>`, and `address()` calls
+ * `assertSafeKey` before it builds anything. This constant was two segments,
+ * and the throw was not caught: the whole console's deployment page answered
+ * 500 — the audit written to say what is wrong being the thing that was wrong.
+ * `storeCheckedProbeKey` below is the check that keeps it three.
  */
-const CORS_PROBE_KEY = "cors-probe/preflight.bin";
+const CORS_PROBE_KEY = "cors-probe/preflight/probe.bin";
 
 export type Verdict = "ok" | "wrong" | "unknown";
 
@@ -132,9 +139,22 @@ export async function auditDeployment(env: NodeJS.ProcessEnv = process.env): Pro
       no third place to look. A new R2 bucket is in that state by default.
     */
     const browserOrigin = appOrigin();
-    const probe = await probeBucketCors(objectStoreFrom().address(CORS_PROBE_KEY, "PUT").url, browserOrigin).catch(
-      () => null,
-    );
+    /*
+      Built inside the guard, because this page must not be able to throw.
+
+      Everything else here is a question with three answers, and `unknown` is
+      one of them. Addressing a key is the one line that had a fourth — it
+      throws on a key the store refuses — and the page it took down was the
+      page somebody opens to find out what is broken. An audit that cannot
+      report its own failure is worse than an audit that reports a wrong thing.
+    */
+    let probeUrl: string | null = null;
+    try {
+      probeUrl = objectStoreFrom().address(CORS_PROBE_KEY, "PUT").url;
+    } catch {
+      probeUrl = null;
+    }
+    const probe = probeUrl ? await probeBucketCors(probeUrl, browserOrigin).catch(() => null) : null;
 
     if (!probe || !probe.asked) {
       findings.push({
