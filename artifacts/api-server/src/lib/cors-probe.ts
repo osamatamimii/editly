@@ -69,11 +69,40 @@ export async function probeBucketCors(url: string, origin: string): Promise<Cors
     detail: "",
   };
 
+  /*
+    The signature is removed before the question is asked.
+
+    The caller has a signed URL to hand — it is the one address for a key this
+    product ever builds — and a preflight sent to it comes back **403 with no
+    access-control headers**, which this file reads as "a bucket with no CORS
+    policy". The bucket's policy was perfect. The signature covers the method,
+    and `OPTIONS` is not the method it was signed for, so the request is
+    refused for being unauthorised before CORS is ever considered.
+
+    A preflight carries no credentials by definition: it is the browser asking
+    "would you allow this", and the answer cannot depend on a signature the
+    browser has not sent yet. So the query string goes, and what is left is the
+    route — which is what a preflight is answered on anyway.
+
+    This is worth the paragraph because of how the failure reads: the audit
+    would report the one thing it exists to catch, on a deployment where that
+    thing is fine, and send somebody to rewrite a correct CORS policy.
+  */
+  const unsigned = (() => {
+    try {
+      const u = new URL(url);
+      u.search = "";
+      return u.toString();
+    } catch {
+      return url;
+    }
+  })();
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(unsigned, {
       method: "OPTIONS",
       headers: {
         Origin: origin,

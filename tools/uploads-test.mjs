@@ -911,6 +911,36 @@ console.log("\nA bucket that refuses the browser is a finding, not a mystery");
     check("a bucket that does not answer is unknown rather than broken", !verdict.asked, JSON.stringify(verdict));
   }
 
+  {
+    /*
+      The signature is not sent, and this is the check that costs the least to
+      have and the most to be without.
+
+      The audit hands this function the only address it can build, which is a
+      signed one. A preflight sent to a signed URL is refused for being
+      unauthorised — the signature covers PUT, not OPTIONS — and R2 answers
+      403 with no access-control headers, which reads here as "a bucket with
+      no CORS policy". Production reported exactly that against a bucket whose
+      policy was correct: the audit accusing the one thing it exists to catch.
+    */
+    let asked = null;
+    const original = globalThis.fetch;
+    globalThis.fetch = async (u) => {
+      asked = String(u);
+      return new Response(null, { status: 204, headers: {
+        "access-control-allow-origin": "https://app.editlyai.io",
+        "access-control-allow-methods": "PUT",
+        "access-control-expose-headers": "etag",
+      } });
+    };
+    await probe.probeBucketCors(
+      "https://bucket.example/k/e/y?X-Amz-Signature=deadbeef&X-Amz-Expires=900",
+      "https://app.editlyai.io",
+    );
+    globalThis.fetch = original;
+    check("the preflight is sent without the signature", asked === "https://bucket.example/k/e/y", asked);
+  }
+
   const audit = read("artifacts/api-server/src/lib/deployment-audit.ts");
   check("the console asks the bucket about the app's origin", /appOrigin\(\)/.test(audit) && /probeBucketCors\(/.test(audit));
   check(
