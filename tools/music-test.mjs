@@ -108,6 +108,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key-for-tests";
 // ─── 1. The prompts, which are what the money buys ───────────────────────────
 
 const maker = await bundle("artifacts/worker/src/providers/music.ts", "music.mjs");
+const beatsLib = await bundle("artifacts/worker/src/beats.ts", "beats.mjs");
 const zod = await bundle("lib/api-zod/src/index.ts", "zod.mjs");
 
 section("Every mood asks for something a bed can be");
@@ -140,6 +141,141 @@ section("Every mood asks for something a bed can be");
     moods.every((m) => /[؀-ۿ]/.test(zod.MUSIC_MOOD_NAMES[m].ar)),
     JSON.stringify(Object.values(zod.MUSIC_MOOD_NAMES).map((n) => n.ar)),
   );
+}
+
+section("The built-in synthesiser makes what it says it makes");
+{
+  /*
+    The floor under the whole feature.
+
+    Reaching Lyria needs a Google Cloud billing account, and a payment system
+    can refuse one for reasons that have nothing to do with this product — it
+    did. A music feature whose critical path runs through somebody else's risk
+    model is one that stops shipping on a Tuesday, so there is a maker here
+    with no key, no host and no invoice, and it is what runs when no Lyria key
+    is set.
+  */
+  const synth = await bundle("artifacts/worker/src/providers/synth-music.ts", "synth.mjs");
+  const moods = zod.MusicMood.options;
+  const work = await mkdtemp(path.join(tmpdir(), "editly-synth-"));
+  /*
+    Two seeds, not one, and that is the whole lesson of this section.
+
+    The first version checked one seed and passed. Production uses a random
+    seed per variant, and on other seeds two of the six moods came back with
+    no measurable tempo at all — the pad's random detune was beating at
+    roughly the beat rate and swamping the onset contrast. A property that
+    holds for one seed is not a property.
+  */
+  const SEEDS = [4242, 1337];
+
+  for (const mood of moods) {
+   for (const seed of SEEDS) {
+    const maker = synth.createSynthMusicMaker({ seed });
+    const file = path.join(work, `${mood}-${seed}.mp3`);
+    const made = await maker.make({ mood, file });
+    check(`${mood} renders (seed ${seed})`, made !== null, JSON.stringify(made));
+
+    /*
+      The check this file exists for, and the one that proves two things at
+      once: the tempo the recipe *built* is the tempo `beats.ts` *finds* in the
+      rendered audio.
+
+      It failed on the first attempt, usefully. The kick was on alternate
+      beats, so the strongest period in the file really was two beats: the
+      detector answered 60 for a track built at 120, and 55 for one built at
+      110. It was right about the bytes. That number goes into
+      `music_tracks.bpm` and every zoom punch lands on it, so a bed that
+      measures at half tempo puts the whole edit on the offbeat.
+    */
+    const grid = await beatsLib.beatsOf(file);
+    const built = synth.bpmFor(mood);
+    check(
+      `and ${mood} measures the tempo it was built at (seed ${seed})`,
+      grid !== null && Math.abs(grid.bpm - built) < 2,
+      `built ${built}, measured ${grid ? grid.bpm.toFixed(1) : "null"}`,
+    );
+    // Not half, not double. Named separately because those are the two wrong
+    // answers a beat detector gives, and "within 2 of something" would accept
+    // them if the tolerance were ever loosened.
+    check(
+      `and not at half or double it (seed ${seed})`,
+      grid !== null && Math.abs(grid.bpm - built * 2) > 2 && Math.abs(grid.bpm - built / 2) > 2,
+      `built ${built}, measured ${grid ? grid.bpm.toFixed(1) : "null"}`,
+    );
+
+   }
+
+    /*
+      Whole bars, and a whole number of times through the four-chord
+      progression. The mixer repeats this file for the length of the video, so
+      a loop that is not bar-aligned has a stumble in it once per pass.
+    */
+    const seconds = synth.secondsFor(mood);
+    const tempo = synth.bpmFor(mood);
+    const barSeconds = (60 / tempo) * 4;
+    check(
+      `${mood} is a whole number of four-bar phrases`,
+      Math.abs((seconds / (barSeconds * 4)) - Math.round(seconds / (barSeconds * 4))) < 1e-9,
+      `${seconds}s at ${tempo}bpm`,
+    );
+
+    const measured = Number(
+      spawnSync(
+        "ffprobe",
+        ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", path.join(work, `${mood}-${SEEDS[0]}.mp3`)],
+        { encoding: "utf8" },
+      ).stdout.trim(),
+    );
+    check(`and the file really is that long`, Math.abs(measured - seconds) < 0.4, `${measured} vs ${seconds}`);
+  }
+
+  /*
+    Peak-normalised, and all six to the same ceiling.
+
+    A library whose variants come out at different levels is a bed that changes
+    volume when the chooser happens to pick a different one — which the person
+    hears as the product being inconsistent, with nothing in the plan to
+    explain it.
+  */
+  const peaks = [];
+  for (const mood of moods) {
+    const out = spawnSync(
+      "ffmpeg",
+      ["-hide_banner", "-i", path.join(work, `${mood}-${SEEDS[0]}.mp3`), "-af", "volumedetect", "-f", "null", "-"],
+      { encoding: "utf8" },
+    ).stderr;
+    peaks.push(Number(/max_volume: (-?[\d.]+) dB/.exec(out)?.[1] ?? NaN));
+  }
+  check("every bed peaks near the same level", Math.max(...peaks) - Math.min(...peaks) < 1.5, peaks.join(", "));
+  check("and none of them clips", Math.max(...peaks) < -1, peaks.join(", "));
+  /*
+    And none is silent, which is the failure a peak check alone would miss: a
+    file of digital silence normalises to nothing and passes "does not clip".
+  */
+  const quietest = Math.min(...peaks);
+  check("and none of them is silence", quietest > -20, String(quietest));
+
+  /*
+    Deterministic: the same seed is the same bytes.
+
+    Not a nicety. It is what makes the tempo check above a fact about the
+    synthesiser rather than about the run, and it is the same property
+    `make-sfx.mjs` has — provenance that is a script rather than a link.
+  */
+  const twice = [];
+  for (const attempt of [1, 2]) {
+    const file = path.join(work, `repeat-${attempt}.mp3`);
+    await synth.createSynthMusicMaker({ seed: 99 }).make({ mood: "calm", file });
+    twice.push(readFileSync(file));
+  }
+  check("the same seed makes the same bed, byte for byte", twice[0].equals(twice[1]));
+
+  const different = path.join(work, "other-seed.mp3");
+  await synth.createSynthMusicMaker({ seed: 100 }).make({ mood: "calm", file: different });
+  check("and a different seed makes a different one", !readFileSync(different).equals(twice[0]));
+
+  await rm(work, { recursive: true, force: true });
 }
 
 section("The contract refuses a bed that names nothing");

@@ -20,6 +20,7 @@ import { createElevenLabsTranscriber } from "./elevenlabs";
 import { createGeminiSceneReader } from "./gemini";
 import { createGeminiStructureReader } from "./gemini-structure";
 import { createLyriaMusicMaker, type MusicMaker } from "./music";
+import { createSynthMusicMaker } from "./synth-music";
 import type { ProviderStatus, SceneReader, StructureReader, Transcriber } from "./types";
 import { pick, sayIn, type Say } from "../say";
 
@@ -96,10 +97,26 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
   // The same key as the scene reader, and deliberately its own field: the two
   // are separate capabilities on one account, and a deployment that turns the
   // expensive one off should not lose the cheap one with it.
+  /*
+    Lyria where it is paid for, and our own synthesiser everywhere else.
+
+    Never null, which is the change worth noticing. Every other capability in
+    this file degrades to absence when its key is missing, because there is no
+    substitute for reading speech. Music has one: `synth-music.ts` computes a
+    bed from oscillators and seeded noise, the same way the sixteen sound
+    effects in this product are computed, and it needs no key, no host and no
+    invoice.
+
+    That matters more than it looks. Reaching Lyria requires a Google Cloud
+    billing account, and a payment system can refuse one for reasons that have
+    nothing to do with this product or this customer. A music feature whose
+    critical path runs through somebody else's risk model is a music feature
+    that can stop shipping on a Tuesday.
+  */
   const lyriaKey = trimmed(env.LYRIA_API_KEY);
-  const musicMaker = lyriaKey
+  const musicMaker: MusicMaker = lyriaKey
     ? createLyriaMusicMaker({ apiKey: lyriaKey, model: trimmed(env.LYRIA_MODEL) })
-    : null;
+    : createSynthMusicMaker();
 
   const structureReader = geminiKey
     ? createGeminiStructureReader({
@@ -142,11 +159,17 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
         is a deployment working as intended, and this note is only ever read by
         a render whose plan actually asked for a bed.
       */
-      music: musicMaker
+      /*
+        Not "is there a generator" any more — there always is. What this says
+        now is *which*, because the difference is audible: a written track from
+        a catalogue model against a loop we compute. Still absent from most
+        renders, since music is only ever laid when somebody asks for it.
+      */
+      music: lyriaKey
         ? null
         : {
-            en: "no music generator is configured, so a bed can only come from a track you uploaded yourself",
-            ar: "لا يوجد مولّد موسيقى مُهيّأ، فالفرشة لا تأتي إلّا من مقطوعة رفعتها بنفسك",
+            en: "music beds are the ones this product generates itself, which are loops rather than written tracks. Upload your own audio file for anything more than a bed",
+            ar: "الفرشات الموسيقية هي التي يولّدها هذا المنتج بنفسه، وهي حلقات لا مقطوعات مؤلَّفة. ارفع ملفًّا صوتيًّا خاصًّا بك لما هو أكثر من فرشة",
           },
       structure: structureReader
         ? null
