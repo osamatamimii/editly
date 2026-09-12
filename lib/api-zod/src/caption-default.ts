@@ -25,10 +25,21 @@
  * The values are Osama's, and they are the reference edit rather than a
  * cautious middle:
  *
- *   - **creator** — the look built frame by frame off the two edits he sent:
- *     wide rounded heavy face, sentence case, no outline, a real shadow. It
- *     also brings `focus` with it, because a style's own `defaultAnimation` is
- *     consulted now that "pop" is no longer stamped on every plan.
+ *   - **glow** — measured frame by frame off the reference he sent last: a
+ *     plain grotesque at a real bold, ink a shade off white, and a wide cold
+ *     halo that arrives with each word and then stays. No stroke, no box and
+ *     no shadow — «لا تستخدم ستروك بالمنصة ابدا», «ولا تستخدم الشادو الا
+ *     بحالات استثنائية لكن في هذه الحاله لا يحتاج». It also brings `focus`
+ *     with it, because a style's own `defaultAnimation` is consulted now that
+ *     "pop" is no longer stamped on every plan, and `focus` is the lockup that
+ *     reference is built on: the sentence so far, small, under one word at
+ *     twice the size.
+ *
+ *     It replaced **creator**, which was the same lockup read off the two
+ *     edits before it and differs in what it is made of: a heavy rounded face,
+ *     a mint gradient on the keyword, a real shadow. Still in the catalogue and
+ *     still one sentence away — «كرييتور» — because the change here is which
+ *     one a person gets without asking, not which ones exist.
  *   - **middle** — where short-form has put captions for three years. The
  *     bottom is where a burnt-in subtitle goes, and a subtitle is not what
  *     this product makes.
@@ -41,7 +52,7 @@
  * present on the operation and wins by being present at all.
  */
 export const DEFAULT_CAPTION_LOOK = {
-  style: "creator",
+  style: "glow",
   position: "middle",
   size: "m",
   pace: "quick",

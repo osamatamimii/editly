@@ -81,7 +81,14 @@ const captionsIn = (plan) => plan.operations.find((op) => op.type === "autoCapti
 section("There is one default, and it is the decision Osama made");
 {
   check("it exists as a named constant", typeof DEFAULT_CAPTION_LOOK === "object" && DEFAULT_CAPTION_LOOK !== null);
-  check("the look is creator, the reference edit's own", DEFAULT_CAPTION_LOOK.style === "creator", DEFAULT_CAPTION_LOOK.style);
+  /*
+    Named rather than read, and that is the point of this line: it is the one
+    place the default is a *decision* instead of a variable. It said `creator`
+    for as long as that was the reference; it says `glow` now, off the edit
+    Osama sent next — and if somebody changes what everybody gets without
+    changing this line with it, that is exactly the failure worth a red check.
+  */
+  check("the look is glow, the latest reference edit's own", DEFAULT_CAPTION_LOOK.style === "glow", DEFAULT_CAPTION_LOOK.style);
   check("it sits mid-frame, where short-form puts it", DEFAULT_CAPTION_LOOK.position === "middle", DEFAULT_CAPTION_LOOK.position);
   check("at the quick pace measured off the reference", DEFAULT_CAPTION_LOOK.pace === "quick", DEFAULT_CAPTION_LOOK.pace);
   check("and the measured size, unboosted", DEFAULT_CAPTION_LOOK.size === "m", DEFAULT_CAPTION_LOOK.size);
@@ -246,7 +253,19 @@ section("The renderer resolves the look once, and the style brings its own motio
   );
 
   const bare = resolveCaptionLook({});
-  check("an unstyled caption becomes the default look", bare.style === "creator" && bare.position === "middle" && bare.pace === "quick", JSON.stringify(bare));
+  /*
+    Against the constant, not against a name. What this section is about is the
+    resolver reading the default at all; which default it is, is pinned by name
+    one section up. Written as a literal here, changing the decision meant
+    changing it in three places and finding the third one from a red check.
+  */
+  check(
+    "an unstyled caption becomes the default look",
+    bare.style === DEFAULT_CAPTION_LOOK.style &&
+      bare.position === DEFAULT_CAPTION_LOOK.position &&
+      bare.pace === DEFAULT_CAPTION_LOOK.pace,
+    JSON.stringify(bare),
+  );
   /*
     Every style row carries `defaultAnimation` — "what this style animates like
     when the plan does not say" — and for as long as the schema stamped `pop`

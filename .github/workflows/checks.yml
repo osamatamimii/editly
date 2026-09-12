@@ -184,12 +184,6 @@ jobs:
       - run: node tools/contract-test.mjs
       - run: node tools/deploy-test.mjs
       - run: node tools/pricing-test.mjs
-      # Beside the prices, because a promo code is the one way a plan gets onto
-      # an account without a payment. The suite arrived with the feature and was
-      # never given a step, which `deploy-test` calls exactly what it is: a
-      # suite that exists and does nothing. Wired here rather than left for the
-      # next person, because until it is, the whole build is red for everybody.
-      - run: node tools/promo-test.mjs
       - run: node tools/theme-test.mjs
       - run: node tools/upload-types-test.mjs
       # The storage seam. Its second driver is not switched on anywhere, which
@@ -248,6 +242,11 @@ jobs:
       # \alpha override splits the layout run the same way \kf does, and a
       # scale on one word widens the whole line.
       - run: node tools/kinetic-test.mjs
+      # Beside it, because it guards the other half of the same thing: what a
+      # caption looks like when nobody said. The suite existed and nothing ran
+      # it, which `deploy-test` calls a suite that does nothing — and it is the
+      # check that catches a default changed in one place and not the other.
+      - run: node tools/caption-default-test.mjs
       # The first screen, held to the parser it teaches people to use: every
       # suggested sentence is run through the real keyword planner in both
       # languages. Copy that drifts from the parser means the first thing a new
@@ -307,6 +306,13 @@ jobs:
       # hands: a word somebody types rather than a payment somebody makes. It
       # shipped without a line here, which `deploy-test` is the check for.
       - run: node tools/promo-test.mjs
+      # One step, not two. `promo-test` had been given a line here *and* one
+      # beside the pricing suite — the same gap noticed twice and closed twice,
+      # which runs the suite twice and, less obviously, made the step count
+      # match the suite count only because a third suite had no step at all.
+      # The duplicate above the prices is gone; this is the home it keeps,
+      # because a promo code is a plan changing hands rather than a number on
+      # a page.
       # Beside billing, because the webhook is the one place that sends today.
       # Its real question is whether a message can go out twice: a redelivered
       # event is the ordinary case for that endpoint, and an email cannot be
