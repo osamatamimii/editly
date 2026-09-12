@@ -116,6 +116,18 @@ section("One track under forty clips is still a track");
   // shape of the file somebody uploads once and refers to for a year.
   const track = await anAsset(project, "audio", "my-theme.mp3", 60 * 24 * 60);
   const logo = await anAsset(project, "image", "logo.png", 59 * 24 * 60);
+  /*
+    And a colour cube, which is the same shape of file again and the one this
+    fixture was missing.
+
+    `lut` joined ASSET_KINDS with the grading work, and the check below asks
+    that every kind the project holds survives the cap — so the suite went red
+    naming a kind the fixture never created. Red for a real reason in the
+    wrong place: the budget does reserve a share for cubes, and nothing was
+    proving it. A LUT is the *most* vulnerable asset to a flat newest-N cap,
+    because a person uploads one and refers to it for a year.
+  */
+  const cube = await anAsset(project, "lut", "warm-teal.cube", 58 * 24 * 60);
   // Forty-one newer clips, which under a flat newest-forty cap is enough to
   // push both of them out on their own.
   for (let i = 0; i < 41; i += 1) await anAsset(project, "video", `take-${i}.mp4`, 100 - i);
@@ -134,6 +146,11 @@ section("One track under forty clips is still a track");
     "and so is the logo, for the same reason",
     ids.includes(logo),
     `${vocabulary.filter((a) => a.kind === "image").length} images`,
+  );
+  check(
+    "and the colour cube, which one edit names and no edit uploads twice",
+    ids.includes(cube),
+    `${vocabulary.filter((a) => a.kind === "lut").length} cubes`,
   );
   check(
     "every kind the project has is represented",

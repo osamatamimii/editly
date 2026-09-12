@@ -558,6 +558,47 @@ section("The rules the schema itself enforces");
      WHERE contype = 'f' AND connamespace = 'public'::regnamespace
      ORDER BY 1, 2`);
 
+  /*
+    What a column is *allowed* to hold, against what the code puts in it.
+
+    A CHECK constraint is a schema rule the column list cannot see, and this one
+    had been wrong for as long as the grading feature had existed:
+    `assets.kind` accepted video, image and audio — the three there were when
+    0018 wrote it — while the API's zod enum, the upload door and the planner's
+    budget had all learned `lut`. Everything worked except the insert. A person
+    uploaded a colour cube, watched it transfer, and got a 500 from the endpoint
+    that records the row.
+
+    Read from the constraint and compared against the enum rather than against a
+    list written here, so the next kind added to the product reddens this until
+    the table is told about it too.
+  */
+  const { rows: kindRule } = await pool.query(`
+    SELECT pg_get_constraintdef(oid) AS definition
+      FROM pg_constraint
+     WHERE conname = 'assets_kind_check' AND connamespace = 'public'::regnamespace`);
+  const allowedKinds = [...(kindRule[0]?.definition ?? "").matchAll(/'([a-z]+)'::text/g)].map((m) => m[1]);
+  const declaredKinds = [
+    ...readFileSync(path.join(repoRoot, "lib/api-zod/src/index.ts"), "utf8").matchAll(
+      /kind: z\.enum\(\[([^\]]+)\]\)/g,
+    ),
+  ]
+    .flatMap((m) => [...m[1].matchAll(/"([a-z]+)"/g)].map((k) => k[1]))
+    .filter((k, i, all) => all.indexOf(k) === i);
+
+  check("the assets table has a rule about its kinds at all", allowedKinds.length >= 3, JSON.stringify(kindRule));
+  check("and the schemas declare some", declaredKinds.length >= 3, declaredKinds.join(","));
+  check(
+    "every kind the API accepts is a kind the table accepts",
+    declaredKinds.every((kind) => allowedKinds.includes(kind)),
+    `table ${allowedKinds.join(",")} vs api ${declaredKinds.join(",")}`,
+  );
+  check(
+    "and the table allows nothing the API would never send",
+    allowedKinds.every((kind) => declaredKinds.includes(kind)),
+    `table ${allowedKinds.join(",")} vs api ${declaredKinds.join(",")}`,
+  );
+
   const onJobs = keys.filter((k) => k.child === "jobs");
   check(
     "nothing cascades onto jobs, because a render that happened stays counted",
