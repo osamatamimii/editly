@@ -446,20 +446,30 @@ export async function enrichPlan(
           layout,
           effectiveCaptionFonts(operation.style, operation.font, operation.fontArabic).latin,
         ),
-        maxLines: layout.maxLines,
         /*
-          The fast-cut rhythm, measured off the reference edit frame by frame:
-          one to three words on screen at once, each cue roughly half a second,
-          a new cue at every real pause. Three numbers because the reference's
-          rhythm is made of three things — a word cap (never more than three),
-          a time cap (a chunk never lingers), and a hair-trigger pause break
-          (280ms of silence starts a new cue where the default grouping would
-          bridge it). Only set on `quick`: `undefined` leaves the measured
-          defaults alone rather than restating them here.
+          One line, always. Osama's rule, verbatim: «ما بدنا سطور زي هيك
+          مباشرة … يظهر بسطر واحد بـ3-4 كلمات أفضل شي لما يكون كابشن عادي».
+          A caption is a line riding the video, not a paragraph parked on it —
+          the multi-line block the old default produced was rejected on
+          sight. The layout's own maxLines (2-3, from the band the platform
+          leaves) stays what the *band* could hold; what we choose to put in
+          it is one line, so the band arithmetic and the furniture checks
+          keep their meaning.
+        */
+        maxLines: 1,
+        /*
+          The rhythm, in words per cue. Both paces cap the cue by words now —
+          the normal caption at four (the rule above), the quick one at three
+          with the reference's time cap and hair-trigger pause break measured
+          frame by frame off the fast-cut edit: a cue roughly half a second,
+          broken at 280ms of silence where the default grouping would bridge
+          it. The width budget still applies underneath either cap, so a cue
+          of four long Arabic words that cannot fit one line is split by
+          measurement before it is ever drawn.
         */
         ...(operation.pace === "quick"
           ? { maxWordsPerCue: 3, maxCueMs: 1100, breakOnPauseMs: 280 }
-          : {}),
+          : { maxWordsPerCue: 4, maxCueMs: 2600 }),
       });
       if (cues.length === 0) {
         notes.push(

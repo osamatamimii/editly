@@ -773,6 +773,37 @@ section("The quick pace: one to three words, broken at every real pause");
     normal.length < quick.length && normal.some((c) => (c.words?.length ?? 0) > 3),
     `${normal.length} vs ${quick.length}`,
   );
+
+  /*
+    And the product's own normal pace is one line of at most four words.
+
+    Osama's rule, verbatim: «ما بدنا سطور زي هيك مباشرة … يظهر بسطر واحد
+    بـ3-4 كلمات أفضل شي لما يكون كابشن عادي». The multi-line block the old
+    default drew was rejected on sight. The numbers live at the enrich call
+    site — the same place the quick pace's live — so this reads them there:
+    a library default alone cannot prove what the product sends.
+  */
+  const { readFileSync } = await import("node:fs");
+  const enrich = readFileSync(path.join(repoRoot, "artifacts/worker/src/enrich.ts"), "utf8");
+  const site = enrich.slice(enrich.indexOf('type === "autoCaptions"'), enrich.indexOf("burnCaptions"));
+  check("the product groups every caption to one line", /maxLines: 1,/.test(site));
+  check(
+    "and the normal pace to four words at most",
+    /:\s*\{ maxWordsPerCue: 4, maxCueMs: \d+ \}/.test(site),
+  );
+  const normalPaced = buildCaptionCues(
+    { segments: [{ words: talk }] },
+    { maxWordsPerCue: 4, maxCueMs: 2600, maxLines: 1, lineWidthInCaps: 18 },
+  );
+  check(
+    "so a normal caption is never more than four words",
+    normalPaced.length > 0 && normalPaced.every((c) => (c.words?.length ?? 0) <= 4),
+    normalPaced.map((c) => c.words?.length).join(","),
+  );
+  check(
+    "and never more than one line",
+    normalPaced.every((c) => !c.text.includes("\n")),
+  );
 }
 
 await rm(buildDir, { recursive: true, force: true });
