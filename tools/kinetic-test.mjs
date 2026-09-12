@@ -598,6 +598,13 @@ section("The lockup: one keyword large and coloured, the small words gathering")
     The keyword is a gradient now — Osama's rule: a clean colour ramp, no
     stroke, no shadow behind it — so the accent is counted with a green
     detector over the raw frame, not the yellow one `ink` carries.
+
+    And it is rendered in `creator`, which is the style that *declares* that
+    ramp. It used to be rendered in whatever the default style was, and passed,
+    because the ramp was two constants inside the lockup: every style that
+    reached the lockup came out green, including the ones whose own accent was
+    yellow or violet. The ramp belongs to the style now, so the check has to
+    name the style it is checking.
   */
   const greenInk = (file, second) => {
     const source = at(`fx-${Math.random().toString(36).slice(2, 8)}.mp4`);
@@ -622,7 +629,7 @@ section("The lockup: one keyword large and coloured, the small words gathering")
     return green;
   };
 
-  const en = await assFor(stressedCue(["captions", "WIN", "every", "scroll"], 1), "focus");
+  const en = await assFor(stressedCue(["captions", "WIN", "every", "scroll"], 1), "focus", "creator");
   // 0.25s: only the first small word has arrived. 2.6s: the whole lockup.
   const early = frames(en.file, [0.25])[0];
   const late = frames(en.file, [2.6])[0];
@@ -635,9 +642,207 @@ section("The lockup: one keyword large and coloured, the small words gathering")
     return Math.max(...sizes) >= Math.min(...sizes) * 1.9;
   })());
 
-  const ar = await assFor(stressedCue(["الكابشن", "يكسب", "كل", "تمرير"], 1), "focus");
+  const ar = await assFor(stressedCue(["الكابشن", "يكسب", "كل", "تمرير"], 1), "focus", "creator");
   const arLate = frames(ar.file, [2.6])[0];
   check("the Arabic lockup draws and carries the gradient too", arLate.lit > 200 && greenInk(ar.file, 2.6) > 150, `${arLate.lit}/${greenInk(ar.file, 2.6)}`);
+
+  /*
+    And a style that declares nothing keeps its own accent rather than
+    inheriting somebody else's green. `bold-white`'s accent is yellow, which
+    is the colour it already gives a stressed word in every other animation —
+    a keyword that changes colour depending on which animation is running is
+    the same style disagreeing with itself.
+  */
+  const plain = await assFor(stressedCue(["captions", "WIN", "every", "scroll"], 1), "focus", "bold-white");
+  check(
+    "a style with no keyword of its own falls back to its own accent, not to green",
+    greenInk(plain.file, 2.6) < 60 && frames(plain.file, [2.6])[0].accent > 100,
+    `${greenInk(plain.file, 2.6)} green, ${frames(plain.file, [2.6])[0].accent} accent`,
+  );
+}
+
+section("The cold look: a halo that stays, ink that is nearly white, a keyword that survives daylight");
+{
+  /*
+    The `glow` style, measured against the reference it was built from.
+
+    Everything else in the catalogue is loud by mass — a black weight over a
+    dark shadow — and this one is the opposite: a plain grotesque at a real
+    bold, ink barely off white, and a wide cyan halo doing the work that a
+    stroke is not allowed to do and that a shadow is not wanted for.
+    Four things about it are true only if they are drawn, and each of them
+    fails silently:
+
+      - the halo is a *second copy* of the text underneath, because `\blur` on
+        one copy is a fuzzy word rather than a word with light around it;
+      - it does not resolve away, so it has to still be there long after the
+        word has settled;
+      - the keyword is flat ink, not the green ramp the lockup used to give
+        everybody whatever their style said;
+      - and, with ink this pale, the thing to check is the bright ground. It
+        was measured invisible on white once already, when the keyword still
+        carried the `\shad0` the gradient wanted.
+  */
+  const { facePair } = layoutMod;
+  const fonts = ffmpegMod.effectiveCaptionFonts("glow", undefined, undefined);
+  const faces = facePair({ latin: fonts.latin, arabic: fonts.arabic });
+
+  async function coldAss(text, animation = "focus") {
+    const file = at(`glow-${Math.random().toString(36).slice(2, 8)}.ass`);
+    const words = text.split(" ");
+    const cue = {
+      startMs: 0,
+      endMs: 3000,
+      text,
+      words: words.map((word, i) => ({
+        text: word,
+        startMs: i * 380,
+        // The last word is held longest, so the emphasis score reads it as
+        // the stressed one and the lockup is exercised where it matters.
+        endMs: i * 380 + (i === words.length - 1 ? 380 : 220),
+      })),
+    };
+    await writeSubtitleFile(file, wrapToLayout([cue], LAYOUT, faces), "glow", animation, FRAME, LAYOUT, faces);
+    return { file, text: await readFile(file, "utf8") };
+  }
+
+  /** Core, halo, and the colour of each — the two numbers this look lives on. */
+  function bloom(rgb, width, height) {
+    let core = 0, coreR = 0, coreB = 0;
+    let halo = 0, haloR = 0, haloB = 0;
+    for (let y = 0; y < height; y += 2) {
+      for (let x = 0; x < width; x += 2) {
+        const i = (width * y + x) * 3;
+        const r = rgb[i], g = rgb[i + 1], b = rgb[i + 2];
+        const lum = (r + g + b) / 3;
+        if (lum > 190) { core += 1; coreR += r; coreB += b; }
+        else if (lum > 45) { halo += 1; haloR += r; haloB += b; }
+      }
+    }
+    return {
+      core, halo,
+      coreR: core ? coreR / core : 0, coreB: core ? coreB / core : 0,
+      haloR: halo ? haloR / halo : 0, haloB: halo ? haloB / halo : 0,
+    };
+  }
+
+  /** The same render `frames` does, over a ground of our choosing. */
+  function over(colour, file, seconds) {
+    const source = at(`g-${Math.random().toString(36).slice(2, 8)}.mp4`);
+    ff(["-f", "lavfi", "-i", `color=c=${colour}:s=${FRAME.width}x${FRAME.height}:d=4:r=25`,
+        "-vf", `subtitles=${file.replace(/[\\:']/g, "\\$&")}`, "-frames:v", "100", source]);
+    return seconds.map((s) => {
+      const run = spawnSync(
+        "ffmpeg",
+        ["-hide_banner", "-nostdin", "-v", "error", "-ss", String(s), "-i", source,
+         "-vf", "format=rgb24", "-frames:v", "1", "-f", "rawvideo", "-"],
+        { maxBuffer: 1 << 28 },
+      );
+      if (run.status !== 0 || run.stdout.length < FRAME.width * FRAME.height * 3) {
+        throw new Error(`no frame at ${s}s`);
+      }
+      return run.stdout;
+    });
+  }
+
+  const { file, text } = await coldAss("the hardest part is not building");
+  const styleRow = text.split("\n").find((line) => line.startsWith("Style: Cap,"));
+  const fields = styleRow.split(",");
+
+  check("it is set in the face the style names", /Inter Bold/.test(styleRow), styleRow.slice(0, 60));
+  check(
+    "and libass is not asked to bold a file that is already bold",
+    fields[7] === "0",
+    `Bold field is ${fields[7]}: a synthesised bold on top of a real one is a smear, not a weight`,
+  );
+  /*
+    And the three rules this style exists under, read off the row it writes.
+    They are Osama's, in his words, and they are the kind of thing that gets
+    put back by somebody solving a legibility problem in a hurry.
+  */
+  check(
+    "no stroke, ever — «لا تستخدم ستروك بالمنصة ابدا»",
+    // The row begins "Style: Cap", so the Name field carries the prefix and
+    // every index below is counted from there: BorderStyle 15, Outline 16,
+    // Shadow 17. Counted wrong once, which read Alignment as the shadow and
+    // reported a style that has none as having one.
+    fields[15] === "1" && fields[16] === "0",
+    `BorderStyle ${fields[15]}, Outline ${fields[16]}`,
+  );
+  check(
+    "and no shadow — «في هذه الحاله لا يحتاج»",
+    fields[17] === "0",
+    `Shadow is ${fields[17]}: the halo is supposed to be doing this on its own`,
+  );
+
+  const events = text.split("[Events]")[1];
+  check(
+    "the keyword is flat ink rather than the ramp the lockup used to force",
+    !/\\clip\(/.test(events),
+    "a clip means it is still being drawn as a stack of gradient bands",
+  );
+  check(
+    "and the halo is its own copy of the text, not a blur on the only one",
+    (events.match(/\\blur20/g) ?? []).length > 0 && (events.match(/\\blur12/g) ?? []).length > 0,
+    "one copy blurred is a fuzzy word; two is a word with light around it",
+  );
+
+  /*
+    Late, not early. The arrival blur is easy to draw and proves nothing: the
+    claim this style makes is that the light is *still there* once the word
+    has settled, which is the frame everybody actually watches.
+  */
+  const [settled] = over("black", file, [2.6]);
+  const lit = bloom(settled, FRAME.width, FRAME.height);
+  check("there is a core to measure", lit.core > 150, `${lit.core} core pixels`);
+  check(
+    "the halo is still lit long after the words have settled",
+    lit.halo > lit.core,
+    `${lit.halo} halo against ${lit.core} core`,
+  );
+  check(
+    "the ink is nearly white",
+    lit.coreB - lit.coreR < 55 && lit.coreR > 150,
+    `core rgb has r=${lit.coreR.toFixed(0)}, b=${lit.coreB.toFixed(0)}`,
+  );
+  check(
+    "and cold rather than warm, which is the whole look",
+    lit.coreB > lit.coreR && lit.haloB > lit.haloR + 10,
+    `core b-r ${(lit.coreB - lit.coreR).toFixed(0)}, halo b-r ${(lit.haloB - lit.haloR).toFixed(0)}`,
+  );
+
+  /*
+    And the bright ground, which is where a pale caption goes to die. The
+    reference changes caption style between its dark shots and its white
+    ones; a render picks one style and keeps it, so this one has to hold on
+    both. Measured as darkness: on white, the only thing that can make a
+    letter readable is the shadow under it.
+  */
+  const [daylight] = over("white", file, [2.6]);
+  let dark = 0;
+  for (let i = 0; i < daylight.length; i += 3) {
+    if ((daylight[i] + daylight[i + 1] + daylight[i + 2]) / 3 < 215) dark += 1;
+  }
+  check(
+    "on a white ground the halo is still separating the letters",
+    dark > 3000,
+    `${dark} pixels below the ground: with no shadow the halo is the only separation there is, so its colour is the whole check`,
+  );
+
+  for (const [scriptName, sentence] of [
+    ["arabic", "الكابشن هو أول ما تراه العين"],
+    ["latin", "captions are what the eye reads first"],
+  ]) {
+    const drawn = await coldAss(sentence);
+    /*
+      Late enough that the keyword is up. The lockup's whole shape is small
+      words *around* a large one, and a sample taken before the large one
+      arrives is a measurement of half the thing.
+    */
+    const [sample] = over("black", drawn.file, [2.9]);
+    const seen = bloom(sample, FRAME.width, FRAME.height);
+    check(`${scriptName} draws, core and halo both`, seen.core > 120 && seen.halo > seen.core, `${seen.core}/${seen.halo}`);
+  }
 }
 
 section("The loud looks are upper-case before they are measured");

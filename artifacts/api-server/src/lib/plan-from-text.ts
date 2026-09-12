@@ -669,11 +669,23 @@ const YELLOW_WORDS = /\byellow|gold\b|أصفر|اصفر|ذهبي/i;
  * product. Checked before the older colour words: somebody who says
  * «هرموزي» has said something more specific than "yellow".
  */
-const CAPTION_STYLE_WORDS: Array<[RegExp, "hormozi" | "beast" | "pill" | "neon" | "clean" | "bubble" | "karaoke-light" | "creator" | "label"]> = [
+const CAPTION_STYLE_WORDS: Array<[RegExp, "hormozi" | "beast" | "pill" | "neon" | "clean" | "bubble" | "karaoke-light" | "creator" | "glow" | "label"]> = [
   [/hormozi|هرموزي|هورموزي/i, "hormozi"],
   [/\bbeast\b|بيست|مستر بيست/i, "beast"],
   [/خلف الكلمة|صندوق الكلمة|word pill|pill caption|box behind/i, "pill"],
   [/\bneon\b|نيون|متوهج/i, "neon"],
+  /*
+     The cold look, and it sits *after* neon on purpose.
+
+     The two are one letter apart in Arabic: neon already answers to «متوهج»,
+     and «توهج» is inside it. Put this row first and every «متوهج» in the
+     product would have quietly become the light look instead of the loud one
+     — a rule broken by a substring, which `\b` cannot help with here because
+     a word boundary in JavaScript is defined against ASCII and Arabic has
+     none. Ordering is the fix that needs no lookbehind: «متوهج» is claimed
+     above, so anything reaching this line meant the quiet one.
+  */
+  [/\bglow\b|\bhalo\b|توهّج|توهج|هالة|كابشن ناعم|كابشن خفيف/i, "glow"],
   [/\bminimal\b|\bclean caption|كابشن هادئ|كابشن بسيط/i, "clean"],
   [/\bbubble\b|فقاع/i, "bubble"],
   [/white box|bright box|صندوق أبيض|شريط أبيض/i, "karaoke-light"],

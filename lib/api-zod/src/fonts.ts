@@ -130,6 +130,33 @@ export const CAPTION_FACES: readonly CaptionFace[] = [
     note: "Geometric and friendly. Circles where Montserrat has ovals.",
   },
   {
+    /*
+      The one plain grotesque in the catalogue, at a real bold.
+
+      Every other row here is Black or ExtraBold, which is the loud short-form
+      look and is most of what this product makes. The `glow` style is not that:
+      the light around the letters does the separating, so the letters
+      themselves want a clean 700 rather than a 900 that closes its own
+      counters under a halo.
+
+      It was a 300 first, matched to the reference's own weight, and that was
+      wrong twice over: «الخط مش بولد فشكله سيء», and without a shadow a light
+      face has nothing to hold a bright frame with. 700 fixes both.
+
+      The file already carries the weight, so the style asks libass for
+      `Bold: 0`. A synthesised bold on top of a real one is a smear, and it is
+      the same mistake in the other direction.
+    */
+    id: "inter-bold",
+    label: "Inter Bold",
+    script: "latin",
+    family: "Inter Bold",
+    file: "Inter-Bold.ttf",
+    capRatio: 0.55,
+    widthScale: 0.9,
+    note: "A plain grotesque at a real bold. For the look where the glow does the work.",
+  },
+  {
     id: "oswald-bold",
     label: "Oswald Bold",
     script: "latin",
@@ -192,6 +219,27 @@ export const CAPTION_FACES: readonly CaptionFace[] = [
     capRatio: 0.38,
     widthScale: 1,
     note: "حديث وعريض. الأقرب إلى إحساس Montserrat في الإنجليزية.",
+  },
+  {
+    /*
+      Arabic's half of that pair, and the same face as `cairo-black` at a
+      different weight rather than a different family: two weights of one face
+      sit beside each other, where two families have to be judged against each
+      other every time a line mixes scripts.
+
+      The 700 instance was missing 36 isolated presentation forms that the
+      black one has. `make-caption-faces.py` filled them; without that, every
+      letter standing alone in an Arabic caption would have come from whatever
+      other Arabic font the machine happened to have.
+    */
+    id: "cairo-bold",
+    label: "Cairo Bold",
+    script: "arabic",
+    family: "Cairo Bold",
+    file: "Cairo-Bold.ttf",
+    capRatio: 0.4,
+    widthScale: 0.95,
+    note: "Cairo at a bold. The Arabic half of the glow look.",
   },
   {
     id: "tajawal-black",

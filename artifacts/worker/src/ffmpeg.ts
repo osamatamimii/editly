@@ -1001,6 +1001,37 @@ interface CaptionColours {
    * `fill` is a bare `&HBBGGRR&`, `alpha` a bare `&HAA&`.
    */
   box?: { fill: string; alpha: string };
+  /**
+   * Whether the style asks libass for a bold face.
+   *
+   * Every style here was Bold until one of them was set in a light weight,
+   * and `-1` on a 300 weight does not fetch a bolder file: libass synthesises
+   * one by smearing the outline it has. The result is a light face that looks
+   * like a light face somebody photocopied, and the whole reason to reach for
+   * a light face is gone. Defaults to true, because the other eleven want it.
+   */
+  bold?: boolean;
+  /**
+   * A halo under the text, drawn as its own layer.
+   *
+   * `\blur` alone cannot make one: it softens the glyph's own edge, so a
+   * blurred white word is a *fuzzy* word, not a word with light around it.
+   * A real halo is a second copy of the same text underneath, in the glow's
+   * colour and blurred wide, with the crisp text over it. It is the same
+   * trick `neon` plays with an outline, minus the outline, and it is the one
+   * way to keep a caption legible with no stroke, no box and no shadow.
+   */
+  glow?: { colour: string; blur: number };
+  /**
+   * What the focus lockup's keyword is made of.
+   *
+   * `ramp` draws it as a vertical gradient, which libass has no fill for and
+   * which is therefore a stack of `\clip`ped copies; `ink` draws it flat in
+   * one. The choice belongs to the style: it was a pair of green constants
+   * inside the lockup, which meant every style that used the lockup was
+   * green, whatever else it said about itself.
+   */
+  keyword?: { ramp?: { top: string; bottom: string }; ink?: string };
   /** What this style animates like when the plan does not say. */
   defaultAnimation?: "none" | "pop" | "karaoke" | "kinetic" | "focus";
   /**
@@ -1093,9 +1124,65 @@ const CAPTION_COLOURS: Record<string, CaptionColours> = {
     borderStyle: 1, outlineWidth: 0, shadow: 4,
     tags: "\\blur2.4",
     accent: "&H8ECF3E&",
+    // The mint ramp this look is known by, moved out of the lockup and into
+    // the style that wanted it. Top to bottom, as ASS writes a colour.
+    keyword: { ramp: { top: "&HB4E88F&", bottom: "&H5C9A14&" } },
     defaultAnimation: "focus",
     sizeBoost: 1.1,
     defaultFont: { latin: "poppins-extrabold", arabic: "almarai-extrabold" },
+  },
+  /*
+    The cold one, measured off the reference Osama sent frame by frame.
+
+    Everything else in this catalogue is loud by mass: a black weight with a
+    dark shadow under it, which is how a caption holds itself against video
+    and is also why every one of them reads as the same kind of video. This
+    one holds itself with light instead. A plain grotesque at a real bold, ink
+    a shade off white, and a wide cyan halo that never fully resolves — the
+    glow is the legibility, so there is no stroke, no box and **no shadow**.
+
+    Three rules from Osama, and all three are in this entry rather than in a
+    comment somewhere else: «لا تستخدم ستروك بالمنصة ابدا» — there is no
+    outline anywhere in this file and there is none here. «ولا تستخدم الشادو
+    الا بحالات استثنائية لكن في هذه الحاله لا يحتاج» — `Shadow` is 0 and the
+    back colour is fully transparent, so nothing is drawn behind the letters
+    at all. And «الخط مش بولد فشكله سيء» — this was first built on a 300
+    weight, matched to the reference, and a light face with no shadow is a
+    caption that disappears the moment the frame behind it is bright. The 700
+    is what lets the second rule be kept.
+
+    The numbers are the reference's, taken off the frames rather than judged:
+    the keyword's core samples at rgb(208,220,224) and the small line, sitting
+    deeper inside its own halo, at rgb(185,233,247). Both read blue above red,
+    which is what makes them cold rather than white — but the *ink* is only
+    just off white, and the colour comes from the glow. Ink mixed as strongly
+    as the halo looked like a different style entirely: tinted text, rather
+    than white text with light around it. And the halo is still clearly lit
+    some forty pixels out from the glyph on a 1080-wide frame, long after the
+    word has settled, which is why the resting blur stays where it does.
+
+    The bright frame is the thing to watch, and it is measured rather than
+    hoped for. With no shadow, the only thing separating a near-white letter
+    from a white wall is the halo, so the halo's *colour* is load-bearing: it
+    is not a pale glow tinted from the ink but a saturated one, rgb(60,166,224).
+    Three depths were rendered on both grounds and counted. The reference's own
+    pale bloom leaves nothing below 200 on white at all; this one leaves a few
+    thousand pixels there, and a deeper blue leaves more but starts reading as
+    neon on footage, which is a different style that already exists. This is
+    the trade, taken with the numbers in front of it. `kinetic-test` renders
+    the style over white and counts what is left of it there as well as over
+    black.
+  */
+  "glow": {
+    primary: "&H00FAF4E6", secondary: "&H00A0A0A0", outline: "&H00000000", back: "&H00000000",
+    borderStyle: 1, outlineWidth: 0, shadow: 0,
+    tags: "\\blur2",
+    accent: "&HFAF4E6&",
+    bold: false,
+    glow: { colour: "&HE0A63C&", blur: 12 },
+    keyword: { ink: "&HFAF4E6&" },
+    defaultAnimation: "focus",
+    defaultFont: { latin: "inter-bold", arabic: "cairo-bold" },
   },
   /* White core, cyan edge, and the edge alone is blurred into a glow — libass
      blurs the border when there is one, which is exactly the neon trick. */
@@ -1320,7 +1407,9 @@ function captionStyleRow(
   return [
     `Style: ${name}`, face.family, String(nominalSizeFor(face, layout)),
     c.primary, c.secondary, c.outline, c.back,
-    "-1", "0", "0", "0",      // bold, italic, underline, strikeout
+    // Bold unless the style says otherwise: a synthesised bold over a light
+    // face is a smear, not a weight. See `bold` in CaptionColours.
+    c.bold === false ? "0" : "-1", "0", "0", "0", // bold, italic, underline, strikeout
     "100", "100", "0", "0",   // scale x/y, spacing, angle
     String(c.borderStyle), String(c.outlineWidth), String(c.shadow),
     String(layout.alignment), String(layout.marginL), String(layout.marginR), String(layout.marginV),
@@ -1861,6 +1950,22 @@ export function wrapToLayout(
 }
 
 /**
+ * An ASS bare colour back to its three numbers.
+ *
+ * `&HBBGGRR&` — blue first, red last, which is backwards from every other
+ * format and is why this is a function rather than three slices written out
+ * wherever a gradient needs to be interpolated. Anything unreadable comes back
+ * white: a ramp that silently draws black on black is the failure this file
+ * keeps finding, and white at least shows up wrong.
+ */
+function rgbOfAssColour(colour: string): { r: number; g: number; b: number } {
+  const hex = /^&H([0-9a-f]{6})&?$/i.exec(colour.trim());
+  if (!hex) return { r: 255, g: 255, b: 255 };
+  const value = parseInt(hex[1]!, 16);
+  return { r: value & 0xff, g: (value >> 8) & 0xff, b: (value >> 16) & 0xff };
+}
+
+/**
  * The focus lockup, drawn where we say rather than where the margins fall.
  *
  * Osama's verdict on the first cut, verbatim: «عندهم متدرج اللون بشكل نظيف
@@ -1952,31 +2057,65 @@ function focusEvents(
 
   const out: string[] = [];
 
-  /* The small rows: the style's own soft shadow, the style's own fill. */
+  /*
+    The small rows: the style's own soft shadow, the style's own fill — and,
+    for a style that has one, a halo drawn underneath in the same shapes.
+
+    The halo cannot be the same event with a bigger blur. `\blur` softens the
+    glyph's own edge, so a single blurred copy is a fuzzy word rather than a
+    word with light around it. Two copies, the lower one wide and coloured and
+    the upper one crisp, is what a bloom actually is. Both carry the identical
+    per-word reveal, because a halo that lights before its word is a halo
+    announcing a word nobody has said yet.
+  */
   const smallRow = (list: CaptionWord[], kind: "pre" | "post") => {
-    const runs = list.map((word) => {
-      const at = revealAt(word);
-      /*
-        «حتى عندهم انميشن الكتابة blury فخم» — the words arrive out of
-        focus and resolve. Alpha snaps at the word's instant; the blur rides
-        a short `\t` down to the style's own resting softness.
-      */
-      return `{\\fs${smallPx}\\c${bareColour(colours.primary)}\\blur6\\alpha&HFF&\\t(${at},${at + 1},\\alpha&H00&)\\t(${at},${at + 160},\\blur1.4)}${isolate(wordText(word))} `;
-    });
-    const ordered = rtl ? [...runs].reverse() : runs;
-    out.push(event(0, `{\\an5\\pos(${cx},${centres.get(kind)})\\fad(0,60)}${ordered.join("").trimEnd()}`));
+    const runsWith = (paint: string, arriveBlur: number, restBlur: number) =>
+      list.map((word) => {
+        const at = revealAt(word);
+        /*
+          «حتى عندهم انميشن الكتابة blury فخم» — the words arrive out of
+          focus and resolve. Alpha snaps at the word's instant; the blur rides
+          a short `\t` down to the style's own resting softness.
+        */
+        return `{\\fs${smallPx}${paint}\\blur${arriveBlur}\\alpha&HFF&\\t(${at},${at + 1},\\alpha&H00&)\\t(${at},${at + 160},\\blur${restBlur})}${isolate(wordText(word))} `;
+      });
+    const lay = (runs: string[], layer: number) => {
+      const ordered = rtl ? [...runs].reverse() : runs;
+      out.push(event(layer, `{\\an5\\pos(${cx},${centres.get(kind)})\\fad(0,60)}${ordered.join("").trimEnd()}`));
+    };
+    if (colours.glow) {
+      // Wider on arrival than at rest, so the word blooms and then holds a
+      // halo rather than snapping to one.
+      lay(runsWith(`\\c${colours.glow.colour}\\shad0`, colours.glow.blur + 6, colours.glow.blur), 0);
+    }
+    /*
+      Crisper when there is a halo under it. 1.4 is the right resting softness
+      for a heavy face carrying its own edge; under a wide glow it is not —
+      measured at 720x1280, a light face's two-pixel stems blurred by 1.4 on
+      top of their own bloom never reach a solid core at all, and the line
+      reads as mist rather than as words. The light is the halo's job; the
+      letters' job is to be letters.
+    */
+    lay(runsWith(`\\c${bareColour(colours.primary)}`, 6, colours.glow ? 0.6 : 1.4), 1);
   };
   if (pre.length > 0) smallRow(pre, "pre");
   if (post.length > 0) smallRow(post, "post");
 
   /*
-    The keyword: a vertical ramp in seven bands. The clip rectangles span
-    the whole frame's width — only the y matters — and overlap by a pixel
-    so antialiased edges cannot open a hairline seam between bands.
+    The keyword, in whichever of the two ways its style asks for.
+
+    A ramp is a vertical gradient, which libass has no fill for, so it is a
+    stack of `\clip`ped copies of the same word — seven bands, each tinted one
+    step along. Flat ink is one event and no clipping. Both were the same green
+    pair of constants until a style wanted something other than green: the
+    lockup now asks the style, and a style that says nothing keeps its accent,
+    which is the colour it already uses for a stressed word everywhere else.
   */
   const BANDS = 7;
-  const rampTop = { r: 0x8f, g: 0xe8, b: 0xb4 };
-  const rampBottom = { r: 0x14, g: 0x9a, b: 0x5c };
+  const spec = colours.keyword ?? {};
+  const flatInk = spec.ramp ? null : (spec.ink ?? colours.accent);
+  const rampTop = rgbOfAssColour(spec.ramp?.top ?? colours.accent);
+  const rampBottom = rgbOfAssColour(spec.ramp?.bottom ?? colours.accent);
   const keyCentre = centres.get("key")!;
   const keyTop = keyCentre - Math.round(bigPx * 0.62);
   const keyBottom = keyCentre + Math.round(bigPx * 0.62);
@@ -1984,22 +2123,65 @@ function focusEvents(
   const popTags =
     `\\t(${at + 1},${at + 1 + POP_RISE_MS},\\fscx112\\fscy112)` +
     `\\t(${at + 1 + POP_RISE_MS},${at + 1 + POP_RISE_MS + POP_FALL_MS},\\fscx100\\fscy100)`;
-  for (let band = 0; band < BANDS; band += 1) {
-    const mix = band / (BANDS - 1);
-    const r = Math.round(rampTop.r + (rampBottom.r - rampTop.r) * mix);
-    const g = Math.round(rampTop.g + (rampBottom.g - rampTop.g) * mix);
-    const b = Math.round(rampTop.b + (rampBottom.b - rampTop.b) * mix);
-    const colour = `&H${b.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${r.toString(16).padStart(2, "0")}&`.toUpperCase();
-    const y0 = Math.round(keyTop + ((keyBottom - keyTop) * band) / BANDS);
-    const y1 = Math.round(keyTop + ((keyBottom - keyTop) * (band + 1)) / BANDS) + 1;
+  /**
+   * One copy of the keyword: the geometry is shared, the paint is not.
+   *
+   * `shadow` is a parameter rather than a constant, and the reason is the
+   * whole difference between the two kinds of keyword. A gradient one is dark
+   * and saturated and carries its own contrast, so a drop shadow under it is
+   * dirt — which is why this was `\shad0` for everybody. A flat one in near
+   * white carries no contrast at all, and with the shadow suppressed it was
+   * measured as *invisible* on a white ground while the small words around it
+   * stayed perfectly readable: the one part of the lockup that is twice the
+   * size of everything else, gone, on exactly the footage where a caption
+   * matters most.
+   */
+  const keyEvent = (
+    layer: number,
+    paint: string,
+    arriveBlur: number,
+    restBlur: number,
+    { clip = "", shadow = true }: { clip?: string; shadow?: boolean } = {},
+  ) =>
     out.push(
       event(
-        1,
-        `{\\an5\\pos(${cx},${keyCentre})\\fs${bigPx}\\shad0\\blur7\\c${colour}` +
-          `\\clip(0,${y0},${frame.width},${y1})` +
-          `\\alpha&HFF&\\t(${at},${at + 1},\\alpha&H00&)\\t(${at},${at + 180},\\blur0)${popTags}\\fad(0,60)}${isolate(wordText(keyword))}`,
+        layer,
+        `{\\an5\\pos(${cx},${keyCentre})\\fs${bigPx}${shadow ? "" : "\\shad0"}\\blur${arriveBlur}${paint}${clip}` +
+          `\\alpha&HFF&\\t(${at},${at + 1},\\alpha&H00&)\\t(${at},${at + 180},\\blur${restBlur})${popTags}\\fad(0,60)}${isolate(wordText(keyword))}`,
       ),
     );
+
+  /*
+    The halo first, so the word sits on it rather than under it.
+
+    Scaled with the word by the same `\fscx/y` pop — a bloom that stays put
+    while the word it belongs to grows detaches from it for a fifth of a
+    second, which is long enough to see.
+  */
+  if (colours.glow) {
+    // No shadow under a halo: a drop shadow beneath a wide blur is mud, and
+    // the halo is already the thing separating the word from the picture.
+    keyEvent(2, `\\c${colours.glow.colour}`, colours.glow.blur + 8, colours.glow.blur + 2, { shadow: false });
+  }
+
+  if (flatInk) {
+    keyEvent(3, `\\c${flatInk}`, 7, colours.glow ? 1.6 : 0);
+  } else {
+    /*
+      The clip rectangles span the whole frame's width — only the y matters —
+      and overlap by a pixel so antialiased edges cannot open a hairline seam
+      between bands.
+    */
+    for (let band = 0; band < BANDS; band += 1) {
+      const mix = band / (BANDS - 1);
+      const r = Math.round(rampTop.r + (rampBottom.r - rampTop.r) * mix);
+      const g = Math.round(rampTop.g + (rampBottom.g - rampTop.g) * mix);
+      const b = Math.round(rampTop.b + (rampBottom.b - rampTop.b) * mix);
+      const colour = `&H${b.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${r.toString(16).padStart(2, "0")}&`.toUpperCase();
+      const y0 = Math.round(keyTop + ((keyBottom - keyTop) * band) / BANDS);
+      const y1 = Math.round(keyTop + ((keyBottom - keyTop) * (band + 1)) / BANDS) + 1;
+      keyEvent(3, `\\c${colour}`, 7, 0, { clip: `\\clip(0,${y0},${frame.width},${y1})`, shadow: false });
+    }
   }
   return out;
 }

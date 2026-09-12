@@ -539,7 +539,7 @@ export const DeleteFaceParams = z.object({ id: z.string().min(1) });
  * on the plan a person builds and absent from the operation it becomes is a
  * caption that validates, renders, and comes back in a style nobody asked for.
  */
-export const CaptionStyleName = z.enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "label"]);
+export const CaptionStyleName = z.enum(["bold-white", "bold-yellow", "karaoke-box", "karaoke-light", "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "glow", "label"]);
 export type CaptionStyleName = z.infer<typeof CaptionStyleName>;
 
 export const CaptionLookChoice = z.object({

@@ -144,6 +144,24 @@ export const LOOK_STYLES: Array<{
     ),
   },
   {
+    /*
+      The chip is the look, drawn in CSS rather than described in words.
+
+      A glow is one of the few looks a browser can show honestly: two text
+      shadows in the halo's own colour, no offset, no blur on the letters
+      themselves. The keyword is set larger because that is what the style
+      does — the chip has to say "big word with light around it", not just
+      "cyan".
+    */
+    id: "glow",
+    render: (l) => (
+      <span style={{ ...BASE, color: "#eaf7ff", textShadow: "0 0 7px #3ca6e0, 0 0 18px #3ca6e0" }}>
+        {l === "ar" ? "كلمة " : "one "}
+        <span style={{ fontSize: 16 }}>{l === "ar" ? "بتوهّج" : "aglow"}</span>
+      </span>
+    ),
+  },
+  {
     id: "karaoke-light",
     render: (l) => (
       <span style={{ ...BASE, background: "#fff", borderRadius: 6, padding: "2px 7px" }}>

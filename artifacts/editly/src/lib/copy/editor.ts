@@ -326,6 +326,7 @@ export const LOOKS = {
     "clean": p("هادئ", "Clean"),
     "bubble": p("فقاعة", "Bubble"),
     "creator": p("كرييتور", "Creator"),
+    "glow": p("توهّج", "Glow"),
     "karaoke-light": p("شريط أبيض", "White bar"),
     "karaoke-box": p("كاريوكي", "Karaoke"),
     "label": p("شريط رمادي", "Grey bar"),

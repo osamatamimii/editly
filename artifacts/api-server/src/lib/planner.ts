@@ -186,7 +186,7 @@ function buildSchema(assets: PlannerAsset[]) {
               type: ["string", "null"],
               enum: [
                 "bold-white", "bold-yellow", "karaoke-box", "karaoke-light",
-                "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "label",
+                "hormozi", "beast", "pill", "neon", "clean", "bubble", "creator", "glow", "label",
                 null,
               ],
             },

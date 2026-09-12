@@ -109,6 +109,14 @@ FACES = [
     ("archivo-black", "Archivo Black", "ofl/archivoblack/ArchivoBlack-Regular.ttf", "ofl/archivoblack", None),
     ("poppins-extrabold", "Poppins ExtraBold", "ofl/poppins/Poppins-ExtraBold.ttf", "ofl/poppins", None),
     ("oswald-bold", "Oswald Bold", "ofl/oswald/Oswald%5Bwght%5D.ttf", "ofl/oswald", {"wght": 700}),
+    # The one plain grotesque in the set, at a real bold rather than a black.
+    # Everything else here is 800 or 900, which is the loud short-form look;
+    # this is for the glow style, where the light comes from the halo and the
+    # letters only have to be letters. 700 and not 300: a light cut was tried
+    # against the reference and Osama's verdict was «الخط مش بولد فشكله سيء».
+    # `opsz` is pinned at the top of its range because a caption is display
+    # type, not body text.
+    ("inter-bold", "Inter Bold", "ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf", "ofl/inter", {"wght": 700, "opsz": 32}),
 
     ("cairo-black", "Cairo Black", "ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf", "ofl/cairo", {"wght": 900, "slnt": 0}),
     ("tajawal-black", "Tajawal Black", "ofl/tajawal/Tajawal-Black.ttf", "ofl/tajawal", None),
@@ -116,6 +124,12 @@ FACES = [
     ("changa-extrabold", "Changa ExtraBold", "ofl/changa/Changa%5Bwght%5D.ttf", "ofl/changa", {"wght": 800}),
     ("noto-kufi-black", "Noto Kufi Arabic Black", "ofl/notokufiarabic/NotoKufiArabic%5Bwght%5D.ttf", "ofl/notokufiarabic", {"wght": 900}),
     ("alexandria-extrabold", "Alexandria ExtraBold", "ofl/alexandria/Alexandria%5Bwght%5D.ttf", "ofl/alexandria", {"wght": 800}),
+    # Arabic's half of that pair. Cairo rather than a new family: its black cut
+    # is already in this list and already repairs cleanly, so two weights of
+    # one face sit beside each other instead of two families that have to be
+    # judged against each other. 36 isolated forms were missing from the 700
+    # instance, which is the whole reason this script exists.
+    ("cairo-bold", "Cairo Bold", "ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf", "ofl/cairo", {"wght": 700, "slnt": 0}),
 
     # Both scripts now. The reason it was Latin-only for a while is written in
     # `fonts.ts`: `facerepair.py` looked the lam-alef ligature up under the
