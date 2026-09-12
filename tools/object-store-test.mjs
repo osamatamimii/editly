@@ -734,7 +734,7 @@ section("A store with no ceiling is not a store we failed to ask");
 
   const saved = { ...process.env };
   const setEnv = (vars) => {
-    for (const key of ["OBJECT_STORE_PROVIDER", "R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]) {
+    for (const key of ["OBJECT_STORE_PROVIDER", "OBJECT_STORE_BUCKET", "R2_BUCKET", "R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]) {
       delete process.env[key];
     }
     Object.assign(process.env, vars);
@@ -743,6 +743,9 @@ section("A store with no ceiling is not a store we failed to ask");
 
   setEnv({
     OBJECT_STORE_PROVIDER: "r2",
+    // Named, because a deployment that does not name one is now refused. See
+    // the section below: on R2 the default belongs to the other provider.
+    OBJECT_STORE_BUCKET: "editly-media",
     R2_ENDPOINT: "https://acc.r2.cloudflarestorage.com",
     R2_ACCESS_KEY_ID: "AK",
     R2_SECRET_ACCESS_KEY: "SK",
@@ -770,6 +773,69 @@ section("A store with no ceiling is not a store we failed to ask");
   for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
   Object.assign(process.env, saved);
   limits.forgetStorageLimit();
+}
+
+console.log("\nOn R2 the bucket must be named, because the default is somebody else's");
+{
+  /*
+    The bug this section exists for, and it cost a day.
+
+    Five variables were set on the deployment beside each other —
+    `OBJECT_STORE_PROVIDER`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`,
+    `R2_SECRET_ACCESS_KEY`, and the bucket, named `R2_BUCKET`. The package read
+    `OBJECT_STORE_BUCKET` and nothing else, so the bucket name was read by
+    nothing and the default took over: `videos`, the Supabase bucket this
+    product has always had, which does not exist in R2.
+
+    Every signed URL then pointed at a bucket that is not there. An S3 request
+    to a missing bucket comes back with no CORS headers, so the browser blocks
+    it before a byte leaves, reports "network error" with no status, and the
+    API's own log says the upload was authorised. Three systems behaving
+    correctly and an upload that cannot work.
+
+    Two answers: the obvious name is read, and the default is refused outright
+    on R2 rather than quietly applied.
+  */
+  const base = {
+    OBJECT_STORE_PROVIDER: "r2",
+    R2_ENDPOINT: "https://acc.r2.cloudflarestorage.com",
+    R2_ACCESS_KEY_ID: "AK",
+    R2_SECRET_ACCESS_KEY: "SK",
+  };
+
+  let refused = null;
+  try {
+    store.objectStoreFrom({ ...base }, {});
+  } catch (error) {
+    refused = error instanceof Error ? error.message : String(error);
+  }
+  check("a bucket nobody named is refused at construction", refused !== null, "an unnamed bucket was accepted");
+  check(
+    "and the refusal names both variables and says why there is no default",
+    /OBJECT_STORE_BUCKET/.test(refused ?? "") && /R2_BUCKET/.test(refused ?? "") && /Supabase/.test(refused ?? ""),
+    refused ?? "",
+  );
+
+  const byPackageName = store.objectStoreFrom({ ...base, OBJECT_STORE_BUCKET: "editly-media" }, {});
+  check("the package's own name is read", byPackageName.bucket === "editly-media", byPackageName.bucket);
+
+  const byObviousName = store.objectStoreFrom({ ...base, R2_BUCKET: "editly-media" }, {});
+  check(
+    "and so is the one a person writes beside R2_ENDPOINT",
+    byObviousName.bucket === "editly-media",
+    byObviousName.bucket,
+  );
+
+  const both = store.objectStoreFrom({ ...base, OBJECT_STORE_BUCKET: "chosen", R2_BUCKET: "other" }, {});
+  check("with the package's name winning when both are set", both.bucket === "chosen", both.bucket);
+
+  // Supabase keeps its default, because there the default is *its own* bucket
+  // and has been since the first day of this product.
+  const supabaseDefault = store.objectStoreFrom(
+    { SUPABASE_URL: "https://project.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-key" },
+    {},
+  );
+  check("while Supabase still defaults to the bucket it has always had", supabaseDefault.bucket === "videos", supabaseDefault.bucket);
 }
 
 await rm(buildDir, { recursive: true, force: true });

@@ -299,9 +299,21 @@ export interface StoreConfig {
  * in production: the new path is not taken until somebody sets a variable.
  */
 export function objectStoreFrom(env: NodeJS.ProcessEnv = process.env, config: StoreConfig = {}): ObjectStore {
-  const bucket = config.bucket ?? env["OBJECT_STORE_BUCKET"]?.trim() ?? VIDEOS_BUCKET;
   const provider: Provider =
     config.provider ?? (env["OBJECT_STORE_PROVIDER"]?.trim() === "r2" ? "r2" : "supabase");
+
+  /*
+    The bucket, under either name.
+
+    `R2_BUCKET` is read as well as `OBJECT_STORE_BUCKET`, and that is not
+    generosity: every other variable on the R2 path is `R2_SOMETHING`, so
+    `R2_BUCKET` is what a person setting five of them beside each other writes,
+    and it is what was actually set on the deployment that found this. The
+    package's own name for the value stays first; the obvious one no longer
+    lands nowhere.
+  */
+  const named = config.bucket ?? env["OBJECT_STORE_BUCKET"]?.trim() ?? env["R2_BUCKET"]?.trim();
+  const bucket = named || VIDEOS_BUCKET;
 
   if (provider === "r2") {
     const endpoint = config.r2?.endpoint ?? env["R2_ENDPOINT"]?.trim() ?? "";
@@ -317,6 +329,29 @@ export function objectStoreFrom(env: NodeJS.ProcessEnv = process.env, config: St
       */
       throw new Error(
         "OBJECT_STORE_PROVIDER is r2, but R2_ENDPOINT, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY are not all set.",
+      );
+    }
+    /*
+      And refused just as hard for the bucket, because the default belongs to
+      the other provider.
+
+      `VIDEOS_BUCKET` is the Supabase bucket this product has always had. On R2
+      it is a bucket that does not exist, and an S3 request to one that does not
+      exist comes back without CORS headers — so the browser blocks it, reports
+      "network error" with no status, and the API's log says the upload was
+      authorised. Every part of the system is behaving correctly and the upload
+      cannot work.
+
+      That is exactly what happened: five variables set beside each other, the
+      bucket among them named `R2_BUCKET`, read by nothing, and the default
+      quietly pointed every signed URL at `/videos/…`. A default that is right
+      for one provider and silently wrong for another is not a default, it is a
+      trap with a fallback's manners.
+    */
+    if (!named) {
+      throw new Error(
+        "OBJECT_STORE_PROVIDER is r2, but no bucket is named. Set OBJECT_STORE_BUCKET (or R2_BUCKET) to the R2 bucket: " +
+          `there is no sensible default, and "${VIDEOS_BUCKET}" is the Supabase one.`,
       );
     }
     return createR2Store({ bucket, endpoint, accessKeyId, secretAccessKey, publicBase: config.r2?.publicBase ?? env["R2_PUBLIC_BASE"]?.trim() });
