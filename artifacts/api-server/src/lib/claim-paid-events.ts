@@ -124,6 +124,12 @@ export async function claimPaidEvents(userId: string, email: string | null, curr
            SET plan = EXCLUDED.plan,
                license_id = EXCLUDED.license_id,
                plan_source_at = EXCLUDED.plan_source_at,
+               -- A payment ends a grant, and must never inherit its end date. A
+               -- promo wrote plan_expires_at onto this row; leaving it there
+               -- would drop a paying customer to free on the grant's old date
+               -- while their card was still being charged.
+               plan_expires_at = NULL,
+               promo_code = NULL,
                updated_at = now()`,
         [userId, winner.plan, winner.licenseId, winner.eventAt ?? null],
       );

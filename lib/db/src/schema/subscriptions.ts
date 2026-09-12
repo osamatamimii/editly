@@ -40,6 +40,30 @@ export const subscriptionsTable = pgTable("subscriptions", {
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   licenseId: text("license_id"),
   planSourceAt: timestamp("plan_source_at", { withTimezone: true }),
+  /**
+   * When this plan stops being this plan, or null if it does not.
+   *
+   * Null is the normal state and means exactly what it says: a plan that was
+   * paid for runs until the payment stops, and the thing that stops it is a
+   * webhook, not a date we wrote down. A date here means the plan was *given* —
+   * a promo code, a by-hand grant with a term — and the account drops back to
+   * free when it passes.
+   *
+   * The dangerous property of this column is that it is easy to add and easy to
+   * ignore. A plan that has run out but is still written in `plan` is a plan
+   * the product keeps serving, for as long as every read site forgets to check
+   * the date. So nothing reads `plan` directly any more: `servedPlan` takes the
+   * row and applies the date, `tools/promo-test.mjs` fails if any site in the
+   * API server goes back to reading the column, and `GET /subscription` writes
+   * the lapse back to the row the first time it sees one.
+   *
+   * It is also why both paid write paths — the webhook and the claim — clear it
+   * in the same statement that sets the plan. A card being charged must never
+   * inherit an expiry date from the grant it replaced.
+   */
+  planExpiresAt: timestamp("plan_expires_at", { withTimezone: true }),
+  /** Which promo code granted the current plan, when one did. Provenance, not a key. */
+  promoCode: text("promo_code"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

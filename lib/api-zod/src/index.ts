@@ -173,6 +173,19 @@ export const SubscriptionUsage = z.object({
   watermark: z.boolean(),
   referenceStyle: z.boolean(),
   pricePerMonth: z.number(),
+  /**
+   * When a *given* plan runs out, and the code that gave it.
+   *
+   * Absent on every paid subscription and on every free account, which is
+   * almost everybody: a plan that was bought ends when the card stops, and we
+   * are not the ones holding the card, so there is no date here to report.
+   * Present only on a plan somebody was handed — a promo code — where the end
+   * date is a fact about the account rather than a guess about a payment, and
+   * the screen owes the person the date rather than letting it arrive as a
+   * surprise.
+   */
+  planExpiresAt: z.string().optional(),
+  promoCode: z.string().optional(),
 });
 export type SubscriptionUsage = z.infer<typeof SubscriptionUsage>;
 
@@ -601,6 +614,36 @@ export const UpdateSubscriptionResponse = SubscriptionUsage.extend({
     .optional(),
 });
 export type UpdateSubscriptionResponse = z.infer<typeof UpdateSubscriptionResponse>;
+
+// ---------------------------------------------------------------------------
+// promo codes
+// ---------------------------------------------------------------------------
+
+/**
+ * Typing a code.
+ *
+ * Loose on purpose: whatever is typed is normalised by the server — upper
+ * cased, with everything that is not a letter or a digit removed — so the
+ * schema's job is to stop a payload that is not a string at all, not to teach
+ * people how to type. A person reading a word off a screen puts a dash where
+ * they saw a space, and refusing that would be refusing the only mistake this
+ * door invites.
+ */
+export const RedeemPromoBody = z.object({
+  code: z.string().min(1).max(64),
+});
+export type RedeemPromoBody = z.infer<typeof RedeemPromoBody>;
+
+/** What was given, and until when. */
+export const RedeemPromoResponse = z.object({
+  plan: SubscriptionPlan,
+  /** The moment the grant ends, ISO-8601. */
+  planExpiresAt: z.string(),
+  months: z.number().int(),
+  /** The code as stored, which is the normalised form of what was typed. */
+  code: z.string(),
+});
+export type RedeemPromoResponse = z.infer<typeof RedeemPromoResponse>;
 
 // ---------------------------------------------------------------------------
 // stats
@@ -1974,10 +2017,21 @@ export const AdminAccount = z.object({
   email: z.string().nullable(),
   createdAt: z.string(),
   lastSignInAt: z.string().nullable(),
+  /**
+   * What this account is on *now*.
+   *
+   * The served plan, not the column: a grant that ran out yesterday still says
+   * `pro` in the row until that person next opens the product, and the console
+   * is the one place where reading the stale word would mislead the person
+   * whose job is to know the truth.
+   */
   plan: SubscriptionPlan,
   projectCount: z.number().int(),
   minutesUsedThisMonth: z.number(),
   minutesIncluded: z.number(),
+  /** Set only on a plan that was given: when it ends, and which code gave it. */
+  planExpiresAt: z.string().optional(),
+  promoCode: z.string().nullable().optional(),
 });
 export type AdminAccount = z.infer<typeof AdminAccount>;
 

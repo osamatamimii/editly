@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { Router, type IRouter } from "express";
 import { and, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import {
@@ -7,6 +7,7 @@ import {
   billingEventsTable,
   jobsTable,
   projectsTable,
+  promoCodesTable,
   scheduledPostsTable,
   socialAccountsTable,
   subscriptionsTable,
@@ -26,9 +27,10 @@ import { auditDeployment, summarise, readUsage } from "../lib/deployment-audit";
 import { attention } from "../lib/attention";
 import { currentUserId } from "../middlewares/auth";
 import { isUnattended, workerOnline } from "../lib/queue-health";
-import { DEFAULT_PLAN, PLAN_LIMITS, minutesFrom, type PlanKey } from "../lib/plan-limits";
+import { DEFAULT_PLAN, PLAN_LIMITS, minutesFrom, servedPlan, type PlanKey } from "../lib/plan-limits";
 import { startOfMonthUtc } from "../lib/usage";
 import { trends } from "../lib/admin-trend";
+import { CODE_MAX, CODE_MIN, codeUsable, generateCode, grantablePlans, normaliseCode } from "../lib/promo";
 
 /**
  * The two statuses a job can be in while it is still going to happen.
@@ -180,16 +182,48 @@ router.get("/admin/overview", async (_req, res): Promise<void> => {
     .from(subscriptionsTable)
     .where(gte(subscriptionsTable.createdAt, weekAgo));
 
-  const planRows = await db
-    .select({ plan: subscriptionsTable.plan, n: count() })
-    .from(subscriptionsTable)
-    .groupBy(subscriptionsTable.plan);
+  /*
+    Who is on what, and — separately — who is paying for it.
+
+    These used to be one number, back when the only way to hold a paid plan was
+    to have bought it. Promo codes break that: an affiliate account holds Pro
+    for a year and pays nothing, and a row whose `plan_expires_at` is set is
+    precisely a plan that was given rather than sold.
+
+    Counting them together would put $29 of monthly recurring revenue on the
+    card for every code handed out — the one number on this page that exists to
+    be trusted, inflated by exactly the accounts created to not pay. So the
+    count is of what people are *on*, with a lapsed grant already reading free,
+    and the revenue is of what is *paid for*, which is every plan with no end
+    date on it.
+  */
+  const planRows = rowsOf<{ plan: string; n: string }>(
+    await db.execute(sql`
+      select case
+               when ${subscriptionsTable.planExpiresAt} is not null
+                and ${subscriptionsTable.planExpiresAt} <= now()
+               then 'free'
+               else ${subscriptionsTable.plan}
+             end as plan,
+             count(*) as n
+        from ${subscriptionsTable}
+       group by 1
+    `),
+  );
+  const paidRows = rowsOf<{ plan: string; n: string }>(
+    await db.execute(sql`
+      select ${subscriptionsTable.plan} as plan, count(*) as n
+        from ${subscriptionsTable}
+       where ${subscriptionsTable.planExpiresAt} is null
+       group by 1
+    `),
+  );
 
   const byPlan = planRows
     .map((row) => ({ plan: planOf(row.plan), count: Number(row.n) }))
     .sort((a, b) => PLAN_LIMITS[b.plan].pricePerMonth - PLAN_LIMITS[a.plan].pricePerMonth);
-  const monthlyRecurringUsd = byPlan.reduce(
-    (sum, row) => sum + PLAN_LIMITS[row.plan].pricePerMonth * row.count,
+  const monthlyRecurringUsd = paidRows.reduce(
+    (sum, row) => sum + PLAN_LIMITS[planOf(row.plan)].pricePerMonth * Number(row.n),
     0,
   );
 
@@ -279,7 +313,12 @@ router.get("/admin/accounts", async (req, res): Promise<void> => {
   // wrong.
   const plans = ids.length
     ? await db
-        .select({ userId: subscriptionsTable.userId, plan: subscriptionsTable.plan })
+        .select({
+          userId: subscriptionsTable.userId,
+          plan: subscriptionsTable.plan,
+          planExpiresAt: subscriptionsTable.planExpiresAt,
+          promoCode: subscriptionsTable.promoCode,
+        })
         .from(subscriptionsTable)
         .where(inArray(subscriptionsTable.userId, ids))
     : [];
@@ -335,7 +374,21 @@ router.get("/admin/accounts", async (req, res): Promise<void> => {
         .groupBy(adminActionsTable.subjectUserId)
     : [];
 
-  const planFor = new Map(plans.map((row) => [row.userId, planOf(row.plan)]));
+  /*
+    What each account is on now, not what its column says.
+
+    A grant that ran out yesterday is still written in the row until that
+    person next opens the product, and this is the screen an operator uses to
+    answer "what is this customer entitled to". Showing them the stale word
+    would make the console the least reliable place in the product to ask.
+  */
+  const planFor = new Map(plans.map((row) => [row.userId, servedPlan(row)]));
+  /** Only ever set on a given plan, so the console can say why it is theirs. */
+  const grantFor = new Map(
+    plans
+      .filter((row) => row.planExpiresAt !== null)
+      .map((row) => [row.userId, { until: row.planExpiresAt as Date, code: row.promoCode }]),
+  );
   const projectsFor = new Map(projects.map((row) => [row.userId, Number(row.n)]));
   const secondsFor = new Map(minutes.map((row) => [row.userId, Number(row.seconds)]));
   const grantedFor = new Map(
@@ -357,6 +410,12 @@ router.get("/admin/accounts", async (req, res): Promise<void> => {
           minutesUsedThisMonth: minutesFrom(secondsFor.get(row.user_id) ?? 0),
           minutesIncluded:
             PLAN_LIMITS[plan].minutesPerMonth + minutesFrom(grantedFor.get(row.user_id) ?? 0),
+          ...(grantFor.has(row.user_id)
+            ? {
+                planExpiresAt: grantFor.get(row.user_id)!.until.toISOString(),
+                ...(grantFor.get(row.user_id)!.code ? { promoCode: grantFor.get(row.user_id)!.code } : {}),
+              }
+            : {}),
         };
       }),
     }),
@@ -736,13 +795,21 @@ router.post("/admin/accounts/:userId/plan", async (req, res): Promise<void> => {
     `$onUpdate`, so the row's timestamp said the plan had not changed since
     whenever it last did.
   */
+  /*
+    And the grant columns are cleared, because a plan set here has no end date.
+
+    If the account was holding a promo grant, this is somebody deciding by hand
+    what it should be instead — leaving the old expiry in place would undo that
+    decision on a date nobody in this conversation chose, and leaving the code
+    in place would credit an affiliate for a plan they did not give.
+  */
   const setAt = new Date();
   await db
     .insert(subscriptionsTable)
     .values({ userId: subjectUserId, plan: requested, planSourceAt: setAt })
     .onConflictDoUpdate({
       target: subscriptionsTable.userId,
-      set: { plan: requested, planSourceAt: setAt, updatedAt: setAt },
+      set: { plan: requested, planSourceAt: setAt, planExpiresAt: null, promoCode: null, updatedAt: setAt },
     });
 
   res.json({
@@ -750,6 +817,166 @@ router.post("/admin/accounts/:userId/plan", async (req, res): Promise<void> => {
     note:
       "Set by hand. Freemius still believes whatever it believed. Until it is corrected there, its next webhook can overwrite this.",
   });
+});
+
+/**
+ * Minting a code, listing them, and withdrawing one.
+ *
+ * Three routes rather than a form somewhere else, because a code is an act of
+ * the console like any other: it hands somebody a paid plan, so it is recorded
+ * with an actor and a reason in the same table as every grant of minutes.
+ *
+ * Note the asymmetry with the rest of this file. Suspension and plan changes
+ * name a subject; a code has no subject yet — that is the point of it — so the
+ * audit row records the code and what it gives, and the redemption row records
+ * who eventually took it.
+ */
+router.post("/admin/promo", async (req, res): Promise<void> => {
+  const actorUserId = currentUserId(req);
+  const reason = reasonFrom(req.body);
+  if (!reason) {
+    res.status(400).json({ error: "A reason of at least six characters is required." });
+    return;
+  }
+
+  const body = (req.body ?? {}) as {
+    plan?: unknown;
+    months?: unknown;
+    maxRedemptions?: unknown;
+    code?: unknown;
+    expiresAt?: unknown;
+  };
+
+  const plan = typeof body.plan === "string" ? body.plan : "";
+  if (!grantablePlans().includes(plan as PlanKey)) {
+    // Free is excluded on purpose, not by oversight: a code granting free would
+    // write an end date onto a free account, and a free plan that runs out is a
+    // state nothing in this product means anything by.
+    res.status(400).json({ error: `A code grants one of: ${grantablePlans().join(", ")}.` });
+    return;
+  }
+
+  const months = Number(body.months ?? 12);
+  if (!Number.isInteger(months) || months < 1 || months > 60) {
+    res.status(400).json({ error: "`months` must be a whole number between 1 and 60." });
+    return;
+  }
+
+  const maxRedemptions = Number(body.maxRedemptions ?? 1);
+  if (!Number.isInteger(maxRedemptions) || maxRedemptions < 1 || maxRedemptions > 10_000) {
+    res.status(400).json({ error: "`maxRedemptions` must be a whole number between 1 and 10000." });
+    return;
+  }
+
+  let expiresAt: Date | null = null;
+  if (typeof body.expiresAt === "string" && body.expiresAt.trim() !== "") {
+    const parsed = new Date(body.expiresAt);
+    if (Number.isNaN(parsed.getTime())) {
+      res.status(400).json({ error: "`expiresAt` is not a date." });
+      return;
+    }
+    expiresAt = parsed;
+  }
+
+  /*
+    A word somebody chose, or one nobody has to think of.
+
+    A chosen code is allowed because the use this was built for is a word said
+    out loud in a video, and `NOAHYEAR` is worth more to an affiliate than ten
+    random characters. It is held to the same shape as a minted one — the
+    normaliser strips everything that is not a letter or a digit, and four
+    characters is the floor — so a chosen code cannot be `a` or a sentence.
+  */
+  const chosen = normaliseCode(body.code);
+  const code = chosen === "" ? generateCode(randomBytes(16)) : chosen;
+  if (!codeUsable(code)) {
+    res.status(400).json({ error: `A code is ${CODE_MIN} to ${CODE_MAX} letters and digits.` });
+    return;
+  }
+
+  const [existing] = await db.select({ code: promoCodesTable.code }).from(promoCodesTable).where(eq(promoCodesTable.code, code)).limit(1);
+  if (existing) {
+    res.status(409).json({ error: "That code already exists." });
+    return;
+  }
+
+  // Recorded before it exists, for the reason the whole file gives: an effect
+  // with no record is worse than a record with no effect.
+  await record({
+    actorUserId,
+    action: "mint_promo",
+    reason,
+    detail: { code, plan, months, maxRedemptions, expiresAt: expiresAt?.toISOString() ?? null },
+  });
+
+  await db.insert(promoCodesTable).values({
+    code,
+    plan,
+    months,
+    maxRedemptions,
+    expiresAt,
+    note: reason,
+    createdBy: actorUserId,
+  });
+
+  res.status(201).json({ code, plan, months, maxRedemptions, expiresAt: expiresAt?.toISOString() ?? null, note: reason });
+});
+
+/** Every code, newest first, with how much of each is left. */
+router.get("/admin/promo", async (req, res): Promise<void> => {
+  const limit = Math.min(200, Math.max(1, Number(req.query["limit"] ?? 50) || 50));
+  const rows = await db.select().from(promoCodesTable).orderBy(desc(promoCodesTable.createdAt)).limit(limit);
+
+  res.json({
+    codes: rows.map((row) => ({
+      code: row.code,
+      plan: planOf(row.plan),
+      months: row.months,
+      maxRedemptions: row.maxRedemptions,
+      redeemedCount: row.redeemedCount,
+      expiresAt: row.expiresAt?.toISOString() ?? null,
+      revokedAt: row.revokedAt?.toISOString() ?? null,
+      note: row.note,
+      createdAt: row.createdAt.toISOString(),
+    })),
+  });
+});
+
+/**
+ * Withdraw a code.
+ *
+ * It stops being redeemable and nothing else happens: every account that
+ * already used it keeps what it was given, and the redemptions stay readable.
+ * Taking a plan back from somebody who redeemed a code in good faith is a
+ * different act, it is called setting their plan, and it has its own route and
+ * its own audit row.
+ */
+router.post("/admin/promo/:code/revoke", async (req, res): Promise<void> => {
+  const actorUserId = currentUserId(req);
+  const reason = reasonFrom(req.body);
+  if (!reason) {
+    res.status(400).json({ error: "A reason of at least six characters is required." });
+    return;
+  }
+
+  const code = normaliseCode(req.params["code"]);
+  const [existing] = await db.select().from(promoCodesTable).where(eq(promoCodesTable.code, code)).limit(1);
+  if (!existing) {
+    res.status(404).json({ error: "No such code." });
+    return;
+  }
+
+  await record({
+    actorUserId,
+    action: "revoke_promo",
+    reason,
+    detail: { code, redeemedCount: existing.redeemedCount },
+  });
+
+  const revokedAt = existing.revokedAt ?? new Date();
+  await db.update(promoCodesTable).set({ revokedAt, updatedAt: new Date() }).where(eq(promoCodesTable.code, code));
+
+  res.json({ code, revokedAt: revokedAt.toISOString(), redeemedCount: existing.redeemedCount });
 });
 
 /**

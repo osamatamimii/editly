@@ -21,6 +21,7 @@ import {
 import { ScheduledPosts } from "@/components/scheduled-posts";
 import { apiJson } from "@/lib/api-fetch";
 import { useLanguage } from "@/lib/language";
+import { useDates } from "@/lib/dates";
 import { ACCOUNT } from "@/lib/copy/account";
 import { COMMON, LOAD } from "@/lib/copy/common";
 import { Loader2, LogOut, Mail, KeyRound, Trash2, Download } from "lucide-react";
@@ -49,6 +50,69 @@ export default function AccountPage() {
   // A plan card that shows nothing when the read failed leaves someone unsure
   // whether they are on the tier they paid for.
   const subscriptionState = loadState(subscriptionQuery);
+  const { day } = useDates();
+
+  /*
+    Redeeming a code.
+
+    Written with `apiJson` rather than the generated client for the reason
+    `lib/api-fetch.ts` gives: the client is regenerated from the spec by a tool
+    that is not installed here, and a field that cannot ship until somebody
+    regenerates it is a field that does not ship. The endpoint is one POST.
+  */
+  const [code, setCode] = useState("");
+  const [redeeming, setRedeeming] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
+
+  /** The refusal keys the server sends, each with its own sentence. */
+  const REDEEM_REFUSALS = {
+    unknown: ACCOUNT.promoUnknown,
+    revoked: ACCOUNT.promoRevoked,
+    expired: ACCOUNT.promoExpired,
+    "used-up": ACCOUNT.promoUsedUp,
+    "already-used": ACCOUNT.promoAlreadyUsed,
+    "paid-account": ACCOUNT.promoPaidAccount,
+    "not-an-upgrade": ACCOUNT.promoNotAnUpgrade,
+  } as const;
+
+  async function redeem(): Promise<void> {
+    const typed = code.trim();
+    if (typed === "" || redeeming) return;
+    setRedeeming(true);
+    setCodeError(null);
+
+    const { ok, body } = await apiJson<{
+      plan?: string;
+      planExpiresAt?: string;
+      reason?: keyof typeof REDEEM_REFUSALS;
+      error?: string;
+    }>("/api/promo/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: typed }),
+    });
+
+    setRedeeming(false);
+
+    if (!ok || !body.plan || !body.planExpiresAt) {
+      // The key first, the server's English second, and a general sentence
+      // last. A refusal whose key this build does not know about is still a
+      // refusal somebody has to be able to read.
+      const known = body.reason ? REDEEM_REFUSALS[body.reason] : undefined;
+      setCodeError(known ? t(known) : (body.error ?? t(ACCOUNT.promoUnknown)));
+      return;
+    }
+
+    setCode("");
+    // The card above reads from the subscription query, so the new plan has to
+    // come from the server rather than from this response: one answer on the
+    // screen, not two that can disagree.
+    await subscriptionQuery.refetch();
+    toast({
+      title: t(ACCOUNT.promoDone),
+      description: fmt(ACCOUNT.promoDoneDetail, body.plan, day(body.planExpiresAt)),
+    });
+  }
 
   /**
    * The connected accounts, read directly rather than through the generated
@@ -275,10 +339,19 @@ export default function AccountPage() {
                   <span className="text-2xl font-bold capitalize" data-testid="text-plan-name">
                     {subscription.plan}
                   </span>
-                  <span className="text-muted-foreground" dir={subscription.pricePerMonth === 0 ? undefined : "ltr"}>
-                    {subscription.pricePerMonth === 0
-                      ? t(ACCOUNT.free)
-                      : fmt(ACCOUNT.perMonth, subscription.pricePerMonth)}
+                  {/* A given plan says the date it ends instead of a price.
+                      Quoting $29 a month at somebody who is paying nothing is
+                      the wrong fact, and the date is the one they are owed. */}
+                  <span
+                    className="text-muted-foreground"
+                    dir={subscription.planExpiresAt || subscription.pricePerMonth === 0 ? undefined : "ltr"}
+                    data-testid="text-plan-price"
+                  >
+                    {subscription.planExpiresAt
+                      ? fmt(ACCOUNT.promoUntil, day(subscription.planExpiresAt))
+                      : subscription.pricePerMonth === 0
+                        ? t(ACCOUNT.free)
+                        : fmt(ACCOUNT.perMonth, subscription.pricePerMonth)}
                   </span>
                 </div>
 
@@ -322,6 +395,58 @@ export default function AccountPage() {
                   </Button>
                 </div>
               </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── A code, if somebody gave you one ───────────────────────────── */}
+        <Card className="glass-panel border-hairline">
+          <CardHeader>
+            <CardTitle>{t(ACCOUNT.promoTitle)}</CardTitle>
+            <CardDescription>{t(ACCOUNT.promoLead)}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              className="flex flex-wrap items-center gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void redeem();
+              }}
+            >
+              <Input
+                value={code}
+                onChange={(e) => {
+                  setCode(e.target.value);
+                  setCodeError(null);
+                }}
+                placeholder={t(ACCOUNT.promoPlaceholder)}
+                aria-label={t(ACCOUNT.promoTitle)}
+                aria-invalid={codeError !== null}
+                /* Latin letters and digits, so the field reads left to right
+                   whichever way the page does. The server normalises what
+                   arrives; this is only about where the caret sits. */
+                dir="ltr"
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                className="w-48 font-mono tracking-widest uppercase"
+                data-testid="input-promo-code"
+              />
+              <Button
+                type="submit"
+                variant="outline"
+                className="border-hairline"
+                disabled={redeeming || code.trim() === ""}
+                data-testid="button-redeem-promo"
+              >
+                {redeeming ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {redeeming ? t(ACCOUNT.promoWorking) : t(ACCOUNT.promoRedeem)}
+              </Button>
+            </form>
+            {codeError && (
+              <p className="mt-3 text-sm text-destructive" role="alert" data-testid="text-promo-error">
+                {codeError}
+              </p>
             )}
           </CardContent>
         </Card>

@@ -467,6 +467,28 @@ export const LIMITS = {
     perPerson: 3,
     message: "You have asked for your data a few times in the last hour. The next one will go through shortly.",
   },
+  /**
+   * Typing a promo code, which is the only credential in the product a
+   * stranger can attempt by guessing.
+   *
+   * Everything else behind the session is addressed by an id somebody already
+   * has. A code is a short word that grants a paid plan for a year, and the
+   * door will tell you whether it exists — so the thing standing between a
+   * script and a free Studio account is this number and the size of the
+   * alphabet. Ten characters of the mint's alphabet is 2^50; at the rate below
+   * that is longer than the product will exist.
+   *
+   * Five per account in ten minutes, because a person redeeming a code they
+   * were given types it once, and twice if they fumbled it. Tight in a way no
+   * honest use ever notices.
+   */
+  promoRedeem: {
+    name: "promo-redeem",
+    limit: 30,
+    windowMs: 10 * 60 * 1000,
+    perPerson: 5,
+    message: "That is a lot of codes in a short time. Give it a few minutes and try the one you were given.",
+  },
   /** The one that had nothing at all, and the one that costs money per call. */
   chat: {
     name: "chat",

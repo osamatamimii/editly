@@ -11,7 +11,7 @@ import {
   type EditOperation,
   type Platform, MAX_PLAN_OPERATIONS } from "@workspace/api-zod";
 import { serializeExport } from "../lib/transformers";
-import { planKeyFrom, referenceForPlan } from "../lib/plan-limits";
+import { referenceForPlan, servedPlan } from "../lib/plan-limits";
 import { usageFor, usageNotConsulted } from "../lib/usage";
 import { decideRender } from "../lib/render-policy";
 import { currentUserId } from "../middlewares/auth";
@@ -157,7 +157,7 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
 
   if (sub?.suspendedAt) {
     const stopped = decideRender({
-      plan: planKeyFrom(sub.plan),
+      plan: servedPlan(sub),
       usage: usageNotConsulted(),
       operations: [],
       suspendedAt: sub.suspendedAt,
@@ -190,7 +190,7 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
   // in `render-policy` so this route and the editor's cannot drift apart. They
   // had already drifted once: this one checked the allowance and that one did
   // not, which made the free plan's limit a limit only on this button.
-  const planKey = planKeyFrom(sub?.plan);
+  const planKey = servedPlan(sub);
   /**
    * The last render that finished, and what it did.
    *

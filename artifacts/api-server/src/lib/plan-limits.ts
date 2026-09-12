@@ -257,6 +257,42 @@ export function planKeyFrom(value: string | null | undefined): PlanKey {
   return RENAMED[value] ?? DEFAULT_PLAN;
 }
 
+/** As much of a subscription row as deciding the plan requires. */
+export interface PlanBearingRow {
+  plan?: string | null;
+  planExpiresAt?: Date | string | null;
+}
+
+/**
+ * The plan this account is actually on right now.
+ *
+ * `planKeyFrom` answers what the column says; this answers whether it is still
+ * true. They differ for exactly one kind of row — a plan that was given rather
+ * than bought, carrying the date it runs out — and on that row the difference
+ * is a free account being served a paid plan forever.
+ *
+ * The date is checked here, once, rather than at each of the nine places that
+ * read a subscription: the upload door, the render door, the export door, the
+ * clip door, the reference-style gate, the meter, the watermark, the page that
+ * says what you are on, and the console. A rule that eight of nine sites apply
+ * is not a rule. `tools/promo-test.mjs` fails the build if a site goes back to
+ * asking the column directly.
+ *
+ * A lapsed grant is not written back to the row here, because reads must not
+ * write — `GET /subscription` does that, the first time the person looks.
+ * Until then every door already answers free, which is the part that matters.
+ */
+export function servedPlan(row: PlanBearingRow | null | undefined, now: Date = new Date()): PlanKey {
+  const key = planKeyFrom(row?.plan);
+  if (key === DEFAULT_PLAN) return key;
+  const until = row?.planExpiresAt;
+  if (!until) return key;
+  const at = until instanceof Date ? until : new Date(until);
+  // An unparseable date is not a reason to take somebody's plan away.
+  if (Number.isNaN(at.getTime())) return key;
+  return at.getTime() <= now.getTime() ? DEFAULT_PLAN : key;
+}
+
 /** Minutes, rounded up: a 61-second render costs two minutes, as anyone would expect. */
 export function minutesFrom(seconds: number): number {
   return Math.ceil(Math.max(0, seconds) / 60);

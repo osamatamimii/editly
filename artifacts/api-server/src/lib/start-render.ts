@@ -21,7 +21,7 @@ import { db, projectsTable, jobsTable, subscriptionsTable, renderFollowupsTable 
 import type { EditOperation } from "@workspace/api-zod";
 import { evenlySpacedPunches } from "./templates";
 import { levelAgainstTheBed } from "./plan-from-text";
-import { planKeyFrom, referenceForPlan } from "./plan-limits";
+import { referenceForPlan, servedPlan } from "./plan-limits";
 import { usageFor, usageNotConsulted } from "./usage";
 import { decideRender } from "./render-policy";
 import { isDuplicateActiveJob, ALREADY_RENDERING } from "./one-active-job";
@@ -69,7 +69,7 @@ export async function startRenderForProject(
   // first" will upload a video and be stopped anyway.
   if (sub?.suspendedAt) {
     const stopped = decideRender({
-      plan: planKeyFrom(sub.plan),
+      plan: servedPlan(sub),
       usage: usageNotConsulted(),
       operations: [],
       suspendedAt: sub.suspendedAt,
@@ -130,7 +130,7 @@ export async function startRenderForProject(
 
   // Everything above this line is what the caller *asked for*. Everything
   // below is what the plan they pay for actually allows.
-  const planKey = planKeyFrom(sub?.plan);
+  const planKey = servedPlan(sub);
 
   /*
     The allowance is read and spent inside one lock on this person.

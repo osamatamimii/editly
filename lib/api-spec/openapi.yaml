@@ -577,6 +577,121 @@ paths:
         "400": { description: No reason, or `suspended` not a boolean }
         "404": { description: Not an admin, or no such route }
 
+  /promo/redeem:
+    post:
+      operationId: redeemPromo
+      tags: [subscription]
+      summary: Redeem a promo code for a plan
+      description: >
+        A code grants a plan for a number of months; no payment is involved and
+        none is reduced, which is why this can exist here at all. It is refused
+        on an account with a live paid subscription — a grant's end date on a
+        row whose card is still being charged would drop a paying customer to
+        free — and it never lowers a plan somebody already holds. Rate limited
+        hard: this is the only credential in the product a stranger can attempt
+        by typing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedeemPromoBody"
+      responses:
+        "200":
+          description: Granted, with the date it ends
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedeemPromoResponse"
+        "404": { description: No such code }
+        "409": { description: Used up, already used by this account, a paid account, or not an upgrade }
+        "410": { description: Withdrawn, or past its date }
+        "429": { description: Too many attempts }
+
+  /admin/promo:
+    get:
+      operationId: listPromoCodes
+      tags: [admin]
+      summary: Every code, newest first
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: The codes and how much of each is left
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  codes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PromoCode"
+                required: [codes]
+        "404": { description: Not an admin, or no such route }
+    post:
+      operationId: mintPromoCode
+      tags: [admin]
+      summary: Mint a code that grants a plan for a while
+      description: >
+        Free is not grantable: a code granting free would write an end date onto
+        a free account, which means nothing. A code may be chosen rather than
+        generated, because the use this exists for is a word said out loud.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MintPromoBody"
+      responses:
+        "201":
+          description: Minted, and written into the audit log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromoCode"
+        "400": { description: No reason, or a plan, term or code the route will not take }
+        "409": { description: That code already exists }
+        "404": { description: Not an admin, or no such route }
+
+  /admin/promo/{code}/revoke:
+    post:
+      operationId: revokePromoCode
+      tags: [admin]
+      summary: Withdraw a code
+      description: >
+        It stops being redeemable and nothing else happens: everybody who
+        already used it keeps what they were given, and the redemptions stay
+        readable. Taking a plan back is a different act with its own route.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminReasonBody"
+      responses:
+        "200":
+          description: Withdrawn
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: string }
+                  revokedAt: { type: string, format: date-time }
+                  redeemedCount: { type: integer }
+                required: [code, revokedAt, redeemedCount]
+        "400": { description: No reason }
+        "404": { description: No such code, not an admin, or no such route }
+
   /projects/{id}/render:
     post:
       operationId: startRender
@@ -3104,6 +3219,17 @@ components:
           type: boolean
         pricePerMonth:
           type: number
+        planExpiresAt:
+          type: string
+          format: date-time
+          description: >-
+            When a *given* plan runs out. Absent on every paid subscription and
+            every free account: a plan that was bought ends when the card stops,
+            and we do not hold the card. Present only on a plan handed over by a
+            promo code, where the end date is a fact rather than a guess.
+        promoCode:
+          type: string
+          description: The code that granted the current plan, when one did.
       required:
         - plan
         - minutesIncluded
@@ -3923,6 +4049,14 @@ components:
         projectCount: { type: integer }
         minutesUsedThisMonth: { type: number }
         minutesIncluded: { type: number }
+        planExpiresAt:
+          type: string
+          format: date-time
+          description: Set only on a plan that was given, never on one that was bought.
+        promoCode:
+          type: string
+          nullable: true
+          description: Which code gave it.
       required:
         [userId, email, createdAt, lastSignInAt, plan, projectCount, minutesUsedThisMonth, minutesIncluded]
 
@@ -3978,6 +4112,14 @@ components:
             a render that finished without doing what was asked. The renderer's
             own sentences about its own decisions: counts, seconds and values
             out of the plan. Nothing from inside the video.
+        planExpiresAt:
+          type: string
+          format: date-time
+          description: Set only on a plan that was given, never on one that was bought.
+        promoCode:
+          type: string
+          nullable: true
+          description: Which code gave it.
       required:
         [id, userId, projectId, status, progress, stage, error, errorDetail, attempts, billedSeconds, createdAt, lockedAt, finishedAt, unattended, notes]
 
@@ -4042,6 +4184,66 @@ components:
         - type: object
           properties:
             plan: { $ref: "#/components/schemas/SubscriptionPlan" }
+          required: [plan]
+
+    RedeemPromoBody:
+      type: object
+      properties:
+        code:
+          description: >-
+            Whatever was typed. The server upper-cases it and drops everything
+            that is not a letter or a digit, so a dash where a space was seen is
+            not a mistake anyone has to be told about.
+          type: string
+          minLength: 1
+          maxLength: 64
+      required: [code]
+
+    RedeemPromoResponse:
+      type: object
+      properties:
+        plan: { $ref: "#/components/schemas/SubscriptionPlan" }
+        planExpiresAt: { type: string, format: date-time }
+        months: { type: integer }
+        code:
+          description: The code as stored, which is the normalised form of what was typed.
+          type: string
+      required: [plan, planExpiresAt, months, code]
+
+    PromoCode:
+      type: object
+      properties:
+        code: { type: string }
+        plan: { $ref: "#/components/schemas/SubscriptionPlan" }
+        months: { type: integer }
+        maxRedemptions: { type: integer }
+        redeemedCount: { type: integer }
+        expiresAt:
+          description: The last day it can be typed, not the last day of what it gives.
+          type: string
+          format: date-time
+          nullable: true
+        revokedAt: { type: string, format: date-time, nullable: true }
+        note:
+          description: Who it is for, in words. The mint refuses an empty one.
+          type: string
+        createdAt: { type: string, format: date-time }
+      required: [code, plan, months, maxRedemptions]
+
+    MintPromoBody:
+      allOf:
+        - $ref: "#/components/schemas/AdminReasonBody"
+        - type: object
+          properties:
+            plan:
+              description: Creator, pro or studio. Never free.
+              $ref: "#/components/schemas/SubscriptionPlan"
+            months: { type: integer, minimum: 1, maximum: 60, default: 12 }
+            maxRedemptions: { type: integer, minimum: 1, maximum: 10000, default: 1 }
+            code:
+              description: A word chosen rather than generated. Left out, one is made.
+              type: string
+            expiresAt: { type: string, format: date-time }
           required: [plan]
 
     SetSuspendedBody:
@@ -4187,6 +4389,14 @@ components:
           nullable: true
         createdAt:
           type: string
+        planExpiresAt:
+          type: string
+          format: date-time
+          description: Set only on a plan that was given, never on one that was bought.
+        promoCode:
+          type: string
+          nullable: true
+          description: Which code gave it.
       required:
         [id, projectId, jobId, idx, startSeconds, endSeconds, outputPath, outputSeconds, note, title, thumbnailPath, createdAt]
 
@@ -4616,6 +4826,14 @@ components:
           type: string
         updatedAt:
           type: string
+        planExpiresAt:
+          type: string
+          format: date-time
+          description: Set only on a plan that was given, never on one that was bought.
+        promoCode:
+          type: string
+          nullable: true
+          description: Which code gave it.
       required:
         - id
         - projectId

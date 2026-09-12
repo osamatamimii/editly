@@ -29,7 +29,7 @@ import { currentUserId } from "../middlewares/auth";
 import { copyObject, deleteObjects, storageAdminConfigured } from "../lib/storage";
 import { serializeProject } from "../lib/transformers";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
-import { planKeyFrom } from "../lib/plan-limits";
+import { servedPlan } from "../lib/plan-limits";
 import { usageFor, exhaustedMessage, usageNotConsulted } from "../lib/usage";
 import { decideRender } from "../lib/render-policy";
 import { badRequest } from "../lib/bad-request";
@@ -270,7 +270,7 @@ router.post("/projects/:id/clips/:clipId/open", rateLimit(LIMITS.createProject),
     .from(subscriptionsTable)
     .where(eq(subscriptionsTable.userId, userId))
     .limit(1);
-  const planKey = planKeyFrom(sub?.plan);
+  const planKey = servedPlan(sub);
 
   if (sub?.suspendedAt) {
     const stopped = decideRender({

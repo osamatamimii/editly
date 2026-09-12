@@ -291,6 +291,13 @@ export interface SubscriptionUsage {
   watermark: boolean;
   referenceStyle: boolean;
   pricePerMonth: number;
+  /**
+   * When a *given* plan runs out, and the code that gave it. Absent on every
+   * paid subscription and on every free account: a plan that was bought ends
+   * when the card stops, and we are not the ones holding the card.
+   */
+  planExpiresAt?: string;
+  promoCode?: string;
 }
 
 export interface UpdateSubscriptionBody {
@@ -631,10 +638,14 @@ export interface AdminAccount {
   email: string | null;
   createdAt: string;
   lastSignInAt: string | null;
+  /** What the account is on now: a grant that has run out already reads free. */
   plan: SubscriptionPlan;
   projectCount: number;
   minutesUsedThisMonth: number;
   minutesIncluded: number;
+  /** Set only on a plan that was given: when it ends, and which code gave it. */
+  planExpiresAt?: string;
+  promoCode?: string | null;
 }
 
 export interface ListAdminAccountsResponse {

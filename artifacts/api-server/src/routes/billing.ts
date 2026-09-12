@@ -20,7 +20,7 @@ import { db, subscriptionsTable } from "@workspace/db";
 import { currentUserId } from "../middlewares/auth";
 import { checkoutConfig, freemiusConfigured, planFromEvent, verifySignature } from "../lib/freemius";
 import { paymentFailed, planChanged, send } from "../lib/mail";
-import { planKeyFrom } from "../lib/plan-limits";
+import { servedPlan } from "../lib/plan-limits";
 import { decideApply, eventIdFor, eventTimeFrom, licenceIdFrom } from "../lib/billing-ledger";
 import { createHash } from "node:crypto";
 
@@ -251,7 +251,7 @@ router.get("/billing/checkout", async (req, res): Promise<void> => {
 
   // Only public values leave this handler. The secret key exists to verify
   // webhooks and has no business in a browser.
-  res.json({ ...config, currentPlan: planKeyFrom(sub?.plan) });
+  res.json({ ...config, currentPlan: servedPlan(sub) });
 });
 
 export default router;
@@ -294,6 +294,12 @@ async function setPlan(
        SET plan = EXCLUDED.plan,
            license_id = EXCLUDED.license_id,
            plan_source_at = EXCLUDED.plan_source_at,
+           -- A payment ends a grant, and must never inherit its end date. A
+           -- promo wrote plan_expires_at onto this row; leaving it there
+           -- would drop a paying customer to free on the grant's old date
+           -- while their card was still being charged.
+           plan_expires_at = NULL,
+           promo_code = NULL,
            updated_at = now()`,
     [userId, plan, licenseId, eventAt],
   );

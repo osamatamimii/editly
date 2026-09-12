@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, gte, count, and } from "drizzle-orm";
 import { db, subscriptionsTable, projectsTable } from "@workspace/db";
 import { GetSubscriptionResponse, UpdateSubscriptionBody, UpdateSubscriptionResponse } from "@workspace/api-zod";
-import { DEFAULT_PLAN, PLAN_LIMITS, planKeyFrom, uploadCeiling, type PlanKey } from "../lib/plan-limits";
+import { DEFAULT_PLAN, PLAN_LIMITS, planKeyFrom, servedPlan, uploadCeiling, type PlanKey } from "../lib/plan-limits";
 import { usageFor } from "../lib/usage";
 import { currentUserId, verifiedUserEmail } from "../middlewares/auth";
 import { claimPaidEvents } from "../lib/claim-paid-events";
@@ -56,11 +56,57 @@ async function getOrCreateSubscription(userId: string) {
   // a TypeError and a bare 500 on the endpoint that tells somebody what they
   // are paying for. Answer with the default rather than crashing: it is the
   // plan a brand new account has anyway.
-  return row ?? { userId, plan: DEFAULT_PLAN, licenseId: null, planSourceAt: null, createdAt: new Date(), updatedAt: new Date() };
+  return (
+    row ?? {
+      userId,
+      plan: DEFAULT_PLAN,
+      licenseId: null,
+      planSourceAt: null,
+      planExpiresAt: null,
+      promoCode: null,
+      suspendedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+  );
 }
 
-async function buildUsageResponse(userId: string, plan: string) {
-  const validPlan = planKeyFrom(plan);
+/**
+ * A grant that has run out, written back to the row the first time anybody
+ * looks.
+ *
+ * Every door in the product already serves free the moment the date passes —
+ * that is `servedPlan`, and it is what makes this optional rather than
+ * load-bearing. What this fixes is the *record*: without it the column says
+ * `pro` forever, so the console shows a Pro account, the plan counts on the
+ * overview are wrong, and anyone reading the table by hand is misled about who
+ * is on what.
+ *
+ * Here rather than in a nightly job because the moment somebody's plan matters
+ * is the moment they open the product, and this endpoint is what they open it
+ * with. An account nobody signs into is an account whose stale row costs
+ * nothing.
+ *
+ * `promo_code` is cleared with it, not kept as history: the redemption row is
+ * the history, and it does not move.
+ */
+async function settleLapsedGrant<T extends { plan: string; planExpiresAt: Date | null }>(
+  userId: string,
+  row: T,
+): Promise<T> {
+  const served = servedPlan(row);
+  if (served === planKeyFrom(row.plan)) return row;
+
+  await db
+    .update(subscriptionsTable)
+    .set({ plan: served, planExpiresAt: null, promoCode: null, updatedAt: new Date() })
+    .where(eq(subscriptionsTable.userId, userId));
+
+  return { ...row, plan: served, planExpiresAt: null };
+}
+
+async function buildUsageResponse(userId: string, row: { plan: string; planExpiresAt?: Date | null; promoCode?: string | null }) {
+  const validPlan = servedPlan(row);
   const limits = PLAN_LIMITS[validPlan];
   const usage = await usageFor(userId, validPlan);
 
@@ -80,12 +126,27 @@ async function buildUsageResponse(userId: string, plan: string) {
     watermark: limits.watermark,
     referenceStyle: limits.referenceStyle,
     pricePerMonth: limits.pricePerMonth,
+    /*
+      When a given plan runs out, and the code that gave it.
+
+      Only ever set on a plan somebody was given. A paid subscription has no
+      end date here — the thing that ends it is a card, and we are not the ones
+      holding it — so both of these stay absent and the screen says nothing,
+      which is the truth for every paying customer.
+    */
+    ...(validPlan !== DEFAULT_PLAN && row.planExpiresAt
+      ? { planExpiresAt: row.planExpiresAt.toISOString(), ...(row.promoCode ? { promoCode: row.promoCode } : {}) }
+      : {}),
   };
 }
 
 router.get("/subscription", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
-  const sub = await getOrCreateSubscription(userId);
+  // Read, then settle a grant that has run out, then claim anything paid. In
+  // that order: the claim compares against the plan the account is *on*, and a
+  // lapsed grant that still said `pro` in the column would make a genuine
+  // Creator payment look like a downgrade and be skipped.
+  const sub = await settleLapsedGrant(userId, await getOrCreateSubscription(userId));
 
   // If somebody paid before this account existed — or paid with the address on
   // this token while signed up under it — the event has been sitting in
@@ -99,7 +160,7 @@ router.get("/subscription", async (req, res): Promise<void> => {
   // is confirmed. See `verifiedUserEmail`.
   const plan = await claimPaidEvents(userId, verifiedUserEmail(req), sub.plan);
 
-  const usage = await buildUsageResponse(userId, plan);
+  const usage = await buildUsageResponse(userId, { ...sub, plan });
   res.json(GetSubscriptionResponse.parse(usage));
 });
 
@@ -114,7 +175,7 @@ router.patch("/subscription", async (req, res): Promise<void> => {
 
   const { plan } = parsed.data;
   const current = await getOrCreateSubscription(userId);
-  const currentPlan: PlanKey = planKeyFrom(current.plan);
+  const currentPlan: PlanKey = servedPlan(current);
 
   // An upgrade is never granted here, and that is permanent rather than a
   // temporary state of the deployment. The only thing that may raise a plan is
@@ -149,14 +210,28 @@ router.patch("/subscription", async (req, res): Promise<void> => {
     `billingUnchanged` and where to go, so the screen can say it; and until a
     Freemius client exists, this route must not be the only place that knows.
   */
+  /*
+    The end date survives a downgrade, and is cleared only by going to free.
+
+    A granted plan carries the date it runs out. Dropping from a granted Studio
+    to Pro and having the date cleared in the same statement would turn twelve
+    free months of Studio into Pro forever — a self-serve upgrade wearing a
+    downgrade's clothes, available to anyone who reads this file. So the date
+    rides along, and only the move to free — which gives up the grant entirely —
+    takes it and the code off the row.
+  */
   await db
     .update(subscriptionsTable)
-    .set({ plan, updatedAt: new Date() })
+    .set({ plan, ...(plan === DEFAULT_PLAN ? { planExpiresAt: null, promoCode: null } : {}), updatedAt: new Date() })
     .where(eq(subscriptionsTable.userId, userId));
 
   req.log?.info({ userId, from: currentPlan, to: plan }, "a plan was reduced from inside the product");
 
-  const usage = await buildUsageResponse(userId, plan);
+  const usage = await buildUsageResponse(userId, {
+    ...current,
+    plan,
+    ...(plan === DEFAULT_PLAN ? { planExpiresAt: null, promoCode: null } : {}),
+  });
   res.json(
     UpdateSubscriptionResponse.parse({
       ...usage,

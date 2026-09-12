@@ -44,6 +44,52 @@ export const ACCOUNT = {
   changePlan: p("غيّر الخطّة", "Change plan"),
   invoices: p("الفواتير والإلغاء", "Invoices and cancellation"),
 
+  /*
+    The code, and the one line that says what a granted plan is.
+
+    A person on a promo is on a real plan with a real end date, and the date is
+    the part they are owed: a plan that stops without warning reads as the
+    product taking something back. So it is said on the card they already look
+    at, beside the plan's name, and it is said only when there is a date — every
+    paying customer sees none of this.
+  */
+  promoTitle: p("عندك كود؟", "Have a code?"),
+  promoLead: p(
+    "الكود يفتح الخطّة لمدّة، بلا دفع وبلا بطاقة.",
+    "A code opens a plan for a while. No payment, no card.",
+  ),
+  promoPlaceholder: p("اكتب الكود", "Enter your code"),
+  promoRedeem: p("فعّل الكود", "Redeem"),
+  promoWorking: p("نتحقّق…", "Checking…"),
+  promoDone: p("فُتحت الخطّة", "Your plan is open"),
+  promoDoneDetail: f<[string, string]>(
+    (plan, until) => `أنت الآن على ${plan} حتى ${until}.`,
+    (plan, until) => `You're on ${plan} until ${until}.`,
+  ),
+  promoUntil: f<[string]>((until) => `ممنوحة حتى ${until}`, (until) => `Given, until ${until}`),
+  promoFailed: p("لم يُفعَّل الكود", "That code did not work"),
+  /*
+    One sentence per way a code can be refused, written from the reader's side.
+
+    The server answers with a key rather than a sentence for exactly this: the
+    reasons are not translations of each other. "Somebody already used this" and
+    "you already used this" send a person to two different places, and a single
+    "invalid code" would send them to neither.
+  */
+  promoUnknown: p("ما لقينا هذا الكود. تأكّد من حروفه.", "We don't know that code. Check the letters."),
+  promoRevoked: p("هذا الكود سُحب.", "That code has been withdrawn."),
+  promoExpired: p("انتهى وقت هذا الكود.", "That code has passed its date."),
+  promoUsedUp: p("هذا الكود استُعمل بالكامل.", "That code has already been used."),
+  promoAlreadyUsed: p("هذا الحساب استعمل هذا الكود من قبل.", "This account has already used that code."),
+  promoPaidAccount: p(
+    "عندك اشتراك مدفوع، والكود لا يُضاف إليه ولا يُنقص ما تدفعه.",
+    "You have a paid subscription. A code cannot be added to one, and it would not reduce what you are charged.",
+  ),
+  promoNotAnUpgrade: p(
+    "خطّتك الحالية ليست أصغر ممّا يعطيه هذا الكود.",
+    "Your plan is not smaller than what that code gives.",
+  ),
+
   socialTitle: p("إلى أين يذهب تعديلك", "Where your edits go"),
   socialLead: p(
     "اربط الحسابات التي تنشر عليها، فيُجدوَل التعديل الجاهز من المشروع مباشرة، والكابشن يُكتب مرّة واحدة. أكثر من حساب لكل منصّة، لأن أغلب الناس عندهم أكثر من واحد.",

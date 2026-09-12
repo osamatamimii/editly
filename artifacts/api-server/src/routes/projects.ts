@@ -24,7 +24,7 @@ import { PROJECTS_LIMIT } from "@workspace/api-zod/limits";
 import { checkUploadedObject } from "../lib/uploaded-file";
 import { cancelRendersFor } from "../lib/cancel-render";
 import { serializeProject } from "../lib/transformers";
-import { planKeyFrom, PLAN_LIMITS } from "../lib/plan-limits";
+import { servedPlan, PLAN_LIMITS } from "../lib/plan-limits";
 import { usageFor, exhaustedMessage } from "../lib/usage";
 import { currentUserId } from "../middlewares/auth";
 import { deleteProjectObjects, isOwnedObjectPath } from "../lib/storage";
@@ -114,7 +114,7 @@ router.post("/projects", rateLimit(LIMITS.createProject), async (req, res): Prom
     .where(eq(subscriptionsTable.userId, userId))
     .limit(1);
 
-  const planKey = planKeyFrom(sub?.plan);
+  const planKey = servedPlan(sub);
 
   // The meter is minutes of finished video, not projects created. Creating a
   // project costs us nothing, so it is not the thing to charge for, and
@@ -276,7 +276,7 @@ router.patch("/projects/:id", rateLimit(LIMITS.write), async (req, res): Promise
       .from(subscriptionsTable)
       .where(eq(subscriptionsTable.userId, userId))
       .limit(1);
-    const planKey = planKeyFrom(sub?.plan);
+    const planKey = servedPlan(sub);
     if (!PLAN_LIMITS[planKey].referenceStyle) {
       res.status(402).json({
         error:

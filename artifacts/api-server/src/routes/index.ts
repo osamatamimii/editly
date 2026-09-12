@@ -5,6 +5,7 @@ import messagesRouter from "./messages";
 import exportsRouter from "./exports";
 import statsRouter from "./stats";
 import subscriptionRouter from "./subscription";
+import promoRouter from "./promo";
 import renderRouter from "./render";
 import billingRouter, { billingWebhookRouter } from "./billing";
 import accountRouter from "./account";
@@ -105,6 +106,10 @@ router.use(messagesRouter);
 router.use(exportsRouter);
 router.use(statsRouter);
 router.use(subscriptionRouter);
+// Beside the subscription, because that is what it changes. Behind auth like
+// everything here: the code proves nothing about who is asking, so the session
+// has to.
+router.use(promoRouter);
 router.use(renderRouter);
 router.use(billingRouter);
 router.use(accountRouter);

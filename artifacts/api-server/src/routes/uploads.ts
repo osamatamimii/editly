@@ -62,7 +62,7 @@ import { currentUserId } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
 import { effectiveUploadLimitBytes } from "../lib/storage-limits";
-import { planKeyFrom, uploadCeiling, type PlanKey } from "../lib/plan-limits";
+import { planKeyFrom, servedPlan, uploadCeiling, type PlanKey } from "../lib/plan-limits";
 import { MAX_ASSETS_PER_PROJECT } from "./assets";
 import { MAX_FACES } from "./fonts";
 import {
@@ -125,11 +125,11 @@ async function quotaFor(
 async function planFor(userId: string): Promise<PlanKey> {
   try {
     const [row] = await db
-      .select({ plan: subscriptionsTable.plan })
+      .select({ plan: subscriptionsTable.plan, planExpiresAt: subscriptionsTable.planExpiresAt })
       .from(subscriptionsTable)
       .where(eq(subscriptionsTable.userId, userId))
       .limit(1);
-    return planKeyFrom(row?.plan);
+    return servedPlan(row);
   } catch {
     return planKeyFrom(null);
   }

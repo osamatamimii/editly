@@ -131,6 +131,40 @@ export const ADMIN = {
   grantMinutes: p("‏+30 دقيقة", "+30 min"),
   suspend: p("علِّق", "Suspend"),
   nobodyYet: p("لا أحد بعد.", "Nobody yet."),
+  /*
+    Setting a plan by hand, which the server has been able to do since the
+    console was built and no screen ever asked it to.
+
+    It is a select rather than a button because the action is "make it this",
+    not "make it more": the case it exists for is a webhook that failed and a
+    customer holding the wrong thing, and that can point in either direction.
+  */
+  setPlan: p("عيّن الخطّة", "Set plan"),
+  planGivenUntil: f<[string]>((until) => `ممنوحة حتى ${until}`, (until) => `given, until ${until}`),
+
+  codesTitle: p("أكواد الخطط", "Plan codes"),
+  codesLead: p(
+    "الكود يفتح خطّة لمدّة، بلا دفع. لا يخصم من سعر ولا يمرّ على بطاقة: الخصم الجزئي يكون عند جهة الدفع لا هنا.",
+    "A code opens a plan for a while, with no payment. It does not reduce a price and never touches a card: a partial discount belongs at the checkout, not here.",
+  ),
+  mintCode: p("أنشئ كودًا", "Mint a code"),
+  codeWord: p("كلمة الكود (اختياري)", "The word (optional)"),
+  codeMonths: p("شهور", "Months"),
+  codeSeats: p("عدد الحسابات", "Accounts"),
+  codeMinted: f<[string]>((code) => `أُنشئ الكود ${code}`, (code) => `Minted ${code}`),
+  headCode: p("الكود", "Code"),
+  headGives: p("يعطي", "Gives"),
+  headUsed: p("استُعمل", "Used"),
+  headNote: p("لمن", "For"),
+  revokeCode: p("اسحب", "Withdraw"),
+  codeRevoked: p("مسحوب", "Withdrawn"),
+  codeUsedUp: p("مستنفَد", "Used up"),
+  noCodes: p("لا أكواد بعد.", "No codes yet."),
+  codeMonthsShort: f<[number]>((months) => `${months} شهرًا`, (months) => `${months} mo`),
+  codeSeatsShort: f<[number, number]>(
+    (used, of) => `${used} من ${of}`,
+    (used, of) => `${used} of ${of}`,
+  ),
 
   waitlistTitle: p("قائمة الانتظار", "Waiting list"),
   waiting: f<[number]>((count) => `${count} في الانتظار`, (count) => `${count} waiting`),

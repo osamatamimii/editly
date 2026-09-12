@@ -9,6 +9,7 @@ import {
   useRequeueJob,
   useGrantMinutes,
   useSetSuspended,
+  useSetPlanByHand,
   getGetAdminOverviewQueryKey,
   getListAdminAccountsQueryKey,
   getListAdminJobsQueryKey,
@@ -41,7 +42,7 @@ import { TrendChart, type Series } from "@/components/trend-chart";
 import NotFound from "@/pages/not-found";
 import { apiFetch } from "@/lib/api-fetch";
 import { Sparkline, weekOnWeek } from "@/components/sparkline";
-import type { AdminTrend } from "@workspace/api-client-react";
+import { SubscriptionPlan, type AdminTrend } from "@workspace/api-client-react";
 import { loadState, isNotFound } from "@/lib/load-state";
 import { useLanguage } from "@/lib/language";
 import { useDates } from "@/lib/dates";
@@ -182,6 +183,39 @@ type AttentionKind =
   | "account-disconnected"
   | "minutes-spent"
   | "minutes-nearly-spent";
+
+/**
+ * A promo code, as the console reads it.
+ *
+ * Typed and validated here rather than imported, for the reason the attention
+ * queue gives above: these endpoints are newer than the generated client, and
+ * an answer that is trusted without being checked is a white screen the first
+ * time a proxy returns something else.
+ */
+interface PromoCode {
+  code: string;
+  plan: string;
+  months: number;
+  maxRedemptions: number;
+  redeemedCount: number;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  note: string;
+  createdAt: string;
+}
+
+function isPromoCode(value: unknown): value is PromoCode {
+  const row = value as Partial<PromoCode> | null;
+  return (
+    row !== null &&
+    typeof row === "object" &&
+    typeof row.code === "string" &&
+    typeof row.plan === "string" &&
+    typeof row.months === "number" &&
+    typeof row.maxRedemptions === "number" &&
+    typeof row.redeemedCount === "number"
+  );
+}
 
 interface AttentionItem {
   id: string;
@@ -467,7 +501,88 @@ export default function AdminPage() {
   const requeue = useRequeueJob({ mutation: { onSuccess: refreshEverything, onError: onFailure } });
   const grant = useGrantMinutes({ mutation: { onSuccess: refreshEverything, onError: onFailure } });
   const suspend = useSetSuspended({ mutation: { onSuccess: refreshEverything, onError: onFailure } });
+  /*
+    The plan, by hand.
+
+    The route has existed since the console was built — it is the answer to "the
+    webhook failed and this customer is paying for one thing and holding
+    another" — and nothing on any screen called it, so the only way to use it
+    was curl with a bearer token. A capability nobody can reach is a capability
+    that is not there.
+  */
+  const setPlan = useSetPlanByHand({ mutation: { onSuccess: refreshEverything, onError: onFailure } });
   const canAct = reason.trim().length >= 6;
+
+  /*
+    The codes, read by hand for the reason `/admin/deployment` is: these
+    endpoints are newer than the last codegen run, and a console that cannot
+    show a code until somebody regenerates a client is a console that cannot
+    hand an affiliate their code today.
+  */
+  const codes = useQuery({
+    queryKey: ["/api/admin/promo"],
+    retry: false,
+    enabled: overview.isSuccess && section === "accounts",
+    queryFn: async (): Promise<PromoCode[]> => {
+      const response = await apiFetch("/api/admin/promo");
+      if (!response.ok) return [];
+      const body = (await response.json().catch(() => null)) as unknown;
+      const list = (body as { codes?: unknown } | null)?.codes;
+      // Validated before it is trusted, by hand, because nothing else will.
+      return Array.isArray(list) ? (list.filter(isPromoCode) as PromoCode[]) : [];
+    },
+  });
+  const [mintPlan, setMintPlan] = useState<"creator" | "pro" | "studio">("creator");
+  const [mintWord, setMintWord] = useState("");
+  const [mintMonths, setMintMonths] = useState(12);
+  const [mintSeats, setMintSeats] = useState(1);
+  const [minting, setMinting] = useState(false);
+  const [minted, setMinted] = useState<string | null>(null);
+
+  async function mint(): Promise<void> {
+    if (!canAct || minting) return;
+    setMinting(true);
+    setActionError(null);
+    setMinted(null);
+    const response = await apiFetch("/api/admin/promo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        plan: mintPlan,
+        months: mintMonths,
+        maxRedemptions: mintSeats,
+        reason: reason.trim(),
+        ...(mintWord.trim() === "" ? {} : { code: mintWord.trim() }),
+      }),
+    });
+    setMinting(false);
+    const body = (await response.json().catch(() => ({}))) as { code?: string; error?: string };
+    if (!response.ok || !body.code) {
+      setActionError(body.error ?? t(ADMIN.didNotWork));
+      return;
+    }
+    setMinted(body.code);
+    setMintWord("");
+    void codes.refetch();
+    void queryClient.invalidateQueries({ queryKey: [`/api/admin/actions`] });
+  }
+
+  async function revokeCode(code: string): Promise<void> {
+    if (!canAct) return;
+    setActionError(null);
+    const response = await apiFetch(`/api/admin/promo/${encodeURIComponent(code)}/revoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason.trim() }),
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      setActionError(body.error ?? t(ADMIN.didNotWork));
+      return;
+    }
+    void codes.refetch();
+    void queryClient.invalidateQueries({ queryKey: [`/api/admin/actions`] });
+  }
 
   if (overviewState === "loading") {
     return (
@@ -1070,9 +1185,18 @@ export default function AdminPage() {
                 <Initials of={account.email} />
                 <span className="truncate" dir="ltr">{account.email ?? account.userId}</span>
               </span>,
-              <Badge key="plan" tone={account.plan === "free" ? "neutral" : "good"}>
-                {account.plan}
-              </Badge>,
+              <span key="plan" className="flex flex-col gap-0.5">
+                <Badge tone={account.plan === "free" ? "neutral" : "good"}>{account.plan}</Badge>
+                {/* A given plan says so, and says when it ends. Otherwise the
+                    console shows an affiliate account and a paying customer as
+                    the same row, which is the one distinction this screen is
+                    read for. */}
+                {account.planExpiresAt ? (
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                    {fill(ADMIN.planGivenUntil, language, dates.day(account.planExpiresAt))}
+                  </span>
+                ) : null}
+              </span>,
               /*
                 The allowance as a bar. It was "22.5 / 60", which is a division
                 the reader does in their head fifty times down a page, and the
@@ -1116,11 +1240,151 @@ export default function AdminPage() {
                 >
                   {t(ADMIN.suspend)}
                 </RowButton>
+                {/* Not a button, because this action points both ways: the
+                    case it exists for is a webhook that failed, and the
+                    correction can be up or down. The select shows what they
+                    are on, so choosing is choosing a change. */}
+                <select
+                  value={account.plan}
+                  disabled={!canAct || setPlan.isPending}
+                  title={!canAct ? say(ADMIN.typeReasonFirst, language) : say(ADMIN.setPlan, language)}
+                  aria-label={say(ADMIN.setPlan, language)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (next === account.plan) return;
+                    setPlan.mutate({ userId: account.userId, data: { plan: next as SubscriptionPlan, reason: reason.trim() } });
+                  }}
+                  data-testid={`admin-plan-${account.userId}`}
+                  className="px-2 min-h-11 md:min-h-0 md:py-1 rounded-md border border-border bg-card text-xs capitalize disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {Object.values(SubscriptionPlan).map((plan) => (
+                    <option key={plan} value={plan}>
+                      {plan}
+                    </option>
+                  ))}
+                </select>
               </span>,
             ])}
             empty={accountsState === "loading" ? t(ADMIN.loading) : t(ADMIN.nobodyYet)}
           />
         )}
+      </section>
+
+      {/* ── Codes ────────────────────────────────────────────────────────
+          Under the accounts, because a code is how an account gets a plan
+          without paying for one, and the row it will eventually change is in
+          the table above. */}
+      <section>
+        <div className="mb-3">
+          <h2 className="text-sm font-medium">{t(ADMIN.codesTitle)}</h2>
+          <p className="text-xs text-muted-foreground max-w-2xl">{t(ADMIN.codesLead)}</p>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-2 mb-3">
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            {t(ADMIN.headGives)}
+            <select
+              value={mintPlan}
+              onChange={(e) => setMintPlan(e.target.value as "creator" | "pro" | "studio")}
+              className="px-2 min-h-11 md:min-h-0 md:py-1 rounded-md border border-border bg-card text-xs capitalize text-foreground"
+              data-testid="admin-mint-plan"
+            >
+              {/* Free is absent because a code granting free would write an end
+                  date onto a free account, which means nothing. */}
+              {["creator", "pro", "studio"].map((plan) => (
+                <option key={plan} value={plan}>
+                  {plan}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            {t(ADMIN.codeMonths)}
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={mintMonths}
+              onChange={(e) => setMintMonths(Math.max(1, Math.min(60, Number(e.target.value) || 1)))}
+              className="w-20 px-2 min-h-11 md:min-h-0 md:py-1 rounded-md border border-border bg-card text-xs tabular-nums text-foreground"
+              data-testid="admin-mint-months"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            {t(ADMIN.codeSeats)}
+            <input
+              type="number"
+              min={1}
+              max={10000}
+              value={mintSeats}
+              onChange={(e) => setMintSeats(Math.max(1, Math.min(10_000, Number(e.target.value) || 1)))}
+              className="w-20 px-2 min-h-11 md:min-h-0 md:py-1 rounded-md border border-border bg-card text-xs tabular-nums text-foreground"
+              data-testid="admin-mint-seats"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            {t(ADMIN.codeWord)}
+            <input
+              value={mintWord}
+              onChange={(e) => setMintWord(e.target.value)}
+              dir="ltr"
+              placeholder="NOAHYEAR"
+              className="w-44 px-2 min-h-11 md:min-h-0 md:py-1 rounded-md border border-border bg-card text-xs font-mono uppercase tracking-widest text-foreground"
+              data-testid="admin-mint-word"
+            />
+          </label>
+          <RowButton
+            disabled={!canAct || minting}
+            onClick={() => void mint()}
+            language={language}
+            testId="admin-mint-code"
+          >
+            {t(ADMIN.mintCode)}
+          </RowButton>
+          {minted && (
+            <span className="text-xs text-muted-foreground self-center" data-testid="admin-minted">
+              {fill(ADMIN.codeMinted, language, minted)}
+            </span>
+          )}
+        </div>
+
+        <Table
+          head={[t(ADMIN.headCode), t(ADMIN.headGives), t(ADMIN.headUsed), t(ADMIN.headNote), ""]}
+          rows={(codes.data ?? []).map((row) => [
+            <span key="code" className="font-mono tracking-widest" dir="ltr">
+              {row.code}
+            </span>,
+            <span key="gives" className="whitespace-nowrap">
+              <span className="capitalize">{row.plan}</span>{" "}
+              <span className="text-muted-foreground">{fill(ADMIN.codeMonthsShort, language, row.months)}</span>
+            </span>,
+            <span key="used" className="tabular-nums whitespace-nowrap">
+              {fill(ADMIN.codeSeatsShort, language, row.redeemedCount, row.maxRedemptions)}
+              {row.revokedAt ? (
+                <span className="text-muted-foreground"> {"\u00b7"} {t(ADMIN.codeRevoked)}</span>
+              ) : row.redeemedCount >= row.maxRedemptions ? (
+                <span className="text-muted-foreground"> {"\u00b7"} {t(ADMIN.codeUsedUp)}</span>
+              ) : null}
+            </span>,
+            <span key="note" className="truncate block max-w-xs" dir="auto" title={row.note}>
+              {row.note || EMPTY}
+            </span>,
+            row.revokedAt ? (
+              EMPTY
+            ) : (
+              <RowButton
+                key="revoke"
+                disabled={!canAct}
+                onClick={() => void revokeCode(row.code)}
+                language={language}
+                testId={`admin-revoke-${row.code}`}
+              >
+                {t(ADMIN.revokeCode)}
+              </RowButton>
+            ),
+          ])}
+          empty={codes.isLoading ? t(ADMIN.loading) : t(ADMIN.noCodes)}
+        />
       </section>
 
       {/* ── The waiting list ─────────────────────────────────────────────
