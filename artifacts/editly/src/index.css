@@ -2513,20 +2513,25 @@ html[data-page-theme="light"] body {
  * the phone itself is tilted about six degrees, the way a hand actually
  * holds one.
  */
-.phone-stage {
+.work-row {
   position: relative;
   width: 100%;
-  height: clamp(520px, 54vw, 780px);
   /*
-    No clip on the stage itself. The phone carries a wide soft halo, and a
-    halo cut by its container's edge is a straight line of light across the
-    page — Osama photographed exactly that line at the stage's top and asked
-    for it gone. The only thing that actually overflows this box is the
-    marquee track, and it clips itself (see .clip-marquee), so the stage can
-    let its light dissolve into the sections above and below it the way
-    light does. `landing-test` now walks the whole rendered page looking for
-    straight full-width seams, so a clip reintroduced here would fail before
-    it shipped.
+    The height of the cards and nothing more.
+
+    This was `clamp(520px, 54vw, 780px)`, which is the height of a phone: the
+    row sat at `top: 50%` because the middle of the box was taken by a drawn
+    handset. With the drawing gone that number would be most of a screen of
+    empty air above a strip of video, so the box is the row now.
+  */
+  height: clamp(196px, 17.5vw, 262px);
+  /*
+    Still no clip on the container, for the reason the phone's halo taught us:
+    an `overflow: hidden` here drew a straight line of light across the page at
+    this box's edge, and Osama photographed exactly that line and asked for it
+    gone. The only thing that overflows is the track, and it clips itself.
+    `landing-test` walks the rendered page looking for full-width seams, so a
+    clip reintroduced here fails before it ships.
   */
 }
 
@@ -2536,9 +2541,18 @@ html[data-page-theme="light"] body {
    stage leaves the screen. An animation below the fold is a heater. */
 .clip-marquee {
   position: absolute;
-  inset-inline: 0;
-  top: 50%;
+  inset: 0;
   pointer-events: none;
+  /*
+    The ends, faded by a mask rather than by something painted over them.
+
+    A gradient laid on top of the cards is a shape with an edge, and an edge
+    across the full width of the page is the seam this file keeps having to
+    apologise for. A mask takes the cards' own alpha to nothing, so there is
+    nothing drawn to have an edge.
+  */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
   /* The track is twice the row of cards and far wider than any screen. The
      clip lives here, on the strip that owns the overflow, rather than on the
      stage — an `overflow: hidden` up there was what sliced the phone's halo
@@ -2553,7 +2567,7 @@ html[data-page-theme="light"] body {
   width: max-content;
   animation: clip-slide 48s linear infinite;
 }
-.phone-stage[data-live="0"] .clip-track {
+.work-row[data-live="0"] .clip-track {
   animation-play-state: paused;
 }
 @keyframes clip-slide {
@@ -2566,10 +2580,14 @@ html[data-page-theme="light"] body {
   aspect-ratio: 480 / 420;
   border-radius: 24px;
   overflow: hidden;
-  /* The reference's row is bright — vivid scenes on a black stage — and what
-     seats the phone in front is not a dimmed row but the pool of shadow the
-     phone and hand cast over the middle of it (.stage-dim). */
-  filter: brightness(0.88) saturate(1.02);
+  /*
+    Unfiltered now.
+
+    These were held at `brightness(0.88)` so that the phone in front of them
+    read as the lit thing. There is no phone, and dimming the only real
+    material on the page to flatter a drawing that is gone would be the
+    strangest thing left in this file.
+  */
 }
 .clip-card video {
   display: block;
@@ -2578,197 +2596,20 @@ html[data-page-theme="light"] body {
   object-fit: cover;
 }
 
-/* The dark the phone stands in: the shadow the handset and the hand throw
-   over the row behind them, plus a faint edge vignette that keeps the row's
-   ends from competing with the phone. */
-.stage-dim {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(
-      ellipse 34% 58% at 50% 66%,
-      rgba(2, 4, 8, 0.88) 0%,
-      rgba(2, 4, 8, 0.42) 55%,
-      transparent 78%
-    ),
-    /* Opens at zero, not at 0.55: an overlay that starts mid-value at its
-       container's first pixel draws a line there, which is the other half of
-       the seam the clip-path note above describes. */
-    linear-gradient(180deg, transparent 0%, rgba(2, 4, 8, 0.5) 9%, transparent 27%, transparent 72%, rgba(2, 4, 8, 0.6));
-}
-
-/* The handset. Drawn, for the same reason as before — a photographed handset
-   dates the page to its model year — but sized and tilted to the reference:
-   it floats in the upper middle of the stage rather than docking at its foot,
-   leans about thirteen degrees the way the hand in the recording holds it,
-   and drifts — the whole grip eases through a couple of degrees and a few
-   pixels over nine seconds, which is what a held thing does and a mounted
-   thing does not. */
-.stage-phone {
-  position: absolute;
-  left: 50%;
-  top: 9%;
-  width: clamp(186px, 16.5vw, 236px);
-  aspect-ratio: 9 / 19;
-  transform: translateX(-50%) rotate(12.5deg);
-  transform-origin: 50% 62%;
-  border-radius: 36px;
-  padding: 7px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.03) 20%, rgba(255, 255, 255, 0) 55%),
-    linear-gradient(180deg, #1c2937, #0a121c);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.17),
-    0 50px 100px -36px rgba(0, 0, 0, 0.92),
-    0 0 80px -18px var(--halo);
-  animation: stage-float 9s ease-in-out infinite alternate;
-}
-.phone-stage[data-live="0"] .stage-phone {
-  animation-play-state: paused;
-}
-@keyframes stage-float {
-  from { transform: translateX(-50%) translateY(0) rotate(11.5deg); }
-  to { transform: translateX(-50%) translateY(-10px) rotate(13.5deg); }
-}
-.stage-phone .reel-island {
-  top: 16px;
-  z-index: 1;
-}
-
-/* The screen: the prompt moment, built live rather than screenshotted. */
-.stage-screen {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  border-radius: 32px;
-  overflow: hidden;
-  background: #07090d;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 13% 7% 6%;
-}
-.stage-menu {
-  align-self: flex-start;
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-}
-.stage-menu span {
-  width: 10px;
-  height: 1.5px;
-  border-radius: 1px;
-  background: rgba(255, 255, 255, 0.6);
-}
-.stage-result {
-  /* The reference's result is a small rounded card floating in the black of
-     the screen's middle — about three fifths of the screen wide, a touch
-     taller than square — not a full-bleed player. */
-  width: 62%;
-  aspect-ratio: 1 / 1.08;
-  margin-top: 34%;
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow: 0 10px 34px -12px rgba(0, 0, 0, 0.85);
-}
-.stage-result video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.stage-chips {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: auto;
-  width: 100%;
-}
-.stage-chips span {
-  white-space: nowrap;
-  font-size: clamp(7px, 0.6vw, 9px);
-  font-weight: 600;
-  color: rgba(236, 244, 252, 0.85);
-  background: rgba(255, 255, 255, 0.09);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  padding: 3px 7px;
-}
-.stage-chips .stage-chip-more {
-  padding: 4px 7px;
-}
-.stage-prompt {
-  width: 100%;
-  margin-top: 7px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  padding: 9px 10px 8px;
-}
-.stage-prompt-text {
-  font-size: clamp(9px, 0.78vw, 11px);
-  color: rgba(236, 244, 252, 0.45);
-}
-.stage-prompt-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 9px;
-}
-.stage-prompt-attach {
-  width: 12px;
-  height: 12px;
-  color: rgba(236, 244, 252, 0.5);
-}
-.stage-send {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 22px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, hsl(209 81% 70%), hsl(209 81% 52%));
-  box-shadow: 0 0 16px rgba(80, 161, 237, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.4);
-}
-.stage-send svg {
-  width: 11px;
-  height: 11px;
-  color: #fff;
-}
-
-/* The hand, drawn. It lives inside .stage-phone so the phone's tilt, drift
-   and size carry it for free; the box runs 95% of the phone's width past its
-   left edge (the thumb, the back of the hand and the forearm all enter from
-   the lower left, as in the recording), 14% past its right (two fingertips
-   wrapping the far bezel), and 88% of the phone's height below it (the
-   forearm leaving the frame — the stage's own overflow crops it at the
-   bottom edge, which is the reference's composition: a hand entering the
-   shot, not floating in it). The viewBox is cut to that exact aspect, so
-   `preserveAspectRatio: none` is uniform scaling in disguise. */
-.stage-hand {
-  position: absolute;
-  left: -95%;
-  right: -14%;
-  top: 36%;
-  bottom: -88%;
-  pointer-events: none;
-  z-index: 4;
-}
-.stage-hand svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
+/*
+ * The handset, its screen, its chips, its prompt field, its send pill, the
+ * pool of shadow it threw over the row and the mount for the hand that was to
+ * hold it — about 170 lines — are gone with the drawing they dressed.
+ *
+ * They drew the prompt moment at phone scale because that moment was the one
+ * thing the front page could not offer. It offers it now, a line under the
+ * headline, in a box that works. Keeping a picture of it beside the real one
+ * would be two prompt boxes on one screen and only one of them answering.
+ *
+ * `git log` has the geometry if the composition is ever wanted back.
+ */
 @media (prefers-reduced-motion: reduce) {
   .clip-track { animation: none; }
-  .stage-phone { animation: none; }
 }
 
 /*

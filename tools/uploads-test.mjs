@@ -841,7 +841,8 @@ console.log("\nA large file goes up in parts, and only this API assembles them")
 
   check(
     "playback asks our own API instead",
-    read("artifacts/editly/src/lib/video-storage.ts").includes('fetch("/api/media/url"'),
+    read("artifacts/editly/src/lib/video-storage.ts").includes('customFetch<{ url?: string }>("/api/media/url"'),
+    "and through the one client that knows how a request here is authorised, rather than reading the token again",
   );
 
   const media = read("artifacts/api-server/src/routes/media.ts");

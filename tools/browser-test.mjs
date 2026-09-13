@@ -259,11 +259,44 @@ const server = http.createServer(async (req, res) => {
       .end(JSON.stringify({ external: { google: true, apple: false } }));
 
   // Signing an object key for playback.
+  //
+  // Still here because the *store* still answers this — the API's own
+  // `signedGet` calls it on the Supabase driver — but the browser no longer
+  // does. See `/api/media/url` below for the door it asks instead.
   if (p.startsWith("/storage/v1/object/sign/")) {
     const key = p.slice("/storage/v1/object/sign/videos/".length);
     return res
       .writeHead(200, { "content-type": "application/json" })
       .end(JSON.stringify({ signedURL: `/object/sign/videos/${key}?token=signed-for-test` }));
+  }
+
+  /*
+    Minting a URL to read an object, which the browser used to do for itself.
+
+    It called `supabase.storage.createSignedUrl` — the Supabase client, the
+    Supabase bucket, the Supabase signature — while the *write* had already
+    moved behind a ticket our own server mints. Half a seam is not a seam: on
+    R2 the bytes went to R2 and this line went on asking Supabase, which does
+    not have them, so every upload succeeded and nothing could be seen.
+
+    Stubbed at the shape of the real route: a url and the moment it stops
+    working, and a `download` in the body when the person pressed save rather
+    than play.
+  */
+  if (p === "/api/media/url" && req.method === "POST") {
+    const raw = await new Promise((resolve) => {
+      let text = "";
+      req.on("data", (c) => (text += c));
+      req.on("end", () => resolve(text));
+    });
+    const body = JSON.parse(raw || "{}");
+    const disposition = body.download ? `&download=${encodeURIComponent(body.download)}` : "";
+    return res.writeHead(200, { "content-type": "application/json" }).end(
+      JSON.stringify({
+        url: `/object/sign/videos/${body.path}?token=signed-for-test${disposition}`,
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+      }),
+    );
   }
 
   /*
@@ -1146,6 +1179,24 @@ section("Signing in finishes the journey the link started");
     "and it never sends anybody back to the sign-in page",
     (await after("?next=%2Flogin")) === "/dashboard",
     await after("?next=%2Flogin"),
+  );
+
+  /*
+    The destination the front page now sends everybody to, asked of the real
+    guard.
+
+    The box in the hero takes a sentence from a stranger and carries it through
+    sign-up as `?next=/onboarding?ask=…`. If the guard refused that shape the
+    failure would be silent in the worst way: they arrive signed in, at a real
+    screen, having lost the only thing they typed — and nothing anywhere is a
+    fault. The Arabic matters too, because the sentence is percent-encoded
+    twice on the way and a guard that works on ASCII is not evidence.
+  */
+  const asked = "/onboarding?ask=" + encodeURIComponent("اقصّ السكتات وحطّ كابشن");
+  check(
+    "the sentence typed on the front page survives the sign-up it is carried through",
+    (await after("?next=" + encodeURIComponent(asked))) === asked,
+    await after("?next=" + encodeURIComponent(asked)),
   );
 
   // And the two ends of it are wired: the guard carries the destination, and
@@ -2849,9 +2900,27 @@ section("A download saves the file rather than playing it");
     /export async function downloadableVideoUrl/.test(storageLib),
   );
   check(
-    "which asks Storage for the disposition, since the browser's attribute cannot",
-    /createSignedUrl\(path, expiresInSeconds, \{ download: filename \}\)/.test(storageLib),
-    "download: is what turns inline into attachment",
+    "which asks the store for the disposition, since the browser's attribute cannot",
+    /readUrl\(path, filename\)/.test(storageLib),
+    "a name passed at signing time is what turns inline into attachment",
+  );
+  /*
+    Asked of our own API rather than of a store the browser has named.
+
+    This used to read `createSignedUrl(path, …, { download: filename })` — the
+    Supabase client, chosen in the browser — and that was the half of the
+    storage seam nobody had crossed. On R2 the bytes went to R2 and this line
+    asked Supabase, which does not have them: every upload succeeded, every
+    poster and player and download returned `null`, and nothing anywhere was an
+    error. The two stores sign a read in ways that share no shape, so the
+    browser stops choosing.
+  */
+  check(
+    "and the browser signs no read against a store of its own",
+    !/storage\s*\.from\([^)]*\)\s*\.createSignedUrl/.test(
+      storageLib.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, ""),
+    ),
+    "S3 covers the whole query string and Supabase mints an object token; a browser cannot hold both",
   );
 
   /*

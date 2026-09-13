@@ -376,11 +376,27 @@ section("The page opens in Arabic, and it opens the right way round");
   }
   check("no English sentence is left on the Arabic page", leaked.length === 0, leaked.slice(0, 6).join(", "));
 
+  /*
+    The box, which is now the first thing on the page somebody touches.
+
+    This used to check the drawn phone's chips and placeholder — the largest
+    thing on the page and the easiest to leave in English. The phone is gone
+    and the box it was a picture of is real, so the same risk moved rather than
+    disappeared: a placeholder is a piece of copy that lives inside an
+    attribute, which is exactly where a translation pass forgets to look.
+  */
+  const placeholder = await page.evaluate(() =>
+    document.querySelector('[data-testid="input-landing-ask"]')?.getAttribute("placeholder") ?? "",
+  );
   check(
-    "the phone on the stage speaks Arabic too",
-    text.includes(say(copy.LANDING.reel.chipSilence, "ar")) &&
-      text.includes(say(copy.LANDING.reel.placeholder, "ar")),
-    "the stage phone is the largest thing on the page and the easiest to leave in English",
+    "the box in the hero asks in Arabic too",
+    placeholder === say(copy.LANDING.hero.composerPlaceholder, "ar"),
+    `a placeholder lives in an attribute, which is where a translation pass forgets to look — got ${JSON.stringify(placeholder)}`,
+  );
+  check(
+    "and the sentence under it that says nothing is charged",
+    text.includes(say(copy.LANDING.hero.composerNote, "ar")),
+    "the two questions somebody has with a finger over a file picker",
   );
 
   // A phone is where this page is read, and a right-to-left layout is a
@@ -629,6 +645,64 @@ section("No straight seam crosses the page");
     seams.length === 0,
     seams.map((s) => `y=${s.y} step=${s.held}`).join(", "),
   );
+  await context.close();
+}
+
+section("The box in the hero carries the request through sign-up");
+{
+  /*
+    The whole point of replacing two buttons with a box.
+
+    A stranger types what they want and picks their video, and none of it is
+    worth anything unless both survive the sign-up in between. The sentence
+    rides the URL, which survives everything; the file rides memory, which
+    survives client-side routing and is the reason sign-up must not leave the
+    page. What is checked here is the half a test can see — that the sentence
+    reaches the other side intact, and that it reaches it *through* the login
+    with a `next` the redirect guard will actually honour.
+
+    The guard is the part worth being careful about: `afterSignIn` refuses
+    anything it cannot prove is same-origin, and a `next` it refuses sends
+    somebody to the dashboard with their sentence dropped on the floor. That
+    is a silent failure — they arrive signed in, at a real screen, having lost
+    the only thing they typed.
+  */
+  const { context, page, errors } = await open("/");
+  check("the page with the box on it renders", errors.length === 0, errors.slice(0, 2).join(" | "));
+
+  const box = page.locator('[data-testid="input-landing-ask"]');
+  check("there is a box to type in", (await box.count()) === 1);
+
+  const said = "اقصّ السكتات وحطّ كابشن";
+  await box.fill(said);
+  await page.locator('[data-testid="button-landing-send"]').click();
+  await page.waitForTimeout(400);
+
+  const landed = new URL(page.url());
+  check(
+    "a signed-out visitor is sent to sign up rather than nowhere",
+    landed.pathname === "/login" && landed.searchParams.get("mode") === "signup",
+    page.url(),
+  );
+
+  const next = landed.searchParams.get("next") ?? "";
+  check(
+    "and their sentence travels with them",
+    next.startsWith("/onboarding?ask=") && decodeURIComponent(next.split("ask=")[1] ?? "") === said,
+    next,
+  );
+
+  /*
+    The shape the guard will accept, asserted here; the guard itself is asked
+    the same question in `browser-test`, where `afterSignIn` already runs in a
+    browser with its module's environment around it.
+  */
+  check(
+    "in a shape the redirect guard will honour rather than drop",
+    next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") && !/^\/+login\b/.test(next),
+    next,
+  );
+
   await context.close();
 }
 

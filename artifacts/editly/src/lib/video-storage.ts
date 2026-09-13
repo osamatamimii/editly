@@ -21,6 +21,7 @@
  */
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
+import { customFetch } from "@workspace/api-client-react";
 import { VIDEO_UPLOAD_EXTENSIONS, uploadKindFor } from "@workspace/api-zod/limits";
 import type {
   MultipartTransfer,
@@ -1251,21 +1252,26 @@ const RESIGN_EVERY_MS = 45 * 60 * 1000;
  * is where that choice lives now.
  */
 async function readUrl(path: string, download?: string): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  const accessToken = data.session?.access_token;
-  if (!accessToken) return null;
   try {
-    const response = await fetch("/api/media/url", {
+    /*
+      Through `customFetch`, which is the one place that knows how a request to
+      our own API is authorised.
+
+      Reading the token here instead would be a second copy of what
+      `auth.tsx` registers — and a second copy of an auth rule is how one of
+      them comes to be the stale one. Supabase rotates the access token about
+      hourly; the registered getter reads it at call time for exactly that
+      reason, and a hand-rolled read here would have to remember to.
+    */
+    const body = await customFetch<{ url?: string }>("/api/media/url", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify(download ? { path, download } : { path }),
     });
-    if (!response.ok) return null;
-    const body = (await response.json()) as { url?: string };
     return body.url ?? null;
   } catch {
-    // Same answer as every other failure here: `null`, which every caller
-    // already renders as "no picture yet" rather than as an error.
+    // `null`, which every caller already renders as "no picture yet" rather
+    // than as an error — including the signed-out case, where there is no
+    // token to send and the door answers accordingly.
     return null;
   }
 }

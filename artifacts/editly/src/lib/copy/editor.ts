@@ -114,8 +114,8 @@ export const EDITOR = {
     about as long as the video is long, and they do not have to sit here.
   */
   transcriptWaitingDetail: p(
-    "أول ما تفتح هذه اللوحة نبدأ نسمع الفيديو. يأخذ قريبًا من طول الفيديو نفسه، وتمتلئ وحدها أول ما تجهز — ما في داعي تنتظر هنا.",
-    "Opening this panel starts us listening. It takes roughly as long as the video is long, and this fills in on its own the moment it is ready — you do not have to wait here.",
+    "أول ما تفتح هذه اللوحة نبدأ نسمع الفيديو. يأخذ قريبًا من طول الفيديو نفسه. تمتلئ وحدها أول ما تجهز، وما في داعي تنتظر هنا.",
+    "Opening this panel starts us listening. It takes roughly as long as the video is long. This fills in on its own the moment it is ready, so you do not have to wait here.",
   ),
   transcriptNoSource: p(
     "ما في فيديو بهذا المشروع بعد، فما في شي نسمعه.",

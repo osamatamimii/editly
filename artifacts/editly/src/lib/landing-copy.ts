@@ -165,6 +165,40 @@ export const LANDING = {
     ctaSignedOut: p("ابدأ التعديل مجانًا", "Start editing free"),
     ctaSignedIn: p("ارفع تسجيلًا خامًا", "Upload a raw take"),
     secondary: p("شوف كيف يعمل", "See how it works"),
+
+    /*
+     * The box that replaced the two buttons.
+     *
+     * A button asks somebody to commit before they have seen anything. A box
+     * asks them to say what they want, which is easier and is also the thing
+     * this product is for — the headline one line up tells them to describe
+     * rather than edit, and until now the next thing on the page was a button
+     * that did not let them.
+     *
+     * The placeholder is a real request this editor takes, not "type
+     * something": the fastest way to teach what a sentence to this product
+     * looks like is to have one already written in the shape of the box.
+     */
+    composerLabel: p("صف التعديل الذي تريده", "Describe the edit you want"),
+    composerPlaceholder: p(
+      "اقصّ السكتات، وحطّ كابشن عربي، وخلّيه عمودي…",
+      "Cut the silences, caption it, make it vertical…",
+    ),
+    composerAttach: p("أرفق فيديو", "Attach a video"),
+    composerSend: p("ابدأ", "Start"),
+    composerRemoveFile: p("أزل الملف", "Remove the file"),
+    composerNotVideo: p("لا يمكننا استخدام هذا الملف", "We cannot use that file"),
+    /*
+     * The two questions somebody has with a finger over a file picker on a
+     * site they met a minute ago, answered before they ask: is this going to
+     * cost me, and are you taking my file right now. Both answers are no, and
+     * the second one is literally true — the file is chosen here and not one
+     * byte leaves until there is an account and a project for it to go to.
+     */
+    composerNote: p(
+      "مجانًا، وبلا بطاقة. الملف ما بيتحرّك من جهازك لحدّ ما تفتح حسابك.",
+      "Free, no card. Your file does not leave this device until you have an account.",
+    ),
     caption: p(
       "تعديل حقيقي واحد: 12.3 ثانية دخلت و6.5 خرجت. كل رقم هنا خرج من الرندر نفسه.",
       "One real edit: 12.3 seconds in, 6.5 out. Every number here is one the renderer produced.",

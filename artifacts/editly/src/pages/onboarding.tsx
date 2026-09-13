@@ -36,7 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Logo } from "@/components/logo";
 import { VIDEO_UPLOAD_EXTENSIONS } from "@workspace/api-zod/limits";
 import { useToast } from "@/hooks/use-toast";
-import { stashPendingUpload, stashPendingMessage, titleFromFilename } from "@/lib/pending-upload";
+import { stashPendingUpload, stashPendingMessage, takeLandingFile, titleFromFilename } from "@/lib/pending-upload";
 import {
   isAcceptableVideo,
   ACCEPTED_VIDEO_ACCEPT,
@@ -56,7 +56,22 @@ export default function Onboarding() {
   const { data: subscription } = useGetSubscription();
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
+  /*
+    The file, which may already have been picked on the front page.
+
+    The composer in the hero takes a sentence *and* a video, because a sentence
+    to this product is an instruction about footage that has to exist. It sends
+    the sentence in `?ask=` and leaves the file in memory, and this is where
+    both are claimed — so somebody who chose their video before they had an
+    account does not get asked for it again the moment they have one.
+
+    `useState` with an initialiser, like the sentence above and for the same
+    reason: claimed once, at mount. `takeLandingFile` clears as it reads, which
+    is what stops React's double-mount from looking like two files.
+  */
+  const [file, setFile] = useState<File | null>(() =>
+    typeof window === "undefined" ? null : takeLandingFile(),
+  );
   const [dragging, setDragging] = useState(false);
   const [chosen, setChosen] = useState<string | null>(null);
   /*

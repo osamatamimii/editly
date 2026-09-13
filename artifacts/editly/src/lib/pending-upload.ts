@@ -52,6 +52,40 @@ export function takePendingMessage(projectId: string): string | null {
 }
 
 /**
+ * The file somebody picked on the landing page, before they had an account.
+ *
+ * The two stashes above are keyed by project, because by the time they are
+ * written the project exists. This one cannot be: it is filled by a stranger
+ * on the front page, and the project is not made until they have signed up and
+ * reached the first-run screen. So it is a single slot — there is only ever
+ * one person in one tab picking one file — claimed by whatever gets there
+ * first.
+ *
+ * **It survives the sign-up because sign-up does not leave the page.** Email
+ * and password with confirmation off returns a session in place, and every
+ * route here is client-side, so the module is never re-evaluated and the
+ * `File` handle stays valid the whole way from the front page to the editor.
+ *
+ * And when it does not survive — a hard reload, or the day a provider redirect
+ * is switched on — nothing is broken and nothing is lost except a click: the
+ * sentence travels in the URL, which survives everything, and the first-run
+ * screen asks for the file it always asked for, with the request already
+ * written in the box. The degradation is the product's own normal path.
+ */
+let landingFile: File | null = null;
+
+export function stashLandingFile(file: File | null): void {
+  landingFile = file;
+}
+
+/** Claim and clear, for the same reason the two above do. */
+export function takeLandingFile(): File | null {
+  const file = landingFile;
+  landingFile = null;
+  return file;
+}
+
+/**
  * "My Viral Short", not "my-viral-short_v2_FINAL.mp4".
  *
  * The name is a courtesy, not a commitment — the person can rename the project

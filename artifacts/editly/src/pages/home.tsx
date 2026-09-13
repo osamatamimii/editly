@@ -19,6 +19,7 @@ import {
 } from "@/lib/landing-copy";
 import { useLanguage } from "@/lib/language";
 import { FeatureScroller } from "@/components/feature-scroller";
+import { LandingComposer } from "@/components/landing-composer";
 
 /**
  * How long `.reveal`'s filter transition is given before the filter is dropped.
@@ -577,53 +578,31 @@ function useStageLive<T extends HTMLElement>(): RefObject<T | null> {
 }
 
 /**
- * The stage from Osama's recording: a hand-held phone writing a prompt, a
- * row of finished work sliding past behind it.
+ * The row of finished work, which used to be the backdrop and is now the
+ * subject.
  *
- * The reference is an image app; ours is the same composition told in this
- * product's language. The screen is not a screenshot of the editor — his
- * words: "مش سكرين من جوا المنصة بس زيه" — it is the prompt moment itself,
- * rebuilt at phone scale: a finished clip playing where their generated image
- * sits, two suggestion chips that are real requests this editor takes, the
- * prompt field with its real placeholder, and the blue send pill. Everything
- * on it is live HTML, so it stays sharp on any screen and the clip in it
- * actually plays.
+ * A hand-held phone writing a prompt stood in front of this, drawn in live
+ * HTML because a screenshot of an English app is an English picture on an
+ * Arabic page. That was the right answer while the prompt was the one thing
+ * the front page could not actually offer. It can now — the box in the hero is
+ * real — and a drawing of a prompt box beside a working one is two of them on
+ * one screen, one of which does nothing when pressed.
  *
- * Behind it, the reference scrolls a row of large rounded cards. Ours are
- * four real exports as landscape crops, doubled into a marquee track that
- * translates its own width and loops — transform only, compositor only, and
- * paused (with the videos) whenever the stage is off screen.
+ * So the drawing goes and what it stood on stays. Four real exports, cropped
+ * landscape, doubled into a track that translates its own width and loops:
+ * transform only, compositor only, and paused — with the videos — whenever
+ * the row is off screen, because an animation below the fold is a heater.
  *
- * The hand is drawn, because it could not honestly be anything else: no
- * generated imagery is allowed here (his instruction), no stock file can be
- * fetched from this session, and none of his own footage holds a hand on a
- * phone. So it is what a hand actually is in a shot like the reference's —
- * a grip seen from the front, almost silhouette, told entirely by its rim
- * light: four fingertips curling over the left bezel, a thumb pad riding
- * the right edge, a forearm dropping out of the frame. The lit edges take
- * the screen's own blue, which is the "الاضاءة عاليد" of the reference —
- * in a dark room the phone is the key light, and the hand holding it is
- * lit by what it holds.
+ * The dark pool the phone cast over the middle of the row goes with it; what
+ * keeps the ends from cutting hard at the viewport edge is a mask rather than
+ * a gradient painted over the cards, so nothing draws a straight line of its
+ * own across the page. `landing-test` walks the rendered page looking for
+ * exactly that seam.
  */
-/**
- * The hand is Osama's to supply: he is sending a real photograph (a hand
- * holding a phone from the lower left, the reference's grip). Two drawn
- * attempts made the case that a photoreal hand is not an SVG job. The
- * `.stage-hand` mount stays: when the asset lands in /reel/hand.png this
- * component becomes one `<img>` and the geometry is already solved.
- */
-function StageHand() {
-  return null;
-}
-
-function PhoneStage({
-  copy,
-}: {
-  copy: { chips: [string, string]; placeholder: string; send: string };
-}) {
+function WorkRow() {
   const host = useStageLive<HTMLDivElement>();
   return (
-    <div ref={host} className="phone-stage" data-live="0">
+    <div ref={host} className="work-row" data-live="0">
       <div className="clip-marquee" aria-hidden="true">
         <div className="clip-track">
           {[...WIDE_CARDS, ...WIDE_CARDS].map((id, i) => (
@@ -632,29 +611,6 @@ function PhoneStage({
             </div>
           ))}
         </div>
-      </div>
-      <div className="stage-dim" aria-hidden="true" />
-      <div className="stage-phone" aria-hidden="true">
-        <span className="reel-island" />
-        <div className="stage-screen" dir="rtl">
-          <div className="stage-menu"><span /><span /></div>
-          <div className="stage-result">
-            <video src="/reel/reel-2.mp4" poster="/reel/reel-2.jpg" preload="none" muted loop playsInline />
-          </div>
-          <div className="stage-chips">
-            <span>+ {copy.chips[0]}</span>
-            <span>+ {copy.chips[1]}</span>
-            <span className="stage-chip-more">+</span>
-          </div>
-          <div className="stage-prompt">
-            <div className="stage-prompt-text">{copy.placeholder}</div>
-            <div className="stage-prompt-row">
-              <Upload className="stage-prompt-attach" />
-              <span className="stage-send"><Sparkles /></span>
-            </div>
-          </div>
-        </div>
-        <StageHand />
       </div>
     </div>
   );
@@ -896,10 +852,21 @@ const WAVE_BARS = Array.from({ length: 48 }, (_, i) => ({
 const RANK = { free: 0, creator: 1, pro: 2, studio: 3 } as const;
 
 /*
- * The drawn editor that stood here (HeroEditor, ~190 lines of real DOM and
- * SVG) is gone at Osama's instruction: the reference composition — the
- * hand-held phone writing a prompt over a row of finished work — now opens
- * the page instead. See PhoneStage.
+ * Two drawings have stood in this hero and neither does now.
+ *
+ * The first was `HeroEditor`: ~190 lines of DOM and SVG drawing the editor.
+ * It was replaced, at Osama's instruction, by the reference composition — a
+ * hand-held phone writing a prompt over a row of finished work.
+ *
+ * That is gone too, and for a better reason than the first: the prompt it was
+ * a picture of is now a real box one line under the headline. A drawing of the
+ * thing is a placeholder for the thing. The row of work it stood on is real
+ * and stays — see `WorkRow`.
+ *
+ * (`StageHand` went with it. It rendered `null` and held the mount for a
+ * photograph of a hand on a phone that Osama was going to send; there is no
+ * phone for a hand to hold now, so the promise is closed rather than left
+ * open against a composition that no longer exists.)
  */
 
 /**
@@ -2379,64 +2346,82 @@ export default function Home() {
           {t(LANDING.hero.subtext)}
         </p>
 
-        {/* CTA Buttons */}
-        <div
-          className="flex flex-col sm:flex-row items-center gap-4 animate-fade-up"
-          style={{ animationDelay: "440ms" }}
-        >
-          {/* Two different people read this button.
-              Somebody signed out is being asked to start an account, and the
-              thing that decides it is the price — so the button says the price.
-              Somebody already signed in has an account and is looking at a
-              landing page by accident; "start free" is meaningless to them and
-              the only useful next step is the one thing the product does. */}
-          <Link
-            href={user ? "/dashboard" : "/login?mode=signup"}
-            data-testid="link-hero-cta"
-            className="glow-btn btn-gradient-cta flex items-center justify-center gap-2 text-white h-14 px-8 rounded-lg font-semibold text-lg"
-          >
-            <Play className="w-5 h-5 fill-current" />
-            {user ? t(LANDING.hero.ctaSignedIn) : t(LANDING.hero.ctaSignedOut)}
-          </Link>
-          {/* This said "Watch Demo" and had no handler at all — the second
-              largest thing on the page did nothing when pressed, and there is
-              no demo film to play even if it had. What the page does have is
-              the three steps further down, so the button goes there. A button
-              that scrolls is worth more than a button that lies. */}
-          <a
-            href="#how-it-works"
-            data-testid="link-hero-secondary"
-            className="group flex items-center justify-center gap-2 h-14 px-8 rounded-lg font-semibold text-lg bg-surface-1 hover:bg-surface-1 border border-hairline transition-all duration-300 hover:border-primary/40 hover:shadow-[0_0_24px_rgba(80,161,237,0.2)] backdrop-blur-sm"
-          >
-            {t(LANDING.hero.secondary)}
-            {/* The arrow points the way the language reads, and moves that way
-                on hover. An arrow pointing right on a right-to-left page points
-                back at where the reader came from. */}
-            <ArrowRight
-              className={`w-4 h-4 transition-transform duration-300 ${rtl ? "rotate-180 group-hover:-translate-x-1" : "group-hover:translate-x-1"}`}
-            />
-          </a>
+        {/*
+          The box that replaced the two buttons.
+
+          What stood here was "Start editing free" and "See how it works": a
+          commitment and a deflection, one line under a headline that tells
+          somebody to stop editing and start describing — and then gave them
+          nowhere to describe anything. Osama asked for the shape Lovable and
+          Webild open with, and it is the right one for a page whose whole
+          claim is that a sentence is the interface.
+
+          The difference from those two is the reason the box takes a file as
+          well: they generate a site from a sentence, and a sentence to us is
+          an instruction about footage that has to exist. "Cut the silences" is
+          not a request until there is something to cut.
+
+          `LandingComposer` carries both to the first-run screen, which has
+          taken `?ask=` since the feature scroller was built and already knows
+          how to hand a file to the editor. Nothing is created and nothing is
+          uploaded from here.
+        */}
+        <LandingComposer signedIn={Boolean(user)} />
+
+        {/* The deflection kept, at the weight it deserves.
+
+            It was half of a two-button row and is now a quiet line under the
+            box, because somebody who wants to read before they type is a real
+            person and a smaller number of them than the page used to assume.
+            A signed-in visitor is not being sold to at all — they have an
+            account and landed here by accident — so they get the one useful
+            door instead. */}
+        <div className="mt-6 animate-fade-up" style={{ animationDelay: "560ms" }}>
+          {user ? (
+            <Link
+              href="/dashboard"
+              data-testid="link-hero-cta"
+              className="group inline-flex items-center gap-2 text-base font-medium text-foreground/80 hover:text-foreground transition-colors"
+            >
+              {t(LANDING.hero.ctaSignedIn)}
+              <ArrowRight
+                className={`w-4 h-4 transition-transform duration-300 ${rtl ? "rotate-180 group-hover:-translate-x-1" : "group-hover:translate-x-1"}`}
+              />
+            </Link>
+          ) : (
+            <a
+              href="#how-it-works"
+              data-testid="link-hero-secondary"
+              className="group inline-flex items-center gap-2 text-base font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {t(LANDING.hero.secondary)}
+              <ArrowRight
+                className={`w-4 h-4 transition-transform duration-300 ${rtl ? "rotate-180 group-hover:-translate-x-1" : "group-hover:translate-x-1"}`}
+              />
+            </a>
+          )}
         </div>
 
       </section>
 
-      {/* ── The stage ── */}
+      {/* ── The row of work ── */}
       {/*
-        Where the drawing of the editor stood, the reference's composition now
-        stands: a hand-held phone writing a prompt, finished work sliding past
-        behind it. Osama's instruction, with the second recording: this goes at
-        the top of the landing page, and the editor drawing goes. It is a
-        sibling of the hero section rather than a child because the hero column
-        is `max-w-7xl` and the row of work runs the full width of the screen.
+        The drawn phone that stood in front of this row is gone, and what was
+        behind it is now the whole thing.
+
+        It was a picture of somebody writing a prompt — which was the right
+        idea when the prompt was the one thing this page could not actually
+        offer. The box above offers it, so a drawing of it beside a working one
+        is two prompt boxes on one screen, one of which does nothing. Osama's
+        call, and it is the same rule this repository keeps: a drawing of a
+        thing is a placeholder for the thing.
+
+        What is left is real. Every card is a finished export this product
+        made, playing, and unobstructed for the first time — the answer to the
+        question the box above has just asked somebody to think about.
       */}
-      <div className="w-full -mt-16 sm:-mt-12 animate-fade-up" style={{ animationDelay: "560ms" }}>
-        <PhoneStage
-          copy={{
-            chips: [t(LANDING.reel.chipSilence), t(LANDING.reel.chipVertical)],
-            placeholder: t(LANDING.reel.placeholder),
-            send: t(LANDING.reel.note),
-          }}
-        />
+      <div className="w-full mt-16 animate-fade-up" style={{ animationDelay: "680ms" }}>
+        <WorkRow />
       </div>
 
       {/* ── How It Works ── */}
