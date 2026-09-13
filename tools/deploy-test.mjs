@@ -1299,6 +1299,81 @@ section("What the health endpoint says about signing in");
   }
 }
 
+section("The browser's auth client is the one createClient would have built");
+{
+  /*
+    The four sub-clients this application never uses, and the one it does.
+
+    `createClient` builds postgrest, storage, realtime and functions in its
+    constructor whether or not anything touches them, and nothing here does:
+    every table read goes through our own API server, and since the read half
+    of the storage seam moved behind `POST /media/url` the browser stopped
+    touching Supabase storage too. Ninety-nine kilobytes of code that cannot
+    run, arriving before the first paint of a marketing page. So the app builds
+    `AuthClient` — which is what `createClient` builds for `.auth`, with
+    `SupabaseAuthClient` adding literally nothing — and passes the arguments
+    itself.
+
+    Which means those arguments are now ours to keep right. Two of them are
+    guarded end to end already: `storageKey` and `url`, by every browser suite
+    that plants a session and then renders a screen behind the login. The rest
+    are not guarded by anything, and two of them fail quietly:
+
+      - `flowType`. `implicit` in both libraries today. If a future `AuthClient`
+        changes its default to `pkce` and this file has stopped saying which it
+        wants, the OAuth round trip changes shape — and it changes for the
+        people signing in with Google, not for anybody running a suite.
+      - `persistSession` / `autoRefreshToken`. Lose the first and everybody is
+        signed out on reload. Lose the second and everybody is signed out an
+        hour in, which is worse, because it looks like the product logging
+        people out at random.
+
+    Read rather than executed because this module reads `import.meta.env` at
+    load and throws without a bundler. What is being checked is that the
+    decision is still written down, which is a thing a file can say.
+  */
+  const client = read("artifacts/editly/src/lib/supabase.ts");
+
+  check(
+    "it builds the auth client rather than the whole of Supabase",
+    client.includes('from "@supabase/auth-js"') && !client.includes("createClient("),
+    "createClient brings four sub-clients this application never calls",
+  );
+  for (const [option, value] of [
+    ["persistSession", "true"],
+    ["autoRefreshToken", "true"],
+    ["detectSessionInUrl", "true"],
+    ["flowType", '"implicit"'],
+  ]) {
+    check(
+      `${option} is stated, not inherited`,
+      new RegExp(`${option}:\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(client),
+      `AuthClient's own default is not necessarily createClient's`,
+    );
+  }
+  /*
+    And the session key, held against the suites that write it.
+
+    Those files derive `sb-${ref}-auth-token` themselves, and they were written
+    against `createClient` months before this change. If the app's derivation
+    drifts they go red — but they go red slowly, in a browser, at the end of the
+    run. This says it here, in a second, in the file a person is editing.
+  */
+  const suites = ["tools/end-to-end-test.mjs", "tools/viewport-test.mjs", "tools/language-test.mjs"];
+  const planted = suites.filter((f) => read(f).includes("sb-${ref}-auth-token"));
+  check(
+    "the suites that plant a session still plant it under a derived ref",
+    planted.length === suites.length,
+    `${planted.length} of ${suites.length}`,
+  );
+  check(
+    "and the app derives the same key from the same two pieces",
+    /sb-\$\{[^}]*\.hostname\.split\("\."\)\[0\]\}-auth-token|`sb-\$\{base\.hostname\.split\("\."\)\[0\]\}-auth-token`/.test(client) ||
+      (client.includes('hostname.split(".")[0]') && client.includes("-auth-token")),
+    "the key every signed-in person's session is stored under",
+  );
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);

@@ -512,10 +512,17 @@ if (process.env.E2E_TRACE_AUTH) {
 page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 200)));
 page.on("console", (m) => { if (m.type() === "error") pageErrors.push(m.text().slice(0, 200)); });
 
-// The session, under the key supabase-js will actually look for. It derives it
-// from its own URL — `sb-${hostname.split(".")[0]}-auth-token` — so hard-coding
-// the production project ref here would have written a key nothing reads, and
-// the page would have opened signed out while the check said otherwise.
+// The session, under the key the app's auth client will actually look for. It
+// derives it from its own URL — `sb-${hostname.split(".")[0]}-auth-token` — so
+// hard-coding the production project ref here would have written a key nothing
+// reads, and the page would have opened signed out while the check said
+// otherwise.
+//
+// This line is also the guard on that derivation. The app used to get the key
+// from `createClient`, which computes it; it now builds `AuthClient` directly
+// and states it, which is one more place the same arithmetic is written down.
+// The two are written in different files by different hands, so a dashboard
+// that renders here is the two of them agreeing.
 const authRef = new URL(STORAGE_ORIGIN).hostname.split(".")[0];
 await ctx.addInitScript(([ref, session]) => {
   try { localStorage.setItem(`sb-${ref}-auth-token`, session); } catch { /* private mode */ }

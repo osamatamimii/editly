@@ -227,8 +227,8 @@ export function whyNotAVideo(file: PickedFile): string {
   file printing "25.0 MB" on one side of a refusal and "25 MB" on the other is
   the small wrongness that makes a person stop believing the number at all.
 */
-export { formatBytes } from "@workspace/api-zod/uploads";
-import { formatBytes } from "@workspace/api-zod/uploads";
+export { formatBytes } from "@workspace/api-zod/bytes";
+import { formatBytes } from "@workspace/api-zod/bytes";
 import { fill, phrase, say, template, type Phrase, type Template } from "./landing-copy";
 import { storedLanguage } from "./language-routes";
 import { TRANSFER } from "./copy/transfer";

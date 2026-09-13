@@ -89,6 +89,53 @@ section("The first chunk carries the first screen, and not the whole application
     gz < ENTRY_GZIP_BUDGET_KB,
     `${gz.toFixed(0)}kB gzipped`,
   );
+  /*
+    Libraries the first screen cannot use, and must therefore not carry.
+
+    The budget above is a ceiling, and a ceiling only notices weight after it
+    has already been paid for a while. These four Supabase sub-clients and zod
+    were 185kB unpacked — a quarter of the entry — and every one of them
+    arrived the same way: through a door nobody meant to open.
+
+      - `createClient` builds postgrest, storage, realtime and functions in its
+        constructor whether or not you ever touch them, and this application
+        touches none of the four. It uses `supabase.auth`, twenty-seven times,
+        and nothing else.
+      - zod came in through `formatBytes`. The landing page imports one pure
+        eleven-line function from `@workspace/api-zod/uploads`, and that module
+        builds its schemas with top-level `z.object` calls, which a bundler is
+        not allowed to drop. One helper, 55kB.
+
+    Neither was visible. Both are the kind of thing a reasonable import adds
+    back next month, and the budget would not object for a long time because
+    removing them left it 150kB of room. So the room is guarded by name.
+
+    Strings rather than package names because what is being read is minified
+    output, where identifiers are gone and string literals are not: `phx_join`
+    is a wire-protocol event, `PostgrestError` and `StorageApiError` are what
+    those classes set `.name` to, `invalid_union_discriminator` is one of zod's
+    issue codes. None of them can be renamed by a minifier and none of them can
+    plausibly be written by hand in this application.
+  */
+  const firstLoad = (readFileSync(path.join(root, "index.html"), "utf8").match(/assets\/[^"']+\.js/g) ?? [])
+    .map((name) => path.join(root, name))
+    .filter((file) => existsSync(file));
+  const firstLoadSource = firstLoad.map((file) => readFileSync(file, "utf8")).join("\n");
+  check("the entry's own script list could be read", firstLoad.length > 0, `${firstLoad.length} files`);
+  for (const [library, literal] of [
+    ["supabase realtime", "phx_join"],
+    ["supabase postgrest", "PostgrestError"],
+    ["supabase storage", "StorageApiError"],
+    ["supabase functions", "FunctionsRelayError"],
+    ["zod", "invalid_union_discriminator"],
+  ]) {
+    check(
+      `${library} is not in the first load`,
+      !firstLoadSource.includes(literal),
+      `"${literal}" is in a file the landing page fetches before it can paint`,
+    );
+  }
+
   // The screens behind the login are the ones that made the entry chunk what it
   // was. Each has to arrive as its own file or it is back in the entry.
   for (const screen of ["dashboard", "project-editor", "export", "account", "admin", "login"]) {

@@ -36,7 +36,7 @@ import { useLocation } from "wouter";
 import { ArrowUp, Paperclip, X } from "lucide-react";
 import { ACCEPTED_VIDEO_ACCEPT, videoRejection } from "@/lib/start-from-video";
 import { whyNotAVideo } from "@/lib/video-storage";
-import { formatBytes } from "@workspace/api-zod/uploads";
+import { formatBytes } from "@workspace/api-zod/bytes";
 import { stashLandingFile } from "@/lib/pending-upload";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/lib/language";

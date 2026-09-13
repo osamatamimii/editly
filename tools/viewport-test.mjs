@@ -146,6 +146,28 @@ const FIXTURES = {
     // trust, and it makes the one contradiction worth catching look normal.
     worker: { online: true, lastSeenAt: new Date(Date.now() - 20_000).toISOString(), transcription: "whisper-1", vision: null },
   },
+  /*
+    The read half of the storage seam, which this harness stopped answering.
+
+    The browser used to mint its own playback URL through
+    `supabase.storage.createSignedUrl`, and the Supabase route
+    below answered it. It does not any more: reads go through
+    `POST /media/url`, the server signs, and nothing under `/api/**` had a
+    fixture for that path — so `readUrl` resolved to null and every screen with
+    a preview on it rendered "no video" instead of a video.
+
+    That is not a small stub to have missing. Two checks below are about the
+    *fourth* state of a preview — a file that arrived and will not decode — and
+    with no URL at all the screen never reaches that state; it shows the third.
+    The suite was not finding a product bug, it was describing a screen the
+    product does not serve.
+
+    A URL that will never decode, on purpose: the object is not real, so the
+    element gets a source, fails, and the overlay says so — which is the exact
+    state those checks exist to see, and the one a browser without an H.264
+    decoder puts a real customer in.
+  */
+  "/api/media/url": { url: "https://checksuitefixture000.supabase.co/storage/v1/object/sign/videos/stub.mp4?token=stub" },
   "/api/projects": PROJECTS,
   "/api/subscription": {
     plan: "creator", minutesIncluded: 60, minutesGranted: 0, minutesUsedThisMonth: 12.5,

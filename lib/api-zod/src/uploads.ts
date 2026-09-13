@@ -246,16 +246,12 @@ export const UploadTicket = z.object({
 export type UploadTicket = z.infer<typeof UploadTicket>;
 
 /**
- * Bytes as a person reads them.
+ * Bytes as a person reads them — kept in `./bytes`, re-exported here.
  *
- * Here rather than in the browser because the sentence that names a ceiling is
- * now written on the server, and the same file printing two different sizes on
- * the two sides of one refusal is the kind of small wrongness that makes a
- * person distrust the number entirely.
+ * The function is unchanged and this is still the name to import it by on the
+ * server. It moved out because this module builds its schemas with top-level
+ * `z.object` calls, which a bundler must keep, so importing one helper from
+ * here drags the whole of zod along. The browser now reaches for
+ * `@workspace/api-zod/bytes` and gets the eleven lines it actually wanted.
  */
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
+export { formatBytes } from "./bytes";
