@@ -556,9 +556,69 @@ section("A link can ask for English, and the page stays in it");
   await context.close();
 }
 
+section("Everything the bar used to hold is one press away");
+{
+  /*
+    The bar held four section links, a language switch and two doors. Below
+    `lg` the links were `hidden` and collapsed into nothing at all — a phone
+    could not reach Pricing. They are behind a menu at every width now, which
+    only helps if the menu is a menu: it has to open, it has to hold all of
+    them, Escape has to close it, and the page behind it must not scroll away
+    under the reader's finger.
+  */
+  const { context, page } = await open("/");
+
+  check("the bar is down to the door and the menu", (await page.locator('[data-testid="button-menu"]').count()) === 1);
+  check(
+    "and the section links are not loose in it any more",
+    (await page.locator('header a[href="#pricing"]').count()) === 0,
+  );
+  check("nothing is open before it is opened", (await page.locator('[data-testid="landing-menu"]').count()) === 0);
+
+  const menuButton = page.locator('[data-testid="button-menu"]');
+  const hit = await menuButton.boundingBox();
+  check("the three lines are big enough to press", hit.height >= 44 && hit.width >= 44, JSON.stringify(hit));
+
+  await menuButton.click();
+  await page.waitForTimeout(250);
+  check("pressing it opens the menu", (await page.locator('[data-testid="landing-menu"]').count()) === 1);
+  for (const id of ["features", "podcasts", "how-it-works", "pricing"]) {
+    check(`and ${id} is in it`, (await page.locator(`[data-testid="menu-${id}"]`).count()) === 1);
+  }
+  check(
+    "along with the way in, which the bar no longer offers",
+    (await page.locator('[data-testid="landing-menu"] [data-testid="link-log-in"]').count()) === 1,
+  );
+
+  /*
+    The page behind, held still. A drawer over a scrolling page is how somebody
+    closes the menu and finds themselves somewhere else on it.
+  */
+  const locked = await page.evaluate(() => getComputedStyle(document.documentElement).overflow);
+  check("the page behind it does not scroll", locked === "hidden", locked);
+
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(250);
+  check("escape closes it, because that is the key everybody presses", (await page.locator('[data-testid="landing-menu"]').count()) === 0);
+  const released = await page.evaluate(() => getComputedStyle(document.documentElement).overflow);
+  check("and the page can be scrolled again", released !== "hidden", released);
+  /*
+    And focus where it started. Without this, closing leaves focus on a button
+    that no longer exists, browsers resolve that to `<body>`, and the next Tab
+    starts at the top of the document — a keyboard reader silently returned to
+    the beginning of a page they had already navigated.
+  */
+  const focused = await page.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? "");
+  check("with focus back on the button that opened it", focused === "button-menu", focused || "<body>");
+
+  await context.close();
+}
+
 section("The switch switches, and is remembered");
 {
   const { context, page } = await open("/");
+  await page.locator('[data-testid="button-menu"]').click();
+  await page.waitForTimeout(250);
   const button = page.locator('[data-testid="button-language"]');
   check("there is a switch, and it is a word rather than a flag", (await button.count()) === 1);
   check(

@@ -20,6 +20,7 @@ import {
 import { useLanguage } from "@/lib/language";
 import { FeatureScroller } from "@/components/feature-scroller";
 import { LandingComposer } from "@/components/landing-composer";
+import { NavDrawer, NavMenuButton } from "@/components/landing-nav-drawer";
 
 /**
  * How long `.reveal`'s filter transition is given before the filter is dropped.
@@ -1667,6 +1668,7 @@ export default function Home() {
   const phone = usePhoneWidth();
   const [language, chooseLanguage] = useLandingLanguage();
   const { collapsed: navCollapsed, overDark: navOverDark } = useNavState();
+  const [menuOpen, setMenuOpen] = useState(false);
   useGlidingScroll();
   const rtl = language === "ar";
   const t = (phrase: Phrase) => say(phrase, language);
@@ -1958,84 +1960,17 @@ export default function Home() {
           <Logo className="w-6 h-6 sm:w-7 sm:h-7 text-brand-mark flex-shrink-0" />
           <span className="font-bold text-base sm:text-lg tracking-tight">Editly</span>
         </div>
-        {/* `lg`, not `md`.
-
-              At 768 the section links appeared and the bar had 743px of content
-              for 768px of room, so the mark — which carries `min-w-0` so it can
-              shrink — squashed, and «Editly» printed over "Features". A tablet
-              gets the mark, the language switch and the two doors; the section
-              links come back when there is room for them. */}
-          {/*
-              Near-white, not muted, and the key light is why.
-
-              These four sit in the middle of the bar, which is exactly where
-              the lamp is brightest — measured at the composited pixels, the
-              muted grey came back at 2.66:1 against the lit ground, where the
-              same labels out at the edges measure 5.15. That is a real
-              failure, not a preference: it appeared the moment the light was
-              raised to the reference's, and no token pair check can see it
-              because the ground is a gradient painted by a different element.
-
-              Only the colour changed. The bar itself is the bar it was.
-          */}
-          <nav className="hidden lg:flex items-center gap-5 lg:gap-7 text-sm font-medium text-foreground/90">
-          {/* The anchor is the section id, which is English and stays English:
-              it is a URL, and a URL that changes with the reader's language is
-              a link that breaks when it is shared. Only the label translates. */}
-          {[
-            { href: "#features", label: LANDING.nav.features },
-            { href: "#podcasts", label: LANDING.nav.podcasts },
-            { href: "#how-it-works", label: LANDING.nav.howItWorks },
-            { href: "#pricing", label: LANDING.nav.pricing },
-          ].map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              className="relative whitespace-nowrap hover:text-foreground transition-colors group"
-            >
-              {t(item.label)}
-              <span className="absolute -bottom-0.5 start-0 w-0 h-px bg-primary transition-all duration-300 group-hover:w-full" />
-            </a>
-          ))}
-        </nav>
         {/*
-          Two doors, not one.
+          Everything else is behind three lines now, at every width.
 
-          The header used to offer only "Dashboard", which is a word that means
-          nothing to someone who has never signed up and quietly implies they
-          already have an account. A first-time visitor needs to be told where
-          to start; a returning one needs a way back in that is not the same
-          button. Once signed in both are noise, so they collapse back to the
-          single destination that is actually theirs.
+          The bar held four section links, a language switch and two doors, and
+          below `lg` the links were not collapsed into anything — they were
+          `hidden`, so a phone could not reach Pricing at all. Osama's call:
+          the bar keeps the one door somebody came to press and a menu, and the
+          rest goes in the drawer. `landing-nav-drawer.tsx` is the menu; what
+          is left here is the door.
         */}
         <div className="flex items-center gap-1 sm:gap-2.5">
-          {/* The theme control is gone from this page, with the theme. It
-              lives in the app, on the screens where somebody sits long enough
-              for it to matter. */}
-          {/*
-            The language switch, and it is a word rather than a globe.
-
-            A globe icon is the international symbol for "a menu you have to
-            open to find out what is in it". There are two languages, so the
-            control says the other one in its own script: somebody who wants
-            English sees the word English, and somebody who wants Arabic sees
-            العربية. `lang` on the button is the language of its *label*, so
-            the browser reaches for the right face for those letters.
-
-            Sized to a thumb like everything else in this row, and it stands
-            down to a quieter treatment than the two buttons somebody came here
-            to press.
-          */}
-          <button
-            type="button"
-            onClick={() => chooseLanguage(rtl ? "en" : "ar")}
-            data-testid="button-language"
-            lang={rtl ? "en" : "ar"}
-            title={t(LANDING.languageToggle.title)}
-            className="px-2 sm:px-3 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-md font-medium text-sm whitespace-nowrap text-foreground/85 hover:text-foreground hover:bg-surface-1 transition-colors"
-          >
-            {t(LANDING.languageToggle.label)}
-          </button>
           {user ? (
             <Link
               href="/dashboard"
@@ -2045,28 +1980,27 @@ export default function Home() {
               {t(LANDING.header.dashboard)}
             </Link>
           ) : (
-            <>
-              <Link
-                href="/login"
-                data-testid="link-log-in"
-                className="px-2 sm:px-4 min-h-[44px] inline-flex items-center rounded-md font-medium text-sm whitespace-nowrap text-foreground/85 hover:text-foreground hover:bg-surface-1 transition-colors"
-              >
-                <span className="sm:hidden">{t(LANDING.header.logInShort)}</span>
-                <span className="hidden sm:inline">{t(LANDING.header.logIn)}</span>
-              </Link>
-              <Link
-                href="/login?mode=signup"
-                data-testid="link-sign-up"
-                className="glow-btn btn-gradient-cta text-white px-4 sm:px-6 min-h-[44px] inline-flex items-center rounded-md font-semibold text-sm sm:text-base whitespace-nowrap"
-              >
-                <span className="sm:hidden">{t(LANDING.header.signUp)}</span>
-                <span className="hidden sm:inline">{t(LANDING.header.signUpFree)}</span>
-              </Link>
-            </>
+            <Link
+              href="/login?mode=signup"
+              data-testid="link-sign-up"
+              className="glow-btn btn-gradient-cta text-white px-4 sm:px-6 min-h-[44px] inline-flex items-center rounded-md font-semibold text-sm sm:text-base whitespace-nowrap"
+            >
+              <span className="sm:hidden">{t(LANDING.header.signUp)}</span>
+              <span className="hidden sm:inline">{t(LANDING.header.signUpFree)}</span>
+            </Link>
           )}
+          <NavMenuButton open={menuOpen} onClick={() => setMenuOpen((was) => !was)} label={t(LANDING.nav.menu)} />
         </div>
         </header>
       </div>
+      <NavDrawer
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        t={t}
+        rtl={rtl}
+        chooseLanguage={chooseLanguage}
+        signedIn={Boolean(user)}
+      />
 
       {/* ── Hero ── */}
       <section
@@ -2200,7 +2134,7 @@ export default function Home() {
             <Link
               href="/dashboard"
               data-testid="link-hero-cta"
-              className="group inline-flex items-center gap-2 text-base font-medium text-foreground/80 hover:text-foreground transition-colors"
+              className="group inline-flex items-center gap-2 min-h-[44px] px-3 text-base font-medium text-foreground/80 hover:text-foreground transition-colors"
             >
               {t(LANDING.hero.ctaSignedIn)}
               <ArrowRight
@@ -2211,7 +2145,11 @@ export default function Home() {
             <a
               href="#how-it-works"
               data-testid="link-hero-secondary"
-              className="group inline-flex items-center gap-2 text-base font-medium text-muted-foreground hover:text-foreground transition-colors"
+              /* A thumb's width, even as a quiet link. It stopped being a
+                 button when the box replaced the pair of them, and it kept the
+                 button's job — `viewport-test` measured it at 24px tall, which
+                 is a link a finger misses. */
+              className="group inline-flex items-center gap-2 min-h-[44px] px-3 text-base font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
               {t(LANDING.hero.secondary)}
               <ArrowRight

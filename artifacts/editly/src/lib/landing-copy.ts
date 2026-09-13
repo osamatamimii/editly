@@ -114,6 +114,17 @@ export const LANDING = {
     podcasts: p("البودكاست", "Podcasts"),
     howItWorks: p("كيف يعمل", "How it works"),
     pricing: p("الأسعار", "Pricing"),
+    /*
+      The drawer's own two words.
+
+      The bar used to hold these four links, the language switch and two doors
+      — seven things arguing with each other and with the box under the
+      headline, which is the one thing the page now asks anybody to do. They
+      are behind a menu at every width now, rather than merely `hidden` below
+      `lg`, which is what they were: a phone could not reach Pricing at all.
+    */
+    menu: p("القائمة", "Menu"),
+    close: p("إغلاق", "Close"),
   },
 
   header: {
