@@ -2081,15 +2081,29 @@ export default function Home() {
           screen's worth of nothing beneath them. Osama asked for them in the
           middle, which is also where a first screen wants its one action.
 
-          `min-h` and centring rather than more padding: padding is a number
+          `min-h` and centring rather than a fixed offset: an offset is a number
           that is right on one screen height and wrong on every other, and this
           page is read on a phone as often as on a laptop. `100svh` is the
           *small* viewport height — the one that accounts for a mobile
           browser's address bar being visible — so the box is above the fold on
           a phone at rest rather than under the chrome. The header is fixed and
           overlays this, so its height comes back as top padding.
+
+          The padding is deliberately lopsided, and that is what puts the group
+          *above* the middle rather than on it. Flex centring centres the whole
+          content box, and the content box has a fourth thing in it — the quiet
+          link under the box — so a symmetric pair of paddings put the three
+          that matter at 59% of the screen: measurably low, which is what Osama
+          was looking at when he said they were not up yet. A bottom padding
+          far larger than the top one moves the centre up by half the
+          difference, and it does it as a proportion of the screen rather than
+          as a number of pixels, so it holds at 800px tall and at 932.
+
+          On a screen too short to hold all of it, `min-h` is a minimum and the
+          section simply grows: the content starts under the header and scrolls,
+          which is the right answer and the reason this is not a transform.
         */
-        className="relative w-full max-w-7xl mx-auto px-6 pt-28 pb-20 min-h-[100svh] flex flex-col items-center justify-center text-center overflow-hidden"
+        className="relative w-full max-w-7xl mx-auto px-6 pt-24 pb-80 min-h-[100svh] flex flex-col items-center justify-center text-center overflow-hidden"
       >
         {/* The orbs and the thirty floating dots that used to be here are gone.
             Two 1000px blurred purple circles drifting behind the headline, with
