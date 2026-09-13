@@ -16,8 +16,8 @@
     "@workspace/object-store": "workspace:*",
     "@workspace/secrets": "workspace:*",
     "drizzle-orm": "catalog:",
-    "pino": "^9",
-    "playwright-core": "^1.62.1"
+    "pino": "^10",
+    "playwright-core": "^1.63.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",
