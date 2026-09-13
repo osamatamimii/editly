@@ -73,6 +73,7 @@ function build(source, name) {
 }
 
 const copy = await import(build("artifacts/editly/src/lib/landing-copy.ts", "copy.mjs"));
+const suggestions = await import(build("artifacts/editly/src/lib/first-run.ts", "first-run.mjs"));
 const pricing = await import(build("artifacts/editly/src/lib/pricing.ts", "pricing.mjs"));
 const planLimits = await import(build("artifacts/api-server/src/lib/plan-limits.ts", "limits.mjs"));
 
@@ -385,18 +386,46 @@ section("The page opens in Arabic, and it opens the right way round");
     disappeared: a placeholder is a piece of copy that lives inside an
     attribute, which is exactly where a translation pass forgets to look.
   */
-  const placeholder = await page.evaluate(() =>
-    document.querySelector('[data-testid="input-landing-ask"]')?.getAttribute("placeholder") ?? "",
+  /*
+    The box writes its examples rather than holding one, so the check is about
+    where the words come from rather than about one string.
+
+    Two properties, and the second is the one that matters. It has to be
+    *changing* — that is the feature. And every state it passes through has to
+    be the beginning of a sentence from `SUGGESTIONS`, in this page's language:
+    those are the sentences `onboarding-test` runs through the real keyword
+    parser on every build, and a placeholder invented for the front page is a
+    promise nothing checks. The failure that would make is the worst this
+    product has — the first thing a new person asks for coming back refused, in
+    the words the home page put in their mouth.
+  */
+  const readPlaceholder = () =>
+    page.evaluate(() =>
+      document.querySelector('[data-testid="input-landing-ask"]')?.getAttribute("placeholder") ?? "",
+    );
+  const samples = [];
+  for (let i = 0; i < 12; i += 1) {
+    samples.push(await readPlaceholder());
+    await page.waitForTimeout(220);
+  }
+
+  const arabicExamples = suggestions.SUGGESTIONS.map((one) => one.sentence.ar);
+  const isPrefix = (seen) => seen === "" || arabicExamples.some((full) => full.startsWith(seen));
+
+  check(
+    "the box writes its examples rather than holding one still",
+    new Set(samples).size > 2,
+    `saw ${new Set(samples).size} distinct states: ${JSON.stringify(samples.slice(0, 4))}`,
   );
   check(
-    "the box in the hero asks in Arabic too",
-    placeholder === say(copy.LANDING.hero.composerPlaceholder, "ar"),
-    `a placeholder lives in an attribute, which is where a translation pass forgets to look — got ${JSON.stringify(placeholder)}`,
+    "every word it writes is Arabic on the Arabic page",
+    samples.some((seen) => seen.length > 0) && samples.every(isPrefix),
+    `the first sentence a new person sends is this one — ${JSON.stringify(samples.find((seen) => !isPrefix(seen)) ?? "")}`,
   );
   check(
-    "and the sentence under it that says nothing is charged",
-    text.includes(say(copy.LANDING.hero.composerNote, "ar")),
-    "the two questions somebody has with a finger over a file picker",
+    "and they are the sentences the parser is held to, not copy written for this page",
+    arabicExamples.length >= 4 && arabicExamples.every((one) => one.trim().length > 0),
+    JSON.stringify(arabicExamples.slice(0, 2)),
   );
 
   // A phone is where this page is read, and a right-to-left layout is a
@@ -646,6 +675,83 @@ section("No straight seam crosses the page");
     seams.map((s) => `y=${s.y} step=${s.held}`).join(", "),
   );
   await context.close();
+}
+
+section("The box writes Arabic a letter at a time without breaking it");
+{
+  /*
+    The one way this feature fails silently, and it fails only in Arabic.
+
+    An Arabic mark — a shadda, a tanween, a sukun — is its own code point
+    sitting on the letter before it. Cut a sentence between the two and the
+    mark is rendered alone, on a dotted circle, because that is what a
+    combining mark with nothing to combine with looks like.
+
+    It would be one frame. One frame of every cycle of every visit, on the
+    first thing a new person sees, in the language this product was built for
+    first — and invisible to anybody reading the code or glancing at the page.
+    Nothing but a test catches a wrong frame.
+  */
+  const typed = await import(build("artifacts/editly/src/lib/typed-placeholder.ts", "typed.mjs"));
+
+  const marked = "اقصّ الصمت";
+  const letters = typed.graphemes(marked);
+  check("a sentence comes apart into letters", letters.length > 0 && letters.join("") === marked, JSON.stringify(letters));
+  check(
+    "and a shadda stays on the letter it sits on",
+    letters.every((piece) => !/^[\u064B-\u0652\u0670]/.test(piece)),
+    `a mark on its own renders on a dotted circle — ${JSON.stringify(letters)}`,
+  );
+
+  /*
+    Every state the box passes through, walked without a clock.
+
+    `nextStep` is pure precisely so this can be done: the whole cycle of every
+    sentence, typed and erased, checked for a frame that starts with a mark.
+  */
+  const sentences = suggestions.SUGGESTIONS.map((one) => one.sentence.ar);
+  let at = typed.FIRST_STEP;
+  const seen = [];
+  for (let i = 0; i < 4000; i += 1) {
+    const step = typed.nextStep(sentences, at);
+    at = step.at;
+    seen.push(step.text);
+  }
+  /*
+    The property that actually separates the two ways of cutting, which is not
+    the one I first wrote.
+
+    A slice taken from the start can never show a mark without its letter —
+    the letter comes first in the string, so it is always already there. What a
+    code-point cut *does* produce is a frame where the letter is drawn bare and
+    the mark lands on it one frame later: "شد" then "شدّ", a shadda popping onto
+    a letter that was already sitting there. Cutting on graphemes means the
+    letter and its mark arrive together, so no two consecutive frames ever
+    differ by a mark alone.
+
+    The first version of this check looked for an orphaned mark and could not
+    fail, which is the thing this repository keeps catching itself doing.
+  */
+  const popped = seen.find((frame, i) => {
+    const before = seen[i - 1];
+    if (before === undefined || frame.length !== before.length + 1) return false;
+    return frame.startsWith(before) && /[\u064B-\u0652\u0670]/.test(frame.slice(before.length));
+  });
+  check(
+    "a letter and its mark arrive in the same frame, never one after the other",
+    popped === undefined,
+    `a shadda landing on a letter already drawn — ${JSON.stringify(popped ?? "")}`,
+  );
+  check(
+    "and every frame is the beginning of a sentence the parser is held to",
+    seen.every((frame) => frame === "" || sentences.some((full) => full.startsWith(frame))),
+    JSON.stringify(seen.find((frame) => frame !== "" && !sentences.some((full) => full.startsWith(frame))) ?? ""),
+  );
+  check(
+    "the walk reaches every sentence rather than looping on the first",
+    sentences.every((full) => seen.includes(full)),
+    `${sentences.filter((full) => !seen.includes(full)).length} never written out`,
+  );
 }
 
 section("The box in the hero carries the request through sign-up");

@@ -2551,7 +2551,6 @@ html[data-page-theme="light"] body {
     apologise for. A mask takes the cards' own alpha to nothing, so there is
     nothing drawn to have an edge.
   */
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
   mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
   /* The track is twice the row of cards and far wider than any screen. The
      clip lives here, on the strip that owns the overflow, rather than on the
@@ -2711,10 +2710,7 @@ html[data-page-theme="light"] body {
 }
 
 
-@keyframes star-twinkle {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
-}
+
 /* The bottom fifth of the sky box, fading whatever the sky painted into the
    page's own ground so the box's edge never shows as a line. Uses the
    background token, so it lands correctly in both themes. */
@@ -2729,13 +2725,8 @@ html[data-page-theme="light"] body {
   background: linear-gradient(180deg, transparent, hsl(var(--background)));
 }
 
-.star-layer {
-  animation-name: star-twinkle;
-  animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
-  animation-iteration-count: infinite;
-}
+
 @media (prefers-reduced-motion: reduce) {
-  .star-layer { animation: none; opacity: 0.85; }
 }
 
 /*

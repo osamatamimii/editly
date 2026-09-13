@@ -132,11 +132,6 @@ export const LANDING = {
   },
 
   hero: {
-    /* The badge at the head of the announcement pill. Latin "Beta" is a word
-       Arabic speakers use, but «تجريبي» is the one they *say*, and this page
-       is written rather than translated. */
-    badgeTag: p("تجريبي", "Beta"),
-    badge: p("تعرّف على نوح. قل له ما تريد", "Meet Noah. Tell him what you want"),
     // Two lines, and the second one is set differently: an italic serif in
     // English, and weight in Arabic, because Arabic has no italic. See
     // `.headline-serif` in index.css.
@@ -188,17 +183,6 @@ export const LANDING = {
     composerSend: p("ابدأ", "Start"),
     composerRemoveFile: p("أزل الملف", "Remove the file"),
     composerNotVideo: p("لا يمكننا استخدام هذا الملف", "We cannot use that file"),
-    /*
-     * The two questions somebody has with a finger over a file picker on a
-     * site they met a minute ago, answered before they ask: is this going to
-     * cost me, and are you taking my file right now. Both answers are no, and
-     * the second one is literally true — the file is chosen here and not one
-     * byte leaves until there is an account and a project for it to go to.
-     */
-    composerNote: p(
-      "مجانًا، وبلا بطاقة. الملف ما بيتحرّك من جهازك لحدّ ما تفتح حسابك.",
-      "Free, no card. Your file does not leave this device until you have an account.",
-    ),
     caption: p(
       "تعديل حقيقي واحد: 12.3 ثانية دخلت و6.5 خرجت. كل رقم هنا خرج من الرندر نفسه.",
       "One real edit: 12.3 seconds in, 6.5 out. Every number here is one the renderer produced.",

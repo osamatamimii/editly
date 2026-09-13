@@ -76,193 +76,26 @@ function usePhoneWidth(): boolean {
  * the landing page was asked again. The preference belongs to the person, not
  * to the page.
  */
-/**
- * The dust the key light falls through, and the only thing on this page that
- * follows the cursor.
- *
- * Two layers rather than one, because a single field sliding as a sheet reads
- * as a bug rather than as depth. The near layer moves about twice as far as
- * the far one, which is the whole illusion: nothing else about them differs
- * enough to notice.
- *
- * Deliberately small. Fourteen pixels at the extremes of a 1440-wide window is
- * a drift you feel and cannot point at, which is what was asked for — "خفيف مش
- * أوفر". A field that tracks the pointer one-to-one is a toy.
- *
- * The cost is two `transform`s on two elements that never repaint: the dots
- * are a `background-image`, not DOM, so there is nothing to lay out and
- * nothing to composite but the two layers themselves. `speed-test` exists
- * because eighteen blurred elements once cost 141 janky frames out of 150, and
- * this is the shape that does not do that.
- */
-const STAR_SEED = 0x5eed;
-
 /*
- * The fade is baked into the dots, not painted as a mask over them.
+ * The sky is gone, at Osama's instruction.
  *
- * Two full-viewport `mask-image` layers cost more than everything else in the
- * hero put together: a screenshot of this section took 26 seconds on a
- * software rasteriser against 2 to 4 for every other section of the page. A
- * mask is a separate compositing pass over the whole layer; a dimmer dot is
- * free. Same sky, one pass.
+ * Three seeded star fields drifted behind the hero on three phases, and a
+ * great deal of this file used to be about them: how many dots read as a sky
+ * rather than a scatter, why the fade is baked into each dot instead of
+ * painted as a mask over the layer, why the radius has a floor (it shipped at
+ * 0.85px once, which renders as nothing, and he was the one who noticed the
+ * stars were not there).
+ *
+ * They were dust in the key light — atmosphere, and atmosphere is the first
+ * thing to go when the page gains something to actually do. The hero now opens
+ * with a box somebody types into, and a field of moving dots behind a text
+ * input is competition for the one thing on the page that matters.
+ *
+ * The key light stays: it is what the navy ground is lit by, and it is not
+ * decoration in the way the dots were.
+ *
+ * `git log` has the fields, the drift and the arithmetic behind both.
  */
-function starField(count: number, size: number): string {
-  // A seeded PRNG, so the sky is the same sky on every render and every build.
-  // A field that reshuffles on hot reload is impossible to judge.
-  let seed = STAR_SEED + count;
-  const random = () => {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    return seed / 0x100000000;
-  };
-  const dots: string[] = [];
-  for (let i = 0; i < count; i += 1) {
-    const x = (random() * 100).toFixed(2);
-    /* Only where the light is, and weighted towards it. A uniform draw over
-       the band puts as many stars along its bottom edge as under the lamp,
-       which reads as a rectangle of stars ending in a line; squaring the draw
-       crowds them upwards, so the field thins out instead of stopping. */
-    const yAt = 66 * random() ** 1.5;
-    const y = yAt.toFixed(2);
-    // Most of them are barely there, and they fade with distance from the
-    // light. A sky of equally bright dots is a pattern; the variation is what
-    // makes it read as depth.
-    /* The fade never reaches zero. At `1 - (y/62)^1.6` the lower two thirds of
-       the field were multiplied to nothing, so a count of thirty was really a
-       count of about twelve. */
-    const fade = 0.35 + 0.65 * Math.max(0, 1 - (yAt / 66) ** 1.3);
-    /*
-     * Mostly faint, a few bright, and that distribution is the whole
-     * difference between a sky and a scatter of identical dots. Measured off
-     * the reference: an ordinary star peaks at 24 against a ground of 8, and
-     * the brightest one found peaks at 123 against 11 — alphas of 0.065 and
-     * 0.46. An even draw between those two gives a field where every star is
-     * the same star, which is what "soft" was asking to be rid of. Squaring
-     * the draw puts most of them near the floor.
-     */
-    const alpha = ((0.055 + 0.42 * random() ** 2.4) * fade).toFixed(3);
-    /*
-     * A dot needs a core, and this is the whole reason the first sky was
-     * invisible on the deployed site.
-     *
-     * `radial-gradient(circle Rpx, white α 0%, transparent 100%)` puts α at the
-     * exact centre and nothing at R, so the alpha the screen actually gets is
-     * the average over the pixels the circle covers — a fraction of α. At the
-     * radius this shipped with, 0.85px, that fraction is most of the way to
-     * zero and the star is a rounding error. Measured on the built page:
-     * `radial-gradient(0.85px at 66.56% 11.9%, rgba(255,255,255,0.4) …)`, which
-     * renders as nothing at all. Osama looked at the live hero and said the
-     * stars were not there, and they were not.
-     *
-     * So: a real radius, and a stop that holds the colour across the middle of
-     * it before the falloff starts. Same one pass, a dot you can see.
-     */
-    /*
-     * A core and then a halo, which is what the reference's stars are: a two
-     * pixel centre at full value, a ring around it at about a quarter of it,
-     * and ground by four pixels out. A single stop from the centre is a hard
-     * disc; this is the soft one Osama asked for, and it is the same one pass.
-     */
-    const r = (size * (0.78 + random() * 0.6)).toFixed(2);
-    const halo = (Number(alpha) * 0.24).toFixed(3);
-    dots.push(
-      `radial-gradient(circle ${r}px at ${x}% ${y}%, rgba(255,255,255,${alpha}) 0%, rgba(255,255,255,${alpha}) 42%, rgba(255,255,255,${halo}) 68%, rgba(255,255,255,0) 100%)`,
-    );
-  }
-  return dots.join(", ");
-}
-
-/** How far the pointer moves each layer, in pixels, at the edges of the window. */
-const STAR_DRIFT = [6, 11, 16];
-
-/* Built once at module load. A field rebuilt on every render is a string of a
-   hundred gradients concatenated sixty times a second while the pointer moves. */
-/*
- * Few, and that is a measurement rather than a taste.
- *
- * The first version had ninety and forty-six. A `background-image` of a
- * hundred and thirty-six radial gradients across two full-viewport layers has
- * to be rasterised whole every time either one is promoted, and it was slow
- * enough that a screenshot of the page timed out on a software rasteriser
- * before it ever reached a user's machine. `speed-test` exists because
- * eighteen blurred elements once cost 141 janky frames out of 150; this is the
- * same lesson arriving from the other direction.
- *
- * The reference has perhaps twenty visible. Thirty and fourteen is more sky
- * than it has, and it paints.
- */
-/*
- * Three fields rather than one, and the reason is the twinkle.
- *
- * A star field is one `background-image`, so its dots cannot be animated
- * apart — pulse the layer and the whole sky breathes at once, which is not
- * what a sky does. Split across three layers on different periods and
- * different phases, a third of the stars are brightening while another third
- * dims, and the eye reads that as individual stars twinkling. It costs two
- * extra composited layers and nothing per frame: opacity is the one property
- * the compositor animates without touching paint.
- */
-const FAR_STARS = starField(38, 2.0);
-const MID_STARS = starField(24, 2.4);
-const NEAR_STARS = starField(16, 2.9);
-
-/*
- * The sky follows the pointer through two CSS variables, and never through
- * React state.
- *
- * The first version held the position in `useState` and set it every frame.
- * That is the ordinary way to write this hook and on this page it was a
- * disaster: `Home` is the entire landing page, so moving the mouse re-rendered
- * every section, every card and every SVG sixty times a second. It shipped,
- * and the site was reported slow within minutes of the deploy — by the person
- * who asked for the effect.
- *
- * Nothing about the effect needed React. It is two numbers that only ever
- * reach a `transform`, so they are written straight onto the document element
- * as custom properties and the two star layers read them in `calc()`. The
- * frame loop now touches no component at all: one style write, and the
- * compositor moves two already-painted layers.
- *
- * The lesson generalises — anything animating at frame rate that ends up in a
- * transform, an opacity or a colour belongs in a custom property, not in
- * state.
- */
-function useStarDrift(): void {
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    // Coarse pointers have no cursor to follow, and a field that jumps to
-    // wherever a finger last touched is worse than one that sits still.
-    if (window.matchMedia?.("(pointer: coarse)").matches) return;
-
-    const root = document.documentElement;
-    let frame = 0;
-    let target = { x: 0, y: 0 };
-    let current = { x: 0, y: 0 };
-    const onMove = (event: PointerEvent) => {
-      target = {
-        x: (event.clientX / window.innerWidth) * 2 - 1,
-        y: (event.clientY / window.innerHeight) * 2 - 1,
-      };
-      if (frame === 0) frame = requestAnimationFrame(step);
-    };
-    // Eased rather than followed. The pointer arrives in jumps of whatever the
-    // mouse reported; the sky should not.
-    const step = () => {
-      current = { x: current.x + (target.x - current.x) * 0.06, y: current.y + (target.y - current.y) * 0.06 };
-      root.style.setProperty("--drift-x", current.x.toFixed(4));
-      root.style.setProperty("--drift-y", current.y.toFixed(4));
-      const settled = Math.abs(target.x - current.x) < 0.001 && Math.abs(target.y - current.y) < 0.001;
-      frame = settled ? 0 : requestAnimationFrame(step);
-    };
-    window.addEventListener("pointermove", onMove, { passive: true });
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      if (frame) cancelAnimationFrame(frame);
-      root.style.removeProperty("--drift-x");
-      root.style.removeProperty("--drift-y");
-    };
-  }, []);
-}
 
 /**
  * The glide: the page keeps moving after the wheel stops, and eases into rest.
@@ -1834,7 +1667,6 @@ export default function Home() {
   const phone = usePhoneWidth();
   const [language, chooseLanguage] = useLandingLanguage();
   const { collapsed: navCollapsed, overDark: navOverDark } = useNavState();
-  useStarDrift();
   useGlidingScroll();
   const rtl = language === "ar";
   const t = (phrase: Phrase) => say(phrase, language);
@@ -2076,32 +1908,6 @@ export default function Home() {
           its brightest, which no alpha of #4EA0EC can reach.
         */}
         <div className="key-light" />
-        {/* The dust in the light, and only where the light is. */}
-        {([
-          ["star-far", FAR_STARS, STAR_DRIFT[0]!, "7.5s", "0s"],
-          ["star-mid", MID_STARS, STAR_DRIFT[1]!, "5.5s", "-2.4s"],
-          ["star-near", NEAR_STARS, STAR_DRIFT[2]!, "9s", "-4.1s"],
-        ] as const).map(([id, field, travel, period, phase]) => (
-          <div
-            key={id}
-            aria-hidden="true"
-            data-testid={id}
-            className="star-layer"
-            style={{
-              position: "absolute", inset: "-3%",
-              backgroundImage: field,
-              transform: `translate3d(calc(var(--drift-x, 0) * ${-travel}px), calc(var(--drift-y, 0) * ${-travel}px), 0)`,
-              /* No `will-change`. Three full-viewport layers hinted for two
-                 properties are three layers the compositor holds for the life
-                 of the page — the exact cost `speed-test` was written after,
-                 and it took the hero's raster past this repo's own screenshot
-                 timeout. The opacity animation promotes them while it runs,
-                 which is all that was wanted. */
-              animationDuration: period,
-              animationDelay: phase,
-            }}
-          />
-        ))}
         {/* The grid that used to be here is gone. It was meant to read as
             architecture the light falls across and it read as a grid — Osama
             saw squares, which is what it was. */}
@@ -2265,7 +2071,25 @@ export default function Home() {
       {/* ── Hero ── */}
       <section
         ref={heroRef}
-        className="relative w-full max-w-7xl mx-auto px-6 pt-20 pb-32 flex flex-col items-center text-center overflow-hidden"
+        /*
+          Centred on the first screen rather than hung from the top.
+
+          The hero used to start under a fixed `pt-20` and run to `pb-32`, with
+          a pill above the headline. The pill is gone and the box arrived, and
+          between them the three things that matter — the headline, the line
+          under it and the box somebody types into — were sitting high with a
+          screen's worth of nothing beneath them. Osama asked for them in the
+          middle, which is also where a first screen wants its one action.
+
+          `min-h` and centring rather than more padding: padding is a number
+          that is right on one screen height and wrong on every other, and this
+          page is read on a phone as often as on a laptop. `100svh` is the
+          *small* viewport height — the one that accounts for a mobile
+          browser's address bar being visible — so the box is above the fold on
+          a phone at rest rather than under the chrome. The header is fixed and
+          overlays this, so its height comes back as top padding.
+        */
+        className="relative w-full max-w-7xl mx-auto px-6 pt-28 pb-20 min-h-[100svh] flex flex-col items-center justify-center text-center overflow-hidden"
       >
         {/* The orbs and the thirty floating dots that used to be here are gone.
             Two 1000px blurred purple circles drifting behind the headline, with
@@ -2275,45 +2099,26 @@ export default function Home() {
             that is left belongs to things that mean something: the text
             arriving, the mock working, the timeline running. */}
 
-        {/* Badge */}
         {/*
-          The announcement pill, rebuilt against the reference Osama sent.
+          The announcement pill is gone, at Osama's instruction.
 
-          Three things separate that pill from ours, and none of them is the
-          text. It leads with a **tag** — a small filled capsule in the action
-          colour, so the eye lands on "there is news" before it starts reading
-          the news. It has **no border**: it is held off the page by a shadow,
-          the same way every other surface in this system is. And it is
-          **taller than its text**, with the tag insetting into the padding, so
-          the pill reads as a container rather than as a line of text with
-          rounded ends.
+          It carried a "Beta" tag and the line that introduced Noah — "Meet
+          Noah. Tell him what you want" — and it was the first thing on the
+          page, above the headline. Two reasons it does not survive the box:
+          the headline already tells somebody to describe rather than edit and
+          the box under it is where they do, so a pill saying the same thing in
+          other words is a third voice before the first one has finished; and
+          "Beta" at the top of a page is a hedge, read by a stranger as a
+          warning rather than as modesty.
 
-          What does not change is what it says. Noah is the thing this pill
-          exists to introduce.
+          Noah is not gone from the page — the conversation section and the
+          feature scroller both name him, and he is the product's own voice
+          throughout. What is gone is his introduction *above* the headline.
         */}
-        <div
-          className="inline-flex items-center gap-2 ps-1.5 pe-4 py-1.5 rounded-full bg-surface-1 border border-hairline-faint mb-8 backdrop-blur-md animate-fade-up shadow-[0_1px_2px_rgba(8,4,24,0.10),0_10px_28px_-14px_rgba(8,4,24,0.45)]"
-          style={{ animationDelay: "100ms" }}
-        >
-          <span
-            data-testid="badge-beta"
-            className="inline-flex items-center rounded-full bg-cta text-cta-foreground px-2.5 h-6 text-xs font-bold tracking-tight shadow-[0_1px_1px_color-mix(in_srgb,black_30%,hsl(var(--cta-bloom))),0_4px_12px_-4px_color-mix(in_srgb,hsl(var(--cta-bloom))_60%,transparent)]"
-          >
-            {t(LANDING.hero.badgeTag)}
-          </span>
-          <Sparkles className="w-4 h-4 text-secondary animate-sparkle" />
-          {/* Introduces the person the headline tells you to describe to, and
-              claims nothing we have not built: no version number, nothing that
-              reads as "we shipped a model". The result is one line further down,
-              where it has room to be specific. */}
-          <span className="text-sm font-medium text-foreground/80">{t(LANDING.hero.badge)}</span>
-          <span className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]"
-            style={{ animation: "glow-pulse 2s ease-in-out infinite" }} />
-        </div>
 
         {/* Headline */}
         <h1
-          className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 max-w-4xl leading-[1.1] animate-fade-up"
+          className="text-5xl md:text-7xl font-extrabold tracking-tight mb-5 max-w-4xl leading-[1.1] animate-fade-up"
           style={{ animationDelay: "200ms" }}
         >
           {/* Two voices, not one word in a different colour.
@@ -2340,7 +2145,7 @@ export default function Home() {
 
         {/* Subtext */}
         <p
-          className="text-lg md:text-xl text-muted-foreground mb-12 max-w-2xl animate-fade-up"
+          className="text-lg md:text-xl text-muted-foreground mb-9 max-w-2xl animate-fade-up"
           style={{ animationDelay: "320ms" }}
         >
           {t(LANDING.hero.subtext)}

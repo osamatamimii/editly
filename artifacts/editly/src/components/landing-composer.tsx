@@ -31,7 +31,7 @@
  * going to ask for with the request already written in the box. The failure
  * mode is the product's own normal path, one click longer.
  */
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { ArrowUp, Paperclip, X } from "lucide-react";
 import { ACCEPTED_VIDEO_ACCEPT, videoRejection } from "@/lib/start-from-video";
@@ -41,14 +41,40 @@ import { stashLandingFile } from "@/lib/pending-upload";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/lib/language";
 import { LANDING } from "@/lib/landing-copy";
+import { SUGGESTIONS } from "@/lib/first-run";
+import { useTypedPlaceholder } from "@/lib/typed-placeholder";
 
 export function LandingComposer({ signedIn }: { signedIn: boolean }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const picker = useRef<HTMLInputElement | null>(null);
   const [sentence, setSentence] = useState("");
   const [file, setFile] = useState<File | null>(null);
+
+  /*
+    The box writes its own examples, and they are the checked ones.
+
+    A single placeholder teaches one thing, and the claim this page makes is
+    that a sentence is the interface — so it shows four of them being written
+    in the box somebody is about to type into.
+
+    `SUGGESTIONS` rather than copy invented here, and that is the whole design:
+    every one of those sentences is run through the real keyword parser by
+    `onboarding-test`, in both languages, on every build. An example written
+    for the front page is a promise nothing checks, and the failure it makes is
+    the worst this product has — the first thing a new person asks for coming
+    back refused, in the words the home page put in their mouth.
+
+    It stops the moment there is anything in the box: the placeholder is not
+    drawn then, and a timer running for somebody who is busy typing is work
+    nobody asked for.
+  */
+  const examples = useMemo(
+    () => SUGGESTIONS.map((suggestion) => suggestion.sentence[language === "ar" ? "ar" : "en"]),
+    [language],
+  );
+  const placeholder = useTypedPlaceholder(examples, sentence.length === 0);
 
   /*
     The same door as everywhere else.
@@ -125,7 +151,7 @@ export function LandingComposer({ signedIn }: { signedIn: boolean }) {
             }
           }}
           rows={2}
-          placeholder={t(LANDING.hero.composerPlaceholder)}
+          placeholder={placeholder}
           className="w-full resize-none bg-transparent px-3 pt-2 pb-1 text-base md:text-lg text-foreground placeholder:text-muted-foreground/70 focus:outline-none text-start"
         />
 
@@ -186,10 +212,16 @@ export function LandingComposer({ signedIn }: { signedIn: boolean }) {
         </div>
       </div>
 
-      {/* What the box will not say for itself: nothing is charged, and nothing
-          leaves this page yet. Both are the questions somebody has with their
-          finger over a file picker on a site they met a minute ago. */}
-      <p className="mt-3 text-sm text-muted-foreground">{t(LANDING.hero.composerNote)}</p>
+      {/*
+        The line under the box — "free, no card; your file does not leave this
+        device until you have an account" — is gone at Osama's instruction.
+
+        It answered the two questions somebody has with a finger over a file
+        picker on a site they met a minute ago. Both answers are still true and
+        neither is now written anywhere on this page. Worth knowing rather than
+        worth arguing: the fear it addressed does not disappear with the
+        sentence.
+      */}
     </div>
   );
 }

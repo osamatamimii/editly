@@ -206,74 +206,22 @@ section("Nothing on the page is filtered once it has finished animating");
 }
 
 /*
- * The cost that does not show up as a filter, a byte or a blur: a component
- * that re-renders at frame rate.
+ * The section that stood here measured the star field: three seeded layers
+ * drifting behind the hero, and the rule they were an example of — anything
+ * that moves every frame belongs in a custom property, where the compositor
+ * reads it without waking React. The first version held the drift in
+ * `useState` and re-rendered the entire landing page sixty times a second; it
+ * shipped, and the site was reported slow within minutes.
  *
- * The pointer-following star field was written the ordinary way — position in
- * `useState`, set every frame — and `Home` is the whole landing page, so
- * moving the mouse re-rendered every section sixty times a second. It shipped,
- * and the site was reported slow within minutes. Nothing measured here caught
- * it, because the page's weight, its blurs and its scroll frames were all
- * unchanged.
+ * The stars are gone at Osama's instruction and nothing else on the page
+ * drifts, so the check has nothing left to fail on. It is removed rather than
+ * kept green over an empty page: a check that cannot fail is the thing this
+ * repository keeps finding in itself.
  *
- * Counting React renders from outside is not something a page will tell you.
- * What it will tell you is *where the number lives*: a value that reaches only
- * a transform belongs in a custom property, where the compositor can read it
- * without waking the framework. So the check is that the moving layers are
- * driven by one, and it fails the moment somebody puts the number back into a
- * template string.
+ * The rule is not gone. If anything on this page ever animates at frame rate
+ * again, `git log` has the measurement and the shape of the check.
  */
-section("Anything that moves every frame moves without re-rendering the page");
-{
-  const drift = await page.evaluate(() =>
-    ["star-far", "star-near"].map((id) => {
-      const e = document.querySelector(`[data-testid="${id}"]`);
-      return { id, found: !!e, transform: e?.getAttribute("style")?.match(/transform:[^;]*/)?.[0] ?? "" };
-    }),
-  );
-  check("the drifting layers are on the page at all", drift.every((d) => d.found), JSON.stringify(drift));
-  /*
-   * And that they can be seen. The field shipped once with a 0.85px gradient
-   * radius, which is a sub-pixel smudge: present in the DOM, present in the
-   * computed style, invisible on the screen, and reported by the person who
-   * asked for it. A count and a floor on the radius is the cheapest thing that
-   * would have caught it.
-   */
-  const sky = await page.evaluate(() => {
-    const read = (id) => {
-      const e = document.querySelector(`[data-testid="${id}"]`);
-      const bg = e ? getComputedStyle(e).backgroundImage : "";
-      const radii = [...bg.matchAll(/radial-gradient\(([\d.]+)px/g)].map((m) => Number(m[1]));
-      return { id, dots: radii.length, smallest: radii.length ? Math.min(...radii) : 0 };
-    };
-    return [...document.querySelectorAll(".star-layer")].map((e) => read(e.dataset.testid));
-  });
-  const MIN_STAR_PX = 1;
-  const MIN_STARS = 60;
-  // Counted across the layers, not within one: the field is split three ways
-  // so the twinkle can run on three phases, and how it is split is a
-  // rendering decision, not a promise about how many stars there are.
-  const total = sky.reduce((n, layer) => n + layer.dots, 0);
-  check(
-    "there are enough dots across the layers to read as a sky",
-    total >= MIN_STARS,
-    `${total} dots in ${sky.length} layers`,
-  );
-  for (const layer of sky) {
-    check(
-      `${layer.id}'s faintest dot is at least ${MIN_STAR_PX}px, so it renders at all`,
-      layer.smallest >= MIN_STAR_PX,
-      `smallest radius ${layer.smallest}px`,
-    );
-  }
-  for (const layer of drift) {
-    check(
-      `${layer.id} takes its offset from a custom property, not from a re-render`,
-      /var\(--drift-/.test(layer.transform),
-      layer.transform || "no inline transform",
-    );
-  }
-}
+
 
 /*
  * And that the light and the sky are actually on the screen.
@@ -306,20 +254,18 @@ section("The light and the sky survive all the way to the screen");
     lit.mean > unlit.mean + 3,
     `top ${lit.mean.toFixed(1)} vs lower ${unlit.mean.toFixed(1)}`,
   );
-  // A strip down the left edge, where there is no text and no button.
   /*
-   * A ratio, not a floor. The stars are deliberately faint — the reference
-   * they were fitted to has an ordinary one peaking at 24 against a ground of
-   * 8 — so "brighter than 60" would fail a sky that is exactly right and pass
-   * one bleached white. What has to hold is that something in the band stands
-   * off its own ground.
+   * The stars that stood in this band are gone at Osama's instruction, and the
+   * check that measured them against their own ground goes with them: an empty
+   * strip of navy has no peak to stand off anything.
+   *
+   * The check above it stays and is the one that mattered. It measures the key
+   * light *on the screen* rather than in the DOM — the sky shipped once at a
+   * 0.85px gradient radius, which is present in the computed style and renders
+   * as nothing at all, and it was Osama who noticed rather than any suite here.
+   * The light is now the only thing lighting the hero, so that reading is the
+   * whole of what this section has left to prove.
    */
-  const skyBand = await mean({ x: 0, y: 190, width: 280, height: 320 });
-  check(
-    "and the sky has stars standing off the ground they sit on",
-    skyBand.peak > skyBand.mean * 2 && skyBand.peak - skyBand.mean > 12,
-    `brightest ${skyBand.peak.toFixed(0)} against a band mean of ${skyBand.mean.toFixed(1)}`,
-  );
 }
 
 section("The hero is drawn, so there is nothing to download and nothing to hide");
