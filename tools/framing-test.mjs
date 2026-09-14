@@ -52,7 +52,7 @@ function bundle(entry, name) {
 const { subjectPath, cropExpression, pathWithinCut, MIN_SUBJECT_COVERAGE } = await import(
   bundle("artifacts/worker/src/framing.ts", "framing.mjs")
 );
-const { trackSubject, trackNote } = await import(bundle("artifacts/worker/src/subject.ts", "subject.mjs"));
+const { trackSubject, trackNote, subjectSpace } = await import(bundle("artifacts/worker/src/subject.ts", "subject.mjs"));
 const { renderPlan } = await import(bundle("artifacts/worker/src/ffmpeg.ts", "ffmpeg.mjs"));
 
 let checks = 0;
@@ -495,6 +495,94 @@ console.log("\nThe path is cut to the clip, not pinned to its edges");
 }
 
 await rm(workDir, { recursive: true, force: true });
+
+/*
+  Where somebody is, turned into where they are not.
+
+  The tracker has reported a full face box since it was written — `cx`, `cy`
+  and a size per frame — and two of the three were dropped at the parse,
+  because the only reader was a reframe and a reframe only slides sideways.
+  This is the other thing a face position is for: r04 puts its diagram cards in
+  the empty space either side of a head and never crosses the face.
+
+  Everything below is arithmetic over made-up samples, so it needs no video, no
+  python and no cascade — and it is exactly the arithmetic that is wrong in the
+  ways that do not show up in a still.
+*/
+console.log("\nA face becomes the space beside it");
+{
+  // A head on the left third of a 1080x1920 source, a fifth of the width wide.
+  const still = [];
+  for (let i = 0; i <= 20; i += 1) still.push({ t: i / 4, x: 0.3, y: 0.35, size: 0.2 });
+  const space = subjectSpace(still, { from: 0, to: 5, sourceWidth: 1080, sourceHeight: 1920 });
+
+  check("a well-tracked window answers at all", space !== null, "null means it declined");
+  if (space) {
+    check("the face is where the samples put it", Math.abs(space.face.x + space.face.w / 2 - 0.3) < 0.01, JSON.stringify(space.face));
+    /*
+      The tracker measures one number and it is a width. Its boxes are squares,
+      so a face a fifth of a 1080-wide frame is 216px tall — which on a 1920
+      frame is 0.1125 of the height, not 0.2. Treating the two as the same
+      fraction puts the clear space badly wrong on every vertical video, which
+      is every video this product makes.
+    */
+    const expectedH = 0.2 * (1080 / 1920) + 2 * 0.04;
+    check("and its height is scaled by the source's shape, not copied from its width",
+      Math.abs(space.face.h - expectedH) < 0.005, `${space.face.h.toFixed(3)} against ${expectedH.toFixed(3)}`);
+
+    check("the clear space on the right is the wide one", space.right && space.right.w > (space.left?.w ?? 0), JSON.stringify([space.left?.w, space.right?.w]));
+    check("and it starts where the face ends", space.right && Math.abs(space.right.x - (space.face.x + space.face.w)) < 1e-9, JSON.stringify(space.right));
+    check("and it does not overlap the face", space.right && space.right.x >= space.face.x + space.face.w, "a card over the face is the one thing this exists to prevent");
+  }
+}
+
+console.log("\nAnd it declines rather than guessing");
+{
+  // Two in twenty found: a scattering, not a track.
+  const sparse = [];
+  for (let i = 0; i <= 20; i += 1) {
+    sparse.push(i % 10 === 0 ? { t: i / 4, x: 0.5, y: 0.4, size: 0.2 } : { t: i / 4, x: null, y: null, size: null });
+  }
+  check("a scattering of readings is not a position",
+    subjectSpace(sparse, { from: 0, to: 5, sourceWidth: 1080, sourceHeight: 1920 }) === null,
+    "a card placed on noise is worse than one placed by the plan");
+  check("and an empty window is not either",
+    subjectSpace([], { from: 0, to: 5, sourceWidth: 1080, sourceHeight: 1920 }) === null);
+}
+
+console.log("\nA head that moves takes its whole path with it");
+{
+  /*
+    The failure this is for is invisible in a still.
+
+    A card placed against where the face was at the start is a card over the
+    face by the end, and every screenshot anybody checks is taken at one
+    moment. So the box is the union of the window, not a position in it.
+  */
+  const moving = [];
+  for (let i = 0; i <= 20; i += 1) moving.push({ t: i / 4, x: 0.3 + i * 0.01, y: 0.35, size: 0.2 });
+  const space = subjectSpace(moving, { from: 0, to: 5, sourceWidth: 1080, sourceHeight: 1920 });
+  check("the box covers where they end up, not where they began",
+    space !== null && space.face.x + space.face.w >= 0.5 + 0.1,
+    space ? JSON.stringify(space.face) : "null");
+  const held = subjectSpace(
+    Array.from({ length: 21 }, (_, i) => ({ t: i / 4, x: 0.3, y: 0.35, size: 0.2 })),
+    { from: 0, to: 5, sourceWidth: 1080, sourceHeight: 1920 },
+  );
+  check("so a moving head leaves less clear space than a still one",
+    space && held && (space.right?.w ?? 1) < (held.right?.w ?? 0),
+    JSON.stringify([space?.right?.w, held?.right?.w]));
+}
+
+console.log("\nA sliver is not a place to put anything");
+{
+  // A face hard against the left edge: there is space to its left, and it is
+  // useless. "There is room" that nothing fits in is worse than no answer.
+  const edge = Array.from({ length: 21 }, (_, i) => ({ t: i / 4, x: 0.06, y: 0.5, size: 0.1 }));
+  const space = subjectSpace(edge, { from: 0, to: 5, sourceWidth: 1080, sourceHeight: 1920 });
+  check("a strip too narrow to hold anything is reported as no space", space !== null && space.left === null, JSON.stringify(space?.left));
+  check("while the usable side is still offered", space !== null && space.right !== null, JSON.stringify(space?.right));
+}
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {

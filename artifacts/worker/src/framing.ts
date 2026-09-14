@@ -237,7 +237,25 @@ export function coverScale(
  */
 export interface SubjectSample {
   t: number;
+  /** Horizontal centre, as a fraction of source width. Null when nobody was found. */
   x: number | null;
+  /**
+   * Vertical centre, and the face's width as a fraction of source width.
+   *
+   * Both have been computed by the tracker since it was written — it reports
+   * `cx`, `cy` and `s` per frame — and both were dropped at the parse, because
+   * the only caller was the reframe and a reframe only slides sideways.
+   *
+   * They are kept now because the other thing a face position is for is
+   * placing something *beside* it: the reference study's diagram sits in the
+   * empty space either side of a head and never crosses the face, and no
+   * amount of horizontal centre alone can say where that space is.
+   *
+   * Optional, so every existing reader means exactly what it meant.
+   */
+  y?: number | null;
+  /** The face's width, as a fraction of source width. */
+  size?: number | null;
 }
 
 export interface SubjectPath {
