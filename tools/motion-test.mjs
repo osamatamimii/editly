@@ -24,6 +24,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { order } from "./lib/order.mjs";
 import { existsSync, readdirSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
@@ -82,7 +83,7 @@ if (!process.env.CHROMIUM_PATH) {
   if (found) process.env.CHROMIUM_PATH = found;
 }
 
-const { spring, sceneHtml, renderMotionLayer, wordsOf } = await import(pathToFileURL(modulePath).href);
+const { spring, sceneHtml, renderMotionLayer, wordsOf, staggerFor, entranceCss, elevation, STAGGER_S } = await import(pathToFileURL(modulePath).href);
 
 // The renderer too, because the cost of the layer is decided at its call site:
 // the module draws whatever window it is given, and the bug was in what it was
@@ -585,6 +586,273 @@ console.log("\nThe layer is drawn for the titles, not for the video");
     await rm(work, { recursive: true, force: true });
   } else {
     check("a short title is a short layer (skipped: no browser)", true);
+  }
+}
+
+/*
+  The vocabulary, checked as arithmetic before it is checked as pixels.
+
+  These four — the spring, the stagger, the named entrances and the shadow —
+  were written inline inside the title renderer, where the only thing that
+  could check them was a person reading the file. They are shared now, which
+  means a change to any of them changes the interstitial card, the device
+  mockup and the overlay diagram at the same time. That is the point of sharing
+  them and also the reason they need checks of their own: a vocabulary nobody
+  tests is a vocabulary that drifts one caller at a time.
+*/
+console.log("\nThe stagger compresses rather than overrunning");
+{
+  check("one thing has nothing to stagger against", staggerFor(1, 1) === 0, String(staggerFor(1, 1)));
+  check("nor does none", staggerFor(0, 1) === 0, String(staggerFor(0, 1)));
+
+  // Three arrivals inside a generous budget: the ideal gap fits, so it is used
+  // rather than spread to fill the time. A stagger stretched to fill a long
+  // card is a card that is still assembling itself when it cuts away.
+  check("a roomy budget gets the ideal gap", staggerFor(3, 2) === STAGGER_S, String(staggerFor(3, 2)));
+
+  // Twelve words in one second: the ideal would still be arriving at 1.21s.
+  const tight = staggerFor(12, 1);
+  check("a tight budget compresses instead", tight < STAGGER_S, `${tight.toFixed(4)}s`);
+  check(
+    "and the last one lands exactly on the budget, never after it",
+    Math.abs(tight * 11 - 1) < 1e-9,
+    `last at ${(tight * 11).toFixed(6)}s of a 1s budget`,
+  );
+}
+
+console.log("\nEvery entrance knows where it starts and where it rests");
+{
+  const drop = entranceCss("drop", { travel: 100, scale: 0.86 });
+  const rise = entranceCss("rise", { travel: 100, scale: 0.86 });
+  // The whole difference between a card landing and a title rising is the sign
+  // of this number, and getting it backwards is invisible in source and obvious
+  // on screen.
+  check("drop comes down from above", drop.from.includes("translateY(-100px)"), drop.from);
+  check("rise comes up from below", rise.from.includes("translateY(100px)"), rise.from);
+  check("both rest at nothing", drop.to === rise.to && rise.to === "translateY(0) scale(1)", rise.to);
+
+  const settle = entranceCss("settle", { scale: 0.9 });
+  check("settle scales in place and does not travel", !settle.from.includes("translateY"), settle.from);
+
+  const fade = entranceCss("fade");
+  check("fade does not move at all", fade.from === "none" && fade.to === "none", fade.from);
+  // A spring's overshoot is meaningless on an opacity, so fade is the one
+  // entrance that is allowed to be quicker than the rest.
+  check("and fade is the quick one", fade.ms < entranceCss("rise").ms, `${fade.ms}ms vs ${entranceCss("rise").ms}ms`);
+
+  // CSS writes .86, not 0.86, and this file's output is compared byte for byte.
+  check("scales are written the way a stylesheet writes them", drop.from.includes("scale(.86)"), drop.from);
+}
+
+console.log("\nThe shadow is two layers, and it is sized against the frame");
+{
+  const tall = elevation(3, 1920);
+  const small = elevation(3, 720);
+  check("two shadows, not one", tall.split("rgba").length - 1 === 2, tall);
+  // A shadow in fixed pixels is a different shadow at 720p and at 1080p, and
+  // the export people actually post is not always the one anybody looked at.
+  check("a bigger frame gets a bigger shadow", tall !== small, `${tall} vs ${small}`);
+  check("and a heavier level casts further than a lighter one", elevation(3, 1920) !== elevation(1, 1920));
+}
+
+console.log("\nThe card cuts in, and everything on it arrives in order");
+{
+  const html = sceneHtml({
+    width: 1080, height: 1920, fps: 30, durationSeconds: 4,
+    titles: [],
+    elements: [{ kind: "card", name: "Higgs & <b>", note: "a <note>", at: 0.5, durationSeconds: 2 }],
+  });
+  check("the card is on the page", html.includes("class=\"c0\""), html.slice(0, 80));
+  check("its ground is the measured neutral, not white", html.includes("#ECECEC"));
+  // A dissolve here is the one thing that makes this read as a slideshow, and
+  // the reference never does it.
+  check("it cuts in and out rather than dissolving", /on-c0 1ms linear/.test(html) && /off-c0 1ms linear/.test(html), "a card that fades is a slideshow");
+  check("and it leaves when it said it would", html.includes("2.500s forwards"), "0.5s + 2s");
+
+  /*
+    Read by name, not by position.
+
+    These were matched in document order, which silently encoded the order the
+    rules happen to appear in the stylesheet — and that order changed the
+    moment the name moved behind the icon, so a correct card failed a check
+    about staggering. A test that breaks when the CSS is reordered is a test
+    about the CSS, not about the card.
+  */
+  const delayOf = (name) => {
+    const m = html.match(new RegExp(`${name}-c0 \\d+ms [^;]*? ([\\d.]+)s forwards`));
+    return m ? Number(m[1]) : null;
+  };
+  const [icon, title, note] = ["iin", "nin", "pin"].map(delayOf);
+  check("three arrivals on the card", [icon, title, note].every((d) => d !== null), JSON.stringify([icon, title, note]));
+  check("the icon is first, and it is there when the card is", icon === 0.5, String(icon));
+  check("nothing arrives together", title > icon && note > title, JSON.stringify([icon, title, note]));
+
+  check("the name is escaped, not trusted", html.includes("Higgs &amp; &lt;b&gt;") && !html.includes("<b>"));
+  check("and so is the note", html.includes("a &lt;note&gt;"));
+  check("both work out their own direction", (html.match(/dir="auto"/g) ?? []).length >= 2);
+
+  // No icon is a design, not a gap: the same tile, the same shadow, the same
+  // landing, carrying the first letter. The operation is useful before anything
+  // here knows how to find a product's logo.
+  check("a card with no icon still has something in the tile", html.includes(">H</div>"), "the first letter stands in");
+
+  /*
+    The icon URL is the one field on this card that is not plain text, and it
+    goes into a CSS string. A quote closes that string; what follows it is
+    whatever the caller wrote, inside a stylesheet, in a browser.
+  */
+  const nasty = sceneHtml({
+    width: 1080, height: 1920, fps: 30, durationSeconds: 2, titles: [],
+    elements: [{ kind: "card", name: "X", iconUrl: 'a") ; background:url("http://evil/x', at: 0, durationSeconds: 1 }],
+  });
+  check(
+    "an icon URL cannot end the declaration it sits in",
+    !nasty.includes("evil"),
+    nasty.slice(nasty.indexOf("background:#fff"), nasty.indexOf("background:#fff") + 110),
+  );
+  // And the refusal is not silent about what it cost: no icon means the tile
+  // falls back to the letter, which is the same path a card with no icon takes.
+  check("and a refused URL leaves a card rather than a hole", nasty.includes(">X</div>"));
+  // The other half of the same rule: a URL that is fine must still be drawn,
+  // or this is a check that passes by never drawing anything.
+  const good = sceneHtml({
+    width: 1080, height: 1920, fps: 30, durationSeconds: 2, titles: [],
+    elements: [{ kind: "card", name: "X", iconUrl: "file:///tmp/icon.png", at: 0, durationSeconds: 1 }],
+  });
+  check("a real file URL is drawn", good.includes('url("file:///tmp/icon.png")'), "otherwise nothing is ever an icon");
+
+  /*
+    The name is behind the icon, not above it, and that is the whole look: the
+    case has to paint over the wordmark, which in source order means after it.
+
+    Through `order` rather than two `indexOf` results, because `indexOf`
+    answers -1 for something that is not there and -1 is less than every real
+    position — so the bare comparison would have passed *most loudly* on a card
+    that had lost its name altogether. `deploy-test` caught this one before it
+    was committed, which is the entire reason that section of it exists.
+  */
+  const layered = order(html, 'class="n"', 'class="i"');
+  check(
+    "the icon paints over the name rather than sitting under it",
+    layered.ok,
+    layered.why || "reversing these two turns a designed card into a stacked list",
+  );
+}
+
+/*
+  The card, in drawn pixels.
+
+  Everything above reads the stylesheet, which is the cheap half. The half
+  worth having is this one, because the two things that went wrong with this
+  element were both invisible in source: a wordmark that ran off both edges of
+  the frame, and a shadow whose far layer blurred into a grey slab behind the
+  icon. Both looked completely fine as CSS.
+
+  The name is sized by estimate — there is no way to measure text in a string
+  builder — so the estimate is what is checked here, against the longest name
+  anybody would plausibly put on a card.
+*/
+console.log("\nThe card is drawn inside the frame, whatever it is asked to say");
+{
+  const dir = path.join(buildDir, "card-frames");
+  const layer = await renderMotionLayer({
+    width: 1080, height: 1920, fps: 25, durationSeconds: 1.6, titles: [],
+    elements: [{
+      kind: "card",
+      // Longer than any product name in the reference, on purpose: "Apify" fits
+      // at any size, which is exactly why the first build shipped a number that
+      // could not hold "Higgsfield".
+      name: "Extraordinarily Long Product",
+      note: "and the note under it",
+      at: 0.1,
+      durationSeconds: 1.4,
+    }],
+  }, dir);
+
+  if (layer) {
+    const files = (await readdir(dir)).filter((f) => f.endsWith(".png")).sort();
+    // Well after the last arrival has landed.
+    const settled = path.join(dir, files[Math.floor(files.length * 0.7)]);
+    const raw = spawnSync("ffmpeg", ["-v", "error", "-i", settled, "-f", "rawvideo", "-pix_fmt", "rgba", "-"], {
+      maxBuffer: 1 << 30,
+    }).stdout;
+    const W = 1080, H = 1920;
+    const at = (x, y) => raw[(y * W + x) * 4 + 3];
+
+    check("the card is on the frame at all", raw.length === W * H * 4 && at(W / 2 | 0, H / 2 | 0) > 250, "nothing was drawn");
+
+    /*
+      Ink against the edge.
+
+      The card's own ground covers the frame, so "overflow" cannot be measured
+      as transparency — it is measured as *dark* pixels in the columns the
+      frame ends at. A wordmark that does not fit is cut by the viewport, and a
+      cut letter leaves ink hard against the boundary.
+    */
+    const darkIn = (x) => {
+      let n = 0;
+      for (let y = 0; y < H; y += 2) {
+        const i = (y * W + x) * 4;
+        if (raw[i] < 110 && raw[i + 1] < 110 && raw[i + 2] < 110) n += 1;
+      }
+      return n;
+    };
+    const left = darkIn(1) + darkIn(3);
+    const right = darkIn(W - 2) + darkIn(W - 4);
+    check(
+      "a long name is sized to fit rather than cut off at the edges",
+      left === 0 && right === 0,
+      `${left} dark rows against the left edge, ${right} against the right`,
+    );
+
+    /*
+      The shadow, from both sides — and these thresholds were measured, after
+      the first pair of them turned out to be untestable.
+
+      The first version sampled the ground at the frame's far right to prove
+      the shadow was not a panel. It could not fail: at that distance even the
+      broken calibration — a 286px blur offset 119px under a 277px case — had
+      already faded to the ground, so the check passed on the exact bug it was
+      written for. That is the second time in this repository a check has been
+      written that cannot go red, and the only reason this one was caught is
+      that it was deliberately broken and did not.
+
+      So the points come from rendering all three states and reading the
+      pixels, rather than from arithmetic about where a shadow ought to reach.
+      `near` is a short arc under-right of the case; `open` is the clear ground
+      to its right, above the pill. Darkening is summed against the #ECECEC
+      ground of 236:
+
+                       near     open
+          good           37        7
+          a slab         60       42     <- far blur 2.6x too wide
+          no shadow       0        0
+
+      Two thresholds fall cleanly between the three, with room either side.
+    */
+    const ground = (x, y) => raw[(y * W + x) * 4];
+    const darkening = (points) =>
+      points.reduce((n, [x, y]) => n + Math.max(0, 236 - ground(Math.round(x * W), Math.round(y * H))), 0);
+
+    const near = darkening([[0.655, 0.578], [0.640, 0.590], [0.620, 0.600]]);
+    const open = darkening([[0.70, 0.545], [0.70, 0.585], [0.755, 0.560], [0.755, 0.600], [0.80, 0.575]]);
+
+    check(
+      "there is a real shadow under the case",
+      near > 15,
+      `${near} of darkening under-right of the icon — an object with no shadow is pasted on, not lifted`,
+    );
+    check(
+      "and it is a shadow rather than a grey panel behind the icon",
+      open < 20,
+      `${open} of darkening out in the clear ground beside the icon`,
+    );
+
+    await rm(dir, { recursive: true, force: true });
+  } else {
+    // A laptop with no browser is not a defect in the renderer, and this is
+    // how every other render section in this file says so.
+    console.log("  · no browser here, so the card's pixel checks are skipped (not failed)");
   }
 }
 

@@ -56,14 +56,162 @@ export function spring(damping = 7.2, frequency = 10.5, samples = 60): string {
   return `linear(${points.join(",")})`;
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+   The vocabulary
+   ────────────────────────────────────────────────────────────────────────────
+
+   Four things separate motion that reads as designed from motion that reads as
+   a template, and the reference study put them above any single effect: a fast
+   entrance that overshoots and settles, a stagger so nothing arrives all at
+   once, a large soft shadow so things look lifted rather than pasted, and
+   placement measured against the frame rather than against whatever box the
+   element happens to sit in.
+
+   All four already existed here — inside the title renderer, written inline,
+   reachable by nothing else. That was fine while text was the only thing this
+   engine drew. It is the whole problem now: an interstitial card, a device
+   mockup and an overlay diagram each need the same four, and a vocabulary that
+   has to be re-typed per element is a vocabulary that drifts per element. The
+   spring in one place and an ease in another is exactly how a set of features
+   built by the same hands stops looking like one product.
+
+   So they are named here, once, and the title renderer below is simply the
+   first caller.
+*/
+
 /**
- * How long between one word landing and the next, in seconds.
+ * How long between one element landing and the next, in seconds.
  *
  * Fast enough that a three-word line is finished in a third of a second, slow
  * enough that the eye catches each arrival. Under about 60 ms the stagger stops
  * reading as a sequence and starts reading as a wobble in a single block.
  */
-const STAGGER_S = 0.11;
+export const STAGGER_S = 0.11;
+
+/**
+ * The gap between arrivals, compressed so the last one still lands in time.
+ *
+ * A fixed stagger is right for three elements and wrong for twelve: at 0.11 s a
+ * twelve-word line is still arriving 1.2 s in, and a two-second title begins
+ * fading before its last word has landed — a word nobody ever reads, in a file
+ * nobody re-renders.
+ *
+ * `budgetSeconds` is how long the whole arrival is allowed to take. The ideal
+ * gap is used when it fits, and otherwise the gap shrinks until the last
+ * element lands exactly at the budget. One element has nothing to stagger
+ * against and gets zero, which is what keeps a lone word on the plain path it
+ * has always taken.
+ */
+export function staggerFor(count: number, budgetSeconds: number, ideal: number = STAGGER_S): number {
+  if (count < 2) return 0;
+  return Math.min(ideal, budgetSeconds / (count - 1));
+}
+
+/** The named ways a thing can arrive. Every one of them rides the spring. */
+export type Entrance = "rise" | "drop" | "settle" | "fade";
+
+export interface EntranceOptions {
+  /** How far it travels to get here, in pixels. Ignored by `settle` and `fade`. */
+  travel?: number;
+  /** How small it starts. 1 means it does not scale at all. */
+  scale?: number;
+  /** How long the arrival takes, in milliseconds. */
+  ms?: number;
+}
+
+export interface EntranceCss {
+  /** The transform the element holds before its animation runs. */
+  from: string;
+  /** Where it ends up, which is always nowhere in particular. */
+  to: string;
+  ms: number;
+}
+
+/**
+ * CSS `scale()` the way a stylesheet writes it.
+ *
+ * `0.86` and `.86` are the same number and not the same string, and this file's
+ * output is compared byte for byte by a test that renders the same scene twice.
+ * Matching the hand-written form keeps this refactor provably free of pixel
+ * changes rather than merely likely to be.
+ */
+function scaleText(value: number): string {
+  const text = String(Number(value.toFixed(4)));
+  return text.startsWith("0.") ? text.slice(1) : text;
+}
+
+/**
+ * An arrival, as the two transforms and the duration it takes between them.
+ *
+ * `rise` comes up from below and is what a title has always done. `drop` comes
+ * down from above, which is the reference's interstitial card and reads as
+ * heavier — a thing landing rather than a thing appearing. `settle` scales up
+ * in place, for something already where it belongs. `fade` does not move at
+ * all, and is the one entrance that does not need the spring: there is no
+ * overshoot in an opacity.
+ */
+export function entranceCss(kind: Entrance, options: EntranceOptions = {}): EntranceCss {
+  const travel = options.travel ?? 0;
+  const scale = options.scale ?? 1;
+  const ms = options.ms ?? (kind === "fade" ? 420 : 620);
+  const shrink = scale === 1 ? "" : ` scale(${scaleText(scale)})`;
+  const grow = scale === 1 ? "" : " scale(1)";
+
+  if (kind === "fade") return { from: "none", to: "none", ms };
+  if (kind === "settle") return { from: `scale(${scaleText(scale)})`, to: "scale(1)", ms };
+
+  const y = kind === "drop" ? -Math.abs(travel) : Math.abs(travel);
+  return { from: `translateY(${y}px)${shrink}`, to: `translateY(0)${grow}`, ms };
+}
+
+/**
+ * A large, soft, low shadow — the one that makes a card look lifted.
+ *
+ * Two layers rather than one because a single shadow reads as a drop shadow and
+ * two read as an object with air under it: a tight one for the contact edge and
+ * a wide, faint one for the light falling away. The study calls this out beside
+ * the easing and the person-aware placement as one of the three things that
+ * separate "professionally designed" from "template", and it is the cheapest of
+ * the three by a distance.
+ *
+ * Scaled against the frame's height for the same reason placement is: a shadow
+ * written in fixed pixels is a different shadow at 720p and at 1080p, and the
+ * export that people actually post is not always the one anybody looked at.
+ */
+export function elevation(level: 1 | 2 | 3, frameHeight: number, drift = 0.55): string {
+  /*
+    Offsets and blurs as fractions of frame height, calibrated against the
+    reference rather than doubled until they looked strong.
+
+    The first pass at level 3 used a far blur of 14.9% of frame height. On a
+    1920 frame that is a 286px blur offset by 119px under a 307px object, which
+    does not read as a shadow at all — it renders as a soft grey slab sitting
+    behind the icon, and it was visible in the first frame anybody looked at.
+    The reference's cast under a 185px case is about 30px down and 50px of
+    blur: 2.3% and 3.9% of its frame height. These are that, with a tighter
+    contact layer under it.
+  */
+  const near = [0.002, 0.004, 0.006][level - 1];
+  const far = [0.008, 0.015, 0.024][level - 1];
+  const alphaNear = [0.08, 0.1, 0.13][level - 1];
+  const alphaFar = [0.1, 0.15, 0.2][level - 1];
+  const px = (fraction: number) => Math.max(1, Math.round(frameHeight * fraction));
+  /*
+    `drift` is how far the shadow falls sideways, as a share of how far it
+    falls down — measured off the reference rather than chosen, where the
+    shadow under every card leans clearly to the right. A shadow straight
+    underneath reads as a UI element; one with a direction reads as an object
+    under a light that is somewhere, which is the whole difference this is
+    for.
+  */
+  const sideNear = Math.round(px(near) * drift);
+  const sideFar = Math.round(px(far) * drift);
+  return (
+    `${sideNear}px ${px(near)}px ${px(near * 2.2)}px rgba(0,0,0,${alphaNear}), ` +
+    `${sideFar}px ${px(far)}px ${px(far * 1.9)}px rgba(0,0,0,${alphaFar})`
+  );
+}
+
 
 /**
  * The pieces a kinetic line arrives in.
@@ -87,11 +235,73 @@ export interface MotionTitle {
   position: "top" | "center" | "bottom";
 }
 
+/**
+ * A full-frame card that cuts in over the video.
+ *
+ * The reference study's signature move, and the one it ranked highest for
+ * visual effect against effort: between sections the video is replaced for a
+ * beat or two by a still, light card carrying an icon and a name. It is what
+ * makes a talking head read as a produced explainer rather than a recording.
+ *
+ * Three details are the whole thing, and all three come from measuring the
+ * reference rather than from taste:
+ *
+ *   - **It cuts.** No dissolve, in or out. The motion belongs to the elements
+ *     arriving on the card; a crossfade on top of that reads as a slideshow.
+ *   - **The icon lands, it does not appear.** Down from above, fast, with the
+ *     spring's overshoot and a large soft shadow under it. That shadow is why
+ *     it looks like an object on a surface instead of a picture on a page.
+ *   - **Nothing arrives together.** Icon, then name, then note, on a stagger.
+ *     Measured at 40–120 ms in the reference; the shared `staggerFor` picks a
+ *     gap in that range and compresses it if the card is short.
+ *
+ * It is drawn in the same transparent overlay every title uses, at full opacity
+ * across the whole frame — so a cutaway needs no timeline surgery at all. The
+ * video is still there underneath, and simply cannot be seen.
+ */
+export interface InterstitialCard {
+  /** The name on the card — a product, a section, a chapter. */
+  name: string;
+  /** The line under it, in a pill. Often what the speaker is saying right then. */
+  note?: string;
+  /**
+   * A `file://` or `data:` URL for the icon.
+   *
+   * Optional, and its absence is a design rather than a gap: a card with no
+   * icon draws a rounded tile carrying the name's first letter, which is a
+   * real card rather than a hole where one should be. The feature is therefore
+   * usable before anything in this product can supply an icon.
+   */
+  iconUrl?: string;
+  /** Seconds on the output clock, like a title's. */
+  at: number;
+  durationSeconds: number;
+}
+
+/**
+ * Anything the scene can draw.
+ *
+ * A union rather than one array per kind, so that adding the device mockup and
+ * the person-aware diagram is an entry here and a branch below — not another
+ * field on the options, another loop, and another chance for two element types
+ * to disagree about what a spring is.
+ */
+export type SceneElement =
+  | ({ kind: "title" } & MotionTitle)
+  | ({ kind: "card" } & InterstitialCard);
+
 export interface MotionSceneOptions {
   width: number;
   height: number;
   fps: number;
+  /**
+   * Titles, kept as their own field because every existing caller passes them
+   * and a rename would be churn in a 7,000-line renderer for no gain. They are
+   * folded into `elements` below, in order, before anything is drawn.
+   */
   titles: MotionTitle[];
+  /** Everything else the scene draws. */
+  elements?: SceneElement[];
   /** Total length of the layer, in seconds. */
   durationSeconds: number;
 }
@@ -122,115 +332,408 @@ const PLACEMENT: Record<MotionTitle["position"], string> = {
  * Written as one document with one animation per title rather than a timeline
  * abstraction: the browser already has a timeline, and every layer of
  * indirection over it is a layer that can disagree with what is drawn.
+ *
+ * The one landing keyframe below — `word-in` — stays spelled out rather than
+ * built from `entranceCss`, because it is shared by every kinetic title on the
+ * page and so cannot carry any single title's numbers. Each word that uses it
+ * still *starts* from a transform `entranceCss` wrote.
+ *
+ * Nothing in here may contain a backtick. The whole page is one template
+ * literal, so a backtick in a CSS comment ends the string and the file stops
+ * compiling — which is how this note came to be up here rather than down
+ * beside the rule it describes.
  */
+/** A drawn element, as the two things a page is made of. */
+interface Block {
+  css: string;
+  html: string;
+}
+
+/**
+ * User text, on its way into markup.
+ *
+ * Hoisted out of the title builder because the card carries a name and a note
+ * that came from the same place — a person typing — and an escape that lives
+ * inside one element kind is an escape the next element kind forgets.
+ */
+function escape(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function titleBlock(title: MotionTitle, index: number, height: number, curve: string): Block {
+  const cls = `t${index}`;
+  const size = title.style === "card" ? 0.11 : title.style === "lower-third" ? 0.062 : 0.135;
+  const weight = title.style === "word" ? 900 : 800;
+  // Escaped rather than trusted: a title is user text, and a page is a
+  // place where user text becomes markup if nobody stops it.
+  const safe = escape(title.text);
+  const rise = Math.round(height * 0.05);
+
+  /**
+   * The kinetic style, which until this round was not kinetic.
+   *
+   * `word` is documented — in the schema, and in the instructions the model
+   * reads — as words arriving on the screen. It rendered the whole string
+   * as one block with the same curve as a card, so a three-word line
+   * landed as a slab. Nothing failed: the frames had ink on them, the
+   * export played, and the only thing wrong was that the feature named
+   * after words did not treat them as words. That is this codebase's
+   * oldest enemy, and it had been sitting inside the one operation whose
+   * entire purpose is to be *seen*.
+   *
+   * Each word is an inline-block, which matters for more than the
+   * transform it needs: an atomic inline is neutral to the bidi algorithm,
+   * so a run of them is laid out in the paragraph's own direction. The
+   * first word of an Arabic line therefore lands on the **right**, and the
+   * first word of an English line on the left, with no direction logic
+   * here at all — the same reason `dir="auto"` is on the span rather than a
+   * rule we wrote ourselves.
+   */
+  const pieces = title.style === "word" ? wordsOf(title.text) : [];
+  const kinetic = pieces.length > 1;
+  /*
+    A word arrives from a little lower and a little smaller than a card
+    does. Both are the same `rise`, on the same spring, for the same 620ms
+    — the two numbers below are the only thing that ever differed, and now
+    they are the only thing written down.
+  */
+  const arrival = entranceCss("rise", { travel: rise, scale: kinetic ? 0.86 : 0.94 });
+  /**
+   * Every word must be on screen while the title still is — half the
+   * title's life is the budget the arrival has to fit inside.
+   *
+   * The rule itself now lives in `staggerFor`, because the interstitial
+   * card has the same problem with its icon, its wordmark and its pill.
+   */
+  const stagger = kinetic ? staggerFor(pieces.length, title.durationSeconds * 0.5) : 0;
+
+  const shared = `
+    .${cls} {
+      position:absolute; inset:0; display:flex; justify-content:center;
+      ${PLACEMENT[title.position]};
+    }
+    .${cls} span {
+      font: ${weight} ${Math.round(height * size)}px/1.1 Inter, "DejaVu Sans", system-ui, sans-serif;
+      color:#fff; text-align:center; max-width:82%;
+      letter-spacing:-0.02em;
+      text-shadow: 0 ${Math.round(height * 0.004)}px ${Math.round(height * 0.012)}px rgba(0,0,0,.55);
+    }
+    @keyframes out-${cls} { to { opacity:0 } }`;
+
+  if (kinetic) {
+    return {
+      css: `${shared}
+    .${cls} {
+      opacity:1;
+      animation: out-${cls} 320ms ease-in ${(title.at + title.durationSeconds).toFixed(3)}s forwards;
+    }
+    .${cls} i {
+      font-style:normal; display:inline-block; opacity:0;
+      transform: ${arrival.from};
+      animation: word-in ${arrival.ms}ms ${curve} forwards;
+    }`,
+      html: `<div class="${cls}"><span dir="auto">${pieces
+        .map(
+          (word, w) =>
+            `<i style="animation-delay:${(title.at + w * stagger).toFixed(3)}s">${escape(word)}</i>`,
+        )
+        .join(" ")}</span></div>`,
+    };
+  }
+
+  return {
+    css: `${shared}
+    .${cls} {
+      opacity:0;
+      animation: in-${cls} ${arrival.ms}ms ${curve} ${title.at}s forwards,
+                 out-${cls} 320ms ease-in ${(title.at + title.durationSeconds).toFixed(3)}s forwards;
+    }
+    .${cls} span {
+      transform: ${arrival.from};
+      animation: rise-${cls} ${arrival.ms}ms ${curve} ${title.at}s forwards;
+    }
+    @keyframes in-${cls} { to { opacity:1 } }
+    @keyframes rise-${cls} { to { transform: ${arrival.to} } }`,
+    // `dir="auto"` for the same reason the editor carries it, and with more
+    // at stake: a title is *burned into the file*. The browser reads the
+    // first strong character and lays the line out that way, so an Arabic
+    // title's question mark ends the sentence instead of opening it, and an
+    // English title is laid out exactly as it was before. Measured, not
+    // assumed: without it the bang in «٥ أسرار للنجاح!» sits four fifths of
+    // the way across the line — at the wrong end, permanently.
+    html: `<div class="${cls}"><span dir="auto">${safe}</span></div>`,
+  };
+}
+
+/**
+ * The interstitial card.
+ *
+ * Everything about how it moves comes out of the shared vocabulary above, and
+ * that is the point of this element existing in this patch rather than a later
+ * one: it is the proof that the vocabulary is a vocabulary. The icon uses
+ * `drop`; the name and the note use `fade`; the gaps between the three come
+ * from `staggerFor`; the shadow comes from `elevation`. Not one curve, delay or
+ * shadow is written here.
+ *
+ * ## Every number below was measured, not chosen
+ *
+ * The first version of this was built from a written description of the
+ * reference and it was wrong in five ways at once — name under the icon rather
+ * than behind it, pill tucked against the icon rather than sitting low, pill
+ * colours inverted, shadow falling straight down, group centred rather than
+ * high. It looked fine. It looked like a different product.
+ *
+ * So these come off the frames instead:
+ *
+ *   - **Ground `#ECECEC`** — sampled at RGB(236,236,236), corner and centre.
+ *   - **The group sits high.** Ink runs 31.6%–64.0% of frame height, so the
+ *     card's mass is above the middle and the lower third is deliberately
+ *     empty. Centring it is the single change that makes this read as a
+ *     template.
+ *   - **The name is behind the icon.** Not above it with a gap — the tile
+ *     overlaps the wordmark's lower edge, which is why the card reads as two
+ *     layered objects instead of a stacked list.
+ *   - **The pill is far down**, centred at 69.6% of height and 33% of width,
+ *     filled RGB(164,164,164) with white text. It is a caption on the card,
+ *     not a subtitle under the name.
+ *   - **The tile is a white case** holding the icon with padding, the way an
+ *     app icon sits on a light card, rather than the icon alone.
+ *
+ * ## And the one thing that is not a number
+ *
+ * **It cuts.** 1 ms animations at each end. The layer is sampled every
+ * 1/(fps x 4) of a second — 8 ms at 30fps — so a 1 ms ramp can never be caught
+ * halfway by a frame that gets written: the card is absent, then wholly
+ * present, then absent. A dissolve here is the easiest possible way to make
+ * this look like a slideshow, and the reference never does it.
+ */
+function cardBlock(
+  card: InterstitialCard,
+  index: number,
+  width: number,
+  height: number,
+  curve: string,
+): Block {
+  const cls = `c${index}`;
+  const short = Math.min(width, height);
+
+  /*
+    Three arrivals, and the gap between them.
+
+    Half the card's life is the budget, the same share a kinetic line gives its
+    words — so a card held for 2 s staggers at the ideal 110 ms and a card held
+    for half a second compresses rather than showing a note after it is gone.
+  */
+  const pieces = 1 + (card.name ? 1 : 0) + (card.note ? 1 : 0);
+  const gap = staggerFor(pieces, card.durationSeconds * 0.5);
+
+  const drop = entranceCss("drop", { travel: Math.round(height * 0.045), scale: 0.86, ms: 520 });
+  const soften = entranceCss("fade", { ms: 380 });
+
+  /*
+    The wordmark, sized to fit rather than sized and hoped.
+
+    At a fixed share of the frame, "Higgsfield" ran off both edges of a 1080
+    frame while "Apify" sat comfortably inside it — the reference's names are
+    all short, so a single number looked right until the first long one.
+
+    There is no way to measure text in a string builder, so this estimates:
+    a heavy grotesque at this tracking advances about 0.56 of its own size per
+    character, and the line is allowed 86% of the frame. The estimate is
+    generous rather than exact — it errs small, because a wordmark a little
+    under its ideal size is invisible and one a little over is cut in half.
+
+    `MAX_NAME_SHARE` is the reference's own proportion, measured: "Granola" is
+    120px of cap on a 720-wide frame. A short name gets that and no more; a
+    long one gets whatever fits.
+
+    An estimate is only safe if something checks it, so `motion-test` renders a
+    deliberately long name and asserts no ink reaches the frame edge.
+  */
+  const MAX_NAME_SHARE = 0.17;
+  const ADVANCE_PER_CHAR = 0.56;
+  const glyphs = Math.max(1, [...card.name.trim()].length);
+  const nameSize = Math.round(
+    Math.min(short * MAX_NAME_SHARE, (width * 0.86) / (glyphs * ADVANCE_PER_CHAR)),
+  );
+
+  /*
+    Measured off the Granola card, which is the one with a colour distinct
+    enough to find without guessing:
+
+      coloured icon   x 276-443  =  23.2% of frame width, square
+      its centre      y          =  49.7% of frame height
+      pill            x 240-479  =  33.2% of width, centred at 65.5%
+
+    The white case is that icon plus a thin border — the reference fills 90% of
+    the case with the logo, so the white reads as an edge rather than as a card
+    the logo is sitting on. The first build had it at 82% with a large radius,
+    which is why it read as a big white tile with something small inside it.
+
+    `NAME_BASELINE` is the overlap, and the overlap is the whole look: the case
+    covers the bottom quarter of the letters, so the two read as layered
+    objects. A wordmark resting neatly above the icon is a list.
+  */
+  const ICON_SHARE = 0.232;
+  const ICON_FILLS_CASE = 0.9;
+  const CASE_CENTRE = 0.497;
+  const NAME_BASELINE = 0.46;
+
+  const caseSize = Math.round((short * ICON_SHARE) / ICON_FILLS_CASE);
+  const caseRadius = Math.round(caseSize * 0.235);
+  const pad = Math.round((caseSize * (1 - ICON_FILLS_CASE)) / 2);
+  const end = (card.at + card.durationSeconds).toFixed(3);
+
+  /*
+    An icon, or the letter that stands in for one.
+
+    The fallback is a real card rather than a gap: the same case, the same
+    shadow, the same landing, carrying the name's first character. It means
+    this operation is useful today, before anything in this product knows how
+    to find a product's logo — and when that arrives, it changes what is inside
+    the case and nothing else.
+
+    The URL goes into a CSS `url()`, and it is the only field on this card that
+    is not plain text. It is *validated* rather than cleaned, because cleaning
+    it is what failed: stripping quotes and backslashes still let
+
+        a") ; background:url("http://evil/x
+
+    through as
+
+        url(a) ; background:url(http://evil/x)
+
+    — the caller's own bare `)` closed the url() early and everything after the
+    semicolon became a second declaration inside our stylesheet. A test written
+    for exactly this caught it; nothing else would have.
+
+    So: a `file:` or `data:` URL, carrying none of the characters that can end a
+    url(), a string, a declaration or a rule. Anything else is not cleaned into
+    something safe, it is simply refused — and a refused icon falls back to the
+    letter, which is a card rather than a hole. Losing an icon is a cost worth
+    paying to make this unable to inject.
+  */
+  const proposed = card.iconUrl?.trim() ?? "";
+  const usable = /^(?:file:|data:)/i.test(proposed) && !/["'\\()<>;{}\s]/.test(proposed);
+  const safeUrl = usable ? proposed : "";
+  const letter = escape([...card.name.trim()][0] ?? "");
+
+  /*
+    A colour for the card that has no logo.
+
+    The reference's cards live off their icons — Granola's green, Composio's
+    cyan, Notion's black-on-white. A grey letter on a white tile has the right
+    geometry and none of the life, which is exactly how the first build of this
+    looked next to the real thing.
+
+    So the placeholder takes a hue from the name itself: same name, same colour,
+    every render, without a table of brands to maintain or a network call to
+    make. It is honestly a placeholder — it is not pretending to be anybody's
+    logo — but it is a *coloured object*, which is what the composition needs
+    to read correctly. When real logos arrive they replace the inside of the
+    case and nothing else moves.
+
+    Saturation and lightness are fixed so no name can draw a colour that fights
+    the near-white ground or vanishes into it.
+  */
+  let hash = 0;
+  for (const ch of card.name) hash = (hash * 31 + ch.codePointAt(0)!) % 360;
+  const tint = `hsl(${hash} 62% 58%)`;
+
+  return {
+    css: `
+      .${cls} {
+        position:absolute; inset:0; opacity:0;
+        background:#ECECEC;
+        animation: on-${cls} 1ms linear ${card.at}s forwards,
+                   off-${cls} 1ms linear ${end}s forwards;
+      }
+      @keyframes on-${cls} { to { opacity:1 } }
+      @keyframes off-${cls} { to { opacity:0 } }
+      .${cls} .v {
+        position:absolute; inset:0;
+        background: radial-gradient(120% 85% at 50% 42%, rgba(0,0,0,0) 55%, rgba(0,0,0,.06) 100%);
+      }
+      .${cls} .n {
+        position:absolute; left:0; right:0;
+        top:${Math.round(height * NAME_BASELINE - nameSize)}px;
+        font:800 ${nameSize}px/1 Inter, "DejaVu Sans", system-ui, sans-serif;
+        color:#111; letter-spacing:-0.035em; text-align:center;
+        white-space:nowrap;
+        text-shadow:0 ${Math.round(height * 0.006)}px ${Math.round(height * 0.018)}px rgba(0,0,0,.16);
+        opacity:0;
+        animation: nin-${cls} ${soften.ms}ms ease-out ${(card.at + gap).toFixed(3)}s forwards;
+      }
+      @keyframes nin-${cls} { to { opacity:1 } }
+      .${cls} .i {
+        position:absolute; left:50%; top:${(CASE_CENTRE * 100).toFixed(1)}%;
+        width:${caseSize}px; height:${caseSize}px; margin:${-caseSize / 2}px 0 0 ${-caseSize / 2}px;
+        border-radius:${caseRadius}px; background:#fff; padding:${pad}px;
+        box-sizing:border-box; box-shadow:${elevation(3, height)};
+        opacity:0; transform:${drop.from};
+        animation: iin-${cls} ${drop.ms}ms ${curve} ${card.at.toFixed(3)}s forwards;
+      }
+      @keyframes iin-${cls} { to { opacity:1; transform:${drop.to} } }
+      .${cls} .g {
+        width:100%; height:100%; border-radius:${Math.round(caseRadius * 0.78)}px;
+        background:${safeUrl ? `#F2F2F2 url("${safeUrl}") center/contain no-repeat` : tint};
+        display:flex; align-items:center; justify-content:center;
+        font:800 ${Math.round(caseSize * 0.5)}px/1 Inter, "DejaVu Sans", system-ui, sans-serif;
+        color:#fff;
+      }
+      .${cls} .p {
+        position:absolute; left:50%; top:65.5%; transform:translate(-50%,-50%);
+        font:700 ${Math.round(short * 0.038)}px/1 Inter, "DejaVu Sans", system-ui, sans-serif;
+        color:#fff; background:#A4A4A4; text-align:center; max-width:78%;
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+        padding:${Math.round(short * 0.018)}px ${Math.round(short * 0.034)}px;
+        border-radius:${Math.round(short * 0.02)}px;
+        opacity:0;
+        animation: pin-${cls} ${soften.ms}ms ease-out ${(card.at + gap * 2).toFixed(3)}s forwards;
+      }
+      @keyframes pin-${cls} { to { opacity:1 } }`,
+    /*
+      The name before the case in source order, so the case paints over it.
+
+      This is the overlap, and it is the whole look: the wordmark is a layer
+      *behind* the icon rather than a line above it. Reversing these two lines
+      turns a designed card into a stacked list, and nothing about the CSS
+      would look wrong.
+
+      `dir="auto"` on both pieces of language, for the reason a title carries
+      it: the browser reads the first strong character, which is a better rule
+      than one written here, and a card is burned into the file.
+    */
+    html:
+      `<div class="${cls}"><div class="v"></div>` +
+      `<div class="n" dir="auto">${escape(card.name)}</div>` +
+      `<div class="i"><div class="g">${safeUrl ? "" : letter}</div></div>` +
+      (card.note ? `<div class="p" dir="auto">${escape(card.note)}</div>` : "") +
+      `</div>`,
+  };
+}
+
 export function sceneHtml(options: MotionSceneOptions): string {
-  const { width, height, titles } = options;
+  const { width, height } = options;
   const curve = spring();
 
-  const blocks = titles
-    .map((title, index) => {
-      const cls = `t${index}`;
-      const size = title.style === "card" ? 0.11 : title.style === "lower-third" ? 0.062 : 0.135;
-      const weight = title.style === "word" ? 900 : 800;
-      // Escaped here rather than trusted: a title is user text, and a page is a
-      // place where user text becomes markup if nobody stops it.
-      const escape = (value: string) =>
-        value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      const safe = escape(title.text);
-      const rise = Math.round(height * 0.05);
+  /*
+    One list, in the order the caller gave it.
 
-      /**
-       * The kinetic style, which until this round was not kinetic.
-       *
-       * `word` is documented — in the schema, and in the instructions the model
-       * reads — as words arriving on the screen. It rendered the whole string
-       * as one block with the same curve as a card, so a three-word line
-       * landed as a slab. Nothing failed: the frames had ink on them, the
-       * export played, and the only thing wrong was that the feature named
-       * after words did not treat them as words. That is this codebase's
-       * oldest enemy, and it had been sitting inside the one operation whose
-       * entire purpose is to be *seen*.
-       *
-       * Each word is an inline-block, which matters for more than the
-       * transform it needs: an atomic inline is neutral to the bidi algorithm,
-       * so a run of them is laid out in the paragraph's own direction. The
-       * first word of an Arabic line therefore lands on the **right**, and the
-       * first word of an English line on the left, with no direction logic
-       * here at all — the same reason `dir="auto"` is on the span rather than a
-       * rule we wrote ourselves.
-       */
-      const pieces = title.style === "word" ? wordsOf(title.text) : [];
-      const kinetic = pieces.length > 1;
-      /**
-       * Every word must be on screen while the title still is.
-       *
-       * A fixed stagger is fine for three words and wrong for twelve: at 0.11 s
-       * a twelve-word line is still arriving 1.2 s in, and a two-second title
-       * begins fading before its last word has landed — a word nobody ever
-       * reads, in a file nobody re-renders. So the stagger compresses until the
-       * final word arrives no later than halfway through the title's life.
-       */
-      const stagger = kinetic
-        ? Math.min(STAGGER_S, (title.durationSeconds * 0.5) / (pieces.length - 1))
-        : 0;
+    Titles arrive in their own field and are folded in first, so the class
+    names they get — and therefore the stacking order on the page — are exactly
+    what they were before there was anything else to draw.
+  */
+  const elements: SceneElement[] = [
+    ...options.titles.map((title) => ({ kind: "title" as const, ...title })),
+    ...(options.elements ?? []),
+  ];
 
-      const shared = `
-        .${cls} {
-          position:absolute; inset:0; display:flex; justify-content:center;
-          ${PLACEMENT[title.position]};
-        }
-        .${cls} span {
-          font: ${weight} ${Math.round(height * size)}px/1.1 Inter, "DejaVu Sans", system-ui, sans-serif;
-          color:#fff; text-align:center; max-width:82%;
-          letter-spacing:-0.02em;
-          text-shadow: 0 ${Math.round(height * 0.004)}px ${Math.round(height * 0.012)}px rgba(0,0,0,.55);
-        }
-        @keyframes out-${cls} { to { opacity:0 } }`;
-
-      if (kinetic) {
-        return {
-          css: `${shared}
-        .${cls} {
-          opacity:1;
-          animation: out-${cls} 320ms ease-in ${(title.at + title.durationSeconds).toFixed(3)}s forwards;
-        }
-        .${cls} i {
-          font-style:normal; display:inline-block; opacity:0;
-          transform: translateY(${rise}px) scale(.86);
-          animation: word-in 620ms ${curve} forwards;
-        }`,
-          html: `<div class="${cls}"><span dir="auto">${pieces
-            .map(
-              (word, w) =>
-                `<i style="animation-delay:${(title.at + w * stagger).toFixed(3)}s">${escape(word)}</i>`,
-            )
-            .join(" ")}</span></div>`,
-        };
-      }
-
-      return {
-        css: `${shared}
-        .${cls} {
-          opacity:0;
-          animation: in-${cls} 620ms ${curve} ${title.at}s forwards,
-                     out-${cls} 320ms ease-in ${(title.at + title.durationSeconds).toFixed(3)}s forwards;
-        }
-        .${cls} span {
-          transform: translateY(${rise}px) scale(.94);
-          animation: rise-${cls} 620ms ${curve} ${title.at}s forwards;
-        }
-        @keyframes in-${cls} { to { opacity:1 } }
-        @keyframes rise-${cls} { to { transform: translateY(0) scale(1) } }`,
-        // `dir="auto"` for the same reason the editor carries it, and with more
-        // at stake: a title is *burned into the file*. The browser reads the
-        // first strong character and lays the line out that way, so an Arabic
-        // title's question mark ends the sentence instead of opening it, and an
-        // English title is laid out exactly as it was before. Measured, not
-        // assumed: without it the bang in «٥ أسرار للنجاح!» sits four fifths of
-        // the way across the line — at the wrong end, permanently.
-        html: `<div class="${cls}"><span dir="auto">${safe}</span></div>`,
-      };
-    });
+  const blocks = elements.map((element, index) =>
+    element.kind === "card"
+      ? cardBlock(element, index, width, height, curve)
+      : titleBlock(element, index, height, curve),
+  );
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   html,body { margin:0; padding:0; width:${width}px; height:${height}px; background:transparent; overflow:hidden }
