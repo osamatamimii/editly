@@ -83,7 +83,7 @@ if (!process.env.CHROMIUM_PATH) {
   if (found) process.env.CHROMIUM_PATH = found;
 }
 
-const { spring, sceneHtml, renderMotionLayer, wordsOf, staggerFor, entranceCss, elevation, STAGGER_S, safeColor, safeAssetUrl } = await import(pathToFileURL(modulePath).href);
+const { spring, sceneHtml, renderMotionLayer, wordsOf, staggerFor, entranceCss, elevation, STAGGER_S, safeColor, safeAssetUrl, deviceScreenBox } = await import(pathToFileURL(modulePath).href);
 
 // The renderer too, because the cost of the layer is decided at its call site:
 // the module draws whatever window it is given, and the bug was in what it was
@@ -1046,6 +1046,134 @@ console.log("\nA layer can be soft, faint and tilted");
   check("and still there when it lands", /@keyframes in-l0 \{ to \{[^}]*rotate\(-8deg\)/.test(html), "it would un-tilt as it arrives");
 
   check("a radius of 0.5 makes it round", html.includes("border-radius:300px"), "0.5 of min(600,600)");
+}
+
+/*
+  Devices, and the one thing about them that has to be exactly right.
+
+  r05 and r08 wrap their screen recordings in a laptop or a browser window;
+  r07 holds up a phone. The frame is most of why a recording reads as a product
+  rather than as somebody's desktop.
+
+  What goes inside is a clip, and a clip is placed by ffmpeg while the frame is
+  drawn by the browser. The two have to agree about the same rectangle to the
+  pixel, or the result is a recording with a sliver of bezel down one edge —
+  which reads as a rendering fault, not a design. `deviceScreenBox` is the one
+  place that rectangle is computed, and these are the checks on it.
+*/
+console.log("\nA device's screen is where both halves agree it is");
+{
+  const box = { x: 0.1, y: 0.2, w: 0.4, h: 0.5 };
+  for (const kind of ["phone", "browser", "laptop"]) {
+    const scr = deviceScreenBox(kind, box);
+    check(`${kind}: the screen is inside the device`,
+      scr.x > box.x && scr.y > box.y && scr.x + scr.w < box.x + box.w && scr.y + scr.h < box.y + box.h,
+      JSON.stringify(scr));
+  }
+
+  /*
+    Each inset must depend on its own axis, and only on its own axis.
+
+    The first spelling of this compared the side fraction against the top
+    fraction and asked whether they differed — which they do in the table, so
+    it passed whether or not the right axis was being read. It could not fail,
+    and breaking the function to read the top off the *width* proved it: still
+    green. Fourth check this session that could not go red.
+
+    Changing one dimension at a time is what actually separates them. Double
+    the height and the top inset must double while the side inset does not
+    move; double the width and the opposite.
+  */
+  const short = deviceScreenBox("phone", { x: 0, y: 0, w: 0.3, h: 0.4 });
+  const tall  = deviceScreenBox("phone", { x: 0, y: 0, w: 0.3, h: 0.8 });
+  const wide  = deviceScreenBox("phone", { x: 0, y: 0, w: 0.6, h: 0.4 });
+
+  check("the top inset follows the device's height",
+    Math.abs(tall.y - short.y * 2) < 1e-9 && tall.y > short.y,
+    `${short.y} -> ${tall.y} when the height doubles`);
+  check("and does not follow its width",
+    Math.abs(wide.y - short.y) < 1e-9,
+    `${short.y} -> ${wide.y} when only the width changed`);
+  check("the side inset follows the device's width",
+    Math.abs(wide.x - short.x * 2) < 1e-9 && wide.x > short.x,
+    `${short.x} -> ${wide.x} when the width doubles`);
+  check("and does not follow its height",
+    Math.abs(tall.x - short.x) < 1e-9,
+    `${short.x} -> ${tall.x} when only the height changed — one axis for both gives a fat forehead and a thin chin`);
+
+  // A browser's chrome is at the top, so its screen starts much further down
+  // than a phone's. If these came out the same, the table is not being read.
+  const phone = deviceScreenBox("phone", box);
+  const browser = deviceScreenBox("browser", box);
+  check("a browser gives up more of its top than a phone does", browser.y - box.y > (phone.y - box.y) * 2, `${browser.y - box.y} vs ${phone.y - box.y}`);
+}
+
+console.log("\nA device is a border, so its screen is a hole");
+{
+  const html = sceneHtml({
+    width: 1080, height: 1920, fps: 30, durationSeconds: 2, titles: [],
+    elements: [L({ box: { x: 0.1, y: 0.1, w: 0.4, h: 0.5 },
+      content: { kind: "device", device: "browser", shell: "#2b3340" },
+      at: 0, durationSeconds: 1.5 })],
+  });
+  /*
+    The first spelling drew an opaque body with a transparent "screen" laid
+    over it — which is a window onto the body behind it, not a hole, and it
+    rendered a black slab with nothing showing through. What goes in the screen
+    sits *underneath* this layer, so the middle has to be genuinely empty.
+  */
+  check("the body is drawn as a border", /\.dev \{[^}]*border-style:solid/.test(html), "an opaque body has no hole in it");
+  check("and its middle is transparent", /\.dev \{[^}]*background:transparent/.test(html), html.slice(html.indexOf(".dev"), html.indexOf(".dev") + 180));
+  check("the shell colour is used", html.includes("border-color:#2b3340"));
+  check("and a shell that is not a colour is refused", !sceneHtml({
+    width: 100, height: 100, fps: 30, durationSeconds: 1, titles: [],
+    elements: [L({ box: { x: 0, y: 0, w: 1, h: 1 }, content: { kind: "device", device: "phone", shell: "red;}*{display:none" }, at: 0, durationSeconds: 1 })],
+  }).includes("display:none"));
+
+  check("a browser says what it is with three dots", (html.match(/<i><\/i>/g) ?? []).length === 3, "a title bar with no dots is a grey stripe");
+  const phone = sceneHtml({
+    width: 1080, height: 1920, fps: 30, durationSeconds: 2, titles: [],
+    elements: [L({ box: { x: 0.1, y: 0.1, w: 0.4, h: 0.5 }, content: { kind: "device", device: "phone" }, at: 0, durationSeconds: 1.5 })],
+  });
+  check("a phone has a notch instead", phone.includes('class="notch"') && !phone.includes('class="dots"'));
+}
+
+console.log("\nAnd the hole is a hole in drawn pixels");
+{
+  const dir = path.join(buildDir, "device-frames");
+  const box = { x: 0.2, y: 0.3, w: 0.6, h: 0.4 };
+  const screen = deviceScreenBox("laptop", box);
+  const layer = await renderMotionLayer({
+    width: 800, height: 1200, fps: 25, durationSeconds: 1.2, titles: [],
+    elements: [
+      // What ffmpeg would put behind the frame.
+      { kind: "layer", box: screen, content: { kind: "fill", color: "#00ff00" }, at: 0, durationSeconds: 1.1, z: 1 },
+      { kind: "layer", box, content: { kind: "device", device: "laptop", shell: "#ff0000" }, at: 0, durationSeconds: 1.1, z: 2 },
+    ],
+  }, dir);
+
+  if (layer) {
+    const files = (await readdir(dir)).filter((f) => f.endsWith(".png")).sort();
+    const settled = path.join(dir, files[Math.floor(files.length * 0.6)]);
+    const raw = spawnSync("ffmpeg", ["-v", "error", "-i", settled, "-f", "rawvideo", "-pix_fmt", "rgba", "-"], { maxBuffer: 1 << 30 }).stdout;
+    const W = 800, H = 1200;
+    const px = (xf, yf) => {
+      const i = ((Math.round(yf * H) * W) + Math.round(xf * W)) * 4;
+      return [raw[i], raw[i + 1], raw[i + 2], raw[i + 3]];
+    };
+    const middle = px(screen.x + screen.w / 2, screen.y + screen.h / 2);
+    const bezel = px(box.x + box.w / 2, box.y + box.h - 0.02);
+
+    check("what was placed behind the frame is visible through its screen",
+      middle[1] > 200 && middle[0] < 90,
+      `rgb(${middle.slice(0, 3)}) at the middle of the screen — red would mean the body covered it`);
+    check("and the body is drawn where the body is",
+      bezel[0] > 200 && bezel[1] < 90,
+      `rgb(${bezel.slice(0, 3)}) on the laptop's base`);
+    await rm(dir, { recursive: true, force: true });
+  } else {
+    console.log("  · no browser here, so the device pixel checks are skipped (not failed)");
+  }
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

@@ -370,6 +370,57 @@ export interface TextRun {
   background?: string;
 }
 
+/** The devices this can draw. Generic by design — see `LayerContent`. */
+export type DeviceKind = "phone" | "browser" | "laptop";
+
+/**
+ * How much of a device is frame, and where its screen sits inside it.
+ *
+ * One table, read by the CSS that draws the body *and* by `deviceScreenBox`,
+ * which is what tells ffmpeg where to put the recording. Two copies of these
+ * numbers would be a frame and a screen that drift a few pixels apart — a
+ * recording with a sliver of bezel showing down one edge, which reads as a
+ * rendering fault rather than a design.
+ *
+ * All fractions of the **layer's own box**, not the frame's.
+ */
+const DEVICE_GEOMETRY: Record<DeviceKind, { top: number; side: number; bottom: number; radius: number }> = {
+  // A bezel of even thickness, a little deeper top and bottom.
+  phone: { top: 0.022, side: 0.038, bottom: 0.022, radius: 0.075 },
+  // A title bar with the three dots in it, and a hairline everywhere else.
+  browser: { top: 0.1, side: 0.008, bottom: 0.008, radius: 0.035 },
+  // A screen with a base under it, which is what tells it from a browser.
+  laptop: { top: 0.025, side: 0.02, bottom: 0.11, radius: 0.03 },
+};
+
+/**
+ * Where a device's screen lands on the frame, as the same four fractions
+ * everything else here takes.
+ *
+ * Exported because the recording that goes inside is placed by ffmpeg, from a
+ * plan, and the only way the two can be guaranteed to line up is for both to
+ * come from this function.
+ */
+export function deviceScreenBox(
+  device: DeviceKind,
+  box: LayerBox,
+): { x: number; y: number; w: number; h: number } {
+  const g = DEVICE_GEOMETRY[device];
+  /*
+    The side inset is a fraction of the device's *width* and the top and bottom
+    are fractions of its *height*, because a bezel is an even thickness in
+    pixels and the two axes of the box are not the same length. Reading all
+    four off the width — which is what a single number would do — gives a phone
+    with a fat forehead and a thin chin on any box that is not square.
+  */
+  return {
+    x: box.x + box.w * g.side,
+    y: box.y + box.h * g.top,
+    w: box.w * (1 - g.side * 2),
+    h: box.h * (1 - g.top - g.bottom),
+  };
+}
+
 export type LayerContent =
   | {
       kind: "text";
@@ -398,7 +449,36 @@ export type LayerContent =
    * any of them.
    */
   | { kind: "gradient"; from: string; to: string; angle?: number }
-  | { kind: "image"; url: string; fit?: "contain" | "cover" };
+  | { kind: "image"; url: string; fit?: "contain" | "cover" }
+  /**
+   * A device to put a screen recording inside.
+   *
+   * r05 and r08 wrap their recordings in a laptop or a browser window; r07
+   * holds up a phone. It is the commonest single move in the references after
+   * the caption, and the frame is most of why a recording reads as a product
+   * rather than as somebody's desktop.
+   *
+   * **Drawn, not shipped.** These are CSS — a rounded rect, a bezel, a title
+   * bar, three dots — rather than images in the repository, for three reasons
+   * and the third is the one that matters:
+   *
+   *   - they scale to any frame with no second asset and no blurring;
+   *   - their colours come from the plan, so a frame can suit the video it is
+   *     in rather than being one grey picture;
+   *   - and a drawn generic device is a *generic device*. Shipping a picture
+   *     of a recognisable phone would be shipping somebody's industrial
+   *     design into every customer's video.
+   *
+   * The screen is left empty on purpose. What goes in it is a clip, and a clip
+   * is placed by ffmpeg, not by the browser — `deviceScreenBox` below says
+   * exactly where, so the two agree.
+   */
+  | {
+      kind: "device";
+      device: DeviceKind;
+      /** The body's colour. The screen stays empty whatever this is. */
+      shell?: string;
+    };
 
 export interface Layer {
   box: LayerBox;
@@ -550,6 +630,75 @@ function layerBlock(layer: Layer, index: number, width: number, height: number, 
     const to = safeColor(layer.content.to);
     const angle = Number.isFinite(layer.content.angle) ? Math.round(layer.content.angle!) % 360 : 180;
     background = from && to ? `linear-gradient(${angle}deg, ${from}, ${to})` : "transparent";
+  } else if (layer.content.kind === "device") {
+    /*
+      The body, drawn; the screen, left alone.
+
+      Everything here is one nested div rather than borders on the outer box,
+      because the outer box already carries the layer's radius, shadow, blur
+      and rotation — and a device that picked up the layer's own corner radius
+      on top of its bezel would be a rounded rectangle inside a rounded
+      rectangle with two different curves.
+
+      The screen is transparent, not black. Whatever ffmpeg put in that
+      rectangle is underneath, and painting it would be painting over the
+      recording this frame exists to hold.
+    */
+    const kind = layer.content.device;
+    const g = DEVICE_GEOMETRY[kind];
+    const shell = safeColor(layer.content.shell) ?? "#1b1f27";
+    const side = Math.round(w * g.side);
+    const top = Math.round(h * g.top);
+    const bottom = Math.round(h * g.bottom);
+    const outerRadius = Math.round(shortSide * g.radius);
+    const dot = Math.max(2, Math.round(top * 0.26));
+
+    /*
+      The body is a border, so the screen is a hole.
+
+      The first spelling of this drew an opaque body and laid a transparent
+      "screen" div over it — which is not a hole, it is a window onto the body
+      behind it, and it rendered three black slabs with nothing showing
+      through. What goes in the screen is a clip placed by ffmpeg *underneath*
+      this layer, so the middle has to be genuinely empty.
+
+      A border-only box gives that for free, and gives something else worth
+      having: with `border-radius` and a border, the browser computes the inner
+      corner as the outer radius minus the border width, which is what a real
+      bezel does. A separately specified inner radius was one more number to
+      keep in step with the geometry, and it is gone.
+    */
+    inner = `<div class="dev"></div>${
+      kind === "browser"
+        ? `<div class="dots"><i></i><i></i><i></i></div>`
+        : kind === "phone"
+          ? `<div class="notch"></div>`
+          : ""
+    }`;
+
+    extra = `
+      .${cls} .dev {
+        position:absolute; inset:0; box-sizing:border-box;
+        background:transparent;
+        border-style:solid; border-color:${shell};
+        border-width:${top}px ${side}px ${bottom}px ${side}px;
+        border-radius:${outerRadius}px;
+      }
+      .${cls} .dots {
+        position:absolute; top:${Math.round(top / 2 - dot / 2)}px; left:${Math.round(side + dot)}px;
+        display:flex; gap:${Math.round(dot * 0.8)}px;
+      }
+      .${cls} .dots i {
+        width:${dot}px; height:${dot}px; border-radius:50%;
+        background:rgba(255,255,255,.3); display:block;
+      }
+      .${cls} .notch {
+        position:absolute; top:${Math.round(top * 0.3)}px; left:50%;
+        transform:translateX(-50%);
+        width:${Math.round(w * 0.28)}px; height:${Math.max(3, Math.round(h * 0.009))}px;
+        border-radius:999px; background:rgba(255,255,255,.18);
+      }`;
+    background = "transparent";
   } else if (layer.content.kind === "image") {
     const url = safeAssetUrl(layer.content.url);
     const fit = layer.content.fit === "cover" ? "cover" : "contain";
@@ -642,8 +791,17 @@ function layerBlock(layer: Layer, index: number, width: number, height: number, 
       }
       @keyframes in-${cls} { to { opacity:${rest}; transform:${enter.to} } }
       @keyframes out-${cls} { to { opacity:0 } }${extra}`,
+    /*
+      Text is wrapped in its own flex row; a device is already a stack of
+      absolutely-placed pieces and wrapping it would give it a second box to
+      be positioned inside. Everything else draws with CSS alone.
+    */
     html: `<div class="${cls}">${
-      layer.content.kind === "text" ? `<div class="t" dir="auto">${inner}</div>` : ""
+      layer.content.kind === "text"
+        ? `<div class="t" dir="auto">${inner}</div>`
+        : layer.content.kind === "device"
+          ? inner
+          : ""
     }</div>`,
   };
 }
