@@ -383,6 +383,21 @@ export type LayerContent =
       staggerRuns?: boolean;
     }
   | { kind: "fill"; color: string }
+  /**
+   * A gradient, built here from validated parts rather than accepted as CSS.
+   *
+   * This is the rule the icon URL taught, applied before it costs anything: a
+   * caller never hands this file a string that goes into a declaration. It
+   * hands two colours and an angle, each of which is checked, and the
+   * `linear-gradient(...)` is written here. There is no spelling of `from` or
+   * `to` that can end the declaration, because neither is ever anything but a
+   * colour.
+   *
+   * r07 is most of the argument for it existing: its frame is built out of
+   * colour blocks and soft washes, and `fill` with one flat colour cannot make
+   * any of them.
+   */
+  | { kind: "gradient"; from: string; to: string; angle?: number }
   | { kind: "image"; url: string; fit?: "contain" | "cover" };
 
 export interface Layer {
@@ -396,9 +411,29 @@ export interface Layer {
   travel?: number;
   /** How small it starts. */
   from?: number;
-  /** Corner radius as a fraction of the layer's shorter side. */
+  /** Corner radius as a fraction of the layer's shorter side. 0.5 is a circle. */
   radius?: number;
   shadow?: 0 | 1 | 2 | 3;
+  /**
+   * How soft this layer's own edges are, as a fraction of frame height.
+   *
+   * Worth being precise about what this can and cannot do: it blurs **this
+   * layer**, not what is behind it. The scene is drawn in a browser that has
+   * never seen the video — the layer arrives as a transparent picture and
+   * ffmpeg composites it — so there is nothing behind it to frost. Asking for
+   * `backdrop-filter` here would silently do nothing.
+   *
+   * What it is for is the soft coloured washes r07 builds its frame out of,
+   * glows behind type, and the diffuse shapes that make a flat composition
+   * read as lit. Frosted glass over the picture is a real thing and a
+   * different mechanism — a blur applied by ffmpeg inside a box — and it is
+   * not this.
+   */
+  blur?: number;
+  /** 0..1. Distinct from an entrance: this is where the layer rests. */
+  opacity?: number;
+  /** Degrees, clockwise. r07 tilts things; nothing else here could. */
+  rotate?: number;
   /** Paint order. Higher is nearer the viewer; ties keep the given order. */
   z?: number;
 }
@@ -458,13 +493,38 @@ function layerBlock(layer: Layer, index: number, width: number, height: number, 
   const h = px(box.h, height);
   const shortSide = Math.max(1, Math.min(w, h));
 
-  const enter = entranceCss(layer.enter ?? "fade", {
+  const plain = entranceCss(layer.enter ?? "fade", {
     travel: Math.round((layer.travel ?? 0.045) * height),
     scale: layer.from ?? 1,
   });
+  /*
+    A tilt is part of where the layer rests, so it has to be in **both** ends
+    of the entrance.
+
+    Written as a resting `transform` on its own, the animation's `to` would be
+    a transform without it and the layer would quietly un-tilt as it landed —
+    a rotation that exists in the CSS, is visible in a still, and disappears in
+    motion. Worse than not having it.
+  */
+  const spinPart = (t: string) => {
+    const s = Number.isFinite(layer.rotate) && Math.round(layer.rotate!) % 360 !== 0
+      ? ` rotate(${Math.round(layer.rotate!) % 360}deg)`
+      : "";
+    if (!s) return t;
+    return t === "none" ? s.trim() : `${t}${s}`;
+  };
+  const enter = { from: spinPart(plain.from), to: spinPart(plain.to), ms: plain.ms };
   const end = (layer.at + layer.durationSeconds).toFixed(3);
   const radius = layer.radius ? Math.round(shortSide * layer.radius) : 0;
   const shadow = layer.shadow ? elevation(layer.shadow, height) : "none";
+  /*
+    Blur is measured against frame height for the reason everything else here
+    is: the same layer on a 720 and a 1920 frame has to look like the same
+    layer, and a blur in fixed pixels is two different softnesses.
+  */
+  const blur = layer.blur && layer.blur > 0 ? Math.max(1, Math.round(layer.blur * height)) : 0;
+  const rest = layer.opacity === undefined ? 1 : Math.min(1, Math.max(0, layer.opacity));
+  const spin = Number.isFinite(layer.rotate) ? Math.round(layer.rotate!) % 360 : 0;
 
   let inner = "";
   let extra = "";
@@ -472,6 +532,24 @@ function layerBlock(layer: Layer, index: number, width: number, height: number, 
 
   if (layer.content.kind === "fill") {
     background = safeColor(layer.content.color) ?? "transparent";
+  } else if (layer.content.kind === "gradient") {
+    /*
+      Built, not passed through.
+
+      Both stops go through `safeColor` and the angle is clamped to a number,
+      so what reaches the stylesheet is assembled here out of three values that
+      have each been checked. A caller cannot supply a gradient string at all,
+      which is the point: there is no spelling of one that can end the
+      declaration it sits in.
+
+      One refused stop loses the whole gradient rather than half of it — a
+      layer that silently became a flat colour is worse than one that is
+      plainly absent.
+    */
+    const from = safeColor(layer.content.from);
+    const to = safeColor(layer.content.to);
+    const angle = Number.isFinite(layer.content.angle) ? Math.round(layer.content.angle!) % 360 : 180;
+    background = from && to ? `linear-gradient(${angle}deg, ${from}, ${to})` : "transparent";
   } else if (layer.content.kind === "image") {
     const url = safeAssetUrl(layer.content.url);
     const fit = layer.content.fit === "cover" ? "cover" : "contain";
@@ -551,17 +629,18 @@ function layerBlock(layer: Layer, index: number, width: number, height: number, 
         background:${background};
         ${radius ? `border-radius:${radius}px;` : ""}
         ${shadow === "none" ? "" : `box-shadow:${shadow};`}
+        ${blur ? `filter:blur(${blur}px);` : ""}
         ${layer.z === undefined ? "" : `z-index:${Math.round(layer.z)};`}
         overflow:hidden;
-        opacity:${runsCarryTheEntrance ? 1 : 0};
-        ${runsCarryTheEntrance ? "" : `transform:${enter.from};`}
+        opacity:${runsCarryTheEntrance ? rest : 0};
+        ${runsCarryTheEntrance ? (spin ? `transform:${spinPart("none")};` : "") : `transform:${enter.from};`}
         animation: ${
           runsCarryTheEntrance
             ? ""
             : `in-${cls} ${enter.ms}ms ${curve} ${layer.at.toFixed(3)}s forwards, `
         }out-${cls} 1ms linear ${end}s forwards;
       }
-      @keyframes in-${cls} { to { opacity:1; transform:${enter.to} } }
+      @keyframes in-${cls} { to { opacity:${rest}; transform:${enter.to} } }
       @keyframes out-${cls} { to { opacity:0 } }${extra}`,
     html: `<div class="${cls}">${
       layer.content.kind === "text" ? `<div class="t" dir="auto">${inner}</div>` : ""

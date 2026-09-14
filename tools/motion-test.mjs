@@ -993,6 +993,61 @@ console.log("\nA layer is placed and shaped against the frame");
   check("it leaves on a cut, like the card", html.includes("out-l0 1ms linear 1.500s"), "0.3 + 1.2");
 }
 
+console.log("\nA gradient is built here, never handed over as CSS");
+{
+  const good = sceneHtml({
+    width: 1080, height: 1920, fps: 30, durationSeconds: 2, titles: [],
+    elements: [L({ box: { x: 0, y: 0, w: 1, h: 0.5 },
+      content: { kind: "gradient", from: "#2f5cff", to: "#f4f5f7", angle: 200 },
+      at: 0, durationSeconds: 1 })],
+  });
+  check("two stops and an angle become one gradient", good.includes("linear-gradient(200deg, #2f5cff, #f4f5f7)"), good.slice(good.indexOf("background:"), good.indexOf("background:") + 70));
+
+  /*
+    The whole reason this takes three values instead of a string: there is no
+    spelling of a colour that can end the declaration, so there is no gradient
+    a caller can write that escapes one.
+  */
+  const nasty = sceneHtml({
+    width: 1080, height: 1920, fps: 30, durationSeconds: 2, titles: [],
+    elements: [L({ box: { x: 0, y: 0, w: 1, h: 1 },
+      content: { kind: "gradient", from: "#fff;} body{display:none", to: "red", angle: 0 },
+      at: 0, durationSeconds: 1 })],
+  });
+  check("a stop that is not a colour takes the gradient with it", !nasty.includes("display:none") && !nasty.includes("linear-gradient"), nasty.slice(0, 160));
+  // And loses it *entirely* rather than becoming a flat colour: a layer that
+  // silently turned into something else is worse than one plainly absent.
+  check("and does not quietly become a flat fill", nasty.includes("background:transparent"));
+}
+
+console.log("\nA layer can be soft, faint and tilted");
+{
+  const html = sceneHtml({
+    width: 1000, height: 2000, fps: 30, durationSeconds: 2, titles: [],
+    elements: [L({ box: { x: 0.2, y: 0.2, w: 0.6, h: 0.3 },
+      content: { kind: "fill", color: "#2f5cff" },
+      at: 0.4, durationSeconds: 1, enter: "rise", travel: 0.04,
+      blur: 0.02, opacity: 0.45, rotate: -8, radius: 0.5 })],
+  });
+  // Against frame height, like everything else placed here: the same layer on
+  // a 720 and a 1920 frame has to be the same softness.
+  check("blur is a fraction of frame height", html.includes("filter:blur(40px)"), "0.02 of 2000");
+  check("the layer rests at the opacity it was given", html.includes("opacity:0.45"), "not at 1");
+  check("and the entrance lands on that opacity, not on full", /@keyframes in-l0 \{ to \{ opacity:0\.45/.test(html), "otherwise it fades in past where it belongs");
+
+  /*
+    The tilt has to be in both ends of the entrance.
+
+    As a resting transform on its own it would be overwritten by the
+    animation's `to`, and the layer would un-tilt exactly as it landed — a
+    rotation visible in a still and gone in motion, which is worse than none.
+  */
+  check("the tilt is in the entrance's start", /transform:translateY\(\d+px\) rotate\(-8deg\)/.test(html), html.slice(html.indexOf("transform:"), html.indexOf("transform:") + 60));
+  check("and still there when it lands", /@keyframes in-l0 \{ to \{[^}]*rotate\(-8deg\)/.test(html), "it would un-tilt as it arrives");
+
+  check("a radius of 0.5 makes it round", html.includes("border-radius:300px"), "0.5 of min(600,600)");
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log("The motion is not reproducible.");
