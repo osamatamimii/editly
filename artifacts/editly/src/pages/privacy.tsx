@@ -157,6 +157,36 @@ export default function Privacy() {
         </p>
       </Section>
 
+      <Section title="What we learn from">
+        {/*
+          Added because we started keeping it, and a thing we hold that the page
+          does not mention is the shape this document must never have.
+
+          Written narrowly on purpose. The promise above is about their footage,
+          and this section says exactly where the line falls: the instructions
+          are kept as they were written, and the one thing in a plan that came
+          out of the recording — the caption cues, which are the transcript —
+          becomes a count of words and nothing else. `edit-pairs-test` walks the
+          schema and fails on any field nobody has put on one side of that line.
+        */}
+        <p>
+          When you change an edit we made — hold a title longer, rewrite it, cut on a
+          different pause, pick a different font — we keep{" "}
+          <strong className="text-foreground">the before and the after of the instructions</strong>,
+          so the product gets better at editing. That is a record of what we got wrong, not a
+          copy of your video.
+        </p>
+        <p>
+          Your footage is never part of it, and neither is anything your recording said: the
+          captions we burn in come from your own audio, so they are kept as "four words" and
+          nothing more. What is kept as written is what you told us — the title you typed, the
+          font you chose, the length you asked a card to hold.
+        </p>
+        <p>
+          It is included in your data export, and it is deleted when you delete your account.
+        </p>
+      </Section>
+
       <Section title="Payments">
         <p>
           Freemius is the merchant of record for Editly. When you buy a plan, the payment is

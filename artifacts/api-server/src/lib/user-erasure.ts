@@ -37,6 +37,7 @@ import {
   socialAccountsTable,
   captionFacesTable,
   renderFollowupsTable,
+  editPairsTable,
 } from "@workspace/db";
 import type { DeletionSteps } from "./account-deletion";
 import {
@@ -116,6 +117,19 @@ export function erasureStepsFor(userId: string, options: ErasureOptions): Deleti
       await db.delete(socialAccountsTable).where(eq(socialAccountsTable.userId, userId));
       await db.delete(captionFacesTable).where(eq(captionFacesTable.userId, userId));
       await db.delete(renderFollowupsTable).where(eq(renderFollowupsTable.userId, userId));
+
+      /*
+        And what we learned from them.
+
+        `edit_pairs` cascades from `projects`, which the line above already
+        deletes — so this is a belt to that braces, and it is here for the same
+        reason the others are: migration 0011 removed a cascade this file had
+        been relying on, and nothing failed. A row that survives an erasure
+        because a constraint changed shape is the worst of the failures this
+        table could have, because the whole feature was built on the promise
+        that it holds nothing of anybody's.
+      */
+      await db.delete(editPairsTable).where(eq(editPairsTable.userId, userId));
       await db.execute(sql`delete from mail_sends where user_id = ${userId}`);
       await db.execute(sql`delete from mail_settings where user_id = ${userId}`);
 

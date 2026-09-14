@@ -22,6 +22,7 @@ import type { EditOperation } from "@workspace/api-zod";
 import { evenlySpacedPunches } from "./templates";
 import { levelAgainstTheBed } from "./plan-from-text";
 import { referenceForPlan, servedPlan } from "./plan-limits";
+import { recordEditPair } from "./record-edit-pair";
 import { usageFor, usageNotConsulted } from "./usage";
 import { decideRender } from "./render-policy";
 import { isDuplicateActiveJob, ALREADY_RENDERING } from "./one-active-job";
@@ -231,6 +232,22 @@ export async function startRenderForProject(
           priority: decision.priority,
         })
         .returning();
+
+      /*
+        And what the customer changed about the last one.
+
+        Written inside the same transaction as the job, because a pair that is
+        written separately is a pair that is missing whenever the process dies
+        between the two — and a training set with a hole in it wherever a
+        machine restarted is a training set that describes the restarts.
+
+        `recordEditPair` cannot fail this. It holds nothing that came out of a
+        video, and it returns without writing when the two plans agree: a
+        re-render with nothing changed is a customer pressing the button twice,
+        and a row saying "they changed nothing" teaches that changing nothing is
+        what editors do.
+      */
+      await recordEditPair(tx, { userId, projectId: project.id, plan });
 
       return { accepted: true, job: created as JobRow, corrections: decision.corrections };
     });

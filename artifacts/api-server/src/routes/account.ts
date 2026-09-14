@@ -29,6 +29,7 @@ import {
   socialAccountsTable,
   captionFacesTable,
   renderFollowupsTable,
+  editPairsTable,
 } from "@workspace/db";
 import { currentUserId, currentUserEmail } from "../middlewares/auth";
 import { rateLimit, LIMITS } from "../lib/rate-limit";
@@ -74,7 +75,8 @@ router.get("/account/export", rateLimit(LIMITS.dataExport), async (req, res): Pr
   const userId = currentUserId(req);
 
   const [projects, messages, jobs, exports, subscriptions, socialAccounts, scheduledPosts,
-         captionFaces, followups, assets, clips, billing, comprehensions, transcripts] = await Promise.all([
+         captionFaces, followups, assets, clips, billing, comprehensions, transcripts,
+         editPairs] = await Promise.all([
     db.select().from(projectsTable).where(eq(projectsTable.userId, userId)),
     db.select().from(messagesTable).where(eq(messagesTable.userId, userId)),
     db.select().from(jobsTable).where(eq(jobsTable.userId, userId)),
@@ -92,6 +94,21 @@ router.get("/account/export", rateLimit(LIMITS.dataExport), async (req, res): Pr
     // messages they typed, and an export that held the reading of a recording
     // but not the recording's words would be an odd place to draw the line.
     db.select().from(transcriptsTable).where(eq(transcriptsTable.userId, userId)),
+    /*
+      What we learned from the changes they made to our edits.
+
+      Included because we hold it, and because "we hold it, we remove it, and we
+      never told them it was there" is the one shape an export like this cannot
+      have — `account-test` checks the deletion list against this one for
+      exactly that reason.
+
+      The rows carry their instructions and none of their footage: two plans and
+      the difference between them, with the caption cues — the only part of a
+      plan that came out of the recording — reduced to a count of words.
+      Exporting it discloses nothing they did not already have, and it is the
+      honest answer to "what do you have on me".
+    */
+    db.select().from(editPairsTable).where(eq(editPairsTable.userId, userId)),
   ]);
 
   /*
@@ -134,6 +151,7 @@ router.get("/account/export", rateLimit(LIMITS.dataExport), async (req, res): Pr
       billingEvents: redactRows(billing),
       comprehensions: redactRows(comprehensions),
       transcripts: redactRows(transcripts),
+      editPairs: redactRows(editPairs),
     },
     files,
   };

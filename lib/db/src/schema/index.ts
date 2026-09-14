@@ -20,3 +20,4 @@ export * from "./shopify";
 export * from "./notes";
 export * from "./music";
 export * from "./promo";
+export * from "./edit-pairs";

@@ -371,6 +371,10 @@ section("Every table this person owns is named");
     "socialAccountsTable",
     "captionFacesTable",
     "renderFollowupsTable",
+    // The corrections learned from their edits. It holds none of their words
+    // and cascades from `projects` anyway — which is exactly why it is on the
+    // list: 0011 removed a cascade this file was relying on and nothing failed.
+    "editPairsTable",
   ]) {
     check(`${table} is deleted`, new RegExp(`delete\\(${table}\\)`).test(route), "");
   }

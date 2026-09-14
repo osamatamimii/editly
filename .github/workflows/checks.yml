@@ -275,6 +275,11 @@ jobs:
       # Needs the database as well as the faces, so it sits after both.
       - run: node tools/typeface-test.mjs
       - run: node tools/account-test.mjs
+      # Beside the account suite, because it is the same question from the other
+      # side: that one checks that everything we hold is deletable and
+      # exportable, this one checks that what reaches the one new table holds
+      # nothing of anybody's in the first place.
+      - run: node tools/edit-pairs-test.mjs
       - run: node tools/critic-test.mjs
       # Beside the critic, because it is the other half of the same job: the
       # critic reads the plan, this reads the file that came out of it — the
