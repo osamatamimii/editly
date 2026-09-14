@@ -83,7 +83,7 @@ if (!process.env.CHROMIUM_PATH) {
   if (found) process.env.CHROMIUM_PATH = found;
 }
 
-const { spring, sceneHtml, renderMotionLayer, wordsOf, staggerFor, entranceCss, elevation, STAGGER_S } = await import(pathToFileURL(modulePath).href);
+const { spring, sceneHtml, renderMotionLayer, wordsOf, staggerFor, entranceCss, elevation, STAGGER_S, safeColor, safeAssetUrl } = await import(pathToFileURL(modulePath).href);
 
 // The renderer too, because the cost of the layer is decided at its call site:
 // the module draws whatever window it is given, and the bug was in what it was
@@ -854,6 +854,143 @@ console.log("\nThe card is drawn inside the frame, whatever it is asked to say")
     // how every other render section in this file says so.
     console.log("  · no browser here, so the card's pixel checks are skipped (not failed)");
   }
+}
+
+/*
+  The layer language.
+
+  The card above is hand-written and matches the one reference it was measured
+  against. The language is the answer to that: a model that has watched a
+  reference emits boxes with content, entrances and shadows, and the renderer
+  draws whatever it is handed — including looks nobody anticipated.
+
+  Which means the renderer is now drawing *caller-supplied values straight into
+  a stylesheet*, and there are three of them rather than one: a colour, an
+  asset URL, and text. The card already learned what that costs — stripping
+  quotes from a URL still let a bare `)` close the url() and open a new
+  declaration — so all three are validated here, and the checks below are the
+  ones that would have caught that bug on the first day.
+*/
+const L = (o) => ({ kind: "layer", ...o });
+const fill = (color) => ({
+  box: { x: 0, y: 0, w: 1, h: 1 }, content: { kind: "fill", color },
+  at: 0, durationSeconds: 1,
+});
+
+console.log("\nA colour is matched against a shape, or refused");
+{
+  for (const good of ["#fff", "#ECECEC", "#11223344", "rgb(1,2,3)", "rgba(1,2,3,.5)", "hsl(148 62% 58%)", "transparent"]) {
+    check(`${good} is a colour`, safeColor(good) === good, JSON.stringify(safeColor(good)));
+  }
+  /*
+    Each of these is a real way out of a declaration, and none of them is
+    exotic — they are what a model emits when it has been told to describe a
+    colour and describes something else instead, and what a prompt injected
+    into a reference's own on-screen text would try.
+  */
+  for (const bad of [
+    "red;background:url(http://evil/x)",
+    "#fff;} body { display:none",
+    "url(http://evil/x)",
+    "expression(alert(1))",
+    "var(--x)",
+    "#fff\\\\",
+    "rgb(1,2,3);}*{color:red",
+  ]) {
+    check(`${JSON.stringify(bad)} is refused`, safeColor(bad) === null, JSON.stringify(safeColor(bad)));
+  }
+  check("and nothing at all is nothing", safeColor(undefined) === null && safeColor("") === null);
+
+  // A refused colour must cost the colour, never the render.
+  const html = sceneHtml({
+    width: 1080, height: 1920, fps: 30, durationSeconds: 2, titles: [],
+    elements: [L(fill("red;background:url(http://evil/x)"))],
+  });
+  check("a refused colour leaves a transparent box, not an injected rule", !html.includes("evil"), html.slice(0, 200));
+  check("and the layer is still drawn", html.includes('class="l0"'));
+}
+
+console.log("\nAn asset URL is matched against a shape, or refused");
+{
+  check("a file URL is usable", safeAssetUrl("file:///tmp/a.png") === "file:///tmp/a.png");
+  /*
+    And a data URL, which the first version of the validator rejected outright:
+    an embedded image *must* carry `;base64,` and the file rule forbids a
+    semicolon. The check written for this originally ended in `|| true`, so it
+    passed while every data URL in the product was being silently dropped.
+    Third time this session that a check could not fail; the only defence is
+    breaking each one on purpose.
+  */
+  const embedded = "data:image/png;base64,iVBORw0KGgo=";
+  check("so is an embedded image", safeAssetUrl(embedded) === embedded, JSON.stringify(safeAssetUrl(embedded)));
+  check("but not one with something else in its alphabet", safeAssetUrl('data:image/png;base64,AA") ; x:(') === null);
+  check("nor a made-up type", safeAssetUrl("data:text/html;base64,AAAA") === null);
+  for (const bad of [
+    'a") ; background:url("http://evil/x',
+    "http://evil/x.png",
+    "file:///tmp/a.png) ; color:red",
+    "file:///tmp/a b.png",
+    "javascript:alert(1)",
+  ]) {
+    check(`${JSON.stringify(bad.slice(0, 32))} is refused`, safeAssetUrl(bad) === null, JSON.stringify(safeAssetUrl(bad)));
+  }
+  const html = sceneHtml({
+    width: 1080, height: 1920, fps: 30, durationSeconds: 2, titles: [],
+    elements: [L({ box: { x: 0, y: 0, w: 1, h: 1 }, content: { kind: "image", url: 'a") ; background:url("http://evil/x' }, at: 0, durationSeconds: 1 })],
+  });
+  check("a refused image URL cannot open a declaration", !html.includes("evil"), html.slice(0, 200));
+}
+
+console.log("\nA line is a sequence of runs, each with its own weight");
+{
+  const html = sceneHtml({
+    width: 1080, height: 1920, fps: 30, durationSeconds: 3, titles: [],
+    elements: [L({
+      box: { x: 0.06, y: 0.6, w: 0.88, h: 0.22 },
+      content: {
+        kind: "text", size: 0.052, color: "#fff", weight: 800, staggerRuns: true,
+        runs: [{ text: "pretty" }, { text: "Good & <b>", scale: 2, color: "#3ddc97" }, { text: "at" }],
+      },
+      at: 0.2, durationSeconds: 2, enter: "rise", travel: 0.03, from: 0.86,
+    })],
+  });
+  check("one piece per run", (html.match(/<i/g) ?? []).length === 3, html.match(/<i/g)?.length + " pieces");
+  // The thing plain captions cannot say, and every reference says: one word
+  // inside the phrase is bigger and a different colour.
+  check("a run can be larger than the line it is in", html.includes("font-size:200.0%"));
+  check("and its own colour", html.includes("color:#3ddc97"));
+  check("run text is escaped, not trusted", html.includes("Good &amp; &lt;b&gt;") && !html.includes("<b>"));
+
+  const delays = [...html.matchAll(/animation-delay:([\d.]+)s/g)].map((m) => Number(m[1]));
+  check("the runs arrive one after another", delays.length === 3 && delays[1] > delays[0] && delays[2] > delays[1], JSON.stringify(delays));
+  check("the first arrives when the layer does", delays[0] === 0.2, String(delays[0]));
+
+  /*
+    When the runs carry the entrance the layer itself must not also animate in,
+    or the line arrives twice — once as a block and once a word at a time. It
+    is the kind of thing that looks like a stutter and reads as a bug in the
+    encoder.
+  */
+  check("a staggered line does not also fly in as a block", !/\.l0 \{[^}]*animation: in-l0/.test(html), "the layer and its runs would both animate");
+}
+
+console.log("\nA layer is placed and shaped against the frame");
+{
+  const html = sceneHtml({
+    width: 1000, height: 2000, fps: 30, durationSeconds: 2, titles: [],
+    elements: [L({
+      box: { x: 0.25, y: 0.1, w: 0.5, h: 0.2 },
+      content: { kind: "fill", color: "#2f5cff" },
+      at: 0.3, durationSeconds: 1.2, enter: "drop", travel: 0.5, radius: 0.25, shadow: 2, z: 3,
+    })],
+  });
+  check("the box is a fraction of the frame, not a pixel count", html.includes("left:250px") && html.includes("top:200px") && html.includes("width:500px") && html.includes("height:400px"), "0.25/0.1/0.5/0.2 of 1000x2000");
+  // Radius against the layer's shorter side, so a wide box and a tall one with
+  // the same radius look like the same corner.
+  check("the radius is a fraction of the layer's shorter side", html.includes("border-radius:100px"), "0.25 of min(500,400)");
+  check("it carries a shadow when asked", html.includes("box-shadow:"), "");
+  check("and a depth", html.includes("z-index:3"));
+  check("it leaves on a cut, like the card", html.includes("out-l0 1ms linear 1.500s"), "0.3 + 1.2");
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

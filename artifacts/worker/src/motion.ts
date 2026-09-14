@@ -286,9 +286,293 @@ export interface InterstitialCard {
  * field on the options, another loop, and another chance for two element types
  * to disagree about what a spring is.
  */
+/* ────────────────────────────────────────────────────────────────────────────
+   The layer language
+   ────────────────────────────────────────────────────────────────────────────
+
+   The interstitial card below is hand-written: its geometry, its colours and
+   its three animations are code, measured off one reference. It took most of a
+   day and it matches that reference and nothing else. Seven techniques built
+   that way is seven days at best, and seven looks that each copy exactly one
+   video — which is not what "copy the reference" means.
+
+   Osama's call, and it is the right one: the scene stops being a menu of
+   elements and becomes a language. A model that has watched a reference emits
+   **layers**, and the renderer draws them. Nothing has to have been
+   anticipated.
+
+   ## What a layer is
+
+   A box, something in it, and how it arrives. That is the whole of it, and it
+   is enough because it is what the references are actually made of — this was
+   checked against six of them before it was written:
+
+     - **r04** — icon interstitials: a fill, a wordmark, an icon, a pill.
+     - **r05** — kinetic captions where the keyword is a different colour and
+       size inside the same phrase, plus screen recordings inset over video.
+     - **r07** — pure motion graphics, no camera at all: colour blocks that
+       slide in and split the frame, phone mockups, big type, numbered markers.
+     - **r08** — a floating code panel over a talking head, a full-frame brand
+       card, and a split with a graphic above a screen recording.
+
+   Every one of those is boxes with content, entrances and shadows. So:
+
+       fill + text + image + text        = the interstitial card
+       video box + image box             = a split composition
+       image frame + image screen        = a device mockup
+       text with styled runs             = a caption with an emphasised word
+       fill boxes with slide entrances   = r07's colour blocks
+       N image boxes on a stagger        = a grid montage
+
+   ## What it deliberately does not cover
+
+   **Where the person is.** r04 places its diagram in the empty space beside a
+   head and never over the face; r05 and r08 keep captions clear of the mouth.
+   That needs face detection, which is a capability this renderer does not have
+   and which is not a motion problem. Layers take explicit boxes; something
+   else will one day compute them.
+
+   **Assets.** A real logo, a 3D product render, r07's mascot. A layer can
+   *draw* an image; finding the right image is a different kind of work.
+
+   ## Colours and URLs are validated, never cleaned
+
+   Both go straight into a stylesheet. The card already learned this the hard
+   way — stripping quotes from a URL still let a bare `)` close the `url()` and
+   start a new declaration. So every caller-supplied value here is matched
+   against a strict shape and *refused* if it does not fit, rather than edited
+   until it looks safe.
+*/
+
+/** Where a layer sits, as fractions of the frame. */
+export interface LayerBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * A styled piece of a line.
+ *
+ * This is the thing plain text cannot express and every reference uses:
+ * "pretty **Good** at" with the middle word twice the size and green, or
+ * "So `here's how`" with half the phrase in a lighter colour. A caption is a
+ * sequence of runs, not a string.
+ */
+export interface TextRun {
+  text: string;
+  /** Size relative to the layer's own, so 1.8 is nearly twice as large. */
+  scale?: number;
+  color?: string;
+  weight?: number;
+  /** A pill behind this run alone. */
+  background?: string;
+}
+
+export type LayerContent =
+  | {
+      kind: "text";
+      runs: TextRun[];
+      /** Cap size as a fraction of frame height. */
+      size: number;
+      color?: string;
+      weight?: number;
+      align?: "start" | "center" | "end";
+      /** Each run arrives after the one before it. */
+      staggerRuns?: boolean;
+    }
+  | { kind: "fill"; color: string }
+  | { kind: "image"; url: string; fit?: "contain" | "cover" };
+
+export interface Layer {
+  box: LayerBox;
+  content: LayerContent;
+  /** Seconds on the output clock. */
+  at: number;
+  durationSeconds: number;
+  enter?: Entrance;
+  /** How far it travels in, as a fraction of frame height. */
+  travel?: number;
+  /** How small it starts. */
+  from?: number;
+  /** Corner radius as a fraction of the layer's shorter side. */
+  radius?: number;
+  shadow?: 0 | 1 | 2 | 3;
+  /** Paint order. Higher is nearer the viewer; ties keep the given order. */
+  z?: number;
+}
+
+/**
+ * A colour, or nothing.
+ *
+ * Hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, and the handful of bare words worth
+ * allowing. Anything else is refused rather than repaired: a colour is a short
+ * value with a known shape, so there is no honest reason to accept a string
+ * that is not one, and every reason not to — it is written straight into a
+ * declaration.
+ */
+export function safeColor(value: string | undefined): string | null {
+  if (!value) return null;
+  const v = value.trim();
+  if (/^#[0-9a-f]{3,8}$/i.test(v)) return v;
+  if (/^(?:rgb|hsl)a?\([\d\s.,%/-]+\)$/i.test(v)) return v;
+  if (/^(?:transparent|white|black|currentColor)$/i.test(v)) return v;
+  return null;
+}
+
+/**
+ * An asset URL, matched against a shape rather than cleaned.
+ *
+ * Two forms, each with its own rule, because they need different ones and a
+ * single loose rule that covered both is how this goes wrong:
+ *
+ *   - **`file:`** — a path the worker wrote itself. Nothing in it that can end
+ *     a `url()`, a string, a declaration or a rule.
+ *   - **`data:`** — an image the caller embedded. These *must* contain a
+ *     semicolon (`;base64,`), which the file rule forbids — the first version
+ *     of this function therefore rejected every data URL ever passed to it,
+ *     and the check that should have caught that was written with a `|| true`
+ *     in it and could not fail. So this one is a whitelist rather than a
+ *     blacklist: a known image type, base64, and nothing else in the alphabet.
+ *
+ * Anything not matching either shape is refused, and a refused asset costs the
+ * image rather than the render.
+ */
+const DATA_IMAGE = /^data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/i;
+
+export function safeAssetUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  const v = value.trim();
+  if (DATA_IMAGE.test(v)) return v;
+  if (!/^file:/i.test(v)) return null;
+  if (/["'\\()<>;{}\s]/.test(v)) return null;
+  return v;
+}
+
+function layerBlock(layer: Layer, index: number, width: number, height: number, curve: string): Block {
+  const cls = `l${index}`;
+  const box = layer.box;
+  const px = (fraction: number, against: number) => Math.round(fraction * against);
+  const w = px(box.w, width);
+  const h = px(box.h, height);
+  const shortSide = Math.max(1, Math.min(w, h));
+
+  const enter = entranceCss(layer.enter ?? "fade", {
+    travel: Math.round((layer.travel ?? 0.045) * height),
+    scale: layer.from ?? 1,
+  });
+  const end = (layer.at + layer.durationSeconds).toFixed(3);
+  const radius = layer.radius ? Math.round(shortSide * layer.radius) : 0;
+  const shadow = layer.shadow ? elevation(layer.shadow, height) : "none";
+
+  let inner = "";
+  let extra = "";
+  let background = "transparent";
+
+  if (layer.content.kind === "fill") {
+    background = safeColor(layer.content.color) ?? "transparent";
+  } else if (layer.content.kind === "image") {
+    const url = safeAssetUrl(layer.content.url);
+    const fit = layer.content.fit === "cover" ? "cover" : "contain";
+    /*
+      A refused URL leaves an empty box rather than an error.
+
+      The same choice the card makes, for the same reason: a layer that cannot
+      find its image should cost the image, not the render. Something visibly
+      missing in a frame is a bug somebody reports; a render that failed is a
+      customer who lost their afternoon.
+    */
+    background = url ? `center/${fit} no-repeat url("${url}")` : "transparent";
+  } else {
+    const text = layer.content;
+    const size = Math.round(text.size * height);
+    const align = text.align === "start" ? "flex-start" : text.align === "end" ? "flex-end" : "center";
+    const color = safeColor(text.color) ?? "#fff";
+    const weight = Math.min(900, Math.max(100, Math.round(text.weight ?? 800)));
+
+    /*
+      Runs, and the stagger between them.
+
+      `inline-block` per run for the same reason the kinetic title uses it: an
+      atomic inline is neutral to the bidi algorithm, so a run of them lays out
+      in the paragraph's own direction and Arabic starts on the right with no
+      direction logic here.
+    */
+    const gap = text.staggerRuns ? staggerFor(text.runs.length, layer.durationSeconds * 0.5) : 0;
+    inner = text.runs
+      .map((run, i) => {
+        const runColor = safeColor(run.color);
+        const runBackground = safeColor(run.background);
+        const style = [
+          run.scale && run.scale !== 1 ? `font-size:${(run.scale * 100).toFixed(1)}%` : "",
+          runColor ? `color:${runColor}` : "",
+          run.weight ? `font-weight:${Math.min(900, Math.max(100, Math.round(run.weight)))}` : "",
+          runBackground
+            ? `background:${runBackground};padding:.08em .3em;border-radius:.22em`
+            : "",
+          gap ? `animation-delay:${(layer.at + i * gap).toFixed(3)}s` : "",
+        ]
+          .filter(Boolean)
+          .join(";");
+        return `<i${style ? ` style="${style}"` : ""}>${escape(run.text)}</i>`;
+      })
+      .join(" ");
+
+    extra = `
+      .${cls} .t {
+        font:${weight} ${size}px/1.08 Inter, "DejaVu Sans", system-ui, sans-serif;
+        color:${color}; letter-spacing:-0.025em; text-align:center;
+        display:flex; flex-wrap:wrap; gap:0 .28em;
+        align-items:center; justify-content:${align};
+        width:100%;
+      }
+      .${cls} i { font-style:normal; display:inline-block; }`;
+    if (gap) {
+      extra += `
+      .${cls} i { opacity:0; transform:${enter.from}; animation: runin ${enter.ms}ms ${curve} forwards; }`;
+    }
+  }
+
+  /*
+    When runs arrive one at a time, the layer itself must already be there —
+    otherwise the layer's own entrance and each run's entrance both run, and
+    the text arrives twice.
+  */
+  const runsCarryTheEntrance = layer.content.kind === "text" && Boolean(layer.content.staggerRuns);
+
+  return {
+    css: `
+      .${cls} {
+        position:absolute;
+        left:${px(box.x, width)}px; top:${px(box.y, height)}px;
+        width:${w}px; height:${h}px;
+        display:flex; align-items:center; justify-content:center;
+        background:${background};
+        ${radius ? `border-radius:${radius}px;` : ""}
+        ${shadow === "none" ? "" : `box-shadow:${shadow};`}
+        ${layer.z === undefined ? "" : `z-index:${Math.round(layer.z)};`}
+        overflow:hidden;
+        opacity:${runsCarryTheEntrance ? 1 : 0};
+        ${runsCarryTheEntrance ? "" : `transform:${enter.from};`}
+        animation: ${
+          runsCarryTheEntrance
+            ? ""
+            : `in-${cls} ${enter.ms}ms ${curve} ${layer.at.toFixed(3)}s forwards, `
+        }out-${cls} 1ms linear ${end}s forwards;
+      }
+      @keyframes in-${cls} { to { opacity:1; transform:${enter.to} } }
+      @keyframes out-${cls} { to { opacity:0 } }${extra}`,
+    html: `<div class="${cls}">${
+      layer.content.kind === "text" ? `<div class="t" dir="auto">${inner}</div>` : ""
+    }</div>`,
+  };
+}
+
 export type SceneElement =
   | ({ kind: "title" } & MotionTitle)
-  | ({ kind: "card" } & InterstitialCard);
+  | ({ kind: "card" } & InterstitialCard)
+  | ({ kind: "layer" } & Layer);
 
 export interface MotionSceneOptions {
   width: number;
@@ -729,15 +1013,16 @@ export function sceneHtml(options: MotionSceneOptions): string {
     ...(options.elements ?? []),
   ];
 
-  const blocks = elements.map((element, index) =>
-    element.kind === "card"
-      ? cardBlock(element, index, width, height, curve)
-      : titleBlock(element, index, height, curve),
-  );
+  const blocks = elements.map((element, index) => {
+    if (element.kind === "card") return cardBlock(element, index, width, height, curve);
+    if (element.kind === "layer") return layerBlock(element, index, width, height, curve);
+    return titleBlock(element, index, height, curve);
+  });
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   html,body { margin:0; padding:0; width:${width}px; height:${height}px; background:transparent; overflow:hidden }
   @keyframes word-in { to { opacity:1; transform: translateY(0) scale(1) } }
+  @keyframes runin { to { opacity:1; transform: none } }
   ${blocks.map((b) => b.css).join("\n")}
   </style></head><body>${blocks.map((b) => b.html).join("")}</body></html>`;
 }
