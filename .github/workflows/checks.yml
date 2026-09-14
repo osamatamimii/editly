@@ -348,6 +348,10 @@ jobs:
       # Beside framing, because it is the other half of the same question: that
       # one places the window, this one changes how wide it is across the cuts.
       - run: node tools/shots-test.mjs
+      # And beside both, because it is the same reading pointed the other way:
+      # those measure our own footage to decide where to put the frame, this
+      # measures somebody else's to find out what they drew on it.
+      - run: node tools/graphics-test.mjs
       - run: node tools/render-test.mjs
       # Beside the render suite: the keyframe interval is two seconds of the
       # actual frame rate, not a fixed sixty frames — which was 2.5s at 24fps,
