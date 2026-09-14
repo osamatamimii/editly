@@ -34,6 +34,7 @@ import type { SceneLayer } from "@workspace/api-zod";
 import type { DrawnBox, DrawnMoment, Entrance, GraphicsRead } from "./graphics";
 import { safeColor } from "./motion";
 import { withDeadline } from "./providers/deadline";
+import { guard, LIMITS } from "./deadline";
 
 /**
  * Moments asked about in one call.
@@ -175,6 +176,16 @@ const INSTRUCTION = [
   "flat card with one line on it is two layers, and that is a complete answer.",
 ].join("\n");
 
+/**
+ * One still, with a clock on it.
+ *
+ * The clock is not decoration and it is not belt-and-braces: this runs inside
+ * the render loop, and a child that wedges holds that loop open with nothing to
+ * report it — the machine looks busy, the queue stops, and the only symptom is
+ * that renders stop being claimed. `worker-test` asserts that every spawn in
+ * this package is guarded for exactly that reason, and it caught this one the
+ * day it was written.
+ */
 async function ffmpegStill(file: string, atSeconds: number, to: string): Promise<void> {
   const { spawn } = await import("node:child_process");
   await new Promise<void>((resolve, reject) => {
@@ -189,8 +200,19 @@ async function ffmpegStill(file: string, atSeconds: number, to: string): Promise
       "-q:v", "4",
       to,
     ]);
-    child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg ${code}`))));
+    const deadline = guard(child, { ...LIMITS.analysis, what: "taking a still out of the reference" });
+    child.on("error", (error) => {
+      deadline.clear();
+      reject(error);
+    });
+    child.on("close", (code) => {
+      deadline.clear();
+      if (deadline.expired) {
+        reject(deadline.error);
+        return;
+      }
+      code === 0 ? resolve() : reject(new Error(`ffmpeg ${code}`));
+    });
   });
 }
 

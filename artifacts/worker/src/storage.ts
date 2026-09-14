@@ -261,6 +261,29 @@ export async function downloadObject(key: string, destination: string): Promise<
         `Storage answered ${res.status} when we asked for your video. Nothing was rendered, so trying again is worth it.`,
       );
     }
+    /*
+      The object is not there, which is not a bad minute and not our bug.
+
+      Measured on production: every render between 3 and 14 September failed
+      here, each one three times inside a fifth of a second, and every customer
+      was shown "Rendering failed. We are looking into it." — a sentence that
+      points at us, for a file that was never in the bucket we were asking. The
+      real answer sat in `error_detail` where only somebody already suspicious
+      would look, and the queue burned three attempts on a 404 that could not
+      have gone differently the second or third time.
+
+      So it is terminal, and it says what happened. A key that is absent will
+      be absent again in a minute: the only things that change it are the
+      upload finishing or the deployment being pointed at the store the browser
+      actually wrote to, and neither is helped by asking twice more.
+    */
+    if (res.status === 404 || /NoSuchKey|not_found/i.test(detail)) {
+      throw new StorageTransferError(
+        "We could not find your video in storage, so nothing was rendered. " +
+          "If the upload is still going, let it finish and try again.",
+        true,
+      );
+    }
     throw new Error(`download failed for ${key}: ${res.status} ${detail}`);
   }
 

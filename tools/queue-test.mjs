@@ -64,6 +64,7 @@ const CLAIM = `
   WHERE id = (
     SELECT id FROM jobs
     WHERE status = 'queued' AND attempts < max_attempts
+      AND kind = ANY($2)
     ORDER BY priority DESC, created_at
     FOR UPDATE SKIP LOCKED
     LIMIT 1
@@ -112,7 +113,8 @@ async function queue(id, over = {}) {
   );
 }
 
-const claim = async (worker) => (await pool.query(CLAIM, [worker])).rows[0] ?? null;
+const KINDS = ["render", "transcribe"];
+const claim = async (worker, kinds = KINDS) => (await pool.query(CLAIM, [worker, kinds])).rows[0] ?? null;
 const read = async (id) => (await pool.query("SELECT * FROM jobs WHERE id = $1", [id])).rows[0];
 
 // ─── One row, one worker ─────────────────────────────────────────────────────
@@ -565,6 +567,36 @@ section("The worker still claims the way this file assumes");
   check("it claims only queued rows", /status = 'queued'/.test(source));
   check("it takes one at a time", /LIMIT 1/.test(source));
   check("and it counts the attempt as part of the claim", /attempts = attempts \+ 1/.test(source));
+  check("and it claims only kinds this build knows how to run", /AND kind = ANY\(\$2\)/.test(source));
+}
+
+section("A worker leaves a kind it does not know rather than killing it");
+{
+  /*
+    What two days of every render failing actually was.
+
+    The "transcribe" kind was added to the API on 12 September; the machine
+    running the queue had booted that morning from the commit before it. It
+    claimed every one of those rows, parsed the empty plan they carry by design
+    as an edit plan, failed, and burned all three attempts in forty
+    milliseconds — so the row was dead before a worker that understood it could
+    ever have been deployed. The customer was told "Rendering failed."
+
+    A newer API and an older worker is what every rolling deploy looks like for
+    a few minutes. The claim has to survive it.
+  */
+  await reset();
+  await queue("listens", { kind: "transcribe", plan: JSON.stringify({}) });
+  const taken = await claim("older-build", ["render"]);
+  check("an older build steps over a kind it was not built for", taken === null,
+    taken ? `claimed ${taken.id}` : "left it");
+
+  const after = await pool.query("SELECT status, attempts FROM jobs WHERE id = $1", ["listens"]);
+  check("and the row is untouched, not failed", after.rows[0]?.status === "queued", after.rows[0]?.status);
+  check("with its attempts unspent", Number(after.rows[0]?.attempts) === 0, String(after.rows[0]?.attempts));
+
+  const newer = await claim("newer-build");
+  check("a build that knows the kind takes it", newer?.id === "listens", newer?.id ?? "nothing");
 }
 
 await reset();

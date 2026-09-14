@@ -120,6 +120,33 @@ class CancelledError extends Error {}
  * to run in parallel: a row another worker is already claiming is stepped over
  * rather than waited on.
  */
+/**
+ * The kinds of job this build knows how to run.
+ *
+ * Stated rather than assumed, and read by the claim query. Adding a kind to the
+ * API is safe on its own; adding one here is what says a machine can take it.
+ */
+const KINDS_THIS_BUILD_RUNS = ["render", "transcribe"];
+
+/*
+  Why the claim filters on it.
+
+  A newer API and an older worker is not a fault, it is what every rolling
+  deploy looks like for a few minutes — and it is what this deployment looked
+  like for two days. The "transcribe" kind was added to the API on 12
+  September; the machine running the queue had booted that morning from the
+  commit before it. It claimed every one of those rows, parsed the empty plan
+  they carry by design as an edit plan, failed on "operations: expected array,
+  received undefined", and burned all three attempts in forty milliseconds. The
+  customer was told "Rendering failed."
+
+  A worker that cannot run a row must leave it for one that can, rather than
+  killing it on the way past. So the list above is what this build handles, an
+  older worker steps over what it does not know, and a newer one picks it up —
+  which is what makes deploying the two halves at different times safe rather
+  than merely usual.
+*/
+
 async function claimJob(): Promise<Job | null> {
   const { rows } = await pool.query<Job & Record<string, unknown>>(
     `UPDATE jobs SET
@@ -132,6 +159,7 @@ async function claimJob(): Promise<Job | null> {
      WHERE id = (
        SELECT id FROM jobs
        WHERE status = 'queued' AND attempts < max_attempts
+         AND kind = ANY($2)
        -- Priority first, then age. Within a priority this is still strictly
        -- first-in-first-out, so a paid queue cannot starve a free one of
        -- anything except its place at the front.
@@ -140,7 +168,7 @@ async function claimJob(): Promise<Job | null> {
        LIMIT 1
      )
      RETURNING *`,
-    [WORKER_ID],
+    [WORKER_ID, KINDS_THIS_BUILD_RUNS],
   );
   if (rows.length === 0) return null;
   const row = rows[0] as Record<string, unknown>;
