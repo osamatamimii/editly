@@ -644,6 +644,74 @@ section("Every suite in tools/ is one CI actually runs");
     `${unrun.join(", ")} — added and never wired in, which is a suite that exists and does nothing`,
   );
 
+  /*
+    And the runner has what they say they need.
+
+    Every suite states its requirements in its own header — "Requires: ffmpeg
+    with libass, python3 with fonttools" — and until this existed, nothing
+    compared those sentences with what the job installs. `user-font-test` has
+    asked for fontTools since the day it was written; the install step never
+    had it. So that suite failed on the runner and nowhere else, went red on 11
+    September, and stayed red.
+
+    Which would be a nuisance if it stopped there. `deploy-worker.yml` waits
+    for this workflow and deploys only on `conclusion == 'success'` — so a
+    missing test dependency held the worker at an eleven-day-old image while
+    every render in production failed, and the thing that would have noticed
+    was a person choosing to read a log.
+
+    The vocabulary is small and explicit on purpose. It is not trying to parse
+    English; it is looking for the handful of names that mean "a program has to
+    be on this machine", and asserting the job installs each one it finds. A
+    requirement phrased in a way this does not recognise is invisible to it,
+    which is why the list is written where somebody adding a suite will see it.
+  */
+  const TOOLS = {
+    ffmpeg: /\bffmpeg\b/i,
+    fonttools: /\bfonttools\b/i,
+    python3: /\bpython3\b/i,
+    opencv: /\bopencv\b/i,
+    postgres: /\bpostgres(ql)?\b/i,
+  };
+  // What the job does to obtain each one. Two ways, because one is apt and one
+  // is pip, and a check that only knew about apt would have passed this.
+  const INSTALLED = {
+    ffmpeg: /apt-get install[^\n]*ffmpeg/i,
+    fonttools: /pip3? install[^\n]*fonttools/i,
+    python3: /apt-get install[^\n]*python3/i,
+    opencv: /(apt-get install[^\n]*opencv|pip3? install[^\n]*opencv)/i,
+    postgres: /(services:|image: postgres)/i,
+  };
+
+  /*
+    Line continuations joined first.
+
+    The install step is one `apt-get install ... \` followed by the package
+    names on the next line, so every pattern below matched the word "install"
+    and then ran out of line before reaching "ffmpeg". The first spelling of
+    this reported that the runner was missing ffmpeg for thirty-six suites,
+    on a job that installs ffmpeg — a check that is wrong about everything is
+    worth no more than one that is wrong about nothing.
+  */
+  const installText = checksWorkflow.replace(/\\\n\s*/g, " ");
+
+  const missing = [];
+  for (const file of suites) {
+    const source = readFileSync(path.join(repoRoot, "tools", file), "utf8").slice(0, 2500);
+    const requires = source.match(/Requires:([\s\S]*?)(?:\*\/|\n \*\n)/);
+    if (!requires) continue;
+    for (const [tool, pattern] of Object.entries(TOOLS)) {
+      if (!pattern.test(requires[1])) continue;
+      if (!INSTALLED[tool].test(installText)) missing.push(`${file} needs ${tool}`);
+    }
+  }
+  check(
+    "and the runner installs everything the suites say they need",
+    missing.length === 0,
+    `${[...new Set(missing)].join(", ")} — a suite that cannot run on the runner fails there and nowhere else, ` +
+      "and this workflow is what the worker's deploy waits for",
+  );
+
   const phantom = [...checksWorkflow.matchAll(/node tools\/(\S+\.mjs)/g)]
     .map((m) => m[1])
     .filter((f) => !existsSync(path.join(repoRoot, "tools", f)));

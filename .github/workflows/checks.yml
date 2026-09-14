@@ -79,9 +79,27 @@ jobs:
           # whose section skips itself when OpenCV is missing — and a section
           # that skips is a section that is not testing anything.
           sudo apt-get install -y --no-install-recommends \
-            ffmpeg fonts-dejavu-core fonts-noto-color-emoji fontconfig python3 python3-opencv postgresql-client
+            ffmpeg fonts-dejavu-core fonts-noto-color-emoji fontconfig python3 python3-opencv python3-pip postgresql-client
+          # fontTools, at the version the worker image ships.
+          #
+          # `user-font-test` says in its own header that it needs it, the repair
+          # in `font-prepare.ts` shells out to it on every uploaded font, and
+          # the Dockerfile has installed it since the day that repair existed.
+          # This step never did — so the suite failed here and only here, went
+          # red on 11 September, and stayed red.
+          #
+          # Which would be a nuisance on its own. What made it an outage is that
+          # `deploy-worker.yml` waits for this workflow and deploys only on
+          # `conclusion == 'success'`: eleven days of every render failing,
+          # because a test dependency was missing from a runner.
+          #
+          # Pinned to the image's version rather than latest, because a suite
+          # measuring fonts with a different fontTools than production repairs
+          # them with is a suite about a machine nobody runs.
+          sudo pip3 install --no-cache-dir --break-system-packages "fonttools==4.61.*" "brotli==1.2.*"
           ffmpeg -version | head -1
           python3 -c "import cv2; print('opencv', cv2.__version__)"
+          python3 -c "from fontTools import ttLib; import fontTools; print('fonttools', fontTools.version)"
 
       # The caption face, from the repository — the same bytes the worker image
       # copies in, not a package with the same name.
