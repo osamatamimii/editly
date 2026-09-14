@@ -1434,6 +1434,116 @@ export const DeleteClipParams = z.object({ id: z.string().min(1), clipId: z.stri
 export const PromoteClipParams = DeleteClipParams;
 
 /**
+ * A scene, as the layers it is made of.
+ *
+ * Everything else in this contract is a *named look*: cut the silence, add
+ * captions, put a title in the middle. Each is a decision somebody made once,
+ * in code, and the plan chooses between them. That is the right shape for the
+ * twenty-two operations above it and the wrong shape for the thing Osama
+ * actually asked for, which is a tool that watches a reference and reproduces
+ * it — including looks nobody anticipated.
+ *
+ * The renderer grew a layer engine for that: a box, something in it, and how
+ * it arrives. The engine could draw an interstitial card, a split, a device
+ * mockup, a caption with one emphasised word, a grid — and **no plan could ask
+ * for any of it**, because there was no operation carrying layers. A capability
+ * with no door is `inventory --check`'s first named failure, and this was it.
+ *
+ * So: one operation, carrying a list. What it can express is not a menu here;
+ * it is whatever the layer language can draw, which is the point.
+ *
+ * ## Why this is safe to let a model write
+ *
+ * Every field a caller supplies that reaches a stylesheet is validated in the
+ * worker against a shape and refused if it does not fit — colours, asset URLs,
+ * gradient stops. Text is escaped. A refused value costs its own layer's
+ * colour or image, never the render. The schema below is the second gate, not
+ * the only one.
+ */
+export const LayerBoxSchema = z.object({
+  x: z.number().min(-1).max(2),
+  y: z.number().min(-1).max(2),
+  w: z.number().min(0.01).max(3),
+  h: z.number().min(0.01).max(3),
+});
+
+export const TextRunSchema = z.object({
+  text: z.string().min(1).max(240),
+  /** Size relative to the line's own, so 2 is twice as large. */
+  scale: z.number().min(0.2).max(6).optional(),
+  color: z.string().max(40).optional(),
+  weight: z.number().min(100).max(900).optional(),
+  /** A pill behind this run alone. */
+  background: z.string().max(40).optional(),
+});
+
+export const LayerContentSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("text"),
+    runs: z.array(TextRunSchema).min(1).max(24),
+    /** Cap size as a fraction of frame height. */
+    size: z.number().min(0.008).max(0.4),
+    color: z.string().max(40).optional(),
+    weight: z.number().min(100).max(900).optional(),
+    align: z.enum(["start", "center", "end"]).optional(),
+    staggerRuns: z.boolean().optional(),
+  }),
+  z.object({ kind: z.literal("fill"), color: z.string().max(40) }),
+  z.object({
+    kind: z.literal("gradient"),
+    from: z.string().max(40),
+    to: z.string().max(40),
+    angle: z.number().min(-360).max(360).optional(),
+  }),
+  z.object({
+    kind: z.literal("image"),
+    /** A project asset. Resolved to a file by the worker, never a raw URL. */
+    assetId: z.string().min(1),
+    fit: z.enum(["contain", "cover"]).optional(),
+  }),
+  z.object({
+    kind: z.literal("device"),
+    device: z.enum(["phone", "browser", "laptop"]),
+    shell: z.string().max(40).optional(),
+  }),
+]);
+
+export const SceneLayer = z.object({
+  box: LayerBoxSchema,
+  content: LayerContentSchema,
+  /** Seconds on the source clock, like every other timing here. */
+  at: z.number().min(0),
+  durationSeconds: z.number().min(0.1).max(60),
+  enter: z.enum(["rise", "drop", "settle", "fade"]).optional(),
+  /** How far it travels in, as a fraction of frame height. */
+  travel: z.number().min(0).max(1).optional(),
+  /** How small it starts. */
+  from: z.number().min(0.1).max(1).optional(),
+  /** Corner radius as a fraction of the layer's shorter side. 0.5 is a circle. */
+  radius: z.number().min(0).max(0.5).optional(),
+  shadow: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional(),
+  /** How soft its own edges are, as a fraction of frame height. */
+  blur: z.number().min(0).max(0.2).optional(),
+  opacity: z.number().min(0).max(1).optional(),
+  rotate: z.number().min(-180).max(180).optional(),
+  /** Paint order. Higher is nearer the viewer. */
+  z: z.number().min(-50).max(50).optional(),
+});
+export type SceneLayer = z.infer<typeof SceneLayer>;
+
+export const DrawLayersOperation = z.object({
+  type: z.literal("drawLayers"),
+  /**
+   * Capped, and the cap is about render time rather than taste.
+   *
+   * Every layer is drawn by a browser, four samples per output frame. Forty is
+   * already a dense composition and well past anything in the references;
+   * beyond it the cost stops being worth what the frame gains.
+   */
+  layers: z.array(SceneLayer).min(1).max(40),
+});
+
+/**
  * Type that arrives with weight.
  *
  * Rendered in a browser rather than by a filter, because a spring — overshoot
@@ -1916,6 +2026,7 @@ export const EditOperation = z.discriminatedUnion("type", [
   AddMusicOperation,
   OverlayImageOperation,
   MotionTitleOperation,
+  DrawLayersOperation,
   SoundEffectsOperation,
   AlternateFramingOperation,
   StillsReelOperation,

@@ -33,6 +33,7 @@ artifacts/editly/.browser-test/
 
 # Bundled beside the worker so bare specifiers resolve; see tools/motion-test.mjs
 artifacts/worker/.motion-test/
+artifacts/worker/.overlay-test/
 
 # Bundled beside the API for the same reason; see tools/stock-test.mjs
 artifacts/api-server/.stock-test/

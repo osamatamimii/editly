@@ -14,17 +14,34 @@
  * Usage: node tools/overlay-test.mjs
  * Requires: ffmpeg and ffprobe on PATH.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { existsSync, readdirSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = process.cwd();
 const buildDir = await mkdtemp(path.join(tmpdir(), "editly-overlay-test-"));
-const modulePath = path.join(buildDir, "ffmpeg.mjs");
+/*
+  The bundle lives in the repo, not in /tmp, and that is load-bearing.
+
+  Node resolves a bare specifier by walking up from the *importing file*, so a
+  bundle in a temp directory can never find `playwright` however it is
+  installed — and `renderMotionLayer` reaches for it with a bare
+  `import("playwright")`. It answers a missing browser with null, which is
+  correct in production (a missing browser must cost the drawing, not the
+  render) and quietly fatal here: every check on `drawLayers` would be a check
+  on an empty frame, passing for the wrong reason.
+
+  `motion-test` hit this exact trap and its header says so. This is the same
+  fix.
+*/
+const repoBuildDir = path.join(repoRoot, "artifacts/worker/.overlay-test");
+await mkdir(repoBuildDir, { recursive: true });
+const modulePath = path.join(repoBuildDir, "ffmpeg.mjs");
 
 const esbuild = spawnSync(
   require.resolve("esbuild/bin/esbuild", { paths: ["artifacts/worker"] }),
@@ -107,6 +124,29 @@ function averageColourIn(file, seconds, box) {
   if (r.status !== 0) return null;
   const bytes = require("node:fs").readFileSync(out);
   return [bytes[0], bytes[1], bytes[2]];
+}
+
+/*
+  Point the renderer at a browser this machine actually has.
+
+  `renderMotionLayer` answers a missing browser with null — correct in
+  production, where a missing browser must cost the drawing and not the render,
+  and quietly fatal here, where it turns the checks on `drawLayers` into checks
+  on an empty frame. The same resolution `motion-test` and `browser-test` do.
+*/
+function findChromium() {
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (!root || !existsSync(root)) return undefined;
+  for (const dir of readdirSync(root)) {
+    if (!/^chromium[-_]/.test(dir)) continue;
+    const candidate = path.join(root, dir, "chrome-linux", "chrome");
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+if (!process.env.CHROMIUM_PATH) {
+  const found = findChromium();
+  if (found) process.env.CHROMIUM_PATH = found;
 }
 
 const work = await mkdtemp(path.join(tmpdir(), "editly-ov-"));
@@ -413,6 +453,96 @@ console.log("\nAn image in a box takes the band it was given");
   check("the image reaches the far edge of its band", isMagenta(edge), edge ? `rgb(${edge})` : "no frame");
   check("and fills its middle", isMagenta(band), band ? `rgb(${band})` : "no frame");
   check("and nothing above it", isBlue(above), above ? `rgb(${above})` : "no frame");
+  await rm(ctx.workDir, { recursive: true, force: true });
+}
+
+/*
+  The door the layer engine did not have.
+
+  Everything the motion engine gained this week — the layer language, devices,
+  gradients, the measured card — lived inside the worker with no operation
+  carrying it, which is `inventory --check`'s first named failure: a capability
+  with tests, shipped, that no sentence could ask for. `drawLayers` is that
+  door, and these are the checks that it actually opens.
+
+  Drawn rather than read: the point of the operation is that a plan naming it
+  puts ink on the frame, and the way that fails is silently.
+*/
+console.log("\nA plan can draw a scene of layers");
+{
+  const ctx = { workDir: await mkdtemp(path.join(tmpdir(), "editly-layers-run-")), assets: new Map() };
+  const plan = {
+    version: 1,
+    operations: [
+      {
+        type: "drawLayers",
+        layers: [
+          // A full-frame plate, the shape a section card takes.
+          { box: { x: 0, y: 0, w: 1, h: 1 }, content: { kind: "fill", color: "#ff00ff" },
+            at: 2, durationSeconds: 2, enter: "fade", z: 0 },
+        ],
+      },
+    ],
+  };
+  const result = await renderPlan(blue, plan, ctx);
+
+  const during = averageColourIn(result.output, 3, { x: 0.2, y: 0.2, w: 0.6, h: 0.6 });
+  const before = averageColourIn(result.output, 1, { x: 0.2, y: 0.2, w: 0.6, h: 0.6 });
+
+  const drewNothing = result.notes.some((n) => n.includes("could not draw") || n.includes("تعذّر رسم"));
+  if (during === null || drewNothing) {
+    console.log("  · no browser here, so the scene checks are skipped (not failed)");
+  } else {
+    check("the layer is on the frame inside its window", isMagenta(during), `rgb(${during})`);
+    check("and the picture is there before it", isBlue(before), `rgb(${before})`);
+    /*
+      And after it, which is the half that was missing.
+
+      The first spelling of this checked only *before* the layer's moment — and
+      a layer that never leaves still starts on time, so a plate rendered for
+      the whole video passed. Breaking the duration to 9999 proved it: green.
+      Fifth check this session that could not fail, and always the same
+      mistake — probing where the correct version differs from nothing instead
+      of where it differs from the plausible bug.
+
+      A plate that never leaves is not a cutaway; it is a new video.
+    */
+    const after = averageColourIn(result.output, 6, { x: 0.2, y: 0.2, w: 0.6, h: 0.6 });
+    check("and back again after it", isBlue(after), after ? `rgb(${after})` : "no frame");
+    check("the render says it drew a scene",
+      result.notes.some((n) => n.includes("drew a scene") || n.includes("رسمت مشهدًا")),
+      result.notes.join("; "));
+  }
+  await rm(ctx.workDir, { recursive: true, force: true });
+}
+
+console.log("\nA layer's picture comes from the project, never from a URL");
+{
+  const ctx = { workDir: await mkdtemp(path.join(tmpdir(), "editly-layerimg-run-")), assets: new Map() };
+  const plan = {
+    version: 1,
+    operations: [
+      {
+        type: "drawLayers",
+        layers: [
+          { box: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 },
+            content: { kind: "image", assetId: "not-in-this-project", fit: "cover" },
+            at: 1, durationSeconds: 2, z: 1 },
+        ],
+      },
+    ],
+  };
+  const result = await renderPlan(blue, plan, ctx);
+  /*
+    The contract cannot express a raw URL for a layer's picture — it names a
+    project asset — so nothing a plan says can point the renderer at a host.
+    An asset the project does not have costs that layer its picture and
+    nothing else: the render finishes and says what it dropped.
+  */
+  check("an asset the project does not have is skipped with a note",
+    result.notes.some((n) => n.includes("skipped a layer's picture") || n.includes("تخطّيت صورة طبقة")),
+    result.notes.join("; "));
+  check("and the render still finishes", typeof result.output === "string" && result.output.length > 0);
   await rm(ctx.workDir, { recursive: true, force: true });
 }
 

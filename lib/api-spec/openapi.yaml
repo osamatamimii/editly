@@ -3558,6 +3558,7 @@ components:
         - $ref: "#/components/schemas/AddMusicOperation"
         - $ref: "#/components/schemas/OverlayImageOperation"
         - $ref: "#/components/schemas/MotionTitleOperation"
+        - $ref: "#/components/schemas/DrawLayersOperation"
         - $ref: "#/components/schemas/SoundEffectsOperation"
         - $ref: "#/components/schemas/AlternateFramingOperation"
         - $ref: "#/components/schemas/StillsReelOperation"
@@ -3890,6 +3891,211 @@ components:
           enum: [top, center, bottom]
           default: center
       required: [type, text, at]
+
+    LayerBox:
+      description: >
+        Where a layer sits, in fractions of the frame. Fractions rather than
+        pixels because the same composition has to hold at 1080x1920 and at
+        1920x1080, and a number in pixels only means something next to a size
+        it was never sent with. Values outside 0..1 are allowed on purpose: a
+        layer that starts off-frame and slides in is a layer whose box is
+        partly negative.
+      type: object
+      properties:
+        x: { type: number, minimum: -1, maximum: 2 }
+        y: { type: number, minimum: -1, maximum: 2 }
+        w: { type: number, minimum: 0.01, maximum: 3 }
+        h: { type: number, minimum: 0.01, maximum: 3 }
+      required: [x, y, w, h]
+
+    LayerTextRun:
+      description: >
+        One stretch of a line that differs from the rest of it - a coloured
+        word, a heavier one, a word with a pill behind it. A line is a list of
+        these, so emphasis inside a sentence needs no second layer.
+      type: object
+      properties:
+        text: { type: string, minLength: 1, maxLength: 240 }
+        scale:
+          description: Size relative to the line's own, so 2 is twice as large.
+          type: number
+          minimum: 0.2
+          maximum: 6
+        color: { type: string, maxLength: 40 }
+        weight: { type: number, minimum: 100, maximum: 900 }
+        background:
+          description: A pill behind this run alone.
+          type: string
+          maxLength: 40
+      required: [text]
+
+    LayerContent:
+      description: >
+        What the box holds. Five kinds, discriminated by kind: text, a flat
+        fill, a gradient, one of the project's own images, or a drawn device -
+        a phone, a browser window, a laptop - whose screen is a real hole in
+        the layer, so whatever is behind it shows through.
+
+
+        An image names an assetId and never a URL. The worker resolves the id
+        to a file it already has; a raw URL in a plan is a stylesheet fetching
+        whatever a model was persuaded to write.
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [text, fill, gradient, image, device]
+        runs:
+          description: text only.
+          type: array
+          minItems: 1
+          maxItems: 24
+          items: { $ref: "#/components/schemas/LayerTextRun" }
+        size:
+          description: text only. Cap size as a fraction of frame height.
+          type: number
+          minimum: 0.008
+          maximum: 0.4
+        color:
+          description: text and fill.
+          type: string
+          maxLength: 40
+        weight: { type: number, minimum: 100, maximum: 900 }
+        align:
+          type: string
+          enum: [start, center, end]
+        staggerRuns:
+          description: >
+            text only. Bring the runs in one after another rather than as one
+            block, which is what makes a line read as written rather than
+            placed.
+          type: boolean
+        from:
+          description: gradient only.
+          type: string
+          maxLength: 40
+        to:
+          description: gradient only.
+          type: string
+          maxLength: 40
+        angle:
+          description: gradient only, in degrees.
+          type: number
+          minimum: -360
+          maximum: 360
+        assetId:
+          description: image only. Must name a file already in this project.
+          type: string
+          minLength: 1
+        fit:
+          description: image only.
+          type: string
+          enum: [contain, cover]
+        device:
+          description: device only.
+          type: string
+          enum: [phone, browser, laptop]
+        shell:
+          description: device only. The body colour of the drawn device.
+          type: string
+          maxLength: 40
+      required: [kind]
+      discriminator:
+        propertyName: kind
+
+    SceneLayer:
+      description: >
+        One box on the frame, for one stretch of time, with one way of
+        arriving.
+      type: object
+      properties:
+        box: { $ref: "#/components/schemas/LayerBox" }
+        content: { $ref: "#/components/schemas/LayerContent" }
+        at:
+          description: Seconds on the source clock, like every other timing here.
+          type: number
+          minimum: 0
+        durationSeconds:
+          type: number
+          minimum: 0.1
+          maximum: 60
+        enter:
+          description: >
+            rise comes up from below, drop comes down from above, settle scales
+            in on the spot, fade only changes opacity. All four are the same
+            spring, which is why a composition made of several of them reads as
+            one movement rather than four.
+          type: string
+          enum: [rise, drop, settle, fade]
+        travel:
+          description: How far it travels in, as a fraction of frame height.
+          type: number
+          minimum: 0
+          maximum: 1
+        from:
+          description: How small it starts.
+          type: number
+          minimum: 0.1
+          maximum: 1
+        radius:
+          description: >
+            Corner radius as a fraction of the layer's shorter side. 0.5 is a
+            circle.
+          type: number
+          minimum: 0
+          maximum: 0.5
+        shadow:
+          description: >
+            Height off the page rather than a blur radius: 0 is flat on it, 3
+            is a card lifted well clear. The blur, the spread and the opacity
+            are all derived from it, so a composition cannot end up with a
+            shadow that belongs to no light.
+          type: integer
+          enum: [0, 1, 2, 3]
+        blur:
+          description: How soft its own edges are, as a fraction of frame height.
+          type: number
+          minimum: 0
+          maximum: 0.2
+        opacity: { type: number, minimum: 0, maximum: 1 }
+        rotate: { type: number, minimum: -180, maximum: 180 }
+        z:
+          description: Paint order. Higher is nearer the viewer.
+          type: number
+          minimum: -50
+          maximum: 50
+      required: [box, content, at, durationSeconds]
+
+    DrawLayersOperation:
+      description: >
+        Compose a scene out of boxes - a section card, a device mockup, a
+        diagram, a title over a wash - drawn by a real browser frame by frame
+        and laid over the picture.
+
+
+        This is the same renderer motionTitle uses and the same spring, one
+        level down: motionTitle asks for words in one of three arrangements,
+        drawLayers asks for the arrangement itself. That is deliberate. A
+        vocabulary of boxes composes into shapes nobody wrote a name for,
+        which is what it takes to follow a reference instead of choosing from
+        a menu.
+
+
+        Layers are capped at forty. Every one of them is drawn four times per
+        output frame - that is the shutter, and it is why the motion has real
+        blur rather than a filter's imitation of it - so the cap is about
+        render time, not taste.
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [drawLayers]
+        layers:
+          type: array
+          minItems: 1
+          maxItems: 40
+          items: { $ref: "#/components/schemas/SceneLayer" }
+      required: [type, layers]
 
     ExtractHighlightOperation:
       description: >

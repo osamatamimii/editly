@@ -25,6 +25,7 @@
  * and it means a missing key degrades the product instead of breaking it.
  */
 import { EditOperation, TransitionStyle, type Platform, MAX_PLAN_OPERATIONS } from "@workspace/api-zod";
+import { interstitialCard } from "./scenes";
 import { languageOf, momentsNotHonoured, planFromText, replyFor, type ParsedIntent, type Phrase } from "./plan-from-text";
 
 const ENDPOINT = "https://api.openai.com/v1/chat/completions";
@@ -106,6 +107,7 @@ function buildSchema(assets: PlannerAsset[]) {
     "alternateFraming",
     "normalizeLoudness",
     "motionTitle",
+    "drawLayers",
     "grade",
     ...(clips.length > 0 ? ["insertBRoll"] : []),
     ...(stills.length > 0 ? ["overlayImage"] : []),
@@ -156,6 +158,8 @@ function buildSchema(assets: PlannerAsset[]) {
             "durationSeconds",
             "titleText",
             "titleStyle",
+            "cardText",
+            "cardNote",
             "look",
             "placement",
             "punchOn",
@@ -229,6 +233,16 @@ function buildSchema(assets: PlannerAsset[]) {
             /** The words for a motion title. Theirs, not yours to embellish. */
             titleText: { type: ["string", "null"] },
             titleStyle: { type: ["string", "null"], enum: ["card", "lower-third", "word", null] },
+            /*
+              For drawLayers: the words on a section card.
+
+              A card carries a name and, under it, a line. Both are the
+              person's own words — there is no place here to invent a section
+              title for somebody, and a full-frame plate carrying copy they
+              never wrote is the loudest possible version of that failure.
+            */
+            cardText: { type: ["string", "null"] },
+            cardNote: { type: ["string", "null"] },
             /**
              * For zoomPunch: what "choose for me" means.
              *
@@ -460,6 +474,11 @@ function instructionFor(assets: PlannerAsset[]): string {
     "and the product has a measured default for exactly that. Filling one in with your own taste takes a decision",
     "away from a person who never made it.",
     "motionTitle animates words onto the screen. Use the person's own words. Never write copy they did not ask for.",
+    "drawLayers builds a full-frame card that the video cuts away to between sections - a light plate with an icon",
+    "and a name, the way an explainer marks a new chapter. Choose it when they ask for section cards, chapter",
+    "cards, interstitials or a divider between parts. Put their words in cardText, and a short line under it in",
+    "cardNote when they gave one. It is not the answer to 'add a title': a title sits over the picture and this",
+    "replaces it. With no words of theirs to carry, do not choose it.",
     "titleStyle: card is a full sentence held in the middle; lower-third is a name or label along the bottom;",
     "word is kinetic type, where the words land one after another - choose it when they ask for words that move,",
     "for kinetic or animated text, or for a short punchy line rather than a sentence.",
@@ -1007,6 +1026,30 @@ function toOperation(
           position: TITLE_PLACEMENTS.has(placement as string) ? (placement as never) : "center",
         };
       }
+      case "drawLayers": {
+        const text = raw["cardText"];
+        // The same rule the title follows, and for a louder reason: this is a
+        // full-frame plate. A card with no words of theirs is not a card.
+        if (typeof text !== "string" || text.trim().length === 0) return null;
+        const note = raw["cardNote"];
+        return {
+          type,
+          layers: interstitialCard({
+            name: text.trim().slice(0, 60),
+            ...(typeof note === "string" && note.trim().length > 0
+              ? { note: note.trim().slice(0, 80) }
+              : {}),
+            at: Math.max(0, numberOr(raw["atSeconds"], 1)),
+            durationSeconds: Math.min(8, Math.max(0.6, numberOr(raw["durationSeconds"], 2))),
+            /*
+              Built for 9:16, which is what this product exports by default and
+              what every reference uses. A square icon is a different fraction
+              of the width than of the height, so the shape has to be stated.
+            */
+            aspect: 9 / 16,
+          }),
+        };
+      }
       default:
         return null;
     }
@@ -1124,7 +1167,23 @@ function clock(seconds: number): string {
 export function describeAll(operations: EditOperation[]): Phrase[] {
   return operations.map((op): Phrase => {
     switch (op.type) {
-      case "removeSilence":
+            /*
+        A scene of layers, said as one sentence rather than described layer by
+        layer.
+
+        Every other case here names what the operation does because the person
+        can picture it. "A card, then a device, then a caption with one word in
+        green" is not a sentence anybody wants read back to them — what they
+        want to know is that the look they asked for is being built.
+      */
+      case "drawLayers":
+        return op.layers.length === 1
+          ? { en: "draw a layer over the frame", ar: "أرسم طبقة فوق الكادر" }
+          : {
+              en: `build a scene of ${op.layers.length} layers`,
+              ar: `أبني مشهدًا من ${op.layers.length} طبقة`,
+            };
+case "removeSilence":
         return { en: "cut out the silences and dead air", ar: "أقصّ الصمت والفراغات" };
       case "tighten":
         /*

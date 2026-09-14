@@ -385,12 +385,19 @@ export type DeviceKind = "phone" | "browser" | "laptop";
  * All fractions of the **layer's own box**, not the frame's.
  */
 const DEVICE_GEOMETRY: Record<DeviceKind, { top: number; side: number; bottom: number; radius: number }> = {
-  // A bezel of even thickness, a little deeper top and bottom.
-  phone: { top: 0.022, side: 0.038, bottom: 0.022, radius: 0.075 },
+  /*
+    Measured off r07's phone rather than chosen, which is the correction this
+    table needed: the first numbers here were invented, and a bezel at 3.8% of
+    the body's width reads as a tablet from 2015. The reference's rim is thin
+    and its corner is large — that combination is most of what makes a drawn
+    phone read as a current one, and neither is a thing anybody eyeballs
+    correctly.
+  */
+  phone: { top: 0.016, side: 0.026, bottom: 0.016, radius: 0.125 },
   // A title bar with the three dots in it, and a hairline everywhere else.
-  browser: { top: 0.1, side: 0.008, bottom: 0.008, radius: 0.035 },
+  browser: { top: 0.085, side: 0.007, bottom: 0.007, radius: 0.03 },
   // A screen with a base under it, which is what tells it from a browser.
-  laptop: { top: 0.025, side: 0.02, bottom: 0.11, radius: 0.03 },
+  laptop: { top: 0.018, side: 0.014, bottom: 0.085, radius: 0.022 },
 };
 
 /**
@@ -404,7 +411,8 @@ const DEVICE_GEOMETRY: Record<DeviceKind, { top: number; side: number; bottom: n
 export function deviceScreenBox(
   device: DeviceKind,
   box: LayerBox,
-): { x: number; y: number; w: number; h: number } {
+  frame?: { width: number; height: number },
+): { x: number; y: number; w: number; h: number; radius: number } {
   const g = DEVICE_GEOMETRY[device];
   /*
     The side inset is a fraction of the device's *width* and the top and bottom
@@ -413,12 +421,39 @@ export function deviceScreenBox(
     four off the width — which is what a single number would do — gives a phone
     with a fat forehead and a thin chin on any box that is not square.
   */
-  return {
+  const screen = {
     x: box.x + box.w * g.side,
     y: box.y + box.h * g.top,
     w: box.w * (1 - g.side * 2),
     h: box.h * (1 - g.top - g.bottom),
   };
+
+  /*
+    And the corner the content has to be cut to.
+
+    Without this the screen is a rounded hole with a *square* picture behind
+    it, and the picture's corners show outside the bezel — four little tabs of
+    video sticking out of a phone. It is visible in the first render anybody
+    looks at and there was no way for a caller to avoid it, because the inner
+    radius is the outer radius minus the bezel and only this file knows either.
+
+    Returned in the units `Layer.radius` takes — a fraction of the *screen
+    layer's* shorter side — so a caller writes `radius: screen.radius` and is
+    done. That conversion needs the frame's pixel size, because "shorter side"
+    is a pixel comparison and the boxes here are fractions of two different
+    axes. Without a frame there is no honest answer, so the radius comes back 0
+    and a caller that wants round corners has to say what it is rendering to.
+  */
+  let radius = 0;
+  if (frame && frame.width > 0 && frame.height > 0) {
+    const deviceShort = Math.min(box.w * frame.width, box.h * frame.height);
+    const screenShort = Math.min(screen.w * frame.width, screen.h * frame.height);
+    const outer = deviceShort * g.radius;
+    const bezel = box.w * g.side * frame.width;
+    radius = screenShort > 0 ? Math.max(0, outer - bezel) / screenShort : 0;
+  }
+
+  return { ...screen, radius };
 }
 
 export type LayerContent =
@@ -668,7 +703,25 @@ function layerBlock(layer: Layer, index: number, width: number, height: number, 
       bezel does. A separately specified inner radius was one more number to
       keep in step with the geometry, and it is gone.
     */
-    inner = `<div class="dev"></div>${
+    /*
+      And a sheen on the glass.
+
+      This is the last tell, and it is the one that survives being looked at:
+      a screen with no reflection is a picture of a screen. The reference's
+      phone carries a soft diagonal highlight across the top third of the
+      glass, brighter at the corner the light comes from and gone by the
+      middle.
+
+      It is drawn by the *device* rather than by whatever is inside the screen,
+      which is the only place it can be: the content is a clip ffmpeg placed
+      underneath, and glass is in front of what it covers. So the device layer
+      sits above the content and paints this over it.
+
+      Not on a browser window. A browser is a rectangle on a screen, not a
+      screen — a reflection on it would be a reflection on nothing.
+    */
+    const glass = kind === "browser" ? "" : `<div class="glass"></div>`;
+    inner = `<div class="dev"></div>${glass}${
       kind === "browser"
         ? `<div class="dots"><i></i><i></i><i></i></div>`
         : kind === "phone"
@@ -676,6 +729,26 @@ function layerBlock(layer: Layer, index: number, width: number, height: number, 
           : ""
     }`;
 
+    /*
+      Two rims, and no gradient on the bezel — which is a decision, not a gap.
+
+      A flat border of one colour reads as paper; a real rim catches light at
+      its outer and inner edges, and that highlight is the clearest single tell
+      between a drawn mockup and a photographed one.
+
+      A gradient *along* the bezel would be better still, and the obvious way
+      to get it — a `linear-gradient` background with a transparent border —
+      does not work here: the background fills the padding box as well, so the
+      screen stops being a hole and the whole point of this element is lost.
+      It was tried and the pixel check caught it immediately. `border-image`
+      paints only the border and would be exactly right, except that it
+      disables `border-radius`, and a square-cornered phone is a worse lie than
+      a flat one.
+
+      So: a solid bezel with a light line just outside it and another just
+      inside. That is most of the effect and none of the risk.
+    */
+    const rim = Math.max(1, Math.round(shortSide * 0.004));
     extra = `
       .${cls} .dev {
         position:absolute; inset:0; box-sizing:border-box;
@@ -683,6 +756,19 @@ function layerBlock(layer: Layer, index: number, width: number, height: number, 
         border-style:solid; border-color:${shell};
         border-width:${top}px ${side}px ${bottom}px ${side}px;
         border-radius:${outerRadius}px;
+        box-shadow:
+          0 0 0 ${rim}px rgba(255,255,255,.14),
+          inset 0 0 0 ${rim}px rgba(255,255,255,.1);
+      }
+      .${cls} .glass {
+        position:absolute;
+        left:${side}px; top:${top}px; right:${side}px; bottom:${bottom}px;
+        border-radius:${Math.max(0, outerRadius - side)}px;
+        background:linear-gradient(118deg,
+          rgba(255,255,255,.16) 0%,
+          rgba(255,255,255,.06) 22%,
+          rgba(255,255,255,0) 46%);
+        pointer-events:none;
       }
       .${cls} .dots {
         position:absolute; top:${Math.round(top / 2 - dot / 2)}px; left:${Math.round(side + dot)}px;
@@ -692,11 +778,20 @@ function layerBlock(layer: Layer, index: number, width: number, height: number, 
         width:${dot}px; height:${dot}px; border-radius:50%;
         background:rgba(255,255,255,.3); display:block;
       }
+      /*
+        The notch is on the screen, not on the bezel.
+
+        Drawn on the rim it is a scratch in the metal; drawn on the glass just
+        below the top edge, dark and wide, it is what every phone made since
+        2020 actually looks like. The reference's is a pill roughly a third of
+        the body's width — measured, because a narrow one reads as a speaker
+        grille and a wide one as a browser tab.
+      */
       .${cls} .notch {
-        position:absolute; top:${Math.round(top * 0.3)}px; left:50%;
+        position:absolute; top:${Math.round(top + h * 0.012)}px; left:50%;
         transform:translateX(-50%);
-        width:${Math.round(w * 0.28)}px; height:${Math.max(3, Math.round(h * 0.009))}px;
-        border-radius:999px; background:rgba(255,255,255,.18);
+        width:${Math.round(w * 0.32)}px; height:${Math.max(4, Math.round(h * 0.022))}px;
+        border-radius:999px; background:#0b0d11;
       }`;
     background = "transparent";
   } else if (layer.content.kind === "image") {

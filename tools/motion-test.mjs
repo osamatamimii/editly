@@ -1106,6 +1106,22 @@ console.log("\nA device's screen is where both halves agree it is");
   const phone = deviceScreenBox("phone", box);
   const browser = deviceScreenBox("browser", box);
   check("a browser gives up more of its top than a phone does", browser.y - box.y > (phone.y - box.y) * 2, `${browser.y - box.y} vs ${phone.y - box.y}`);
+
+  /*
+    The corner the content has to be cut to.
+
+    Without it the screen is a rounded hole with a square picture behind it,
+    and the picture's corners stick out past the bezel — four tabs of video
+    on the outside of a phone. Visible in the first render anybody looks at,
+    and unavoidable for a caller, because the inner radius is the outer radius
+    minus the bezel and only that table knows either.
+  */
+  const withFrame = deviceScreenBox("phone", box, { width: 1080, height: 1920 });
+  check("the screen reports the corner its content must be cut to", withFrame.radius > 0, String(withFrame.radius));
+  check("and it is smaller than the device's own corner", withFrame.radius < 0.125 / 1, `${withFrame.radius} — an inner corner is the outer one minus the bezel`);
+  // Asked without a frame there is no honest answer: "shorter side" is a pixel
+  // comparison and these boxes are fractions of two different axes.
+  check("asked without a frame it says nothing rather than guessing", deviceScreenBox("phone", box).radius === 0);
 }
 
 console.log("\nA device is a border, so its screen is a hole");

@@ -18,7 +18,7 @@ import { constants as fsConstants } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { criticise, settlePunches } from "./critic";
-import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle } from "./motion";
+import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle, type SceneElement, type Layer } from "./motion";
 import { beatsOf, everyNth } from "./beats";
 import { DEFAULT_CAPTION_LOOK } from "@workspace/api-zod/caption-default";
 import type { CaptionStyleName, EditOperation, EditPlan, GradeLook, TransitionStyle } from "@workspace/api-zod";
@@ -6080,10 +6080,11 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   // fails to paint, a title whose moment was cut — none of those are reasons
   // to fail a render that is otherwise finished.
   const titleOps = plan.operations.filter((o): o is Op<"motionTitle"> => o.type === "motionTitle");
+  const layerOps = plan.operations.filter((o): o is Op<"drawLayers"> => o.type === "drawLayers");
   let motionLayer: { pattern: string; frames: number; fps: number } | null = null;
   /** Where the layer's own clock sits on the edit's. */
   let motionFrom = 0;
-  if (titleOps.length > 0) {
+  if (titleOps.length > 0 || layerOps.length > 0) {
     const titles: MotionTitle[] = [];
     for (const op of titleOps) {
       const start = kept ? remapTime(op.at, kept, overlaps) : op.at;
@@ -6102,7 +6103,76 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         position: op.position,
       });
     }
-    if (titles.length > 0) {
+    /*
+      Layers, which is the door the engine did not have.
+
+      `drawLayers` carries a scene rather than naming a look, so the same
+      operation draws an interstitial card, a split, a device mockup or a
+      caption with one emphasised word — including compositions nobody wrote
+      code for, which is the point of it existing.
+
+      Three things happen to every layer on the way in and each is a rule the
+      titles above already follow:
+
+        - **Its moment is remapped.** Timings arrive on the source clock; a
+          layer pinned to a sentence that got cut must not reappear over
+          whatever took its place.
+        - **An image names a project asset**, never a URL. The contract cannot
+          express a raw one, so nothing a plan says can point this renderer at
+          a host — and an asset the project does not have costs that layer its
+          picture, not the render.
+        - **A layer whose moment did not survive is dropped with a note**, the
+          way a title is.
+    */
+    const scene: SceneElement[] = [];
+    for (const op of layerOps) {
+      for (const layer of op.layers) {
+        const start = kept ? remapTime(layer.at, kept, overlaps) : layer.at;
+        const end = kept
+          ? remapTime(layer.at + layer.durationSeconds, kept, overlaps)
+          : layer.at + layer.durationSeconds;
+        if (end - start < 0.1) {
+          notes.push(
+            t("dropped a layer whose moment did not survive the cut", "أسقطت طبقة لم تنجُ لحظتها من القصّ"),
+          );
+          continue;
+        }
+
+        let content: SceneElement extends { kind: "layer" } ? never : Layer["content"];
+        if (layer.content.kind === "image") {
+          const asset = ctx.assets?.get(layer.content.assetId);
+          if (!asset) {
+            notes.push(
+              t("skipped a layer's picture: that file is not in this project",
+                "تخطّيت صورة طبقة: ذلك الملفّ ليس في هذا المشروع"),
+            );
+            continue;
+          }
+          content = { kind: "image", url: `file://${asset.file}`, ...(layer.content.fit ? { fit: layer.content.fit } : {}) };
+        } else {
+          content = layer.content;
+        }
+
+        scene.push({
+          kind: "layer",
+          box: layer.box,
+          content,
+          at: start,
+          durationSeconds: end - start,
+          ...(layer.enter ? { enter: layer.enter } : {}),
+          ...(layer.travel === undefined ? {} : { travel: layer.travel }),
+          ...(layer.from === undefined ? {} : { from: layer.from }),
+          ...(layer.radius === undefined ? {} : { radius: layer.radius }),
+          ...(layer.shadow === undefined ? {} : { shadow: layer.shadow }),
+          ...(layer.blur === undefined ? {} : { blur: layer.blur }),
+          ...(layer.opacity === undefined ? {} : { opacity: layer.opacity }),
+          ...(layer.rotate === undefined ? {} : { rotate: layer.rotate }),
+          ...(layer.z === undefined ? {} : { z: layer.z }),
+        });
+      }
+    }
+
+    if (titles.length > 0 || scene.length > 0) {
       /*
         Only the stretch the titles are actually on screen for.
 
@@ -6118,8 +6188,20 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         So the layer starts a little before the first title and ends a little
         after the last, and the overlay puts it back where it belongs.
       */
-      const from = Math.max(0, Math.min(...titles.map((title) => title.at)) - MOTION_LEAD_SECONDS);
-      const until = Math.max(...titles.map((t) => t.at + t.durationSeconds)) + 0.6;
+      /*
+        The window is over everything drawn, not just the titles.
+
+        Reading it from `titles` alone is how a scene of layers with no title
+        in it would ask for a layer of length `-Infinity` — and a scene with
+        both would have its layers clipped to whenever the titles happened to
+        be.
+      */
+      const drawn: Array<{ at: number; durationSeconds: number }> = [
+        ...titles.map((title) => ({ at: title.at, durationSeconds: title.durationSeconds })),
+        ...scene.map((element) => ({ at: element.at, durationSeconds: element.durationSeconds })),
+      ];
+      const from = Math.max(0, Math.min(...drawn.map((d) => d.at)) - MOTION_LEAD_SECONDS);
+      const until = Math.max(...drawn.map((d) => d.at + d.durationSeconds)) + 0.6;
       motionFrom = from;
       motionLayer = await renderMotionLayer(
         {
@@ -6127,15 +6209,39 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           height: frameHeight,
           fps: source.fps,
           titles: titles.map((title) => ({ ...title, at: title.at - from })),
+          elements: scene.map((element) => ({ ...element, at: element.at - from })),
           durationSeconds: until - from,
         },
         path.join(ctx.workDir, "motion"),
       );
       if (motionLayer) {
-        notes.push(t(`rendered ${titles.length} title${titles.length === 1 ? "" : "s"}`, `صُيّر ${titles.length} عنوان`));
+        if (titles.length > 0) {
+          notes.push(t(`rendered ${titles.length} title${titles.length === 1 ? "" : "s"}`, `صُيّر ${titles.length} عنوان`));
+        }
+        if (scene.length > 0) {
+          notes.push(
+            t(`drew a scene of ${scene.length} layer${scene.length === 1 ? "" : "s"}`,
+              `رسمت مشهدًا من ${scene.length} طبقة`),
+          );
+        }
       } else {
+        /*
+          Named by what was lost, not by what it used to be.
+
+          This layer carries titles *and* scenes now, and a plan that asked for
+          a section card was told "could not render the titles" — a sentence
+          about something it never mentioned, which reads as a bug in the
+          product rather than as a machine without a browser.
+        */
+        const lost =
+          titles.length > 0 && scene.length > 0
+            ? t("the titles and the scene", "العناوين والمشهد")
+            : scene.length > 0
+              ? t("the scene", "المشهد")
+              : t("the titles", "العناوين");
         notes.push(
-          t("could not render the titles here, so they were left out", "تعذّر تصيير العناوين هنا، فتُركت خارج التعديل"),
+          t(`could not draw ${lost} here, so ${scene.length > 0 && titles.length === 0 ? "it was" : "they were"} left out`,
+            `تعذّر رسم ${lost} هنا، فتُرك خارج التعديل`),
         );
       }
     }
@@ -7376,6 +7482,7 @@ export function describe(op: EditOperation): string {
     case "insertBRoll": return "Cutting in your b-roll";
     case "overlayImage": return "Laying your image over the frame";
     case "motionTitle": return "Animating your titles";
+    case "drawLayers": return "Drawing the scene";
     case "soundEffects": return "Laying the sound effects in";
     case "alternateFraming": return "Cutting between two shot sizes";
     // Handled in index.ts before the renderer is called at all: by the time

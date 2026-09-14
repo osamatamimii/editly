@@ -13,6 +13,7 @@
  */
 import type { EditOperation, GradeLook, MusicMood, Platform, TransitionStyle } from "@workspace/api-zod";
 import { MUSIC_MOOD_NAMES } from "@workspace/api-zod";
+import { interstitialCard } from "./scenes";
 
 /**
  * One thing to say, in both languages.
@@ -505,6 +506,23 @@ const BROLL_WORDS =
   /\bb-?roll|cut ?away|cutaway|footage|insert (a |the )?(clip|shot)\b|بي ?رول|لقطات مساندة|لقطة مساندة|مقاطع مساندة|لقطات إضافية/i;
 const OVERLAY_WORDS =
   /\blogo|overlay|screenshot|graphic|show (the |my )?(image|picture|photo)\b|الشعار|شعاري|لوجو|صورة فوق|لقطة شاشة|سكرين ?شوت/i;
+
+/**
+ * A card between sections, which is the reference's signature move.
+ *
+ * r04 cuts to a light card with an icon and a name between every one of its
+ * five sections, and it is what makes a talking head read as a produced
+ * explainer rather than a recording. The study ranked it highest for visual
+ * effect against effort, and it is now expressible — so this is the sentence
+ * that reaches it.
+ *
+ * Deliberately not matched by "title" or "card" alone. Both are ordinary words
+ * about text, and `motionTitle` is the right answer to either; this is about
+ * *cutting away* to a full-frame plate, which people describe as a section, a
+ * chapter, or a break.
+ */
+const SECTION_CARD_WORDS =
+  /\bsection card|chapter card|title card|interstitial|section break|divider card\b|بطاقة قسم|بطاقة فاصلة|فاصل بين الأقسام|كرت قسم|بطاقة تعريفيّة|بطاقة تعريفية/i;
 
 /**
  * Where cutaways go when nobody said.
@@ -2043,6 +2061,41 @@ export function planFromText(
     }
   }
 
+  /*
+    A section card, built as layers.
+
+    `drawLayers` carries a composition rather than naming a look, so the card
+    is data — six layers with numbers measured off r04 — and the same operation
+    will later carry whatever a model reading a reference emits. This keyword
+    is the first door into it and deliberately a narrow one.
+
+    The name is the person's own words or nothing. There is no place here to
+    invent a section title for somebody, and a card carrying copy they never
+    wrote is the failure this codebase is most careful about.
+  */
+  if (SECTION_CARD_WORDS.test(text)) {
+    const named = text.match(/["\u201c\u201d\u00ab\u00bb]([^"\u201c\u201d\u00ab\u00bb]{1,60})["\u201c\u201d\u00ab\u00bb]/)?.[1]?.trim();
+    if (!named) {
+      cannotYet.push(
+        say(
+          'put a section card in yet, because you did not say what it should say — put the words in quotes, like "Setup"',
+          'أضع بطاقة قسم بعد، لأنك لم تقل ما المكتوب عليها — ضع الكلمات بين علامتَي اقتباس، مثل "الإعداد"',
+        ),
+      );
+    } else {
+      operations.push({
+        type: "drawLayers",
+        /*
+          A square icon is a different fraction of the width than of the
+          height, and which shape this renders to is decided later in this same
+          function. 9:16 is the shape this product exports by default and the
+          one every reference uses, so it is what the card is built for.
+        */
+        layers: interstitialCard({ name: named, at: 1, durationSeconds: 2, aspect: 9 / 16 }),
+      });
+    }
+  }
+
   if (OVERLAY_WORDS.test(text)) {
     if (stills.length === 0) {
       cannotYet.push(say("put an image over the frame yet, because this project has no images", "أضع صورة فوق الكادر بعد، لأن المشروع لا يحوي صورًا"));
@@ -2051,6 +2104,10 @@ export function planFromText(
       operations.push({
         type: "overlayImage",
         assetId: still.id,
+        // Fits inside its area rather than filling and cropping it: an image
+        // somebody asked to lay over the frame is usually a logo or a
+        // screenshot, and cropping the edges off either destroys the point.
+        fit: "contain",
         at: 1,
         durationSeconds: 4,
         // A logo lives in a corner. Anywhere else covers the speaker's face,
