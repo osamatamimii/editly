@@ -2100,8 +2100,8 @@ export function planFromText(
     if (!named) {
       cannotYet.push(
         say(
-          'put a section card in yet, because you did not say what it should say — put the words in quotes, like "Setup"',
-          'أضع بطاقة قسم بعد، لأنك لم تقل ما المكتوب عليها — ضع الكلمات بين علامتَي اقتباس، مثل "الإعداد"',
+          'put a section card in yet, because you did not say what it should say. Put the words in quotes, like "Setup"',
+          'أضع بطاقة قسم بعد، لأنك لم تقل ما المكتوب عليها. ضع الكلمات بين علامتَي اقتباس، مثل "الإعداد"',
         ),
       );
     } else {

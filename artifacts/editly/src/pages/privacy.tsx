@@ -170,8 +170,8 @@ export default function Privacy() {
           schema and fails on any field nobody has put on one side of that line.
         */}
         <p>
-          When you change an edit we made — hold a title longer, rewrite it, cut on a
-          different pause, pick a different font — we keep{" "}
+          When you change an edit we made (hold a title longer, rewrite it, cut on a
+          different pause, pick a different font), we keep{" "}
           <strong className="text-foreground">the before and the after of the instructions</strong>,
           so the product gets better at editing. That is a record of what we got wrong, not a
           copy of your video.
@@ -179,7 +179,7 @@ export default function Privacy() {
         <p>
           Your footage is never part of it, and neither is anything your recording said: the
           captions we burn in come from your own audio, so they are kept as "four words" and
-          nothing more. What is kept as written is what you told us — the title you typed, the
+          nothing more. What is kept as written is what you told us: the title you typed, the
           font you chose, the length you asked a card to hold.
         </p>
         <p>

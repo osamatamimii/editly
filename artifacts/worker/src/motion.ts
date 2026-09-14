@@ -845,8 +845,8 @@ function layerBlock(layer: Layer, index: number, width: number, height: number, 
         Drawn on the rim it is a scratch in the metal; drawn on the glass just
         below the top edge, dark and wide, it is what every phone made since
         2020 actually looks like. The reference's is a pill roughly a third of
-        the body's width — measured, because a narrow one reads as a speaker
-        grille and a wide one as a browser tab.
+        the body's width, measured rather than guessed: a narrow one reads as a
+        speaker grille and a wide one as a browser tab.
       */
       .${cls} .notch {
         position:absolute; top:${Math.round(top + h * 0.012)}px; left:50%;
