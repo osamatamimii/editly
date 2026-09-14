@@ -6476,17 +6476,43 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     const stage = overlayLinks.length / 2;
     const inLabel = stage === 0 ? "OVBASE" : `ov${stage}`;
     const outLabel = `ov${stage + 1}`;
-    // `tmix` is the shutter: four samples averaged into one frame, so fast
-    // movement smears and slow movement stays sharp without anyone deciding
-    // which is which. `select` then keeps one frame per group so the layer
-    // comes back to the output rate instead of four times it.
+    /*
+      `tmix` is the shutter: four samples averaged into one frame, so fast
+      movement smears and slow movement stays sharp without anyone deciding
+      which is which. `select` then keeps one frame per group so the layer
+      comes back to the output rate instead of four times it.
+
+      Both of those are chosen by *timestamp*, never by a frame counter, and
+      that is the whole reason this reads the way it does.
+
+      Chromium writes each frame with the smallest PNG colour type that holds
+      it: RGBA while anything is transparent, plain RGB the moment a frame
+      happens to be fully opaque. A full-bleed layer — a section card, a wash,
+      a device on a solid ground — is exactly that, so one sequence arrives as
+      RGBA … RGB … RGBA. ffmpeg treats a change of pixel format as a change of
+      input and rebuilds the filter graph around it, which resets every filter
+      that counts: `select`'s `n` and `setpts`'s `N` both restart at zero, and
+      the layer's clock rewinds mid-shot. Measured: a layer asked for at 2.0s
+      for 2.0s appeared 2.2 → 3.0, and the frames on disk were perfect. Titles
+      never showed it because a title never covers the frame, so its sequence
+      is RGBA throughout.
+
+      `t` and `PTS` come from the demuxer and keep counting across a rebuild,
+      so they survive it. `round(t * fps)` is the frame's index whatever the
+      timebase; keeping every fourth of those leaves frames already spaced at
+      the output rate, so the shift to where the titles are is all `setpts`
+      has left to do. The one thing a rebuild still costs is `tmix`'s history
+      — up to three frames with a shorter shutter at the seam, which is where
+      a layer is opaque and holding still.
+    */
+    const layerFps = motionLayer.fps;
     overlayLinks.push(
       `[${idx}:v]tmix=frames=${MOTION_SUBSAMPLES}:weights='${Array(MOTION_SUBSAMPLES).fill(1).join(" ")}',` +
-        `select='not(mod(n\\,${MOTION_SUBSAMPLES}))',` +
-        // Back to the output rate, and then forward to where the titles are.
-        // The layer covers its own stretch and nothing else; `eof_action=pass`
-        // lets the picture through on both sides of it.
-        `setpts=N/${source.fps.toFixed(4)}/TB+${motionFrom.toFixed(4)}/TB,` +
+        `select='not(mod(round(t*${layerFps.toFixed(4)})\\,${MOTION_SUBSAMPLES}))',` +
+        // Forward to where the titles are. The layer covers its own stretch
+        // and nothing else; `eof_action=pass` lets the picture through on
+        // both sides of it.
+        `setpts=PTS+${motionFrom.toFixed(4)}/TB,` +
         `scale=${frameWidth}:${frameHeight}[mot]`,
     );
     overlayLinks.push(`[${inLabel}][mot]overlay=0:0:eof_action=pass[${outLabel}]`);

@@ -580,8 +580,25 @@ console.log("\nThe layer is drawn for the titles, not for the video");
     );
     check(
       "and the layer is put back where the title belongs",
-      /setpts=N\/[\d.]+\/TB\+14\.5/.test(command.join(" ")),
+      /setpts=PTS\+14\.5\d*\/TB/.test(command.join(" ")),
       command.join(" ").slice(0, 300),
+    );
+    /*
+      And it is put back by its timestamps, not by counting its frames.
+
+      Chromium writes a fully opaque frame as RGB and every other frame as
+      RGBA, so a sequence carrying a full-bleed layer changes pixel format
+      part-way through; ffmpeg rebuilds the filter graph when that happens and
+      every filter that counts frames restarts at zero. `n` and `N` in this
+      branch therefore mean "since the last rebuild", and a layer asked for at
+      2s for 2s left the screen at 3s. Nothing downstream can notice, which is
+      why the spelling itself is the check.
+    */
+    const motionBranch = (command.join(" ").match(/\[1:v\][^;]*/) ?? [""])[0];
+    check(
+      "and by its clock rather than by a frame counter",
+      motionBranch.length > 0 && !/\bmod\(n\b/.test(motionBranch) && !/\bN\//.test(motionBranch),
+      motionBranch.slice(0, 200),
     );
     await rm(work, { recursive: true, force: true });
   } else {

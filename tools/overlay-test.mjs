@@ -509,6 +509,23 @@ console.log("\nA plan can draw a scene of layers");
     */
     const after = averageColourIn(result.output, 6, { x: 0.2, y: 0.2, w: 0.6, h: 0.6 });
     check("and back again after it", isBlue(after), after ? `rgb(${after})` : "no frame");
+    /*
+      And the far end of the window, which the two probes above cannot see.
+
+      "On at 3s, gone by 6s" is true of a layer that runs 2.0 → 3.0 as well as
+      of the one that was asked for, and that is precisely the bug this caught:
+      a full-frame plate is fully opaque, Chromium then writes those frames as
+      RGB rather than RGBA, ffmpeg rebuilds the filter graph when the pixel
+      format changes, and every filter counting frames starts over — so the
+      layer's clock rewound and it left a second early. The frames on disk were
+      perfect the whole time.
+
+      3.8s is inside the asked-for window (2.0 → 4.0) and outside the broken
+      one, which is the only place the two differ.
+    */
+    const lateInWindow = averageColourIn(result.output, 3.8, { x: 0.2, y: 0.2, w: 0.6, h: 0.6 });
+    check("and stays to the end of its window, not half of it",
+      isMagenta(lateInWindow), lateInWindow ? `rgb(${lateInWindow})` : "no frame");
     check("the render says it drew a scene",
       result.notes.some((n) => n.includes("drew a scene") || n.includes("رسمت مشهدًا")),
       result.notes.join("; "));
