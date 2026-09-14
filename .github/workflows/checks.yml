@@ -352,6 +352,9 @@ jobs:
       # those measure our own footage to decide where to put the frame, this
       # measures somebody else's to find out what they drew on it.
       - run: node tools/graphics-test.mjs
+      # And the half of the same reading that comes back from a model. Separate
+      # because it needs no ffmpeg and no browser: it is all distrust of a reply.
+      - run: node tools/reference-scene-test.mjs
       - run: node tools/render-test.mjs
       # Beside the render suite: the keyframe interval is two seconds of the
       # actual frame rate, not a fixed sixty frames — which was 2.5s at 24fps,

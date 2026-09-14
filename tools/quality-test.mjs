@@ -649,6 +649,107 @@ console.log("\nA reference thins punches against the whole source, not the sampl
   );
 }
 
+console.log("\nA reference draws the titles the plan already wrote");
+{
+  /*
+    The door on the eye, checked end to end.
+
+    `graphics-test` proves the measuring and `reference-scene-test` proves the
+    reading; neither proves that a plan with a reference attached comes out the
+    other side carrying a composition. That gap is the one `inventory --check`
+    calls a capability built and unreachable, and it is the reason this check
+    runs the whole of `enrichPlan` rather than the pieces.
+
+    The reference is a grey plate with a white band that slides up at two
+    seconds and stays — the simplest thing that is unambiguously drawn rather
+    than filmed. The model is a stub: what is being checked here is the wiring,
+    and a real call would make this suite depend on a key and a network.
+  */
+  const source = at("scene-source.mp4");
+  ff(["-f", "lavfi", "-i", "color=c=gray:size=160x120:rate=5:duration=20", "-c:v", "libx264", "-pix_fmt", "yuv420p", source]);
+
+  const reference = at("scene-reference.mp4");
+  ff([
+    "-f", "lavfi", "-i", "color=c=gray:s=320x180:r=25:d=6",
+    "-f", "lavfi", "-i", "color=c=white:s=240x40:d=6",
+    "-filter_complex",
+    "[0:v][1:v]overlay=x=40:y='if(lt(t,2),200,max(110,200-(t-2)*300))':enable='gte(t,2)'[o]",
+    "-map", "[o]", "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p", reference,
+  ]);
+
+  const answer = {
+    candidates: [{ content: { parts: [{ text: JSON.stringify({
+      moments: [{
+        index: 0,
+        layers: [
+          { kind: "fill", x: 0.1, y: 0.55, w: 0.8, h: 0.2, color: "#FFFFFF" },
+          { kind: "text", x: 0.12, y: 0.6, w: 0.76, h: 0.1, size: 0.07, weight: 800, color: "#111111", align: "center", words: 2, emphasis: false },
+        ],
+      }],
+    }) }] } }],
+  };
+
+  const enriched = await enrichMod.enrichPlan(source, {
+    version: 1,
+    operations: [
+      { type: "motionTitle", text: "Chapter two", at: 6, durationSeconds: 2.5, style: "card", position: "center" },
+      { type: "motionTitle", text: "And three", at: 12, durationSeconds: 2, style: "card", position: "center" },
+    ],
+  }, {
+    providers: { transcriber: { name: "stub", transcribe: async () => ({ segments: [], language: null, source: "t" }) }, sceneReader: null, status: { transcription: null, vision: null } },
+    referencePath: reference,
+    scene: { apiKey: "k", fetchImpl: async () => ({ ok: true, json: async () => answer }) },
+  });
+
+  const drawn = enriched.plan.operations.find((op) => op.type === "drawLayers");
+  check("the titles come out as a composition", Boolean(drawn),
+    JSON.stringify(enriched.plan.operations.map((o) => o.type)));
+  check("and no title is left behind as a title",
+    !enriched.plan.operations.some((op) => op.type === "motionTitle"),
+    JSON.stringify(enriched.plan.operations.map((o) => o.type)));
+  check("both titles were drawn", drawn?.layers.length === 4, String(drawn?.layers.length));
+
+  /*
+    The plan's clock, not the reference's.
+
+    The reference draws its band at two seconds. The plan puts its titles at six
+    and twelve, over footage that has nothing happening at two. A composition
+    replayed on the reference's own timings is not a matched edit, it is
+    somebody else's video played over yours — so this is the check that the
+    reference supplied the look and the plan supplied the moment.
+  */
+  const times = [...new Set((drawn?.layers ?? []).map((l) => l.at))].sort((a, b) => a - b);
+  check("placed where the plan put its titles, not where the reference put its own",
+    JSON.stringify(times) === JSON.stringify([6, 12]), JSON.stringify(times));
+
+  const line = (drawn?.layers ?? []).find((l) => l.content.kind === "text");
+  check("carrying the words the plan wrote", line?.content.runs?.[0]?.text === "Chapter two",
+    JSON.stringify(line?.content.runs));
+  check("and the render says what it did",
+    enriched.notes.some((n) => n.includes("the way the reference draws")),
+    enriched.notes.join("; "));
+
+  /*
+    And a deployment that did not buy the eye keeps its titles.
+
+    No key is not a failure and must not read as one: the plan comes back
+    exactly as it went in, and nothing is said about a thing nobody asked for.
+  */
+  const without = await enrichMod.enrichPlan(source, {
+    version: 1,
+    operations: [{ type: "motionTitle", text: "Chapter two", at: 6, durationSeconds: 2.5, style: "card", position: "center" }],
+  }, {
+    providers: { transcriber: { name: "stub", transcribe: async () => ({ segments: [], language: null, source: "t" }) }, sceneReader: null, status: { transcription: null, vision: null } },
+    referencePath: reference,
+    scene: { apiKey: "" },
+  });
+  check("without a key the titles stay titles",
+    without.plan.operations.some((op) => op.type === "motionTitle"),
+    JSON.stringify(without.plan.operations.map((o) => o.type)));
+  check("and nothing is said about it",
+    !without.notes.some((n) => n.includes("reference draws")), without.notes.join("; "));
+}
+
 console.log("\nThe whole thing survives one pass");
 {
   const clip = spokenClip("full", [[0, 2], [4, 6]], 6);

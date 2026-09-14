@@ -21,6 +21,11 @@ import { defaultHeightFor, frameFor, shapeFor, probeDuration, loudestSample, SIL
 import { missingCapabilityNotes, type Providers } from "./providers";
 import { measureStyle, styleToSettings } from "./style-measure";
 import { applyReferenceStyle } from "./reference-style";
+import { readGraphics } from "./graphics";
+import { readReferenceScene, titlesAsScene, type SceneReadContext } from "./reference-scene";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { Transcript } from "./providers/types";
 import { sayIn, type Language } from "./say";
 
@@ -81,6 +86,15 @@ export interface EnrichOptions {
    * having seen. By the time the renderer runs, a plan should be final.
    */
   referencePath?: string | null;
+  /**
+   * The eye, and how to reach it.
+   *
+   * Only ever set by a test. In production every field is absent and the module
+   * reads the key out of the environment, exactly as the review's look does —
+   * a deployment without one has decided not to buy this, which is a choice
+   * rather than a fault.
+   */
+  scene?: Omit<SceneReadContext, "workDir">;
   /**
    * Where the words are kept between renders, when there is somewhere to keep them.
    *
@@ -589,6 +603,26 @@ export async function enrichPlan(
       });
       shaped = applied.operations;
       notes.push(...applied.notes);
+
+      /*
+        And what the reference *draws*, not only how it cuts.
+
+        Everything above is arithmetic over the whole file — cut rate, grade,
+        loudness — and none of it can carry the thing a person is usually
+        pointing at when they hand you a video they like: the card that comes
+        up from the bottom, the phone that slides in from the right.
+
+        `graphics.ts` measures where and when and how those happen; the model
+        says what is inside them; and the titles the plan already wrote take
+        those looks. The plan keeps deciding that there is a title at twelve
+        seconds and what it says. The reference decides what a title looks
+        like.
+
+        Nothing here can fail the render. No key means no ask; a refusal, a
+        timeout or a reference that draws nothing all mean the titles stay
+        titles, which is the edit the customer asked for in the first place.
+      */
+      shaped = await styleTitlesFromReference(shaped, options, notes, t);
     } catch (error) {
       // A reference we could not read is a worse edit, not a failed one. The
       // plan the user asked for still renders.
@@ -733,4 +767,91 @@ function visionExcuse(error: unknown): { en: string; ar: string } {
   }
 
   return { en: " this time", ar: " هذه المرّة" };
+}
+
+/**
+ * The titles in a plan, redrawn as the compositions the reference draws.
+ *
+ * Split out of `enrich` because it is the one step in there that talks to a
+ * model about pictures, and because every way it can decline is a note rather
+ * than an exception: the caller's plan comes back unchanged and the render goes
+ * ahead. A reference we could not look at is a worse edit, never a failed one.
+ */
+async function styleTitlesFromReference(
+  operations: EditOperation[],
+  options: EnrichOptions,
+  notes: string[],
+  t: ReturnType<typeof sayIn>,
+): Promise<EditOperation[]> {
+  const referencePath = options.referencePath;
+  if (!referencePath) return operations;
+
+  const titles = operations.filter(
+    (o): o is Extract<EditOperation, { type: "motionTitle" }> => o.type === "motionTitle",
+  );
+  if (titles.length === 0) return operations;
+
+  const work = await mkdtemp(path.join(tmpdir(), "editly-scene-"));
+  const warnings: string[] = [];
+  try {
+    const read = await readGraphics(referencePath);
+    if (!read.measured || read.moments.length === 0) return operations;
+
+    const template = await readReferenceScene(
+      referencePath,
+      read,
+      { workDir: work, ...(options.scene ?? {}) },
+      warnings,
+    );
+    if (!template) {
+      /*
+        Said only when there was something to say.
+
+        A deployment with no key produces no warnings at all — it did not try,
+        and telling a customer that a thing they never bought did not happen is
+        noise about somebody else's choice. A look that *was* attempted and
+        came back refused, timed out, or unreadable leaves a line, because a
+        feature that quietly did nothing on every render for a month is the
+        failure this repository keeps finding.
+      */
+      if (warnings.length > 0) {
+        notes.push(
+          t(
+            "we could not read what the reference draws, so your titles are set our way",
+            "لم نستطع قراءة ما يرسمه الفيديو المرجعي، فعناوينك مضبوطة بطريقتنا",
+          ),
+        );
+      }
+      return operations;
+    }
+
+    const { layers } = titlesAsScene(
+      titles.map((title) => ({ text: title.text, at: title.at, durationSeconds: title.durationSeconds ?? 2.5 })),
+      template,
+    );
+    if (layers.length === 0) return operations;
+
+    const kept: EditOperation[] = operations.filter((o) => o.type !== "motionTitle");
+    kept.push({ type: "drawLayers", layers } as EditOperation);
+    notes.push(
+      t(
+        `drew your ${titles.length === 1 ? "title" : "titles"} the way the reference draws ${template.moments.length === 1 ? "its" : "them"}`,
+        `رسمت ${titles.length === 1 ? "عنوانك" : "عناوينك"} بالطريقة التي يرسم بها الفيديو المرجعي`,
+      ),
+    );
+    return kept;
+  } catch {
+    // Same sentence as a refusal, for the same reason: the plan is unchanged
+    // and the render goes ahead, and the customer is told which of the two
+    // things they asked for they are getting.
+    notes.push(
+      t(
+        "we could not read what the reference draws, so your titles are set our way",
+        "لم نستطع قراءة ما يرسمه الفيديو المرجعي، فعناوينك مضبوطة بطريقتنا",
+      ),
+    );
+    return operations;
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
 }
