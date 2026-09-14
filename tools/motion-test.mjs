@@ -83,7 +83,7 @@ if (!process.env.CHROMIUM_PATH) {
   if (found) process.env.CHROMIUM_PATH = found;
 }
 
-const { spring, sceneHtml, renderMotionLayer, wordsOf, staggerFor, entranceCss, elevation, STAGGER_S, safeColor, safeAssetUrl, deviceScreenBox } = await import(pathToFileURL(modulePath).href);
+const { spring, sceneHtml, renderMotionLayer, wordsOf, staggerFor, entranceCss, entranceMs, elevation, STAGGER_S, safeColor, safeAssetUrl, deviceScreenBox } = await import(pathToFileURL(modulePath).href);
 
 // The renderer too, because the cost of the layer is decided at its call site:
 // the module draws whatever window it is given, and the bug was in what it was
@@ -659,6 +659,92 @@ console.log("\nEvery entrance knows where it starts and where it rests");
 
   // CSS writes .86, not 0.86, and this file's output is compared byte for byte.
   check("scales are written the way a stylesheet writes them", drop.from.includes("scale(.86)"), drop.from);
+}
+
+console.log("\nHow long a thing takes to arrive is a property of how big it is");
+{
+  /*
+    The measured curve, and the reason it is a curve.
+
+    `graphics.ts` was run over the eight references and 162 arrivals were
+    measured. Their median entrance against the area of the box:
+
+      0.20–0.50  n=44  0.20s     0.85–0.95  n=10  0.80s
+      0.50–0.85  n=49  0.40s     0.95–1.00  n=47  1.10s
+
+    This file used to answer 620ms to all four — which is wrong in *both*
+    directions at once, and that is the whole finding. It is not that our
+    motion was uniformly too fast or too slow; it is that a label dragged at
+    three times the reference speed while a full-frame plate snapped in at
+    half the time one should take.
+
+    Checked as bands rather than as exact milliseconds, because the reader that
+    produced them samples at 20fps: 0.20 and 0.25 are one sample apart and the
+    curve is not entitled to more precision than its own measurement.
+  */
+  const near = (value, target, slack) => Math.abs(value - target) <= slack;
+  check("a label arrives in about two tenths", near(entranceMs(0.3), 200, 60), `${entranceMs(0.3)}ms`);
+  check("a panel in about four", near(entranceMs(0.62), 400, 90), `${entranceMs(0.62)}ms`);
+  check("a near-full plate in about eight", near(entranceMs(0.9), 800, 120), `${entranceMs(0.9)}ms`);
+  check("and the whole frame takes about a second and a tenth",
+    near(entranceMs(1), 1100, 120), `${entranceMs(1)}ms`);
+
+  /*
+    And the property that no single constant can have.
+
+    Every check above would also pass a function that returned a number in the
+    middle of the range for everything, if the slack were wide enough. This one
+    would not: the two ends of the curve are more than four times apart, which
+    is precisely why the constant this replaced could not be right at both.
+  */
+  check("the plate takes more than four times as long as the label",
+    entranceMs(1) / entranceMs(0.3) > 4, `${entranceMs(1)} vs ${entranceMs(0.3)}`);
+  check("and it is monotone, because a bigger thing never arrives quicker",
+    [0.1, 0.3, 0.5, 0.7, 0.9, 1].every((a, i, all) => i === 0 || entranceMs(a) >= entranceMs(all[i - 1])),
+    [0.1, 0.3, 0.5, 0.7, 0.9, 1].map(entranceMs).join(","));
+  check("nothing arrives instantly, whatever the arithmetic says", entranceMs(0) >= 180, `${entranceMs(0)}ms`);
+
+  /*
+    Read off the stylesheet, not off the function.
+
+    The curve being right and the renderer using it are two different facts,
+    and the second is the one that reaches a frame. Two scenes, identical but
+    for the size of the one layer on them.
+  */
+  const durationOf = (html) => {
+    const m = html.match(/animation: in-l0 (\d+)ms/);
+    return m ? Number(m[1]) : null;
+  };
+  const scene = (box) => sceneHtml({
+    width: 1080, height: 1920, fps: 30, durationSeconds: 4, titles: [],
+    elements: [{ kind: "layer", box, content: { kind: "fill", color: "#ff00ff" },
+      at: 0.5, durationSeconds: 2, enter: "rise" }],
+  });
+  const plate = durationOf(scene({ x: 0, y: 0, w: 1, h: 1 }));
+  const label = durationOf(scene({ x: 0.1, y: 0.8, w: 0.5, h: 0.06 }));
+  check("a full-frame plate is written into the stylesheet as the slow arrival",
+    plate !== null && near(plate, 1100, 120), `${plate}ms`);
+  check("and a label on the same scene as the quick one",
+    label !== null && near(label, 200, 60), `${label}ms`);
+  check("so the renderer is using the curve rather than a constant",
+    plate !== null && label !== null && plate / label > 4, `${plate} vs ${label}`);
+}
+
+console.log("\nThe gap between one thing landing and the next is a measured one");
+{
+  /*
+    95 gaps under eight tenths were collected across the eight references.
+    Bimodal, and both modes clear: 31 at 0.20s, 22 at 0.40s, almost nothing
+    between 0.20 and 0.35. This file used to say 0.11 — not either mode, and
+    below the faster one by nearly half, which is the gap at which a stagger
+    stops reading as a sequence and starts reading as a wobble.
+  */
+  check("the stagger is one of the two the references actually use",
+    Math.abs(STAGGER_S - 0.2) < 0.03 || Math.abs(STAGGER_S - 0.4) < 0.03, String(STAGGER_S));
+  check("and it is not the wobble it used to be", STAGGER_S > 0.15, String(STAGGER_S));
+  // The budget still wins: five things in half a second cannot each wait 0.2s.
+  check("a crowded line still finishes inside its budget",
+    staggerFor(5, 0.5) * 4 <= 0.5 + 1e-9, String(staggerFor(5, 0.5)));
 }
 
 console.log("\nThe shadow is two layers, and it is sized against the frame");

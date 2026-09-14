@@ -82,11 +82,64 @@ export function spring(damping = 7.2, frequency = 10.5, samples = 60): string {
 /**
  * How long between one element landing and the next, in seconds.
  *
- * Fast enough that a three-word line is finished in a third of a second, slow
- * enough that the eye catches each arrival. Under about 60 ms the stagger stops
- * reading as a sequence and starts reading as a wobble in a single block.
+ * Measured, not chosen. `graphics.ts` was run over the eight references and
+ * every gap under eight tenths between one thing arriving and the next was
+ * collected — 95 of them. They are bimodal and both modes are clear: 31 at
+ * 0.20s and 22 at 0.40s, with almost nothing between 0.20 and 0.35.
+ *
+ * This was 0.11, which is not either of them and is below the faster one by
+ * nearly half. A stagger that tight is the thing that reads as a wobble in a
+ * single block rather than as a sequence — which is the sentence the old note
+ * here used to warn about, written under a number that was already inside it.
  */
-export const STAGGER_S = 0.11;
+export const STAGGER_S = 0.2;
+
+/**
+ * How long a thing takes to arrive, from how much of the frame it covers.
+ *
+ * The single most useful number the reference study produced, and the one this
+ * file had most wrong. Every entrance here took 620ms — 420 for a fade —
+ * whatever was arriving. The references do not work that way at all. Median
+ * entrance against the area of the box, over 162 arrivals in eight videos:
+ *
+ *   area 0.20–0.50   n=44   0.20s
+ *   area 0.50–0.85   n=49   0.40s
+ *   area 0.85–0.95   n=10   0.80s
+ *   area 0.95–1.00   n=47   1.10s
+ *
+ * So a plate takes about a second and a label takes a fifth of one, and a
+ * single constant is wrong in *both* directions at once: our small elements
+ * dragged at three times the reference speed and our full-frame plates snapped
+ * in at half the time one should take. That is what "it doesn't look
+ * professional" is, measured — the big things feel cheap because they arrive
+ * too fast, and the small things feel sluggish because they arrive too slow.
+ *
+ * The curve is `BASE * (1 + MASS * area³)`, which follows those four medians to
+ * within a sample of the reader's own 20fps grid. Against the same 162
+ * arrivals it is wrong by a mean of 376ms where the old constant was wrong by
+ * 492ms — and, more to the point, the constant was wrong in a *consistent
+ * direction* at each end, which is the part a viewer reads.
+ *
+ * Cubed rather than linear because that is what the data does: it is nearly
+ * flat from 0.2 to 0.5 and then climbs steeply. Area rather than travel
+ * because travel explains almost nothing — the medians by travel distance are
+ * 0.40, 0.30 and 0.60 seconds, which is not a trend.
+ */
+export const ENTRANCE_BASE_MS = 200;
+export const ENTRANCE_MASS = 4.5;
+
+/** The longest and shortest an arrival may take, whatever the arithmetic says. */
+export const ENTRANCE_MIN_MS = 180;
+export const ENTRANCE_MAX_MS = 1200;
+
+/**
+ * @param area How much of the frame the thing covers, 0..1.
+ */
+export function entranceMs(area: number): number {
+  const bounded = Math.min(1, Math.max(0, area));
+  const ms = ENTRANCE_BASE_MS * (1 + ENTRANCE_MASS * bounded ** 3);
+  return Math.round(Math.min(ENTRANCE_MAX_MS, Math.max(ENTRANCE_MIN_MS, ms)));
+}
 
 /**
  * The gap between arrivals, compressed so the last one still lands in time.
@@ -608,9 +661,17 @@ function layerBlock(layer: Layer, index: number, width: number, height: number, 
   const h = px(box.h, height);
   const shortSide = Math.max(1, Math.min(w, h));
 
+  /*
+    How long it takes to arrive is a property of how big it is.
+
+    A layer knows its own box, so this is the one place in the file where the
+    area is exact rather than inferred from a style name — which is why the
+    curve lives here and the title renderer passes its own estimate.
+  */
   const plain = entranceCss(layer.enter ?? "fade", {
     travel: Math.round((layer.travel ?? 0.045) * height),
     scale: layer.from ?? 1,
+    ms: entranceMs(box.w * box.h),
   });
   /*
     A tilt is part of where the layer rests, so it has to be in **both** ends
