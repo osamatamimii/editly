@@ -126,6 +126,23 @@ const PAIRS = [
     expect: ["removeSilence"],
   },
   {
+    /*
+      The coverage check below found this one too: `drawLayers` shipped with
+      the matcher understanding it in both languages, and no pair naming it.
+
+      The words go in quotes in both, because a card with nothing on it is a
+      refusal rather than an operation — and that refusal is bilingual as well.
+      Asking for one *without* quotes is the second half of this pair, below.
+    */
+    what: "a section card",
+    en: 'put a section card in that says "Setup"',
+    ar: 'ضيف بطاقة قسم مكتوب عليها "الإعداد"',
+    // The quoted words are read as a title as well, in both languages. Whether
+    // one sentence should produce two things is a question about the matcher;
+    // that it produces the *same* two in both languages is the question here.
+    expect: ["drawLayers", "motionTitle"],
+  },
+  {
     // The coverage check below found this one missing: `tighten` shipped, the
     // matcher understood it in both languages from the first day, and no pair
     // here said so — which is the difference between "it works" and "it is

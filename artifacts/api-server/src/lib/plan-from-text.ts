@@ -1136,8 +1136,30 @@ export function parseClips(typed: string): { count: number; targetSeconds: numbe
  * also the preposition in «بالقرب من», and a matcher that punches in whenever
  * somebody says "near" is worse than one that misses a spelling.
  */
-const PUNCH_WORDS =
-  /\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\b|زوم|تقريب|قرّب|قرِّب|حماس|طاقة|حيوية/i;
+/*
+  «طاقة» needs an edge, because «بطاقة» contains it.
+
+  `\b` is no help here: JavaScript's word character is `[A-Za-z0-9_]`, so a
+  boundary placed against an Arabic letter is not the boundary anybody means.
+  Left bare, «طاقة» (energy) matches inside «بطاقة» (card) — so an Arabic
+  speaker asking for a section card got zoom punches they never mentioned, and
+  an English speaker asking for the same card did not. `bilingual-test` found
+  it the day a pair for `drawLayers` was finally written, which is what that
+  file is for.
+
+  The guard is a lookaround on the Arabic block itself. Only the words that can
+  sit inside another word carry it; «زوم» and «قرّب» are left alone rather than
+  wrapped for symmetry, because a guard on a word that does not need one is a
+  guard nobody can tell is load-bearing.
+*/
+const AR = "\u0600-\u06FF";
+const arWord = (word: string): string => `(?<![${AR}])${word}(?![${AR}])`;
+
+const PUNCH_WORDS = new RegExp(
+  `\\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\\b|زوم|تقريب|قرّب|قرِّب|` +
+    [`حماس`, `طاقة`, `حيوية`].map(arWord).join("|"),
+  "i",
+);
 
 /**
  * The half of `PUNCH_WORDS` that names the move rather than a feeling.
