@@ -3372,6 +3372,48 @@ const WATERMARK_MARGIN = "(w*0.037)";
  * it, so the same expression is right at 1080×1920 and at 1080×1350 — which a
  * pixel offset would not be.
  */
+/**
+ * A rectangle on the frame, as the filter that fills it.
+ *
+ * `position` + `scale` can say "a 40%-wide graphic, bottom-right". It cannot
+ * say "the lower 40% of the frame, full width" — which is where a screen
+ * recording sits in four of the six references, and what a split composition
+ * is made of. A nine-point grid plus one scale is a good way to place a logo
+ * and the wrong way to place a panel.
+ *
+ * Returns the scale filter and the overlay position separately because
+ * `overlay` takes them in different places, and the two must agree: the scale
+ * has to produce exactly the box's pixels or `cover` crops against a size
+ * nobody asked for.
+ *
+ * Even numbers throughout. An odd width reaches the encoder as a chroma plane
+ * it cannot halve, and the failure is a stream that will not open rather than
+ * a picture that looks wrong.
+ */
+function boxFilter(
+  box: { x: number; y: number; w: number; h: number },
+  fit: "cover" | "contain",
+  frameWidth: number,
+  frameHeight: number,
+): { scale: string; at: string } {
+  const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+  const w = even(box.w * frameWidth);
+  const h = even(box.h * frameHeight);
+  const x = Math.round(box.x * frameWidth);
+  const y = Math.round(box.y * frameHeight);
+  /*
+    `cover` fills the box and loses the overflow; `contain` fits the whole
+    picture inside it and leaves the rest of the box showing whatever is
+    underneath — which for an overlay is the picture itself, so a contained
+    inset needs no letterbox drawn for it.
+  */
+  const scale =
+    fit === "cover"
+      ? `scale=${w}:${h}:force_original_aspect_ratio=increase:flags=lanczos,crop=${w}:${h}`
+      : `scale=${w}:${h}:force_original_aspect_ratio=decrease:flags=lanczos`;
+  return { scale, at: `${x}:${y}` };
+}
+
 const OVERLAY_POSITION: Record<string, string> = {
   "top-left": `${OVERLAY_MARGIN}:${OVERLAY_MARGIN}`,
   "top-center": `(W-w)/2:${OVERLAY_MARGIN}`,
@@ -6173,11 +6215,16 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         // loop is finite: without it ffmpeg never reaches the end of the input
         // and the render does not stop.
         idx = addInput("-loop", "1", "-t", (end + 0.5).toFixed(3), "-i", asset.file);
-        const w = Math.max(2, Math.round(frameWidth * op.scale));
         const alpha = op.opacity < 1 ? `,format=rgba,colorchannelmixer=aa=${op.opacity.toFixed(3)}` : "";
-        overlayLinks.push(`[${idx}:v]scale=${w}:-2${alpha}[img${idx}]`);
+        const placed = op.box ? boxFilter(op.box, op.fit, frameWidth, frameHeight) : null;
+        if (placed) {
+          overlayLinks.push(`[${idx}:v]${placed.scale}${alpha}[img${idx}]`);
+        } else {
+          const w = Math.max(2, Math.round(frameWidth * op.scale));
+          overlayLinks.push(`[${idx}:v]scale=${w}:-2${alpha}[img${idx}]`);
+        }
         overlayLinks.push(
-          `[${inLabel}][img${idx}]overlay=${OVERLAY_POSITION[op.position]}:` +
+          `[${inLabel}][img${idx}]overlay=${placed ? placed.at : OVERLAY_POSITION[op.position]}:` +
             `enable='between(t,${start.toFixed(3)},${end.toFixed(3)})':eof_action=pass[${outLabel}]`,
         );
         notes.push(
@@ -6247,8 +6294,19 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         idx = still
           ? addInput("-loop", "1", "-t", (covered + 0.5).toFixed(3), "-i", asset.file)
           : addInput("-i", asset.file);
-        const fit =
-          op.fit === "cover"
+        /*
+          Full frame, or a rectangle on it.
+
+          Without a box this is a cutaway and fills the frame — `contain` pads
+          to black, because a cutaway that does not cover the picture is two
+          pictures at once. *With* a box it is an inset, and the padding is
+          dropped on purpose: what shows beside a contained inset should be the
+          talking head underneath it, not a black bar drawn over them.
+        */
+        const inset = op.box ? boxFilter(op.box, op.fit, frameWidth, frameHeight) : null;
+        const fit = inset
+          ? inset.scale
+          : op.fit === "cover"
             ? `scale=${frameWidth}:${frameHeight}:force_original_aspect_ratio=increase:flags=lanczos,crop=${frameWidth}:${frameHeight}`
             : `scale=${frameWidth}:${frameHeight}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${frameWidth}:${frameHeight}:(ow-iw)/2:(oh-ih)/2:black`;
         const rate = still ? `,fps=${source.fps.toFixed(4)}` : "";
@@ -6285,7 +6343,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           `[${idx}:v]${fit},setsar=1${rate},trim=0:${covered.toFixed(3)}${edges},setpts=PTS-STARTPTS+${start.toFixed(3)}/TB[br${idx}]`,
         );
         overlayLinks.push(
-          `[${inLabel}][br${idx}]overlay=0:0:` +
+          `[${inLabel}][br${idx}]overlay=${inset ? inset.at : "0:0"}:` +
             `enable='between(t,${start.toFixed(3)},${(start + covered).toFixed(3)})':eof_action=pass[${outLabel}]`,
         );
         // "Cut to" and "dissolved into" are different things to have done, and

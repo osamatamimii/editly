@@ -81,6 +81,34 @@ function averageColourAt(file, seconds) {
   return [bytes[0], bytes[1], bytes[2]];
 }
 
+/**
+ * Average colour of one *region* of one frame.
+ *
+ * The whole-frame average above answers "is this colour anywhere in shot",
+ * which is the right question for a cutaway and the wrong one for a box: an
+ * inset placed in the wrong half of the frame gives exactly the same average
+ * as one placed in the right half. `crop` first, then average.
+ *
+ * Fractions of the frame, the same four numbers the plan takes, so a check
+ * reads against the box it is checking.
+ */
+function averageColourIn(file, seconds, box) {
+  const out = path.join(buildDir, `region-${Math.random().toString(36).slice(2)}.txt`);
+  const r = spawnSync(
+    "ffmpeg",
+    [
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-ss", String(seconds), "-i", file, "-frames:v", "1",
+      "-vf", `crop=iw*${box.w}:ih*${box.h}:iw*${box.x}:ih*${box.y},scale=1:1`,
+      "-f", "rawvideo", "-pix_fmt", "rgb24", out,
+    ],
+    { encoding: "utf8" },
+  );
+  if (r.status !== 0) return null;
+  const bytes = require("node:fs").readFileSync(out);
+  return [bytes[0], bytes[1], bytes[2]];
+}
+
 const work = await mkdtemp(path.join(tmpdir(), "editly-ov-"));
 
 // A black clip, so anything coloured on the frame came from an overlay.
@@ -296,6 +324,96 @@ console.log("\nThe cutaway's own edge");
       soft.notes.some((n) => /dissolved into b-roll/.test(n)),
     JSON.stringify([hard.notes, soft.notes]),
   );
+}
+
+/*
+  A box, which is the difference between a cutaway and an inset.
+
+  `position` + `scale` place a logo on a nine-point grid. They cannot say "the
+  lower 40% of the frame, full width" — which is where a screen recording sits
+  in four of the six references Osama sent, and what a split composition is
+  made of. So both overlay operations now take an explicit rectangle.
+
+  The checks below are regions rather than whole-frame averages on purpose: an
+  inset dropped in the wrong half of the frame produces exactly the same
+  average as one in the right half, so the check that reads the average is a
+  check that cannot tell the two apart.
+*/
+const blue = path.join(work, "blue.mp4");
+run(["-f", "lavfi", "-i", "color=c=blue:s=640x360:d=8:r=25",
+     "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+     "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", blue]);
+
+const isGreen = (c) => c && c[1] > 90 && c[0] < 80 && c[2] < 80;
+const isBlue  = (c) => c && c[2] > 90 && c[1] < 80;
+const isMagenta = (c) => c && c[0] > 90 && c[2] > 90 && c[1] < 80;
+
+console.log("\nB-roll in a box is an inset, not a cutaway");
+{
+  const ctx = {
+    workDir: await mkdtemp(path.join(tmpdir(), "editly-box-run-")),
+    assets: new Map([["asset-broll", { file: broll, kind: "video" }]]),
+  };
+  const plan = {
+    version: 1,
+    operations: [
+      { type: "insertBRoll", assetId: "asset-broll", at: 2, durationSeconds: 2,
+        fit: "cover", keepSourceAudio: true,
+        box: { x: 0.5, y: 0.5, w: 0.5, h: 0.5 } },
+    ],
+  };
+  const result = await renderPlan(blue, plan, ctx);
+
+  const inBox  = averageColourIn(result.output, 3, { x: 0.55, y: 0.55, w: 0.4, h: 0.4 });
+  const outBox = averageColourIn(result.output, 3, { x: 0.05, y: 0.05, w: 0.4, h: 0.4 });
+
+  check("the clip is inside its box", isGreen(inBox), inBox ? `rgb(${inBox})` : "no frame");
+  // The half of the check that matters: without it, a "box" that quietly
+  // covered the whole frame — which is what the old code did with any box —
+  // would pass.
+  check("and the picture is still there outside it", isBlue(outBox), outBox ? `rgb(${outBox})` : "no frame");
+
+  const before = averageColourIn(result.output, 1, { x: 0.55, y: 0.55, w: 0.4, h: 0.4 });
+  check("and the box is empty before its moment", isBlue(before), before ? `rgb(${before})` : "no frame");
+  await rm(ctx.workDir, { recursive: true, force: true });
+}
+
+console.log("\nAn image in a box takes the band it was given");
+{
+  const ctx = {
+    workDir: await mkdtemp(path.join(tmpdir(), "editly-imgbox-run-")),
+    assets: new Map([["asset-image", { file: image, kind: "image" }]]),
+  };
+  const plan = {
+    version: 1,
+    operations: [
+      // Full width, lower 40% — the shape `position` and `scale` cannot say.
+      { type: "overlayImage", assetId: "asset-image", at: 1, durationSeconds: 3,
+        position: "center", scale: 0.4, opacity: 1, fit: "cover",
+        box: { x: 0, y: 0.6, w: 1, h: 0.4 } },
+    ],
+  };
+  const result = await renderPlan(blue, plan, ctx);
+
+  /*
+    Read at the band's far edge, not its middle.
+
+    The first spelling of this probed the centre of the band — and a centred
+    40%-wide image, which is what `scale` alone produces, *also* reaches there.
+    So the check passed when the box was ignored entirely, which is the one
+    thing it was written to catch. Found by breaking it on purpose.
+
+    The left edge is the discriminating place: a full-width box covers it, a
+    centred square cannot reach it at any scale below 1.
+  */
+  const edge  = averageColourIn(result.output, 2, { x: 0.02, y: 0.68, w: 0.14, h: 0.26 });
+  const band  = averageColourIn(result.output, 2, { x: 0.4, y: 0.68, w: 0.2, h: 0.26 });
+  const above = averageColourIn(result.output, 2, { x: 0.1, y: 0.1, w: 0.8, h: 0.3 });
+
+  check("the image reaches the far edge of its band", isMagenta(edge), edge ? `rgb(${edge})` : "no frame");
+  check("and fills its middle", isMagenta(band), band ? `rgb(${band})` : "no frame");
+  check("and nothing above it", isBlue(above), above ? `rgb(${above})` : "no frame");
+  await rm(ctx.workDir, { recursive: true, force: true });
 }
 
 console.log("\nAn asset the project does not have");

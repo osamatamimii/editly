@@ -1071,6 +1071,29 @@ export const Asset = z.object({
 export type Asset = z.infer<typeof Asset>;
 
 /**
+ * A rectangle on the frame, as fractions of it.
+ *
+ * The same four numbers the motion engine's layers take, on purpose: a model
+ * that has watched a reference and worked out where a screen recording sits
+ * should say it once, in one vocabulary, whether the thing going there is a
+ * drawn layer or a second clip. Two coordinate systems for the same idea is
+ * two chances to be wrong about the same box.
+ *
+ * Fractions rather than pixels because the same plan renders to 9:16, 1:1 and
+ * 16:9 — "the lower 40% of the frame" survives a reframe and "432px from the
+ * top" does not.
+ */
+export const FrameBox = z.object({
+  /** Distance from the left edge, 0..1. */
+  x: z.number().min(0).max(1),
+  /** Distance from the top edge, 0..1. */
+  y: z.number().min(0).max(1),
+  w: z.number().min(0.02).max(1),
+  h: z.number().min(0.02).max(1),
+});
+export type FrameBox = z.infer<typeof FrameBox>;
+
+/**
  * Cut a second clip in over the main one — b-roll.
  *
  * The asset is named by id, never by path: an id is checked against the
@@ -1091,6 +1114,17 @@ export const InsertBRollOperation = z.object({
    * screenshot, where cropping the edges destroys the point of showing it.
    */
   fit: z.enum(["cover", "contain"]).default("cover"),
+  /**
+   * Where it sits, when it is not the whole frame.
+   *
+   * B-roll with no box is a cutaway: the picture changes completely for a
+   * beat. B-roll *with* one is an inset — a screen recording in the lower
+   * half while the person keeps talking above it, which is what r05 and r08
+   * do and what this could not express at all.
+   *
+   * Same four fractions as `overlayImage`, and as a motion layer's box.
+   */
+  box: FrameBox.optional(),
   /** Keep the main audio under the b-roll, which is what a cutaway is. */
   keepSourceAudio: z.boolean().default(true),
   /**
@@ -1255,6 +1289,21 @@ export const OverlayImageOperation = z.object({
   /** Fraction of the frame's width. 0.4 is a comfortable inset graphic. */
   scale: z.number().min(0.05).max(1).default(0.4),
   opacity: z.number().min(0.05).max(1).default(1),
+  /**
+   * An explicit rectangle, which wins over `position` and `scale`.
+   *
+   * Those two can say "a 40%-wide graphic, bottom-right" and cannot say "the
+   * lower 40% of the frame, full width" — which is the shape a screen
+   * recording takes in four of the six references, and the shape a split
+   * composition is made of. A nine-point grid plus one scale is a good way to
+   * place a logo and the wrong way to place a panel.
+   *
+   * Optional, so every plan written before this one means exactly what it
+   * meant.
+   */
+  box: FrameBox.optional(),
+  /** How the picture meets the box: fill and crop, or fit inside it. */
+  fit: z.enum(["cover", "contain"]).default("contain"),
 });
 
 export const ListAssetsParams = z.object({ id: z.string().min(1) });
