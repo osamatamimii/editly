@@ -106,7 +106,7 @@ export const LANDING = {
   /** The control itself, labelled in the language it switches *to*. */
   languageToggle: {
     label: p("English", "العربية"),
-    title: p("Read this page in English", "اقرأ هذه الصفحة بالعربية"),
+    title: p("Read this page in English", "اقرأ الصفحة بالعربي"),
   },
 
   nav: {
@@ -197,7 +197,7 @@ export const LANDING = {
       "Cuts the silences, writes the captions, comes back ready to post.",
     ),
     ctaSignedOut: p("ابدأ التعديل مجانًا", "Start editing free"),
-    ctaSignedIn: p("ارفع تسجيلًا خامًا", "Upload a raw take"),
+    ctaSignedIn: p("ارفع تسجيل خام", "Upload a raw take"),
     secondary: p("شوف كيف يعمل", "See how it works"),
 
     /*
@@ -266,7 +266,7 @@ export const LANDING = {
     eyebrow: p("كيف يعمل", "How it works"),
     title: p("ثلاث خطوات، ولا واحدة منها مملّة", "Three steps, none of them tedious"),
     titleAccent: p("مملّة", "tedious"),
-    lead: p("الجزء الذي تكرهه، يُنجَز وأنت غير موجود.", "The part you dread, done while you are not looking."),
+    lead: p("الجزء اللي بتكرهه، بيصير وانت مش موجود.", "The part you dread, done while you are not looking."),
     one: {
       title: p("ارفع التسجيل الخام", "Upload the raw take"),
       desc: p(
@@ -326,7 +326,7 @@ export const LANDING = {
    */
   features: {
     eyebrow: p("الميزات", "Features"),
-    title: p("ما الذي يفعله اليوم", "What it does today"),
+    title: p("شو بيعمل اليوم", "What it does today"),
     lead: p(
       "خمسة أشياء، كلها شغّالة اليوم.",
       "Five things, all working today.",
@@ -342,7 +342,7 @@ export const LANDING = {
         prompt: p("اقصص الصمت وضيف ترجمة، عمودي لتيك توك", "Cut the silences and caption it, vertical for TikTok"),
       },
       {
-        title: p("اللحظات التي تستحقّ، تُلتقَط لك", "The moments worth keeping, found for you"),
+        title: p("اللحظات اللي بتستاهل، بنلاقيها إلك", "The moments worth keeping, found for you"),
         detail: p(
           "أقوى 30 ثانية، أو التسجيل كلّه مقصوص لقصاصات معنونة.",
           "The strongest 30 seconds, or the whole take cut into titled clips.",
@@ -385,7 +385,7 @@ export const LANDING = {
    */
   reel: {
     eyebrow: p("المُخرَج", "The output"),
-    title: p("هذا ما يخرج منها", "This is what comes out"),
+    title: p("هاد اللي بيطلع منها", "This is what comes out"),
     lead: p(
       "عمودي، مكتوب الكابشن، معايَر الصوت. ثلاثة مقاطع حقيقية، تشتغل الآن.",
       "Vertical, captioned, levelled. Three real exports, playing now.",
@@ -417,7 +417,7 @@ export const LANDING = {
         ),
       },
       {
-        step: p("اللحظات تُلتقَط", "The moments are found"),
+        step: p("بنلاقي اللحظات", "The moments are found"),
         detail: p(
           "من الكلام، مش من الموجة. تلاتة تستحقّ، مش عشرة.",
           "From what was said, not the waveform. Three, not ten.",
@@ -535,10 +535,10 @@ export const LANDING = {
   },
 
   closing: {
-    title: p("اجعل فيديوك القادم أفضل ما صنعت.", "Turn your next video into your best one."),
-    titleAccent: p("أفضل ما صنعت", "your best one"),
-    leadFirst: p("الجزء الممل هو ما يجب أن تفعله الآلة.", "The tedious part is the part a machine should do."),
-    leadSecond: p("ارفع تسجيلًا واحدًا وانظر كم يقصر.", "Upload one take and see how much shorter it gets."),
+    title: p("خلّي الفيديو الجاي أحسن شي عملته.", "Turn your next video into your best one."),
+    titleAccent: p("أحسن شي عملته", "your best one"),
+    leadFirst: p("الجزء الممل شغل آلة، مو شغلك.", "The tedious part is the part a machine should do."),
+    leadSecond: p("ارفع تسجيل واحد وشوف قدّيش بيقصر.", "Upload one take and see how much shorter it gets."),
     cta: p("ابدأ التعديل مجانًا", "Start Editing Free"),
     note: p("بلا بطاقة · ألغِ متى شئت", "No credit card required · Cancel anytime"),
   },
@@ -595,10 +595,10 @@ export const PRICING_AR = {
     },
   },
   shared: [
-    "ارفع من اللقطات ما شئت. لا تدفع إلا عمّا تنشره",
+    "ارفع قد ما بدك. بتدفع بس على اللي بتنشره",
     "بلا علامة مائية",
     "تعديلات بلا حدّ. وإعادة الطلب مجانية",
-    "طابِق ستايل فيديو أعجبك",
+    "خلّيه بستايل فيديو عجبك",
   ],
   free: {
     headline: "جرّبها مجانًا، بلا بطاقة",
@@ -621,8 +621,8 @@ export const PRICING_AR = {
         The replacement is the same better claim: this is the product, not a
         demonstration of it.
       */
-      "المحرّر نفسه، لا نسخة تجريبية، حتى تحكم على النتيجة",
-      "الصادرات تحمل علامة Editly صغيرة",
+      "نفس المحرّر، مو نسخة تجريبية، عشان تحكم على النتيجة",
+      "الفيديوهات بتطلع عليها علامة Editly صغيرة",
     ],
   },
 } as const;

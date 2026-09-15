@@ -74,9 +74,6 @@ const repoRoot = process.cwd();
  *
  * Still outside, deliberately, and each for its own reason:
  *
- *   · `landing-copy.ts` — the landing page is not Noah talking. Whether
- *     marketing copy should be in dialect is a separate decision and Osama has
- *     not been asked it.
  *   · `artifacts/worker/src/index.ts` — the progress bar (`jobs.stage`) is
  *     English-only and has been since it was written. That is gap #1 of brief
  *     07 and a bigger change than a register: the strings have to go through
@@ -85,6 +82,23 @@ const repoRoot = process.cwd();
  *     Converted file by file.
  */
 const SCOPE = [
+  /*
+    The landing page, which was listed above as deliberately outside on the
+    grounds that marketing copy is a separate decision nobody had been asked.
+
+    That reading was already out of date when it was written. Nine tenths of
+    that file is dialect -- «بتنشرها», «بتعدّل نفس الشي», «شوف كيف يعمل» -- and
+    what was left in MSA was not a decision, it was the dozen strings the
+    conversion passes had not reached: «الجزء الذي تكرهه», «اجعل فيديوك القادم
+    أفضل ما صنعت», «لا تدفع إلا عمّا تنشره». A page that switches register
+    between its headings and its bullet points does not read as formal, it
+    reads as written by two people.
+
+    Which makes this the one file where the guard was needed most and was not
+    looking: it is the first Arabic anybody sees, and it is the only Arabic
+    most visitors ever see.
+  */
+  "artifacts/editly/src/lib/landing-copy.ts",
   "artifacts/api-server/src/lib/plan-from-text.ts",
   "artifacts/editly/src/lib/copy/editor.ts",
   "artifacts/worker/src/say.ts",
