@@ -118,7 +118,7 @@ const PLATFORM_WORDS: Array<{ platform: Platform; patterns: RegExp }> = [
   // «عرضي» and «بالعرض» are how anybody actually says widescreen out loud;
   // «عريض» alone is the word a specification uses. Both, because a customer
   // who typed the ordinary one got no shape at all and no note saying why.
-  { platform: "youtube", patterns: /\byoutube\b|\byt\b|\blandscape\b|\bwidescreen\b|16:9|أفقي|عريض|عرضي|بالعرض/i },
+  { platform: "youtube", patterns: /\byoutube\b|\byt\b|\blandscape\b|\bwidescreen\b|16:9|افقي|عريض|عرضي|بالعرض/i },
   { platform: "reels", patterns: /\binstagram|insta\b/i },
 ];
 
@@ -160,7 +160,7 @@ export function shapeInWords(platform: Platform): { en: string; ar: string } {
  * the word has come to mean in practice whatever it used to mean.
  */
 const LOOK_WORDS: Array<{ look: GradeLook; patterns: RegExp }> = [
-  { look: "mono", patterns: /\bblack ?(and|&) ?white\b|\bb\s?&\s?w\b|\bmonochrome|\bgrayscale|\bgreyscale|أبيض وأسود|ابيض واسود|بالأبيض والأسود/i },
+  { look: "mono", patterns: /\bblack ?(and|&) ?white\b|\bb\s?&\s?w\b|\bmonochrome|\bgrayscale|\bgreyscale|ابيض واسود|ابيض واسود|بالابيض والاسود/i },
   { look: "cinematic", patterns: /\bcinematic|\bfilm ?look|\bmovie ?look|\bteal ?(and|&) ?orange|سينمائ/i },
   { look: "warm", patterns: /\bwarm(er)?\b|\bgolden\b|\bsunny\b|دافئ|دافي|حار/i },
   { look: "cool", patterns: /\bcool(er)?\b|\bcold(er)?\b|\bblue ?tone|بارد/i },
@@ -177,7 +177,7 @@ const LOOK_WORDS: Array<{ look: GradeLook; patterns: RegExp }> = [
   {
     look: "punch",
     patterns:
-      /\bpunch(y|ier)\b|\bpunch\b(?!\s*(in|into|it|here|at|on|up)\b)|\bmake it pop\b|\bmore contrast\b|\bvivid\b|\bvibrant\b|أوضح|أقوى ألوان|ألوان أقوى/i,
+      /\bpunch(y|ier)\b|\bpunch\b(?!\s*(in|into|it|here|at|on|up)\b)|\bmake it pop\b|\bmore contrast\b|\bvivid\b|\bvibrant\b|اوضح|اقوي الوان|الوان اقوي/i,
   },
 ];
 
@@ -188,10 +188,10 @@ const LOOK_WORDS: Array<{ look: GradeLook; patterns: RegExp }> = [
  * sync the picture to a rhythm, which we do not do — matching it would lay a
  * bed nobody asked for and then, in the same reply, admit we cannot do the
  * thing they actually asked for. Only "a beat under it" reads as a bed, so
- * only that shape matches. The Arabic covers موسيقى / أغنية / خلفية موسيقية.
+ * only that shape matches. The Arabic covers موسيقى / اغنيه / خلفية موسيقية.
  */
 const MUSIC_WORDS =
-  /\bmusic|music ?bed|sound ?track|\bsong\b|\bbeat under\b|\btrack under\b|موسيق|أغنية|اغنية|خلفية موسيقية|صوت خلفي/i;
+  /\bmusic|music ?bed|sound ?track|\bsong\b|\bbeat under\b|\btrack under\b|موسيق|اغنيه|اغنيه|خلفيه موسيقيه|صوت خلفي/i;
 
 /**
  * Naming a genre is asking for music.
@@ -210,7 +210,7 @@ const MUSIC_WORDS =
  * is arranged to avoid.
  */
 const MUSIC_GENRE_WORDS =
-  /\btrap beat\b|\b808s?\b|\bboom ?bap\b|\blo-?fi\b|\bchill ?hop\b|\bsynth ?wave\b|\b(?:hip ?hop|rap|drill) beat\b|بيت تراب|إيقاع تراب|ايقاع تراب|بيت هيب ?هوب|بيت راب|لو ?فاي|لوفاي/i;
+  /\btrap beat\b|\b808s?\b|\bboom ?bap\b|\blo-?fi\b|\bchill ?hop\b|\bsynth ?wave\b|\b(?:hip ?hop|rap|drill) beat\b|بيت تراب|ايقاع تراب|ايقاع تراب|بيت هيب ?هوب|بيت راب|لو ?فاي|لوفاي/i;
 
 /**
  * Is this sentence about music at all?
@@ -252,10 +252,10 @@ function asksAboutMusic(text: string): boolean {
  * what they wanted.
  */
 const MUSIC_TOO_LOUD_WORDS =
-  /(?:music|soundtrack|song|beat|backing track)[^.!?]{0,24}\b(?:too loud|so loud|very loud|is loud|louder than|drowning|drowns|overpowering|covering|too much)\b|\b(?:turn|bring|take|lower|reduce)\s+(?:the\s+)?(?:music|soundtrack|song|beat)\s*(?:down|lower)?\b|\b(?:lower|reduce|quieten)\s+(?:the\s+)?(?:music|soundtrack|song|beat)\b|(?:موسيق|أغنية|اغنية)[^.!؟?]{0,24}(?:عالية|عالي|مرتفعة|مغطية|بتغطي|كتير)|(?:نزّل|نزل|خفّف|خفف|قلّل|قلل|واطي|وطي)\s*(?:صوت\s*)?(?:ال)?(?:موسيق|أغنية|اغنية)/i;
+  /(?:music|soundtrack|song|beat|backing track)[^.!?]{0,24}\b(?:too loud|so loud|very loud|is loud|louder than|drowning|drowns|overpowering|covering|too much)\b|\b(?:turn|bring|take|lower|reduce)\s+(?:the\s+)?(?:music|soundtrack|song|beat)\s*(?:down|lower)?\b|\b(?:lower|reduce|quieten)\s+(?:the\s+)?(?:music|soundtrack|song|beat)\b|(?:موسيق|اغنيه|اغنيه)[^.!؟?]{0,24}(?:عاليه|عالي|مرتفعه|مغطيه|بتغطي|كتير)|(?:نزل|نزل|خفف|خفف|قلل|قلل|واطي|وطي)\s*(?:صوت\s*)?(?:ال)?(?:موسيق|اغنيه|اغنيه)/i;
 
 const NO_MUSIC_WORDS =
-  /\bno (?:music|soundtrack|song|backing track)|without (?:music|a soundtrack|a song)|\bdon'?t (?:add|put|want|use) (?:any )?(?:music|a soundtrack|a song)|(?:remove|take out|get rid of|kill|drop|no) (?:the )?music|بدون موسيق|بلا موسيق|من غير موسيق|من دون موسيق|لا موسيق|لا (?:تحط|تضع|تضيف|تريد) (?:موسيق|أغنية|اغنية)|شيل (?:ال)?موسيق|احذف (?:ال)?موسيق|بدون أغنية|بدون اغنية|بلا أغنية|\bno (?:trap|lo-?fi|boom ?bap|synth ?wave|808s?)\b|\bno beat\b|\bwithout a beat\b|بدون بيت|بلا بيت/i;
+  /\bno (?:music|soundtrack|song|backing track)|without (?:music|a soundtrack|a song)|\bdon'?t (?:add|put|want|use) (?:any )?(?:music|a soundtrack|a song)|(?:remove|take out|get rid of|kill|drop|no) (?:the )?music|بدون موسيق|بلا موسيق|من غير موسيق|من دون موسيق|لا موسيق|لا (?:تحط|تضع|تضيف|تريد) (?:موسيق|اغنيه|اغنيه)|شيل (?:ال)?موسيق|احذف (?:ال)?موسيق|بدون اغنيه|بدون اغنيه|بلا اغنيه|\bno (?:trap|lo-?fi|boom ?bap|synth ?wave|808s?)\b|\bno beat\b|\bwithout a beat\b|بدون بيت|بلا بيت/i;
 
 /**
  * Which mood a bed is asked for in.
@@ -281,7 +281,7 @@ const MUSIC_MOODS: { mood: MusicMood; patterns: RegExp }[] = [
   */
   {
     mood: "trap",
-    patterns: /\btrap\b|\b808s?\b|\bdrill\b|تراب|ثماني ?مئة|إيقاع تراب/i,
+    patterns: /\btrap\b|\b808s?\b|\bdrill\b|تراب|ثماني ?مئه|ايقاع تراب/i,
   },
   {
     mood: "lofi",
@@ -293,15 +293,15 @@ const MUSIC_MOODS: { mood: MusicMood; patterns: RegExp }[] = [
   },
   {
     mood: "retro",
-    patterns: /\bretro\b|\bsynth ?wave\b|\b80s\b|\beighties\b|\bvapor ?wave\b|\bneon\b|ريترو|ثمانينات|ثمانينيّ|سينث/i,
+    patterns: /\bretro\b|\bsynth ?wave\b|\b80s\b|\beighties\b|\bvapor ?wave\b|\bneon\b|ريترو|ثمانينات|ثمانيني|سينث/i,
   },
   {
     mood: "corporate",
-    patterns: /\bcorporate\b|\bclean\b|\bprofessional\b|\bbusiness\b|\bexplainer\b|\bproduct video\b|كوربوريت|احترافية|احترافي|رسمية|نظيفة|شركات/i,
+    patterns: /\bcorporate\b|\bclean\b|\bprofessional\b|\bbusiness\b|\bexplainer\b|\bproduct video\b|كوربوريت|احترافيه|احترافي|رسميه|نظيفه|شركات/i,
   },
   {
     mood: "epic",
-    patterns: /\bepic\b|\btrailer\b|\bheroic\b|\bmassive\b|\bgrand\b|ملحمي|ملحمية|بطولية|تريلر|ضخمة/i,
+    patterns: /\bepic\b|\btrailer\b|\bheroic\b|\bmassive\b|\bgrand\b|ملحمي|ملحميه|بطوليه|تريلر|ضخمه/i,
   },
   {
     mood: "cinematic",
@@ -310,19 +310,19 @@ const MUSIC_MOODS: { mood: MusicMood; patterns: RegExp }[] = [
       brighter, faster and with the drums forward — and leaving them in both
       lists would mean whichever entry came first silently won.
     */
-    patterns: /\bcinematic\b|\bdramatic\b|\borchestral\b|\bfilm ?score\b|سينمائي|سينمائية|درامية|أوركسترا/i,
+    patterns: /\bcinematic\b|\bdramatic\b|\borchestral\b|\bfilm ?score\b|سينمائي|سينمائيه|دراميه|اوركسترا/i,
   },
   {
     mood: "upbeat",
-    patterns: /\bupbeat\b|\benergetic\b|\bhype\b|\bexciting\b|\bdriving\b|\bpunchy\b|\bfast\b|حماسي|حماسية|نشيطة|نشيط|سريعة|قوية|طاقة/i,
+    patterns: /\bupbeat\b|\benergetic\b|\bhype\b|\bexciting\b|\bdriving\b|\bpunchy\b|\bfast\b|حماسي|حماسيه|نشيطه|نشيط|سريعه|قويه|طاقه/i,
   },
   {
     mood: "dark",
-    patterns: /\bdark\b|\btense\b|\bmoody\b|\bsuspense\b|\bserious\b|مظلمة|غامضة|متوتّرة|متوترة|جادّة|جادة|مشوّقة/i,
+    patterns: /\bdark\b|\btense\b|\bmoody\b|\bsuspense\b|\bserious\b|مظلمه|غامضه|متوتره|متوتره|جاده|جاده|مشوقه/i,
   },
   {
     mood: "playful",
-    patterns: /\bplayful\b|\bfun\b|\bcute\b|\bquirky\b|\bcheerful\b|\bhappy\b|مرحة|مرح|لطيفة|بهيجة|مبهجة|ظريفة/i,
+    patterns: /\bplayful\b|\bfun\b|\bcute\b|\bquirky\b|\bcheerful\b|\bhappy\b|مرحه|مرح|لطيفه|بهيجه|مبهجه|ظريفه/i,
   },
   {
     /*
@@ -332,11 +332,11 @@ const MUSIC_MOODS: { mood: MusicMood; patterns: RegExp }[] = [
       the same quiet duplication the note above `cinematic` is about.
     */
     mood: "warm",
-    patterns: /\bwarm\b|\bcozy\b|\bcosy\b|\bsmooth\b|\bsoulful\b|\btender\b|دافئة|دافئ|ناعمة|ناعم|حنونة/i,
+    patterns: /\bwarm\b|\bcozy\b|\bcosy\b|\bsmooth\b|\bsoulful\b|\btender\b|دافئه|دافئ|ناعمه|ناعم|حنونه/i,
   },
   {
     mood: "calm",
-    patterns: /\bcalm\b|\bquiet\b|\bsoft\b|\bgentle\b|\bchill\b|\brelax\w*|\bmellow\b|\bambient\b|هادئة|هادئ|هادي|هادية|رايقة|خفيفة|خفيف/i,
+    patterns: /\bcalm\b|\bquiet\b|\bsoft\b|\bgentle\b|\bchill\b|\brelax\w*|\bmellow\b|\bambient\b|هادئه|هادئ|هادي|هاديه|رايقه|خفيفه|خفيف/i,
   },
 ];
 
@@ -373,7 +373,7 @@ export function musicMoodFrom(text: string): MusicMood {
  * being polite; burning a praying-hands sticker into their video because of it
  * would be the product reading punctuation as an instruction.
  */
-const EMOJI_WORDS = /\bemoji|\bemojis\b|إيموجي|ايموجي|رموز تعبيرية|ستيكر|sticker/i;
+const EMOJI_WORDS = /\bemoji|\bemojis\b|ايموجي|ايموجي|رموز تعبيريه|ستيكر|sticker/i;
 
 /**
  * One run of emoji, keeping a sequence together: the joiner, the variation
@@ -426,10 +426,10 @@ export function emojiIn(text: string): string {
  * types the shadda and the product cannot be a spelling test.
  */
 const SFX_WORDS =
-  /\bsound ?effects?\b|\bsfx\b|\bwhoosh(?:es)?\b|\bswoosh(?:es)?\b|\brisers?\b|\bimpact sounds?\b|\btransition sounds?\b|مؤثرات صوتية|مؤثّرات صوتية|مؤثرات الصوت|مؤثّرات الصوت|اصوات انتقال|أصوات انتقال|صوت على القص/i;
+  /\bsound ?effects?\b|\bsfx\b|\bwhoosh(?:es)?\b|\bswoosh(?:es)?\b|\brisers?\b|\bimpact sounds?\b|\btransition sounds?\b|مؤثرات صوتيه|مؤثرات صوتيه|مؤثرات الصوت|مؤثرات الصوت|اصوات انتقال|اصوات انتقال|صوت علي القص/i;
 
 const NO_SFX_WORDS =
-  /\bno sound ?effects?\b|\bno sfx\b|\bwithout (?:any )?sound ?effects?\b|\bno whoosh(?:es)?\b|\bdon'?t add (?:any )?sound ?effects?\b|بدون مؤثرات|بدون مؤثّرات|بلا مؤثرات|بلا مؤثّرات|من غير مؤثرات|لا مؤثرات|لا مؤثّرات/i;
+  /\bno sound ?effects?\b|\bno sfx\b|\bwithout (?:any )?sound ?effects?\b|\bno whoosh(?:es)?\b|\bdon'?t add (?:any )?sound ?effects?\b|بدون مؤثرات|بدون مؤثرات|بلا مؤثرات|بلا مؤثرات|من غير مؤثرات|لا مؤثرات|لا مؤثرات/i;
 
 /**
  * Which set, and only when they said so.
@@ -439,8 +439,8 @@ const NO_SFX_WORDS =
  * a sentence that already asked for effects and then said "subtle" is asking
  * about the effects.
  */
-const SFX_QUIET_WORDS = /\bsubtle\b|\bminimal\b|\bgentle\b|\blight touch\b|خفيفة|خفيف|بسيطة|هادئة/i;
-const SFX_PUNCHY_WORDS = /\bpunchy\b|\baggressive\b|\bhard[- ]hitting\b|\bheavy\b|قوية|عنيفة|ثقيلة/i;
+const SFX_QUIET_WORDS = /\bsubtle\b|\bminimal\b|\bgentle\b|\blight touch\b|خفيفه|خفيف|بسيطه|هادئه/i;
+const SFX_PUNCHY_WORDS = /\bpunchy\b|\baggressive\b|\bhard[- ]hitting\b|\bheavy\b|قويه|عنيفه|ثقيله/i;
 /**
  * Asking for the video to be *made* rather than edited.
  *
@@ -455,12 +455,12 @@ const SFX_PUNCHY_WORDS = /\bpunchy\b|\baggressive\b|\bhard[- ]hitting\b|\bheavy\
  * defined against `\w` and matches nothing next to an Arabic letter.
  */
 const REEL_WORDS =
-  /\bvideo (?:from|out of) (?:my |the |these )?(?:photos?|images?|pictures?|product (?:photos?|images?))\b|\b(?:photo|image|slideshow|product) video\b|\b(?:make|create|build) (?:an? )?(?:ad|reel|video|clip) (?:from|out of) (?:my |the |these )?(?:photos?|images?|pictures?)\b|\bturn (?:my |the |these )?(?:photos?|images?|pictures?) into (?:an? )?(?:video|ad|reel)\b|فيديو من الصور|فيديو من صور|فيديو من صوري|من صور المنتج|حوّل الصور|حول الصور|اعمل فيديو من|سوّي فيديو من|سوي فيديو من/i;
+  /\bvideo (?:from|out of) (?:my |the |these )?(?:photos?|images?|pictures?|product (?:photos?|images?))\b|\b(?:photo|image|slideshow|product) video\b|\b(?:make|create|build) (?:an? )?(?:ad|reel|video|clip) (?:from|out of) (?:my |the |these )?(?:photos?|images?|pictures?)\b|\bturn (?:my |the |these )?(?:photos?|images?|pictures?) into (?:an? )?(?:video|ad|reel)\b|فيديو من الصور|فيديو من صور|فيديو من صوري|من صور المنتج|حول الصور|حول الصور|اعمل فيديو من|سوي فيديو من|سوي فيديو من/i;
 
 const NO_REEL_WORDS =
   /\bwithout (?:my |the )?(?:photos?|images?|pictures?)\b|\bno slideshow\b|\bdon'?t use (?:my |the )?(?:photos?|images?|pictures?)\b|بدون الصور|بدون صور|بلا صور|لا تستخدم الصور/i;
 
-const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?) )?to (the )?(beat|music|rhythm|drop)\b|على الإيقاع|مع الإيقاع/i;
+const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?) )?to (the )?(beat|music|rhythm|drop)\b|علي الايقاع|مع الايقاع/i;
 
 /**
  * Asked-for things that are real product ideas but have no operation yet.
@@ -559,7 +559,7 @@ const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
       request got opposite answers depending on which language it was typed in.
     */
     patterns:
-      /\b(?:play|run) it (?:faster|slower|at \d)|\b\d(?:\.\d)?x speed\b|\btime ?lapse\b|\bslow ?(?:mo|motion)\b|\bslow it down\b|\bhalf speed\b|\bdouble speed\b|بسرعة مضاعفة|ضعف السرعة|سرعة \d|تصوير مسرّع|سلو ?موشن|تصوير بطيء|بطّئه|بطئه/i,
+      /\b(?:play|run) it (?:faster|slower|at \d)|\b\d(?:\.\d)?x speed\b|\btime ?lapse\b|\bslow ?(?:mo|motion)\b|\bslow it down\b|\bhalf speed\b|\bdouble speed\b|بسرعه مضاعفه|ضعف السرعه|سرعه \d|تصوير مسرع|سلو ?موشن|تصوير بطيء|بطئه|بطئه/i,
     label: say(
       "play it faster or slower yet. What I can do is take out the pauses and the ums, which is usually what makes a recording feel slow",
       "أشغّله أسرع أو أبطأ بعد. اللي بقدر عليه إني أشيل السكتات و«آآ» و«يعني»، وهي عادةً اللي بتخلّي التسجيل حاسس بطيء",
@@ -589,9 +589,9 @@ export interface LibraryFile {
 }
 
 const BROLL_WORDS =
-  /\bb-?roll|cut ?away|cutaway|footage|insert (a |the )?(clip|shot)\b|بي ?رول|لقطات مساندة|لقطة مساندة|مقاطع مساندة|لقطات إضافية/i;
+  /\bb-?roll|cut ?away|cutaway|footage|insert (a |the )?(clip|shot)\b|بي ?رول|لقطات مسانده|لقطه مسانده|مقاطع مسانده|لقطات اضافيه/i;
 const OVERLAY_WORDS =
-  /\blogo|overlay|screenshot|graphic|show (the |my )?(image|picture|photo)\b|الشعار|شعاري|لوجو|اللوغو|لوغو|اللوقو|صورة فوق|لقطة شاشة|سكرين ?شوت/i;
+  /\blogo|overlay|screenshot|graphic|show (the |my )?(image|picture|photo)\b|الشعار|شعاري|لوجو|اللوغو|لوغو|اللوقو|صوره فوق|لقطه شاشه|سكرين ?شوت/i;
 
 /**
  * A card between sections, which is the reference's signature move.
@@ -608,7 +608,7 @@ const OVERLAY_WORDS =
  * chapter, or a break.
  */
 const SECTION_CARD_WORDS =
-  /\bsection card|chapter card|title card|interstitial|section break|divider card\b|بطاقة قسم|بطاقة فاصلة|فاصل بين الأقسام|كرت قسم|بطاقة تعريفيّة|بطاقة تعريفية/i;
+  /\bsection card|chapter card|title card|interstitial|section break|divider card\b|بطاقه قسم|بطاقه فاصله|فاصل بين الاقسام|كرت قسم|بطاقه تعريفيه|بطاقه تعريفيه/i;
 
 /**
  * Where cutaways go when nobody said.
@@ -653,10 +653,10 @@ const QUOTED = /["“”']([^"“”']{1,120})["“”']/;
  * caption branch. A sentence has to be about captions before it gets here.
  */
 const KINETIC_CAPTION_WORDS =
-  /\bkinetic\b|\banimated (?:captions?|subtitles?)\b|\bcaptions? that (?:pop|move|bounce)\b|\bemphasi[sz]\w*|\bstress(?:ed|es)? (?:the )?word|\bmake the (?:captions?|words) (?:pop|move)\b|كابشن متحرك|كابشنز متحركة|كتابة متحركة|ترجمة متحركة|تشديد|شدّد الكلمات|أبرز الكلمة|ابرز الكلمة|كلمة بارزة/i;
+  /\bkinetic\b|\banimated (?:captions?|subtitles?)\b|\bcaptions? that (?:pop|move|bounce)\b|\bemphasi[sz]\w*|\bstress(?:ed|es)? (?:the )?word|\bmake the (?:captions?|words) (?:pop|move)\b|كابشن متحرك|كابشنز متحركه|كتابه متحركه|ترجمه متحركه|تشديد|شدد الكلمات|ابرز الكلمه|ابرز الكلمه|كلمه بارزه/i;
 
 const KINETIC_WORDS =
-  /\bkinetic\b|\bword[- ]by[- ]word\b|\bone (word )?at a time\b|\bwords? (pop|land|drop)\w* in\b|كلمة كلمة|كلمة بكلمة|كلمة تلو/i;
+  /\bkinetic\b|\bword[- ]by[- ]word\b|\bone (word )?at a time\b|\bwords? (pop|land|drop)\w* in\b|كلمه كلمه|كلمه بكلمه|كلمه تلو/i;
 
 /**
  * The Arabic half was missing entirely, and this is the most-asked-for edit in
@@ -676,7 +676,7 @@ const SILENCE_WORDS =
   // commonest ways to ask for this -- reached nothing at all.
   // "speed it up" is here rather than on the refusal list, and only in that
   // shape: a bare "speed" is in "2x speed", which is a rate and is refused.
-  /\bsilence|silent|quiet|pause|dead air|tighten|trim|short|fast|snapp|pace|boring|drag|\bspeed (?:it|this|the video) ?up\b|صمت|سكتات|سكوت|وقفات|فراغات|اختصر|قصّر|قصر الفيديو|أقصر|اقصر|قصّره|قصره|الملل|الممل|المملة|ممل|سرّع|سرعه|سرعها|سرععه/i;
+  /\bsilence|silent|quiet|pause|dead air|tighten|trim|short|fast|snapp|pace|boring|drag|\bspeed (?:it|this|the video) ?up\b|صمت|سكتات|سكوت|وقفات|فراغات|اختصر|قصر|قصر الفيديو|اقصر|اقصر|قصره|قصره|الملل|الممل|الممله|ممل|سرع|سرعه|سرعها|سرععه/i;
 
 /**
  * The hesitations and the false starts, which are not silence.
@@ -700,7 +700,7 @@ const SILENCE_WORDS =
 // elongated hesitation looks like written down, and it does not appear inside
 // ordinary words, so no anchor is needed.
 const HESITATION_WORDS =
-  /\bum+s?\b|\buh+s?\b|\bfiller|hesitat|stumbl|stutter|false start|\bmumbl|آآ|ترددات|التردد|تلعثم|يتلعثم|كلمات? الحشو|بدايات? مكرّرة|بدايات? مكررة|يعيد الجملة|كرّر الجملة/i;
+  /\bum+s?\b|\buh+s?\b|\bfiller|hesitat|stumbl|stutter|false start|\bmumbl|اا|ترددات|التردد|تلعثم|يتلعثم|كلمات? الحشو|بدايات? مكرره|بدايات? مكرره|يعيد الجمله|كرر الجمله/i;
 
 /**
  * Refusals, in the same file as the thing they refuse.
@@ -718,10 +718,10 @@ const HESITATION_WORDS =
  * sentence that reaches both patterns gets both operations, and a sentence
  * that names only one of them gets only that one.
  */
-const WHOLE_TREATMENT_WORDS = /\btighten|snapp|\bmake it tight|شدّه|اشدّه|اشده|رتّبه|نظّفه|نظفه/i;
+const WHOLE_TREATMENT_WORDS = /\btighten|snapp|\bmake it tight|شده|اشده|اشده|رتبه|نظفه|نظفه/i;
 
 const NO_TIGHTEN_WORDS =
-  /\bkeep the (?:ums?|uhs?|hesitations?|stumbles?)|don'?t (?:cut|remove) (?:the )?(?:ums?|uhs?|hesitations?)|\bleave the (?:ums?|hesitations?)|خلّي الترددات|خلي الترددات|لا تشيل الترددات|بدون حذف الترددات/i;
+  /\bkeep the (?:ums?|uhs?|hesitations?|stumbles?)|don'?t (?:cut|remove) (?:the )?(?:ums?|uhs?|hesitations?)|\bleave the (?:ums?|hesitations?)|خلي الترددات|خلي الترددات|لا تشيل الترددات|بدون حذف الترددات/i;
 
 /**
  * Somebody asking for an edit without naming one.
@@ -742,7 +742,7 @@ const NO_TIGHTEN_WORDS =
  * «ومضة» invisible to the transition matcher.
  */
 const EDIT_THIS_WORDS =
-  /\b(?:edit|tidy|polish|fix|work on|do your thing)\b|\bclean (?:it |this )?up\b|\bsort (?:it |this )?out\b|\bmake (?:it|this) (?:look |seem |feel )?(?:good|better|nice|punchy|watchable|professional|polished|pro|sharp|clean|proper)\b|\bmake (?:it|this) look like\b|\blike a (?:real|proper|professional)\b|\bgo ahead\b|\bwhatever you think\b|\byou decide\b|عدّله|عدله|عدّلي|رتّبه|رتبه|نظّفه|نظفه|سوّه|سوه|اعمل اللازم|اعملها|اعمله|شوف الأفضل|زي ما تشوف|خلّيه? ?(?:يطلع )?(?:حلو|احترافي|منيح|مرتّب|مرتب)|خليه? ?(?:يطلع )?(?:حلو|احترافي|منيح|مرتّب|مرتب)|زي فيديوهات|زي الفيديوهات|مثل فيديوهات|اشتغل عليه/i;
+  /\b(?:edit|tidy|polish|fix|work on|do your thing)\b|\bclean (?:it |this )?up\b|\bsort (?:it |this )?out\b|\bmake (?:it|this) (?:look |seem |feel )?(?:good|better|nice|punchy|watchable|professional|polished|pro|sharp|clean|proper)\b|\bmake (?:it|this) look like\b|\blike a (?:real|proper|professional)\b|\bgo ahead\b|\bwhatever you think\b|\byou decide\b|عدله|عدله|عدلي|رتبه|رتبه|نظفه|نظفه|سوه|سوه|اعمل اللازم|اعملها|اعمله|شوف الافضل|زي ما تشوف|خليه? ?(?:يطلع )?(?:حلو|احترافي|منيح|مرتب|مرتب)|خليه? ?(?:يطلع )?(?:حلو|احترافي|منيح|مرتب|مرتب)|زي فيديوهات|زي الفيديوهات|مثل فيديوهات|اشتغل عليه/i;
 
 /**
  * Whether this sentence is asking for an edit at all.
@@ -752,7 +752,10 @@ const EDIT_THIS_WORDS =
  * holding a second copy of it.
  */
 export function asksForAnEdit(text: string): boolean {
-  return EDIT_THIS_WORDS.test(text);
+  // Folded, like everything else matched here. The patterns in this file are
+  // written in the folded alphabet, so a caller handing us raw text -- which
+  // every caller does -- would otherwise miss «عدّله» for its shadda alone.
+  return EDIT_THIS_WORDS.test(withAsciiDigits(text));
 }
 
 /**
@@ -793,7 +796,7 @@ export function asksForAnEdit(text: string): boolean {
   overruled on the sentence where they were explicit is a worse product.
 */
 const ONLY_WORDS =
-  /\bonly\b|\bnothing else\b|\band nothing more\b|\bjust (?:cut|remove|trim|add|put|do|fix|sort|level|the)\b|\bthat'?s all\b|\bdon'?t do anything else\b|فقط لا غير|لا شيء غير|ولا شي غير|وبس|و بس|^بس (?!أنا|انا|إحنا|احنا|نحن|هو|هي|هم|إنت|انت|إنتي|انتي)|\bبس هيك|\sبس\s*[.!؟?]*\s*$|لا تعمل شي غير|لا تضيف شي/i;
+  /\bonly\b|\bnothing else\b|\band nothing more\b|\bjust (?:cut|remove|trim|add|put|do|fix|sort|level|the)\b|\bthat'?s all\b|\bdon'?t do anything else\b|فقط لا غير|لا شيء غير|ولا شي غير|وبس|و بس|^بس (?!انا|انا|احنا|احنا|نحن|هو|هي|هم|انت|انت|انتي|انتي)|\bبس هيك|\sبس\s*[.!؟?]*\s*$|لا تعمل شي غير|لا تضيف شي/i;
 
 /**
  * Whether this sentence is the whole plan.
@@ -803,7 +806,7 @@ const ONLY_WORDS =
  * in this file is here: one place decides what a phrase means.
  */
 export function saysOnlyThis(text: string): boolean {
-  return ONLY_WORDS.test(text);
+  return ONLY_WORDS.test(withAsciiDigits(text));
 }
 
 const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b|عمودي|عامودي|طولي/i;
@@ -821,7 +824,7 @@ const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b|عمودي|عا�
   because a negation that drifts away from the thing it negates is a negation
   that stops covering it.
 */
-const HORIZONTAL_WORDS = /\bhorizontal|16:9|landscape|widescreen\b|أفقي|افقي|عريض/i;
+const HORIZONTAL_WORDS = /\bhorizontal|16:9|landscape|widescreen\b|افقي|افقي|عريض/i;
 /*
   Saying it and taking it back, which are the same instruction.
 
@@ -841,9 +844,9 @@ const HORIZONTAL_WORDS = /\bhorizontal|16:9|landscape|widescreen\b|أفقي|اف
   sentence would eat the half that was a request.
 */
 const NO_CAPTION_WORDS =
-  /\bno (?:captions?|subtitles?)|without (?:captions?|subtitles?)|\bdon'?t caption|\b(?:remove|drop|delete|take out|get rid of)\s+(?:the\s+)?(?:captions?|subtitles?)\b|بدون (?:ترجمة|ترجمه|كابشن|كتابة)|بلا (?:ترجمة|كابشن)|من غير (?:ترجمة|كابشن)|لا ترجمة|ما بدي (?:ترجمة|كابشن)|(?:شيل|احذف|الغي|ألغي|امسح|شيلي)\s*(?:ال)?(?:ترجمة|ترجمه|كابشن|كتابة)/i;
+  /\bno (?:captions?|subtitles?)|without (?:captions?|subtitles?)|\bdon'?t caption|\b(?:remove|drop|delete|take out|get rid of)\s+(?:the\s+)?(?:captions?|subtitles?)\b|بدون (?:ترجمه|ترجمه|كابشن|كتابه)|بلا (?:ترجمه|كابشن)|من غير (?:ترجمه|كابشن)|لا ترجمه|ما بدي (?:ترجمه|كابشن)|(?:شيل|احذف|الغي|الغي|امسح|شيلي)\s*(?:ال)?(?:ترجمه|ترجمه|كابشن|كتابه)/i;
 const NO_SILENCE_WORDS =
-  /\bkeep the (?:silence|pauses)|don'?t cut (?:the )?(?:silence|pauses)|\bno (?:silence )?cut(?:ting)?\b|خلّي الصمت|خلي الصمت|لا تقص الصمت|بدون قص/i;
+  /\bkeep the (?:silence|pauses)|don'?t cut (?:the )?(?:silence|pauses)|\bno (?:silence )?cut(?:ting)?\b|خلي الصمت|خلي الصمت|لا تقص الصمت|بدون قص/i;
 
 /**
  * Captions, in both languages this product is asked in.
@@ -861,7 +864,7 @@ const NO_SILENCE_WORDS =
  * in the product's own vocabulary, produced nothing.
  */
 const CAPTION_WORDS =
-  /\bcaption|subtitle|sub ?titles?|text on screen|on-?screen text\b|ترجمة|ترجمه|سبتايتل|كابشن|كتابة على الشاشة|نص على الشاشة|مكتوب على الشاشة/i;
+  /\bcaption|subtitle|sub ?titles?|text on screen|on-?screen text\b|ترجمه|ترجمه|سبتايتل|كابشن|كتابه علي الشاشه|نص علي الشاشه|مكتوب علي الشاشه/i;
 
 /**
  * The one word that is two different requests.
@@ -876,11 +879,11 @@ const CAPTION_WORDS =
  * The lookahead is what separates them: «ترجم» only counts when it is *not*
  * followed by the ta marbuta of «ترجمة». In English the verbs are unambiguous.
  */
-const TRANSLATE_WORDS = /\btranslat(?:e|ed|ing|ion)\b|\bdubb?(?:ed|ing)?\b|ترجم(?![ةه])|مترجم|دبلجة/i;
+const TRANSLATE_WORDS = /\btranslat(?:e|ed|ing|ion)\b|\bdubb?(?:ed|ing)?\b|ترجم(?![هه])|مترجم|دبلجه/i;
 
 const KARAOKE_WORDS =
-  /\bkaraoke|word by word|word-by-word|highlight|كلمة كلمة|كلمة بكلمة|كلمة ورا كلمة|كاريوكي|تظليل/i;
-const YELLOW_WORDS = /\byellow|gold\b|أصفر|اصفر|ذهبي/i;
+  /\bkaraoke|word by word|word-by-word|highlight|كلمه كلمه|كلمه بكلمه|كلمه ورا كلمه|كاريوكي|تظليل/i;
+const YELLOW_WORDS = /\byellow|gold\b|اصفر|اصفر|ذهبي/i;
 
 /**
  * The named looks, asked for by name — in both languages, because a style a
@@ -891,7 +894,7 @@ const YELLOW_WORDS = /\byellow|gold\b|أصفر|اصفر|ذهبي/i;
 const CAPTION_STYLE_WORDS: Array<[RegExp, "hormozi" | "beast" | "pill" | "neon" | "clean" | "bubble" | "karaoke-light" | "creator" | "glow" | "label"]> = [
   [/hormozi|هرموزي|هورموزي/i, "hormozi"],
   [/\bbeast\b|بيست|مستر بيست/i, "beast"],
-  [/خلف الكلمة|صندوق الكلمة|word pill|pill caption|box behind/i, "pill"],
+  [/خلف الكلمه|صندوق الكلمه|word pill|pill caption|box behind/i, "pill"],
   [/\bneon\b|نيون|متوهج/i, "neon"],
   /*
      The cold look, and it sits *after* neon on purpose.
@@ -904,17 +907,17 @@ const CAPTION_STYLE_WORDS: Array<[RegExp, "hormozi" | "beast" | "pill" | "neon" 
      none. Ordering is the fix that needs no lookbehind: «متوهج» is claimed
      above, so anything reaching this line meant the quiet one.
   */
-  [/\bglow\b|\bhalo\b|توهّج|توهج|هالة|كابشن ناعم|كابشن خفيف/i, "glow"],
+  [/\bglow\b|\bhalo\b|توهج|توهج|هاله|كابشن ناعم|كابشن خفيف/i, "glow"],
   [/\bminimal\b|\bclean caption|كابشن هادئ|كابشن بسيط/i, "clean"],
   [/\bbubble\b|فقاع/i, "bubble"],
-  [/white box|bright box|صندوق أبيض|شريط أبيض/i, "karaoke-light"],
+  [/white box|bright box|صندوق ابيض|شريط ابيض/i, "karaoke-light"],
   [/\bcreator\b|كرييتور|كرياتور|زي المشاهير/i, "creator"],
   /* The grey translucent bar. «شريط أبيض» above stays the white one: most
      specific first only works when the two bars do not share their words. */
-  [/gr[ae]y (?:bar|box)|شريط رمادي|خلفية رمادية|خلفية شفافة|خلفية للكابشن|caption background/i, "label"],
+  [/gr[ae]y (?:bar|box)|شريط رمادي|خلفيه رماديه|خلفيه شفافه|خلفيه للكابشن|caption background/i, "label"],
 ];
 /** The big-keyword lockup, asked for the way people describe it. */
-const FOCUS_WORDS = /الكلمة الكبيرة|كلمة بارزة|كلمة كبيرة|big keyword|keyword caption|one word big|focus caption/i;
+const FOCUS_WORDS = /الكلمه الكبيره|كلمه بارزه|كلمه كبيره|big keyword|keyword caption|one word big|focus caption/i;
 /*
   The rise, and it is asked for **before** the lockup it is a version of.
 
@@ -931,8 +934,8 @@ const FOCUS_WORDS = /الكلمة الكبيرة|كلمة بارزة|كلمة ك
 */
 const RISE_WORDS = /صاعد|تصعد|يطلع من تحت|تطلع من تحت|rising|rise up|float up|lift up/i;
 /** Where the caption sits, said the way people say it. */
-const CAPTION_TOP_WORDS = /كابشن فوق|الكابشن فوق|فوق الشاشة|أعلى الشاشة|اعلى الشاشة|captions? (?:at|on) top|top of the screen/i;
-const CAPTION_MIDDLE_WORDS = /وسط الشاشة|منتصف الشاشة|نص الشاشة|middle of the screen|center(?:ed)? captions?|captions? in the (?:centre|center|middle)/i;
+const CAPTION_TOP_WORDS = /كابشن فوق|الكابشن فوق|فوق الشاشه|اعلي الشاشه|اعلي الشاشه|captions? (?:at|on) top|top of the screen/i;
+const CAPTION_MIDDLE_WORDS = /وسط الشاشه|منتصف الشاشه|نص الشاشه|middle of the screen|center(?:ed)? captions?|captions? in the (?:centre|center|middle)/i;
 /*
   And the bottom, which needed no words for as long as it was the default.
 
@@ -942,7 +945,7 @@ const CAPTION_MIDDLE_WORDS = /وسط الشاشة|منتصف الشاشة|نص �
   product took away rather than a choice it made for you.
 */
 const CAPTION_BOTTOM_WORDS =
-  /كابشن تحت|الكابشن تحت|أسفل الشاشة|اسفل الشاشة|تحت الشاشة|captions? (?:at|on|near) the bottom|bottom of the screen|lower third/i;
+  /كابشن تحت|الكابشن تحت|اسفل الشاشه|اسفل الشاشه|تحت الشاشه|captions? (?:at|on|near) the bottom|bottom of the screen|lower third/i;
 /** The three sizes, in the words that mean them. */
 /*
   Nobody calls them captions when they want them bigger.
@@ -952,8 +955,8 @@ const CAPTION_BOTTOM_WORDS =
   language, because every pattern here named the thing by our word for it.
 */
 const CAPTION_BIG_WORDS =
-  /كابشن كبير|الكابشن كبير|(?:كبّر|كبر|زوّد|زود)\s*(?:حجم\s*)?(?:ال)?(?:كابشن|خط|خطّ|كتابة|ترجمة|ترجمه|نص)|(?:الخط|الكتابة|الترجمة|الكابشن)\s*(?:صغير|صغيرة)|big captions?|large captions?|bigger captions?|\bmake the (?:text|writing|words|font|captions?|subtitles?) bigger\b|\bbigger (?:text|font|words|subtitles?)\b|\b(?:text|font|captions?|subtitles?) (?:is |are )?too small\b/i;
-const CAPTION_SMALL_WORDS = /كابشن صغير|الكابشن صغير|صغّر الكابشن|صغر الكابشن|small(?:er)? captions?/i;
+  /كابشن كبير|الكابشن كبير|(?:كبر|كبر|زود|زود)\s*(?:حجم\s*)?(?:ال)?(?:كابشن|خط|خط|كتابه|ترجمه|ترجمه|نص)|(?:الخط|الكتابه|الترجمه|الكابشن)\s*(?:صغير|صغيره)|big captions?|large captions?|bigger captions?|\bmake the (?:text|writing|words|font|captions?|subtitles?) bigger\b|\bbigger (?:text|font|words|subtitles?)\b|\b(?:text|font|captions?|subtitles?) (?:is |are )?too small\b/i;
+const CAPTION_SMALL_WORDS = /كابشن صغير|الكابشن صغير|صغر الكابشن|صغر الكابشن|small(?:er)? captions?/i;
 /**
  * The fast-cut rhythm, asked for as a rhythm.
  *
@@ -962,7 +965,7 @@ const CAPTION_SMALL_WORDS = /كابشن صغير|الكابشن صغير|صغّ�
  * a karaoke wipe at a leisurely pace or a hard-swap caption twice a second.
  */
 const CAPTION_QUICK_WORDS =
-  /fast captions?|quick captions?|rapid captions?|snappy captions?|punchy captions?|short chunks|كابشن سريع|الكابشن سريع|كابشن متسارع|كابشن قصير سريع|إيقاع سريع للكابشن|ايقاع سريع للكابشن/i;
+  /fast captions?|quick captions?|rapid captions?|snappy captions?|punchy captions?|short chunks|كابشن سريع|الكابشن سريع|كابشن متسارع|كابشن قصير سريع|ايقاع سريع للكابشن|ايقاع سريع للكابشن/i;
 
 /*
   The other half of the same axis, for the same reason as the bottom above.
@@ -973,7 +976,7 @@ const CAPTION_QUICK_WORDS =
   second, and until these words existed there was no way to say so.
 */
 const CAPTION_CALM_WORDS =
-  /slow(?:er)? captions?|calm captions?|steady captions?|normal captions?|full sentences?|whole sentences?|كابشن هادئ|كابشن بطيء|الكابشن بطيء|إيقاع هادئ|ايقاع هادئ|جمل كاملة|جملة كاملة/i;
+  /slow(?:er)? captions?|calm captions?|steady captions?|normal captions?|full sentences?|whole sentences?|كابشن هادئ|كابشن بطيء|الكابشن بطيء|ايقاع هادئ|ايقاع هادئ|جمل كامله|جمله كامله/i;
 
 /**
  * Asking for the strongest stretch, in the ways people actually ask.
@@ -984,7 +987,7 @@ const CAPTION_CALM_WORDS =
  * "strongest 30 seconds", "a highlight reel", "just the good bit".
  */
 const HIGHLIGHT_WORDS =
-  /\b(best|strongest|good|top|most interesting) ?\d* ?(part|parts|bit|bits|moment|moments|section|seconds?|secs?|s\b)|highlight reel|the highlight\b|أفضل جزء|أقوى جزء|أهم جزء|أحسن جزء|أفضل لقطة|أقوى لقطة|أفضل لحظة|أقوى لحظة|أهم لحظة|مقتطف|الزبدة|زبدة الفيديو/i;
+  /\b(best|strongest|good|top|most interesting) ?\d* ?(part|parts|bit|bits|moment|moments|section|seconds?|secs?|s\b)|highlight reel|the highlight\b|افضل جزء|اقوي جزء|اهم جزء|احسن جزء|افضل لقطه|اقوي لقطه|افضل لحظه|اقوي لحظه|اهم لحظه|(?:افضل|اقوي|اهم|احسن)\s*\d{1,3}\s*(?:ثانيه|ثواني|دقيقه|دقايق|دقائق)|(?:اعطيني|اعطني|طلعلي|طلع لي|بدي)\s*(?:افضل|اقوي|اهم|احسن)|مقتطف|الزبده|زبده الفيديو/i;
 /**
  * A target length, which is the same request said the other way round.
  *
@@ -994,15 +997,40 @@ const HIGHLIGHT_WORDS =
  * to, so this is the more natural of the two and it was the one that reached
  * nothing.
  *
- * A unit is required. A bare number is a moment, a count of clips, a year --
- * this file has four patterns that read one -- and "make it 60" is not a
- * sentence anybody finishes.
+ * A unit is required, with one exception that earns itself: "make it 60
+ * instead" is the commonest correction of a length there is, and the word
+ * `instead` is what makes the bare number safe. It says the sentence is
+ * changing something already decided, and the only number already decided in
+ * this product is a length.
+ *
+ * Even then, not under ten. A bare number that small is a count of clips
+ * ("give me 3 instead"), and nobody asks for a nine-second video.
+ *
+ * Everywhere else a unit is required, because a bare number is a moment, a
+ * count of clips, a year -- this file has four patterns that read one.
+ *
+ * And no `\b` after «بدل». A word boundary in JavaScript is defined against
+ * `\w`, which is ASCII, so it can never match beside an Arabic letter: the
+ * Arabic half of this pattern was written with one and matched nothing at all
+ * while the English half worked. Seventh time in this file.
  */
 const TARGET_LENGTH =
-  /\b(?:make|keep|cut|get|bring) (?:it|this|the video) (?:(?:down|in) )?(?:to )?(?:about |around |roughly |under )?(\d{1,4})\s*(?:seconds?|secs?|s\b|minutes?|mins?)\b|\b(?:in|under|within) (?:about |around )?(\d{1,4})\s*(?:seconds?|secs?|minutes?|mins?)\b|(?:خلّيه|خليه|خلّيها|خليها|اعمله|بدي(?:ه|ه ياه| اياه)?)\s*(?:حوالي\s*|تقريبا\s*)?(\d{1,4})?\s*(دقيقة|دقيقتين|دقائق|ثانية|ثواني)/i;
+  /\b(?:make|keep|cut|get|bring) (?:it|this|the video) (?:(?:down|in) )?(?:to )?(?:about |around |roughly |under )?(\d{1,4})\s*(?:seconds?|secs?|s\b|minutes?|mins?)\b|\b(?:in|under|within) (?:about |around )?(\d{1,4})\s*(?:seconds?|secs?|minutes?|mins?)\b|\b(?:make|keep|cut) (?:it|this) (?:to )?(\d{2,4})\s*(?:instead|rather)\b|(?:خليها|خليها|خليه|خليه)\s*(\d{2,4})\s*(?:بدل|احسن|احسن)|(?:خليه|خليه|خليها|خليها|اعمله|بدي(?:ه|ه ياه| اياه)?)\s*(?:حوالي\s*|تقريبا\s*)?(\d{1,4})?\s*(دقيقه|دقيقتين|دقائق|ثانيه|ثواني)/i;
 
-/** "best 45 seconds", "the top 20s" — the number they said, not our default. */
-const HIGHLIGHT_SECONDS = /\b(\d{1,3}) ?(?:seconds?|secs?|s\b|ثانية|ثواني)/i;
+/**
+ * "best 45 seconds", "the top 20s" — the number they said, not our default.
+ *
+ * The Arabic side of the pattern above needed the number form adding, and it
+ * is the one worth naming: «اقوى 30 ثانية» is the highlight request, and every
+ * Arabic spelling of it wanted a noun after the adjective -- «أقوى جزء»,
+ * «أقوى لقطة». So the way anybody actually asks, with the length in it,
+ * reached nothing.
+ *
+ * Which made the product recommend a sentence it could not read: «أعطني أقوى
+ * 30 ثانية مع ترجمة، عمودية لتيك توك» is the example in `NOTHING_UNDERSTOOD`,
+ * offered to somebody we had just failed to understand.
+ */
+const HIGHLIGHT_SECONDS = /\b(\d{1,3}) ?(?:seconds?|secs?|s\b|ثانيه|ثواني)/i;
 
 /**
  * A stretch named by its moments, in the ways people actually name them.
@@ -1014,7 +1042,7 @@ const HIGHLIGHT_SECONDS = /\b(\d{1,3}) ?(?:seconds?|secs?|s\b|ثانية|ثوا�
  * 3 seconds" belongs to hook-building, which is still on the not-yet list,
  * and claiming it as a cut would do something nobody asked for.
  */
-const TO = "(?:to|until|till|thru|through|[-\u2013\u2192]|\u0625\u0644\u0649|\u0627\u0644\u0649|\u062d\u062a\u0649|\u0644\u063a\u0627\u064a\u0629)";
+const TO = "(?:to|until|till|thru|through|[-\u2013\u2192]|\u0627\u0644\u064a|\u0627\u0644\u064a|\u062d\u062a\u064a|\u0644\u063a\u0627\u064a\u0647)";
 /**
  * The digits an Arabic keyboard types by default.
  *
@@ -1033,27 +1061,66 @@ const TO = "(?:to|until|till|thru|through|[-\u2013\u2192]|\u0625\u0644\u0649|\u0
  * they actually wrote, not from this.
  */
 export function withAsciiDigits(text: string): string {
-  return text.replace(/[\u0660-\u0669\u06f0-\u06f9]/g, (d) => {
-    const code = d.codePointAt(0)!;
-    return String(code - (code >= 0x06f0 ? 0x06f0 : 0x0660));
-  });
+  return plainArabic(
+    text.replace(/[\u0660-\u0669\u06f0-\u06f9]/g, (d) => {
+      const code = d.codePointAt(0)!;
+      return String(code - (code >= 0x06f0 ? 0x06f0 : 0x0660));
+    }),
+  );
+}
+
+/**
+ * Arabic as people actually type it, which is not how a dictionary spells it.
+ *
+ * Nobody reaches for the hamza key on a phone. «أقوى» is typed «اقوى», «أفضل»
+ * is «افضل», «إيقاع» is «ايقاع» -- and a third of the Arabic patterns in this
+ * file were written with the hamza, so a third of what this product can do was
+ * unreachable for anybody typing at normal speed.
+ *
+ * The one that makes it plain: «أعطني أقوى 30 ثانية مع ترجمة، عمودية لتيك
+ * توك» is the example sentence this file *offers* when it cannot read
+ * something, and «اعطيني اقوى 30 ثانية» -- the same request, typed the way a
+ * person types -- reached nothing at all. The product was recommending a
+ * sentence it could only understand in one spelling.
+ *
+ * Both sides are folded, which is what makes this safe: the patterns in this
+ * file are written in the folded alphabet too, so nothing becomes ambiguous,
+ * only more reachable. The folds are the standard ones and each is a pair of
+ * characters ordinary typing treats as the same letter:
+ *
+ *   أ إ آ ٱ → ا     the hamza carriers, the big one
+ *   ى → ي           alef maqsura, which many keyboards do not distinguish
+ *   ة → ه           taa marbuta, the commonest typo in the language
+ *   ـ                tatweel, a decoration that means nothing
+ *   the harakat      short vowels, written by almost nobody
+ *
+ * Only what is *matched* is folded. Anything echoed back -- a title somebody
+ * put in quotes -- is read from what they actually wrote, exactly as it was
+ * before the digits were normalised here for the same reason.
+ */
+export function plainArabic(text: string): string {
+  return text
+    .replace(/[\u0623\u0625\u0622\u0671]/g, "\u0627")
+    .replace(/\u0649/g, "\u064a")
+    .replace(/\u0629/g, "\u0647")
+    .replace(/[\u0640\u064b-\u0652\u0670]/g, "");
 }
 
 const RANGE_MMSS = new RegExp(String.raw`(\d{1,3}):([0-5]\d)\s*${TO}\s*(\d{1,3}):([0-5]\d)`, "i");
 const RANGE_MINUTES = new RegExp(
-  String.raw`(?:minute|\u0627\u0644\u062f\u0642\u064a\u0642\u0629|\u062f\u0642\u064a\u0642\u0629)\s*(\d{1,3})\s*${TO}\s*(?:minute|\u0627\u0644\u062f\u0642\u064a\u0642\u0629|\u062f\u0642\u064a\u0642\u0629)?\s*(\d{1,3})`,
+  String.raw`(?:minute|\u0627\u0644\u062f\u0642\u064a\u0642\u0647|\u062f\u0642\u064a\u0642\u0647)\s*(\d{1,3})\s*${TO}\s*(?:minute|\u0627\u0644\u062f\u0642\u064a\u0642\u0647|\u062f\u0642\u064a\u0642\u0647)?\s*(\d{1,3})`,
   "i",
 );
 const RANGE_SECONDS = new RegExp(
-  String.raw`(?:from|\u0645\u0646)\s*(?:second|\u0627\u0644\u062b\u0627\u0646\u064a\u0629)?\s*(\d{1,4})\s*(?:seconds?|secs?|s\b)?\s*${TO}\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|\u062b\u0627\u0646\u064a\u0629|\u062b\u0648\u0627\u0646\u064a)`,
+  String.raw`(?:from|\u0645\u0646)\s*(?:second|\u0627\u0644\u062b\u0627\u0646\u064a\u0647)?\s*(\d{1,4})\s*(?:seconds?|secs?|s\b)?\s*${TO}\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|\u062b\u0627\u0646\u064a\u0647|\u062b\u0648\u0627\u0646\u064a)`,
   "i",
 );
 // The \b sits inside the alternation, not in front of it. Outside, it is a
 // boundary test against an Arabic letter, which is never a word character, so
 // it never matches — «أول ٤٠ ثانية» found nothing while "the first 40 seconds"
 // worked. That is the third time this exact mistake has been made in this file.
-const RANGE_FIRST = /(?:\bfirst|\bopening|أول|اول)\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|ثانية|ثواني)/i;
-const RANGE_FIRST_MINUTES = /(?:\bfirst|\bopening|أول|اول)\s*(\d{1,3})?\s*(?:minutes?|دقيقة|دقائق)/i;
+const RANGE_FIRST = /(?:\bfirst|\bopening|اول|اول)\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|ثانيه|ثواني)/i;
+const RANGE_FIRST_MINUTES = /(?:\bfirst|\bopening|اول|اول)\s*(\d{1,3})?\s*(?:minutes?|دقيقه|دقائق)/i;
 
 /**
  * "Cut the first ten seconds" means lose them, not keep them.
@@ -1073,9 +1140,9 @@ const RANGE_FIRST_MINUTES = /(?:\bfirst|\bopening|أول|اول)\s*(\d{1,3})?\s*
  * them, and the keep reading ("cut to the first ten seconds") carries its own
  * preposition, which is tested first.
  */
-const CUT_TO_THE_FIRST = /\bcut (?:to|down to) the\b|\bjust\b|\bonly\b|\bkeep\b|خلّي بس|خلي بس|بس أول|بس اول|احتفظ/i;
+const CUT_TO_THE_FIRST = /\bcut (?:to|down to) the\b|\bjust\b|\bonly\b|\bkeep\b|خلي بس|خلي بس|بس اول|بس اول|احتفظ/i;
 const DROP_THE_FIRST =
-  /\b(?:cut|remove|drop|skip|trim|delete|lose|chop|take off|get rid of)\b|اقطع|إقطع|اقص|احذف|إحذف|شيل|الغي|ألغي|امسح|قص/i;
+  /\b(?:cut|remove|drop|skip|trim|delete|lose|chop|take off|get rid of)\b|اقطع|اقطع|اقص|احذف|احذف|شيل|الغي|الغي|امسح|قص/i;
 
 /**
  * Every single moment the sentence names, in seconds.
@@ -1205,7 +1272,7 @@ export function parseMoments(asked: string): number[] {
   // `at 1:05` / `عند 1:05`, and the bare-seconds form with its unit spelled,
   // which is what distinguishes it from any other number in the sentence.
   const AT = String.raw`(?:\bat|\bon|عند|في)`;
-  const SECOND_NOUN = String.raw`(?:the\s+)?(?:second|الثانية|ثانية)`;
+  const SECOND_NOUN = String.raw`(?:the\s+)?(?:second|الثانيه|ثانيه)`;
   const MOMENT = new RegExp(
     // "at 1:05", «عند 1:05» — a clock, which is unambiguous.
     String.raw`${AT}\s*(?:${SECOND_NOUN}\s*)?(\d{1,3}):([0-5]\d)` +
@@ -1213,7 +1280,7 @@ export function parseMoments(asked: string): number[] {
       // what tells it apart from every other number in the sentence:
       // "at second 45", "at 45 seconds", «عند الثانية 45».
       String.raw`|${AT}\s*${SECOND_NOUN}\s*(\d{1,4})\b` +
-      String.raw`|${AT}\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|ثانية|ثواني)`,
+      String.raw`|${AT}\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|ثانيه|ثواني)`,
     "gi",
   );
   for (const m of text.matchAll(MOMENT)) {
@@ -1319,13 +1386,22 @@ export function parseClips(typed: string): { count: number; targetSeconds: numbe
 }
 
 /*
- * `قرّب` is here and bare `قرب` is not, and the difference is the shadda.
+ * `قرب` is here now, bare, and the edge is what keeps it honest.
  *
- * The list had the noun (تقريب) and the loanword (زوم) but not the imperative,
- * which is the word somebody actually types: «قرّب الصورة» is how you ask for
- * this in Arabic and it matched nothing. Bare `قرب` stays out because it is
- * also the preposition in «بالقرب من», and a matcher that punches in whenever
- * somebody says "near" is worse than one that misses a spelling.
+ * It used to be spelled `قرّب` with the shadda, and the shadda was doing real
+ * work: it is what separates the imperative "zoom in" from «بالقرب من», which
+ * means "near", and a matcher that punches in whenever somebody says "near" is
+ * worse than one that misses a spelling.
+ *
+ * Then the matching started folding Arabic the way people type it -- no
+ * shadda, no hamza -- because a third of this file was unreachable without it.
+ * That fold takes the shadda away, so the distinction had to be made a
+ * different way or lost.
+ *
+ * `arWord` is the different way, and it is the better one: «بالقرب» carries
+ * «قرب» with an Arabic letter in front of it, so the edge refuses it, while
+ * «قرب الصورة» has nothing in front and matches. The spelling nobody types is
+ * reachable and the preposition still is not.
  */
 /*
   «طاقة» needs an edge, because «بطاقة» contains it.
@@ -1347,8 +1423,8 @@ const AR = "\u0600-\u06FF";
 const arWord = (word: string): string => `(?<![${AR}])${word}(?![${AR}])`;
 
 const PUNCH_WORDS = new RegExp(
-  `\\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\\b|زوم|تقريب|قرّب|قرِّب|` +
-    [`حماس`, `طاقة`, `حيوية`].map(arWord).join("|"),
+  `\\bzoom|punch|emphasi[sz]|energetic|energy|dynamic|hype\\b|زوم|تقريب|` +
+    [`حماس`, `طاقه`, `حيويه`, `قرب`].map(arWord).join("|"),
   "i",
 );
 
@@ -1370,7 +1446,20 @@ const PUNCH_WORDS = new RegExp(
  * timid: an adjective alone does not ask for punches when the sentence is
  * asking for music. Say "zoom" and you get zooms, music or no music.
  */
-const PUNCH_MOVE_WORDS = /\bzoom|punch|emphasi[sz]\b|زوم|تقريب|قرّب|قرِّب/i;
+/*
+  The same word and the same edge as `PUNCH_WORDS`, for the same reason.
+
+  This was spelled «قرّب» until Arabic started being folded the way people type
+  it, and the shadda was the only thing keeping it out of «بالقرب من», which
+  means "near". Folded and left bare, it punched in on any sentence that said
+  something was near something. `arWord` is what replaces the shadda: an
+  Arabic letter in front of «قرب» refuses the match, and nothing in front
+  allows it.
+*/
+const PUNCH_MOVE_WORDS = new RegExp(
+  `\\bzoom|punch|emphasi[sz]\\b|زوم|تقريب|` + [`قرب`].map(arWord).join("|"),
+  "i",
+);
 
 /** Whether this sentence is really asking for punch-ins. */
 function asksForPunches(text: string): boolean {
@@ -1380,7 +1469,7 @@ function asksForPunches(text: string): boolean {
   return PUNCH_WORDS.test(text) && !asksAboutMusic(text);
 }
 const PUSH_WORDS =
-  /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b|زوم بطيء|تقريب بطيء|حركة بطيئة|حركة سينمائية|كين بيرنز/i;
+  /\bslow (push|zoom)|ken burns|drift|subtle move|cinematic move\b|زوم بطيء|تقريب بطيء|حركه بطيئه|حركه سينمائيه|كين بيرنز/i;
 
 /**
  * Asking for coverage, which is what people call it when they do not know the
@@ -1397,7 +1486,7 @@ const PUSH_WORDS =
  * thing and reporting it as the thing asked for.
  */
 const COVERAGE_WORDS =
-  /\btwo (?:cameras?|angles?|shot sizes?)\b|\bsecond camera\b|\bmulti-?cam\b|\bcoverage\b|\bwide and (?:close|tight)\b|\b(?:close|tight) and wide\b|\bdifferent shot sizes?\b|\bvary the (?:framing|shots?|shot sizes?)\b|\bchange up the framing\b|كاميرتين|كاميرا ثانية|كاميرتان|حجمين|حجمان|قريبة وبعيدة|بعيدة وقريبة|نوّع الكادر|نوع الكادر|تنويع الكادر|تغيير حجم اللقطة/i;
+  /\btwo (?:cameras?|angles?|shot sizes?)\b|\bsecond camera\b|\bmulti-?cam\b|\bcoverage\b|\bwide and (?:close|tight)\b|\b(?:close|tight) and wide\b|\bdifferent shot sizes?\b|\bvary the (?:framing|shots?|shot sizes?)\b|\bchange up the framing\b|كاميرتين|كاميرا ثانيه|كاميرتان|حجمين|حجمان|قريبه وبعيده|بعيده وقريبه|نوع الكادر|نوع الكادر|تنويع الكادر|تغيير حجم اللقطه/i;
 
 /*
   The refusal, written the same minute as the request it negates.
@@ -1410,7 +1499,7 @@ const COVERAGE_WORDS =
   failure a third time.
 */
 const NO_COVERAGE_WORDS =
-  /\bkeep the (?:framing|frame|shot|composition)\b|\bsame framing\b|\bdon'?t (?:change|touch|move) the (?:framing|frame|shot size|composition)\b|\bone (?:angle|shot size)\b|\bno (?:reframing|zoom(?:ing)?)\b|خلّي (?:الكادر|التأطير)|خلي (?:الكادر|التأطير)|لا تغيّر (?:الكادر|التأطير|حجم اللقطة)|لا تغير (?:الكادر|التأطير|حجم اللقطة)|بدون تغيير (?:الكادر|التأطير)|زاوية واحدة|حجم واحد/i;
+  /\bkeep the (?:framing|frame|shot|composition)\b|\bsame framing\b|\bdon'?t (?:change|touch|move) the (?:framing|frame|shot size|composition)\b|\bone (?:angle|shot size)\b|\bno (?:reframing|zoom(?:ing)?)\b|خلي (?:الكادر|التاطير)|خلي (?:الكادر|التاطير)|لا تغير (?:الكادر|التاطير|حجم اللقطه)|لا تغير (?:الكادر|التاطير|حجم اللقطه)|بدون تغيير (?:الكادر|التاطير)|زاويه واحده|حجم واحد/i;
 /**
  * "level the audio" was not in here, and that is the phrase this file's own
  * reply uses: "I'll level the audio to what these platforms expect". The
@@ -1430,16 +1519,16 @@ const NOISE_WORDS =
   // The Arabic used to need «في» in front of «ضجة», so «شيل الضجة» -- the
   // commonest way to ask for this -- reached nothing. The bare noun is here
   // now, with and without the article and with and without the shadda.
-  /\b(?:noise|noisy|hiss|hissing|hum|humming|buzz|buzzing|denoise)\b|\b(?:room|background|ambient) tone\b|\bclean (?:up )?(?:the |my )?(?:audio|sound)\b|ضجيج|ضوضاء|شوشرة|صوت المروحة|صوت الغرفة|ضجّة|ضجة|نظّف الصوت|نظف الصوت/i;
+  /\b(?:noise|noisy|hiss|hissing|hum|humming|buzz|buzzing|denoise)\b|\b(?:room|background|ambient) tone\b|\bclean (?:up )?(?:the |my )?(?:audio|sound)\b|ضجيج|ضوضاء|شوشره|صوت المروحه|صوت الغرفه|ضجه|ضجه|نظف الصوت|نظف الصوت/i;
 
 const LOUDNESS_WORDS =
-  /\bloud|volume|quiet|audio level|sound level|normali[sz]|\blevel(l?ing)? (the |my )?(audio|sound|volume)\b|\bfix (?:the |my )?(?:audio|sound)\b|\bsort (?:out )?(?:the |my )?(?:audio|sound)\b|مستوى الصوت|اضبط الصوت|وحّد الصوت|عدّل الصوت|عدل الصوت|ظبط(?:لي|له|هولي)? ?(?:ال)?صوت|ظبّط(?:لي|له|هولي)? ?(?:ال)?صوت|صلّح الصوت|صلح الصوت|ارفع الصوت|الصوت واطي|الصوت منخفض|الصوت عالي/i;
+  /\bloud|volume|quiet|audio level|sound level|normali[sz]|\blevel(l?ing)? (the |my )?(audio|sound|volume)\b|\bfix (?:the |my )?(?:audio|sound)\b|\bsort (?:out )?(?:the |my )?(?:audio|sound)\b|مستوي الصوت|اضبط الصوت|وحد الصوت|عدل الصوت|عدل الصوت|ظبط(?:لي|له|هولي)? ?(?:ال)?صوت|ظبط(?:لي|له|هولي)? ?(?:ال)?صوت|صلح الصوت|صلح الصوت|ارفع الصوت|الصوت واطي|الصوت منخفض|الصوت عالي/i;
 // "fade" alone is enough — every reading of it in an edit request means the
 // ends ("fade it in", "fade to black", "soft ending"). Arabic: تلاشي/تلاشى.
 // A hook is the one edit everyone names the same way. "Cold open" is the film
 // term; "start with the best bit" is what people actually type.
 const HOOK_WORDS =
-  /\bhook\b|\bcold open\b|start (?:it )?with the (?:best|strongest)|open (?:it )?(?:on|with) the (?:best|strongest)|\bهوك\b|ابدأ بالأقوى|ابدأ بأقوى|ابدأ بأفضل|ابدأ بأهم|افتح بأقوى/i;
+  /\bhook\b|\bcold open\b|start (?:it )?with the (?:best|strongest)|open (?:it )?(?:on|with) the (?:best|strongest)|\bهوك\b|ابدا بالاقوي|ابدا باقوي|ابدا بافضل|ابدا باهم|افتح باقوي/i;
 
 /**
  * The shaped joins, and the words people use for them.
@@ -1501,7 +1590,7 @@ const TRANSITION_STYLES: Array<{ patterns: RegExp; style: TransitionStyle }> = [
     person who says whip pan explicitly did not ask for, and the day the
     real whip shipped, the mapping moved with it.
   */
-  { patterns: /whip\s*-?pan|\bwhip\b|سحبة|سحبه سريعة/i, style: "whipPan" },
+  { patterns: /whip\s*-?pan|\bwhip\b|سحبه|سحبه سريعه/i, style: "whipPan" },
   { patterns: /zoom\s*-?blur|zoom transition|انتقال زوم|زوم بلور|تقريب سريع بين/i, style: "zoomBlur" },
   { patterns: /\bglitch|جليتش|غليتش|قليتش/i, style: "glitch" },
   /*
@@ -1516,10 +1605,10 @@ const TRANSITION_STYLES: Array<{ patterns: RegExp; style: TransitionStyle }> = [
     stored plan carries the style it was written with, and `wipeLeft` still
     renders the hard wipe it always did. See `HARD_EDGE` below.
   */
-  { patterns: /\bwipe\s*(?:to\s*the\s*)?right|مسح(?:ة)?\s*لليمين/i, style: "softWipeRight" },
+  { patterns: /\bwipe\s*(?:to\s*the\s*)?right|مسح(?:ه)?\s*لليمين/i, style: "softWipeRight" },
   { patterns: /\bwipe\s*(?:to\s*the\s*)?up|\bwipe\s*upward/i, style: "softWipeUp" },
   { patterns: /\bwipe\s*(?:to\s*the\s*)?down|\bwipe\s*downward/i, style: "softWipeDown" },
-  { patterns: /\bwipe|مسح(?:ة)?/i, style: "softWipeLeft" },
+  { patterns: /\bwipe|مسح(?:ه)?/i, style: "softWipeLeft" },
   { patterns: /\bslide\s*(?:to\s*the\s*)?right|\bpush\s*right|انزلاق\s*لليمين/i, style: "slideRight" },
   { patterns: /\bslide\s*(?:to\s*the\s*)?up|\bpush\s*up/i, style: "slideUp" },
   { patterns: /\bslide\s*(?:to\s*the\s*)?down|\bpush\s*down/i, style: "slideDown" },
@@ -1533,9 +1622,9 @@ const TRANSITION_STYLES: Array<{ patterns: RegExp; style: TransitionStyle }> = [
     this list is ordered. A bare flash stays white, which is what the word means
     when nobody says otherwise.
   */
-  { patterns: /\b(?:flash|blink|cut)\s*(?:to|through)?\s*black\b|\bblack flash\b|ومضة\s*(?:إلى\s*)?(?:سوداء|السواد)|فلاش أسود/i, style: "flashBlack" },
-  { patterns: /\b(?:flash|fade)\s*(?:to|through)?\s*gr[ae]y(?:s)?\b|ومضة\s*رمادية|عبر الرمادي/i, style: "flashGrey" },
-  { patterns: /\bflash\b|white flash|ومضة|فلاش/i, style: "flash" },
+  { patterns: /\b(?:flash|blink|cut)\s*(?:to|through)?\s*black\b|\bblack flash\b|ومضه\s*(?:الي\s*)?(?:سوداء|السواد)|فلاش اسود/i, style: "flashBlack" },
+  { patterns: /\b(?:flash|fade)\s*(?:to|through)?\s*gr[ae]y(?:s)?\b|ومضه\s*رماديه|عبر الرمادي/i, style: "flashGrey" },
+  { patterns: /\bflash\b|white flash|ومضه|فلاش/i, style: "flash" },
 ];
 
 /**
@@ -1562,7 +1651,7 @@ const JOIN_CONTEXT =
  * direction words all over again, which is the kind of list that is right the
  * day it is written and wrong the first time anybody adds to it.
  */
-const HARD_EDGE = /\bhard[- ]?edged?\b|\bhard wipe\b|\bsharp wipe\b|مسح(?:ة)?\s*حادّ?ة?|حافّ?ة\s*حادّ?ة?/i;
+const HARD_EDGE = /\bhard[- ]?edged?\b|\bhard wipe\b|\bsharp wipe\b|مسح(?:ه)?\s*حاد?ه?|حاف?ه\s*حاد?ه?/i;
 
 /** Each soft wipe's hard original. Nothing else has two edges to choose from. */
 const HARD_WIPE: Partial<Record<TransitionStyle, TransitionStyle>> = {
@@ -1589,9 +1678,9 @@ function transitionStyleFrom(text: string): TransitionStyle | null {
  * The English side therefore requires the *compound*, never bare "fade".
  */
 const DISSOLVE_WORDS =
-  /\bcross ?-?fade|\bdissolve|\bblend (?:between|the cuts)|smooth(?:er)? (?:the )?(?:cuts|joins|transitions?)|(?:cuts|joins|transitions?) smooth(?:er)?|less jump(?:y|ing)|between (?:the )?(?:cuts|clips)|تلاش(?:ي|ٍ) بين|مزج|انتقال ناعم|بين القصات|بين القطعات|ذوّب|ذوب بين|تذويب|بين المقاطع/i;
+  /\bcross ?-?fade|\bdissolve|\bblend (?:between|the cuts)|smooth(?:er)? (?:the )?(?:cuts|joins|transitions?)|(?:cuts|joins|transitions?) smooth(?:er)?|less jump(?:y|ing)|between (?:the )?(?:cuts|clips)|تلاش(?:ي|) بين|مزج|انتقال ناعم|بين القصات|بين القطعات|ذوب|ذوب بين|تذويب|بين المقاطع/i;
 
-const FADE_WORDS = /\bfade|fade[- ]?(?:in|out)|to black|soft (?:opening|ending|start|end)|تلاشي|تلاشى/i;
+const FADE_WORDS = /\bfade|fade[- ]?(?:in|out)|to black|soft (?:opening|ending|start|end)|تلاشي|تلاشي/i;
 
 /**
  * The cutaway's own edge, which is not the joins.
@@ -1603,7 +1692,7 @@ const FADE_WORDS = /\bfade|fade[- ]?(?:in|out)|to black|soft (?:opening|ending|s
  * opposite of what was asked for.
  */
 const SOFT_CUTAWAY =
-  /\b(?:dissolve|fade|blend|ease|cross ?-?fade)\s+(?:in\s*)?(?:to|into)?\s*(?:the\s*)?(?:b-?roll|cutaways?)\b|\b(?:b-?roll|cutaways?)\s+(?:should\s+)?(?:dissolve|fade)|(?:ذوّب|ذوب|تلاشى?|مزج)\s*(?:عند|إلى|في)?\s*(?:اللقطات|لقطات|اللقطة)\s*(?:المساندة|المسانده)?/i;
+  /\b(?:dissolve|fade|blend|ease|cross ?-?fade)\s+(?:in\s*)?(?:to|into)?\s*(?:the\s*)?(?:b-?roll|cutaways?)\b|\b(?:b-?roll|cutaways?)\s+(?:should\s+)?(?:dissolve|fade)|(?:ذوب|ذوب|تلاشي?|مزج)\s*(?:عند|الي|في)?\s*(?:اللقطات|لقطات|اللقطه)\s*(?:المسانده|المسانده)?/i;
 
 /**
  * Whether the sentence named the *timeline's* cuts, rather than the cutaway.
@@ -1762,8 +1851,11 @@ export function planFromText(
   const targetLength = clipsAsk ? null : TARGET_LENGTH.exec(text);
   const targetSeconds = (() => {
     if (!targetLength) return null;
-    const n = Number(targetLength[1] ?? targetLength[2] ?? targetLength[3] ?? "");
-    const arabicUnit = targetLength[4];
+    // One number across six spellings; only one group ever fills.
+    const n = Number(
+      targetLength[1] ?? targetLength[2] ?? targetLength[3] ?? targetLength[4] ?? targetLength[5] ?? "",
+    );
+    const arabicUnit = targetLength[6];
     // «خليه دقيقة» has no digit and means one of whatever it named.
     const count = Number.isFinite(n) && n > 0 ? n : arabicUnit ? 1 : NaN;
     if (!Number.isFinite(count)) return null;
@@ -2079,7 +2171,7 @@ export function planFromText(
     documented in four other places in this file and this is the fifth.
   */
   const EVERY_CUT_WORDS =
-    /\b(?:every|each|all)\s+(?:single\s+)?(?:cut|cuts|join|joins|seam|seams|clip|clips|shot|shots)\b|(?:كل|بين كل)\s*(?:قصّ?ة|قصّ?ات|وصلة|وصلات|مقطع|مقاطع|لقطة|لقطات)/i;
+    /\b(?:every|each|all)\s+(?:single\s+)?(?:cut|cuts|join|joins|seam|seams|clip|clips|shot|shots)\b|(?:كل|بين كل)\s*(?:قص?ه|قص?ات|وصله|وصلات|مقطع|مقاطع|لقطه|لقطات)/i;
   const everyCut = EVERY_CUT_WORDS.test(text);
   /*
     The ends, and only when the ends are what was meant.
@@ -2471,7 +2563,16 @@ export function planFromText(
       // Kinetic when they asked for it, a card otherwise. The two look
       // genuinely different on the frame — a card is one statement held, a
       // kinetic line arrives a word at a time — so the reply says which.
-      const kinetic = KINETIC_WORDS.test(asked);
+      /*
+        `text`, not `asked`. The quoted title above is read from `asked`
+        because those are their words and go on the screen exactly as typed;
+        every *match* in this file is made against `text`, which is folded --
+        digits normalised, hamza and the short vowels taken off. Testing a
+        folded pattern against unfolded input is a match that cannot happen,
+        and this was the one line in the file still doing it: «كلمة كلمة» chose
+        a held card instead of words arriving one at a time.
+      */
+      const kinetic = KINETIC_WORDS.test(text);
       operations.push({
         type: "motionTitle",
         text: words.slice(0, 120),
@@ -2726,7 +2827,7 @@ export const LONG_SOURCE_SECONDS = 600;
  * documented five other times in this file.
  */
 export const KEEP_WHOLE_WORDS =
-  /\bkeep (it|the) (whole|full|entire)|\bthe whole (thing|video|episode)\b|\bfull[- ]length\b|\bdon'?t (cut it (down|up)|shorten|split)\b|\bone (long )?video\b|\bas (it is|is)\b|كامل|كاملًا|كاملا|بالطول|نفس الطول|خلي الطول|ما تقصره|لا تقصره|ما تقسمه|لا تقسمه|فيديو واحد/i;
+  /\bkeep (it|the) (whole|full|entire)|\bthe whole (thing|video|episode)\b|\bfull[- ]length\b|\bdon'?t (cut it (down|up)|shorten|split)\b|\bone (long )?video\b|\bas (it is|is)\b|كامل|كاملا|كاملا|بالطول|نفس الطول|خلي الطول|ما تقصره|لا تقصره|ما تقسمه|لا تقسمه|فيديو واحد/i;
 
 /**
  * The two answers, in the words somebody actually types back.
@@ -2742,8 +2843,9 @@ export const KEEP_WHOLE_WORDS =
  * the conversation was the question, so it does not have to survive being
  * pointed at arbitrary text.
  */
-export function shapeAnswer(text: string): "whole" | "clips" | null {
-  if (/\bclips?\b|\bshorts?\b|\bpieces\b|\bcut it up\b|مقاطع|قصاصات|كليبات|قطّعه|قطعه/i.test(text)) return "clips";
+export function shapeAnswer(raw: string): "whole" | "clips" | null {
+  const text = withAsciiDigits(raw);
+  if (/\bclips?\b|\bshorts?\b|\bpieces\b|\bcut it up\b|مقاطع|قصاصات|كليبات|قطعه/i.test(text)) return "clips";
   if (KEEP_WHOLE_WORDS.test(text) || /\bwhole\b|\bfull\b|\bone video\b|كامل|طويل|بالطول/i.test(text)) return "whole";
   return null;
 }
@@ -2783,7 +2885,7 @@ export function deliverableShape(
   text: string,
 ): "settled" | "unsaid" {
   if (operations.some((op) => SHAPE_DECIDING.has(op.type))) return "settled";
-  if (KEEP_WHOLE_WORDS.test(text)) return "settled";
+  if (KEEP_WHOLE_WORDS.test(withAsciiDigits(text))) return "settled";
   return "unsaid";
 }
 

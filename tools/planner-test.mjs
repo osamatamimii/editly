@@ -2242,6 +2242,97 @@ console.log("\nA sentence the product does something about is never answered wit
   );
 }
 
+console.log("\nArabic as people type it, not as a dictionary spells it");
+{
+  /*
+    Nobody reaches for the hamza key on a phone. «أقوى» is typed «اقوى»,
+    «أفضل» is «افضل», «إيقاع» is «ايقاع» -- and a third of the Arabic patterns
+    in the matcher were written with the hamza, so a third of what this product
+    can do was unreachable for anybody typing at normal speed.
+
+    The one that makes it plain: «أعطني أقوى 30 ثانية مع ترجمة، عمودية لتيك
+    توك» is the sentence the product *offers* as an example when it cannot read
+    something, and «اعطيني اقوى 30 ثانية» -- the same request, typed the way a
+    person types -- reached nothing at all. It was recommending a sentence it
+    could only understand in one spelling.
+
+    Both sides are folded now: hamza carriers to bare alef, alef maqsura to
+    yaa, taa marbuta to haa, tatweel and the short vowels dropped.
+  */
+  const opsFor = (asked) => planFromText(asked, { assets: [] }).operations;
+  const has = (asked, type) => opsFor(asked).some((o) => o.type === type);
+
+  const SAME_REQUEST = [
+    ["أعطني أقوى 30 ثانية", "اعطيني اقوى 30 ثانيه", "extractHighlight"],
+    ["خلّيه أبيض وأسود", "خليه ابيض واسود", "grade"],
+    ["اقصّ الصمت", "اقص الصمت", "removeSilence"],
+    ["أضف ترجمة", "اضف ترجمه", "autoCaptions"],
+    ["خلّيه عمودي", "خليه عمودي", "formatForPlatform"],
+    ["حطّ موسيقى هادئة", "حط موسيقي هادئه", "addMusic"],
+  ];
+  for (const [proper, typed, type] of SAME_REQUEST) {
+    check(`«${proper}» works`, has(proper, type), JSON.stringify(opsFor(proper)));
+    check(`and «${typed}» is the same request`, has(typed, type), JSON.stringify(opsFor(typed)));
+  }
+
+  /*
+    And the example the product recommends, which has to parse. A suggestion
+    that does not work is worse than no suggestion: the person follows it
+    exactly and is told again that we did not understand.
+  */
+  const SUGGESTED = "أعطني أقوى 30 ثانية مع ترجمة، عمودية لتيك توك";
+  check("the sentence the product suggests in Arabic actually parses", has(SUGGESTED, "extractHighlight"));
+  check("and its captions half too", has(SUGGESTED, "autoCaptions"));
+  check("and its shape half", opsFor(SUGGESTED).find((o) => o.type === "formatForPlatform")?.platform === "tiktok");
+  const SUGGESTED_EN = "give me the strongest 30 seconds, captioned, vertical for TikTok";
+  check("and the English one", has(SUGGESTED_EN, "extractHighlight") && has(SUGGESTED_EN, "autoCaptions"));
+
+  /*
+    The cost of folding, which is what this half is for.
+
+    Dropping the shadda takes away a distinction somebody was relying on:
+    «قرّب» is "zoom in" and «بالقرب من» is "near", and the shadda was the only
+    thing between them. It is `arWord` now -- an Arabic letter in front of the
+    word refuses the match -- and these sentences are the proof, because the
+    first version of the fold punched in on every one of them that says
+    something is near something.
+
+    Ordinary Arabic that is not a request for an edit. Any of these producing
+    an operation is somebody being charged for a render because they said
+    hello.
+  */
+  const NOT_REQUESTS = [
+    "شكرا كتير",
+    "مرحبا كيفك",
+    "الحديقة بالقرب من البيت",
+    "هاي قصة طويلة",
+    "الفيديو قصير",
+    "وصلت عالمنزل",
+    "في حادث بالشارع",
+    "على حافة الطاولة",
+    "خطة الشغل جاهزة",
+    "بدي اعرف شو صار",
+    "ما فهمت عليك",
+    "الجو حلو اليوم",
+    "شو رأيك",
+    "متى بتخلص",
+    "كم سعر الاشتراك",
+    "في مشكلة بالحساب",
+    "بدي احكي مع حدا",
+    "الصورة مو واضحة",
+    "ما اشتغل معي",
+  ];
+  for (const asked of NOT_REQUESTS) {
+    check(
+      `«${asked}» is not an edit`,
+      opsFor(asked).length === 0 && !asksForAnEdit(asked),
+      JSON.stringify(opsFor(asked).map((o) => o.type)),
+    );
+  }
+  // And the one that must still be: «خليه حلو» is a request, «الجو حلو» is not.
+  check("«خليه حلو» is still an edit", asksForAnEdit("خليه حلو"));
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

@@ -251,12 +251,42 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     Before `direct`, so the direction fills what is still missing rather than
     competing with what they already have.
   */
-  const carried = carryForward(
-    await lastPlanFor(params.data.id, userId),
-    intent.operations,
-    intent.spoke,
-    KEEP_WHOLE_WORDS.test(toPlan),
-  );
+  /*
+    Whether this sentence said anything at all.
+
+    Carry-forward exists so that a *correction* keeps the edit it is correcting
+    -- "make it wide" should not throw away the captions asked for two messages
+    ago. It does not exist to build a render out of a sentence nobody could
+    read, and that is what it was doing: a message that produced no operation,
+    named no subject and asked for no edit still came back carrying the whole
+    previous plan, so `operations.length > 0` was true at the gate below, a
+    render started, minutes were spent, and the reply opened "Got it. Here is
+    what I will do" and listed the edit they already had.
+
+    That is the worst version of this failure. The person typed a correction,
+    was told it was understood, and was charged for a re-render of the thing
+    they were trying to change. Silence would have been better and a question
+    is better still, which is what they get now.
+
+    A refusal counts as having said something: "no captions" produces no
+    operation on purpose, and carrying the rest of the plan minus the captions
+    is exactly right.
+  */
+  const saidSomething =
+    intent.operations.length > 0 ||
+    intent.declined.length > 0 ||
+    intent.cannotYet.length > 0 ||
+    Object.values(intent.spoke).some(Boolean) ||
+    asksForAnEdit(toPlan);
+
+  const carried = saidSomething
+    ? carryForward(
+        await lastPlanFor(params.data.id, userId),
+        intent.operations,
+        intent.spoke,
+        KEEP_WHOLE_WORDS.test(toPlan),
+      )
+    : { operations: intent.operations, kept: [] };
   if (carried.kept.length > 0) {
     intent.operations = carried.operations;
     /*

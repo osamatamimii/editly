@@ -1834,6 +1834,57 @@ section("What is running says which commit it is");
   );
 }
 
+section("The Arabic the matcher is written in is the Arabic it matches against");
+{
+  /*
+    Input to the matcher is folded the way people type: hamza carriers to bare
+    alef, alef maqsura to yaa, taa marbuta to haa, tatweel and the short vowels
+    dropped. That was worth doing -- a third of the Arabic in the file was
+    unreachable without it -- and it only works if the patterns are folded too.
+    A pattern spelled «أقوى» tested against folded input matches nothing at
+    all, silently, forever.
+
+    Seven patterns were missed the first time. They were the ones sitting under
+    a comment rather than on the line after their `=`, which is exactly the
+    shape a sweep misses and a reader does not: nothing about them looks
+    different. So the rule is checked rather than remembered.
+
+    This is a text scan of the matcher, and its scope is what a text scan can
+    see: regex literals. `String.raw` sources, the constructed patterns and the
+    one `.test(asked)` that has to read raw text are covered by
+    `planner-test`'s own Arabic section, which drives the real matcher.
+  */
+  const source = read("artifacts/api-server/src/lib/plan-from-text.ts");
+  const ARABIC = /[\u0621-\u06ff]/;
+  const UNFOLDED = /[\u0623\u0625\u0622\u0671\u0649\u0629\u064b-\u0652\u0640\u0670]/;
+
+  const literals = [...source.matchAll(/\/(?:[^/\\\n]|\\.)+\/[a-z]*/g)].map((m) => m[0]);
+  const arabic = literals.filter((lit) => ARABIC.test(lit));
+  check("the matcher has Arabic patterns to check", arabic.length > 40, String(arabic.length));
+
+  const unfolded = arabic.filter((lit) => UNFOLDED.test(lit));
+  check(
+    "and every one of them is written in the folded alphabet",
+    unfolded.length === 0,
+    unfolded.map((lit) => lit.slice(0, 70)).join(" | "),
+  );
+
+  /*
+    And the fold itself, which has to keep folding the same five things. A
+    fold that loses a rule is a fold that half the patterns are no longer
+    written for.
+  */
+  check("the fold takes the hamza carriers to bare alef", /\\u0623\\u0625\\u0622\\u0671\]/.test(source));
+  check("alef maqsura to yaa", /\\u0649\/g, "\\u064a"/.test(source));
+  check("taa marbuta to haa", /\\u0629\/g, "\\u0647"/.test(source));
+  check("and drops tatweel and the short vowels", /\\u0640\\u064b-\\u0652\\u0670\]/.test(source));
+  check(
+    "the digits go through it too, so one call folds everything",
+    /return plainArabic\(/.test(source),
+    "every caller normalises digits; nothing would remember a second call",
+  );
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);
