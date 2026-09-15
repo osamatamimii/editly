@@ -244,6 +244,12 @@ jobs:
       # the API and is parsed again in the worker. When the two disagreed, the
       # minutes were held first and the ZodError arrived minutes later.
       - run: node tools/runnable-plan-test.mjs
+      # And the frame the promises are read in, which no other suite sees: the
+      # phrase is checked everywhere, the sentence it becomes was checked
+      # nowhere. Driven through the real matcher, planner and director rather
+      # than read off the source, because the worst of these are built at run
+      # time and a scan of the file finds nothing to object to.
+      - run: node tools/willdo-grammar-test.mjs
       - run: node tools/posting-test.mjs
       # Beside posting, because it is the step posting never had: a way to put
       # a real account into the queue.

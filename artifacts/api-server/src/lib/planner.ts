@@ -1288,8 +1288,8 @@ case "removeSilence":
               ar: `أخلّي كل مشهد يذوب بالتاني خلال ${(op.durationMs / 1000).toFixed(2)} ثانية بدل ما ينطّ`,
             }
           : {
-              en: `make each change of scene a ${spaced(op.style)} over ${(op.durationMs / 1000).toFixed(2)}s`,
-              ar: `أخلّي كل تغيير مشهد ${spaced(op.style)} خلال ${(op.durationMs / 1000).toFixed(2)} ثانية`,
+              en: `${joinInWords(op.style).en} over ${(op.durationMs / 1000).toFixed(2)}s`,
+              ar: `${joinInWords(op.style).ar} خلال ${(op.durationMs / 1000).toFixed(2)} ثانية`,
             };
       case "formatForPlatform": {
         // Words, not a ratio. See `shapeInWords` in plan-from-text.ts for why.
@@ -1409,5 +1409,70 @@ case "removeSilence":
 
 /** "wipeLeft" as "wipe left", which is how both languages name the shapes. */
 const spaced = (style: string): string => style.replace(/([A-Z])/g, " $1").toLowerCase();
+
+/**
+ * What a join looks like, rather than what the trade calls it.
+ *
+ * This read `make each change of scene a ${spaced(style)}` in both languages,
+ * which put "whip pan" and "flash black" inside Arabic sentences and trade
+ * names inside English ones. Neither guard could see it: the string is built
+ * at run time from an enum value, so a scan of the source finds nothing to
+ * object to, and it took reading the phrase the product actually emits.
+ *
+ * Nineteen styles and no table of nineteen sentences. They fall into four
+ * things a person can picture -- a wipe, a slide, a flash, a whip -- and the
+ * direction a wipe or a slide takes is in the name, so it is read off the name
+ * rather than written out four times. Anything genuinely unlike the four keeps
+ * its own sentence.
+ */
+export function joinInWords(style: string): { en: string; ar: string } {
+  const WHERE: Record<string, { en: string; ar: string }> = {
+    Left: { en: "to the left", ar: "لليسار" },
+    Right: { en: "to the right", ar: "لليمين" },
+    Up: { en: "upward", ar: "لفوق" },
+    Down: { en: "downward", ar: "لتحت" },
+  };
+  const side = Object.keys(WHERE).find((d) => style.endsWith(d));
+  const way = side ? WHERE[side] : null;
+
+  if (style.startsWith("softWipe") && way) {
+    return {
+      en: `push each shot off ${way.en}, with a soft edge`,
+      ar: `أزحّ كل لقطة ${way.ar} بحافّة ناعمة`,
+    };
+  }
+  if (style.startsWith("wipe") && way) {
+    return { en: `push each shot off ${way.en}`, ar: `أزحّ كل لقطة ${way.ar}` };
+  }
+  if (style.startsWith("slide") && way) {
+    return { en: `slide each shot in from ${way.en}`, ar: `أدخّل كل لقطة ${way.ar}` };
+  }
+  switch (style) {
+    case "whipPan":
+      return {
+        en: "swing the camera from one shot to the next",
+        ar: "أسحب الكاميرا من لقطة للتانية",
+      };
+    case "flashBlack":
+      return { en: "go dark for a moment between the shots", ar: "أعتّم الشاشة لحظة بين اللقطات" };
+    case "flashGrey":
+      return { en: "wash the screen pale for a moment between the shots", ar: "أفتّح الشاشة لحظة بين اللقطات" };
+    case "flash":
+      return { en: "flash the screen bright between the shots", ar: "أومض الشاشة بين اللقطات" };
+    case "zoomBlur":
+      return { en: "rush in and out of focus between the shots", ar: "أقرّب وأغبّش بين اللقطات" };
+    case "glitch":
+      return { en: "break the picture up for a moment between the shots", ar: "أكسّر الصورة لحظة بين اللقطات" };
+    default:
+      /*
+        A style added to the schema and not to this list. The sentence stays
+        true -- something happens at every change of scene -- and says nothing
+        it cannot back up, rather than naming a thing in a language nobody
+        reading it speaks. `willdo-grammar-test` fails on the day this is
+        reached, so it is a gap that announces itself rather than shipping.
+      */
+      return { en: "smooth every change of scene", ar: "أنعّم كل تغيير مشهد" };
+  }
+}
 
 export { replyFor };
