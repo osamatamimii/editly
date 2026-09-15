@@ -682,6 +682,13 @@ export interface AdminJob {
    * @nullable
    */
   notes: string[] | null;
+  /**
+   * Which supplier failed on a render that finished anyway, and how. The
+   * other half of one of the notes above: the customer is told the service
+   * was busy, and this says which service and with what status.
+   * @nullable
+   */
+  degraded: string[] | null;
 }
 
 export interface ListAdminJobsResponse {

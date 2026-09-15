@@ -61,6 +61,24 @@ export interface EnrichResult {
   notes: string[];
   /** Kept so later steps can reuse it rather than paying for it twice. */
   transcript: Transcript | null;
+  /**
+   * The supplier failures this render survived, unedited, for whoever has to
+   * fix them.
+   *
+   * `notes` is the customer's half: "the service was busy, later usually
+   * works". This is the other half, and it exists because the two were
+   * separated without anybody checking where the second one went. The comments
+   * at the catch sites below said the raw error "still goes to the log, where
+   * it is for the people it is for" -- and there was no log call at any of
+   * them. The supplier's name and status code were not moved out of the
+   * customer's sentence, they were deleted.
+   *
+   * `error_detail` is not the place for them either: it means "why this job
+   * failed", and every completion path sets it to null. A render that finished
+   * without captions because a provider was down is not a failed job, and it
+   * is exactly the job somebody opens the console about.
+   */
+  degraded: string[];
 }
 
 export interface EnrichOptions {
@@ -142,6 +160,8 @@ export async function enrichPlan(
   const { providers } = options;
   const t = sayIn(options.language);
   const notes: string[] = [];
+  // What the customer is not told, and support is. See `EnrichResult.degraded`.
+  const degraded: string[] = [];
 
   const wantsCaptions = plan.operations.some((op) => op.type === "autoCaptions");
   // An empty `at` is the plan saying "you choose" — the renderer would
@@ -346,6 +366,7 @@ export async function enrichPlan(
     } catch (error) {
       // A provider being down is not a reason to fail someone's render.
       const excuse = visionExcuse(error);
+      degraded.push(operatorDetail("transcription", error));
       notes.push(
         t(
           `we could not hear the words in this clip${excuse.en}, so this render has no captions`,
@@ -389,6 +410,7 @@ export async function enrichPlan(
       // copy, not telemetry. The raw error still goes to the log, where it is
       // for the people it is for.
       const excuse = visionExcuse(error);
+      degraded.push(operatorDetail("scene reading", error));
       notes.push(
         t(
           `we could not watch this clip for things worth keeping${excuse.en}, so the cut is from the audio alone`,
@@ -627,6 +649,7 @@ export async function enrichPlan(
       // A reference we could not read is a worse edit, not a failed one. The
       // plan the user asked for still renders.
       const excuse = visionExcuse(error);
+      degraded.push(operatorDetail("reference reading", error));
       notes.push(
         t(
           `we could not read the video you asked us to match${excuse.en}, so this is edited to the plan alone`,
@@ -650,6 +673,7 @@ export async function enrichPlan(
     plan: { version: 1, operations: shaped } as EditPlan,
     notes: [...notes, ...capabilityNotes],
     transcript,
+    degraded,
   };
 }
 
@@ -737,6 +761,19 @@ function platformOf(plan: EditPlan): Platform | null {
  * act on ("it was overloaded, try again"); anything else we could not shape
  * into a sentence is a log line, and the log already has it.
  */
+/**
+ * The same failure, for the operator: the supplier, the status, the first line.
+ *
+ * Deliberately not `String(error)`: a stack is already in the process log if a
+ * process log is running, and what makes this column worth reading is that a
+ * row of it is one line somebody can scan. Truncated, because a provider that
+ * answers with a page of HTML should not put a page of HTML on a job row.
+ */
+function operatorDetail(step: string, error: unknown): string {
+  const message = (error instanceof Error ? error.message : String(error)).split("\n")[0].trim();
+  return `${step}: ${message.slice(0, 300)}`;
+}
+
 function visionExcuse(error: unknown): { en: string; ar: string } {
   const message = (error instanceof Error ? error.message : String(error)).split("\n")[0];
   const shaped = message.match(/^([a-z][a-z0-9_-]*)(?:\s+[a-z0-9 _-]*?)?\s+(\d{3})\b/i);

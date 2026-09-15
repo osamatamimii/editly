@@ -117,6 +117,30 @@ export const jobsTable = pgTable(
     notes: jsonb("notes").$type<string[]>(),
 
     /**
+     * The supplier failures a *finished* render survived, unedited.
+     *
+     * `notes` above is the customer's half of one of these: "we could not hear
+     * the words in this clip this time, because the service was busy". This is
+     * the half that names the supplier and the status code, which the customer
+     * did not choose and cannot act on, and which whoever is diagnosing the
+     * account needs first.
+     *
+     * It is a column rather than `error_detail` because the two answer
+     * different questions. `error_detail` means "why did this job fail", and
+     * every completion path sets it to null -- correctly, since the job did
+     * not fail. A render that came back without captions because a provider
+     * was down looks, on the row and in the console, exactly like one that was
+     * never asked for captions. That is the failure this product is built
+     * against, and it is the one the console could not see.
+     *
+     * Read by the admin routes and by nothing else, like `error_detail`:
+     * `serializeJob` names its fields one at a time and
+     * `tools/isolation-test.mjs` asserts no customer-facing response carries
+     * this.
+     */
+    degraded: jsonb("degraded").$type<string[]>(),
+
+    /**
      * How long the finished video actually came out, in seconds, measured by
      * the worker after encoding. This is what the plan meter counts.
      *

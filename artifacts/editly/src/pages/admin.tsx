@@ -1485,7 +1485,7 @@ export default function AdminPage() {
                 Verbatim, and not truncated to something tidy: the whole
                 value of this column is that it says what actually happened.
               */
-              job.error || job.errorDetail ? (
+              job.error || job.errorDetail || job.degraded?.length ? (
                 <span key="err" className="block max-w-xs whitespace-normal">
                   <span dir="auto">{job.error ?? EMPTY}</span>
                   {job.errorDetail && job.errorDetail !== job.error ? (
@@ -1496,6 +1496,24 @@ export default function AdminPage() {
                       {job.errorDetail}
                     </span>
                   ) : null}
+                  {/*
+                    The supplier failures a render survived, in the same column
+                    as the one that killed a render, because the support
+                    question is the same question: what went wrong here. The
+                    row above it may say nothing at all -- a degraded render
+                    has no `error` and no `errorDetail`, which is the whole
+                    reason this column reads as empty on exactly the rows
+                    somebody is asking about.
+                  */}
+                  {job.degraded?.map((line) => (
+                    <span
+                      key={line}
+                      className="block mt-1 font-mono text-[11px] leading-snug text-amber-600 dark:text-amber-400 break-words"
+                      data-testid={`admin-job-degraded-${job.id}`}
+                    >
+                      {line}
+                    </span>
+                  ))}
                 </span>
               ) : (
                 EMPTY

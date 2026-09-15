@@ -656,6 +656,27 @@ console.log("\nA provider's own words do not become the customer's explanation")
   check("nor a request id that identifies our account to whoever reads it", !/abc-123/.test(note), note);
   check("nor any of their JSON at all", !/[{}]/.test(note), note);
 
+  /*
+    And where it went instead, which is the half of that argument nobody
+    checked.
+
+    The comment above says the supplier and its status "are in the log line
+    beside this and in `jobs.error_detail`". When it was written, both halves
+    of that were false: not one of the three catch sites in `enrich.ts` logged
+    anything, and `error_detail` means "why did this job fail" and is set to
+    null by every completion path -- a degraded render is a job that finished.
+    So a sentence was taken out of the customer's chat and put nowhere, and the
+    only thing standing between that and a support request nobody can answer
+    was a comment claiming otherwise.
+
+    `degraded` is the place. This is the check that would have caught it.
+  */
+  const degraded = (out.degraded ?? []).join(" ");
+  check("but support is handed the supplier by name", /deepgram/i.test(degraded), degraded);
+  check("and the status it answered with", /\b401\b/.test(degraded), degraded);
+  check("and which step it was", /^transcription:/.test((out.degraded ?? [])[0] ?? ""), degraded);
+  check("on a render that finished, so nothing about it is an `error`", out.plan.operations.length > 0, JSON.stringify(out.plan.operations.map((o) => o.type)));
+
   // A message that is not shaped like a provider status used to be pasted in
   // verbatim, on the reasoning that truncating everything to nothing would be
   // its own kind of unhelpful. That reasoning was right and the implementation

@@ -162,7 +162,18 @@ function specSchemas(text) {
       continue;
     }
     if (/^ {6}[a-zA-Z]/.test(line)) inProperties = false;
-    const property = line.match(/^ {8}([A-Za-z][A-Za-z0-9_]*):\s*$/);
+    /*
+      Both spellings, because the spec uses both and this read only one.
+
+      A field written out over several lines is `name:` with nothing after it;
+      a short one is `name: { type: string }` on a line of its own. Four of the
+      five shapes checked below happen to spell every field the long way, so
+      the reader looked right for a year. Pointing it at `AdminJob`, where
+      thirteen of fifteen fields are written the short way, reported thirteen
+      undocumented fields that are all documented -- a guard that cries wolf on
+      correct input, which is the kind that gets switched off.
+    */
+    const property = line.match(/^ {8}([A-Za-z][A-Za-z0-9_]*):(\s*$|\s+[{&*].*$)/);
     if (property && current && inProperties) found.get(current).add(property[1]);
   }
   return found;
@@ -220,6 +231,17 @@ section("The documented shapes still match the schemas that validate");
     ["Message", zod.Message],
     ["ExportJob", zod.ExportJob],
     ["SubscriptionUsage", zod.SubscriptionUsage],
+    /*
+      The console's two shapes, added after a field was put on `AdminJob` in
+      zod, in the route and in the screen, and the spec did not notice -- which
+      is the exact drift this section exists to catch, in the one corner it was
+      not looking at. It found two more the moment it was pointed here:
+      `planExpiresAt` and `promoCode` had been copied onto `AdminJob` from
+      `AdminAccount` directly above it, and documented for months on a shape
+      that has never had a plan.
+    */
+    ["AdminJob", zod.AdminJob],
+    ["AdminAccount", zod.AdminAccount],
   ];
 
   for (const [name, schema] of pairs) {

@@ -1144,7 +1144,17 @@ console.log("\nThe assistant only promises what it can build");
   });
   check(
     "an unparseable request asks for a clearer one",
-    /not sure/i.test(nonsense.json?.aiMessage?.content ?? "") && nonsense.json?.plan === null,
+    /*
+      Pinned to the shape of the answer rather than to the words "not sure",
+      which the plain-words pass replaced with "I did not catch what you want
+      changed". A wording check on copy that is deliberately being rewritten is
+      a check that fails on an improvement. What must hold is that it admits it
+      did not understand, that it offers something to type instead, and that no
+      plan was invented out of nonsense.
+    */
+    /did not catch|not sure|could not tell/i.test(nonsense.json?.aiMessage?.content ?? "") &&
+      /try something like|for example/i.test(nonsense.json?.aiMessage?.content ?? "") &&
+      nonsense.json?.plan === null,
     nonsense.json?.aiMessage?.content,
   );
   // The promise coming due: the poll that sees the render settle starts the
@@ -3066,11 +3076,55 @@ console.log("\nThe admin console answers everyone but its allowlist with 404");
     const body = JSON.stringify(response.json ?? {});
     check(
       `${what} never carries the operator's copy of the failure`,
-      !/errorDetail|error_detail/.test(body),
+      !/errorDetail|error_detail|degraded/.test(body),
       body.slice(0, 200),
     );
   }
   psqlGlobal(`delete from jobs where id = '${detailJobId}'`);
+
+  /*
+    The third column, and the case neither of the two above covers: a render
+    that finished.
+
+    `error` and `error_detail` both answer "why did this fail", and are both
+    null on a job that did not. So the row of a render that came back without
+    the captions it was asked for -- because a supplier was down -- read on
+    this screen exactly like a render nobody asked captions of. That is the
+    support request this console exists to answer, and it was the one case it
+    had nothing for.
+
+    Same terms as `error_detail`: it reaches the console and nowhere else,
+    which the loop above now asserts for all three names.
+  */
+  const degradedJobId = "admin-degraded-test-job";
+  psqlGlobal(
+    `insert into jobs (id, project_id, user_id, status, plan, input_path, notes, degraded, created_at, updated_at) ` +
+      `values ('${degradedJobId}', '${aliceProjectId}', '${ALICE}', 'done', ` +
+      `'{"version":1,"operations":[]}'::jsonb, '${ALICE}/${aliceProjectId}/source.mp4', ` +
+      `'["we could not hear the words in this clip this time, because the service was busy. Later usually works"]'::jsonb, ` +
+      `'["transcription: deepgram 429 rate limit exceeded"]'::jsonb, now(), now())`,
+  );
+  const degradedPage = await call(ALICE, "/api/admin/jobs?limit=200");
+  const degradedRow = (degradedPage.json?.jobs ?? []).find((job) => job.id === degradedJobId);
+  check("a render that finished badly is on the console", Boolean(degradedRow), `job ${degradedJobId} not in the page`);
+  check(
+    "with the supplier named, which the customer's note deliberately does not",
+    /deepgram 429/.test((degradedRow?.degraded ?? []).join(" ")),
+    JSON.stringify(degradedRow?.degraded),
+  );
+  check(
+    "and no error at all, because it did not fail",
+    degradedRow?.error === null && degradedRow?.errorDetail === null && degradedRow?.status === "done",
+    JSON.stringify({ error: degradedRow?.error, errorDetail: degradedRow?.errorDetail, status: degradedRow?.status }),
+  );
+  for (const [what, response] of [
+    ["the export status", await call(ALICE, `/api/projects/${aliceProjectId}/export/status`)],
+    ["the conversation", await call(ALICE, `/api/projects/${aliceProjectId}/messages`)],
+  ]) {
+    const body = JSON.stringify(response.json ?? {});
+    check(`${what} never carries the supplier's name either`, !/deepgram/i.test(body), body.slice(0, 200));
+  }
+  psqlGlobal(`delete from jobs where id = '${degradedJobId}'`);
 
   const failedOnly = await call(ALICE, "/api/admin/jobs?status=failed&limit=5");
   check(

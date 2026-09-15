@@ -4574,16 +4574,18 @@ components:
             a render that finished without doing what was asked. The renderer's
             own sentences about its own decisions: counts, seconds and values
             out of the plan. Nothing from inside the video.
-        planExpiresAt:
-          type: string
-          format: date-time
-          description: Set only on a plan that was given, never on one that was bought.
-        promoCode:
-          type: string
+        degraded:
+          type: array
           nullable: true
-          description: Which code gave it.
+          items: { type: string }
+          description: >-
+            Which supplier failed on a render that finished anyway, and how.
+            `notes` carries the customer's half of the same event; the
+            supplier's name and its status code are not in that sentence
+            because the person did not choose the supplier and cannot act on a
+            429. Null on rows where nothing degraded.
       required:
-        [id, userId, projectId, status, progress, stage, error, errorDetail, attempts, billedSeconds, createdAt, lockedAt, finishedAt, unattended, notes]
+        [id, userId, projectId, status, progress, stage, error, errorDetail, attempts, billedSeconds, createdAt, lockedAt, finishedAt, unattended, notes, degraded]
 
     ListAdminJobsResponse:
       type: object

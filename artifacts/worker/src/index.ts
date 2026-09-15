@@ -1016,6 +1016,18 @@ async function processJob(job: Job): Promise<void> {
       },
     });
     if (enriched.notes.length > 0) log.warn({ notes: enriched.notes }, "plan degraded");
+    /*
+      And the half the customer is not shown.
+
+      These are separate log lines on purpose: `notes` is copy and this is
+      telemetry, and the pair above is what a person reads in the chat while
+      this is what somebody reads when that person opens a ticket. Warned
+      rather than info'd because a supplier that refused us is a thing to look
+      at even on a render that finished.
+    */
+    if (enriched.degraded.length > 0) {
+      log.warn({ degraded: enriched.degraded, project: job.projectId }, "a supplier failed and the render went on");
+    }
 
     if (enriched.plan.operations.length === 0) {
       throw new PlanEmptiedError(
@@ -1345,6 +1357,16 @@ async function processJob(job: Job): Promise<void> {
         // Cleared with it: a retry that succeeded must not leave the console
         // showing the reason the first attempt failed beside a finished job.
         errorDetail: null,
+        /*
+          Not cleared with it, and written on the success path on purpose.
+
+          This render finished. It also finished without the captions it was
+          asked for, because a supplier was down, and from the outside that row
+          is indistinguishable from a render nobody asked captions of. Null
+          when nothing degraded, so a row carrying this column is a row worth
+          opening.
+        */
+        degraded: enriched.degraded.length > 0 ? enriched.degraded : null,
         outputPath,
         notes,
         outputSeconds: measured.seconds,

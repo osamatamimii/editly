@@ -527,6 +527,9 @@ router.get("/admin/jobs", async (req, res): Promise<void> => {
         // finished and did not do what was asked leaves no error and no
         // failure, only these.
         notes: job.notes ?? null,
+        // And which supplier made those notes necessary. Read here and
+        // nowhere else, on the same terms as `errorDetail`.
+        degraded: job.degraded ?? null,
       })),
     }),
   );

@@ -2492,6 +2492,23 @@ export const AdminJob = z.object({
    * the rest of the console holds.
    */
   notes: z.array(z.string()).nullable(),
+  /**
+   * Which supplier failed on a render that finished anyway, and how.
+   *
+   * `notes` above carries the customer's half of the same event -- "we could
+   * not hear the words in this clip this time, because the service was busy".
+   * The supplier's name and its status code were taken out of that sentence
+   * because the person did not choose the supplier and cannot act on a 429.
+   * They were then, for one delivery, put nowhere at all: the catch sites that
+   * dropped them carried comments saying the raw error "still goes to the log"
+   * and none of them logged anything.
+   *
+   * So this is the other half, and it is the first thing somebody diagnosing
+   * an account wants: the same row can now be read as "this render finished,
+   * without captions, because transcription answered 429". Null on rows where
+   * nothing degraded, which is almost all of them.
+   */
+  degraded: z.array(z.string()).nullable(),
 });
 export type AdminJob = z.infer<typeof AdminJob>;
 

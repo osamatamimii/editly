@@ -1,0 +1,11 @@
+-- The supplier failures a finished render survived.
+--
+-- `notes` carries the customer's half of these ("the service was busy, later
+-- usually works"). The other half -- which supplier, which status code -- was
+-- taken out of the customer's sentence on 14-73 and, it turns out, put
+-- nowhere: the three catch sites in `enrich.ts` carried comments saying the
+-- raw error "still goes to the log" and not one of them logged anything.
+--
+-- Not `error_detail`, which means "why did this job fail" and is set to null
+-- on every completion path. These are jobs that finished.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS degraded jsonb;
