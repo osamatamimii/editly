@@ -57,7 +57,7 @@ const kwOut = path.join(buildDir, "plan-from-text.mjs");
   );
   if (b.status !== 0) { console.error("could not bundle plan-from-text"); process.exit(1); }
 }
-const { planFromText } = await import(pathToFileURL(kwOut).href);
+const { planFromText, saysOnlyThis } = await import(pathToFileURL(kwOut).href);
 
 /**
  * Every note the planner produces now carries both languages (`{ en, ar }`),
@@ -1939,6 +1939,170 @@ console.log("\n\"no music\" is a refusal, not a request for music");
   // with the upload instruction it used to get.
   check("but an actual request with no track is still answered", noTrack("add music") === true);
   void offersMusic;
+}
+
+console.log("\nA verb that was read and an object that was acted on are the same bug twice");
+{
+  /*
+    Two inversions, found by reading what the product actually answers rather
+    than by any suite. Both had the same shape: the object of the sentence was
+    matched and the verb was not, so the plan did the opposite of the ask and
+    the reply announced it as done.
+
+    "Cut the first ten seconds" kept exactly the ten seconds the person had
+    asked to lose. A talk came back ten seconds long, rendered, charged for.
+
+    "The music is too loud" laid a second bed under the first. That is worse
+    than not helping: it is the answer they were complaining about, doubled.
+
+    Third of its kind here, after the captions one. The rule the three of them
+    share is worth saying plainly -- a pattern that finds a noun has not read a
+    sentence -- and that is why these sit together.
+  */
+  const opsFor = (asked) => planFromText(asked, { assets: [] }).operations;
+  const rangeIn = (asked) => opsFor(asked).find((o) => o.type === "extractRange");
+  const TO_THE_END = 86400;
+
+  // Keeping a stretch, which is the reading that was always right.
+  for (const asked of ["keep the first 30 seconds", "just the first 30 seconds", "the first 30 seconds"]) {
+    const kept = rangeIn(asked);
+    check(`'${asked}' keeps the opening`, kept?.startSeconds === 0 && kept?.endSeconds === 30, JSON.stringify(kept));
+  }
+
+  // Losing it, which is the reading that was inverted.
+  for (const asked of [
+    "cut the first 10 seconds",
+    "remove the first 10 seconds",
+    "drop the first 10 seconds",
+    "skip the first 10 seconds",
+    "get rid of the first 10 seconds",
+  ]) {
+    const kept = rangeIn(asked);
+    check(
+      `'${asked}' loses the opening and keeps the rest`,
+      kept?.startSeconds === 10 && kept?.endSeconds === TO_THE_END,
+      JSON.stringify(kept),
+    );
+  }
+  for (const asked of ["اقطع اول 10 ثواني", "احذف اول 10 ثواني", "شيل اول 10 ثواني"]) {
+    const kept = rangeIn(asked);
+    check(
+      `«${asked}» يشيل البداية ويبقي الباقي`,
+      kept?.startSeconds === 10 && kept?.endSeconds === TO_THE_END,
+      JSON.stringify(kept),
+    );
+  }
+
+  // Minutes, which is the same sentence with a different unit.
+  const droppedMinute = rangeIn("cut the first minute");
+  check(
+    "'cut the first minute' loses sixty seconds, not keeps them",
+    droppedMinute?.startSeconds === 60 && droppedMinute?.endSeconds === TO_THE_END,
+    JSON.stringify(droppedMinute),
+  );
+
+  // And the sentence that contains the dropping verb and means the opposite.
+  const cutTo = rangeIn("cut to the first 30 seconds");
+  check(
+    "'cut to the first 30 seconds' still keeps them",
+    cutTo?.startSeconds === 0 && cutTo?.endSeconds === 30,
+    JSON.stringify(cutTo),
+  );
+
+  /*
+    And the reply, because a plan that drops the opening under a sentence
+    saying "the part you asked for" is how this stayed invisible.
+  */
+  const saidFor = (asked) =>
+    JSON.stringify(planFromText(asked, { assets: [] }).willDo ?? []);
+  check("dropping says it drops", /drop the first/.test(saidFor("cut the first 10 seconds")), saidFor("cut the first 10 seconds"));
+  check("and in Arabic too", /أشيل أول/.test(saidFor("اقطع اول 10 ثواني")), saidFor("اقطع اول 10 ثواني"));
+  check("keeping still says it keeps", /keep only what is between/.test(saidFor("keep the first 30 seconds")));
+
+  // ── The bed nobody asked for ────────────────────────────────────────────────
+  const laysABed = (asked) => opsFor(asked).some((o) => o.type === "addMusic");
+  for (const asked of [
+    "the music is too loud",
+    "the music is drowning me out",
+    "turn the music down",
+    "lower the music",
+    "the soundtrack is too loud",
+  ]) {
+    check(`'${asked}' lays no bed`, laysABed(asked) === false, JSON.stringify(opsFor(asked)));
+  }
+  for (const asked of ["الموسيقى عالية كتير", "الموسيقى بتغطي صوتي", "نزل صوت الموسيقى", "خفف الموسيقى"]) {
+    check(`«${asked}» ما بتحط موسيقى`, laysABed(asked) === false, JSON.stringify(opsFor(asked)));
+  }
+  // The request itself is untouched.
+  check("'add some music' still lays one", laysABed("add some music") === true);
+
+  /*
+    And it is answered rather than ignored. Music already inside a recording
+    shares one track with the voice, so there is nothing separate to turn down
+    -- which is a real limit and says so, while levelling for the voice is
+    offered as what we can do instead.
+  */
+  const complaint = planFromText("the music is too loud", { assets: [] });
+  check(
+    "the limit is named rather than swallowed",
+    (complaint.cannotYet ?? []).some((p) => /already in the recording/.test(p.en)),
+    JSON.stringify(complaint.cannotYet),
+  );
+  check(
+    "and the sound is levelled, which is the part we can do",
+    complaint.operations.some((o) => o.type === "normalizeLoudness"),
+    JSON.stringify(complaint.operations),
+  );
+  check(
+    "the complaint counts as having spoken about music",
+    complaint.spoke?.music === true,
+    "otherwise a later layer lays the bed the sentence just refused",
+  );
+}
+
+console.log("\nThe words people use for the things we named ourselves");
+{
+  /*
+    Nobody calls them captions when they want them bigger, nobody says
+    widescreen, and «بس» at the end of a sentence is how this dialect says
+    "only". Every one of these reached nothing at all, and the person was told
+    we did not catch it, having asked for something the product does.
+
+    Arabic was much the worse half: of the sentences that came back unheard in
+    a sweep of both languages, twelve of twelve Arabic ones failed against six
+    of sixteen English. That is the language most of the people using this
+    write in.
+  */
+  const opsFor = (asked) => planFromText(asked, { assets: [] }).operations;
+  const has = (asked, type) => opsFor(asked).some((o) => o.type === type);
+
+  check("'make the text bigger' asks for captions", has("make the text bigger", "autoCaptions"));
+  check("«كبر الخط» كمان", has("كبر الخط", "autoCaptions"));
+  check("«الخط صغير» كمان", has("الخط صغير", "autoCaptions"));
+  check(
+    "and the captions it asks for are the big ones",
+    opsFor("make the text bigger").find((o) => o.type === "autoCaptions")?.size === "l",
+    JSON.stringify(opsFor("make the text bigger")),
+  );
+  /*
+    And the near neighbour that must not move: «كبّر الصورة» is a zoom, not a
+    caption, and a looser pattern would have put words on screen for it.
+  */
+  check("«كبر الصورة» ما بتطلب ترجمة", has("كبر الصورة", "autoCaptions") === false);
+
+  check("«خليه عرضي» is widescreen", opsFor("خليه عرضي").find((o) => o.type === "formatForPlatform")?.platform === "youtube");
+  check("«شيل الضجة» reaches the noise", has("شيل الضجة", "normalizeLoudness"));
+  check("«ظبطلي الصوت» reaches the levelling", has("ظبطلي الصوت", "normalizeLoudness"));
+  check("'just fix the audio' does too", has("just fix the audio please", "normalizeLoudness"));
+
+  /*
+    «بس» at the end means only this. It was the one spelling missing, and the
+    sentence it broke -- "fix the audio, only that" -- came back with a
+    ten-operation edit.
+  */
+  check("«ظبطلي الصوت بس» is the whole plan", saysOnlyThis("ظبطلي الصوت بس") === true);
+  check("and so is 'just fix the audio please'", saysOnlyThis("just fix the audio please") === true);
+  check("«بس» at the start is still 'but'", saysOnlyThis("بس انا بدي اشوف") === false);
 }
 
 await rm(buildDir, { recursive: true, force: true });

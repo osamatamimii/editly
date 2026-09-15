@@ -106,7 +106,10 @@ const PLATFORM_WORDS: Array<{ platform: Platform; patterns: RegExp }> = [
   { platform: "reels", patterns: /\breels?\b|ريلز/i },
   { platform: "shorts", patterns: /\bshorts?\b|شورتس/i },
   { platform: "square", patterns: /\bsquare\b|1:1|\bfeed post\b|\blinkedin\b|مربع/i },
-  { platform: "youtube", patterns: /\byoutube\b|\byt\b|\blandscape\b|\bwidescreen\b|16:9|أفقي|عريض/i },
+  // «عرضي» and «بالعرض» are how anybody actually says widescreen out loud;
+  // «عريض» alone is the word a specification uses. Both, because a customer
+  // who typed the ordinary one got no shape at all and no note saying why.
+  { platform: "youtube", patterns: /\byoutube\b|\byt\b|\blandscape\b|\bwidescreen\b|16:9|أفقي|عريض|عرضي|بالعرض/i },
   { platform: "reels", patterns: /\binstagram|insta\b/i },
 ];
 
@@ -223,6 +226,25 @@ function asksAboutMusic(text: string): boolean {
  * track, offered one they had just refused. Read the refusal, or every extra
  * phrasing accepted for the request is another refusal swallowed.
  */
+/**
+ * A complaint about music that is already there, which is neither request.
+ *
+ * "The music is too loud" is not "add music" and it is not "no music". It was
+ * matching the first: the word was found, the sentence was not read, and
+ * somebody who wrote in to say the bed was drowning them got a second bed laid
+ * under the first. That is the worst reading of the three, because it is the
+ * opposite of what they asked and it is the answer they were complaining
+ * about, doubled.
+ *
+ * What we can actually do is narrow and worth saying plainly. Music already
+ * inside the recording shares one track with the voice; there is no separate
+ * thing to turn down. Levelling for the voice is real help and it is not what
+ * they asked for, so it is offered as what we can do rather than announced as
+ * what they wanted.
+ */
+const MUSIC_TOO_LOUD_WORDS =
+  /(?:music|soundtrack|song|beat|backing track)[^.!?]{0,24}\b(?:too loud|so loud|very loud|is loud|louder than|drowning|drowns|overpowering|covering|too much)\b|\b(?:turn|bring|take|lower|reduce)\s+(?:the\s+)?(?:music|soundtrack|song|beat)\s*(?:down|lower)?\b|\b(?:lower|reduce|quieten)\s+(?:the\s+)?(?:music|soundtrack|song|beat)\b|(?:موسيق|أغنية|اغنية)[^.!؟?]{0,24}(?:عالية|عالي|مرتفعة|مغطية|بتغطي|كتير)|(?:نزّل|نزل|خفّف|خفف|قلّل|قلل|واطي|وطي)\s*(?:صوت\s*)?(?:ال)?(?:موسيق|أغنية|اغنية)/i;
+
 const NO_MUSIC_WORDS =
   /\bno (?:music|soundtrack|song|backing track)|without (?:music|a soundtrack|a song)|\bdon'?t (?:add|put|want|use) (?:any )?(?:music|a soundtrack|a song)|(?:remove|take out|get rid of|kill|drop|no) (?:the )?music|بدون موسيق|بلا موسيق|من غير موسيق|من دون موسيق|لا موسيق|لا (?:تحط|تضع|تضيف|تريد) (?:موسيق|أغنية|اغنية)|شيل (?:ال)?موسيق|احذف (?:ال)?موسيق|بدون أغنية|بدون اغنية|بلا أغنية|\bno (?:trap|lo-?fi|boom ?bap|synth ?wave|808s?)\b|\bno beat\b|\bwithout a beat\b|بدون بيت|بلا بيت/i;
 
@@ -703,8 +725,25 @@ export function asksForAnEdit(text: string): boolean {
  * `\w`, which is ASCII, so `\bفقط\b` matches nothing at all. The same trap
  * that once made «ومضة» invisible to the transition matcher.
  */
+/*
+  «بس» at the end of a sentence is the commonest way to say "only" in this
+  dialect, and it was the one spelling missing.
+
+  «وبس», «و بس» and «بس هيك» were all here; a sentence that simply ended in it
+  was not, so «ظبطلي الصوت بس» -- fix the audio, only that -- came back with a
+  ten-operation edit. Being overruled on the sentence where somebody was most
+  explicit is the failure this whole flag exists to prevent, and this was the
+  most natural way to trigger it.
+
+  At the start it is ambiguous and the ambiguity is resolved by what follows:
+  «بس شيل السكتات» is "just remove the silences" and «بس أنا بدي...» is "but I
+  want...". A pronoun after it makes it the conjunction, and nothing else does,
+  so that is the whole rule. Erring toward "only" everywhere else is
+  deliberate: a smaller edit than somebody wanted is a worse edit, and being
+  overruled on the sentence where they were explicit is a worse product.
+*/
 const ONLY_WORDS =
-  /\bonly\b|\bnothing else\b|\band nothing more\b|\bjust (?:cut|remove|trim|add|put|do|the)\b|\bdon'?t do anything else\b|فقط لا غير|لا شيء غير|ولا شي غير|وبس|و بس|^بس |\bبس هيك|لا تعمل شي غير|لا تضيف شي/i;
+  /\bonly\b|\bnothing else\b|\band nothing more\b|\bjust (?:cut|remove|trim|add|put|do|fix|sort|level|the)\b|\bthat'?s all\b|\bdon'?t do anything else\b|فقط لا غير|لا شيء غير|ولا شي غير|وبس|و بس|^بس (?!أنا|انا|إحنا|احنا|نحن|هو|هي|هم|إنت|انت|إنتي|انتي)|\bبس هيك|\sبس\s*[.!؟?]*\s*$|لا تعمل شي غير|لا تضيف شي/i;
 
 /**
  * Whether this sentence is the whole plan.
@@ -855,7 +894,15 @@ const CAPTION_MIDDLE_WORDS = /وسط الشاشة|منتصف الشاشة|نص �
 const CAPTION_BOTTOM_WORDS =
   /كابشن تحت|الكابشن تحت|أسفل الشاشة|اسفل الشاشة|تحت الشاشة|captions? (?:at|on|near) the bottom|bottom of the screen|lower third/i;
 /** The three sizes, in the words that mean them. */
-const CAPTION_BIG_WORDS = /كابشن كبير|الكابشن كبير|كبّر الكابشن|كبر الكابشن|big captions?|large captions?|bigger captions?/i;
+/*
+  Nobody calls them captions when they want them bigger.
+
+  They call them the text, or the writing, or the font -- «كبّر الخط» is the
+  commonest sentence in this whole area and it reached nothing, in either
+  language, because every pattern here named the thing by our word for it.
+*/
+const CAPTION_BIG_WORDS =
+  /كابشن كبير|الكابشن كبير|(?:كبّر|كبر|زوّد|زود)\s*(?:حجم\s*)?(?:ال)?(?:كابشن|خط|خطّ|كتابة|ترجمة|ترجمه|نص)|(?:الخط|الكتابة|الترجمة|الكابشن)\s*(?:صغير|صغيرة)|big captions?|large captions?|bigger captions?|\bmake the (?:text|writing|words|font|captions?|subtitles?) bigger\b|\bbigger (?:text|font|words|subtitles?)\b|\b(?:text|font|captions?|subtitles?) (?:is |are )?too small\b/i;
 const CAPTION_SMALL_WORDS = /كابشن صغير|الكابشن صغير|صغّر الكابشن|صغر الكابشن|small(?:er)? captions?/i;
 /**
  * The fast-cut rhythm, asked for as a rhythm.
@@ -941,6 +988,28 @@ const RANGE_SECONDS = new RegExp(
 // worked. That is the third time this exact mistake has been made in this file.
 const RANGE_FIRST = /(?:\bfirst|\bopening|أول|اول)\s*(\d{1,4})\s*(?:seconds?|secs?|s\b|ثانية|ثواني)/i;
 const RANGE_FIRST_MINUTES = /(?:\bfirst|\bopening|أول|اول)\s*(\d{1,3})?\s*(?:minutes?|دقيقة|دقائق)/i;
+
+/**
+ * "Cut the first ten seconds" means lose them, not keep them.
+ *
+ * Both halves of that sentence were being read and only one was being acted
+ * on: `RANGE_FIRST` found the ten seconds and the branch kept exactly the
+ * stretch the person had just asked to be rid of. A sixty-minute talk came
+ * back ten seconds long, rendered, charged for, and announced as done.
+ *
+ * It is the same shape as the caption inversion -- a phrase whose object was
+ * read and whose verb was not -- and it is worse here, because the caption
+ * version left the video intact.
+ *
+ * Bare "the first ten seconds" with no verb still means keep: that is how
+ * somebody names a stretch. Only these words turn it around, and «اقطع» is in
+ * both lists for the reason English "cut" is: in this position it means lose
+ * them, and the keep reading ("cut to the first ten seconds") carries its own
+ * preposition, which is tested first.
+ */
+const CUT_TO_THE_FIRST = /\bcut (?:to|down to) the\b|\bjust\b|\bonly\b|\bkeep\b|خلّي بس|خلي بس|بس أول|بس اول|احتفظ/i;
+const DROP_THE_FIRST =
+  /\b(?:cut|remove|drop|skip|trim|delete|lose|chop|take off|get rid of)\b|اقطع|إقطع|اقص|احذف|إحذف|شيل|الغي|ألغي|امسح|قص/i;
 
 /**
  * Every single moment the sentence names, in seconds.
@@ -1112,16 +1181,35 @@ export function parseRange(asked: string): { startSeconds: number; endSeconds: n
     if (a === b) return null;
     return a < b ? { startSeconds: a, endSeconds: b } : { startSeconds: b, endSeconds: a };
   }
+  /*
+    Which way round the opening stretch is meant. `dropsTheOpening` is asked
+    once and used by both branches below, because "cut the first minute" and
+    "cut the first sixty seconds" are the same sentence.
+
+    The keep reading is tested first: "cut to the first ten seconds" contains
+    the word that would otherwise drop them.
+
+    `endSeconds` is the day-long ceiling the schema allows, because what is
+    meant is "to the end" and the render clamps it to the file's real length.
+  */
+  const dropsTheOpening = !CUT_TO_THE_FIRST.test(text) && DROP_THE_FIRST.test(text);
+  const TO_THE_END = 86400;
+
   const firstSeconds = RANGE_FIRST.exec(text);
   if (firstSeconds) {
     const n = Number(firstSeconds[1]);
+    if (dropsTheOpening) return { startSeconds: n, endSeconds: TO_THE_END };
     if (n >= 5) return { startSeconds: 0, endSeconds: n };
     return null;
   }
   const firstMinutes = RANGE_FIRST_MINUTES.exec(text);
   if (firstMinutes) {
     const n = firstMinutes[1] ? Number(firstMinutes[1]) : 1;
-    if (n >= 1 && n <= 180) return { startSeconds: 0, endSeconds: n * 60 };
+    if (n >= 1 && n <= 180) {
+      return dropsTheOpening
+        ? { startSeconds: n * 60, endSeconds: TO_THE_END }
+        : { startSeconds: 0, endSeconds: n * 60 };
+    }
   }
   return null;
 }
@@ -1273,10 +1361,13 @@ const NO_COVERAGE_WORDS =
  * names noise must reach it even when it says nothing about volume.
  */
 const NOISE_WORDS =
-  /\b(?:noise|noisy|hiss|hissing|hum|humming|buzz|buzzing|denoise)\b|\b(?:room|background|ambient) tone\b|\bclean (?:up )?(?:the |my )?(?:audio|sound)\b|ضجيج|ضوضاء|شوشرة|صوت المروحة|صوت الغرفة|في ضجّة|في ضجة|نظّف الصوت|نظف الصوت/i;
+  // The Arabic used to need «في» in front of «ضجة», so «شيل الضجة» -- the
+  // commonest way to ask for this -- reached nothing. The bare noun is here
+  // now, with and without the article and with and without the shadda.
+  /\b(?:noise|noisy|hiss|hissing|hum|humming|buzz|buzzing|denoise)\b|\b(?:room|background|ambient) tone\b|\bclean (?:up )?(?:the |my )?(?:audio|sound)\b|ضجيج|ضوضاء|شوشرة|صوت المروحة|صوت الغرفة|ضجّة|ضجة|نظّف الصوت|نظف الصوت/i;
 
 const LOUDNESS_WORDS =
-  /\bloud|volume|quiet|audio level|sound level|normali[sz]|\blevel(l?ing)? (the |my )?(audio|sound|volume)\b|مستوى الصوت|اضبط الصوت|وحّد الصوت|عدّل الصوت|عدل الصوت|ظبط الصوت|ارفع الصوت|الصوت واطي|الصوت منخفض|الصوت عالي/i;
+  /\bloud|volume|quiet|audio level|sound level|normali[sz]|\blevel(l?ing)? (the |my )?(audio|sound|volume)\b|\bfix (?:the |my )?(?:audio|sound)\b|\bsort (?:out )?(?:the |my )?(?:audio|sound)\b|مستوى الصوت|اضبط الصوت|وحّد الصوت|عدّل الصوت|عدل الصوت|ظبط(?:لي|له|هولي)? ?(?:ال)?صوت|ظبّط(?:لي|له|هولي)? ?(?:ال)?صوت|صلّح الصوت|صلح الصوت|ارفع الصوت|الصوت واطي|الصوت منخفض|الصوت عالي/i;
 // "fade" alone is enough — every reading of it in an edit request means the
 // ends ("fade it in", "fade to black", "soft ending"). Arabic: تلاشي/تلاشى.
 // A hook is the one edit everyone names the same way. "Cold open" is the film
@@ -1506,7 +1597,9 @@ export function planFromText(
     // own when a track is present, and without this a person who said "no music"
     // — having named the subject, and been given no bed here — still had one
     // added there, because "not requested" and "refused" looked the same to it.
-    music: asksAboutMusic(text) || NO_MUSIC_WORDS.test(text),
+    // A complaint about the bed is a decision about music too: whatever else
+    // happens to this sentence, nothing downstream should add one.
+    music: asksAboutMusic(text) || NO_MUSIC_WORDS.test(text) || MUSIC_TOO_LOUD_WORDS.test(text),
     /*
      * Coverage and effects, request or refusal alike, and both were missing.
      *
@@ -1587,11 +1680,27 @@ export function planFromText(
   const range = clipsAsk ? null : parseRange(text);
   if (range) {
     operations.push({ type: "extractRange", ...range });
+    /*
+      Two sentences, because there are two requests.
+
+      "Keep from 1:20 to 2:10" names a stretch to hold on to. "Cut the first
+      ten seconds" names a stretch to lose, and the rest of the recording is
+      what comes back -- there is no second number to read out, because the end
+      is wherever the recording ends. Reading the first sentence over the
+      second is what made the inversion invisible: the plan dropped the whole
+      video and the reply said "the part you asked for".
+    */
+    const dropsOpening = range.startSeconds > 0 && range.endSeconds >= 86400;
     willDo.push(
-      say(
-        `keep only what is between ${clockOf(range.startSeconds)} and ${clockOf(range.endSeconds)}, the part you asked for`,
-        `أبقي بس اللي بين ${clockOf(range.startSeconds)} و${clockOf(range.endSeconds)}، الجزء اللي طلبته`,
-      ),
+      dropsOpening
+        ? say(
+            `drop the first ${clockOf(range.startSeconds)} and keep the rest`,
+            `أشيل أول ${clockOf(range.startSeconds)} وأبقي الباقي`,
+          )
+        : say(
+            `keep only what is between ${clockOf(range.startSeconds)} and ${clockOf(range.endSeconds)}, the part you asked for`,
+            `أبقي بس اللي بين ${clockOf(range.startSeconds)} و${clockOf(range.endSeconds)}، الجزء اللي طلبته`,
+          ),
     );
   }
 
@@ -1619,7 +1728,29 @@ export function planFromText(
     );
   }
 
-  if (CAPTION_WORDS.test(text) && !wantsTranslation && !refusesCaptions) {
+  /*
+    Saying something about how the captions should look is asking for captions.
+
+    Nobody calls them captions when they want them bigger. They say "make the
+    text bigger", «كبّر الخط», "put the words at the top" -- and every gate
+    here named the thing by our word for it, so the commonest sentence in this
+    whole area reached nothing at all. The person was told we did not catch it,
+    having asked for something the product does.
+
+    The look patterns are the gate's second half rather than a new list,
+    because a second list is how the gate and the branch start disagreeing
+    about what a sentence meant.
+  */
+  const saysHowCaptionsLook =
+    CAPTION_BIG_WORDS.test(text) ||
+    CAPTION_SMALL_WORDS.test(text) ||
+    CAPTION_TOP_WORDS.test(text) ||
+    CAPTION_MIDDLE_WORDS.test(text) ||
+    CAPTION_BOTTOM_WORDS.test(text) ||
+    KARAOKE_WORDS.test(text) ||
+    CAPTION_STYLE_WORDS.some(([words]) => words.test(text));
+
+  if ((CAPTION_WORDS.test(text) || saysHowCaptionsLook) && !wantsTranslation && !refusesCaptions) {
     /*
       Only what the sentence actually said.
 
@@ -1952,7 +2083,29 @@ export function planFromText(
     they chose that track, and a piece of music somebody picked beats one a
     mood name produced every time.
   */
-  if (asksAboutMusic(text) && !NO_MUSIC_WORDS.test(text)) {
+  /*
+    A complaint about a bed that is already there gets the truth, not a bed.
+    See MUSIC_TOO_LOUD_WORDS. Placed before the request branch so the word
+    "music" cannot reach it, and it sets `spoke.music` through the same door
+    the refusal does, so no later layer lays one either.
+  */
+  if (MUSIC_TOO_LOUD_WORDS.test(text)) {
+    cannotYet.push(
+      say(
+        "turn down music that is already in the recording, because it shares one track with your voice",
+        "أنزّل موسيقى هي أصلًا جوّا التسجيل، لأنها ع نفس المسار مع صوتك",
+      ),
+    );
+    if (!operations.some((op) => op.type === "normalizeLoudness")) {
+      operations.push({ type: "normalizeLoudness", targetLufs: -14, voice: true, denoise: true });
+      willDo.push(
+        say(
+          "even out the sound so your voice sits on top of it",
+          "أظبّط الصوت لحتى صوتك يطلع فوقها",
+        ),
+      );
+    }
+  } else if (asksAboutMusic(text) && !NO_MUSIC_WORDS.test(text)) {
     if (tracks.length === 0) {
       const mood = musicMoodFrom(text);
       operations.push({
