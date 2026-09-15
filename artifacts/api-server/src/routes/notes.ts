@@ -260,6 +260,15 @@ router.post("/projects/:id/transcript", rateLimit(LIMITS.write), async (req, res
     out of the way. A render that needs the words writes them anyway, and the
     panel is polling, so waiting here costs nothing and is usually free.
   */
+  /*
+    A listen already working, and only a listen.
+
+    This asked whether *anything* was in flight, so a running render answered
+    yes and no transcript was ever queued. The panel then waited for words
+    nobody was fetching -- which is the exact failure this whole route was
+    written to end, arriving again through the door that was supposed to have
+    closed it.
+  */
   const [working] = await db
     .select({ id: jobsTable.id })
     .from(jobsTable)
@@ -267,6 +276,7 @@ router.post("/projects/:id/transcript", rateLimit(LIMITS.write), async (req, res
       and(
         eq(jobsTable.projectId, projectId),
         eq(jobsTable.userId, userId),
+        eq(jobsTable.kind, "transcribe"),
         inArray(jobsTable.status, ["queued", "running"]),
       ),
     )

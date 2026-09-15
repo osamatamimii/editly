@@ -121,6 +121,12 @@ export async function usageFor(userId: string, plan: PlanKey, on: Executor = db)
     .where(
       and(
         eq(jobsTable.userId, userId),
+        // Renders, for the reason the in-flight query gives at length. A listen
+        // contributes nothing here today because it settles with both columns
+        // null, which is the right answer arrived at by accident: the day
+        // anything writes a duration onto one of those rows, the month's bill
+        // would quietly include it.
+        eq(jobsTable.kind, "render"),
         eq(jobsTable.status, "done"),
         gte(jobsTable.finishedAt, since),
       ),
@@ -152,6 +158,20 @@ export async function usageFor(userId: string, plan: PlanKey, on: Executor = db)
   // duration reserves nothing here — the door's concurrency cap and the
   // worker's live re-check are what cover that case, and both are needed
   // because this number is a claim rather than a measurement.
+  /*
+    Renders only, and the `kind` filter is the load-bearing half.
+
+    A job that only listens is queued in the same table, and this counted it:
+    it reserved the project's whole duration against the month and added one to
+    the concurrency count. So asking to see the words on a thirty-minute
+    recording showed thirty minutes of that month as spent, and on the free
+    plan it could refuse the render outright — "renders already going account
+    for 30 of your 30 minutes" — with no render going at all.
+
+    Nothing is charged for listening when it settles either, which is what made
+    this invisible: the minutes came back the moment the transcript landed, so
+    the meter was only wrong while somebody was looking at it.
+  */
   const [flight] = await on
     .select({
       seconds: sql<number>`coalesce(sum(coalesce(${projectsTable.duration}, 0)), 0)`,
@@ -162,6 +182,7 @@ export async function usageFor(userId: string, plan: PlanKey, on: Executor = db)
     .where(
       and(
         eq(jobsTable.userId, userId),
+        eq(jobsTable.kind, "render"),
         inArray(jobsTable.status, ["queued", "running"]),
       ),
     );

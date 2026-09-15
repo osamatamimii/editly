@@ -173,10 +173,18 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
     return;
   }
 
+  // Renders, like every other "is something already running" read: a queued
+  // transcript is not an export in flight.
   const [latest] = await db
     .select()
     .from(jobsTable)
-    .where(and(eq(jobsTable.projectId, project.id), eq(jobsTable.userId, userId)))
+    .where(
+      and(
+        eq(jobsTable.projectId, project.id),
+        eq(jobsTable.userId, userId),
+        eq(jobsTable.kind, "render"),
+      ),
+    )
     .orderBy(desc(jobsTable.createdAt))
     .limit(1);
 

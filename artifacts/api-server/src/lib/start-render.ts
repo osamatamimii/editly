@@ -84,10 +84,19 @@ export async function startRenderForProject(
 
   // One render at a time per project: a second one would race the first for
   // the same output key, and the user has no way to tell which result they got.
+  // Renders. A queued transcript is not a render going, and reading it as one
+  // meant that opening the transcript panel and then asking for an edit was
+  // answered "there's a render already going for this project" with none.
   const [pending] = await db
     .select()
     .from(jobsTable)
-    .where(and(eq(jobsTable.projectId, project.id), eq(jobsTable.userId, userId)))
+    .where(
+      and(
+        eq(jobsTable.projectId, project.id),
+        eq(jobsTable.userId, userId),
+        eq(jobsTable.kind, "render"),
+      ),
+    )
     .orderBy(desc(jobsTable.createdAt))
     .limit(1);
 
@@ -294,6 +303,8 @@ export async function startRenderForProject(
       was reserved because nothing was inserted.
     */
     if (!isDuplicateActiveJob(error)) throw error;
+    // The render the unique index refused this one for. Renders, because that
+    // index is about renders and a listen in flight is not what collided.
     const [existing] = await db
       .select({ id: jobsTable.id })
       .from(jobsTable)
@@ -301,6 +312,7 @@ export async function startRenderForProject(
         and(
           eq(jobsTable.projectId, project.id),
           eq(jobsTable.userId, userId),
+          eq(jobsTable.kind, "render"),
           inArray(jobsTable.status, ["queued", "running"]),
         ),
       )

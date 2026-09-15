@@ -193,10 +193,31 @@ router.get("/projects/:id/render/status", async (req, res): Promise<void> => {
     return;
   }
 
+  /*
+    The newest *render*, and the kind filter is why this is not a one-word
+    change.
+
+    Two kinds of job live in this table and this poll answers "how is my render
+    doing". Without the filter it answered about whichever row was newest, and
+    the transcript panel queues a row: start a render, open the panel while you
+    wait, and from that moment the progress bar was reporting the transcript.
+
+    The damage is past the progress bar. This poll is also where "I'll fold
+    this in once it finishes" comes due, so when the *transcript* settled --
+    seconds later, because listening is far quicker than rendering -- the
+    follow-up render fired while the first render was still going, and the
+    screen was told the render had finished.
+  */
   const [job] = await db
     .select()
     .from(jobsTable)
-    .where(and(eq(jobsTable.projectId, project.id), eq(jobsTable.userId, userId)))
+    .where(
+      and(
+        eq(jobsTable.projectId, project.id),
+        eq(jobsTable.userId, userId),
+        eq(jobsTable.kind, "render"),
+      ),
+    )
     .orderBy(desc(jobsTable.createdAt))
     .limit(1);
 
@@ -289,10 +310,19 @@ router.post("/projects/:id/render/cancel", rateLimit(LIMITS.write), async (req, 
     return;
   }
 
+  // The newest render. Somebody pressing Stop means the render, and without
+  // this the button could have stopped a transcript that happened to be newer
+  // while the render carried on and kept spending.
   const [job] = await db
     .select()
     .from(jobsTable)
-    .where(and(eq(jobsTable.projectId, params.data.id), eq(jobsTable.userId, userId)))
+    .where(
+      and(
+        eq(jobsTable.projectId, params.data.id),
+        eq(jobsTable.userId, userId),
+        eq(jobsTable.kind, "render"),
+      ),
+    )
     .orderBy(desc(jobsTable.createdAt))
     .limit(1);
 

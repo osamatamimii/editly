@@ -1885,6 +1885,157 @@ section("The Arabic the matcher is written in is the Arabic it matches against")
   );
 }
 
+section("The meter counts renders, because renders are what it charges for");
+{
+  /*
+    A job that only listens is queued in the same table as a render, and the
+    month's meter counted it.
+
+    Two queries, and the in-flight one is the damaging half: it reserved the
+    project's whole duration against the month and added one to the concurrency
+    count, so asking to see the words on a thirty-minute recording showed
+    thirty of that month's minutes as spent -- and on the free plan could
+    refuse the render outright, "renders already going account for 30 of your
+    30 minutes", with no render going at all.
+
+    What made it invisible is that nothing is charged for listening when it
+    settles: the minutes came back the moment the transcript landed, so the
+    meter was only wrong while somebody was looking at it, which is exactly
+    when it is read.
+
+    The third query here is deliberately not filtered and says so: the fair-use
+    line compares how much footage was *read* against how much was published,
+    and a listen reads the footage. That one is checked to still be unfiltered,
+    so the day somebody "fixes" it for consistency they have to say why.
+  */
+  const usage = read("artifacts/api-server/src/lib/usage.ts")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+
+  // Each `await on.select({...}).from(jobsTable)...;` or `await db...` block.
+  const queries = usage.split(/const \[/).filter((q) => /from\(jobsTable\)/.test(q));
+  check("usage.ts has queries over the jobs table", queries.length >= 2, String(queries.length));
+
+  const billed = queries.filter((q) => /billedSeconds/.test(q));
+  check("the month's bill is one of them", billed.length === 1, String(billed.length));
+  check(
+    "and it counts renders only",
+    billed.every((q) => /eq\(jobsTable\.kind, "render"\)/.test(q)),
+    "a listen settling with a duration on it would go onto somebody's bill",
+  );
+
+  const inFlight = queries.filter((q) => /"queued", "running"/.test(q));
+  check("what is in flight is another", inFlight.length === 1, String(inFlight.length));
+  check(
+    "and it reserves against renders only",
+    inFlight.every((q) => /eq\(jobsTable\.kind, "render"\)/.test(q)),
+    "otherwise opening the transcript panel spends the month",
+  );
+
+  check(
+    "and the fair-use read is still deliberately every kind",
+    /distinct \$\{jobsTable\.projectId\}[\s\S]{0,200}?'done'/.test(usage) &&
+      !/distinct \$\{jobsTable\.projectId\}[\s\S]{0,200}?kind/.test(usage),
+    "reading the footage is reading it, whichever job did the reading",
+  );
+}
+
+section("A question about the render is asked of a render");
+{
+  /*
+    `jobs` holds two kinds and most of this product only ever means one of
+    them. Five queries asked about "the newest job on this project" and got
+    whichever row was newest, which after the transcript panel shipped is
+    routinely a listen. Each failed differently and all five were reachable by
+    doing an ordinary thing while waiting:
+
+      - the status poll reported the transcript's progress as the render's --
+        and, because that poll is where "I'll fold this in once it finishes"
+        comes due, fired the follow-up render the moment the *transcript*
+        settled, seconds in, while the real render was still going
+      - starting an edit answered "there's a render already going" with none
+      - the export door did the same
+      - Stop stopped the transcript while the render carried on spending
+      - and the transcript panel, asking whether anything was in flight, saw a
+        running render and never queued the listen at all: the panel waited for
+        words nobody was fetching, which is the exact failure that route was
+        written to end
+
+    The rule is not "every query names a kind" -- several correctly mean every
+    job, and they are listed here with why. It is that a query meaning renders
+    says so, which a reader cannot check by eye across seven files.
+  */
+  const files = [
+    "artifacts/api-server/src/routes/render.ts",
+    "artifacts/api-server/src/routes/exports.ts",
+    "artifacts/api-server/src/routes/notes.ts",
+    "artifacts/api-server/src/lib/start-render.ts",
+  ];
+
+  /*
+    Deliberately every kind, each for a reason that is written beside it in the
+    code: emptying a project stops everything rendering into storage that is
+    about to be deleted; the admin console is looking at the queue itself; the
+    account export is everything we hold about somebody; the fair-use read
+    counts footage read by any job; and the queue-position estimate counts
+    every row actually ahead of you.
+  */
+  const EVERY_KIND = new Set([
+    "artifacts/api-server/src/lib/cancel-render.ts",
+    "artifacts/api-server/src/lib/attention.ts",
+    "artifacts/api-server/src/routes/admin.ts",
+    "artifacts/api-server/src/routes/account.ts",
+    "artifacts/api-server/src/routes/stats.ts",
+    "artifacts/api-server/src/routes/projects.ts",
+  ]);
+  check("the kind-agnostic list is a list of files that exist", [...EVERY_KIND].every((f) => existsSync(path.join(repoRoot, f))));
+
+  const blind = [];
+  for (const file of files) {
+    const code = read(file).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    let from = 0;
+    for (;;) {
+      const at = code.indexOf("from(jobsTable)", from);
+      if (at === -1) break;
+      const rest = code.slice(at);
+      const end = rest.indexOf(";");
+      const statement = end === -1 ? rest.slice(0, 700) : rest.slice(0, end);
+      /*
+        A lookup by id is exempt and does not need saying twice: the id already
+        names one row, and which kind that row is, is whatever it is.
+      */
+      const byId = /eq\(jobsTable\.id,/.test(statement);
+      if (!byId && !/jobsTable\.kind/.test(statement)) {
+        blind.push(`${file}: ${statement.replace(/\s+/g, " ").slice(0, 90)}`);
+      }
+      from = at + 1;
+    }
+  }
+  check("these four files query the jobs table", true);
+  check(
+    "and every query in them says which kind it meant",
+    blind.length === 0,
+    blind.join(" | "),
+  );
+
+  /*
+    And the two that must not be the same answer, because they are opposite
+    questions: the panel asks for a listen, everything else asks for a render.
+  */
+  const notes = read("artifacts/api-server/src/routes/notes.ts");
+  check(
+    "the transcript panel asks about listens",
+    /eq\(jobsTable\.kind, "transcribe"\)/.test(notes),
+    "asking about renders there is how the panel waits for words nobody is fetching",
+  );
+  const render = read("artifacts/api-server/src/routes/render.ts");
+  check(
+    "and the render routes ask about renders",
+    (render.match(/eq\(jobsTable\.kind, "render"\)/g) ?? []).length >= 2,
+    "the status poll and the stop button both need it",
+  );
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);
