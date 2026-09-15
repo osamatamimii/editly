@@ -1607,12 +1607,29 @@ export const ExtractHighlightOperation = z.object({
  * clamped rather than refused, with a note; an empty or inverted window is
  * the renderer's to drop, also with a note.
  */
+/**
+ * "Everything after this point", written as a number because the shape only
+ * has numbers.
+ *
+ * A day, which is the ceiling both ends of this operation already had and
+ * longer than any file this product will take. "Cut the first ten seconds"
+ * means keep from ten to the end, and the end is wherever the recording ends
+ * -- a fact the planner does not have and the renderer does.
+ *
+ * It is named rather than written twice because the renderer has to be able to
+ * tell this apart from a real end somebody typed. Clamping is the same either
+ * way; the *note* is not. "The clip runs out at 300s, before the 86400s you
+ * named" is a true sentence about a number the person never said, and reading
+ * it is how somebody learns not to trust the notes.
+ */
+export const TO_THE_END_SECONDS = 86400;
+
 export const ExtractRangeOperation = z.object({
   type: z.literal("extractRange"),
   /** Where the kept stretch begins, in seconds on the source clock. */
-  startSeconds: z.number().min(0).max(86400),
+  startSeconds: z.number().min(0).max(TO_THE_END_SECONDS),
   /** Where it ends. Clamped to the file's real length at render time. */
-  endSeconds: z.number().min(0).max(86400),
+  endSeconds: z.number().min(0).max(TO_THE_END_SECONDS),
 });
 
 /**

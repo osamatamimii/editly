@@ -12,7 +12,7 @@
  * downstream stays as it is.
  */
 import type { EditOperation, GradeLook, MusicMood, Platform, TransitionStyle } from "@workspace/api-zod";
-import { MUSIC_MOOD_NAMES } from "@workspace/api-zod";
+import { MUSIC_MOOD_NAMES, TO_THE_END_SECONDS } from "@workspace/api-zod";
 import { interstitialCard } from "./scenes";
 
 /**
@@ -1374,7 +1374,10 @@ export function parseRange(asked: string): { startSeconds: number; endSeconds: n
     meant is "to the end" and the render clamps it to the file's real length.
   */
   const dropsTheOpening = !CUT_TO_THE_FIRST.test(text) && DROP_THE_FIRST.test(text);
-  const TO_THE_END = 86400;
+  // Named in the contract, because the renderer has to tell this apart from an
+  // end somebody actually typed: it clamps both the same way and says
+  // different things about them. See TO_THE_END_SECONDS.
+  const TO_THE_END = TO_THE_END_SECONDS;
 
   const firstSeconds = RANGE_FIRST.exec(text);
   if (firstSeconds) {
@@ -1954,7 +1957,7 @@ export function planFromText(
       second is what made the inversion invisible: the plan dropped the whole
       video and the reply said "the part you asked for".
     */
-    const dropsOpening = range.startSeconds > 0 && range.endSeconds >= 86400;
+    const dropsOpening = range.startSeconds > 0 && range.endSeconds >= TO_THE_END_SECONDS;
     willDo.push(
       dropsOpening
         ? say(

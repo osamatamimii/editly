@@ -21,7 +21,7 @@ import { criticise, settlePunches } from "./critic";
 import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle, type SceneElement, type Layer } from "./motion";
 import { beatsOf, everyNth } from "./beats";
 import { DEFAULT_CAPTION_LOOK } from "@workspace/api-zod/caption-default";
-import type { CaptionStyleName, EditOperation, EditPlan, GradeLook, TransitionStyle } from "@workspace/api-zod";
+import { TO_THE_END_SECONDS, type CaptionStyleName, type EditOperation, type EditPlan, type GradeLook, type TransitionStyle } from "@workspace/api-zod";
 import {
   captionLayout,
   nominalSizeFor,
@@ -3900,9 +3900,26 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         .map((s) => ({ start: Math.max(s.start, window.start), end: Math.min(s.end, window.end) }))
         .filter((s) => s.end - s.start > 0.05);
       kept = inside.length > 0 ? inside : [window];
-      const clamped = range.endSeconds > source.duration + 0.05;
+      /*
+        Two different clamps, and only one of them is worth a sentence.
+
+        Somebody who typed "keep from 1:20 to 5:00" on a three-minute clip
+        named an end that is not there, and saying so is the note's whole job.
+        Somebody who typed "cut the first ten seconds" named no end at all: the
+        planner wrote `TO_THE_END_SECONDS` because this shape only carries
+        numbers, and reporting that back as "before the 86400s you named" is a
+        true sentence about a number they never said. One of those is a note
+        and the other is how somebody learns not to trust the notes.
+      */
+      const toTheEnd = range.endSeconds >= TO_THE_END_SECONDS;
+      const clamped = !toTheEnd && range.endSeconds > source.duration + 0.05;
       notes.push(
-        clamped
+        toTheEnd
+          ? t(
+              `dropped the first ${start.toFixed(1)}s and kept the rest`,
+              `شيّلت أول ${start.toFixed(1)} ثانية وأبقيت الباقي`,
+            )
+          : clamped
           ? t(
               `kept ${start.toFixed(1)}s to the end. The clip runs out at ${source.duration.toFixed(1)}s, before the ${range.endSeconds.toFixed(0)}s you named`,
               `أبقيت من الثانية ${start.toFixed(1)} لآخره: المقطع بيخلص عند ${source.duration.toFixed(1)} ثانية، قبل الثانية ${range.endSeconds.toFixed(0)} اللي سمّيتها`,

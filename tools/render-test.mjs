@@ -1621,6 +1621,37 @@ console.log("\nThe stretch they name is kept exactly, with honest clamping");
     JSON.stringify(over.notes),
   );
 
+  /*
+    And the other clamp, which is a different sentence about the same arithmetic.
+
+    "Cut the first ten seconds" names no end at all. The plan carries
+    TO_THE_END_SECONDS because this shape only holds numbers, and the file is
+    correct either way -- but reporting it back as "the clip runs out at 20s,
+    before the 86400s you named" is a true sentence about a number the person
+    never said, and reading one of those is how somebody learns not to trust
+    the notes.
+
+    The matcher only produces this shape for a sentence that asked to lose the
+    opening, so the note can say exactly that.
+  */
+  const toEnd = await renderPlan(
+    source,
+    { version: 1, operations: [{ type: "extractRange", startSeconds: 6, endSeconds: 86400 }] },
+    { workDir: await scratch() },
+  );
+  const toEndSeconds = Number(ffprobe(toEnd.output, "format=duration")[0]);
+  check("dropping the opening keeps everything after it", toEndSeconds > 13.4 && toEndSeconds < 14.6, String(toEndSeconds));
+  check(
+    "and the note says what was dropped, not what was named",
+    toEnd.notes.some((n) => /dropped the first 6\.0s and kept the rest/.test(n)),
+    JSON.stringify(toEnd.notes),
+  );
+  check(
+    "and never reads a sentinel back to the person",
+    !toEnd.notes.some((n) => /86400/.test(n)),
+    JSON.stringify(toEnd.notes),
+  );
+
   // A start past the file cuts nothing, and says so rather than erroring.
   const past = await renderPlan(
     source,
