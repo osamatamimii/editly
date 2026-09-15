@@ -19,7 +19,7 @@ export const PLANS = [
     key: "creator" as const,
     name: "Creator",
     price: 12,
-    yearlyPrice: 115,
+    yearlyPrice: 108,
     minutes: 30,
     forWho: "Short-form: TikTok, Reels, Shorts",
     upload: "Upload up to 30 minutes",
@@ -29,7 +29,7 @@ export const PLANS = [
     key: "pro" as const,
     name: "Pro",
     price: 29,
-    yearlyPrice: 279,
+    yearlyPrice: 276,
     minutes: 150,
     forWho: "Long-form: YouTube and podcasts",
     upload: "Upload a 4-hour episode as one file",
@@ -40,7 +40,7 @@ export const PLANS = [
     key: "studio" as const,
     name: "Studio",
     price: 79,
-    yearlyPrice: 758,
+    yearlyPrice: 756,
     minutes: 800,
     forWho: "Teams and agencies",
     /*
@@ -150,11 +150,25 @@ export const FREE_TIER = {
  * had done once by hand — the kind of second copy this file's own header says
  * is the shape of every expensive mistake here.
  *
- * Rounded **up** to the cent. Twelve times this figure must never come to less
- * than what the card is actually charged, or the page is quoting a price that
- * does not exist. Up costs us four cents a year in how it reads; down is a
- * false advertisement.
+ * Whole dollars, at Osama's instruction: «وحد الاسعار بالسنوي يعني خليها
+ * صحيحة بدون كسور». $9.59 is a number that looks like the output of a
+ * calculation, because it is one, and a price that shows its arithmetic asks
+ * to be checked rather than accepted. So the yearly prices are set to twelve
+ * times a whole figure — 115 → 108, 279 → 276, 758 → 756 — every one of them
+ * downward, because prices here go down and never up.
+ *
+ * `pricing-test` holds the shape rather than the three numbers: any yearly
+ * price not divisible by twelve fails, so the next person to change one
+ * cannot reintroduce the cents without being told.
+ *
+ * The cent rounding stays for the case the guard is meant to catch. Twelve
+ * times what the page advertises must never come to less than what the card
+ * is actually charged, or we are quoting a year at a price that does not
+ * exist. Up costs four cents a year in how it reads; down is a false
+ * advertisement.
  */
 export function yearlyPerMonth(yearlyPrice: number): string {
-  return (Math.ceil((yearlyPrice / 12) * 100) / 100).toFixed(2);
+  const perMonth = yearlyPrice / 12;
+  if (Number.isInteger(perMonth)) return String(perMonth);
+  return (Math.ceil(perMonth * 100) / 100).toFixed(2);
 }

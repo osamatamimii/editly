@@ -81,6 +81,15 @@ section("Every price on the page is the price the server charges");
 {
   check("the page offers some plans", PLANS.length >= 3, String(PLANS.length));
 
+  /*
+    The badge's own number, read from the copy rather than written here.
+    Both halves of a comparison written down in the same file compare
+    nothing.
+  */
+  const copySource = readFileSync(path.join(repoRoot, "artifacts/editly/src/lib/landing-copy.ts"), "utf8");
+  const advertisedSaving = Number(copySource.match(/save:\s*p\([^)]*?(\d+)%/)?.[1] ?? 0) / 100;
+  check("the yearly badge advertises a percentage", advertisedSaving > 0, String(advertisedSaving));
+
   for (const plan of PLANS) {
     const limits = PLAN_LIMITS[plan.key];
     check(`${plan.name} is a plan the server knows`, Boolean(limits), plan.key);
@@ -98,6 +107,23 @@ section("Every price on the page is the price the server charges");
     );
     // A yearly price below twelve months of the monthly one is the discount
     // being advertised; above it is a mistake nobody would report.
+    /*
+      And the badge on the toggle does not promise more than the smallest
+      of them delivers.
+
+      "Save 20%" is one number sitting beside three different discounts —
+      Creator saves 25%, Studio 20.25% — so it is only honest as a floor,
+      and it stops being a floor the moment one plan's yearly price moves
+      up or its monthly price moves down. Nothing else in the repository
+      compares those two facts, and the failure is silent: a page that
+      advertises a discount larger than it gives is the kind of thing a
+      customer notices before we do.
+    */
+    check(
+      `and ${plan.name} actually saves at least the percentage on the badge`,
+      1 - plan.yearlyPrice / (plan.price * 12) >= advertisedSaving - 0.0001,
+      `${((1 - plan.yearlyPrice / (plan.price * 12)) * 100).toFixed(2)}% vs the badge's ${(advertisedSaving * 100).toFixed(0)}%`,
+    );
     check(
       `${plan.name}'s yearly price is a discount rather than a penalty`,
       plan.yearlyPrice < plan.price * 12,
@@ -111,6 +137,23 @@ section("Every price on the page is the price the server charges");
       exist. So the test is one-sided — never under, and never more than a
       cent per month over, which is all rounding up can cost.
     */
+    /*
+      No cents on the yearly side, and the rule is checked rather than the
+      three numbers: «وحد الاسعار بالسنوي يعني خليها صحيحة بدون كسور». A
+      price that shows its own arithmetic — $9.59 — asks to be checked
+      instead of accepted. Divisible by twelve is the whole condition, and
+      it is what stops the cents coming back the next time a price moves.
+    */
+    check(
+      `${plan.name}'s yearly price is twelve whole months`,
+      plan.yearlyPrice % 12 === 0,
+      `$${plan.yearlyPrice} / 12 = ${plan.yearlyPrice / 12}`,
+    );
+    check(
+      `and the page shows it without a fraction`,
+      /^\d+$/.test(yearlyPerMonth(plan.yearlyPrice)),
+      yearlyPerMonth(plan.yearlyPrice),
+    );
     const perMonth = Number(yearlyPerMonth(plan.yearlyPrice));
     check(
       `and twelve of ${plan.name}'s advertised monthly figure covers the year`,
