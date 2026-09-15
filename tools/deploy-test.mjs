@@ -750,6 +750,37 @@ section("Every suite in tools/ is one CI actually runs");
   );
 
   /*
+    And runs every one of them on the same run, rather than stopping at the
+    first red.
+
+    A failed step ends the job, so one red suite hides every suite after it. On
+    15 September `clip-section-test` was red; fixing it revealed `worker-test`,
+    twenty-six minutes later, with the deploy still blocked — and behind that
+    one, seven more suites nobody had seen run. A search that costs half an
+    hour per result and returns one result at a time is a search nobody
+    finishes.
+
+    `if: ${{ !cancelled() }}` on each step is what makes one run report all of
+    them. The job still fails when any step does. Asserted here rather than
+    trusted, because a step added later without it re-hides everything after
+    it and nothing else would say so.
+  */
+  const runLines = checksWorkflow
+    .split("\n")
+    .map((line, i) => ({ line, i }))
+    .filter(({ line }) => /^\s*- run: node tools\//.test(line));
+  check("there are suite steps to check", runLines.length >= 15, String(runLines.length));
+  const allLines = checksWorkflow.split("\n");
+  const stopsTheRest = runLines
+    .filter(({ i }) => !/if:\s*\$\{\{\s*!cancelled\(\)\s*\}\}/.test(allLines[i + 1] ?? ""))
+    .map(({ line }) => line.trim().replace("- run: node tools/", ""));
+  check(
+    "and not one of them stops the suites after it",
+    stopsTheRest.length === 0,
+    `${stopsTheRest.join(", ")} — without \`if: \${{ !cancelled() }}\` a red here hides every suite below it`,
+  );
+
+  /*
     And the runner has what they say they need.
 
     Every suite states its requirements in its own header — "Requires: ffmpeg

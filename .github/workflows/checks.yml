@@ -198,167 +198,237 @@ jobs:
       # for, one the two planners disagree about, and one no suite names. Also
       # a route file nobody wrote a purpose line for. Cheap, and first, because
       # what it catches is a thing somebody added and did not finish wiring.
+      # ── Every suite runs, even after one of them fails ──────────────────
+      #
+      # `if: ${{ !cancelled() }}` on each of the steps below, and it is there
+      # for a day that cost an afternoon.
+      #
+      # A failed step ends the job, so one red suite hides every suite after
+      # it. On 15 September `clip-section-test` was red, which meant nobody had
+      # seen `worker-test`, `retention-test`, `sfx-test`, `stills-test`,
+      # `shopify-test`, `product-ads-test`, `direct-test` or `end-to-end-test`
+      # run in CI for as long as that had been true. Fixing the first one
+      # revealed the second one -- twenty-six minutes later, and the deploy
+      # still blocked, because Checks is what gates it.
+      #
+      # That is a search that costs half an hour per result and finds one
+      # result at a time. With this, one run reports all of them. The job still
+      # fails when any step does; what changes is that the report is complete.
+      #
+      # `!cancelled()` rather than `always()`: a run somebody cancelled should
+      # stop, and `always()` would keep grinding through ninety-six suites
+      # after the cancel button was pressed.
       - run: node tools/inventory.mjs --check
+        if: ${{ !cancelled() }}
       - run: node tools/contract-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/deploy-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/pricing-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/theme-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/upload-types-test.mjs
+        if: ${{ !cancelled() }}
       # The storage seam. Its second driver is not switched on anywhere, which
       # is exactly why it is checked: a driver first exercised during a
       # migration, on live customer files, is not a plan. The R2 signature is
       # verified against AWS's own published vector, so being right does not
       # depend on having an account.
       - run: node tools/object-store-test.mjs
+        if: ${{ !cancelled() }}
       # The other half of that seam: the endpoint that mints the signed upload
       # URL, and the decisions it makes before it mints one. Reads no bucket
       # and no database, because the decision is a pure function and the wiring
       # around it is checked by reading the route.
       - run: node tools/uploads-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/policy-test.mjs
+        if: ${{ !cancelled() }}
       # The privacy page cannot become a lie by addition: every host the code
       # sends a request to has to be named on it.
       - run: node tools/privacy-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/refusal-test.mjs
+        if: ${{ !cancelled() }}
       # Beside the refusals, because it is the other half of the same idea:
       # that one is the product saying what it cannot do, this one is the
       # product asking rather than assuming. A long recording is a podcast or a
       # pile of posts and the file does not say which.
       - run: node tools/long-form-test.mjs
+        if: ${{ !cancelled() }}
       # Noah's register, held the way the em dash is held: a short table of
       # words that only appear in writing, and a scope that is a list of the
       # files already converted rather than a list of exceptions. Osama chose
       # spoken Levantine on 15 September; claude/briefs/07-progress.md argues
       # it, this keeps it.
       - run: node tools/voice-test.mjs
+        if: ${{ !cancelled() }}
       # And the other half of the same sentence: not which register it is in,
       # but whether somebody who has never edited a video could read it. Osama
       # asked for the confirmation to be in those words; 48 of the 85 phrases
       # the two planners can say were in trade terms when he did.
       - run: node tools/plain-words-test.mjs
+        if: ${{ !cancelled() }}
       # And the third step of the same loop: after the render, the person asks
       # for changes. Every message is planned on its own, so a correction used
       # to re-decide everything the last one settled.
       - run: node tools/carry-forward-test.mjs
+        if: ${{ !cancelled() }}
       # The last step of that loop is the one nobody watches: the plan leaves
       # the API and is parsed again in the worker. When the two disagreed, the
       # minutes were held first and the ZodError arrived minutes later.
       - run: node tools/runnable-plan-test.mjs
+        if: ${{ !cancelled() }}
       # And the frame the promises are read in, which no other suite sees: the
       # phrase is checked everywhere, the sentence it becomes was checked
       # nowhere. Driven through the real matcher, planner and director rather
       # than read off the source, because the worst of these are built at run
       # time and a scan of the file finds nothing to object to.
       - run: node tools/willdo-grammar-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/posting-test.mjs
+        if: ${{ !cancelled() }}
       # Beside posting, because it is the step posting never had: a way to put
       # a real account into the queue.
       - run: node tools/connect-test.mjs
+        if: ${{ !cancelled() }}
       # And the other end of it: what actually reaches YouTube, and what a
       # failed post says to the person who scheduled it.
       - run: node tools/publish-test.mjs
+        if: ${{ !cancelled() }}
       # The two platforms after YouTube, driven against APIs that answer the way
       # theirs do: TikTok refuses with HTTP 200 and a code in the envelope, and
       # Graph refuses with HTTP 200 and an error object. A client that read the
       # status code would mark published a post that never existed.
       - run: node tools/publish-tiktok-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/publish-meta-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/publish-x-test.mjs
+        if: ${{ !cancelled() }}
       # Snapchat has no upload, and the refusal is what is checked: Snap's only
       # public profile API is allowlist-only, needs a business organisation, and
       # reads rather than posts. A decision with no test decays unnoticed.
       - run: node tools/publish-snapchat-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/deadline-test.mjs
+        if: ${{ !cancelled() }}
       # Beside deadline-test, and the other half of it: that suite proves a hung
       # child process is killed; this proves a hung *request* is too. The
       # publishers were the last outbound calls in the worker not using the
       # deadline wrapper, and the publish loop is sequential, so one wedged
       # socket stalled every post behind it.
       - run: node tools/publish-deadline-test.mjs
+        if: ${{ !cancelled() }}
       # The other two ways this box runs out. Memory has a table, a piece cap
       # and a paragraph in fly.toml; disk and cores had nothing, and both fail
       # without an error anybody can read — `No space left on device` inside a
       # capped stderr tail, and the OOM killer, which leaves nothing at all.
       - run: node tools/machine-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/planner-test.mjs
+        if: ${{ !cancelled() }}
       # Beside the planner, because the sentence is half of it: cutting a word
       # somebody meant is worse than leaving one they did not, so the checks
       # that an ordinary word is never removed are the ones that matter.
       - run: node tools/tighten-test.mjs
+        if: ${{ !cancelled() }}
       # Kinetic captions, in drawn pixels rather than in the subtitle file: ASS
       # is a format with opinions, and two of them shaped this design — an
       # \alpha override splits the layout run the same way \kf does, and a
       # scale on one word widens the whole line.
       - run: node tools/kinetic-test.mjs
+        if: ${{ !cancelled() }}
       # Beside it, because it guards the other half of the same thing: what a
       # caption looks like when nobody said. The suite existed and nothing ran
       # it, which `deploy-test` calls a suite that does nothing — and it is the
       # check that catches a default changed in one place and not the other.
       - run: node tools/caption-default-test.mjs
+        if: ${{ !cancelled() }}
       # The first screen, held to the parser it teaches people to use: every
       # suggested sentence is run through the real keyword planner in both
       # languages. Copy that drifts from the parser means the first thing a new
       # person ever asks for comes back refused, and nobody who hits that files
       # a bug.
       - run: node tools/onboarding-test.mjs
+        if: ${{ !cancelled() }}
       # And the landing page for the same reason, plus two a screenshot cannot
       # answer: that scrolling the features section actually reaches the last
       # feature rather than stopping one short, and that the section is a tall
       # sticky one rather than a scroll taken away from the visitor. Both of
       # those look identical in a recording to the version that works.
       - run: node tools/feature-scroll-test.mjs
+        if: ${{ !cancelled() }}
       # Beside the planner, because what it checks is a rule about the parser:
       # a habit must never be applied over the sentence somebody just typed.
       - run: node tools/habits-test.mjs
+        if: ${{ !cancelled() }}
       # Beside the habits for the same reason: a note is the third writer of a
       # plan the sentence did not write, and the property that matters is that
       # none of the three erases another.
       - run: node tools/notes-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/vocabulary-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/font-test.mjs
+        if: ${{ !cancelled() }}
       # After font-test, because it needs the same faces installed and there is
       # no point measuring an uploaded font on a runner whose reference faces
       # are wrong.
       - run: node tools/user-font-test.mjs
+        if: ${{ !cancelled() }}
       # Needs the database as well as the faces, so it sits after both.
       - run: node tools/typeface-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/account-test.mjs
+        if: ${{ !cancelled() }}
       # Beside the account suite, because it is the same question from the other
       # side: that one checks that everything we hold is deletable and
       # exportable, this one checks that what reaches the one new table holds
       # nothing of anybody's in the first place.
       - run: node tools/edit-pairs-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/critic-test.mjs
+        if: ${{ !cancelled() }}
       # Beside the critic, because it is the other half of the same job: the
       # critic reads the plan, this reads the file that came out of it — the
       # level that actually landed, a black picture, and the look at the
       # frames. Its one dangerous path is a vision model's prose reaching a
       # customer, and that is what most of the suite is about.
       - run: node tools/review-test.mjs
+        if: ${{ !cancelled() }}
       # The reviewer measures and corrects only the level the render actually
       # set. A `normalizeLoudness` op in the plan is not proof it was applied —
       # an effects-only mix carries the op but was never levelled — and
       # "correcting" it boosts a few effects into a clipped master. Real files.
       - run: node tools/review-levelled-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/transcript-test.mjs
+        if: ${{ !cancelled() }}
       # After the transcript, because it is the step that reads one: chapters,
       # claims, questions, peaks and a hook. Its checks are asymmetric on
       # purpose — a reading that invents a sentence somebody never said parses,
       # validates and looks exactly like a true one, so most of the suite is
       # about what gets *dropped*.
       - run: node tools/comprehend-test.mjs
+        if: ${{ !cancelled() }}
       # And the thing that reading is for, on the audience it matters most to.
       # Clipping is judged in about two seconds — the time it takes to hear a
       # piece open on "…and that's why I think" and know a machine chose it —
       # so most of this suite is about the four ways a clipper produces a
       # plausible wrong answer rather than about whether it finds a good one.
       - run: node tools/clipping-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/reference-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/billing-test.mjs
+        if: ${{ !cancelled() }}
       # Beside the billing suite, because it is the other way a plan can change
       # hands: a word somebody types rather than a payment somebody makes. It
       # shipped without a line here, which `deploy-test` is the check for.
       - run: node tools/promo-test.mjs
+        if: ${{ !cancelled() }}
       # One step, not two. `promo-test` had been given a line here *and* one
       # beside the pricing suite — the same gap noticed twice and closed twice,
       # which runs the suite twice and, less obviously, made the step count
@@ -371,16 +441,22 @@ jobs:
       # event is the ordinary case for that endpoint, and an email cannot be
       # taken back.
       - run: node tools/mail-test.mjs
+        if: ${{ !cancelled() }}
       # The console's work queue, against a real database, because every claim
       # it makes is a query: that the count is the table and the rows are a
       # capped sample of it, that a queue behind a live machine is not a fault,
       # and that the failure quoted is the renderer's rather than the sentence
       # written to reassure whoever was waiting.
       - run: node tools/attention-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/models-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/meter-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/style-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/schema-test.mjs
+        if: ${{ !cancelled() }}
       # Beside the schema suite because it needs the same database, and after it
       # because it is the question that one cannot ask: not "is the schema what
       # the files say", but "if this database were gone, is what comes back one
@@ -389,62 +465,89 @@ jobs:
       # fail when it should. Skips itself with a sentence where there is no
       # Postgres; never touches anything it did not create.
       - run: node tools/restore-drill.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/queue-test.mjs
+        if: ${{ !cancelled() }}
       # Beside it, because it is the same queue read from outside: that one is
       # about claiming and releasing a job, this one is about what `watch.yml`
       # concludes from a day of them. Needs no database — the verdict is a pure
       # function of rows, which is the whole reason it is one.
       - run: node tools/queue-watch-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/worker-drift-test.mjs
+        if: ${{ !cancelled() }}
       # The wait a queued render reports. Runs its arithmetic everywhere and its
       # SQL where there is a database — a predicate that is subtly wrong passes
       # every pattern match and gives everybody in the queue a quiet lie.
       - run: node tools/capacity-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/isolation-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/publisher-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/quality-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/framing-test.mjs
+        if: ${{ !cancelled() }}
       # Beside framing, because it is the other half of the same question: that
       # one places the window, this one changes how wide it is across the cuts.
       - run: node tools/shots-test.mjs
+        if: ${{ !cancelled() }}
       # And beside both, because it is the same reading pointed the other way:
       # those measure our own footage to decide where to put the frame, this
       # measures somebody else's to find out what they drew on it.
       - run: node tools/graphics-test.mjs
+        if: ${{ !cancelled() }}
       # And the half of the same reading that comes back from a model. Separate
       # because it needs no ffmpeg and no browser: it is all distrust of a reply.
       - run: node tools/reference-scene-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/render-test.mjs
+        if: ${{ !cancelled() }}
       # Beside the render suite: the keyframe interval is two seconds of the
       # actual frame rate, not a fixed sixty frames — which was 2.5s at 24fps,
       # past what these platforms cut cleanly on. A real 24fps encode is probed.
       - run: node tools/keyframe-gop-test.mjs
+        if: ${{ !cancelled() }}
       # Beside the render suite because it renders, and separate because of what
       # it guards: the free-plan watermark is drawtext, and its text used to be
       # interpolated into the filtergraph behind an escaper that let a comma
       # through. This runs the real pipeline with a watermark that would open a
       # file if the injection still worked, and proves it does not.
       - run: node tools/watermark-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/combination-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/promise-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/bilingual-test.mjs
+        if: ${{ !cancelled() }}
       # Every phrase the product says about itself is half a sentence, put
       # behind "I'll " or «س». This drives the five files that produce one and
       # checks each half reads inside the frame it lands in. It found the
       # direction opening a phrase with «و», which the Arabic join doubled.
       - run: node tools/phrasing-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/overlay-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/motion-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/beat-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/music-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/checkout-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/stock-test.mjs
+        if: ${{ !cancelled() }}
       # Beside browser-test, and for the failure browser-test cannot see: a React
       # exception used to unmount the tree and leave a blank document, with
       # nothing logged anywhere on our side. This one throws inside a real
       # component in a real browser and reads what is on the screen afterwards.
       - run: node tools/boundary-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/browser-test.mjs
+        if: ${{ !cancelled() }}
       # Also the built `dist/`, and the only suite that asks whether the app is
       # allowed to run at all. The Content Security Policy was Report-Only with
       # no report-uri and no report-to: it blocked nothing by design and told
@@ -455,20 +558,24 @@ jobs:
       # the exact headers vercel.json ships, opens it in a browser, and asks
       # whether anything was blocked and whether those scripts actually ran.
       - run: node tools/csp-test.mjs
+        if: ${{ !cancelled() }}
       # Needs the built `dist/` from the vercel:build step above — it measures
       # the shipped bundle, because a class Tailwind purged is a class that is
       # not there however good it looks in the source.
       - run: node tools/viewport-test.mjs
+        if: ${{ !cancelled() }}
       # Same built `dist/`, different question: not whether the page is right
       # but what it costs to open and to scroll. Weighs the entry chunk against
       # a budget and fails on a filter, a blur radius or a hidden <video> that
       # the compositor pays for and nobody sees.
       - run: node tools/speed-test.mjs
+        if: ${{ !cancelled() }}
       # Also the built `dist/`, and the last of the three that reads it: the
       # landing page rendered in both languages and both directions, because a
       # layout that is right in one and broken in the other is invisible to
       # everyone on the team who only reads it in the direction they use.
       - run: node tools/landing-test.mjs
+        if: ${{ !cancelled() }}
       # And beside it, the question landing-test cannot ask, because it only
       # ever opens the landing page: whether the *rest* of the product declares
       # the language it is actually written in. `index.html` said Arabic for
@@ -476,6 +583,7 @@ jobs:
       # sentence ended with a leading full stop. Nothing failed; it just looked
       # like carelessness on the screen where somebody decides whether to pay.
       - run: node tools/language-test.mjs
+        if: ${{ !cancelled() }}
       # The last of the suites that read the built `dist/`, and kept after the
       # landing/language pair so that pair stays adjacent: the screen that takes
       # clips out of a recording, held to the thing it now claims — that it is a
@@ -484,7 +592,9 @@ jobs:
       # say, because a heading promising an action the page cannot perform is
       # the same lie as a filter that reads correctly and does nothing.
       - run: node tools/clip-section-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/worker-test.mjs
+        if: ${{ !cancelled() }}
       # Beside the worker because that is where it runs, and separate because
       # of what it is: the only thing in this product that deletes. Its checks
       # are asymmetric on purpose — that a cold preview goes is ordinary; that
@@ -492,10 +602,15 @@ jobs:
       # started being written, and that the object is deleted before the row
       # that names it, are the ones the thresholds were chosen for.
       - run: node tools/retention-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/sfx-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/stills-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/shopify-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/product-ads-test.mjs
+        if: ${{ !cancelled() }}
       # Last, because it is the whole product and the slowest thing here: a
       # phone-sized browser, a real take, one sentence, and a real render by the
       # real worker binary. Everything above tests a part; this is the only one
@@ -503,4 +618,6 @@ jobs:
       # own storage stub, so it must come after the suites that measure the
       # deployed `dist/`.
       - run: node tools/direct-test.mjs
+        if: ${{ !cancelled() }}
       - run: node tools/end-to-end-test.mjs
+        if: ${{ !cancelled() }}
