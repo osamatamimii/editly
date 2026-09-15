@@ -678,9 +678,35 @@ console.log("\nThe best N seconds is a plan, not a shrug");
     JSON.stringify(karaoke.operations.map((o) => o.type)),
   );
 
-  const absurd = await planner.plan("keep only the best 300 seconds", {});
-  const clamped = absurd.operations.find((o) => o.type === "extractHighlight");
-  check("an absurd length is clamped, not refused", clamped?.targetSeconds === 120, String(clamped?.targetSeconds));
+  /*
+    Five minutes is not an absurd length, and this check used to say it was.
+
+    It asserted a clamp at 120 seconds, under the heading "an absurd length is
+    clamped, not refused". The clamp was real and the word was the bug: nothing
+    in `highlight.ts` has a ceiling — `chooseHighlight` slides a window of
+    whatever length it is given and returns the whole recording when the window
+    is longer than it — so the only thing 120 ever did was turn "the best ten
+    minutes of my talk" into two and then say so, in a sentence the person had
+    to argue with.
+
+    That is the same assumption the rest of this product makes in its framing:
+    that the answer to a long video is a short one. A ceiling on the output
+    belongs where the other ceilings are, in `duration.ts`, which measures the
+    real file and refuses with numbers.
+  */
+  const long = await planner.plan("keep only the best 300 seconds", {});
+  const kept = long.operations.find((o) => o.type === "extractHighlight");
+  check("five minutes is five minutes", kept?.targetSeconds === 300, String(kept?.targetSeconds));
+
+  const tenMinutes = await planner.plan("give me the best 600 seconds of this talk", {});
+  const long10 = tenMinutes.operations.find((o) => o.type === "extractHighlight");
+  check("and ten minutes is ten minutes", long10?.targetSeconds === 600, String(long10?.targetSeconds));
+
+  // The floor stays, because a two-second highlight is not a thing anybody
+  // wants and the renderer has to have something to slide.
+  const tiny = await planner.plan("just the best 2 seconds", {});
+  const floored = tiny.operations.find((o) => o.type === "extractHighlight");
+  check("while the floor is still a floor", floored?.targetSeconds === 5, String(floored?.targetSeconds));
 }
 
 // The mirror image of the highlight: the person names the moments, and no

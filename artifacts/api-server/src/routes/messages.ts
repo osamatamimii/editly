@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { eq, asc, desc, and } from "drizzle-orm";
+import { eq, asc, desc, and, inArray } from "drizzle-orm";
 import { db, messagesTable, projectsTable, renderFollowupsTable, comprehensionsTable } from "@workspace/db";
 import {
   SendMessageBody,
@@ -17,7 +17,17 @@ import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
 import { withCaptionLook } from "../lib/caption-look";
 import { applyHabits, habitsFor } from "../lib/habits";
 import { direct, withDirection, type Reading } from "../lib/direct";
-import { asksForAnEdit, saysOnlyThis, clockOf } from "../lib/plan-from-text";
+import {
+  asksForAnEdit,
+  saysOnlyThis,
+  clockOf,
+  deliverableShape,
+  shapeAnswer,
+  shapeAnswerAsRequest,
+  languageOf,
+  LONG_SOURCE_SECONDS,
+  WHOLE_OR_CLIPS,
+} from "../lib/plan-from-text";
 import { applyNotes } from "../lib/notes";
 import { notesFor, wordsFor } from "../lib/notes-store";
 import { plannerAssets } from "../lib/planner-assets";
@@ -119,7 +129,31 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
   // where a file is.
   const assets = await plannerAssets(params.data.id);
 
-  const intent = await planner.plan(parsed.data.content, {
+  /*
+    A reply to the one question this product asks.
+
+    «مقاطع» on its own is not a request — `parseClips` needs a count or a "cut
+    it into", deliberately, because "add transitions between the clips" must
+    not split anybody's video. But «مقاطع» on its own *is* an answer, when the
+    thing before it was a question offering that word, and a product that asks
+    a question and then cannot read the answer is worse than one that never
+    asked.
+
+    So the answer is folded back onto the request it qualifies. The person's
+    own words are still what gets stored as their message; what gets planned is
+    the request they already made plus their answer, written in a form this
+    file's own parser reads. Teaching every parser about conversational
+    context was the alternative, and it is a far larger change than putting one
+    canonical sentence through the matcher that already exists.
+  */
+  const pendingRequest = await requestAwaitingShape(params.data.id, userId);
+  const answered = pendingRequest === null ? null : shapeAnswer(parsed.data.content);
+  const toPlan =
+    answered === null || pendingRequest === null
+      ? parsed.data.content
+      : `${pendingRequest} ${shapeAnswerAsRequest(answered, languageOf(parsed.data.content))}`;
+
+  const intent = await planner.plan(toPlan, {
     defaultPlatform: project.platform as never,
     assets: assets as never,
   });
@@ -192,7 +226,7 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     is the rest of the edit around it — or when it asked for an edit without
     naming one, which is the sentence the old planner could not hear at all.
   */
-  const wantsAnEdit = intent.operations.length > 0 || asksForAnEdit(parsed.data.content);
+  const wantsAnEdit = intent.operations.length > 0 || asksForAnEdit(toPlan);
   const reading = wantsAnEdit ? await readingFor(params.data.id, userId) : null;
   const decided = wantsAnEdit
     ? direct({
@@ -232,7 +266,7 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
         habits: await habitsFor(userId),
         spokenTypes: new Set(intent.operations.map((op) => op.type)),
         spoke: intent.spoke,
-        onlyWhatWasAsked: saysOnlyThis(parsed.data.content),
+        onlyWhatWasAsked: saysOnlyThis(toPlan),
       })
     : { operations: [], willDo: [] };
   if (decided.operations.length > 0) {
@@ -299,7 +333,52 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
       }
     }
   }
-  if (intent.operations.length > 0 && project.videoPath) {
+  /*
+    One video, or clips of it? On a long recording, that is not ours to assume.
+
+    Four of this product's six first-run suggestions shorten the video, and
+    both of its most-read sentences open with "I can pull out the strongest 30
+    seconds". Nothing in the code refuses a long edit — captions, levelling,
+    silence removal and a grade all keep the length — but nothing offers one
+    either, so the product has been answering a question it never asked. A
+    forty-minute podcast and a forty-minute recording to harvest posts from
+    look identical from here.
+
+    So it asks, once, and starts nothing until it is answered. The cost is
+    honest and worth naming: somebody who typed "clean it up" expecting work to
+    begin now waits for one exchange. The alternative is spending their minutes
+    on the wrong deliverable, which costs them the render and the wait.
+
+    Three conditions, all of them necessary:
+
+      · the recording is long enough for the two answers to be different
+        products (`LONG_SOURCE_SECONDS`);
+      · nothing in the plan or the sentence settles the shape — a highlight,
+        clips, a named range or "keep the whole thing" all settle it, and any
+        of them means the person already said;
+      · and we have not asked about this project before.
+
+    The last is the one that decides whether this is a helpful question or an
+    obstacle. It is read from the conversation itself rather than from a new
+    column: the question is a message like any other, and if it is already in
+    this project's history then it has been asked. Compared against the
+    exported constant rather than a phrase written out again here, so the check
+    cannot drift away from the sentence.
+  */
+  const sourceSeconds = project.duration ?? null;
+  const askedBefore =
+    sourceSeconds !== null && sourceSeconds > LONG_SOURCE_SECONDS
+      ? await alreadyAskedShape(params.data.id, userId)
+      : true;
+  const ask: "wholeOrClips" | undefined =
+    !askedBefore &&
+    intent.operations.length > 0 &&
+    Boolean(project.videoPath) &&
+    deliverableShape(intent.operations, toPlan) === "unsaid"
+      ? "wholeOrClips"
+      : undefined;
+
+  if (!ask && intent.operations.length > 0 && project.videoPath) {
     // The render's notes come back in the language the sentence was written
     // in. `intent.language` is read from what they typed, not from what the
     // model chose to answer in, so the whole exchange — reply now, notes when
@@ -350,7 +429,7 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     }
   }
 
-  const aiContent = replyFor(intent, { hasVideo: Boolean(project.videoPath), render });
+  const aiContent = replyFor(intent, { hasVideo: Boolean(project.videoPath), render, ask });
 
   const [userMessage] = await db
     .insert(messagesTable)
@@ -378,7 +457,10 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     userMessage: serializeMessage(userMessage),
     aiMessage: serializeMessage(aiMessage),
     // The editor renders exactly this, so what gets built is what was promised.
-    plan: intent.operations.length > 0 ? { version: 1, operations: intent.operations } : null,
+    // Nothing is promised while the question stands: the editor renders this
+    // as "here is what is being built", and what is being built is nothing
+    // until they answer.
+    plan: !ask && intent.operations.length > 0 ? { version: 1, operations: intent.operations } : null,
     // The render this message started, when it started one — so the editor can
     // show the progress it just caused instead of waiting to be told.
     render: startedJob,
@@ -386,6 +468,76 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
 });
 
 export default router;
+
+/**
+ * Has this project already been asked whether it wants one video or clips?
+ *
+ * Read from the messages themselves. The alternative was a column on
+ * `projects`, and a migration is the wrong price for a fact the conversation
+ * already records: the question *is* a message, and a question that has been
+ * asked is one that is in the history.
+ *
+ * Compared against `WHOLE_OR_CLIPS` rather than against a phrase written out
+ * again here, so rewording the question cannot quietly make the product start
+ * asking everybody a second time. Both languages, because somebody can be
+ * asked in one and answer in the other.
+ *
+ * On any read failure this answers `true` — asked. A database hiccup should
+ * cost somebody an unasked question, not a second one about a project they
+ * already answered for.
+ */
+async function requestAwaitingShape(projectId: string, userId: string): Promise<string | null> {
+  /*
+    The request the question was asked about, when the question is the last
+    thing said.
+
+    Newest first, and only the handful it takes to see: if the newest
+    assistant message is not the question then nothing is pending, and there
+    is no reason to read further. The user message returned is the newest one
+    older than the question, which is the sentence that produced it.
+
+    Null on any failure, which means the reply is planned as an ordinary
+    sentence. That is the same answer the product gave before this existed.
+  */
+  try {
+    const recent = await db
+      .select({ role: messagesTable.role, content: messagesTable.content })
+      .from(messagesTable)
+      .where(and(eq(messagesTable.projectId, projectId), eq(messagesTable.userId, userId)))
+      .orderBy(desc(messagesTable.createdAt))
+      .limit(6);
+    const newestAssistant = recent.find((m) => m.role === "assistant");
+    if (!newestAssistant) return null;
+    if (newestAssistant.content !== WHOLE_OR_CLIPS.en && newestAssistant.content !== WHOLE_OR_CLIPS.ar) {
+      return null;
+    }
+    const askedAt = recent.indexOf(newestAssistant);
+    const priorUser = recent.slice(askedAt + 1).find((m) => m.role === "user");
+    return priorUser?.content ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function alreadyAskedShape(projectId: string, userId: string): Promise<boolean> {
+  try {
+    const asked = await db
+      .select({ id: messagesTable.id })
+      .from(messagesTable)
+      .where(
+        and(
+          eq(messagesTable.projectId, projectId),
+          eq(messagesTable.userId, userId),
+          eq(messagesTable.role, "assistant"),
+          inArray(messagesTable.content, [WHOLE_OR_CLIPS.en, WHOLE_OR_CLIPS.ar]),
+        ),
+      )
+      .limit(1);
+    return asked.length > 0;
+  } catch {
+    return true;
+  }
+}
 
 /**
  * The project's reading of its own material, narrowed to the timings.

@@ -769,9 +769,24 @@ function toOperation(
           repeats: raw["cutRepeats"] === false ? false : true,
         };
       case "extractHighlight":
-        // Clamped rather than rejected: "the best 3 minutes" should become
-        // the longest highlight we make, not a keyword-matcher fallback.
-        return { type, targetSeconds: Math.min(120, Math.max(5, numberOr(raw["targetSeconds"], 30))) };
+        /*
+          Floor only, and the ceiling is gone.
+
+          It used to clamp at 120 seconds, on the reasoning that "the best 3
+          minutes" should become the longest highlight we make rather than fall
+          through to the keyword matcher. The first half of that is right and
+          the second half was an assumption: nothing in `highlight.ts` has a
+          ceiling. `chooseHighlight` slides a window of whatever length it is
+          given, and when the window is longer than the recording it returns
+          the recording — `how: "whole"` — which is the correct answer to "keep
+          the best forty minutes of this fifty-minute talk".
+
+          So the only thing 120 did was silently turn "the best ten minutes"
+          into two, and say so in a sentence the person then had to argue with.
+          A ceiling on the output belongs where the other ceilings are, in
+          `duration.ts`, which measures the real file and refuses with numbers.
+        */
+        return { type, targetSeconds: Math.max(5, numberOr(raw["targetSeconds"], 30)) };
       case "extractClips":
         // Clamped rather than rejected, like the highlight: "ten clips"
         // becomes six, and a missing count becomes three.

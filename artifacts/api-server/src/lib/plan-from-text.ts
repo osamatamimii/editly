@@ -1535,7 +1535,12 @@ export function planFromText(
   // judgement, made from the transcript. The plan carries only the length.
   if (!clipsAsk && HIGHLIGHT_WORDS.test(text)) {
     const asked = HIGHLIGHT_SECONDS.exec(text);
-    const targetSeconds = Math.min(120, Math.max(5, asked ? Number(asked[1]) : 30));
+    /*
+      No ceiling, for the reason written beside the model's copy of this in
+      `planner.ts`: `chooseHighlight` has none, and 120 only ever turned "the
+      best ten minutes" into two.
+    */
+    const targetSeconds = Math.max(5, asked ? Number(asked[1]) : 30);
     operations.push({ type: "extractHighlight", targetSeconds });
     willDo.push(say(`pull the strongest ${targetSeconds} seconds into its own cut`, `أستخرج أقوى ${targetSeconds} ثانية في مقطع مستقلّ`));
   }
@@ -2365,6 +2370,119 @@ export function becauseIn(lang: Language, body: Record<string, unknown>): string
   }
 }
 
+/**
+ * How long a video has to be before "the whole thing" and "clips of it" stop
+ * being the same product.
+ *
+ * Ten minutes, and the reason is the platforms rather than a feeling. A clip
+ * that goes anywhere social is under ten minutes — that is the longest a
+ * TikTok can be, and Reels and Shorts are far shorter — so a file under this
+ * could plausibly be posted whole. Above it, "post it whole" means YouTube, a
+ * podcast feed, a course page: a different deliverable from the same footage,
+ * and there is no way to look at the file and know which one somebody wants.
+ *
+ * This product has been answering that question by itself, in the framing
+ * rather than in the code: four of six first-run suggestions shorten the
+ * video, and the two most-read sentences in the whole product both open with
+ * "I can pull out the strongest 30 seconds". Nothing refuses a long edit;
+ * nothing offers one either.
+ */
+export const LONG_SOURCE_SECONDS = 600;
+
+/**
+ * "Keep the whole thing" — the ask this product had no words for.
+ *
+ * Every other shape has a vocabulary here: clips, a highlight, a range. The
+ * one intention with no phrase was the plainest one, so somebody who typed
+ * «خليه كامل» or "keep the full length" was understood as having said nothing
+ * about the shape at all.
+ *
+ * No `\b` in front of the Arabic, which cannot match there: a boundary sits
+ * between a word character and a non-word one, and every Arabic letter is a
+ * non-word character to a JavaScript regular expression. The trap is
+ * documented five other times in this file.
+ */
+export const KEEP_WHOLE_WORDS =
+  /\bkeep (it|the) (whole|full|entire)|\bthe whole (thing|video|episode)\b|\bfull[- ]length\b|\bdon'?t (cut it (down|up)|shorten|split)\b|\bone (long )?video\b|\bas (it is|is)\b|كامل|كاملًا|كاملا|بالطول|نفس الطول|خلي الطول|ما تقصره|لا تقصره|ما تقسمه|لا تقسمه|فيديو واحد/i;
+
+/**
+ * The two answers, in the words somebody actually types back.
+ *
+ * A bare «مقاطع» or "clips" is what a person replies to a question that
+ * offered those two words, and neither of them parses as a request on its own:
+ * `parseClips` needs a count or a "cut it into", by design, because "add
+ * transitions between the clips" is not an ask to split anything. So the reply
+ * to a question has to be read as a reply rather than as a fresh sentence, and
+ * that is what this is for — see `answeringShape` in `routes/messages.ts`.
+ *
+ * Deliberately narrow. This is only ever consulted when the previous thing in
+ * the conversation was the question, so it does not have to survive being
+ * pointed at arbitrary text.
+ */
+export function shapeAnswer(text: string): "whole" | "clips" | null {
+  if (/\bclips?\b|\bshorts?\b|\bpieces\b|\bcut it up\b|مقاطع|قصاصات|كليبات|قطّعه|قطعه/i.test(text)) return "clips";
+  if (KEEP_WHOLE_WORDS.test(text) || /\bwhole\b|\bfull\b|\bone video\b|كامل|طويل|بالطول/i.test(text)) return "whole";
+  return null;
+}
+
+/**
+ * The answer, written the way this file's own parser reads it.
+ *
+ * The person's reply is kept as their message; this is what gets planned,
+ * appended to the request they made before the question. Putting a sentence
+ * the matcher already understands through the matcher is the alternative to
+ * teaching every parser about conversational context, and it is the smaller
+ * of the two changes by a wide margin.
+ */
+export function shapeAnswerAsRequest(answer: "whole" | "clips", language: Language): string {
+  if (answer === "clips") return language === "ar" ? "قسّمه إلى 3 مقاطع" : "cut it into 3 clips";
+  return language === "ar" ? "خليه كامل بنفس الطول" : "keep the whole thing, full-length";
+}
+
+/** Operations that decide, by themselves, what shape the deliverable is. */
+const SHAPE_DECIDING = new Set(["extractClips", "extractHighlight", "extractRange", "stillsReel"]);
+
+/**
+ * One video or several short ones — and whether the sentence said.
+ *
+ * The third answer is the one that matters. A plan of captions, levelling and
+ * a grade is a perfectly good edit that says nothing at all about the shape of
+ * what comes back, and on a forty-minute recording that is not a detail: the
+ * person is either cleaning up an episode or harvesting posts out of it, and
+ * those are different products.
+ *
+ * Read from the operations rather than from the words, because the operations
+ * are what will actually run — a sentence the model read and a sentence the
+ * keyword matcher read have to answer this the same way.
+ */
+export function deliverableShape(
+  operations: readonly { type: string }[],
+  text: string,
+): "settled" | "unsaid" {
+  if (operations.some((op) => SHAPE_DECIDING.has(op.type))) return "settled";
+  if (KEEP_WHOLE_WORDS.test(text)) return "settled";
+  return "unsaid";
+}
+
+/**
+ * The question, and the only one this product asks.
+ *
+ * Asked once per project and never again — see `messages.ts`. A product that
+ * asks twice about the same thing is worse than one that guesses, because at
+ * least the guess moves.
+ *
+ * It offers the two answers in the words they can type straight back, which is
+ * the whole difference between a question and an interrogation.
+ */
+export const WHOLE_OR_CLIPS: Record<Language, string> = {
+  en:
+    "Before I start: this one is long. Do you want it back as one video, cleaned up and the same length, " +
+    'or cut into short clips to post? Say "the whole thing" or "clips" and I will go.',
+  ar:
+    "قبل ما أبلّش: هاد فيديو طويل. بدك ياه فيديو واحد منظّف بنفس الطول، ولا مقاطع قصيرة تنشرها؟ " +
+    "قلّي «كامل» أو «مقاطع» وبمشي.",
+};
+
 export function replyFor(
   intent: ParsedIntent,
   context: {
@@ -2378,11 +2496,31 @@ export function replyFor(
      * no operations, or no video — and the reply reads as before.
      */
     render?: { started: true } | { started: false; because: string };
+    /**
+     * The one question this product asks instead of answering.
+     *
+     * Set by `messages.ts` when the recording is long and nothing in the
+     * sentence says whether the result should be one video or several. It
+     * short-circuits everything below: no render was started, so a reply that
+     * listed what it was about to do would be describing work that is not
+     * happening.
+     */
+    ask?: "wholeOrClips";
   },
 ): string {
   const lang = intent.language;
 
   if (!context.hasVideo) return EMPTY_PROJECT[lang];
+
+  /*
+    Asked, and nothing else said.
+
+    Deliberately not "here is what I would do, and also which shape?" — the
+    whole point of asking is that the answer changes the plan, so reciting the
+    plan first is asking somebody to read a paragraph that may be about to be
+    thrown away. One question, the two answers in it, nothing else.
+  */
+  if (context.ask === "wholeOrClips") return WHOLE_OR_CLIPS[lang];
 
   const parts: string[] = [];
   const listed = (phrases: Phrase[]): string =>
