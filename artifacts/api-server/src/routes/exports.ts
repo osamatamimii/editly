@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 import { db, exportsTable, projectsTable, jobsTable, subscriptionsTable, type Job } from "@workspace/db";
 import {
   StartExportBody,
@@ -197,6 +197,16 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
    * `latest` above is the newest job whichever way it went — the right row for
    * "is something already running". This is a different question: what is the
    * edit this project *is*, which only a job that finished can answer.
+   *
+   * `kind` is the load-bearing half of this filter, not decoration. A job that
+   * only listened is `done` too, and the plan on that row is `{}` because
+   * there was never an edit to describe. Without the filter this asked "the
+   * last thing that finished" and got the transcript, `safeParse` failed, and
+   * the export went out carrying none of the edit the person already had --
+   * silently, because a failed parse here reads exactly like a first render.
+   * `finished_at` made it worse than intermittent: Postgres sorts nulls first
+   * on `desc`, so on any worker that leaves it unset a listen row outranks
+   * every real render in this project forever.
    */
   const [lastDone] = await db
     .select({ plan: jobsTable.plan })
@@ -206,9 +216,16 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
         eq(jobsTable.projectId, project.id),
         eq(jobsTable.userId, userId),
         eq(jobsTable.status, "done"),
+        eq(jobsTable.kind, "render"),
       ),
     )
-    .orderBy(desc(jobsTable.finishedAt))
+    /*
+      Newest first, and a row that never recorded when it finished is still a
+      row. Postgres sorts nulls first on `desc`, so the bare column put every
+      render from a worker that left `finished_at` unset ahead of the one that
+      actually finished last. `updated_at` is always written.
+    */
+    .orderBy(sql`coalesce(${jobsTable.finishedAt}, ${jobsTable.updatedAt}) desc`)
     .limit(1);
 
   const previous = EditPlan.safeParse(lastDone?.plan);

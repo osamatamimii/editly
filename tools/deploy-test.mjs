@@ -1659,6 +1659,82 @@ section("The browser's auth client is the one createClient would have built");
   );
 }
 
+section("Nobody reads jobs.plan without saying which kind of job they meant");
+{
+  /*
+    `jobs` holds two different things under one shape.
+
+    A render carries an edit plan. A listen carries `{}`, because there was
+    never an edit to describe -- the row exists to buy the words on the tape.
+    The column is `notNull` so that every reader of a plan does not have to
+    check for a state only one kind can be in, and the price of that decision
+    is this: a query that forgets `kind` will sooner or later be handed `{}`
+    and have to decide what it means.
+
+    Every one of them decided wrongly, and quietly.
+
+      - `habitsFor` called `.find` on `undefined` and threw, which 500'd every
+        message in the product for as long as one listen row existed
+      - the export route parsed `{}`, failed, and shipped an export carrying
+        none of the edit the person already had -- indistinguishable, from the
+        outside, from a first render
+
+    The second is the one worth the section. It had a second half that turns
+    "sometimes" into "from now on": the query orders by `finished_at desc`,
+    Postgres sorts nulls first on `desc`, and a worker that leaves
+    `finished_at` unset on a listen puts that row ahead of every real render in
+    the project permanently.
+
+    So: read the plan column, name the kind. There is no query over `jobs.plan`
+    that wants both kinds, and if one is ever written, it can say so here.
+  */
+  const roots = ["artifacts/api-server/src"];
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+      const next = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) walk(next);
+      else if (entry.name.endsWith(".ts")) files.push(next);
+    }
+  };
+  for (const root of roots) walk(root);
+
+  const readers = [];
+  for (const file of files) {
+    const source = read(file);
+    // Comments are stripped first: a section that explains the rule in prose
+    // must not be what satisfies it.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    if (!/plan:\s*jobsTable\.plan/.test(code)) continue;
+    /*
+      The window a `kind` filter has to appear in.
+
+      From the select to the end of the statement -- `.limit(...)` or the first
+      semicolon that follows -- rather than the whole file, so that a `kind`
+      filter belonging to some other query three functions away cannot stand in
+      for the missing one here.
+    */
+    let from = 0;
+    for (;;) {
+      const at = code.indexOf("plan: jobsTable.plan", from);
+      if (at === -1) break;
+      const rest = code.slice(at);
+      const end = rest.indexOf(";");
+      const statement = end === -1 ? rest : rest.slice(0, end);
+      readers.push({ file, statement });
+      from = at + 1;
+    }
+  }
+
+  check("there are queries that read a job's plan", readers.length > 0, String(readers.length));
+  const blind = readers.filter((r) => !/jobsTable\.kind/.test(r.statement));
+  check(
+    "and every one of them names the kind of job it meant",
+    blind.length === 0,
+    blind.map((r) => r.file).join(", "),
+  );
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);
