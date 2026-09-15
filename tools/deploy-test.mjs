@@ -1407,6 +1407,75 @@ console.log("\nThe platform watches itself");
     /for attempt in 1 2/.test(watch),
     "a single-shot check turns every hiccup into an alarm",
   );
+
+  /*
+   * And the second question, which the first one cannot answer.
+   *
+   * `worker.online` is presence. On 15 September it was true and had been all
+   * along, while every job in the queue had failed for twelve days — the
+   * worker was up and reading from a bucket the product had left. A worker
+   * that is up and failing everything is worse than one that is down, because
+   * it clears the queue while the only signal anybody has stays green.
+   *
+   * So the same join as above, one level in: the columns the probe selects
+   * have to be columns the schema has, and the rule it applies has to be the
+   * rule the schema means.
+   */
+  const probe = read("tools/queue-watch.mjs");
+  const jobsSchema = read("lib/db/src/schema/jobs.ts");
+
+  check(
+    "the watcher also asks whether the queue produces anything",
+    /node tools\/queue-watch\.mjs/.test(watch),
+    "a monitor that only asks whether the worker is alive passes on a worker that fails everything",
+  );
+  check("and that probe exists", probe.length > 0);
+  check(
+    "it reads production rather than a branch database",
+    /PRODUCTION_DATABASE_URL/.test(watch),
+  );
+
+  // The columns, against the schema rather than against memory. Rename one in
+  // Drizzle and this probe's SELECT is a 500 an hour that nobody reads.
+  const declared = new Set([...jobsSchema.matchAll(/\b(?:text|timestamp|integer|real|bigint|jsonb|uuid)\("([a-z_]+)"/g)].map((m) => m[1]));
+  const selected = /select ([\s\S]*?)\n\s*from jobs/.exec(probe)?.[1] ?? "";
+  const columns = selected.split(",").map((c) => c.trim()).filter(Boolean);
+  check(
+    "and every column it selects is one the jobs table has",
+    columns.length >= 5 && columns.every((c) => declared.has(c)),
+    `selected ${JSON.stringify(columns)}`,
+  );
+
+  /*
+   * The one that would have shipped wrong.
+   *
+   * There is no `status = 'cancelled'` in this schema and there deliberately
+   * never was — a stopped render is `failed` carrying `cancelled_at`, because
+   * `status` is read as "settled" in about a hundred and seventy places. A
+   * watcher that looked for the word would read every cancellation as an
+   * outage, and an afternoon of three people changing their minds would page
+   * somebody. That is how a monitor gets muted in its first week.
+   */
+  check(
+    "a stopped render is excluded by its column, not by a status word",
+    /cancelled_at/.test(probe) && /cancelledAt/.test(probe),
+    "the schema has no 'cancelled' status, so a watcher looking for one counts every stop as a fault",
+  );
+  check(
+    "and the schema still says so",
+    !/"cancelled"/.test(jobsSchema.replace(/\/\*[\s\S]*?\*\//g, "")),
+    "a fourth status was added; queue-watch.mjs decides what it means before it ships",
+  );
+  check(
+    "it fails the run when the queue is dead",
+    /::error::/.test(probe) && /process\.exit\(1\)/.test(probe),
+    "a monitor that notices and exits zero has noticed nothing",
+  );
+  check(
+    "and says nothing on a quiet day or a single broken upload",
+    /ENOUGH_TO_JUDGE = 2/.test(probe),
+    "an alert that cries wolf gets muted, which is the same as not having one",
+  );
 }
 
 // ─── "Is Google on in production?" has to have an answer ────────────────────

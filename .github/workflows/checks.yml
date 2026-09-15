@@ -360,6 +360,11 @@ jobs:
       # Postgres; never touches anything it did not create.
       - run: node tools/restore-drill.mjs
       - run: node tools/queue-test.mjs
+      # Beside it, because it is the same queue read from outside: that one is
+      # about claiming and releasing a job, this one is about what `watch.yml`
+      # concludes from a day of them. Needs no database — the verdict is a pure
+      # function of rows, which is the whole reason it is one.
+      - run: node tools/queue-watch-test.mjs
       # The wait a queued render reports. Runs its arithmetic everywhere and its
       # SQL where there is a database — a predicate that is subtly wrong passes
       # every pattern match and gives everybody in the queue a quiet lie.

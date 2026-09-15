@@ -18,11 +18,17 @@
 #
 # ## What it deliberately does not do
 #
-# It does not read the database, and it does not start a render to prove the
-# pipeline works. Both would be better evidence and both cost money on every
-# run — a synthetic render every fifteen minutes is a bill and a queue slot. The
-# heartbeat is the cheapest thing that would have caught the outage this file is
-# named after, and catching that is the whole requirement.
+# The first job here does not read the database, and nothing here starts a
+# render to prove the pipeline works. A synthetic render every hour is a bill
+# and a queue slot, and the heartbeat is the cheapest thing that would have
+# caught the outage this file is named after.
+#
+# It is not the cheapest thing that would have caught the *next* one. On 15
+# September the heartbeat was green and had been all along, while every job in
+# the queue had failed for twelve days: the worker was an eleven-day-old image,
+# up and answering, reading from a bucket the product had left. So there is a
+# third job below that reads outcomes rather than presence — still no render
+# started, still no bill, one SELECT an hour.
 name: Watch
 
 on:
@@ -147,3 +153,42 @@ jobs:
             exit 0
           fi
           node tools/migrate.mjs --check
+
+  # ── Is the queue producing anything? ────────────────────────────────────────
+  #
+  # The `watch` job above asks whether a machine is listening. This asks
+  # whether what it produces is finished video, which is a different question
+  # and on 15 September it had a different answer.
+  #
+  # Thirteen jobs between 3 and 14 September; every one of them `failed`. The
+  # heartbeat beat through all of it, because the worker really was up — it was
+  # an image from eleven days earlier, still downloading from Supabase after the
+  # product had moved to R2 and refusing every transcribe job on a schema it
+  # predated. A worker that is up and failing everything is worse than one that
+  # is down: it clears the queue, every customer's minute is spent, and the one
+  # signal anybody had is green.
+  #
+  # Read-only and bounded, like the schema job: one SELECT over the last day.
+  # It is silent on a quiet day and on a single broken upload, because an alert
+  # that cries wolf gets muted and a muted alert is the same as no alert. What
+  # trips it is two or more finished renders with not one success among them.
+  # `tools/queue-watch-test.mjs` holds both halves, the real 14 September rows
+  # among them.
+  queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.repository == 'osamatamimii/editly'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Did anything that finished today actually finish?
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: node tools/queue-watch.mjs
