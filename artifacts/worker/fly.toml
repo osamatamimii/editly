@@ -43,17 +43,32 @@ kill_timeout = "30s"
 # place for it: during a rolling deploy the old machine is still writing that
 # row, so it says yes while the new one is failing to start. A deploy check has
 # to be answered by the process being checked. See src/health.ts.
-[[services]]
-  internal_port = 8080
-  protocol = "tcp"
-  # No `ports` block: nothing is published to the internet. This service exists
-  # so Fly's own checks have somewhere to knock.
-  auto_stop_machines = false
-  auto_start_machines = false
-
-  [[services.http_checks]]
-    path = "/healthz"
+# A check, not a service, because there is nothing to serve.
+#
+# This was a `[[services]]` block with an `internal_port` and no `ports`, which
+# is how you used to say "give Fly's checks somewhere to knock without
+# publishing anything". flyctl warned about it for two years and now refuses:
+#
+#     Service has no processes set but app has 1 processes defined
+#     WARNING: Service must expose at least one port.
+#      Validation for _services without ports_ will hard fail after
+#      February 15, 2024.
+#     invalid app configuration
+#
+# `setup-flyctl@master` installs the newest CLI on every run, so the deploy
+# that failed was the first one to meet a flyctl old enough to have stopped
+# tolerating it. It failed in seven seconds, before the build, and the deploy
+# workflow is gated on Checks — which had been red for eleven days — so nothing
+# had run this config since the rule tightened.
+#
+# `[checks]` is what the block was always trying to be: a health check on an
+# internal port, no service, no published port, no processes to name.
+[checks]
+  [checks.alive]
+    type = "http"
+    port = 8080
     method = "get"
+    path = "/healthz"
     # Ten seconds, which is long for a `select 1` and short enough that a
     # machine failing to start is caught inside a deploy rather than after it.
     interval = "10s"

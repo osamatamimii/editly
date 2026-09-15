@@ -406,6 +406,73 @@ section("The app the workflow talks to is the app fly.toml describes");
   );
 }
 
+section("The health check Fly runs is one flyctl will still accept");
+{
+  /*
+    The config that gates every deploy, and nothing was reading it.
+
+    This was a `[[services]]` block with an `internal_port` and no `ports` —
+    the old way to say "give Fly's checks somewhere to knock without publishing
+    anything". flyctl warned about that shape for two years and now refuses it:
+
+        Service has no processes set but app has 1 processes defined
+        WARNING: Service must expose at least one port.
+         Validation for _services without ports_ will hard fail after
+         February 15, 2024.
+        invalid app configuration
+
+    `setup-flyctl@master` installs the newest CLI on every run, so the config
+    was fine until the first deploy that met a CLI old enough to have stopped
+    tolerating it — and the deploy is gated on Checks, which had been red for
+    eleven days, so nothing ran it. The deploy failed in seven seconds, before
+    the build, and the worker sat on an eleven-day-old image.
+
+    So: a service with no ports is refused here rather than by Fly, the check
+    has to exist at all, and the port it knocks on has to be the one the worker
+    actually listens on. That last one is the failure nobody would see — a
+    check against the wrong port fails every deploy and rolls it back, which
+    looks exactly like a broken build.
+  */
+  /*
+    Read the config, not the prose about it.
+
+    The comment above the block explains what flyctl refuses and quotes the
+    shape by name, so a check reading the whole file finds `[[services]]` in
+    the explanation and fails on a file that is correct. Third time today that
+    a check has been satisfied — or broken — by its own documentation: the em
+    dash inside a CSS template, the annotation guard reading its own comment,
+    and this. Strip the comments first and read what TOML would read.
+  */
+  const flyLive = flyToml.replace(/^\s*#.*$/gm, "");
+  const servicesBlock = /\[\[services\]\]/.test(flyLive);
+  const servicePorts = /\[\[services\.ports\]\]/.test(flyLive);
+  check(
+    "no service is declared without a port for it",
+    !servicesBlock || servicePorts,
+    "flyctl refuses a services block with no ports, before it builds anything",
+  );
+
+  const checkBlock = flyLive.match(/\[checks\.(\w+)\]([\s\S]*?)(?=\n\[|$)/);
+  check("there is a health check at all", checkBlock !== null,
+    "a machine Fly cannot check is a deploy that cannot be rolled back");
+
+  const body = checkBlock?.[2] ?? "";
+  const checkPort = Number(body.match(/^\s*port\s*=\s*(\d+)/m)?.[1]);
+  const codePort = Number(
+    read("artifacts/worker/src/health.ts").match(/HEALTH_PORT = Number\(process\.env\["HEALTH_PORT"\] \?\? (\d+)\)/)?.[1],
+  );
+  check(
+    "and it knocks on the port the worker listens on",
+    Number.isFinite(checkPort) && checkPort === codePort,
+    `fly.toml ${checkPort} against health.ts ${codePort}`,
+  );
+  check(
+    "at the path the worker answers",
+    /path\s*=\s*"\/healthz"/.test(body),
+    body.slice(0, 120),
+  );
+}
+
 section("The build context is the repo root, and does not carry the repo's build output");
 {
   check(
