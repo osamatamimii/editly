@@ -381,14 +381,41 @@ function WordmarkBand({ word }: { word: string }) {
  * is two copies of a string rather than one span per character — the short
  * version is that Arabic letters join, and per-character spans stop them.
  */
-function Sweep({ children, className = "" }: { children: string; className?: string }) {
+/**
+ * A heading with one part of it painted by the colour wave.
+ *
+ * What stood here was `Sweep`: a heading rendered twice, the lower copy
+ * permanently blurred and the upper one revealed through a travelling mask,
+ * so the line came into focus from one end to the other. It was on two of the
+ * five headings, which was the problem with it — the page had two different
+ * ideas about how a heading arrives, and a reader who notices that notices it
+ * as an inconsistency rather than as either effect.
+ *
+ * One idea now, from the reference Osama sent, and his correction to it:
+ * «مش للعنوان كامل بل للكلمات المهمة منه». The wave runs through the part of
+ * the heading that carries the claim and the rest of the line is ink. A
+ * heading where every word is emphasised has no emphasis in it.
+ *
+ * The accent is matched as a substring rather than passed as a word index,
+ * because the important part of a sentence is not in the same place in Arabic
+ * as in English. Not finding it renders the plain heading — a heading that
+ * lost its colour is a blemish, and one that throws is a white page. The
+ * suite is what turns the blemish into a failure.
+ *
+ * Splitting at a *word* boundary is safe for Arabic in a way that splitting at
+ * a character is not: letters join inside a word and not across a space, so a
+ * whole word in its own span shapes exactly as it did in the sentence. That is
+ * the line this component is careful to stay on.
+ */
+function Accented({ text, accent }: { text: string; accent: string }) {
+  const at = accent ? text.indexOf(accent) : -1;
+  if (at < 0) return <>{text}</>;
   return (
-    <span className={`sweep ${className}`}>
-      <span className="sweep-blur" aria-hidden="true">
-        {children}
-      </span>
-      <span className="sweep-sharp">{children}</span>
-    </span>
+    <>
+      {text.slice(0, at)}
+      <span className="wave-reveal">{accent}</span>
+      {text.slice(at + accent.length)}
+    </>
   );
 }
 
@@ -1331,7 +1358,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
           <div className="reveal">
             <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-3">{t(LANDING.steps.eyebrow)}</p>
             <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-4">
-              <Sweep>{t(LANDING.steps.title)}</Sweep>
+              <Accented text={t(LANDING.steps.title)} accent={t(LANDING.steps.titleAccent)} />
             </h2>
             <p className="text-muted-foreground text-lg">{t(LANDING.steps.lead)}</p>
           </div>
@@ -2023,9 +2050,15 @@ export default function Home() {
         */}
 
         {/* Headline */}
+        {/* The wave is on one word of this, not the whole line.
+            It ran through the entire headline first and Osama's read was that
+            the important words are what should carry it. index.css has why the
+            effect is a moving gradient under intact text rather than one span
+            per letter -- the short version is that splitting Arabic into
+            characters breaks the joining. */}
         <h1
           className="text-5xl md:text-7xl font-extrabold tracking-tight mb-5 max-w-4xl leading-[1.1] animate-fade-up"
-          style={{ animationDelay: "200ms" }}
+          style={{ animationDelay: "150ms" }}
         >
           {/* One voice.
               Two spans used to share this line: a heavy grotesque statement
@@ -2034,7 +2067,7 @@ export default function Home() {
               craft is in how it is typeset is a headline that is not saying
               enough on its own. This one is a plain sentence in one weight,
               because the sentence is the thing. */}
-          {t(LANDING.hero.headline)}
+          <Accented text={t(LANDING.hero.headline)} accent={t(LANDING.hero.headlineAccent)} />
         </h1>
 
         {/* Subtext */}
@@ -2176,7 +2209,7 @@ export default function Home() {
               {t(LANDING.podcasts.eyebrow)}
             </p>
             <h2 className="text-4xl font-bold mb-4 leading-tight text-balance">
-              <Sweep>{t(LANDING.podcasts.title)}</Sweep>
+              <Accented text={t(LANDING.podcasts.title)} accent={t(LANDING.podcasts.titleAccent)} />
             </h2>
             <p className="text-muted-foreground text-lg leading-relaxed">
               {t(LANDING.podcasts.lead)}
@@ -2240,7 +2273,7 @@ export default function Home() {
               line is longer than they are, and at 5xl it wrapped with a single
               word stranded on the second line. */}
           <h2 className="text-3xl md:text-4xl font-bold mb-4 glow-text max-w-3xl mx-auto text-balance">
-            {t(LANDING.pricing.title)}
+            <Accented text={t(LANDING.pricing.title)} accent={t(LANDING.pricing.titleAccent)} />
           </h2>
           <p className="text-muted-foreground text-lg max-w-xl mx-auto">
             {t(LANDING.pricing.lead)}
@@ -2531,7 +2564,7 @@ export default function Home() {
         <div className="horizon-aurora horizon-aurora-light" aria-hidden="true" />
 
         <div className="relative z-10 flex flex-col items-center reveal px-6">
-          <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-5 glow-text text-balance max-w-3xl">{t(LANDING.closing.title)}</h2>
+          <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-5 glow-text text-balance max-w-3xl"><Accented text={t(LANDING.closing.title)} accent={t(LANDING.closing.titleAccent)} /></h2>
           <p className="text-muted-foreground text-lg mb-10 max-w-lg">
             {t(LANDING.closing.leadFirst)}
             <br />

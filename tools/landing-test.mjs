@@ -737,6 +737,50 @@ section("No straight seam crosses the page");
   await context.close();
 }
 
+section("The word a heading paints is a word that heading contains");
+{
+  /*
+    Each heading names the part of itself the colour wave runs through, and
+    the renderer finds that part with `indexOf`. Not finding it is not an
+    error there and must not be: a heading that throws is a white page, so
+    `Accented` falls back to the plain line. Which means the only symptom of
+    a mismatch is a heading that quietly stops being coloured — the kind of
+    thing nobody notices for a month, because nothing is broken, something is
+    just missing.
+
+    Both languages, separately, because that is exactly how this breaks: a
+    reworded English heading whose Arabic still matches leaves the page
+    working in the language its author happened to be reading it in.
+
+    And the accent has to be shorter than the whole line. «مش للعنوان كامل بل
+    للكلمات المهمة منه» is the instruction, and an accent that is the entire
+    heading satisfies `indexOf` while doing the exact thing it says not to.
+  */
+  const accented = [
+    ["hero", copy.LANDING.hero.headline, copy.LANDING.hero.headlineAccent],
+    ["steps", copy.LANDING.steps.title, copy.LANDING.steps.titleAccent],
+    ["podcasts", copy.LANDING.podcasts.title, copy.LANDING.podcasts.titleAccent],
+    ["pricing", copy.LANDING.pricing.title, copy.LANDING.pricing.titleAccent],
+    ["closing", copy.LANDING.closing.title, copy.LANDING.closing.titleAccent],
+  ];
+  for (const [name, title, accent] of accented) {
+    for (const lang of ["ar", "en"]) {
+      const whole = say(title, lang);
+      const part = say(accent, lang);
+      check(
+        `${name}'s ${lang} heading contains the words it paints`,
+        part.length > 0 && whole.includes(part),
+        `${JSON.stringify(part)} in ${JSON.stringify(whole)}`,
+      );
+      check(
+        `and paints less than all of it`,
+        part.length < whole.length,
+        `${part.length} of ${whole.length} characters`,
+      );
+    }
+  }
+}
+
 section("The box writes Arabic a letter at a time without breaking it");
 {
   /*

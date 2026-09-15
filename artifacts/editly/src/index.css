@@ -2373,80 +2373,21 @@ html[data-page-theme="light"] body {
 }
 
 /*
- * The sweep: a line that arrives out of focus and sharpens across itself, in
- * the direction the language is read.
+ * The sweep is gone, and the one thing in it worth keeping is written down.
  *
- * Two copies of the same string, stacked. The lower one is blurred and stays
- * blurred; the upper one is sharp and is revealed through a mask that travels.
- * What the eye reads is a line coming into focus from one end to the other.
+ * It stacked two copies of a heading — one permanently blurred, one sharp and
+ * revealed through a travelling mask — so the line came into focus from one
+ * end to the other. It was on two of the five headings, and that was the
+ * fault: the page had two ideas about how a heading arrives. The colour wave
+ * below is the one idea, on all of them.
  *
- * Two copies rather than splitting the text into per-character spans, and this
- * is not a preference. Arabic letters join, and the shaping is decided by a
- * letter's neighbours *within its text node*. Splitting a word into one span
- * per letter gives isolated letters that no longer join, which is not the word
- * any more. Every per-character text animation on the web has this bug and it
- * is invisible to whoever wrote it.
- *
- * The direction follows the text, not the screen. A sweep that runs against
- * the reading direction arrives at the end of the line before the beginning,
- * which reads as a glitch rather than as focus being found.
+ * The reason it was built as two copies rather than per-character spans is
+ * the reason `.wave-reveal` is a moving gradient, and it is the note to keep:
+ * Arabic letters join, and the shaping is decided by a letter's neighbours
+ * *within its text node*. Split a word into one span per letter and you get
+ * isolated letters that are no longer the word. Every per-character text
+ * animation on the web has this bug and it is invisible to whoever wrote it.
  */
-.sweep {
-  position: relative;
-  display: inline-block;
-}
-.sweep-blur,
-.sweep-sharp {
-  display: inline-block;
-}
-.sweep-blur {
-  filter: blur(7px);
-  opacity: 0.5;
-}
-.sweep-sharp {
-  position: absolute;
-  inset: 0;
-  mask-image: linear-gradient(to right, #000 0 33%, transparent 48% 100%);
-  mask-size: 320% 100%;
-  mask-repeat: no-repeat;
-  mask-position: 100% 0;
-  transition: mask-position 1.15s cubic-bezier(0.16, 1, 0.3, 1);
-}
-/*
- * Right-to-left is not the same mask read backwards: both ends move.
- *
- * The mask box is 320% of the line and travels across it, so which edge of
- * that box the percentage pins decides where the black band sits. In LTR the
- * band lives at the box's left, so the line starts pinned right (band off the
- * left edge, nothing sharp) and ends pinned left (band over everything). In
- * RTL the band lives at the box's right, so *both* pins invert. Mirroring only
- * the gradient — which is what this first did — leaves an Arabic heading whose
- * sharp copy is off-canvas at both ends: it never arrives, and the line simply
- * sits blurred until `settled` takes the mask off and it snaps into focus.
- */
-[dir="rtl"] .sweep-sharp {
-  mask-image: linear-gradient(to left, #000 0 33%, transparent 48% 100%);
-  mask-position: 0 0;
-}
-.reveal.visible .sweep-sharp {
-  mask-position: 0 0;
-}
-[dir="rtl"] .reveal.visible .sweep-sharp {
-  mask-position: 100% 0;
-}
-/* Once it has arrived, the mask and the second copy are dead weight on every
-   subsequent paint. `settled` is the same escape `.reveal` already uses. */
-.reveal.settled .sweep-sharp {
-  mask-image: none;
-  transition: none;
-}
-.reveal.settled .sweep-blur {
-  visibility: hidden;
-}
-@media (prefers-reduced-motion: reduce) {
-  .sweep-sharp { mask-image: none; transition: none; }
-  .sweep-blur { visibility: hidden; }
-}
 
 /*
  * The twinkle. One layer of a star field cannot animate its dots apart — it
@@ -3319,4 +3260,153 @@ html[data-page-theme="light"] body {
     var(--band) calc(100% - 140px),
     transparent 100%
   );
+}
+
+/* ── The headline arrives in colour and settles into ink ─────────────────────
+ *
+ * Osama sent two recordings of Lovable's headline reveal and asked for it
+ * here: «الانميشن هاد بدي عنا متله بس بالوان منصتنا الزرقاء». Theirs sweeps
+ * the line left to right, each letter landing in a bright hue -- orange, blue,
+ * violet, pink -- and settling to near-black a beat later. A wave of colour
+ * travelling along the sentence, leaving normal text behind it.
+ *
+ * The obvious way to build it is one span per character with a staggered
+ * transition on each, and it is the wrong way here for a reason that has
+ * nothing to do with performance: **Arabic joins**. Splitting «احكي» into four
+ * spans puts each letter in its own inline box, the shaper loses the run, and
+ * every letter renders in its isolated form -- ا ح ك ي instead of احكي. The
+ * headline of an Arabic-first product would come apart into disconnected
+ * glyphs. Half of what this product renders is Arabic, so a technique that
+ * cannot survive it is not a technique.
+ *
+ * So nothing is split. The text stays one run and the animation is a gradient
+ * moving *underneath* it, painted into the glyphs with `background-clip:
+ * text`. The shaper never sees a seam, the DOM has no extra elements, and the
+ * same rule does English and Arabic with only its direction reversed.
+ *
+ * The gradient does the reveal as well as the colour, which is why there is no
+ * mask here. `-webkit-text-fill-color: transparent` means a transparent stretch
+ * of the gradient paints nothing at all, so one image carries three states in
+ * order: settled ink, the colour band, and not-yet-arrived. Sliding it past the
+ * text runs every letter through all three.
+ *
+ * The geometry, because it is not guessable from the numbers. The image is 3×
+ * the box, so `background-position` moves it across a range of 2× the box: 0%
+ * puts the image's left edge at the box's left edge, 100% puts its right edge
+ * at the box's right. With the ink→transparent boundary at the middle of the
+ * image (1.5×), that boundary sits at box-x = 1.5 − 2p. Running p from 0.80
+ * down to 0.15 walks it from before the box to past it, and the ink side --
+ * which is the left side -- grows across. That is the left-to-right reveal.
+ * Mirror the gradient for RTL and the same walk runs the other way, so the
+ * Arabic reveals from the right, which is where Arabic starts.
+ *
+ * Once, not on a loop, and `forwards` so the end state is the plain sentence.
+ * A headline that keeps shimmering is a headline nobody finishes reading.
+ */
+.wave-reveal {
+  --wave-ink: hsl(var(--foreground));
+  --wave-1: #1571c7;
+  --wave-2: #50a1ed;
+  --wave-3: #87bef2;
+  --wave-4: #b9dcfa;
+  background-image: linear-gradient(
+    90deg,
+    var(--wave-ink) 0%,
+    var(--wave-ink) 38%,
+    var(--wave-1) 43%,
+    var(--wave-2) 47%,
+    var(--wave-3) 51%,
+    var(--wave-2) 54%,
+    var(--wave-4) 57%,
+    transparent 62%,
+    transparent 100%
+  );
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+  background-position: 80% 0;
+  /*
+    `background-clip` unprefixed and `color: transparent` rather than
+    `-webkit-text-fill-color`, and `theme-test` is the reason for both. The
+    build's minifier treats a hand-written `-webkit-` alias and its standard
+    property as one declaration and keeps whichever it sees last, so writing
+    the pair by hand is how you ship only the alias -- which is how a nav bar
+    went out with no blur behind it once already. Autoprefixer adds
+    `-webkit-background-clip` itself. And the fill-colour alias is not needed
+    at all: with the clip in place, a transparent `color` leaves the glyphs to
+    the background, in every browser this product runs in.
+  */
+  background-clip: text;
+  color: transparent;
+  animation: wave-reveal 1500ms cubic-bezier(0.25, 0.6, 0.3, 1) both;
+}
+
+:where([dir="rtl"], [lang="ar"]) .wave-reveal {
+  background-image: linear-gradient(
+    270deg,
+    var(--wave-ink) 0%,
+    var(--wave-ink) 38%,
+    var(--wave-1) 43%,
+    var(--wave-2) 47%,
+    var(--wave-3) 51%,
+    var(--wave-2) 54%,
+    var(--wave-4) 57%,
+    transparent 62%,
+    transparent 100%
+  );
+  background-position: 20% 0;
+  animation-name: wave-reveal-rtl;
+}
+
+/*
+ * A heading below the fold waits for the scroll rather than playing to nobody.
+ *
+ * `.reveal` already has an IntersectionObserver that adds `visible` when a
+ * section arrives, so the wave hangs off the same signal instead of a second
+ * observer with its own threshold — two answers to "is this on screen" is how
+ * they end up disagreeing. Paused, not delayed: a delay is a guess about how
+ * long somebody takes to scroll, and it is wrong in both directions.
+ *
+ * The hero's headline is not inside a `.reveal`, so it is not caught by this
+ * and plays on load, which is correct — it is already on screen.
+ */
+.reveal .wave-reveal {
+  animation-play-state: paused;
+}
+.reveal.visible .wave-reveal {
+  animation-play-state: running;
+}
+
+@keyframes wave-reveal {
+  from { background-position: 80% 0; }
+  to   { background-position: 15% 0; }
+}
+
+@keyframes wave-reveal-rtl {
+  from { background-position: 20% 0; }
+  to   { background-position: 85% 0; }
+}
+
+/*
+ * Two ways this has to degrade to a plain sentence rather than to nothing.
+ *
+ * A browser without `background-clip: text` would paint the gradient over the
+ * whole box and leave the text transparent -- an invisible headline, which is
+ * the worst failure a fallback can have. And anyone who has asked for less
+ * motion gets the sentence, not a slower version of the effect: the point of
+ * that setting is that the words do not move.
+ */
+@supports not (background-clip: text) {
+  .wave-reveal {
+    background-image: none;
+    color: inherit;
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave-reveal {
+    background-image: none;
+    color: inherit;
+    animation: none;
+  }
 }

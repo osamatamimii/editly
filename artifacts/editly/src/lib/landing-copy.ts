@@ -158,6 +158,28 @@ export const LANDING = {
      */
     headline: p("احكي، وخُد الفيديو جاهز.", "Say it. Get the video."),
     /*
+     * The word the colour lands on.
+     *
+     * Every heading on this page now arrives with a wave of the product's
+     * blues travelling through it, and Osama's correction was that it should
+     * not travel through all of it: «مش للعنوان كامل بل للكلمات المهمة منه».
+     * He is right, and the reason is that a heading where everything is
+     * emphasised has nothing emphasised — the colour stops being a reading
+     * order and becomes a paint job.
+     *
+     * So each title names the part of itself that carries the claim, and only
+     * that part is painted. Here it is the payoff rather than the instruction:
+     * anybody can ask for a video, and «جاهز» — finished, nothing left to do —
+     * is the whole product.
+     *
+     * A substring rather than a word index, because Arabic and English do not
+     * put the important part in the same position and an index would quietly
+     * paint the wrong word in one of them. `landing-test` asserts every accent
+     * is actually found in its title, so a reworded heading fails loudly
+     * instead of silently losing its colour.
+     */
+    headlineAccent: p("جاهز", "the video"),
+    /*
      * The line under the headline says something the headline did not.
      *
      * It used to read "One sentence. A finished video." — which was the
@@ -243,6 +265,7 @@ export const LANDING = {
   steps: {
     eyebrow: p("كيف يعمل", "How it works"),
     title: p("ثلاث خطوات، ولا واحدة منها مملّة", "Three steps, none of them tedious"),
+    titleAccent: p("مملّة", "tedious"),
     lead: p("الجزء الذي تكرهه، يُنجَز وأنت غير موجود.", "The part you dread, done while you are not looking."),
     one: {
       title: p("ارفع التسجيل الخام", "Upload the raw take"),
@@ -380,6 +403,7 @@ export const LANDING = {
       "تسجيل واحد الثلاثاء. أسبوع من المنشورات بحلول الأربعاء.",
       "One recording on Tuesday. A week of posts by Wednesday.",
     ),
+    titleAccent: p("أسبوع من المنشورات", "A week of posts"),
     lead: p(
       "بالساعتين تلات لحظات تستحقّ النشر. هاد بيلاقيهم.",
       "Two hours hold three moments worth posting. This finds them.",
@@ -429,6 +453,7 @@ export const LANDING = {
       "ادفع على الدقائق اللي بتنشرها.",
       "Pay for the minutes you publish.",
     ),
+    titleAccent: p("اللي بتنشرها", "you publish"),
     lead: p(
       "كل الخطط بتعدّل نفس الشي. والرفع مفتوح.",
       "Every plan edits the same. Upload what you like.",
@@ -511,6 +536,7 @@ export const LANDING = {
 
   closing: {
     title: p("اجعل فيديوك القادم أفضل ما صنعت.", "Turn your next video into your best one."),
+    titleAccent: p("أفضل ما صنعت", "your best one"),
     leadFirst: p("الجزء الممل هو ما يجب أن تفعله الآلة.", "The tedious part is the part a machine should do."),
     leadSecond: p("ارفع تسجيلًا واحدًا وانظر كم يقصر.", "Upload one take and see how much shorter it gets."),
     cta: p("ابدأ التعديل مجانًا", "Start Editing Free"),
