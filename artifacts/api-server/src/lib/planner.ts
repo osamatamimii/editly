@@ -26,7 +26,7 @@
  */
 import { EditOperation, TransitionStyle, type Platform, MAX_PLAN_OPERATIONS } from "@workspace/api-zod";
 import { interstitialCard } from "./scenes";
-import { languageOf, momentsNotHonoured, planFromText, replyFor, type ParsedIntent, type Phrase } from "./plan-from-text";
+import { languageOf, momentsNotHonoured, planFromText, replyFor, shapeInWords, type ParsedIntent, type Phrase } from "./plan-from-text";
 
 const ENDPOINT = "https://api.openai.com/v1/chat/completions";
 
@@ -1193,13 +1193,13 @@ export function describeAll(operations: EditOperation[]): Phrase[] {
       */
       case "drawLayers":
         return op.layers.length === 1
-          ? { en: "draw a layer over the frame", ar: "أرسم طبقة فوق الكادر" }
+          ? { en: "put something on top of the video", ar: "أحطّ إشي فوق الفيديو" }
           : {
-              en: `build a scene of ${op.layers.length} layers`,
-              ar: `أبني مشهدًا من ${op.layers.length} طبقة`,
+              en: `build a full screen out of ${op.layers.length} pieces`,
+              ar: `أبني شاشة كاملة من ${op.layers.length} عناصر`,
             };
 case "removeSilence":
-        return { en: "cut out the silences and dead air", ar: "أقصّ الصمت والفراغات" };
+        return { en: "take out the silent bits", ar: "أشيل السكتات" };
       case "tighten":
         /*
           Named by what it removes, not by the word "tighten".
@@ -1210,19 +1210,19 @@ case "removeSilence":
           enough that they can object to it.
         */
         return op.fillers && op.repeats
-          ? { en: "cut the hesitations and the false starts", ar: "أقصّ الترددات والبدايات المكرّرة" }
+          ? { en: "take out the ums and the sentences that start twice", ar: "أشيل «آآ» و«يعني» والجمل اللي بتبلّش مرتين" }
           : op.repeats
-            ? { en: "cut the false starts, where a sentence begins twice", ar: "أقصّ البدايات المكرّرة، حيث تبدأ الجملة مرّتين" }
-            : { en: "cut the hesitations", ar: "أقصّ الترددات" };
+            ? { en: "take out the sentences that start twice", ar: "أشيل الجمل اللي بتبلّش مرتين" }
+            : { en: "take out the ums", ar: "أشيل «آآ» و«يعني»" };
       case "extractHighlight":
         return {
-          en: `pull the strongest ${Math.round(op.targetSeconds)} seconds into its own cut`,
-          ar: `أستخرج أقوى ${Math.round(op.targetSeconds)} ثانية في مقطع مستقلّ`,
+          en: `take the strongest ${Math.round(op.targetSeconds)} seconds and make them a video on their own`,
+          ar: `آخد أقوى ${Math.round(op.targetSeconds)} ثانية وأعملها فيديو لحاله`,
         };
       case "extractRange":
         return {
-          en: `cut it down to ${clock(op.startSeconds)}\u2013${clock(op.endSeconds)}, the stretch you named`,
-          ar: `أقصّه إلى ${clock(op.startSeconds)}\u2013${clock(op.endSeconds)}، المدى الذي سمّيته`,
+          en: `keep only what is between ${clock(op.startSeconds)} and ${clock(op.endSeconds)}, the part you asked for`,
+          ar: `أبقي بس اللي بين ${clock(op.startSeconds)} و${clock(op.endSeconds)}، الجزء اللي طلبته`,
         };
       case "extractClips":
         return {
@@ -1231,39 +1231,40 @@ case "removeSilence":
         };
       case "coldOpen":
         return {
-          en: `open on the strongest ${Math.round(op.seconds)} seconds, then play the rest from the top`,
-          ar: `أفتح على أقوى ${Math.round(op.seconds)} ثوانٍ، ثم يُعرض الباقي من البداية`,
+          en: `start with the strongest ${Math.round(op.seconds)} seconds, then carry on from the beginning`,
+          ar: `أبلّش بأقوى ${Math.round(op.seconds)} ثواني، وبعدها بيكمّل من أوله`,
         };
       case "fade":
         return {
-          en: `open it from black and close it to black over ${(op.durationMs / 1000).toFixed(1)}s`,
-          ar: `أفتحه من السواد وأُغلقه إليه خلال ${(op.durationMs / 1000).toFixed(1)} ثانية`,
+          en: `start it from a black screen and end on one, over ${(op.durationMs / 1000).toFixed(1)}s`,
+          ar: `أخلّيه يبلّش من شاشة سودا ويخلص عليها خلال ${(op.durationMs / 1000).toFixed(1)} ثانية`,
         };
       case "transition":
         return op.style === "dissolve"
           ? {
-              en: `dissolve between the cuts over ${(op.durationMs / 1000).toFixed(2)}s instead of jumping`,
-              ar: `أذوّب بين القصّات خلال ${(op.durationMs / 1000).toFixed(2)} ثانية بدل القفز بينها`,
+              en: `let each scene fade into the next over ${(op.durationMs / 1000).toFixed(2)}s instead of jumping`,
+              ar: `أخلّي كل مشهد يذوب بالتاني خلال ${(op.durationMs / 1000).toFixed(2)} ثانية بدل ما ينطّ`,
             }
           : {
-              en: `join the cuts with a ${spaced(op.style)} over ${(op.durationMs / 1000).toFixed(2)}s`,
-              ar: `أصل القصّات بـ${spaced(op.style)} خلال ${(op.durationMs / 1000).toFixed(2)} ثانية`,
+              en: `make each change of scene a ${spaced(op.style)} over ${(op.durationMs / 1000).toFixed(2)}s`,
+              ar: `أخلّي كل تغيير مشهد ${spaced(op.style)} خلال ${(op.durationMs / 1000).toFixed(2)} ثانية`,
             };
       case "formatForPlatform": {
-        const shape = op.platform === "youtube" ? "16:9" : op.platform === "square" ? "1:1" : "9:16";
+        // Words, not a ratio. See `shapeInWords` in plan-from-text.ts for why.
+        const shape = shapeInWords(op.platform as never);
         return {
-          en: `reframe it to ${shape} for ${op.platform}`,
-          ar: `أعيد تأطيره ${shape} لـ${op.platform}`,
+          en: `make it ${shape.en} for ${op.platform}`,
+          ar: `أخلّيه ${shape.ar} لـ${op.platform}`,
         };
       }
       case "autoCaptions":
-        return { en: "caption it from what is actually said", ar: "أكتب الترجمة من الكلام المنطوق نفسه" };
+        return { en: "write what you say on the screen", ar: "أكتب الكلام اللي بتحكيه عالصورة" };
       case "kenBurns":
-        return { en: "add a slow push so the frame is not static", ar: "أضيف حركة بطيئة كي لا تبقى الصورة ثابتة" };
+        return { en: "move the picture slowly so it is not standing still", ar: "أحرّك الصورة شوي بهدوء حتى ما تضلّ واقفة" };
       case "alternateFraming":
         return {
-          en: "cut between a wide and a close version of the frame, so one camera reads as two",
-          ar: "أقطع بين نسخة واسعة وأخرى قريبة من الكادر، فتبدو الكاميرا الواحدة كاميرتين",
+          en: "switch between a wide shot and a close one, so it looks like two cameras instead of one",
+          ar: "أبدّل بين لقطة واسعة ولقطة قريبة، فبتبيّن كأنه في كاميرتين مش وحدة",
         };
       case "zoomPunch":
         // Two punches, two sentences.
@@ -1283,35 +1284,35 @@ case "removeSilence":
         // — the two-heads rule pointing the wrong way.
         return op.on === "beat"
           ? {
-              en: "land the punches on the beat of that track rather than on your voice",
-              ar: "أُوقع التقريبات على إيقاع تلك المقطوعة بدل صوتك",
+              en: "zoom in on the beat of that track instead of on your voice",
+              ar: "أقرّب الصورة مع ضربات هديك المقطوعة بدل صوتك",
             }
-          : { en: "punch in where you lean on a word", ar: "أقرّب الصورة عند الكلمات التي تشدّد عليها" };
+          : { en: "zoom in on the words you lean on", ar: "أقرّب الصورة عند الكلمات اللي بتشدّد عليها" };
       case "normalizeLoudness":
         return op.denoise
           ? {
-              en: "level the audio and take the room out from under your voice",
-              ar: "أضبط مستوى الصوت وأزيل ضجيج الغرفة من تحت صوتك",
+              en: "even out the sound and take the room noise from under your voice",
+              ar: "أظبّط الصوت وأشيل ضجّة الغرفة من تحت صوتك",
             }
           : {
-              en: "level the audio to what these platforms expect",
-              ar: "أضبط مستوى الصوت على ما تتوقّعه هذه المنصّات",
+              en: "even out the sound to what these apps expect",
+              ar: "أظبّط الصوت متل ما بدها هالتطبيقات",
             };
       case "burnCaptions":
-        return { en: "burn in the captions", ar: "أحرق الترجمة في الصورة" };
+        return { en: "write the captions onto the video itself", ar: "أكتب الترجمة على الفيديو نفسه" };
       case "watermark":
-        return { en: "add the watermark", ar: "أضيف العلامة المائية" };
+        return { en: "put your small logo in the corner", ar: "أحطّ شعارك الصغير بالزاوية" };
       case "grade":
         // Read back as a promise, so it has to say which of the two it is.
         // A LUT first: it is the most deliberate of the three asks.
-        if ("lut" in op && op.lut) return { en: "grade it with your LUT", ar: "أدرّج الصورة بملف الألوان الذي رفعته" };
+        if ("lut" in op && op.lut) return { en: "colour it with the colour file you sent", ar: "ألوّنه بملفّ الألوان اللي بعتّه" };
         return op.look === "mono"
-          ? { en: "take the colour out", ar: "أنزع اللون" }
+          ? { en: "make it black and white", ar: "أخلّيه أبيض وأسود" }
           : op.look === "punch"
-            ? { en: "push the contrast and the colour", ar: "أرفع التباين واللون" }
+            ? { en: "make the colours stronger and clearer", ar: "أخلّي الألوان أقوى وأوضح" }
             : op.look && op.look !== "none"
-              ? { en: `grade it ${op.look}`, ar: `أدرّجه ${op.look}` }
-              : { en: "match the colour to your reference", ar: "أطابق اللون مع مرجعك" };
+              ? { en: `give it a ${op.look} look`, ar: `أعطيه لون ${op.look}` }
+              : { en: "make the colours like the video you sent", ar: "أخلّي الألوان متل الفيديو اللي بعتّه" };
       // The three that put something from the project's library on screen.
       // Phrased by what a person would see rather than by the operation's
       // name, because this list is read back to them as a promise.
@@ -1329,8 +1330,8 @@ case "removeSilence":
           : { en: "lay your music under the whole edit", ar: "أضع موسيقاك تحت التعديل كلّه" };
       case "overlayImage":
         return {
-          en: `hold one of your images over the frame at ${Math.round(op.at)}s`,
-          ar: `أثبّت إحدى صورك فوق الكادر عند الثانية ${Math.round(op.at)}`,
+          en: `hold one of your pictures on top of the video at ${Math.round(op.at)}s`,
+          ar: `أثبّت وحدة من صورك فوق الفيديو عند الثانية ${Math.round(op.at)}`,
         };
       case "motionTitle":
         return {
@@ -1344,12 +1345,12 @@ case "removeSilence":
       case "soundEffects":
         return op.onCuts && op.onPunches
           ? {
-              en: "put sound effects on the cuts and under the punch-ins",
-              ar: "أضع مؤثّرات صوتية على القصّات وتحت التقريبات",
+              en: "add sound effects where the scenes change and where it zooms in",
+              ar: "أحطّ مؤثّرات صوت عند تغيير المشاهد ومع تقريب الصورة",
             }
           : op.onPunches
-            ? { en: "put sound effects under the punch-ins", ar: "أضع مؤثّرات صوتية تحت التقريبات" }
-            : { en: "put sound effects on the cuts", ar: "أضع مؤثّرات صوتية على القصّات" };
+            ? { en: "add sound effects where it zooms in", ar: "أحطّ مؤثّرات صوت مع تقريب الصورة" }
+            : { en: "add sound effects where the scenes change", ar: "أحطّ مؤثّرات صوت عند تغيير المشاهد" };
       // Said by the count, because that is the number they can check. The
       // length is deliberately not promised here: the reel comes out shorter
       // than asked when the photographs would have to be held too long, and

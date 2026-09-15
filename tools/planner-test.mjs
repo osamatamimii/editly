@@ -183,7 +183,7 @@ console.log("\nWhen the model answers well");
   check("its parameters survive", result.operations[0].minSilenceMs === 400 && result.operations[1].style === "karaoke-box", JSON.stringify(result.operations[0]));
 
   const reply = replyFor(result, { hasVideo: true });
-  check("the reply names the captions", /caption it/.test(reply), reply);
+  check("the reply names the captions", /write what you say/.test(reply), reply);
   check("and the reframe", /reels/.test(reply), reply);
   check("and promises nothing else", !/music|b-roll|emoji|colou?r/i.test(reply), reply);
 }
@@ -512,7 +512,7 @@ console.log("\nA beat punch the model forgot to give a beat");
   );
   check(
     "in Arabic too, because the reply follows the request's language",
-    result.willDo.some((phrase) => /إيقاع/.test(phrase.ar ?? "")),
+    result.willDo.some((phrase) => /ضربات/.test(phrase.ar ?? "")),
     JSON.stringify(result.willDo),
   );
 
@@ -852,7 +852,7 @@ console.log("\nAsking for a fade is a plan for the ends");
   check("half a second by default", fade?.durationMs === 500, String(fade?.durationMs));
   check(
     "and the reply promises black at both ends",
-    /from black/.test(asked.willDo.map(inEnglish).join(" ")),
+    /black screen/.test(asked.willDo.map(inEnglish).join(" ")),
     JSON.stringify(asked.willDo),
   );
 
@@ -909,7 +909,16 @@ console.log("\nThe frame follows the platform that was named");
   const yt = await planner.plan("make this landscape for youtube", {});
   const ytOp = yt.operations.find((o) => o.type === "formatForPlatform");
   check("'for youtube' is widescreen, not shorts", ytOp?.platform === "youtube", JSON.stringify(ytOp));
-  check("and the reply says 16:9, not 9:16", /16:9/.test(yt.willDo.map(inEnglish).join(" ")), JSON.stringify(yt.willDo));
+  /*
+    The sentence says "wide"; the ratio is still 16:9 everywhere it matters.
+    `shapeInWords` is why: a ratio is a thing you learn from editing software,
+    and this sentence is the one a person reads to check they were understood.
+  */
+  check(
+    "and the reply says wide, not vertical",
+    /\bwide\b/.test(yt.willDo.map(inEnglish).join(" ")) && !/vertical/.test(yt.willDo.map(inEnglish).join(" ")),
+    JSON.stringify(yt.willDo),
+  );
 
   const shorts = await planner.plan("cut this up for youtube shorts", {});
   const shortsOp = shorts.operations.find((o) => o.type === "formatForPlatform");
@@ -918,7 +927,7 @@ console.log("\nThe frame follows the platform that was named");
   const square = await planner.plan("make it square for the feed", {});
   const squareOp = square.operations.find((o) => o.type === "formatForPlatform");
   check("'square' is its own shape", squareOp?.platform === "square", JSON.stringify(squareOp));
-  check("and the reply says 1:1", /1:1/.test(square.willDo.map(inEnglish).join(" ")), JSON.stringify(square.willDo));
+  check("and the reply says square", /\bsquare\b/.test(square.willDo.map(inEnglish).join(" ")), JSON.stringify(square.willDo));
 
   const insta = await planner.plan("for instagram please", {});
   check(
@@ -960,7 +969,7 @@ console.log("\nAsking for a dissolve is a plan for the joins");
   );
   check(
     "the reply says what the viewer will see",
-    /dissolve where the recording jumps/.test(asked.willDo.map(inEnglish).join(" ")),
+    /fade only where the recording jumps/.test(asked.willDo.map(inEnglish).join(" ")),
     JSON.stringify(asked.willDo),
   );
   /*
@@ -1305,7 +1314,7 @@ console.log("\nAsking for what the project does not have");
   check("no operation is invented", result.operations.length === 0);
   check(
     "and the reason is the missing file, not a missing feature",
-    /no clips to cut to/.test(result.cannotYet.map(inEnglish).join(" ")),
+    /no clips to show/.test(result.cannotYet.map(inEnglish).join(" ")),
     JSON.stringify(result.cannotYet),
   );
 }
@@ -1447,7 +1456,7 @@ console.log("\nMusic comes from the person's own library or not at all");
   );
   check(
     "and the reply says which of the two it is",
-    beat.willDo.map(inEnglish).some((w) => /on the beat of that track rather than on your voice/.test(w)),
+    beat.willDo.map(inEnglish).some((w) => /on the beat of that track instead of on your voice/.test(w)),
     JSON.stringify(beat.willDo),
   );
 
@@ -1456,7 +1465,7 @@ console.log("\nMusic comes from the person's own library or not at all");
   const noTrack = await planner.plan("cut it to the beat", { assets: [] });
   check(
     "with no music in the project the answer is still no",
-    noTrack.cannotYet.map(inEnglish).some((c) => /no music to cut to/.test(c)),
+    noTrack.cannotYet.map(inEnglish).some((c) => /no music to follow/.test(c)),
     JSON.stringify(noTrack.cannotYet),
   );
   check(
@@ -1742,7 +1751,7 @@ console.log("\nA hook and a transition happen together again");
   check("with nothing withheld", both.cannotYet.length === 0, JSON.stringify(both.cannotYet));
 
   const reply = replyFor(both, { hasVideo: true });
-  check("and the reply promises both", /open on the strongest moment/.test(reply) && /dissolve where the recording jumps/.test(reply), reply);
+  check("and the reply promises both", /start with the strongest moment/.test(reply) && /fade only where the recording jumps/.test(reply), reply);
 
   const faded = await planner.plan("give it a hook and fade it in and out", {});
   check(
@@ -1804,7 +1813,7 @@ console.log("\nA look can be named, because most people have no reference to han
   }
 
   const reply = replyFor(await planner.plan("make it black and white", {}), { hasVideo: true });
-  check("and the reply says it in words a person uses", /take the colour out/.test(reply), reply);
+  check("and the reply says it in words a person uses", /black and white/.test(reply), reply);
 }
 
 console.log("\nThe two most basic asks, in the other language");
@@ -1837,7 +1846,7 @@ console.log("\nThe two most basic asks, in the other language");
     JSON.stringify(levelled.operations.map((o) => o.type)),
   );
   const reply = replyFor(levelled, { hasVideo: true });
-  check("so the promise it makes is one it planned", /level the audio/.test(reply), reply);
+  check("so the promise it makes is one it planned", /even out the sound/.test(reply), reply);
 
   // The guard on the other side: "level" is a common word and must not fire on
   // its own.
@@ -1873,11 +1882,11 @@ console.log("\n\"no music\" is a refusal, not a request for music");
   // And a project with no track does not offer music to someone who declined it.
   const noTrack = (asked) => {
     const intent = planFromText(asked, { assets: [] });
-    // "bed" as well as "music", because the sentence changed when the source
-    // did: a project with no track is now told a bed will be laid, not asked
-    // to go and upload one.
+    // The words the sentence uses now. "bed" was one of them until the
+    // confirmation stopped speaking in trade terms: a bed is a thing you know
+    // from a mixing desk, and the sentence says "music under the video".
     return [...(intent.willDo ?? []), ...(intent.cannotYet ?? [])].some((p) =>
-      /add music|أضيف موسيق|\bbed\b|فرشة/i.test(JSON.stringify(p)),
+      /add music|أضيف موسيق|music under|موسيقى .* تحت/i.test(JSON.stringify(p)),
     );
   };
   check("a refusal with no track offers nothing", noTrack("no music") === false);

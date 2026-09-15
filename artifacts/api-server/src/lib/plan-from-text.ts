@@ -110,11 +110,30 @@ const PLATFORM_WORDS: Array<{ platform: Platform; patterns: RegExp }> = [
   { platform: "reels", patterns: /\binstagram|insta\b/i },
 ];
 
-/** What the frame will actually be, said the way a person would say it. */
+/** The aspect ratio, for the places that want the numbers. */
 function shapeLabel(platform: Platform): string {
   if (platform === "youtube") return "16:9";
   if (platform === "square") return "1:1";
   return "9:16";
+}
+
+/**
+ * The same thing, for somebody who has never edited a video.
+ *
+ * "9:16" is a ratio, and a ratio is a thing you learn from editing software.
+ * Asked what he wants to see before a render starts, Osama said: first it
+ * tells you what it is going to do, **in words somebody who has never made an
+ * edit would understand**. «أعيد تأطيره 9:16» fails that twice over, once on
+ * «تأطير» and once on the numbers.
+ *
+ * The ratio has not gone anywhere: it is still what the render uses and still
+ * what `shapeLabel` returns for the places that report it. This is only what
+ * the sentence says.
+ */
+export function shapeInWords(platform: Platform): { en: string; ar: string } {
+  if (platform === "youtube") return { en: "wide", ar: "عريض" };
+  if (platform === "square") return { en: "square", ar: "مربّع" };
+  return { en: "vertical", ar: "عمودي" };
 }
 
 /**
@@ -438,8 +457,8 @@ const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
     // answer is still that we cannot.
     patterns: /\bcolou?r ?(grade|grading)\b|\bgrade it like\b|\bLUT\b/i,
     label: say(
-      "grade the colour to a look I do not have yet. Name warm, cool, cinematic, black and white or punchy, or upload a video whose colour you want matched",
-      "أدرّج اللون إلى لوك لا أملكه بعد، سمّ warm أو cool أو cinematic أو الأبيض والأسود أو punch، أو ارفع فيديو تريد مطابقة لونه",
+      "give it a look I do not have yet. Say warm, cool, cinematic, black and white or punchy, or send a video whose colour you want copied",
+      "أعطيه لون ما بعرفه بعد. قلّي warm أو cool أو cinematic أو أبيض وأسود أو punch، أو ارفع فيديو بدك ألوانه متل ألوانه",
     ),
   },
   {
@@ -1507,13 +1526,13 @@ export function planFromText(
 
   if (wantsSilenceCut) {
     operations.push({ type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 });
-    willDo.push(say("cut out the silences and dead air", "أقصّ الصمت والفراغات"));
+    willDo.push(say("take out the silent bits", "أشيل السكتات"));
   }
 
   if (wantsTighten) {
     operations.push({ type: "tighten", fillers: true, repeats: true });
     willDo.push(
-      say("cut the hesitations and the false starts", "أقصّ الترددات والبدايات المكرّرة"),
+      say("take out the ums and the sentences that start twice", "أشيل «آآ» و«يعني» والجمل اللي بتبلّش مرتين"),
     );
   }
 
@@ -1542,7 +1561,7 @@ export function planFromText(
     */
     const targetSeconds = Math.max(5, asked ? Number(asked[1]) : 30);
     operations.push({ type: "extractHighlight", targetSeconds });
-    willDo.push(say(`pull the strongest ${targetSeconds} seconds into its own cut`, `أستخرج أقوى ${targetSeconds} ثانية في مقطع مستقلّ`));
+    willDo.push(say(`take the strongest ${targetSeconds} seconds and make them a video on their own`, `آخد أقوى ${targetSeconds} ثانية وأعملها فيديو لحاله`));
   }
 
   // The stretch they named, kept exactly. The mirror of the highlight: there
@@ -1552,8 +1571,8 @@ export function planFromText(
     operations.push({ type: "extractRange", ...range });
     willDo.push(
       say(
-        `keep just ${clockOf(range.startSeconds)}\u2013${clockOf(range.endSeconds)}, the stretch you named`,
-        `أبقي ${clockOf(range.startSeconds)}\u2013${clockOf(range.endSeconds)} لحالها، المدى اللي سمّيته`,
+        `keep only what is between ${clockOf(range.startSeconds)} and ${clockOf(range.endSeconds)}, the part you asked for`,
+        `أبقي بس اللي بين ${clockOf(range.startSeconds)} و${clockOf(range.endSeconds)}، الجزء اللي طلبته`,
       ),
     );
   }
@@ -1561,7 +1580,8 @@ export function planFromText(
   if (wantsVertical) {
     const target = platform ?? options.defaultPlatform ?? "tiktok";
     operations.push({ type: "formatForPlatform", platform: target });
-    willDo.push(say(`reframe it to ${shapeLabel(target)} for ${target}`, `أعيد تأطيره ${shapeLabel(target)} لـ${target}`));
+    const shaped = shapeInWords(target);
+    willDo.push(say(`make it ${shaped.en} for ${target}`, `أخلّيه ${shaped.ar} لـ${target}`));
   }
 
   // The words are in the video, not in this sentence, so the plan asks for
@@ -1658,7 +1678,7 @@ export function planFromText(
             "caption it from what is actually said, with each word arriving as it is spoken and the word you lean on drawn larger",
             "أكتب الترجمة من الكلام المنطوق نفسه، كل كلمة بتوصل وقت ما تنقال، والكلمة اللي بتشدّد عليها بترسمها أكبر",
           )
-        : say("caption it from what is actually said", "أكتب الترجمة من الكلام المنطوق نفسه"),
+        : say("write what you say on the screen", "أكتب الكلام اللي بتحكيه عالصورة"),
     );
   }
 
@@ -1671,7 +1691,7 @@ export function planFromText(
   // defeated it. Most specific first, and it survives.
   if (PUSH_WORDS.test(text)) {
     operations.push({ type: "kenBurns", to: 1.08 });
-    willDo.push(say("add a slow push so the frame is not static", "أضيف حركة بطيئة كي لا تبقى الصورة ثابتة"));
+    willDo.push(say("move the picture slowly so it is not standing still", "أحرّك الصورة شوي بهدوء حتى ما تضلّ واقفة"));
   } else if (asksForPunches(text)) {
     // Where they pointed, if they pointed anywhere. An empty list still means
     // "you choose", and the worker still puts them on the emphasis — so a
@@ -1699,8 +1719,8 @@ export function planFromText(
     operations.push({ type: "alternateFraming", amount: 0.15 });
     willDo.push(
       say(
-        "cut between a wide and a close version of the frame, so one camera reads as two",
-        "أقطع بين نسخة واسعة وأخرى قريبة من الكادر، فتبدو الكاميرا الواحدة كاميرتين",
+        "switch between a wide shot and a close one, so it looks like two cameras instead of one",
+        "أبدّل بين لقطة واسعة ولقطة قريبة، فبتبيّن كأنه في كاميرتين مش وحدة",
       ),
     );
   }
@@ -1715,10 +1735,10 @@ export function planFromText(
     willDo.push(
       namedNoise
         ? say(
-            "level the audio and take the room out from under your voice",
-            "أضبط مستوى الصوت وأزيل ضجيج الغرفة من تحت صوتك",
+            "even out the sound and take the room noise from under your voice",
+            "أظبّط الصوت وأشيل ضجّة الغرفة من تحت صوتك",
           )
-        : say("level the audio to what these platforms expect", "أضبط مستوى الصوت على ما تتوقّعه هذه المنصّات"),
+        : say("even out the sound to what these apps expect", "أظبّط الصوت متل ما بدها هالتطبيقات"),
     );
   }
 
@@ -1728,7 +1748,7 @@ export function planFromText(
   // nobody is told they got something they did not.
   if (HOOK_WORDS.test(text)) {
     operations.push({ type: "coldOpen", seconds: 4 });
-    willDo.push(say("open on the strongest moment, then play the rest from the top", "أفتح على أقوى لحظة، ثم يُعرض الباقي من البداية"));
+    willDo.push(say("start with the strongest moment, then carry on from the beginning", "أبلّش بأقوى لحظة، وبعدها بيكمّل من أوله"));
   }
 
   // Two different transitions, asked for in overlapping words. "Transitions"
@@ -1804,7 +1824,7 @@ export function planFromText(
   const namedTheJoins = wantsDissolve || shapedStyle !== null;
   if (FADE_WORDS.test(text) || (wantsAnyTransition && !namedTheJoins)) {
     operations.push({ type: "fade", durationMs: 500 });
-    willDo.push(say("open it from black and close it to black", "أفتحه من السواد وأُغلقه إليه"));
+    willDo.push(say("start it from a black screen and end on one", "أخلّيه يبلّش من شاشة سودا ويخلص عليها"));
   }
   // A named shape wins over the general ask: somebody who said "wipe" asked
   // for a wipe, and giving them the default because they also said the word
@@ -1837,18 +1857,18 @@ export function planFromText(
       everyCut
         ? named
           ? say(
-              `join every cut with a ${named}`,
-              `أصل كل قصّة بـ${namedAr}`,
+              `make every change of scene a ${named} instead of a jump`,
+              `أخلّي كل تغيير مشهد ${namedAr} بدل ما ينطّ`,
             )
-          : say("dissolve between every cut", "أذوّب بين كل قصّة وأختها")
+          : say("let every scene fade into the next instead of jumping", "أخلّي كل مشهد يذوب بالتاني بدل ما ينطّ")
         : named
           ? say(
-              `join the cuts with a ${named} where the recording jumps rather than at every cut`,
-              `أصل القصّات بـ${namedAr} حيث يقفز التسجيل لا عند كل قصّة`,
+              `use a ${named} only where the recording jumps, not at every change of scene`,
+              `أحطّ ${namedAr} بس وين التسجيل بينطّ، مش عند كل تغيير مشهد`,
             )
           : say(
-              "dissolve where the recording jumps rather than between every cut",
-              "أذوّب حيث يقفز التسجيل لا بين كل قصّة وأختها",
+              "fade only where the recording jumps, not at every change of scene",
+              "أخلّيه يذوب بس وين التسجيل بينطّ، مش عند كل تغيير مشهد",
             ),
     );
   }
@@ -1860,7 +1880,7 @@ export function planFromText(
 
   if (BROLL_WORDS.test(text)) {
     if (clips.length === 0) {
-      cannotYet.push(say("cut in B-roll yet, because this project has no clips to cut to", "أضيف لقطات مساندة بعد، لأن المشروع لا يحوي مقاطع أقطع إليها"));
+      cannotYet.push(say("show other clips over your talking yet, because this project has no clips to show", "أورّي مقاطع تانية فوق كلامك بعد، لأن المشروع ما فيه مقاطع أورّيها"));
     } else {
       clips.slice(0, CUTAWAY_SECONDS.length).forEach((clip, index) => {
         const at = CUTAWAY_SECONDS[index]!;
@@ -1876,8 +1896,8 @@ export function planFromText(
         willDo.push(
           softCutaway
             ? say(
-                `dissolve into ${describeFile(clip)} at ${at}s`,
-                `أذوّب إلى ${describeFile(clip)} عند الثانية ${at}`,
+                `fade into ${describeFile(clip)} at ${at}s`,
+                `أذوب على ${describeFile(clip)} عند الثانية ${at}`,
               )
             : say(`cut away to ${describeFile(clip)} at ${at}s`, `أقطع إلى ${describeFile(clip)} عند الثانية ${at}`),
         );
@@ -1891,10 +1911,10 @@ export function planFromText(
     operations.push({ type: "grade", saturation: 1, look });
     willDo.push(
       look === "mono"
-        ? say("take the colour out", "أنزع اللون")
+        ? say("make it black and white", "أخلّيه أبيض وأسود")
         : look === "punch"
-          ? say("push the contrast and the colour", "أرفع التباين واللون")
-          : say(`grade it ${look}`, `أدرّجه ${look}`),
+          ? say("make the colours stronger and clearer", "أخلّي الألوان أقوى وأوضح")
+          : say(`give it a ${look} look`, `أعطيه لون ${look}`),
     );
   }
 
@@ -1928,8 +1948,8 @@ export function planFromText(
       });
       willDo.push(
         say(
-          `lay a ${MUSIC_MOOD_NAMES[mood].en} bed under the whole edit, ducking under your voice`,
-          `أضع فرشة ${MUSIC_MOOD_NAMES[mood].ar} تحت التعديل كلّه، تنخفض تحت صوتك`,
+          `put ${MUSIC_MOOD_NAMES[mood].en} music under the whole video, dropping down while you talk`,
+          `أحطّ موسيقى ${MUSIC_MOOD_NAMES[mood].ar} تحت الفيديو كلّه، بتنخفض لمّا تحكي`,
         ),
       );
     } else {
@@ -1965,8 +1985,8 @@ export function planFromText(
     if (tracks.length === 0) {
       cannotYet.push(
         say(
-          "cut to the beat yet, because this project has no music to cut to. Upload the track and the punches will land on it",
-          "أقصّ على الإيقاع بعد، لأن المشروع ما فيه موسيقى أقصّ عليها، ارفع المقطوعة ورح تقع التقريبات عليها",
+          "follow the beat yet, because this project has no music to follow. Send the track and the zooms will land on it",
+          "أمشي على الإيقاع بعد، لأن المشروع ما فيه موسيقى أمشي عليها. ارفع المقطوعة ورح يصير التقريب على ضرباتها",
         ),
       );
     } else {
@@ -2004,8 +2024,8 @@ export function planFromText(
       }
       willDo.push(
         say(
-          "land the punches on the beat of that track rather than on your voice",
-          "أُوقع التقريبات على إيقاع تلك المقطوعة بدل صوتك",
+          "zoom in on the beat of that track instead of on your voice",
+          "أقرّب الصورة مع ضربات هديك المقطوعة بدل صوتك",
         ),
       );
     }
@@ -2037,17 +2057,17 @@ export function planFromText(
     willDo.push(
       palette === "clean"
         ? say(
-            "put sound effects on the cuts and under the punch-ins, and a riser into the first seam",
-            "أضع مؤثّرات صوتية على القصّات وتحت التقريبات، ولفتة صاعدة إلى أوّل وصلة",
+            "add sound effects where the scenes change and where it zooms in, and a sound that builds up before the first one",
+            "أحطّ مؤثّرات صوت عند تغيير المشاهد ومع تقريب الصورة، وصوت بيعلى شوي شوي قبل أول وحدة",
           )
         : palette === "punchy"
           ? say(
-              "put hard sound effects on the cuts and under the punch-ins",
-              "أضع مؤثّرات صوتية قوية على القصّات وتحت التقريبات",
+              "add strong sound effects where the scenes change and where it zooms in",
+              "أحطّ مؤثّرات صوت قوية عند تغيير المشاهد ومع تقريب الصورة",
             )
           : say(
-              "put light sound effects on the cuts, short ones that stay out of the way",
-              "أضع مؤثّرات صوتية خفيفة على القصّات، قصيرة لا تزاحم الكلام",
+              "add light sound effects where the scenes change, short ones that stay out of the way",
+              "أحطّ مؤثّرات صوت خفيفة عند تغيير المشاهد، قصيرة ما بتزاحم الكلام",
             ),
     );
   }
@@ -2105,8 +2125,8 @@ export function planFromText(
     if (!named) {
       cannotYet.push(
         say(
-          'put a section card in yet, because you did not say what it should say. Put the words in quotes, like "Setup"',
-          'أحطّ بطاقة قسم بعد، لأنك ما قلت شو مكتوب عليها. حطّ الكلمات بين علامتين اقتباس، متل "الإعداد"',
+          'put a full-screen title in yet, because you did not say what it should say. Put the words in quotes, like "Setup"',
+          'أحطّ شاشة فيها عنوان بعد، لأنك ما قلت شو مكتوب عليها. حطّ الكلمات بين علامتين اقتباس، متل "الإعداد"',
         ),
       );
     } else {
@@ -2125,7 +2145,7 @@ export function planFromText(
 
   if (OVERLAY_WORDS.test(text)) {
     if (stills.length === 0) {
-      cannotYet.push(say("put an image over the frame yet, because this project has no images", "أضع صورة فوق الكادر بعد، لأن المشروع لا يحوي صورًا"));
+      cannotYet.push(say("put a picture on top of the video yet, because this project has no pictures", "أحطّ صورة فوق الفيديو بعد، لأن المشروع ما فيه صور"));
     } else {
       const still = stills[0]!;
       operations.push({
@@ -2527,27 +2547,65 @@ export function replyFor(
     joinNaturally(phrases.map((p) => p[lang]), lang);
 
   if (intent.willDo.length > 0) {
+    /*
+      Two or more things, one per line.
+
+      Asked what he wants to see before a render starts, Osama answered: first
+      it tells you what it is about to do, so you can check it understood you.
+      That is a *checking* sentence, and a run-on joined by «و» is the wrong
+      shape for one: "cut the silences, and caption it, and make it vertical
+      for tiktok, and level the audio" is read once, roughly, and nobody spots
+      the clause that is wrong.
+
+      A list is read down. Each line is one decision, and a wrong one is
+      visible without re-reading the sentence. One item stays inline, because a
+      bullet list of one is a list about nothing.
+    */
+    const items = intent.willDo.map((p) => p[lang]);
     const doing = listed(intent.willDo);
+    const asList = items.length > 1;
+    const opening = asList
+      ? `${lang === "ar" ? "تمام، فهمت. رح:" : "Got it. Here is what I will do:"}\n${items
+          .map((line) => `• ${line}`)
+          .join("\n")}`
+      : lang === "ar"
+        ? `تمام، رح ${doing}.`
+        : `Right. I'll ${doing}.`;
+    // A blank line before the closing sentence, so the list reads as a list
+    // and the thing that happens next is not mistaken for another item.
+    const after = asList ? "\n\n" : " ";
+
     if (context.render?.started) {
       parts.push(
-        lang === "ar"
-          ? `تمام، رح ${doing}. التصيير شغّال هلق، وبيبيّن هون أول ما يخلص.`
-          : `On it. I'll ${doing}. It's rendering now; you'll see it here the moment it's done.`,
+        opening +
+          after +
+          (lang === "ar"
+            ? "التصيير شغّال هلق، وبيبيّن هون أول ما يخلص."
+            : "It's rendering now; you'll see it here the moment it's done."),
       );
     } else if (context.render && !context.render.started) {
       // `because` arrives already in `lang` — see `becauseIn`, which writes the
       // Arabic from the refusal's own numbers rather than translating its
       // English. It used to be English interpolated into the Arabic frame.
+      const wanted = asList
+        ? `${lang === "ar" ? "كنت رح أعمل:" : "Here is what I was going to do:"}\n${items
+            .map((line) => `• ${line}`)
+            .join("\n")}`
+        : lang === "ar"
+          ? `كنت رح ${doing}.`
+          : `I'd ${doing}.`;
       parts.push(
-        lang === "ar"
-          ? `كنت رح ${doing}، بس ما بقدر أبلّش هلق: ${context.render.because}`
-          : `I'd ${doing}. But I can't start it right now: ${context.render.because}`,
+        wanted +
+          after +
+          (lang === "ar"
+            ? `بس ما بقدر أبلّش هلق: ${context.render.because}`
+            : `But I can't start it right now: ${context.render.because}`),
       );
     } else {
       parts.push(
-        lang === "ar"
-          ? `تمام، رح ${doing}. دوس Generate Edit وبمشي.`
-          : `Right. I'll ${doing}. Hit Generate Edit and I'll start.`,
+        opening +
+          after +
+          (lang === "ar" ? "دوس Generate Edit وبمشي." : "Hit Generate Edit and I'll start."),
       );
     }
   }

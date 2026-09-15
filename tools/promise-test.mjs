@@ -233,11 +233,11 @@ console.log("\nThe reply is a promise, so it is read back against the file");
   check("the sentence produced a render to read", Boolean(out), sentence);
   if (out) {
     const reply = replyFor(intent, { hasVideo: true });
-    check("the reply promises the cut", /cut out the silences/.test(reply), reply);
+    check("the reply promises the cut", /take out the silent bits/.test(reply), reply);
     check("and the notes show it happened", out.notes.some((n) => /removed [\d.]+s of silence/.test(n)), JSON.stringify(out.notes));
-    check("the reply promises the dissolve", /dissolve where the recording jumps/.test(reply), reply);
+    check("the reply promises the fade", /fade only where the recording jumps/.test(reply), reply);
     check("and the notes show that happened too", out.notes.some((n) => /dissolved between the cuts/.test(n)), JSON.stringify(out.notes));
-    check("the reply promises the levelling", /level the audio/.test(reply), reply);
+    check("the reply promises the levelling", /even out the sound/.test(reply), reply);
     check("and the notes show it", out.notes.some((n) => /levelled to/.test(n)), JSON.stringify(out.notes));
     check("and the reply promised nothing it did not plan", intent.cannotYet.length === 0, JSON.stringify(intent.cannotYet));
   }

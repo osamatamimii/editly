@@ -247,14 +247,14 @@ const PAIRS = [
     en: "cut in some b-roll",
     ar: "ضيف لقطات مساندة",
     expect: [],
-    refuses: "no clips to cut to",
+    refuses: "no clips to show",
   },
   {
     what: "a logo with no images",
     en: "put my logo on it",
     ar: "حط الشعار عليه",
     expect: [],
-    refuses: "no images",
+    refuses: "no pictures",
   },
   {
     what: "cutting it into clips",
@@ -301,7 +301,7 @@ const PAIRS = [
     en: "cut it to the beat",
     ar: "قص على الإيقاع",
     expect: [],
-    refuses: "no music to cut to",
+    refuses: "no music to follow",
   },
   {
     what: "sound effects",
@@ -537,7 +537,15 @@ console.log("\nthe reply answers in the language it was asked in");
 // They carried em dashes until the punctuation was taken out of the product's
 // writing; what they are testing is which language answered, so the frames
 // follow the prose rather than pinning a dash.
-const ENGLISH_FRAMES = [/\bOn it\. I'll /, /\bRight\. I'll /, /\bI can't /, /\bI'd .* But I can't/, /I did not catch what you want changed/, /Upload a video first/];
+const ENGLISH_FRAMES = [
+  /\bRight\. I'll /,
+  /Got it\. Here is what I will do:/,
+  /Here is what I was going to do:/,
+  /\bI can't /,
+  /\bI'd .* But I can't/,
+  /I did not catch what you want changed/,
+  /Upload a video first/,
+];
 /*
   The Arabic frames, rewritten on 15 September when Noah started speaking the
   way the people using this product do.
@@ -547,7 +555,15 @@ const ENGLISH_FRAMES = [/\bOn it\. I'll /, /\bRight\. I'll /, /\bI can't /, /\bI
   بفهمك». `tools/voice-test.mjs` is what holds the register; these hold which
   *language* answered, which is a different question and still worth asking.
 */
-const ARABIC_FRAMES = [/تمام، رح /, /ما بقدر /, /كنت رح /, /ما التقطت/, /ارفع فيديو وببلّش/];
+const ARABIC_FRAMES = [
+  /تمام، رح /,
+  /تمام، فهمت\. رح:/,
+  /كنت رح أعمل:/,
+  /ما بقدر /,
+  /كنت رح /,
+  /ما التقطت/,
+  /ارفع فيديو وببلّش/,
+];
 const hasAny = (patterns, text) => patterns.some((p) => p.test(text));
 
 const REPLY_CASES = [
@@ -589,8 +605,34 @@ check("a sentence with Arabic and English in it is answered in Arabic",
  * Arabic joins lists with و, not with a Latin comma and a trailing "and".
  * Punctuation is the tell that a page was translated rather than written.
  */
-const three = replyFor(planFromText("اقصّ الصمت وضيف ترجمة وخليها عمودية"), { hasVideo: true });
-check("three things are joined the way Arabic joins them", /، و/.test(three) && !/, and /.test(three), three.slice(0, 160));
+/*
+  Read off the refusal rather than off the plan, because the plan stopped being
+  a joined sentence.
+
+  Two or more things Noah is about to do are now one per line: the sentence
+  exists so somebody can check they were understood, and a run-on joined by «و»
+  is skimmed once with the wrong clause unnoticed. The joining rule did not go
+  anywhere — it still runs wherever a list stays inside a sentence, and the
+  refusal is the place that matters most, because it is the one sentence where
+  the product admits a limit.
+*/
+const twoRefusals = replyFor(
+  planFromText("قص على الإيقاع وضيف لقطات مساندة"),
+  { hasVideo: true },
+);
+check(
+  "two things it cannot do are joined the way Arabic joins them",
+  /، و/.test(twoRefusals) && !/, and /.test(twoRefusals),
+  twoRefusals.slice(0, 200),
+);
+
+/* And the list that replaced the joined plan carries no English joining. */
+const threeLines = replyFor(planFromText("اقصّ الصمت وضيف ترجمة وخليها عمودية"), { hasVideo: true });
+check(
+  "and the list of what it will do is one per line, with no Latin joining",
+  (threeLines.match(/^• /gm) ?? []).length === 3 && !/, and /.test(threeLines),
+  threeLines.slice(0, 200),
+);
 
 /** Both halves exist for every note a real sentence can produce. */
 console.log("\nno note has one half missing");

@@ -328,7 +328,7 @@ const LIMITS = [
   {
     id: "colour-grade",
     asked: "colour grade it like Wes Anderson",
-    says: "grade the colour to a look I do not have yet",
+    says: "give it a look I do not have yet",
     witness: (sentence) => {
       /*
         Five named looks exist and a reference video can be matched, so the
