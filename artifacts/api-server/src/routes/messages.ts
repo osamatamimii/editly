@@ -160,6 +160,9 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     defaultPlatform: project.platform as never,
     assets: assets as never,
   });
+  // The log keeps the reason -- which provider, which status -- because that is
+  // ours to fix. The reply says only the half that is theirs to act on; see
+  // `simpleReading` where the sentence is written.
   if (intent.degraded) req.log?.warn({ reason: intent.degraded }, "planner fell back to keywords");
 
   // One prompt, and the work starts. The sentence produced a real plan and the
@@ -472,7 +475,13 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     }
   }
 
-  const aiContent = replyFor(intent, { hasVideo: Boolean(project.videoPath), render, ask, sourceSeconds });
+  const aiContent = replyFor(intent, {
+    hasVideo: Boolean(project.videoPath),
+    render,
+    ask,
+    sourceSeconds,
+    simpleReading: Boolean(intent.degraded),
+  });
 
   const [userMessage] = await db
     .insert(messagesTable)

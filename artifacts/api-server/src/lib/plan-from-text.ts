@@ -2616,6 +2616,15 @@ export function replyFor(
      */
     ask?: "wholeOrClips";
     /**
+     * Whether the sentence was read by the keyword matcher rather than by the
+     * model, because the model was unreachable, slow, or answered with
+     * something we could not run.
+     *
+     * Set by `messages.ts` from `intent.degraded`, which until now went to a
+     * log and nowhere else.
+     */
+    simpleReading?: boolean;
+    /**
      * How long the recording is, for the question to say so.
      *
      * Only read when `ask` is set. Null when the project has no measured
@@ -2724,6 +2733,33 @@ export function replyFor(
   }
 
   if (parts.length === 0) return NOTHING_UNDERSTOOD[lang];
+
+  /*
+    Said last, and only when there is a plan to doubt.
+
+    When the model is unreachable, slow, or answers with something we cannot
+    execute, the sentence is read by the keyword matcher instead. That is a
+    worse reading and a working one, and until now it was recorded in a log
+    nobody outside this building reads: the person got a shorter plan than
+    their sentence deserved and no reason to suspect it.
+
+    What is said is what they can act on -- the reading was the simple one,
+    check the list, shorter words will land better -- and not which provider
+    failed, which is telemetry wearing a sentence's clothes (`enrich.ts`
+    learnt that one the expensive way, by leaking "gemini upload start 429"
+    into somebody's chat).
+
+    Not said when nothing was understood: `NOTHING_UNDERSTOOD` already asks for
+    the sentence again, and following it with "and by the way I read it the
+    simple way" is an excuse where a question belongs.
+  */
+  if (context.simpleReading) {
+    parts.push(
+      lang === "ar"
+        ? "وبس تعرف: قريت جملتك بالطريقة البسيطة، كلمة كلمة. شوف القائمة إذا فيها اللي قصدته، وإذا في إشي ناقص قلهولي بكلمات أقصر وبمسكه."
+        : "One thing: I read that the simple way, word by word. Check the list says what you meant, and if something is missing, tell me in shorter words and I will get it.",
+    );
+  }
 
   return parts.join(" ");
 }

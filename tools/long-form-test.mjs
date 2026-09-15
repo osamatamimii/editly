@@ -384,6 +384,76 @@ section("Nothing is started while the question stands");
 
 await rm(buildDir, { recursive: true, force: true });
 
+section("When the model is not there, the person is told, in the half that is theirs");
+{
+  /*
+    The planner falls back to the keyword matcher when the model is
+    unreachable, slow, or answers with something we cannot run. That is a worse
+    reading and a working one, and it was recorded in a log nobody outside this
+    building reads: the person got a shorter plan than their sentence deserved
+    and no reason to suspect it.
+
+    This is not hypothetical and it was not rare. For one stretch the planner
+    answered 400 to every request -- a parameter renamed under us -- and every
+    sentence in the product was keyword-matched, silently, while the reply
+    still opened "Got it. Here is what I will do".
+  */
+  const intent = planFromText("cut the silences and caption it", { assets: [] });
+  const plain = replyFor(intent, { hasVideo: true, render: { started: true } });
+  const simple = replyFor(intent, { hasVideo: true, render: { started: true }, simpleReading: true });
+
+  check("an ordinary reply says nothing about how it was read", plain === simple.slice(0, plain.length) && plain !== simple);
+  check("and the simple reading adds a sentence", simple.length > plain.length, simple);
+  check("said last, after the plan and after what happens next", simple.endsWith("I will get it."), simple);
+
+  /*
+    What it says is what they can act on. Which provider failed, and with what
+    status, stays in the log: `enrich.ts` learnt that one the expensive way, by
+    leaking "gemini upload start 429" into a customer's chat.
+  */
+  const telemetry = /\b(planner|model|provider|api|timeout|timed out|unreachable|fallback|keyword|matcher|429|4\d\d|5\d\d)\b/i;
+  check("it names no provider, status or internal part", !telemetry.test(simple.slice(plain.length)), simple.slice(plain.length));
+  check("it says the reading was the simple one", /read that the simple way/i.test(simple), simple);
+  check("it points at the list, which is the thing to check", /check the list/i.test(simple), simple);
+  check("and it says what to do about it", /shorter words/i.test(simple), simple);
+
+  const ar = planFromText("اقصص السكتات وضيف ترجمة", { assets: [] });
+  const arPlain = replyFor(ar, { hasVideo: true, render: { started: true } });
+  const arSimple = replyFor(ar, { hasVideo: true, render: { started: true }, simpleReading: true });
+  check("the Arabic gets its own sentence, not a translation of the English", arSimple.length > arPlain.length && !arSimple.includes("simple way"));
+  check("and it carries no English", !/[A-Za-z]{3}/.test(arSimple.slice(arPlain.length)), arSimple.slice(arPlain.length));
+  check("no em dash in either", !simple.includes("—") && !arSimple.includes("—"));
+
+  /*
+    And the one case where it must stay quiet. `NOTHING_UNDERSTOOD` already
+    asks for the sentence again; following a question with "and by the way I
+    read it the simple way" is an excuse where a question belongs.
+  */
+  const nothing = planFromText("zxcvb qwerty asdf", { assets: [] });
+  const unread = replyFor(nothing, { hasVideo: true, simpleReading: true });
+  check(
+    "a sentence nothing was understood from is asked about, not apologised for",
+    unread === replyFor(nothing, { hasVideo: true }),
+    unread,
+  );
+
+  // And while the question stands, nothing else is said at all.
+  const asked = replyFor(intent, { hasVideo: true, ask: "wholeOrClips", simpleReading: true, sourceSeconds: 42 * 60 });
+  check("nor is it said beside the one question", asked === wholeOrClips("en", 42 * 60), asked);
+
+  // The route reads it from the planner's own flag rather than guessing.
+  const route = readFileSync(path.join(repoRoot, "artifacts/api-server/src/routes/messages.ts"), "utf8");
+  check(
+    "the route passes it from intent.degraded",
+    /simpleReading: Boolean\(intent\.degraded\)/.test(route),
+    "otherwise the sentence is written for a state nothing sets",
+  );
+  check(
+    "and still logs the reason, which is ours to fix",
+    /intent\.degraded.*req\.log/s.test(route) || /req\.log\?\.warn\(\{ reason: intent\.degraded \}/.test(route),
+  );
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log("A long video is still being treated as a pile of clips.");
