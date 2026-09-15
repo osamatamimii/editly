@@ -67,6 +67,7 @@
  * consults it before resolving.
  */
 import type { ChildProcess } from "node:child_process";
+import { usableCores } from "./cores";
 
 /** Thrown when a child was killed for taking too long, rather than failing. */
 export class TimedOutError extends Error {
@@ -290,9 +291,61 @@ export const LIMITS = {
  */
 export const ENCODE_SECONDS_PER_SOURCE_SECOND = 2.073;
 
-/** The longest source a render can finish inside its own deadline. */
+/**
+ * The same measurement, as a table, because the machine is about to change.
+ *
+ * The constant above is the one-core figure and the whole file is written
+ * against it: "`fly.toml` runs one shared CPU, so 2.07 is the number that
+ * applies to production today". The moment that line stops being true -- and
+ * it is about to, `shared-cpu-2x` being five dollars a month -- the constant
+ * becomes a number measured on a machine nobody is running, and the ceiling
+ * derived from it refuses files the new machine could finish in half the time.
+ *
+ * A hardcoded measurement is correct exactly once. This is the same two
+ * measurements the comment above already carries, in a shape that can be read.
+ */
+const MS_PER_SOURCE_SECOND_BY_CORES: ReadonlyMap<number, number> = new Map([
+  [1, 2073],
+  [2, 1153],
+]);
+
+/**
+ * What a second of source costs on *this* machine.
+ *
+ * Above two cores this returns the two-core figure rather than extrapolating,
+ * and that is a refusal rather than a gap. Scaling is not linear -- two cores
+ * bought 1.8× and there is no reason to believe four buys 3.6× -- and the cost
+ * of guessing high is the failure this whole ceiling exists to prevent: a file
+ * accepted, four hours of paid compute, and a render killed at the deadline.
+ * Guessing low costs a refusal the person can act on. The two are not
+ * comparable, so the unmeasured direction is the conservative one.
+ *
+ * `renderRate()` in `queue-health.ts` takes the same posture for the same
+ * reason: it returns null rather than a median of three.
+ *
+ * To raise it, measure it and add a row. That is one line, and it is one line
+ * on purpose.
+ */
+export function encodeSecondsPerSourceSecond(cores: number = usableCores()): number {
+  const whole = Math.max(1, Math.floor(cores));
+  const exact = MS_PER_SOURCE_SECOND_BY_CORES.get(whole);
+  if (exact !== undefined) return exact / 1000;
+  const measured = [...MS_PER_SOURCE_SECOND_BY_CORES.keys()].sort((a, b) => a - b);
+  const most = measured[measured.length - 1]!;
+  if (whole > most) return MS_PER_SOURCE_SECOND_BY_CORES.get(most)! / 1000;
+  return MS_PER_SOURCE_SECOND_BY_CORES.get(measured[0]!)! / 1000;
+}
+
+/**
+ * The longest source a render can finish inside its own deadline.
+ *
+ * Defaulted from the machine rather than from the constant, so that upsizing
+ * the box raises the ceiling without anybody remembering that this number
+ * exists. The argument stays, because every test in `deadline-test` asks this
+ * question about a machine it is not running on.
+ */
 export function deliverableSourceMinutes(
-  encodeFactor = ENCODE_SECONDS_PER_SOURCE_SECOND,
+  encodeFactor = encodeSecondsPerSourceSecond(),
   totalMs = LIMITS.render.totalMs ?? 0,
 ): number {
   if (!(encodeFactor > 0) || !(totalMs > 0)) return 0;

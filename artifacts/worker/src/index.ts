@@ -31,7 +31,8 @@ import {
 } from "./disk";
 import { renderPlan, probeDuration, probeSource, grabPosterFrame, shapeFor, frameFor, defaultHeightFor, loudestSample, SILENT_PEAK_DBFS, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
-import { LIMITS, deliverableSourceMinutes } from "./deadline";
+import { LIMITS, deliverableSourceMinutes, encodeSecondsPerSourceSecond } from "./deadline";
+import { usableCores } from "./cores";
 import { reviewOutput } from "./review";
 import { chooseClips } from "./highlight";
 import { chooseConversationClips, type Reading } from "./conversation";
@@ -3056,6 +3057,20 @@ async function main(): Promise<void> {
       // a project look like a list of pauses rather than a list of subjects,
       // this line is the first place to look and it answers outright.
       comprehension: providers.structureReader?.name ?? "unavailable",
+      /*
+        What this machine thinks it can do, on the line anybody reads first.
+
+        The two numbers are a pair and only the pair is useful: cores decide
+        the encode rate, and the rate decides the longest file this machine can
+        finish before the deadline kills it. Both were constants read off a
+        source file until now -- the file said "fly.toml runs one shared CPU"
+        and was correct until the day somebody changed fly.toml.
+
+        The day that happens, this line is how anybody knows whether the new
+        box is actually being used. `worker_heartbeats.build` answers which
+        code is running; this answers what the machine under it is worth.
+      */
+      capacity: `${usableCores()} core(s), ${encodeSecondsPerSourceSecond().toFixed(2)}x realtime, longest source ${deliverableSourceMinutes()} min`,
     },
     "worker ready",
   );

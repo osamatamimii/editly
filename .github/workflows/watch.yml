@@ -194,7 +194,13 @@ jobs:
     timeout-minutes: 5
     if: github.repository == 'osamatamimii/editly'
     steps:
+      # Full history, because the drift check below compares the commit the
+      # running machine reports against the commits on main. A shallow clone
+      # has never heard of the deployed build and answers "unknown commit"
+      # every single time, which is a watcher that cannot fire.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: 10.28.0
@@ -213,3 +219,27 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: node tools/queue-watch.mjs
+
+      # And the question none of the others can ask: is the machine running the
+      # code we think it is?
+      #
+      # On 15 September it was not, and had not been for a long time. The
+      # production worker's image predated the column that records a build,
+      # while main carried dozens of commits to that worker -- renders failing,
+      # a listen job queued for hours, and every fix sitting in the repository.
+      #
+      # Nothing said so, and the shape of that is worth naming: every other
+      # watcher here asks about *production*, and the fault was not in
+      # production. A deploy had never run. "Deploy worker" is gated on Checks,
+      # Checks had been red, and a skipped job is not a failed one -- so the
+      # only signal anybody had was the absence of a signal. Two hundred and
+      # forty-seven runs of it, not one longer than eleven seconds.
+      #
+      # This asks the narrow question rather than the obvious one. "Is the
+      # deployed build equal to HEAD" is false for a healthy deployment the
+      # moment anybody touches the landing page; what is wrong is commits that
+      # change *the worker* sitting on main and not on the machine.
+      - name: Is the machine running the code we think it is?
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: node tools/worker-drift.mjs

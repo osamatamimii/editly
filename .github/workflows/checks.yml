@@ -395,6 +395,7 @@ jobs:
       # concludes from a day of them. Needs no database — the verdict is a pure
       # function of rows, which is the whole reason it is one.
       - run: node tools/queue-watch-test.mjs
+      - run: node tools/worker-drift-test.mjs
       # The wait a queued render reports. Runs its arithmetic everywhere and its
       # SQL where there is a database — a predicate that is subtly wrong passes
       # every pattern match and gives everybody in the queue a quiet lie.

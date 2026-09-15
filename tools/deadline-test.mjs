@@ -60,7 +60,7 @@ if (built.status !== 0) {
   console.error("could not bundle deadline.ts");
   process.exit(1);
 }
-const { guard, TimedOutError, LIMITS, ENCODE_SECONDS_PER_SOURCE_SECOND, deliverableSourceMinutes } =
+const { guard, TimedOutError, LIMITS, ENCODE_SECONDS_PER_SOURCE_SECOND, encodeSecondsPerSourceSecond, deliverableSourceMinutes } =
   await import(pathToFileURL(outfile).href);
 
 const healthOut = path.join(buildDir, "health.mjs");
@@ -297,6 +297,38 @@ console.log("\nWhat the deadline can actually finish, against what is sold");
     LIMITS.render.totalMs === 4 * 60 * 60_000,
     String(LIMITS.render.totalMs),
   );
+
+  /*
+    And the same number read off the machine rather than off a constant.
+
+    A hardcoded measurement is correct exactly once, and this one is about to
+    stop being: the file it lives in says "fly.toml runs one shared CPU, so
+    2.07 is the number that applies to production today", and a second core is
+    five dollars a month. Without this the ceiling would go on refusing files
+    a faster machine could finish in half the time, and the only sign would be
+    a customer being told no.
+  */
+  check("one core is the figure this file is written against", encodeSecondsPerSourceSecond(1) === 2.073, String(encodeSecondsPerSourceSecond(1)));
+  check("two cores is the other measurement, not an extrapolation of the first", encodeSecondsPerSourceSecond(2) === 1.153, String(encodeSecondsPerSourceSecond(2)));
+  check(
+    "and it nearly doubles what fits inside the deadline",
+    deliverableSourceMinutes(encodeSecondsPerSourceSecond(2)) > 200,
+    `${deliverableSourceMinutes(encodeSecondsPerSourceSecond(2))} minutes on two cores`,
+  );
+  /*
+    Above two, it refuses to guess. Scaling is not linear -- two cores bought
+    1.8× and there is no reason four buys 3.6× -- and the two errors are not
+    comparable: guessing high accepts a file, spends four hours of paid compute
+    and kills the render at the deadline; guessing low costs a refusal somebody
+    can act on. So the unmeasured direction is the conservative one, and the
+    way to raise it is to measure it and add a row.
+  */
+  check(
+    "four cores is answered with the two-core measurement rather than a guess",
+    encodeSecondsPerSourceSecond(4) === encodeSecondsPerSourceSecond(2),
+    String(encodeSecondsPerSourceSecond(4)),
+  );
+  check("and a fraction of a core still renders", encodeSecondsPerSourceSecond(0.5) === encodeSecondsPerSourceSecond(1));
 
   // And the sold lengths, read from the plans rather than repeated here.
   const planLimits = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/plan-limits.ts"), "utf8");
