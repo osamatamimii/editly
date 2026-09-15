@@ -23,6 +23,21 @@ export const workerHeartbeatsTable = pgTable(
     /** The model's name, never a key. Null means it came up without one. */
     transcription: text("transcription"),
     vision: text("vision"),
+    /**
+     * Which commit this copy was built from.
+     *
+     * `fly status` names a deployment id, which says that the image changed
+     * and never what is in it. So "is production running the code we think it
+     * is" was answerable only by reading that id against somebody's memory of
+     * when it was cut -- and one morning the answer was no: three fixes had
+     * been on main for hours, the running image predated all of them, and
+     * every symptom read as a fresh bug rather than an undeployed one.
+     *
+     * Null when nobody passed one at build time, in which case the worker
+     * falls back to Fly's own image reference, which at least identifies the
+     * deploy.
+     */
+    build: text("build"),
   },
   (t) => [index("worker_heartbeats_last_seen_idx").on(t.lastSeenAt.desc())],
 );

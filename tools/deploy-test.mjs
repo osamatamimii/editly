@@ -183,6 +183,11 @@ section("Every variable the worker reads is one the deploy actually sets");
     // limit rows. Its default is an hour and a suite that has already made a
     // hundred requests has long since spent this instance's one.
     "RATE_LIMIT_SWEEP_MS",
+    // Fly sets this on every machine it runs, so there is nothing for a deploy
+    // to set and no value to keep. It is read as the fallback answer to "which
+    // build is this" when nobody passed a commit: it names the deployment,
+    // which does not say what is in the image but does say which one it is.
+    "FLY_IMAGE_REF",
   ]);
 
   const mustBeDeployed = [...referenced].filter((name) => !notSecrets.has(name)).sort();
@@ -1774,6 +1779,59 @@ section("No door queues a plan the worker would refuse to parse");
   */
   const sentences = doors.map((d) => /planNotRunnable/.test(read(d)));
   check("and both name the same reason", sentences.every(Boolean));
+}
+
+section("What is running says which commit it is");
+{
+  /*
+    `fly status` names a deployment id. That says the image changed and never
+    what is in it.
+
+    One morning that cost hours: three fixes had been on main since before the
+    last deploy, production was running an image older than all of them, and
+    every symptom read as a fresh bug. Two were re-investigated from scratch
+    before anybody thought to doubt the deploy -- and the thing that finally
+    gave it away was a null `finished_at` on a row written by code that sets
+    it, which is a very long way round to ask "which build is this".
+
+    Four pieces, and the chain is only worth anything whole: the Dockerfile
+    takes the argument, the deploy passes it, the worker reads it, and the
+    heartbeat carries it to where one query reaches it.
+  */
+  const worker = read("artifacts/worker/src/index.ts");
+  const schema = read("lib/db/src/schema/workers.ts");
+
+  check("the image takes a commit", /^ARG BUILD_COMMIT=/m.test(dockerfile));
+  check("and carries it into the running process", /^ENV BUILD_COMMIT=\$BUILD_COMMIT/m.test(dockerfile));
+  check(
+    "the deploy passes the commit it is deploying",
+    /--build-arg BUILD_COMMIT="?\$(?:GITHUB_SHA|\{GITHUB_SHA\})"?/.test(workflow),
+    "without this the argument defaults to empty and the column says nothing",
+  );
+  check("the worker reads it", /process\.env\["BUILD_COMMIT"\]/.test(worker));
+  check(
+    "and falls back to the deployment when nobody passed one",
+    /process\.env\["FLY_IMAGE_REF"\]/.test(worker),
+    "a laptop build is a legitimate thing to have running; it should say so",
+  );
+  check("the heartbeat row has somewhere to put it", /build: text\("build"\)/.test(schema));
+  check(
+    "and the heartbeat writes it, on insert and on update both",
+    (worker.match(/build: BUILD,/g) ?? []).length >= 2,
+    "a column written only on the first heartbeat is a column that lies after a redeploy",
+  );
+  /*
+    Nullable, and it stays that way. A worker built without the argument is a
+    real thing to have running, and the column should say so by being empty
+    rather than by carrying something invented.
+  */
+  check("the column is nullable", !/build: text\("build"\)\.notNull/.test(schema));
+  const migration = readdirSync(path.join(repoRoot, "lib/db/migrations")).find((f) => /^0055_/.test(f));
+  check("and the migration that adds it exists", Boolean(migration), String(migration));
+  check(
+    "and adds it without failing on a database that already has it",
+    Boolean(migration) && /add column if not exists build text/i.test(read(`lib/db/migrations/${migration}`)),
+  );
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

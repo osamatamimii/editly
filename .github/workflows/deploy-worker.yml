@@ -287,7 +287,11 @@ jobs:
         if: steps.changed.outputs.worker == 'true'
         run: |
           set -o pipefail
-          if ! flyctl deploy --config artifacts/worker/fly.toml --dockerfile artifacts/worker/Dockerfile --remote-only 2>&1 | tee /tmp/fly-deploy.log; then
+          # The commit goes into the image, and out again on the heartbeat row.
+          # Without it, "which code is production running" is answerable only
+          # by reading a deployment id against a memory of when it was cut.
+          if ! flyctl deploy --config artifacts/worker/fly.toml --dockerfile artifacts/worker/Dockerfile --remote-only \
+               --build-arg BUILD_COMMIT="$GITHUB_SHA" 2>&1 | tee /tmp/fly-deploy.log; then
             echo "::error::fly deploy failed: $(tail -c 800 /tmp/fly-deploy.log | tr '\n' ' ')"
             exit 1
           fi

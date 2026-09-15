@@ -327,6 +327,26 @@ function assertRowIsUnderstood(row: Record<string, unknown>): void {
 const HEARTBEAT_EVERY_MS = 20_000;
 let lastHeartbeat = 0;
 
+/**
+ * Which build this process is, in one string, resolved once.
+ *
+ * `BUILD_COMMIT` is baked into the image by whoever ran the deploy. When
+ * nobody passed one -- a laptop build, a manual `fly deploy` without the
+ * argument -- `FLY_IMAGE_REF` is the next best thing: it names the deployment,
+ * which does not say what is in the image but does say which one it is. Null
+ * when neither exists, which is the honest answer for a worker run from a
+ * checkout.
+ *
+ * Read at module load rather than per heartbeat: it cannot change while this
+ * process lives, and a heartbeat is not the place to do work.
+ */
+const BUILD: string | null = (() => {
+  const commit = process.env["BUILD_COMMIT"]?.trim();
+  if (commit) return commit;
+  const image = process.env["FLY_IMAGE_REF"]?.trim();
+  return image ? image : null;
+})();
+
 async function heartbeat(now = Date.now()): Promise<void> {
   if (now - lastHeartbeat < HEARTBEAT_EVERY_MS) return;
   lastHeartbeat = now;
@@ -339,6 +359,7 @@ async function heartbeat(now = Date.now()): Promise<void> {
       // than from a log only one person can read.
       transcription: providers.transcriber?.name ?? null,
       vision: providers.sceneReader?.name ?? null,
+      build: BUILD,
     })
     .onConflictDoUpdate({
       target: workerHeartbeatsTable.workerId,
@@ -346,6 +367,7 @@ async function heartbeat(now = Date.now()): Promise<void> {
         lastSeenAt: new Date(),
         transcription: providers.transcriber?.name ?? null,
         vision: providers.sceneReader?.name ?? null,
+        build: BUILD,
       },
     });
 }

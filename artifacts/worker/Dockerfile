@@ -412,5 +412,24 @@ RUN set -eu; \
     [ "$n" -ge 16 ] || { echo "only $n sound effects in the image, the catalogue names 16"; exit 1; }; \
     echo "sound effects ready: $n files, all of them audible"
 
+# Which commit this image was built from.
+#
+# Passed by whoever runs the deploy and carried into the running process, so
+# that the question "is the worker running the code we think it is" has an
+# answer that does not require reading a log or trusting a memory. It is
+# written on the heartbeat row, where a single query reaches it.
+#
+# That question cost a morning: three fixes had been on main for hours,
+# production was running an image older than all of them, and every symptom
+# looked like a fresh bug rather than an undeployed one. `fly status` names a
+# deployment id, which says *that* the image changed and never *what is in it*.
+#
+# Empty is a legitimate value -- it means nobody passed it -- and the worker
+# falls back to Fly's own image reference, which at least identifies the
+# deploy. The ARG is last so that changing it rebuilds one layer and not the
+# ffmpeg install above it.
+ARG BUILD_COMMIT=""
+ENV BUILD_COMMIT=$BUILD_COMMIT
+
 USER node
 CMD ["node", "--enable-source-maps", "dist/index.mjs"]
