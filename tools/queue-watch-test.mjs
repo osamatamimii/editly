@@ -13,7 +13,11 @@
  *
  * Usage: node tools/queue-watch-test.mjs
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { verdict, sentenceFor, shapeOfError, WINDOW_HOURS, ENOUGH_TO_JUDGE } from "./queue-watch.mjs";
+
+const repoRoot = process.cwd();
 
 let checks = 0;
 let failures = 0;
@@ -32,7 +36,7 @@ const row = (status, hours, errorDetail = null, kind = "render") => ({
   id: `job-${status}-${hours}`,
   kind,
   status,
-  finishedAt: hoursAgo(hours),
+  settledAt: hoursAgo(hours),
   cancelledAt: null,
   errorDetail,
 });
@@ -189,6 +193,86 @@ console.log("\nThirteen failures are one fault, not thirteen");
     shapeOfError("Error: the first line\n  at somewhere\n  at somewhere else") === "Error: the first line",
   );
   check("a row with no detail still groups", shapeOfError(null) === "no error recorded");
+}
+
+/*
+  And the column this whole file reads has to be written.
+
+  The first version of this watcher filtered on `finished_at is not null`,
+  which looked like the obvious way to ask "what settled today". It was not:
+  three of the worker's `done` writes — every one on the path a `transcribe`
+  row takes — set `status` and left the column null. So the day a
+  transcription succeeded and a render failed read here as a day on which
+  everything failed, and the watcher would have fired its first alarm at a
+  queue that was working.
+
+  Found in production rather than here, which is why this check exists at all.
+  Two halves: the reader tolerates a null, and the writer stops producing one.
+*/
+console.log("\nA settled job says when it settled");
+{
+  const worker = readFileSync(
+    path.join(repoRoot, "artifacts/worker/src/index.ts"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  // Every `.set({ ... })` in the worker that settles a *job* row.
+  const settling = [];
+  for (const match of worker.matchAll(/status: "(done|failed)"/g)) {
+    const open = worker.lastIndexOf(".set({", match.index);
+    if (open < 0) continue;
+    let depth = 0;
+    let end = open + ".set(".length;
+    for (; end < worker.length; end += 1) {
+      if (worker[end] === "{") depth += 1;
+      else if (worker[end] === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    const block = worker.slice(open, end + 1);
+    // `projectsTable` also takes a status and has no finishing time of its own.
+    const target = worker.slice(Math.max(0, open - 200), open);
+    if (/projectsTable/.test(target)) continue;
+    settling.push(block);
+  }
+
+  check(
+    "the worker has settling writes to find",
+    settling.length >= 4,
+    `found ${settling.length}`,
+  );
+  const unstamped = settling.filter((b) => !/finishedAt: new Date\(\)/.test(b));
+  check(
+    "and every one of them stamps when it settled",
+    unstamped.length === 0,
+    unstamped.map((b) => b.replace(/\s+/g, " ").slice(0, 110)).join(" || "),
+  );
+
+  const probe = readFileSync(path.join(repoRoot, "tools/queue-watch.mjs"), "utf8");
+  /*
+    Every mention of the column, not merely one of them.
+
+    The first cut of this check grepped the file for `coalesce(finished_at,
+    updated_at)` and passed while the *select list* had been changed back to a
+    bare `finished_at` — the two remaining coalesces in the `where` and the
+    `order by` were enough to satisfy it. A check that passes on the bug it
+    was written for is worth less than no check.
+  */
+  const sql = /`(select[\s\S]*?)`/i.exec(probe)?.[1] ?? "";
+  const mentions = (sql.match(/finished_at/g) ?? []).length;
+  const wrapped = (sql.match(/coalesce\(finished_at, updated_at\)/g) ?? []).length;
+  check("the query reads the column at all", mentions >= 3, `${mentions} mentions`);
+  check(
+    "and never bare — the rows written before the worker stamped it have a null there",
+    mentions === wrapped,
+    `${mentions} mentions, ${wrapped} of them coalesced`,
+  );
+  check(
+    "and selects on the status rather than on the timestamp",
+    /status in \('done', 'failed'\)/.test(probe),
+    "filtering on finished_at is what hid every successful transcription",
+  );
 }
 
 console.log("\nThe constants say what they mean");

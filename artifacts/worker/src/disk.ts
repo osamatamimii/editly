@@ -31,6 +31,7 @@
  * and there is no room for a third render.
  */
 import { readdir, rm, stat, statfs } from "node:fs/promises";
+import type { NotePair } from "./say";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -52,6 +53,32 @@ export const WORK_PREFIX = "editly-render-";
 export const WORK_TO_SOURCE = 6;
 
 /**
+ * And how much a job that only listens needs, which is a different number.
+ *
+ * On 15 September a three-gigabyte upload was refused for room every sixty
+ * seconds for twenty-one minutes — and it was a `transcribe` row, sized with
+ * the multiplier above. Six times three gigabytes is eighteen and a half with
+ * the reserve; the machine had seven and a third free; so the arithmetic said
+ * no forever, about a job that would have fitted twice over.
+ *
+ * Listening writes the source and one audio proxy. Deepgram's is a 16 kHz mono
+ * FLAC — about eight kilobytes a second, thirty megabytes an hour, which is
+ * three hundredths of a video of the same length. Nothing else touches the
+ * disk: `probeSource` and `loudestSample` read the file they were given, and
+ * the provider is handed a path.
+ *
+ * So 1.0 for the source, 0.05 for a proxy from a file far more compressed than
+ * the one measured, and the rest is headroom. The reserve on top is the same
+ * reserve.
+ *
+ * Kept as a named constant rather than a literal at the call site because the
+ * bug was not the number, it was that there was only one number: a render's
+ * multiplier applied to something that is not a render, with nothing anywhere
+ * saying the two differ.
+ */
+export const LISTEN_TO_SOURCE = 1.3;
+
+/**
  * Never fill the disk completely, even when the arithmetic says it fits.
  *
  * The root filesystem is not ours alone: the Node process, its heap dumps on
@@ -68,6 +95,16 @@ export interface DiskRoom {
   freeBytes: number;
   /** What this job is expected to need, including the reserve. */
   neededBytes: number;
+  /**
+   * How big this filesystem is in total, empty or not.
+   *
+   * The difference between this and `freeBytes` is the difference between
+   * "come back later" and "not here, ever", and until it existed the worker
+   * could not tell them apart — so it said "come back later" to both, once a
+   * minute, for as long as the row existed. `Infinity` when the filesystem
+   * would not answer, which keeps "unknown means yes" true of this too.
+   */
+  totalBytes: number;
 }
 
 /**
@@ -77,15 +114,56 @@ export interface DiskRoom {
  * refuse a render — it is a reason to carry on as before, which is what every
  * deploy of this worker did until this file existed.
  */
-export async function roomFor(sourceBytes: number, dir: string = tmpdir()): Promise<DiskRoom> {
-  const neededBytes = Math.round(sourceBytes * WORK_TO_SOURCE) + DISK_RESERVE_BYTES;
+export async function roomFor(
+  sourceBytes: number,
+  dir: string = tmpdir(),
+  /*
+    Which job this is. Defaulted to the render's multiplier because that is
+    what every existing caller meant, and named at the one call site that
+    means something else — see `LISTEN_TO_SOURCE` for what it cost to have a
+    single number here.
+  */
+  multiplier: number = WORK_TO_SOURCE,
+): Promise<DiskRoom> {
+  const neededBytes = Math.round(sourceBytes * multiplier) + DISK_RESERVE_BYTES;
   try {
     const fs = await statfs(dir);
     const freeBytes = Number(fs.bavail) * Number(fs.bsize);
-    return { enough: freeBytes >= neededBytes, freeBytes, neededBytes };
+    const totalBytes = Number(fs.blocks) * Number(fs.bsize);
+    return { enough: freeBytes >= neededBytes, freeBytes, neededBytes, totalBytes };
   } catch {
-    return { enough: true, freeBytes: Number.POSITIVE_INFINITY, neededBytes };
+    return {
+      enough: true,
+      freeBytes: Number.POSITIVE_INFINITY,
+      neededBytes,
+      totalBytes: Number.POSITIVE_INFINITY,
+    };
   }
+}
+
+/**
+ * Is this job too big for this machine even with nothing else on it?
+ *
+ * A shortage that emptying the disk would fix is a wait: another render is
+ * holding the space, it will finish, and handing the row back is exactly
+ * right. A job that needs more than the whole filesystem is not short of
+ * anything — it is asking for something that does not exist here, and no
+ * amount of waiting produces it.
+ *
+ * Those two were one branch until 15 September, and the consequence was a row
+ * that lived forever: claimed, refused, handed back, claimed again sixty
+ * seconds later, for as long as anybody left it there. It sat at the head of
+ * the queue the whole time — the claim orders by age — so nothing behind it
+ * ran either. The only trace was a `warn` in a log, and the customer's panel
+ * said nothing at all, because the code was right that nothing had happened
+ * to their project. Nothing was ever going to.
+ *
+ * An unreadable filesystem answers `false` here, for the same reason it
+ * answers `enough` above: not knowing is not a reason to refuse somebody.
+ */
+export function beyondThisMachine(room: DiskRoom): boolean {
+  if (!Number.isFinite(room.totalBytes)) return false;
+  return room.neededBytes > room.totalBytes;
 }
 
 /** Gigabytes, one decimal, for a sentence a person reads. */
@@ -103,6 +181,50 @@ export function noRoomMessage(room: DiskRoom): string {
     `not enough disk to render here: ${gb(room.freeBytes)} free, ` +
     `${gb(room.neededBytes)} needed. The job goes back to the queue untouched.`
   );
+}
+
+/**
+ * What the *customer* reads when the file is bigger than the machine.
+ *
+ * The other sentence above is for whoever is on call. This one is for the
+ * person whose project has been sitting there, and it exists because for
+ * twenty-one minutes the honest answer was available and nobody was given it.
+ *
+ * It names the file's own size rather than gigabytes of scratch space, because
+ * that is the number they can do something about, and it does not apologise
+ * for a machine they never agreed to care about.
+ *
+ * Both halves, like every note this worker writes — see say.ts on why the
+ * Arabic is a required argument rather than an optional field.
+ */
+export function tooLargeNote(sourceBytes: number): NotePair {
+  return {
+    en:
+      `This video is ${gb(sourceBytes)}, which is more than we can work on in ` +
+      `one piece. Send a shorter cut, or a smaller export of the same thing, ` +
+      `and it will go straight through.`,
+    ar:
+      `هالفيديو ${gb(sourceBytes)}، وهاد أكبر من اللي بنقدر نشتغل عليه دفعة وحدة. ` +
+      `ابعت قصّة أقصر، أو نسخة أخفّ من نفس الفيديو، وبيمشي على طول.`,
+  };
+}
+
+/**
+ * And the same for a machine that kept being busy rather than being small.
+ *
+ * Separate sentence because it is a separate fact: the file would fit, the
+ * machine never had room to spare while it was asked. "Try again" is honest
+ * here and would be a lie in the one above.
+ */
+export function noRoomForNowNote(): NotePair {
+  return {
+    en:
+      "There was not room for this while it was waiting, and nothing was " +
+      "charged for it. Start it again and it should go through.",
+    ar:
+      "ما كان في مساحة طول ما هالطلب مستني، وما انحسب عليك إشي. " +
+      "شغّله مرة تانية ولازم يمشي.",
+  };
 }
 
 /** A directory old enough that no live render could still be using it. */

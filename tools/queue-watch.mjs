@@ -71,11 +71,20 @@ const FAILED = "failed";
  * The verdict, as a pure function of rows, so it can be tested without a
  * database and so the SQL below has nothing in it but a SELECT.
  *
- * `rows`: `{ id, kind, status, finishedAt, cancelledAt, errorDetail }`.
+ * `rows`: `{ id, kind, status, settledAt, cancelledAt, errorDetail }`.
+ *
+ * `settledAt` rather than `finishedAt`, because `finished_at` did not mean
+ * "when this settled" when this file was written. Three of the worker's `done`
+ * writes — every one on the path a `transcribe` row takes — set `status` and
+ * left the column null, so a day on which transcription succeeded and a render
+ * failed read here as a day on which everything failed. The first version of
+ * this watcher filtered on `finished_at is not null` and would have alarmed on
+ * exactly that. The worker now stamps it everywhere; the rows already in the
+ * table do not, and `coalesce` is what makes this true of both.
  */
 export function verdict(rows, now = new Date()) {
   const since = new Date(now.getTime() - WINDOW_HOURS * 3600 * 1000);
-  const inWindow = rows.filter((r) => r.finishedAt instanceof Date && r.finishedAt > since);
+  const inWindow = rows.filter((r) => r.settledAt instanceof Date && r.settledAt > since);
   const settled = inWindow.filter(
     (r) => (r.status === DONE || r.status === FAILED) && !r.cancelledAt,
   );
@@ -183,11 +192,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     // Read-only, one statement, bounded. This runs hourly against production.
     const result = await pool.query(
-      `select id, kind, status, finished_at, cancelled_at, error_detail
+      `select id, kind, status, cancelled_at, error_detail,
+              coalesce(finished_at, updated_at) as settled_at
          from jobs
-        where finished_at is not null
-          and finished_at > now() - ($1 || ' hours')::interval
-        order by finished_at desc
+        where status in ('done', 'failed')
+          and coalesce(finished_at, updated_at) > now() - ($1 || ' hours')::interval
+        order by coalesce(finished_at, updated_at) desc
         limit 500`,
       [String(WINDOW_HOURS)],
     );
@@ -195,7 +205,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       id: r.id,
       kind: r.kind,
       status: r.status,
-      finishedAt: r.finished_at instanceof Date ? r.finished_at : new Date(r.finished_at),
+      settledAt: r.settled_at instanceof Date ? r.settled_at : new Date(r.settled_at),
       // A stop, not a fault. Null for everything else.
       cancelledAt: r.cancelled_at ?? null,
       errorDetail: r.error_detail,

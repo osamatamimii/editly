@@ -19,7 +19,15 @@ import { db, pool, jobsTable, projectsTable, assetsTable, messagesTable, clipsTa
 import { EditPlan, MUSIC_MOOD_NAMES, type EditOperation } from "@workspace/api-zod";
 import { CANCELLED_MID_RENDER_MESSAGE } from "@workspace/api-zod/limits";
 import { downloadObject, uploadObject, bytesPulled, objectBytes, objectStamp, reportTransferRetries, StorageTransferError } from "./storage";
-import { roomFor, noRoomMessage, sweepStaleWork } from "./disk";
+import {
+  roomFor,
+  noRoomMessage,
+  sweepStaleWork,
+  beyondThisMachine,
+  tooLargeNote,
+  noRoomForNowNote,
+  LISTEN_TO_SOURCE,
+} from "./disk";
 import { renderPlan, probeDuration, probeSource, grabPosterFrame, shapeFor, frameFor, defaultHeightFor, loudestSample, SILENT_PEAK_DBFS, FfmpegError } from "./ffmpeg";
 import { encodePreview, previewPathFor } from "./preview";
 import { LIMITS, deliverableSourceMinutes } from "./deadline";
@@ -31,7 +39,7 @@ import { measureOutput, exceedsCeiling, tooLongMessage, exceedsAllowance, allowa
 import { enrichPlan, type TranscriptStore } from "./enrich";
 import { comprehend, transcriptDigest, wordsOf, COMPREHENSION_VERSION } from "./comprehend";
 import { resolveProviders, type Providers } from "./providers";
-import { sayIn, countedAr, AR_NOUNS, type Language } from "./say";
+import { sayIn, pick, countedAr, AR_NOUNS, type Language, type NotePair } from "./say";
 import { publishDuePosts, surfaceStrandedPosts } from "./publisher";
 import { mailLogsTo, tellThemItDidNotFinish, tellThemTheEditIsReady } from "./mail";
 import { prepareUploadedFaces, fetchUploadedFaces } from "./font-prepare";
@@ -99,6 +107,45 @@ class SourceTooLongError extends Error {}
  * nobody reads, ending at "this project could not be rendered".
  */
 class NoRoomHereError extends Error {}
+
+/**
+ * A file this machine could not hold if it were empty.
+ *
+ * Terminal, and deliberately a different class from the one above: that one
+ * means "not now", this one means "not here", and answering the second with
+ * the first is what kept a row alive for twenty-one minutes on 15 September
+ * while everything behind it waited. Carries the sentence the person reads.
+ */
+class TooLargeForThisMachineError extends Error {
+  /** The sentence the person reads, in both languages. Resolved at the catch. */
+  readonly note: NotePair;
+  constructor(note: NotePair, detail: string) {
+    super(detail);
+    this.note = note;
+  }
+}
+
+/**
+ * How many times one job may be handed back for room before we stop.
+ *
+ * The hand-back is right when something else is holding the disk: that
+ * finishes, and the next claim goes through. It is wrong when nothing is
+ * holding the disk and the number simply does not fit, which `beyondThisMachine`
+ * now catches directly — but only when `statfs` answered. This is the backstop
+ * for every other way a refusal can repeat forever, and five minutes of trying
+ * is long enough to outlast any render that was going to finish soon.
+ */
+const NO_ROOM_GIVE_UP = 5;
+
+/**
+ * What this copy has been refused room for, and how often.
+ *
+ * In memory rather than on the row, because it is a fact about this machine
+ * and not about the job: another worker with a bigger disk should not inherit
+ * our count. Cleared when the job leaves the queue, and lost on restart, which
+ * is the correct behaviour — a new machine deserves its own five tries.
+ */
+const refusedForRoom = new Map<string, number>();
 
 /**
  * The person asked us to stop, and we did.
@@ -632,11 +679,25 @@ async function listenOnly(job: Job, log: pino.Logger): Promise<void> {
 
     const sourceBytes = await objectBytes(job.inputPath);
     if (sourceBytes !== null) {
-      const room = await roomFor(sourceBytes, workDir);
+      // `LISTEN_TO_SOURCE`, not the render's multiplier. This path writes the
+      // source and an audio proxy and nothing else; sizing it as a render
+      // refused a three-gigabyte file that would have fitted twice over, once
+      // a minute, until somebody looked at a log. See disk.ts.
+      const room = await roomFor(sourceBytes, workDir, LISTEN_TO_SOURCE);
+      if (beyondThisMachine(room)) {
+        log.error({ sourceBytes, ...room }, "this file is larger than the machine, so listening cannot happen here");
+        throw new TooLargeForThisMachineError(
+          tooLargeNote(sourceBytes),
+          `listening needs ${room.neededBytes} bytes and this filesystem holds ${room.totalBytes}`,
+        );
+      }
       if (!room.enough) {
         log.warn({ freeBytes: room.freeBytes, neededBytes: room.neededBytes }, noRoomMessage(room));
         throw new NoRoomHereError(noRoomMessage(room));
       }
+      // Past the gate: whatever this machine refused before, it has room now,
+      // and the count exists to end a loop rather than to hold a grudge.
+      refusedForRoom.delete(job.id);
     }
 
     const store = await transcriptStoreFor(job, providers, log);
@@ -648,7 +709,7 @@ async function listenOnly(job: Job, log: pino.Logger): Promise<void> {
       log.info({ project: job.projectId }, "the words were already known by the time this was claimed");
       await db
         .update(jobsTable)
-        .set({ status: "done", progress: 100, stage: null, error: null, errorDetail: null })
+        .set({ status: "done", progress: 100, stage: null, error: null, errorDetail: null, finishedAt: new Date() })
         .where(eq(jobsTable.id, job.id));
       return;
     }
@@ -678,7 +739,7 @@ async function listenOnly(job: Job, log: pino.Logger): Promise<void> {
       });
       await db
         .update(jobsTable)
-        .set({ status: "done", progress: 100, stage: null, error: null, errorDetail: null })
+        .set({ status: "done", progress: 100, stage: null, error: null, errorDetail: null, finishedAt: new Date() })
         .where(eq(jobsTable.id, job.id));
       return;
     }
@@ -691,7 +752,7 @@ async function listenOnly(job: Job, log: pino.Logger): Promise<void> {
     await store?.save(transcript);
     await db
       .update(jobsTable)
-      .set({ status: "done", progress: 100, stage: null, error: null, errorDetail: null })
+      .set({ status: "done", progress: 100, stage: null, error: null, errorDetail: null, finishedAt: new Date() })
       .where(eq(jobsTable.id, job.id));
     log.info({ project: job.projectId, language: transcript.language }, "the words are known");
   } finally {
@@ -763,10 +824,29 @@ async function processJob(job: Job): Promise<void> {
     const sourceBytes = await objectBytes(job.inputPath);
     if (sourceBytes !== null) {
       const room = await roomFor(sourceBytes, workDir);
+      /*
+        Not now, or not here.
+
+        A render needs six times its source, so the file that cannot be
+        rendered on this box is a good deal smaller than the one that cannot be
+        listened to on it — and handing it back was telling the customer
+        nothing while promising them everything. If it does not fit on an empty
+        machine, say so to them rather than to the log.
+      */
+      if (beyondThisMachine(room)) {
+        log.error({ sourceBytes, ...room }, "this file is larger than the machine, so the render cannot happen here");
+        throw new TooLargeForThisMachineError(
+          tooLargeNote(sourceBytes),
+          `the render needs ${room.neededBytes} bytes and this filesystem holds ${room.totalBytes}`,
+        );
+      }
       if (!room.enough) {
         log.warn({ freeBytes: room.freeBytes, neededBytes: room.neededBytes }, noRoomMessage(room));
         throw new NoRoomHereError(noRoomMessage(room));
       }
+      // Past the gate: whatever this machine refused before, it has room now,
+      // and the count exists to end a loop rather than to hold a grudge.
+      refusedForRoom.delete(job.id);
     }
 
     // ── The source, which may not exist yet ───────────────────────────────
@@ -1362,6 +1442,48 @@ async function processJob(job: Job): Promise<void> {
     }
 
     if (error instanceof NoRoomHereError) {
+      /*
+        Handing it back is right, and handing it back forever is not.
+
+        The hand-back was written for a machine that is busy: something else is
+        holding the disk, that thing finishes, and the next claim goes through
+        uncharged. What it could not express is a machine that is simply
+        smaller than the job — and because the claim orders by age, such a row
+        sits at the head of the queue and is offered first every single time.
+        On 15 September one did, once a minute for twenty-one minutes, and
+        every other project on the platform waited behind it. The customer was
+        told nothing throughout, on the reasoning that nothing had happened to
+        their project. Nothing was ever going to.
+
+        So the hand-backs are counted. Five of them is five minutes of a disk
+        that has not freed up, which outlasts any render that was about to
+        finish, and after that this becomes a refusal the person can read and
+        act on rather than a silence they cannot.
+      */
+      const handedBack = (refusedForRoom.get(job.id) ?? 0) + 1;
+      if (handedBack >= NO_ROOM_GIVE_UP) {
+        refusedForRoom.delete(job.id);
+        log.error(
+          { jobId: job.id, handedBack },
+          "handed this job back for room too many times; failing it so the queue moves and the customer is told",
+        );
+        await db
+          .update(jobsTable)
+          .set({
+            status: "failed",
+            stage: null,
+            progress: 0,
+            lockedAt: null,
+            lockedBy: null,
+            finishedAt: new Date(),
+            error: pick(say, noRoomForNowNote()),
+            errorDetail: `${error.message} (handed back ${handedBack} times)`,
+          })
+          .where(eq(jobsTable.id, job.id));
+        await rm(workDir, { recursive: true, force: true });
+        return;
+      }
+      refusedForRoom.set(job.id, handedBack);
       await db
         .update(jobsTable)
         .set({
@@ -1375,6 +1497,33 @@ async function processJob(job: Job): Promise<void> {
         .where(eq(jobsTable.id, job.id));
       await rm(workDir, { recursive: true, force: true });
       await sleep(NO_ROOM_PAUSE_MS);
+      return;
+    }
+
+    /*
+      Bigger than the machine, which is not a wait and never becomes one.
+
+      Terminal on purpose, and with the person's own sentence on the row rather
+      than "Rendering failed. We are looking into it." — they can act on "this
+      file is too big", and the generic line sends them to support for
+      something they can fix in a minute.
+    */
+    if (error instanceof TooLargeForThisMachineError) {
+      refusedForRoom.delete(job.id);
+      await db
+        .update(jobsTable)
+        .set({
+          status: "failed",
+          stage: null,
+          progress: 0,
+          lockedAt: null,
+          lockedBy: null,
+          finishedAt: new Date(),
+          error: pick(say, error.note),
+          errorDetail: error.message,
+        })
+        .where(eq(jobsTable.id, job.id));
+      await rm(workDir, { recursive: true, force: true });
       return;
     }
 

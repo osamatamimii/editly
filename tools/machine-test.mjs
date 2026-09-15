@@ -102,6 +102,85 @@ section("How much room a render needs is a multiple of what it starts from");
     would let a render start that cannot finish, which is the whole bug.
   */
   check("the multiplier covers the heaviest plan that was measured", disk.WORK_TO_SOURCE >= 5, String(disk.WORK_TO_SOURCE));
+
+  /*
+    And a job that only listens is not a render, which took a production
+    outage to notice.
+
+    On 15 September a three-gigabyte upload was refused for room every sixty
+    seconds for twenty-one minutes. It was a `transcribe` row, and it was
+    sized with the render's multiplier: six times three gigabytes is
+    eighteen and a half with the reserve, the machine had seven and a third
+    free, so the answer was no and was always going to be no — about a job
+    that writes the source and a sixteen-kilohertz mono FLAC and nothing
+    else, and would have fitted twice over.
+
+    The number below is the measurement; the check is that the two numbers
+    are not the same number, because one number for two jobs is the bug.
+  */
+  const listening = await disk.roomFor(gigabyte, buildDir, disk.LISTEN_TO_SOURCE);
+  check(
+    "listening is sized as listening, not as a render",
+    listening.neededBytes < big.neededBytes,
+    `${listening.neededBytes} vs ${big.neededBytes}`,
+  );
+  check(
+    "and it still allows for the source plus an audio proxy",
+    disk.LISTEN_TO_SOURCE > 1 && disk.LISTEN_TO_SOURCE <= 2,
+    String(disk.LISTEN_TO_SOURCE),
+  );
+  /*
+    The case from the day itself, in numbers: three gigabytes of source on a
+    filesystem with seven and a third free. As a render it does not fit and
+    never did. As what it actually was, it fits with room to spare.
+  */
+  {
+    const source = 3.0 * gigabyte;
+    const free = 7.3 * gigabyte;
+    const asRender = source * disk.WORK_TO_SOURCE + disk.DISK_RESERVE_BYTES;
+    const asListening = source * disk.LISTEN_TO_SOURCE + disk.DISK_RESERVE_BYTES;
+    check("the file that was refused could not have been rendered there", asRender > free);
+    check("and could have been listened to there", asListening < free, `${asListening} vs ${free}`);
+  }
+}
+
+section("Not now and not here are different answers");
+{
+  /*
+    The distinction that did not exist, and the twenty-one minutes it cost.
+
+    A machine that is busy will not be busy later: handing the row back is
+    right, and the next claim goes through uncharged. A machine that is
+    *smaller than the job* is not busy — nothing frees up, because nothing is
+    held. Answering the second with the first produced a row that was claimed,
+    refused and requeued once a minute forever, sitting at the head of a queue
+    ordered by age so that nothing behind it ran either, with the only trace a
+    `warn` nobody reads.
+  */
+  const gigabyte = 1024 ** 3;
+  const busy = { enough: false, freeBytes: 2 * gigabyte, neededBytes: 6 * gigabyte, totalBytes: 40 * gigabyte };
+  check("a full disk on a big machine is a wait", disk.beyondThisMachine(busy) === false);
+
+  const small = { enough: false, freeBytes: 7 * gigabyte, neededBytes: 18 * gigabyte, totalBytes: 8 * gigabyte };
+  check("a job larger than the whole filesystem is not", disk.beyondThisMachine(small) === true);
+
+  const exactly = { enough: true, freeBytes: 8 * gigabyte, neededBytes: 8 * gigabyte, totalBytes: 8 * gigabyte };
+  check("and a job that exactly fits an empty machine is still allowed", disk.beyondThisMachine(exactly) === false);
+
+  /*
+    Unknown means yes here too, for the same reason it does above: a
+    filesystem that will not answer `statfs` is a metadata hiccup, and
+    refusing somebody's video over one is a worse product than not asking.
+  */
+  const unknown = { enough: true, freeBytes: Infinity, neededBytes: 6 * gigabyte, totalBytes: Infinity };
+  check("an unreadable filesystem never refuses anybody permanently", disk.beyondThisMachine(unknown) === false);
+
+  const note = disk.tooLargeNote(3 * gigabyte);
+  check("the person is told the size of their own file", /3\.0 GB/.test(note.en), note.en);
+  check("and what to do about it", /shorter|smaller/.test(note.en), note.en);
+  check("and it is not a machine's problem said out loud", !/disk|machine|server/i.test(note.en), note.en);
+  check("both halves are written", typeof note.ar === "string" && note.ar.length > 20);
+  check("and the Arabic is not the English", note.ar !== note.en);
   check(
     "and the reserve leaves the machine something to live on",
     disk.DISK_RESERVE_BYTES >= 256 * 1024 * 1024,
@@ -254,18 +333,105 @@ section("A machine with no room hands the job back rather than failing it");
     `${before.why} — a check after the download has already spent the thing it was protecting`,
   );
 
-  const branch = worker.slice(
-    worker.indexOf("if (error instanceof NoRoomHereError)"),
-    worker.indexOf("if (error instanceof NoRoomHereError)") + 900,
+  /*
+    Read with the comments stripped.
+
+    Three checks in this repository have been satisfied by their own
+    documentation — an em dash inside a CSS template literal, `::error::` in
+    the comment explaining the guard, `[[services]]` in the comment quoting
+    it. The branch below now carries a long note about why it exists, and a
+    fixed-width slice of the file starting at the `if` would be mostly that
+    note. So: strip comments, then read the code.
+  */
+  const code = worker.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  const roomBranch = code.slice(
+    code.indexOf("if (error instanceof NoRoomHereError)"),
+    code.indexOf("if (error instanceof TooLargeForThisMachineError)"),
   );
-  check("there is a branch for it at all", branch.length > 100);
-  check('the row goes back to "queued", not "failed"', /status: "queued"/.test(branch), branch.slice(0, 120));
-  check("the attempt is given back", /attempts: Math\.max\(0, job\.attempts - 1\)/.test(branch), branch.slice(0, 200));
-  check("and this machine stops asking for a while", /sleep\(NO_ROOM_PAUSE_MS\)/.test(branch));
+  check("there is a branch for it at all", roomBranch.length > 100);
+  check('the row goes back to "queued", not "failed"', /status: "queued"/.test(roomBranch));
+  check("the attempt is given back", /attempts: Math\.max\(0, job\.attempts - 1\)/.test(roomBranch));
+  check("and this machine stops asking for a while", /sleep\(NO_ROOM_PAUSE_MS\)/.test(roomBranch));
+
+  /*
+    And it stops handing back eventually, which is the half that was missing.
+
+    The hand-back was written for a busy machine and is right for one. It was
+    also the only answer available, so a row that could never fit was handed
+    back once a minute for twenty-one minutes — at the head of a queue ordered
+    by age, so every other project on the platform waited behind it, while the
+    customer's panel said nothing because the code was correct that nothing
+    had happened to their project. Nothing was ever going to.
+  */
   check(
-    "nothing is written for the customer to read, because nothing happened to them",
-    !/error:/.test(branch),
-    branch.slice(0, 200),
+    "the hand-backs are counted",
+    /refusedForRoom\.set\(/.test(roomBranch) && /refusedForRoom\.get\(/.test(roomBranch),
+    "an uncounted hand-back is a loop with no exit",
+  );
+  check(
+    "and after enough of them the row is failed so the queue moves",
+    /handedBack >= NO_ROOM_GIVE_UP/.test(roomBranch) && /status: "failed"/.test(roomBranch),
+    "a job nothing can run must stop being offered first",
+  );
+  check(
+    "and the person is finally told, in their own language",
+    /error: pick\(say, noRoomForNowNote\(\)\)/.test(roomBranch),
+    "twenty-one minutes of silence is what this is for",
+  );
+  check(
+    "the ceiling is low enough to outlast a render, not a working day",
+    /NO_ROOM_GIVE_UP = [2-9]\b/.test(code),
+    "five tries is five minutes",
+  );
+
+  /*
+    The other branch, which is a different fact and must not be folded in.
+
+    "Not now" and "not here" were one answer until 15 September. This one is
+    terminal by design: no number of retries turns a filesystem into a bigger
+    filesystem.
+  */
+  const tooLarge = code.slice(
+    code.indexOf("if (error instanceof TooLargeForThisMachineError)"),
+    code.indexOf("if (error instanceof TooLargeForThisMachineError)") + 700,
+  );
+  check("a file bigger than the machine is a refusal, not a wait", /status: "failed"/.test(tooLarge));
+  check(
+    "and it carries the sentence written for the person, not the one for the log",
+    /error: pick\(say, error\.note\)/.test(tooLarge),
+  );
+  check(
+    "and it settles the row, so the watcher can see it",
+    /finishedAt: new Date\(\)/.test(tooLarge),
+  );
+
+  /*
+    Both room checks ask the permanent question before the temporary one.
+
+    Asked the other way round, a file larger than the whole filesystem takes
+    the hand-back branch — which is exactly the loop this patch exists to end.
+  */
+  const asksPermanentFirst =
+    code.indexOf("beyondThisMachine(room)") < code.indexOf("if (!room.enough)") &&
+    code.lastIndexOf("beyondThisMachine(room)") < code.lastIndexOf("if (!room.enough)");
+  check(
+    "'is this possible here at all' is asked before 'is there room right now'",
+    asksPermanentFirst,
+    "asked the other way round, the impossible job takes the retry branch forever",
+  );
+
+  /*
+    And listening asks with its own multiplier.
+
+    The one that was refused was a `transcribe` row sized as a render. Reading
+    it out of the source rather than trusting the constant to stay where it
+    was put, because the call site is the thing that was wrong.
+  */
+  check(
+    "the listening path sizes itself as listening",
+    /roomFor\(sourceBytes, workDir, LISTEN_TO_SOURCE\)/.test(code),
+    "sizing a transcription as a render is the bug this patch is named after",
   );
 }
 

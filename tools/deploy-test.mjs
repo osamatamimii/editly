@@ -1438,8 +1438,24 @@ console.log("\nThe platform watches itself");
   // The columns, against the schema rather than against memory. Rename one in
   // Drizzle and this probe's SELECT is a 500 an hour that nobody reads.
   const declared = new Set([...jobsSchema.matchAll(/\b(?:text|timestamp|integer|real|bigint|jsonb|uuid)\("([a-z_]+)"/g)].map((m) => m[1]));
+  /*
+    The bare column names out of the select list.
+
+    Not `split(",")`: the list carries `coalesce(finished_at, updated_at) as
+    settled_at`, whose comma is inside a call and whose alias is not a column.
+    Taking every identifier and dropping SQL's own words is what survives both
+    — and the first cut of this check split on commas and reported
+    `coalesce(finished_at` as a missing column, which is a check failing on
+    correct code.
+  */
   const selected = /select ([\s\S]*?)\n\s*from jobs/.exec(probe)?.[1] ?? "";
-  const columns = selected.split(",").map((c) => c.trim()).filter(Boolean);
+  const SQL_WORDS = new Set(["coalesce", "as", "select", "distinct", "null", "case", "when", "then", "else", "end"]);
+  const aliases = new Set([...selected.matchAll(/\bas\s+([a-z_]+)/g)].map((m) => m[1]));
+  const columns = [...new Set(
+    [...selected.matchAll(/[a-z_]+/g)]
+      .map((m) => m[0])
+      .filter((word) => !SQL_WORDS.has(word) && !aliases.has(word)),
+  )];
   check(
     "and every column it selects is one the jobs table has",
     columns.length >= 5 && columns.every((c) => declared.has(c)),
