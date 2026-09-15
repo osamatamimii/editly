@@ -2383,6 +2383,14 @@ export function becauseIn(lang: Language, body: Record<string, unknown>): string
       return "في تصيير شغّال هلق على هالمشروع، وبضمّ هاد عليه أول ما يخلص.";
     case "noVideo":
       return "ارفع فيديو قبل التصيير.";
+    /*
+      Our defect, not theirs, and the Arabic says so the same way the English
+      does: nothing started, nothing charged, and one thing to try. It does not
+      name the schema, because a person reading this did nothing that a
+      different sentence would have avoided.
+    */
+    case "planNotRunnable":
+      return "في إشي بالتعديل طلع غلط من عنّا، فما بلّش إشي وما انصرفت ولا دقيقة. جرّب تطلبه بكلمات تانية، واحكيلنا إذا ضلّ يصير.";
     case "tooManyInFlight":
       return `عندك ${countedAr(n("jobsInFlight"), "تصيير واحد", "تصييران", "عمليات تصيير")} تعمل الآن. تعمل واحدة تلو الأخرى، فابدأ هذه حين تنتهي إحداها.`;
     case "minutesInFlight":

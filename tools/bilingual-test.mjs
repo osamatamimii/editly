@@ -979,6 +979,7 @@ console.log("\na refusal is written in Arabic, not translated into it");
     ["sourceExhausted", { error: "e", reason: "sourceExhausted", sourceMinutesUsed: 240, minutesUsed: 6 }],
     ["uploadTooLong", { error: "e", reason: "uploadTooLong", maxUploadMinutes: 30, suggestedPlan: "pro" }],
     ["wouldExceed", { error: "e", reason: "wouldExceed", projectedMinutes: 40, minutesRemaining: 5 }],
+    ["planNotRunnable", { error: "Something in that edit came out wrong on our side.", reason: "planNotRunnable" }],
   ];
   // The function words that gave the old half-language sentence away.
   const englishWords = /\b(and|the|it|with|from|into|your|so|rather than|renders|minutes|account)\b/i;
@@ -1005,6 +1006,44 @@ console.log("\na refusal is written in Arabic, not translated into it");
   // with a shrug that hides which refusal it was.
   const unknown = becauseIn("ar", { error: "Something new happened.", reason: "somethingNew" });
   check("an unwritten refusal falls back to its English", unknown === "Something new happened.");
+
+  /*
+    The list above is hand-kept, and a hand-kept list of refusals is exactly
+    the thing that goes stale on the day somebody adds a refusal.
+
+    That already happened once: a new reason went in at both render doors with
+    no Arabic beside it, and every check here stayed green because nobody had
+    added a tenth row. The fallback then does the quiet damage -- it returns
+    the English, which reads as an English sentence inside an Arabic reply,
+    which is the exact defect this whole section exists to have ended.
+
+    So the reasons are read off the files that emit them. A refusal added
+    tomorrow turns this red tomorrow, in the name of the reason it added.
+  */
+  const emitted = new Set();
+  for (const file of [
+    "artifacts/api-server/src/lib/render-policy.ts",
+    "artifacts/api-server/src/lib/start-render.ts",
+    "artifacts/api-server/src/routes/exports.ts",
+  ]) {
+    const source = await readFile(path.join(repoRoot, file), "utf8");
+    // Comments stripped: a reason named only in prose is not a reason emitted.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    for (const m of code.matchAll(/reason:\s*(?:heldByFlight\s*\?\s*)?"([A-Za-z]+)"(?:\s*:\s*"([A-Za-z]+)")?/g)) {
+      emitted.add(m[1]);
+      if (m[2]) emitted.add(m[2]);
+    }
+  }
+  check("the refusal reasons can be read off the code that emits them", emitted.size >= 8, String(emitted.size));
+  const untranslated = [...emitted].filter((reason) => {
+    const ar = becauseIn("ar", { error: "ONLY-ENGLISH-HERE", reason });
+    return ar === "ONLY-ENGLISH-HERE";
+  });
+  check(
+    "and every one of them has Arabic of its own",
+    untranslated.length === 0,
+    untranslated.join(", "),
+  );
 }
 
 await rm(buildDir, { recursive: true, force: true });
