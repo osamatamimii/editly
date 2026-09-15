@@ -214,7 +214,7 @@ export function direct(input: DirectionInput): Direction {
   if (input.platform && !input.spoke.platform) {
     add(
       { type: "formatForPlatform", platform: input.platform },
-      say(`frame it for ${input.platform}`, `أؤطّره لـ${input.platform}`),
+      say(`make it the right shape for ${input.platform}`, `أخلّيه بالمقاس المزبوط لـ${input.platform}`),
     );
   }
 
@@ -233,7 +233,7 @@ export function direct(input: DirectionInput): Direction {
       { type: "extractHighlight", targetSeconds: HIGHLIGHT_SECONDS },
       say(
         `take the strongest ${HIGHLIGHT_SECONDS} seconds out of it, because this is longer than the feed takes`,
-        `آخذ أقوى ${HIGHLIGHT_SECONDS} ثانية منه، لأنه أطول ممّا يقبله الفيد`,
+        `آخد أقوى ${HIGHLIGHT_SECONDS} ثانية منه، لأنه أطول من اللي بيقبلوه`,
       ),
     );
   }
@@ -247,7 +247,7 @@ export function direct(input: DirectionInput): Direction {
   if (input.hasSpeech && longEnoughToRestructure && !input.spoke.silence) {
     add(
       { type: "removeSilence", thresholdDb: -32, minSilenceMs: 500, paddingMs: 80 },
-      say("cut out the silences and dead air", "أقصّ الصمت والفراغات"),
+      say("take out the silent bits", "أشيل السكتات"),
     );
     /*
       And the hesitations, which is the second thing an editor does and the
@@ -271,7 +271,7 @@ export function direct(input: DirectionInput): Direction {
           wording as `describeAll` uses for this operation, so the two paths
           say one thing about one operation.
         */
-        say("cut the hesitations and the false starts", "أقصّ الترددات والبدايات المكرّرة"),
+        say("take out the ums and the sentences that start twice", "أشيل «آآ» و«يعني» والجمل اللي بتبلّش مرتين"),
       );
     }
   }
@@ -295,7 +295,7 @@ export function direct(input: DirectionInput): Direction {
         everywhere downstream. `DEFAULT_CAPTION_LOOK` answers it instead.
       */
       { type: "autoCaptions", dropFillers: true },
-      say("put captions on it, because most of this is watched with the sound off", "أضع كابشنز، لأن أكثره يُشاهَد بلا صوت"),
+      say("write what you say on the screen, because most people watch with the sound off", "أكتب الكلام اللي بتحكيه عالصورة، لأن أكتر الناس بتتفرّج بلا صوت"),
     );
   }
 
@@ -312,7 +312,7 @@ export function direct(input: DirectionInput): Direction {
     // the renderer measures the room in the pauses and takes out only what it
     // measured, which on a quiet recording is nothing at all.
     { type: "normalizeLoudness", targetLufs: -14, voice: input.hasSpeech, denoise: input.hasSpeech },
-    say("level the audio to what the feeds play at", "أضبط مستوى الصوت على ما تشغّله المنصّات"),
+    say("even out the sound to what these apps expect", "أظبّط الصوت متل ما بدها هالتطبيقات"),
   );
 
   /*
@@ -339,8 +339,8 @@ export function direct(input: DirectionInput): Direction {
     add(
       { type: "zoomPunch", at: peaks, amount: 0.12, holdMs: 1200, on: "emphasis" },
       say(
-        `push in on the ${peaks.length} moments that hold attention`,
-        `أقرّب على ${peaks.length} من اللحظات التي تمسك الانتباه`,
+        `zoom in on the ${peaks.length} moments that hold attention`,
+        `أقرّب الصورة عند ${peaks.length} لحظات بتشدّ الانتباه`,
       ),
     );
   }
@@ -358,8 +358,8 @@ export function direct(input: DirectionInput): Direction {
     add(
       { type: "coldOpen", seconds: 4 },
       say(
-        "open on the strongest line instead of on the setup",
-        "أبدأ بأقوى جملة بدل المقدّمة",
+        "start with the strongest line instead of the build-up",
+        "أبلّش بأقوى جملة بدل المقدّمة",
       ),
     );
   }
@@ -386,7 +386,7 @@ export function direct(input: DirectionInput): Direction {
   if (cutsSoFar() && known && (seconds as number) >= 60 && !input.spoke.coverage) {
     add(
       { type: "alternateFraming", amount: 0.15 },
-      say("cut between a wide and a tight framing, the way a second camera would", "أبدّل بين كادر واسع وآخر ضيّق، كما لو أن هناك كاميرا ثانية"),
+      say("switch between a wide shot and a close one, the way a second camera would", "أبدّل بين لقطة واسعة ولقطة قريبة، متل ما لو كان في كاميرا تانية"),
     );
   }
 
@@ -447,17 +447,17 @@ export function direct(input: DirectionInput): Direction {
       // three and tells somebody nothing about what they are about to watch.
       join.style === "whipPan"
         ? say(
-            "whip between the shots where the recording jumps, in time with the track",
-            "أسحب الكاميرا بين اللقطات حيث يقفز التسجيل، على إيقاع المقطوعة",
+            "swing the camera between the shots where the recording jumps, in time with the music",
+            "أسحب الكاميرا بين اللقطات وين التسجيل بينطّ، مع إيقاع الموسيقى",
           )
         : join.style === "flashBlack"
           ? say(
-              "blink to black between the sections, and leave the tidying cuts hard",
-              "أُطفئ إلى السواد بين الأقسام، وأترك قصّات التنظيف حادّة",
+              "go dark for a moment between the big parts, not every time the picture changes",
+              "أعتّم الشاشة لحظة بين الأجزاء الكبيرة، مش كل ما تتغيّر الصورة",
             )
           : say(
-              "join the cuts where the recording jumps rather than at every cut",
-              "أصل بين القطع حيث يقفز التسجيل لا عند كل قصّة",
+              "make it a soft change only where the recording jumps, not at every change of scene",
+              "أخلّي الانتقال ناعم بس وين التسجيل بينطّ، مش عند كل تغيير مشهد",
             ),
     );
   }
@@ -474,7 +474,7 @@ export function direct(input: DirectionInput): Direction {
   if (vertical && cutsSoFar() && !input.spoke.sfx) {
     add(
       { type: "soundEffects", gainDb: -12, palette: "clean", onCuts: true, onPunches: true, onOpen: true },
-      say("put quiet effects under the cuts and the punches", "أضع مؤثّرات خافتة تحت القطع والتقريبات"),
+      say("add quiet sound effects where the scenes change and where it zooms in", "أحطّ مؤثّرات صوت خفيفة عند تغيير المشاهد ومع تقريب الصورة"),
     );
   }
 
@@ -490,7 +490,7 @@ export function direct(input: DirectionInput): Direction {
   if (look && look !== "none") {
     add(
       { type: "grade", saturation: 1, look: look as never },
-      say(`grade it ${look}, the way you usually do`, `أدرّجه ${look}، كما تفعل عادةً`),
+      say(`give it a ${look} look, the way you usually do`, `أعطيه لون ${look}، متل ما بتعمل عادة`),
     );
   }
 
@@ -505,7 +505,7 @@ export function direct(input: DirectionInput): Direction {
   if (track && longEnoughToRestructure && !input.spoke.music) {
     add(
       { type: "addMusic", assetId: track.id, gainDb: -18, duck: true, fadeSeconds: 1, fromSeconds: 0, loop: true },
-      say("lay your track under it, ducked under the voice", "أضع مقطوعتك تحته، خافتة تحت الصوت"),
+      say("put your music under it, dropping down while you talk", "أحطّ موسيقاك تحته، بتنخفض لمّا تحكي"),
     );
   }
 
@@ -514,7 +514,7 @@ export function direct(input: DirectionInput): Direction {
     cut off rather than as a video that finished.
   */
   if (longEnoughToRestructure) {
-    add({ type: "fade", durationMs: 500 }, say("fade it out at the end", "أنهيه بتلاشٍ"));
+    add({ type: "fade", durationMs: 500 }, say("fade it out at the end", "أخلّيه يخفت لآخره"));
   }
 
   return { operations, willDo };

@@ -319,7 +319,7 @@ section("A cold open is the best seam in the edit, and now gets the transition")
   */
   check(
     "and the reply says where they will be, not that every cut gets one",
-    withHook.willDo.some((p) => /where the recording jumps rather than at every cut/.test(p.en)),
+    withHook.willDo.some((p) => /where the recording jumps, not at every change of scene/.test(p.en)),
     JSON.stringify(withHook.willDo.map((p) => p.en)),
   );
   // The in-order edit — no hook to open on — still gets its dissolve.
@@ -363,7 +363,7 @@ section("The join it chooses is the join this video wants");
   );
   check(
     "and the reply says so, because all three are not 'join the cuts'",
-    withMusic.willDo.some((p) => /whip between the shots/.test(p.en)),
+    withMusic.willDo.some((p) => /swing the camera between the shots/.test(p.en)),
     JSON.stringify(withMusic.willDo.map((p) => p.en)),
   );
 

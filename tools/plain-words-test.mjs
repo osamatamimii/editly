@@ -189,12 +189,34 @@ console.log("\nThe table catches trade words and leaves ordinary sentences alone
 }
 
 console.log("\nEvery phrase either planner can say is in plain words");
+/*
+  Three files, and the third is the one that taught this suite its own hole.
+
+  The confirmation sentence is not written in one place: the matcher and the
+  model each describe what they chose, and `direct.ts` describes what the
+  product decided *unasked* — which on a plain request is most of the list. It
+  was outside this scope, so a live reply read:
+
+      • أصل بين القطع حيث يقفز التسجيل لا عند كل قصّة
+      • أضبط مستوى الصوت على ما تشغّله المنصّات
+
+  while both guards reported everything clean. A guard that names its scope is
+  honest; a guard whose scope is missing the layer that speaks most is a guard
+  about nothing. Found by reading a reply on the live product, not here.
+*/
 for (const [file, mode] of [
   ["artifacts/api-server/src/lib/plan-from-text.ts", "say"],
   ["artifacts/api-server/src/lib/planner.ts", "prop"],
+  ["artifacts/api-server/src/lib/direct.ts", "say"],
 ]) {
   const found = phrasesOf(file, mode);
-  check(`${path.basename(file)} has phrases to read`, found.length > 20, `${found.length} found`);
+  /*
+    A floor rather than a target. The two planners carry dozens each and the
+    direction layer sixteen; what this is for is the case where the extractor
+    stops matching — a renamed helper, a changed call shape — and the suite
+    goes green over a file it is no longer reading.
+  */
+  check(`${path.basename(file)} has phrases to read`, found.length >= 10, `${found.length} found`);
   const flagged = [];
   for (const { text, line } of found) {
     for (const [re, term, instead] of JARGON) {

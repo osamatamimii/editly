@@ -74,6 +74,10 @@ const SCOPE = [
   "artifacts/worker/src/index.ts",
   "artifacts/worker/src/enrich.ts",
   "artifacts/worker/src/ffmpeg.ts",
+  // The layer that speaks most on a plain request: what the product decided
+  // unasked. It was outside both guards until a live reply showed its
+  // sentences sitting in the same list as the converted ones.
+  "artifacts/api-server/src/lib/direct.ts",
 ];
 
 /**
