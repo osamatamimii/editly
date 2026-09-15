@@ -642,13 +642,55 @@ export function createPlanner(options: PlannerOptions = {}) {
               answer off mid-JSON would turn a working request into
               "the planner returned nothing we could execute".
             */
-            max_tokens: MAX_PLAN_TOKENS,
+            /*
+              `max_completion_tokens`, not `max_tokens`.
+
+              This said `max_tokens`, and on 15 September every message in the
+              product logged `planner fell back to keywords · planner returned
+              400`. The newer models refuse the old name outright:
+
+                  Unsupported parameter: 'max_tokens' is not supported with
+                  this model. Use 'max_completion_tokens' instead.
+
+              Nothing failed visibly. The planner has a keyword matcher behind
+              it for exactly this reason, so every sentence was still answered
+              and every reply was still honest — with a matcher reading it
+              instead of a model. That is the whole difference between a
+              product that understands a sentence and one that greps it, and it
+              was being decided by a parameter name.
+
+              The ceiling itself is unchanged and is the same argument: the
+              schema is `strict: true`, so a well-behaved model never reaches
+              it. It is here for the one that is not, because there is no
+              per-user spend cap anywhere in this project.
+            */
+            max_completion_tokens: MAX_PLAN_TOKENS,
           }),
           signal: controller.signal,
         }).finally(() => clearTimeout(timer));
 
         if (!response.ok) {
-          return { ...fallback(), degraded: `planner returned ${response.status}` };
+          /*
+            The reason, not just the number.
+
+            This returned `planner returned 400` and threw the body away — and
+            the body is the sentence that says which parameter was refused. A
+            400 that names nothing is a day of guessing; the provider had
+            already written the answer down.
+
+            Read defensively and cut short: it goes into a log line, it is
+            never shown to a customer, and it must not become a way to pour a
+            provider's prose into this deployment's logs. No key can appear in
+            it — the key travels in a header, and this is the response.
+          */
+          const said = await response
+            .text()
+            .then((body) => body.replace(/\s+/g, " ").slice(0, 300))
+            .catch(() => "");
+          return {
+            ...fallback(),
+            degraded: `planner returned ${response.status}${said ? `: ${said}` : ""}`,
+          };
         }
 
         const chosen = readOperations(await response.json());

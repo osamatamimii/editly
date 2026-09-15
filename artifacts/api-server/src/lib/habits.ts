@@ -160,8 +160,25 @@ const QUESTIONS: Question[] = [
 /** The habits visible in a set of plans. Pure, so it can be checked without a database. */
 export function habitsIn(plans: EditPlan[]): Habit[] {
   const habits: Habit[] = [];
+  /*
+    A row that is not a plan is not a vote, and must not be an exception.
+
+    On 15 September every message in the product answered 500 with
+    `Cannot read properties of undefined (reading 'find')`, from here. The
+    query below reads every finished job and hands its `plan` to these
+    questions, and a `transcribe` row carries `plan = {}` by design — it has no
+    operations because it produces no edit.
+
+    What makes it worth a guard as well as a narrower query is *when* it
+    appeared. Until that morning every transcribe job in this deployment's
+    history had failed, so no finished one existed, so this code had never met
+    one. Fixing the queue produced the first, and the whole conversation layer
+    fell over on the same day. The query is the correctness fix; this line is
+    the promise that one unexpected row cannot take the chat down again.
+  */
+  const usable = plans.filter((plan) => Array.isArray(plan?.operations));
   for (const question of QUESTIONS) {
-    const answers = plans.map(question.of).filter((a): a is string => a !== undefined);
+    const answers = usable.map(question.of).filter((a): a is string => a !== undefined);
     if (answers.length === 0) continue;
     const counts = new Map<string, number>();
     for (const answer of answers) counts.set(answer, (counts.get(answer) ?? 0) + 1);
@@ -209,7 +226,16 @@ export async function habitsFor(userId: string): Promise<Habit[]> {
       `routes/admin.ts` documents this class at length ("a status nothing writes
       simply matches nothing") after paying for it once already.
     */
-    .where(and(eq(jobsTable.userId, userId), eq(jobsTable.status, "done")))
+    /*
+      Renders, because only a render carries an edit.
+
+      This read every finished job of every kind, and a `transcribe` row has
+      `plan = {}` — no operations, by design, because it produces no edit. The
+      questions above call `plan.operations.find`, so the first finished
+      transcription in this deployment's history crashed every message in the
+      product. It was the first because until that morning they had all failed.
+    */
+    .where(and(eq(jobsTable.userId, userId), eq(jobsTable.status, "done"), eq(jobsTable.kind, "render")))
     .orderBy(desc(jobsTable.createdAt))
     .limit(RENDERS_READ);
   return habitsIn(rows.map((row) => row.plan as EditPlan));

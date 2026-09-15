@@ -339,6 +339,61 @@ section("The renders it reads from are ones this product actually writes");
 }
 
 await rm(buildDir, { recursive: true, force: true });
+section("A row that is not a plan is not a vote, and must not be an exception");
+{
+  /*
+    On 15 September every message in the product answered 500 from here:
+
+        TypeError: Cannot read properties of undefined (reading 'find')
+            at habitsIn
+
+    `habitsFor` read every finished job of every kind, and a `transcribe` row
+    carries `plan = {}` by design — it has no operations because it produces no
+    edit. The questions call `plan.operations.find`, so one such row took the
+    whole conversation layer down.
+
+    What makes it worth remembering is *when*. Until that morning every
+    transcribe job in this deployment's history had failed, so no finished one
+    existed and this code had never met one. Unblocking the queue produced the
+    first, and the chat fell over the same hour: a fix in one place turning
+    into an outage in another, through a row shape nobody had seen.
+
+    Both halves are held here. The query asks for renders, and the arithmetic
+    survives a row that slips past it anyway.
+  */
+  const good = habitual(6);
+  const withTranscribe = [...good, {}, { version: 1 }, { version: 1, operations: null }];
+  let threw = null;
+  let out = [];
+  try {
+    out = habitsIn(withTranscribe);
+  } catch (error) {
+    threw = error;
+  }
+  check("a plan with no operations does not throw", threw === null, String(threw));
+  check(
+    "and the habits are the ones the real plans taught",
+    JSON.stringify(out) === JSON.stringify(habitsIn(good)),
+    JSON.stringify(out),
+  );
+  check(
+    "an empty row is not counted as a vote against anything",
+    out.every((h) => h.outOf === good.length),
+    JSON.stringify(out),
+  );
+
+  // And the query itself, read from the source: the guard above is a backstop,
+  // and a backstop that has become the only defence is a bug waiting.
+  const source = readFileSync(path.join(repoRoot, "artifacts/api-server/src/lib/habits.ts"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  check(
+    "and the query asks for renders, not for every finished job",
+    /eq\(jobsTable\.kind, "render"\)/.test(source),
+    "a transcribe row is finished work with no edit in it",
+  );
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);
 console.log("The product remembers how you work, and never over the sentence you just typed.");

@@ -231,6 +231,51 @@ console.log("\nWhen the model is not there");
   check("a 500 does not reach the user", result.operations.length > 0, "");
   check("it is recorded as a degradation", /500/.test(result.degraded ?? ""), result.degraded);
 
+  /*
+    And the reason, which used to be thrown away.
+
+    On 15 September every message in the product logged `planner returned 400`
+    and nothing else, so every sentence was read by the keyword matcher instead
+    of by a model and the line that said why was a sentence in the response
+    body this code discarded. The provider had already written the answer down.
+  */
+  const refused = createPlanner({
+    apiKey: "k",
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({ error: { message: "Unsupported parameter: 'max_tokens' is not supported with this model." } }),
+        { status: 400 },
+      ),
+  });
+  const refusedResult = await refused.plan("cut the silences", {});
+  check(
+    "a refusal carries the provider's own words",
+    /max_tokens/.test(refusedResult.degraded ?? ""),
+    refusedResult.degraded,
+  );
+  check(
+    "and is cut short, because it goes in a log line",
+    (refusedResult.degraded ?? "").length < 400,
+    String((refusedResult.degraded ?? "").length),
+  );
+
+  /*
+    The parameter that caused it. `max_tokens` is refused outright by the
+    models this product asks for, and the fallback is silent by design — so
+    nothing goes red, and every sentence is greped instead of read.
+  */
+  let sentBody = null;
+  const watching = createPlanner({
+    apiKey: "k",
+    fetchImpl: async (_url, init) => {
+      sentBody = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ operations: [] }) } }] }), { status: 200 });
+    },
+  });
+  await watching.plan("cut the silences", {});
+  check("the ceiling is sent under the name the models accept", typeof sentBody?.max_completion_tokens === "number", JSON.stringify(Object.keys(sentBody ?? {})));
+  check("and not under the one they refuse", sentBody?.max_tokens === undefined, JSON.stringify(Object.keys(sentBody ?? {})));
+
   const hanging = createPlanner({
     apiKey: "k",
     fetchImpl: (_url, init) =>

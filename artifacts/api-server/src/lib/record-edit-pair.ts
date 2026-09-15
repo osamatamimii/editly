@@ -50,7 +50,10 @@ export async function recordEditPair(
     const [previous] = await db
       .select({ plan: jobsTable.plan })
       .from(jobsTable)
-      .where(and(eq(jobsTable.projectId, input.projectId), eq(jobsTable.status, "done")))
+      // Renders only, for the reason habits.ts pays for at length: a
+      // `transcribe` row is finished work with no edit in it, and every reader
+      // that treats `jobs` as "renders" meets one eventually.
+      .where(and(eq(jobsTable.projectId, input.projectId), eq(jobsTable.status, "done"), eq(jobsTable.kind, "render")))
       .orderBy(desc(jobsTable.createdAt))
       .limit(1);
 
