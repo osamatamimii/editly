@@ -874,7 +874,7 @@ console.log("\nThe vertical crop finds the subject instead of the middle");
   const luma = [...`${stats.stdout}${stats.stderr}`.matchAll(/YAVG=([\d.]+)/g)].map((m) => Number(m[1]));
   const brightest = luma.length ? Math.max(...luma) : 0;
 
-  check("it says it framed on the subject", notes.some((n) => /framed on the subject/.test(n)), JSON.stringify(notes));
+  check("it says it kept you in the picture", notes.some((n) => /kept you in the picture/.test(n)), JSON.stringify(notes));
   check(
     "and the subject is really in the delivered frame, not cropped away",
     brightest > 20,

@@ -318,7 +318,7 @@ console.log("\nOne plan carrying nearly everything");
     // Three overlays plus the picture: every stage has to have found its input.
     check(
       "and every overlay stage reached the frame",
-      out.notes.filter((n) => /laid an image over the frame/.test(n)).length === 2 &&
+      out.notes.filter((n) => /put a picture over the video/.test(n)).length === 2 &&
         out.notes.some((n) => /cut to b-roll/.test(n)),
       JSON.stringify(out.notes),
     );
@@ -424,7 +424,7 @@ console.log("\nA cold open with a transition, which used to deadlock");
     );
     check(
       "and the cuts are dissolved rather than the join being dropped",
-      out.notes.some((n) => /dissolved between the cuts/.test(n)),
+      out.notes.some((n) => /let each shot melt into the next/.test(n)),
       JSON.stringify(out.notes),
     );
 
@@ -491,7 +491,7 @@ console.log("\nAn overlapped edit only holds so many pieces open");
   rendered += 1;
   check(
     "three pieces are dissolved, because three decoders fit",
-    few.notes.some((n) => /dissolved between the cuts/.test(n)),
+    few.notes.some((n) => /let each shot melt into the next/.test(n)),
     JSON.stringify(few.notes),
   );
 
@@ -528,7 +528,7 @@ console.log("\nAn overlapped edit only holds so many pieces open");
   rendered += 1;
   check(
     "nine pieces of a small frame still get their dissolve, because they fit",
-    many.notes.some((n) => /dissolved between the cuts/.test(n)),
+    many.notes.some((n) => /let each shot melt into the next/.test(n)),
     JSON.stringify(many.notes),
   );
 
@@ -673,7 +673,10 @@ console.log("\nEvery template we ship renders");
 
   // Every template carries the mark on a free account, and that is the one
   // promise made to us rather than to the customer.
-  const unmarked = [...results.entries()].filter(([, out]) => !out.notes.some((n) => /watermarked/.test(n)));
+  // The note says "put ... in the corner" now, because "watermarked" is our
+  // word for it and the person reading it did not ask for a watermark, they
+  // got one. What it asserts is unchanged: the mark is on, and it is said.
+  const unmarked = [...results.entries()].filter(([, out]) => !out.notes.some((n) => /in the corner/.test(n)));
   check("and every one of them carries the mark", unmarked.length === 0, unmarked.map(([id]) => id).join(", "));
 
   // "The look" is the only template whose name is a claim about the picture,
@@ -682,7 +685,7 @@ console.log("\nEvery template we ship renders");
   const look = results.get("the-look");
   check(
     "the look dissolves between the cuts, which is half of what it promises",
-    look?.notes.some((n) => /dissolved between the cuts/.test(n)),
+    look?.notes.some((n) => /let each shot melt into the next/.test(n)),
     JSON.stringify(look?.notes),
   );
   check(
@@ -734,7 +737,7 @@ console.log("\nA title beside an overlay");
     );
     check(
       "the image is on the frame either way",
-      out.notes.some((n) => /laid an image over the frame/.test(n)),
+      out.notes.some((n) => /put a picture over the video/.test(n)),
       JSON.stringify(out.notes),
     );
   }

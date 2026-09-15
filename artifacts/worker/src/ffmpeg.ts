@@ -3238,47 +3238,56 @@ const BURST_FILTER: Partial<Record<TransitionStyle, string>> = {
 /** The same ten, as the render notes say them. */
 /** The same ten in Arabic, for the note the render writes. */
 const STYLE_IN_WORDS_AR: Record<TransitionStyle, string> = {
-  dissolve: "ذوّبت بين القصّات",
-  wipeLeft: "مسحت إلى اليسار بين القصّات",
-  wipeRight: "مسحت إلى اليمين بين القصّات",
-  wipeUp: "مسحت إلى الأعلى بين القصّات",
-  wipeDown: "مسحت إلى الأسفل بين القصّات",
-  slideLeft: "انزلقت إلى اليسار بين القصّات",
-  slideRight: "انزلقت إلى اليمين بين القصّات",
-  slideUp: "انزلقت إلى الأعلى بين القصّات",
-  slideDown: "انزلقت إلى الأسفل بين القصّات",
-  softWipeLeft: "مسحت إلى اليسار بحافّة ناعمة بين القصّات",
-  softWipeRight: "مسحت إلى اليمين بحافّة ناعمة بين القصّات",
-  softWipeUp: "مسحت إلى الأعلى بحافّة ناعمة بين القصّات",
-  softWipeDown: "مسحت إلى الأسفل بحافّة ناعمة بين القصّات",
-  flash: "ومضت بيضاء بين القصّات",
-  flashBlack: "أطفأت إلى السواد بين القصّات",
-  flashGrey: "مررت عبر الرمادي بين القصّات",
-  whipPan: "سحبت الكاميرا سحبة سريعة بين القصّات",
-  zoomBlur: "قرّبت بضبابية سريعة بين القصّات",
-  glitch: "قطعت بجليتش عند الوصلات",
+  dissolve: "خلّيت كل لقطة تذوب باللي بعدها",
+  wipeLeft: "زحّيت اللقطة لليسار",
+  wipeRight: "زحّيت اللقطة لليمين",
+  wipeUp: "زحّيت اللقطة لفوق",
+  wipeDown: "زحّيت اللقطة لتحت",
+  slideLeft: "دخّلت اللقطة من اليسار",
+  slideRight: "دخّلت اللقطة من اليمين",
+  slideUp: "دخّلت اللقطة من فوق",
+  slideDown: "دخّلت اللقطة من تحت",
+  softWipeLeft: "زحّيت اللقطة لليسار بحافّة ناعمة",
+  softWipeRight: "زحّيت اللقطة لليمين بحافّة ناعمة",
+  softWipeUp: "زحّيت اللقطة لفوق بحافّة ناعمة",
+  softWipeDown: "زحّيت اللقطة لتحت بحافّة ناعمة",
+  flash: "ومّضت الشاشة بيضا بين اللقطات",
+  flashBlack: "عتّمت الشاشة لحظة بين اللقطات",
+  flashGrey: "فتّحت الشاشة لحظة بين اللقطات",
+  whipPan: "سحبت الكاميرا من لقطة للتانية",
+  zoomBlur: "قرّبت وغبّشت بين اللقطات",
+  glitch: "كسّرت الصورة لحظة بين اللقطات",
 };
 
+/*
+  What each join looks like, said as somebody watching would say it.
+
+  Every line of this read "between the cuts" and the Arabic read «بين
+  القصّات» — which is the trade's word in both languages for the thing this
+  sentence is trying to describe to somebody who has never used it. What a
+  person sees is one shot leaving and the next arriving, so that is what these
+  say now.
+*/
 const STYLE_IN_WORDS: Record<TransitionStyle, string> = {
-  dissolve: "dissolved between the cuts",
-  wipeLeft: "wiped left between the cuts",
-  wipeRight: "wiped right between the cuts",
-  wipeUp: "wiped up between the cuts",
-  wipeDown: "wiped down between the cuts",
-  slideLeft: "slid left between the cuts",
-  slideRight: "slid right between the cuts",
-  slideUp: "slid up between the cuts",
-  slideDown: "slid down between the cuts",
-  softWipeLeft: "wiped left on a soft edge between the cuts",
-  softWipeRight: "wiped right on a soft edge between the cuts",
-  softWipeUp: "wiped up on a soft edge between the cuts",
-  softWipeDown: "wiped down on a soft edge between the cuts",
-  flash: "flashed white between the cuts",
-  flashBlack: "blinked to black between the cuts",
-  flashGrey: "passed through grey between the cuts",
-  whipPan: "whipped between the cuts",
-  zoomBlur: "zoomed through a blur between the cuts",
-  glitch: "glitched at the seams",
+  dissolve: "let each shot melt into the next",
+  wipeLeft: "pushed each shot off to the left",
+  wipeRight: "pushed each shot off to the right",
+  wipeUp: "pushed each shot off upward",
+  wipeDown: "pushed each shot off downward",
+  slideLeft: "slid each shot in from the left",
+  slideRight: "slid each shot in from the right",
+  slideUp: "slid each shot in from above",
+  slideDown: "slid each shot in from below",
+  softWipeLeft: "pushed each shot off to the left with a soft edge",
+  softWipeRight: "pushed each shot off to the right with a soft edge",
+  softWipeUp: "pushed each shot off upward with a soft edge",
+  softWipeDown: "pushed each shot off downward with a soft edge",
+  flash: "flashed the screen white between shots",
+  flashBlack: "went dark for a moment between shots",
+  flashGrey: "washed the screen pale for a moment between shots",
+  whipPan: "swung the camera from one shot to the next",
+  zoomBlur: "rushed in and out of focus between shots",
+  glitch: "broke the picture up for a moment between shots",
 };
 
 
@@ -3698,8 +3707,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     if (!ctx.words || ctx.words.length === 0) {
       notes.push(
         t(
-          "nothing to tighten: this needs the words, and there is no transcript",
-          "لا شيء أشدّه: هذا يحتاج الكلمات، ولا يوجد تفريغ",
+          "could not take out the ums: that needs to know what was said, and nothing has read this recording yet",
+          "ما قدرت أشيل «آآ» و«يعني»: هاد بدّه معرفة شو انحكى، ولسا ما حدا قرا هالتسجيل",
         ),
       );
     } else {
@@ -3718,8 +3727,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         */
         notes.push(
           t(
-            "left the hesitations in: too much of this reads as filler for that to be right",
-            "أبقيت الترددات: نسبة كبيرة جدًا من هذا تُقرأ كتردّد، وهذا لا يكون صحيحًا",
+            "left the ums in: too much of this recording reads as one, and cutting that much would take your words with it",
+            "خلّيت «آآ» و«يعني» متل ما هي: كتير من الحكي طلع متلها، ولو شيلتها كلها بشيل معها كلامك",
           ),
         );
       }
@@ -3883,15 +3892,15 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     if (start >= source.duration - 0.05) {
       notes.push(
         t(
-          `the stretch you asked for starts at ${range.startSeconds.toFixed(0)}s, but the clip is only ${source.duration.toFixed(1)}s long, so nothing was cut away`,
-          `المدى اللي طلبته بيبلّش عند الثانية ${range.startSeconds.toFixed(0)}، والمقطع طوله ${source.duration.toFixed(1)} ثانية بس، فما انقصّ إشي`,
+          `the part you asked for starts at ${range.startSeconds.toFixed(0)}s, but the video is only ${source.duration.toFixed(1)}s long, so nothing was cut away`,
+          `الجزء اللي طلبته بيبلّش عند الثانية ${range.startSeconds.toFixed(0)}، والفيديو طوله ${source.duration.toFixed(1)} ثانية بس، فما انقصّ إشي`,
         ),
       );
     } else if (end - start < 0.2) {
       notes.push(
         t(
-          "the stretch you asked for is shorter than a fifth of a second, so it was left uncut",
-          "المدى اللي طلبته أقصر من خُمس ثانية، فانترك بلا قصّ",
+          "the part you asked for is shorter than a fifth of a second, so I left the video as it was",
+          "الجزء اللي طلبته أقصر من خُمس ثانية، فخلّيت الفيديو متل ما هو",
         ),
       );
     } else {
@@ -3925,8 +3934,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
               `أبقيت من الثانية ${start.toFixed(1)} لآخره: المقطع بيخلص عند ${source.duration.toFixed(1)} ثانية، قبل الثانية ${range.endSeconds.toFixed(0)} اللي سمّيتها`,
             )
           : t(
-              `kept ${start.toFixed(1)}s to ${end.toFixed(1)}s, the stretch you asked for`,
-              `أبقيت من الثانية ${start.toFixed(1)} لـ${end.toFixed(1)}، المدى اللي طلبته`,
+              `kept ${start.toFixed(1)}s to ${end.toFixed(1)}s, the part you asked for`,
+              `أبقيت من الثانية ${start.toFixed(1)} لـ${end.toFixed(1)}، الجزء اللي طلبته`,
             ),
       );
     }
@@ -3948,8 +3957,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   if (highlight && range) {
     notes.push(
       t(
-        "the plan asked for both a highlight and a named stretch. The stretch you named won",
-        "طلبت الخطّة هايلايت ومدى مسمّى مع بعض، والمدى اللي سمّيته هو اللي فاز",
+        "you asked both for the strongest part and for a part you named yourself. The one you named won",
+        "طلبت أقوى جزء وطلبت جزء سمّيته بنفسك، مع بعض. اللي سمّيته هو اللي مشي",
       ),
     );
   }
@@ -4144,12 +4153,12 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           choice.how === "speech"
             ? t(
-                `opened on the strongest ${hookSeconds.toFixed(1)}s, from ${window.start.toFixed(1)}s, then the rest plays from the top without it`,
-                `فتحت على أقوى ${hookSeconds.toFixed(1)} ثانية، من الثانية ${window.start.toFixed(1)}، ثم يُعرض الباقي من البداية بدونها`,
+                `opened on the strongest ${hookSeconds.toFixed(1)}s, taken from ${window.start.toFixed(1)}s, then it carries on from the beginning without that bit`,
+                `بلّشت بأقوى ${hookSeconds.toFixed(1)} ثانية، مأخوذة من الثانية ${window.start.toFixed(1)}، وبعدين بيكمّل من أوله بدون هالجزء`,
               )
             : t(
-                `we could not hear the words, so it opens on ${hookSeconds.toFixed(1)}s from the middle and the rest plays from the top`,
-                `لم نستطع سماع الكلام، ففُتح على ${hookSeconds.toFixed(1)} ثانية من الوسط ويُعرض الباقي من البداية`,
+                `I could not hear the words, so it opens on ${hookSeconds.toFixed(1)}s from the middle and then carries on from the beginning`,
+                `ما قدرت أسمع الكلام، فبلّش بـ${hookSeconds.toFixed(1)} ثانية من النص وبعدها بيكمّل من أوله`,
               ),
         );
       } else {
@@ -4201,8 +4210,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       tonemapped = true;
       notes.push(
         t(
-          `this was filmed in HDR (${source.colorTransfer}), which most feeds and browsers cannot show, so the colour was brought into the ordinary range rather than left to come out flat`,
-          `صُوّر هذا بمدى ديناميكي عالٍ (${source.colorTransfer})، وأكثر المنصّات والمتصفّحات لا تعرضه، فنُقل اللون إلى المدى العادي بدل أن يخرج باهتًا`,
+          `this was filmed in HDR (${source.colorTransfer}), which most feeds and browsers cannot show, so I brought the colour back to the ordinary kind rather than let it come out washed out`,
+          `هاد متصوّر HDR (${source.colorTransfer})، وأكتر المنصّات والمتصفّحات ما بتعرضه، فرجّعت الألوان للنوع العادي بدل ما تطلع باهتة`,
         ),
       );
     } else {
@@ -4403,8 +4412,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       if (unmatched > 0) {
         notes.push(
           t(
-            `${unmatched} seam${unmatched === 1 ? "" : "s"} you named ${unmatched === 1 ? "is" : "are"} not near any cut in this edit, so ${unmatched === 1 ? "it was" : "they were"} left out rather than moved to the nearest one`,
-            `${unmatched} درز سمّيته مش قرب أي قصّة بهالتعديل، فانترك بدل ما ينتقل لأقربها`,
+            `${unmatched} ${unmatched === 1 ? "moment" : "moments"} you named ${unmatched === 1 ? "is" : "are"} not near any cut in this edit, so ${unmatched === 1 ? "it was" : "they were"} left alone rather than moved to the nearest one`,
+            `${unmatched} لحظة سمّيتها مش قريبة من أي قصّة بهالتعديل، فتركتها متل ما هي بدل ما أنقلها لأقرب وحدة`,
           ),
         );
       }
@@ -4451,8 +4460,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         refused = true;
         notes.push(
           t(
-            `this edit needs ${decoders} streams open at once to overlap its joins, more than this machine has room for, so the cuts stay hard`,
-            `هذا التعديل يحتاج فتح ${decoders} مجرًى معًا لمراكبة وصلاته، أكثر ممّا تتّسع له هذه الماكينة، فتبقى القصّات حادّة`,
+            `blending this many joins at once needs more of this machine than it has, so the picture changes straight over instead of melting`,
+            `تذويب هالعدد من المواصل مع بعض بدّه من الجهاز أكتر من اللي فيه، فالصورة بتتغيّر مباشرة بدل ما تذوب`,
           ),
         );
       }
@@ -4482,8 +4491,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       */
       const distinct = [...new Set(madeStyles)];
       const mixed = distinct.length > 1;
-      const named = mixed ? "joined between the cuts" : STYLE_IN_WORDS[distinct[0] ?? transition.style];
-      const namedAr = mixed ? "وُصلت بين القصّات" : STYLE_IN_WORDS_AR[distinct[0] ?? transition.style];
+      const named = mixed ? "smoothed the changes between shots" : STYLE_IN_WORDS[distinct[0] ?? transition.style];
+      const namedAr = mixed ? "نعّمت التغيير بين اللقطات" : STYLE_IN_WORDS_AR[distinct[0] ?? transition.style];
 
       if (made === 0 && !refused) {
         /*
@@ -4536,22 +4545,22 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           tooFewFrames
             ? t(
-                `an overlap of ${transition.durationMs}ms is under two frames at this recording's ${grid.fps} fps, which is not something anybody can see, so the cuts stay hard`,
-                `مراكبة ${transition.durationMs} مللي أقلّ من إطارين عند ${grid.fps} إطارًا في الثانية لهذا التسجيل، وهذا ما لا يراه أحد، فتبقى القصّات حادّة`,
+                `${transition.durationMs}ms is too short to see on this recording, so the picture changes straight over instead of melting`,
+                `${transition.durationMs} مللي ثانية أقصر من إنها تنشاف بهالتسجيل، فالصورة بتتغيّر مباشرة بدل ما تذوب`,
               )
             : onlyNamed
               ? t(
-                  "this edit joins only the seams you name, and none of them landed on a cut with room for a join, so the cuts stay hard",
-                  "هالتعديل بيوصل الدروز اللي بتسمّيها لحالها، وما وقع ولا واحد منها على قصّة فيها متّسع لوصلة، فبتضلّ القصّات حادّة",
+                  "this edit only blends where you said to, and none of those places had room for it, so the picture changes straight over",
+                  "هالتعديل بيذوّب بس وين قلتلي، وولا وحدة من هالأماكن كان فيها متّسع، فالصورة بتتغيّر مباشرة",
                 )
             : anyRoom
               ? t(
-                  "every cut in this edit tidies up a pause rather than moving somewhere else, so they all stay hard rather than joining a shot to itself",
-                  "كل قصّة في هذا التعديل تُنظّف وقفة ولا تنتقل إلى مكان آخر، فتبقى كلّها حادّة بدل أن تصل اللقطة بنفسها",
+                  "everything taken out here is a pause, not a move to somewhere else, so a soft join would only blend a shot into itself",
+                  "كل اللي انشال هون وقفات، مش انتقال لمكان تاني، فالانتقال الناعم بيخلّي اللقطة تدخل بحالها",
                 )
               : t(
-                  "the pieces this edit is cut into are too short to put a transition between, so the cuts stay hard",
-                  "القطع اللي انقسم إلها هالتعديل أقصر من إني أحطّ بيناتها انتقال، فبتضلّ القصّات حادّة",
+                  "the pieces here are too short for one to blend into the next, so the picture changes straight over",
+                  "القطع هون أقصر من إنها تدخل وحدة بالتانية بهدوء، فالصورة بتتغيّر مباشرة",
                 ),
         );
       } else if (made > 0) {
@@ -4588,13 +4597,13 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           onlyNamed
             ? t(
-                `${named} at the ${made === 1 ? "one seam" : `${made} seams`} you named, over ${longest.toFixed(2)}s; every other cut stays hard`,
-                `${namedAr} عند ${made === 1 ? "الدرز الوحيد اللي سمّيته" : `الدروز ${made} اللي سمّيتها`}، خلال ${longest.toFixed(2)} ثانية؛ وكل قصّة تانية بتضلّ حادّة`,
+                `${named} at the ${made === 1 ? "one place" : `${made} places`} you named, over ${longest.toFixed(2)}s; everywhere else the picture changes straight over`,
+                `${namedAr} عند ${made === 1 ? "المكان الوحيد اللي سمّيته" : `الـ${made} أماكن اللي سمّيتها`}، خلال ${longest.toFixed(2)} ثانية؛ وبباقي الأماكن الصورة بتتغيّر مباشرة`,
               )
             : skipped > 0
             ? t(
-                `${named} where the recording jumps, at ${made} of ${joins} joins over ${longest.toFixed(2)}s; the other ${skipped} tidy up a pause and stay hard`,
-                `${namedAr} حيث يقفز التسجيل، عند ${made} من ${joins} وصلة خلال ${longest.toFixed(2)} ثانية؛ والباقيات ${skipped} تُنظّف وقفات فتبقى حادّة`,
+                `${named} where the recording jumps, at ${made} of ${joins} places over ${longest.toFixed(2)}s; the other ${skipped} ${skipped === 1 ? "just closes" : "just close"} up a pause, so the picture changes straight over there`,
+                `${namedAr} وين التسجيل بينطّ، عند ${made} من ${joins} مكان خلال ${longest.toFixed(2)} ثانية؛ والباقي ${skipped} بس بيسكّروا وقفة فبتضلّ الصورة تتغيّر مباشرة`,
               )
             : t(
                 `${named} over ${longest.toFixed(2)}s, at ${made === 1 ? "the one join" : `all ${made} joins`}`,
@@ -4642,8 +4651,17 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         if (longest < asked - 0.001) {
           notes.push(
             t(
-              `shorter than the ${(asked * 1000).toFixed(0)}ms asked for, so the shortest piece either side is still on screen by itself`,
-              `أقصر من ${(asked * 1000).toFixed(0)} مللي ثانية المطلوبة، كي تبقى أقصر قطعة على أي من الجانبين على الشاشة وحدها`,
+              /*
+                A whole sentence, because it is read as one.
+
+                It used to open "shorter than the 250ms asked for", which only
+                parses if you carry the subject over from the note above it --
+                and in a list every line stands alone. It was in a different
+                register from its neighbours too, which is the other half of
+                how a list stops reading as a list.
+              */
+              `I made it shorter than the ${(asked * 1000).toFixed(0)}ms you asked for, so the shortest piece between two cuts still gets a moment on its own`,
+              `خلّيته أقصر من ${(asked * 1000).toFixed(0)} مللي ثانية اللي طلبتها، لحتى أقصر قطعة بين قصّتين تاخد لحظة لحالها`,
             ),
           );
         }
@@ -4697,16 +4715,16 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       if (heldClean > 0) {
         notes.push(
           t(
-            `${heldClean} seam${heldClean === 1 ? "" : "s"} you asked to stay clean did, so the picture does not break there`,
-            `${heldClean} درزًا طلبتَ بقاءه نظيفًا بقي كذلك، فلا تنكسر الصورة عنده`,
+            `${heldClean} ${heldClean === 1 ? "place" : "places"} you asked to stay clean did, so the picture does not break there`,
+            `${heldClean} مكان طلبت يضلّ نظيف ضلّ نظيف، فالصورة ما بتنكسر عنده`,
           ),
         );
       }
       if (notGlitched > 0) {
         notes.push(
           t(
-            `${notGlitched} seam${notGlitched === 1 ? "" : "s"} you gave another style to stayed a glitch: a glitch is a hard cut with the picture breaking around it, and the rest are overlaps, so the two cannot sit in one edit`,
-            `${notGlitched} درزًا أعطيتَه نمطًا آخر بقي جليتشًا: الجليتش قصّة حادّة تنكسر الصورة حولها، والبقيّة مراكبات، فلا يجتمعان في تعديل واحد`,
+            `${notGlitched} ${notGlitched === 1 ? "place" : "places"} you gave another style to broke up anyway: breaking the picture and melting it are opposite things, and one edit can only do one of them`,
+            `${notGlitched} مكان أعطيته شكل تاني ضلّ مكسّر: كسر الصورة وتذويبها شغلتين متعاكستين، والتعديل الواحد بيعمل وحدة بس`,
           ),
         );
       }
@@ -4717,19 +4735,19 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       if (made === 0) {
         notes.push(
           t(
-            "every cut in this edit tidies up a pause rather than moving somewhere else, so they all stay clean",
-            "كل قصّة في هذا التعديل تُنظّف وقفة ولا تنتقل إلى مكان آخر، فتبقى كلّها نظيفة",
+            "everything taken out here is a pause, not a move to somewhere else, so the picture stays clean throughout",
+            "كل اللي انشال هون وقفات، مش انتقال لمكان تاني، فالصورة بتضلّ نظيفة طول الفيديو",
           ),
         );
       } else {
         notes.push(
           skipped > 0
             ? t(
-                `glitched at ${made} of ${joins} seams, where the recording jumps: a hard cut with the picture breaking for a blink; the other ${skipped} tidy up a pause and stay clean`,
-                `جليتش عند ${made} من ${joins} وصلة، حيث يقفز التسجيل: قصّة حادّة تنكسر الصورة عندها للحظة؛ والباقيات ${skipped} تُنظّف وقفات فتبقى نظيفة`,
+                `broke the picture up for a blink at ${made} of ${joins} places, where the recording jumps; the other ${skipped} ${skipped === 1 ? "just closes" : "just close"} up a pause, so the picture stays clean there`,
+                `كسّرت الصورة للحظة عند ${made} من ${joins} مكان، وين التسجيل بينطّ؛ والباقي ${skipped} بس بيسكّروا وقفة فبتضلّ نظيفة`,
               )
             : t(
-                "glitched at the seams, a hard cut with the picture breaking for a blink",
+                "broke the picture up for a blink wherever it changes",
                 "قطعت بجليتش عند الوصلات: قصّة حادّة تنكسر الصورة عندها للحظة",
               ),
         );
@@ -5229,8 +5247,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     if (!musicUsable) {
       notes.push(
         t(
-          "there is no music under this edit, so there was no beat to put the punches on",
-          "لا موسيقى تحت هذا التعديل، فلم يكن هناك إيقاع أضع عليه التقريبات",
+          "there is no music under this edit, so there was no beat to land the zooms on",
+          "ما في موسيقى تحت هالتعديل، فما كان في إيقاع أوقّع عليه تقريب الصورة",
         ),
       );
     } else {
@@ -5239,8 +5257,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       if (!grid) {
         notes.push(
           t(
-            "could not find a steady beat in that track, so the punches were left out rather than placed on a guess",
-            "لم أجد إيقاعًا ثابتًا في ذلك المقطع، فتُركت التقريبات بدل وضعها على تخمين",
+            "could not find a steady beat in that track, so I left the zooms out rather than put them on a guess",
+            "ما لقيت إيقاع ثابت بهالمقطوعة، فتركت تقريب الصورة بدل ما أحطّه ع التخمين",
           ),
         );
       } else {
@@ -5335,8 +5353,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         if (at.length === 0) {
           notes.push(
             t(
-              "the beat in that track starts after this edit ends, so the punches were left out",
-              "إيقاع ذلك المقطع يبدأ بعد نهاية هذا التعديل، فتُركت التقريبات",
+              "the beat in that track starts after this edit ends, so I left the zooms out",
+              "إيقاع هالمقطوعة بيبلّش بعد ما يخلص التعديل، فتركت تقريب الصورة",
             ),
           );
         } else {
@@ -5367,8 +5385,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           if (loopLengthUnknown && effectiveDuration - lastPunch > 2) {
             notes.push(
               t(
-                "that music repeats and its length could not be read, so the punches stop where its first pass does rather than carrying on to the end",
-                "تلك الموسيقى تتكرّر ولم يُمكن قراءة طولها، لذلك تتوقّف التقريبات عند نهاية الدورة الأولى بدل أن تستمرّ حتى النهاية",
+                "that music repeats and I could not read how long it is, so the zooms stop where its first time through does rather than carrying on to the end",
+                "هالموسيقى بتتكرّر وما قدرت أعرف طولها، فتقريب الصورة بيوقف عند آخر أول لفّة بدل ما يكمّل للآخر",
               ),
             );
           }
@@ -5392,8 +5410,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
   if (alternateFraming && takes.length === 0) {
     notes.push(
       t(
-        "left the framing alone: this edit has too few cuts to carry two shot sizes, and changing size once reads as a mistake rather than as coverage",
-        "تركت التأطير كما هو، في هذا التعديل قصّات أقلّ من أن تحمل حجمين، وتغيير الحجم مرّة واحدة يُقرأ خطأً لا تغطية",
+        "kept one shot size: too little is cut here to move between a wide shot and a close one, and doing it once looks like a mistake rather than a second camera",
+        "خلّيت حجم لقطة واحد: اللي انقصّ هون أقل من إني أبدّل بين لقطة واسعة وقريبة، ولو عملتها مرّة وحدة بتبيّن غلطة مش كاميرا تانية",
       ),
     );
   }
@@ -5487,7 +5505,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     let trackedKeyframes: Array<{ t: number; x: number }> | null = null;
 
     if (scaledWidth > cropW + 2) {
-      ctx.onProgress?.(0.12, t("Finding your subject in the frame", "أبحث عن الموضوع في الإطار"));
+      ctx.onProgress?.(0.12, t("Finding you in the picture", "بدوّر عليك بالصورة"));
       const windowFraction = cropW / scaledWidth;
 
       // Faces first: "where is the person" is the question, and everything else
@@ -5571,10 +5589,10 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           // note claiming two would be counting something the viewer cannot see.
           keyframes.length > 1
             ? t(
-                `followed the speaker, moving the frame ${Math.round(moves)} time${Math.round(moves) === 1 ? "" : "s"} where they moved`,
-                `تابعت المتكلّم، وحرّكت الكادر ${Math.round(moves)} مرّة حيث تحرّك`,
+                `followed you, moving the picture ${Math.round(moves)} time${Math.round(moves) === 1 ? "" : "s"} where you moved`,
+                `لاحقتك، وحرّكت الصورة ${Math.round(moves)} مرّة وين ما تحرّكت`,
               )
-            : t("framed on the speaker and held there", "أطّرت على المتكلّم وثبّت الكادر"),
+            : t("kept you in the middle of the picture the whole way", "خلّيتك بنص الصورة طول الفيديو"),
         );
       } else {
         try {
@@ -5586,18 +5604,18 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             choice.moved
               ? t(
-                  `framed on the subject rather than the centre (${Math.round(choice.center * 100)}% across)`,
-                  `أطّرت على الموضوع بدل المنتصف (عند ${Math.round(choice.center * 100)}٪ من العرض)`,
+                  `kept you in the picture rather than just taking the middle of it`,
+                  `خلّيتك أنت بالصورة بدل ما آخد نصّها وبس`,
                 )
               : t(
-                  "kept the centre. Nothing in the frame argued for moving off it",
-                  "أبقيت المنتصف. لا شيء في الكادر دعا إلى مغادرته",
+                  "kept the middle of the picture: nothing in it was worth moving off centre for",
+                  "خلّيت نص الصورة متل ما هو: ما كان في إشي يستاهل إني أطلع عن النص",
                 ),
           );
         } catch {
           // Measurement is an improvement, not a dependency. A centre crop is
           // still a real edit; failing the render over it would not be.
-          notes.push(t("could not read the framing, so the centre was kept", "تعذّرت قراءة التأطير، فأُبقي المنتصف"));
+          notes.push(t("could not tell where to look, so I kept the middle of the picture", "ما قدرت أعرف وين أركّز، فخلّيت نص الصورة"));
         }
       }
     }
@@ -5644,8 +5662,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       // the planner's promise are read one under the other in the same panel
       // and one of them saying «لـtiktok» is the seam showing.
       t(
-        `reframed to ${target.w}x${target.h} for ${platformInWords(reframe.platform, "en")}`,
-        `أُعيد التأطير إلى ${target.w}x${target.h} ل${platformInWords(reframe.platform, "ar")}`,
+        `made it ${target.w}x${target.h}, the shape ${platformInWords(reframe.platform, "en")} wants`,
+        `خلّيته ${target.w}x${target.h}، المقاس اللي بدها إياه ${platformInWords(reframe.platform, "ar")}`,
       ),
     );
     /*
@@ -5664,8 +5682,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     if (scaledWidth <= cropW + 2) {
       notes.push(
         t(
-          "this clip is taller than the shape asked for, so the middle of the picture was kept, and the framing here only looks left and right",
-          "هذا المقطع أطول من الشكل المطلوب، فأُبقي وسط الصورة، والتأطير هنا ينظر يمينًا ويسارًا فقط",
+          "this video is taller than the shape you asked for, so I kept the middle of it, and here I only choose left and right, not up and down",
+          "هالفيديو أطول من الشكل اللي طلبته، فخلّيت نصّه، وهون بس بختار يمين وشمال، مش فوق وتحت",
         ),
       );
     }
@@ -5721,7 +5739,10 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     }
     if (punches.length > 0) {
       notes.push(
-        t(`${punches.length} punch-in${punches.length === 1 ? "" : "s"}`, `${punches.length} تقريبة`),
+        t(
+          `${punches.length} ${punches.length === 1 ? "zoom" : "zooms"} in on the picture`,
+          `${punches.length} ${punches.length === 1 ? "تقريب" : "تقريبات"} ع الصورة`,
+        ),
       );
     }
     if (takes.length > 0) {
@@ -5744,12 +5765,12 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         reframe
           ? t(
-              `cut between a wide and a tight version of the frame, changing size ${changes} time${changes === 1 ? "" : "s"} across ${takes.length} shots. ${tight} of them are the close one, and both sizes are native: the wide one is the margin the crop already had`,
-              `قطعت بين نسخة واسعة وتانية ضيّقة من الكادر، وغيّرت الحجم ${changes} ${changes === 1 ? "مرّة" : "مرّات"} عبر ${takes.length} لقطات، منها ${tight} قريبة. والحجمين بدقّة أصلية، فالواسع هو الهامش اللي كان القصّ ياخده أصلًا`,
+              `cut between a wide shot and a close one, changing size ${changes} time${changes === 1 ? "" : "s"} across ${takes.length} shots. ${tight} of them are the close one, and neither is blown up: the wide one is picture the crop was throwing away anyway`,
+              `بدّلت بين لقطة واسعة ولقطة قريبة، وغيّرت الحجم ${changes} ${changes === 1 ? "مرّة" : "مرّات"} على مدى ${takes.length} لقطات، منها ${tight} قريبة. ولا وحدة منهن مكبّرة: الواسعة هي صورة كان القصّ رح يرميها أصلًا`,
             )
           : t(
-              `cut between a wide and a tight version of the frame, changing size ${changes} time${changes === 1 ? "" : "s"} across ${takes.length} shots. ${tight} of them are the close one, which is a slight enlargement: this clip is not being reframed, so there is no margin outside the picture to pull back into`,
-              `قطعت بين نسخة واسعة وأخرى ضيّقة من الكادر، وغيّرت الحجم ${changes} ${changes === 1 ? "مرّة" : "مرّات"} عبر ${takes.length} لقطات، منها ${tight} قريبة، وهي تكبير طفيف، فهذا المقطع لا يُعاد تأطيره، ولا هامش خارج الصورة أتراجع إليه`,
+              `cut between a wide shot and a close one, changing size ${changes} time${changes === 1 ? "" : "s"} across ${takes.length} shots. ${tight} of them are the close one, which is slightly blown up: this video keeps its shape, so there is no spare picture outside it to pull back into`,
+              `بدّلت بين لقطة واسعة ولقطة قريبة، وغيّرت الحجم ${changes} ${changes === 1 ? "مرّة" : "مرّات"} على مدى ${takes.length} لقطات، منها ${tight} قريبة، وهي مكبّرة شوي: هالفيديو محتفظ بشكله، فما في صورة زيادة برّا أرجع عليها`,
             ),
       );
     }
@@ -5783,12 +5804,12 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           ctx.unreachableAssetIds?.has(grade.lut)
             ? t(
-                "your LUT could not be fetched this time, so the grade ran without it. It is still in your library, and the next render will try again",
-                "ما قدرنا نجيب ملفّ LUT هالمرة، فصار التدريج بدونه. الملفّ لسا بمكتبتك والتنفيذ الجاي رح يحاول كمان مرة",
+                "your LUT could not be fetched this time, so the colour was done without it. It is still in your library, and the next render will try again",
+                "ما قدرت أجيب ملفّ الـLUT هالمرة، فاشتغل اللون بدونه. الملفّ لسا بمكتبتك، والمرّة الجاي رح أحاول كمان مرّة",
               )
             : t(
-                "the LUT this plan names is not in this project, so the grade ran without it",
-                "ملفّ LUT اللي بتسمّيه هالخطة مش بهالمشروع، فصار التدريج بدونه",
+                "the LUT this edit names is not in this project, so the colour was done without it",
+                "ملفّ الـLUT اللي مسمّى بهالتعديل مش موجود بهالمشروع، فاشتغل اللون بدونه",
               ),
         );
       } else {
@@ -5797,20 +5818,20 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             usable.why === "tooBig"
               ? t(
-                  "that LUT file is larger than any real colour cube, so it was not applied",
-                  "ملف LUT أكبر من أي مكعّب ألوان حقيقي، فلم يُطبَّق",
+                  "that LUT file is bigger than any real one, so I did not use it",
+                  "ملفّ الـLUT هاد أكبر من أي ملفّ حقيقي، فما استعملته",
                 )
               : t(
-                  "that file does not read as a .cube LUT, so it was not applied",
-                  "هذا الملف لا يُقرأ كملف ‎.cube، فلم يُطبَّق",
+                  "that file does not read as a .cube LUT, so I did not use it",
+                  "هالملفّ ما بينقرا كملفّ ‎.cube، فما استعملته",
                 ),
           );
         } else {
           videoParts.push(`lut3d=file='${asset.file.replace(/[\\:']/g, "\\$&")}'`);
           notes.push(
             t(
-              "applied your LUT to the whole picture, before the captions and the mark",
-              "طبّقت ملف LUT على الصورة كلّها، قبل الكابشن والعلامة",
+              "put your LUT on the whole picture, before the captions and your small logo",
+              "حطّيت ملفّ الـLUT ع الصورة كلها، قبل الكتابة وشعارك الصغير",
             ),
           );
         }
@@ -6023,7 +6044,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         WATERMARK_POSITION[watermark.position] ?? WATERMARK_POSITION["bottom-right"],
       ].join(":"),
     );
-    notes.push(t(`watermarked "${watermark.text}"`, `وُضعت العلامة المائية "${watermark.text}"`));
+    notes.push(t(`put "${watermark.text}" in the corner`, `حطّيت "${watermark.text}" بالزاوية`));
   }
 
   // ── Audio ─────────────────────────────────────────────────────────────────
@@ -6156,7 +6177,10 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           : layer.at + layer.durationSeconds;
         if (end - start < 0.1) {
           notes.push(
-            t("dropped a layer whose moment did not survive the cut", "أسقطت طبقة ما نجت لحظتها من القصّ"),
+            t(
+              "dropped something that was going on top: the moment it belonged to was cut out",
+              "شيّلت إشي كان رح يتحطّ فوق: اللحظة اللي كان مربوط فيها انقصّت",
+            ),
           );
           continue;
         }
@@ -6166,8 +6190,10 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           const asset = ctx.assets?.get(layer.content.assetId);
           if (!asset) {
             notes.push(
-              t("skipped a layer's picture: that file is not in this project",
-                "تخطّيت صورة طبقة: هداك الملفّ مش بهالمشروع"),
+              t(
+                "skipped a picture that was going on top: that file is not in this project",
+                "تخطّيت صورة كانت رح تتحطّ فوق: هداك الملفّ مش بهالمشروع",
+              ),
             );
             continue;
           }
@@ -6243,8 +6269,10 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         }
         if (scene.length > 0) {
           notes.push(
-            t(`drew a scene of ${scene.length} layer${scene.length === 1 ? "" : "s"}`,
-              `رسمت مشهدًا من ${scene.length} طبقة`),
+            t(
+              `drew a scene with ${scene.length} ${scene.length === 1 ? "thing" : "things"} on top of the video`,
+              `رسمت مشهد فيه ${scene.length} ${scene.length === 1 ? "إشي" : "أشياء"} فوق الفيديو`,
+            ),
           );
         }
       } else {
@@ -6357,7 +6385,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
             `enable='between(t,${start.toFixed(3)},${end.toFixed(3)})':eof_action=pass[${outLabel}]`,
         );
         notes.push(
-          t(`laid an image over the frame at ${start.toFixed(1)}s`, `وضعت صورة فوق الكادر عند الثانية ${start.toFixed(1)}`),
+          t(`put a picture over the video at ${start.toFixed(1)}s`, `حطّيت صورة فوق الفيديو عند الثانية ${start.toFixed(1)}`),
         );
       } else {
         // B-roll: a second clip filling the frame for a while. The source audio
@@ -6376,8 +6404,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         if (op.keepSourceAudio === false) {
           notes.push(
             t(
-              "kept the speech under the b-roll: playing the b-roll's own sound instead is not something this can do yet",
-              "أبقيت الكلام تحت اللقطة المساندة: تشغيل صوت اللقطة نفسها بدل منه مش من اللي بقدر عليه بعد",
+              "kept your voice going under the other clip: playing that clip's own sound instead is not something I can do yet",
+              "خلّيت صوتك ماشي تحت المقطع التاني: تشغيل صوت هداك المقطع بدل صوتك مش من اللي بقدر عليه بعد",
             ),
           );
         }
@@ -6677,8 +6705,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
             // sentence is about the thing they asked for rather than about an
             // id they never saw.
             t(
-              `could not make the ${music.mood ?? "music"} bed this time, so the edit runs without one`,
-              `لم أتمكّن من صنع الفرشة (${music.mood ?? "موسيقى"}) هذه المرّة، فالتعديل يمشي بلا موسيقى`,
+              `could not make the ${music.mood ?? "music"} music this time, so this one goes out without any`,
+              `ما قدرت أعمل الموسيقى ${music.mood ? `(${music.mood})` : ""} هالمرّة، فهاد رح يطلع بلا موسيقى`,
             )
           : ctx.unreachableAssetIds?.has(music.assetId)
           ? t(
@@ -6896,8 +6924,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       if (riserCue) {
         notes.push(
           t(
-            "pulled the music down under the riser so the moment it leads into is not competing with it",
-            "خفّضت الموسيقى تحت اللفتة الصاعدة حتى ما تزاحم اللحظة اللي بتوصّل عليها",
+            "turned the music down under the rising sound, so the moment it builds up to is not fighting it",
+            "نزّلت الموسيقى تحت الصوت الصاعد، لحتى اللحظة اللي بيبني عليها ما تتزاحم معه",
           ),
         );
       }
@@ -6969,8 +6997,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
               `تركت المؤثّرات الصوتية: بطول ${effectiveDuration.toFixed(1)} ثانية هذا التعديل أقصر من أن يقع فيه مؤثّر`,
             )
           : t(
-              "left the sound effects out: this edit has no cuts and no punch-ins for one to land on",
-              "تركت المؤثّرات الصوتية: هذا التعديل لا قصّات فيه ولا تقريبات تقع عليها",
+              "left the sound effects out: nothing is cut here and nothing zooms in, so there is nowhere for one to land",
+              "تركت مؤثّرات الصوت: ما في إشي منقصّ هون ولا تقريب ع الصورة، فما في مطرح يوقعوا فيه",
             ),
       );
     } else {
@@ -7171,8 +7199,8 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           partsAr.push(`${hits} تحت التقريبات`);
         }
         if (riserLaid) {
-          parts.push("and a riser into the first seam");
-          partsAr.push("ولفتة صاعدة إلى أوّل وصلة");
+          parts.push("and a rising sound into the first change");
+          partsAr.push("وصوت صاعد عند أول تغيير");
         }
         notes.push(
           t(
@@ -7193,16 +7221,16 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         if (sfxPlan.thinned > 0) {
           notes.push(
             t(
-              `${sfxPlan.thinned} more moment${sfxPlan.thinned === 1 ? "" : "s"} could have taken one and did not: a sound on every cut stops being an accent`,
-              `${sfxPlan.thinned} لحظة أخرى كانت تحتمل مؤثّرًا ولم تأخذه: صوتٌ على كل قصّة يكفّ عن كونه لكنة`,
+              `${sfxPlan.thinned} more moment${sfxPlan.thinned === 1 ? "" : "s"} could have taken one and did not: a sound everywhere stops being something you notice`,
+              `${sfxPlan.thinned} لحظة تانية كانت بتحتمل صوت وما أخدته: صوت بكل مطرح بيبطّل إشي بتنتبهله`,
             ),
           );
         }
         if (sfxPlan.riserSkipped === "no-room" || sfxPlan.riserSkipped === "no-join") {
           notes.push(
             t(
-              "there was no room for a riser before the first join, so it was left out rather than started halfway",
-              "لا متّسع للفتة صاعدة قبل أوّل وصلة، فتُركت بدل أن تبدأ من منتصفها",
+              "there was no room for a rising sound before the first change, so I left it out rather than start it halfway",
+              "ما كان في متّسع لصوت صاعد قبل أول تغيير، فتركته بدل ما يبلّش من نصّه",
             ),
           );
         }

@@ -187,7 +187,7 @@ console.log("\nAn image laid over the frame");
 
   check("the image is on the frame inside its window", magentaish(inside), inside ? `rgb(${inside})` : "no frame");
   check("and is not on the frame outside it", !magentaish(outside), outside ? `rgb(${outside})` : "no frame");
-  check("the render says what it did", result.notes.some((n) => n.includes("laid an image")), result.notes.join("; "));
+  check("the render says what it did", result.notes.some((n) => n.includes("put a picture over the video")), result.notes.join("; "));
   await rm(ctx.workDir, { recursive: true, force: true });
 }
 
@@ -557,7 +557,7 @@ console.log("\nA layer's picture comes from the project, never from a URL");
     nothing else: the render finishes and says what it dropped.
   */
   check("an asset the project does not have is skipped with a note",
-    result.notes.some((n) => n.includes("skipped a layer's picture") || n.includes("تخطّيت صورة طبقة")),
+    result.notes.some((n) => n.includes("skipped a picture that was going on top") || n.includes("تخطّيت صورة كانت رح تتحطّ فوق")),
     result.notes.join("; "));
   check("and the render still finishes", typeof result.output === "string" && result.output.length > 0);
   await rm(ctx.workDir, { recursive: true, force: true });

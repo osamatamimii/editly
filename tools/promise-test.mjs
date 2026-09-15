@@ -86,10 +86,10 @@ const OWED = {
   extractRange: /kept [\d.]+s to [\d.]+s|shorter than a fifth of a second/,
   coldOpen: /opens on|could not find a moment strong enough/,
   fade: /faded in/,
-  transition: /dissolved between the cuts|joined the cuts|wipe|slid|flash|too short to put a transition|no cuts in this edit|plays out of order|too many to overlap/i,
-  formatForPlatform: /reframed to \d+x\d+/,
+  transition: /melt into the next|smoothed the changes|pushed each shot off|slid each shot|flashed the screen|went dark for a moment|washed the screen pale|swung the camera|rushed in and out of focus|broke the picture up|too short for one to blend|no cuts in this edit|plays out of order|blending this many joins/i,
+  formatForPlatform: /made it \d+x\d+, the shape/,
   burnCaptions: /burned \d+ captions/,
-  watermark: /watermarked/,
+  watermark: /in the corner/,
   kenBurns: /slow push to/,
   /*
     Four branches, and the pattern used to know two.
@@ -104,17 +104,17 @@ const OWED = {
     which is exactly what this table accepts — so the missing patterns made two
     correct refusals look like silent drops.
   */
-  zoomPunch: /punch-in|no punch survived the cut|no moment to punch on|no beat to put the punches on/,
+  zoomPunch: /zooms? in on the picture|no punch survived the cut|no moment to punch on|no beat to land the zooms on/,
   // Both branches, like zoomPunch above. Tightening needs the words, so on a
   // deployment with no recogniser — which is this one — the honest note is the
   // refusal, and an edit that asked for it and said nothing at all is the
   // failure this table exists to catch.
-  tighten: /and cut \d+ (hesitation|false start)|nothing to tighten|left the hesitations in/,
+  tighten: /and cut \d+ (hesitation|false start)|could not take out the ums|left the ums in/,
   normalizeLoudness: /levelled to/,
   grade: /warmed the picture|cooled the picture|graded it cinematic|took the colour out|pushed the contrast|colour pushed|colour pulled/,
   addMusic: /laid music under|skipped the music/,
   insertBRoll: /cut to b-roll|skipped an overlay|dropped an overlay/,
-  overlayImage: /laid an image over|skipped an (image )?overlay|dropped an overlay/,
+  overlayImage: /put a picture over the video|skipped an (image )?overlay|dropped an overlay/,
   motionTitle: /rendered \d+ title|could not render the titles|dropped a title/,
   // Three branches, and the second two matter as much as the first: an edit
   // with nothing to accent and a build with no sound files both come out as a
@@ -236,7 +236,7 @@ console.log("\nThe reply is a promise, so it is read back against the file");
     check("the reply promises the cut", /take out the silent bits/.test(reply), reply);
     check("and the notes show it happened", out.notes.some((n) => /removed [\d.]+s of silence/.test(n)), JSON.stringify(out.notes));
     check("the reply promises the fade", /fade only where the recording jumps/.test(reply), reply);
-    check("and the notes show that happened too", out.notes.some((n) => /dissolved between the cuts/.test(n)), JSON.stringify(out.notes));
+    check("and the notes show that happened too", out.notes.some((n) => /let each shot melt into the next/.test(n)), JSON.stringify(out.notes));
     check("the reply promises the levelling", /even out the sound/.test(reply), reply);
     check("and the notes show it", out.notes.some((n) => /levelled to/.test(n)), JSON.stringify(out.notes));
     check("and the reply promised nothing it did not plan", intent.cannotYet.length === 0, JSON.stringify(intent.cannotYet));

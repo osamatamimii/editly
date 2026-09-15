@@ -87,7 +87,16 @@ const JARGON = [
   [/9:16|16:9|\b1:1\b/, "نسبة أرقام / a ratio", "عمودي، عريض، مربّع · vertical, wide, square"],
   [/القصّات|كل قصّة|\bthe cuts\b|\bevery cut\b/i, "القصّات / the cuts", "تغيير المشهد · a change of scene"],
   [/أذوّب|\bdissolve\b/i, "أذوّب / dissolve", "يذوب بالتاني · fade into the next"],
-  [/أدرّج|تدريج|\bgrade it\b|\bcolour grade\b|\bLUT\b/i, "أدرّج / grade", "أعطيه لون · give it a look"],
+  /*
+    "LUT" on its own is not on this list, and that is a decision.
+
+    A LUT is a file the person chose, named and uploaded -- a `.cube` they got
+    from somewhere and want their video to look like. Calling it "your colour
+    file" would be us renaming somebody's own thing at them, which is less
+    clear rather than more. What is trade talk is *our* word for what we do
+    with it, and that is what stays caught: grading, a grade pass, «تدريج».
+  */
+  [/أدرّج|تدريج|\bgrade it\b|\bcolour grade\b|\bthe grade\b|\bgrading\b|\bapply(?:ing)? a LUT\b/i, "أدرّج / grade", "أعطيه لون · give it a look"],
   [/فرشة|\ba .* bed under\b|\bmusic bed\b/i, "فرشة / bed", "موسيقى تحت الفيديو · music under the video"],
   [/لقطات مساندة|\bb-?roll\b/i, "لقطات مساندة / B-roll", "مقاطع تانية فوق كلامك · other clips over your talking"],
   [/التقريبات|\bpunch-?ins?\b/i, "التقريبات / punch-ins", "تقريب الصورة · zooming in"],
@@ -124,6 +133,13 @@ function phrasesOf(file, mode) {
   const out = [];
   const visit = (node) => {
     if (mode === "say" && ts.isCallExpression(node) && node.expression.getText() === "say" && node.arguments.length === 2) {
+      out.push({ text: `${TEXT_NODE(node.arguments[0])} ${TEXT_NODE(node.arguments[1])}`, line: sf.getLineAndCharacterOfPosition(node.getStart()).line + 1 });
+    }
+    // The worker's render notes, which are written with `t(en, ar)`. They are
+    // the most-read text in the product after the reply itself: a person
+    // watches them for the length of a render and reads them again when it
+    // lands.
+    if (mode === "t" && ts.isCallExpression(node) && node.expression.getText() === "t" && node.arguments.length === 2) {
       out.push({ text: `${TEXT_NODE(node.arguments[0])} ${TEXT_NODE(node.arguments[1])}`, line: sf.getLineAndCharacterOfPosition(node.getStart()).line + 1 });
     }
     if (mode === "prop" && ts.isPropertyAssignment(node) && (node.name.getText() === "ar" || node.name.getText() === "en")) {
@@ -208,6 +224,7 @@ for (const [file, mode] of [
   ["artifacts/api-server/src/lib/plan-from-text.ts", "say"],
   ["artifacts/api-server/src/lib/planner.ts", "prop"],
   ["artifacts/api-server/src/lib/direct.ts", "say"],
+  ["artifacts/worker/src/ffmpeg.ts", "t"],
 ]) {
   const found = phrasesOf(file, mode);
   /*

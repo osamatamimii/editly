@@ -877,7 +877,7 @@ console.log("\nMotion");
     },
     { workDir: await scratch() },
   );
-  check("punches render", notes.some((n) => /2 punch-ins/.test(n)), JSON.stringify(notes));
+  check("punches render", notes.some((n) => /2 zooms in on the picture/.test(n)), JSON.stringify(notes));
   check("with the frame size intact", ffprobe(output, "stream=width,height").join("x") === "1080x1920", "");
 }
 
@@ -1578,7 +1578,7 @@ console.log("\nThe stretch they name is kept exactly, with honest clamping");
   check("5s to 12s comes out seven seconds long", plainSeconds > 6.4 && plainSeconds < 7.6, String(plainSeconds));
   check(
     "and the note says which stretch was kept",
-    plain.notes.some((n) => /kept 5\.0s to 12\.0s, the stretch you asked for/.test(n)),
+    plain.notes.some((n) => /kept 5\.0s to 12\.0s, the part you asked for/.test(n)),
     JSON.stringify(plain.notes),
   );
 
@@ -1603,7 +1603,7 @@ console.log("\nThe stretch they name is kept exactly, with honest clamping");
   );
   check(
     "and both decisions are in the notes",
-    tight.notes.some((n) => /stretch you asked for/.test(n)) && tight.notes.some((n) => /silence/.test(n)),
+    tight.notes.some((n) => /part you asked for/.test(n)) && tight.notes.some((n) => /silence/.test(n)),
     JSON.stringify(tight.notes),
   );
 
@@ -1662,7 +1662,7 @@ console.log("\nThe stretch they name is kept exactly, with honest clamping");
   check("a stretch past the end leaves the clip whole", pastSeconds > 19 && pastSeconds < 21, String(pastSeconds));
   check(
     "with the reason in the notes",
-    past.notes.some((n) => /starts at 25s, but the clip is only 20\.0s long/.test(n)),
+    past.notes.some((n) => /starts at 25s, but the video is only 20\.0s long/.test(n)),
     JSON.stringify(past.notes),
   );
 
@@ -1684,7 +1684,7 @@ console.log("\nThe stretch they name is kept exactly, with honest clamping");
     "and the conflict is stated, not hidden",
     // Case-insensitive: the note is two sentences now rather than one joined
     // by a dash, so "the stretch you named won" begins one of them.
-    both.notes.some((n) => /the stretch you named won/i.test(n)),
+    both.notes.some((n) => /The one you named won/i.test(n)),
     JSON.stringify(both.notes),
   );
 }
@@ -1778,7 +1778,7 @@ console.log("\nThe frame is shaped by the platform, and measured");
     "and the note names the frame it made",
     // "a feed post", not "square": square is a shape, not a platform, so the
     // note names what the frame is for. See PLATFORM_NAMES in the contract.
-    square.notes.some((n) => new RegExp(`reframed to ${sw}x${sh} for a feed post`).test(n)),
+    square.notes.some((n) => new RegExp(`made it ${sw}x${sh}, the shape a feed post wants`).test(n)),
     JSON.stringify(square.notes),
   );
 
@@ -1965,7 +1965,7 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
 
   check(
     "the dissolve says what it did, at the length it did it",
-    soft.notes.some((n) => /dissolved between the cuts over 0\.40s, at the one join/.test(n)),
+    soft.notes.some((n) => /let each shot melt into the next over 0\.40s, at the one join/.test(n)),
     JSON.stringify(soft.notes),
   );
   check(
@@ -2028,7 +2028,7 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
   );
   check(
     "a wipe says it wiped, and which way",
-    wiped.notes.some((n) => /wiped left between the cuts over 0\.40s/.test(n)),
+    wiped.notes.some((n) => /pushed each shot off to the left over 0\.40s/.test(n)),
     JSON.stringify(wiped.notes),
   );
   const wipedSeconds = Number(ffprobe(wiped.output, "format=duration")[0]);
@@ -2122,7 +2122,7 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
   );
   check(
     "and says so",
-    flashed.notes.some((n) => /flashed white between the cuts/.test(n)),
+    flashed.notes.some((n) => /flashed the screen white between shots/.test(n)),
     JSON.stringify(flashed.notes),
   );
 
@@ -2172,7 +2172,7 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
   );
   check(
     "and it says which colour it went through",
-    blinked.notes.some((n) => /blinked to black between the cuts/.test(n)),
+    blinked.notes.some((n) => /went dark for a moment between shots/.test(n)),
     JSON.stringify(blinked.notes),
   );
 
@@ -2260,7 +2260,7 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
   );
   check(
     "and says so",
-    greyed.notes.some((n) => /passed through grey between the cuts/.test(n)),
+    greyed.notes.some((n) => /washed the screen pale for a moment between shots/.test(n)),
     JSON.stringify(greyed.notes),
   );
 
@@ -2307,8 +2307,8 @@ console.log("\nThe dissolve mixes one shot into the next, and the clock knows it
   );
   check(
     "an overlap longer than the pieces allow is shrunk, and says so",
-    greedy.notes.some((n) => /dissolved between the cuts over 0\.\d\ds/.test(n)) &&
-      greedy.notes.some((n) => /shorter than the 400ms asked for/.test(n)),
+    greedy.notes.some((n) => /let each shot melt into the next over 0\.\d\ds/.test(n)) &&
+      greedy.notes.some((n) => /shorter than the 400ms you asked for/.test(n)),
     JSON.stringify(greedy.notes),
   );
 }
@@ -2364,7 +2364,7 @@ console.log("\nA wipe crosses the frame somebody watches, not the one that was r
     { workDir: await scratch() },
   );
   check("it is delivered vertical", ffprobe(wiped.output, "stream=width,height").join("x") === "1080x1920", ffprobe(wiped.output, "stream=width,height").join("x"));
-  check("and the wipe happened", wiped.notes.some((n) => /wiped left between the cuts/.test(n)), JSON.stringify(wiped.notes));
+  check("and the wipe happened", wiped.notes.some((n) => /pushed each shot off to the left(?! with a soft edge)/.test(n)), JSON.stringify(wiped.notes));
 
   /*
     How much of the picture has become the second shot, along one row.
@@ -2516,8 +2516,8 @@ console.log("\nA wipe has an edge, and which edge it has is the whole of how it 
   */
   check(
     "the note names the edge rather than calling both of them a wipe",
-    hard.out.notes.some((n) => /wiped left between the cuts/.test(n)) &&
-      soft.out.notes.some((n) => /wiped left on a soft edge between the cuts/.test(n)),
+    hard.out.notes.some((n) => /pushed each shot off to the left(?! with a soft edge)/.test(n)) &&
+      soft.out.notes.some((n) => /pushed each shot off to the left with a soft edge/.test(n)),
     JSON.stringify([hard.out.notes, soft.out.notes]),
   );
   /*
@@ -2529,7 +2529,7 @@ console.log("\nA wipe has an edge, and which edge it has is the whole of how it 
   */
   check(
     "the hard wipe is still reachable by the name it was stored under",
-    hard.out.notes.some((n) => /wiped left between the cuts/.test(n)) &&
+    hard.out.notes.some((n) => /pushed each shot off to the left(?! with a soft edge)/.test(n)) &&
       !hard.out.notes.some((n) => /soft edge/.test(n)),
     JSON.stringify(hard.out.notes),
   );
@@ -2586,12 +2586,12 @@ console.log("\nA transition marks where the recording jumped, and nothing else")
 
   check(
     "one of the two joins is dissolved and the other is not",
-    judged.notes.some((n) => /at 1 of 2 joins/.test(n)),
+    judged.notes.some((n) => /at 1 of 2 places/.test(n)),
     JSON.stringify(judged.notes),
   );
   check(
     "and the note says why the other one was left alone",
-    judged.notes.some((n) => /tidy up a pause and stay hard/.test(n)),
+    judged.notes.some((n) => /just closes up a pause, so the picture changes straight over there/.test(n)),
     JSON.stringify(judged.notes),
   );
   /*
@@ -2723,7 +2723,7 @@ console.log("\nA transition marks where the recording jumped, and nothing else")
   );
   check(
     "an edit that opens on a hook is joined rather than refused for want of room",
-    hooked.notes.some((n) => /dissolved between the cuts/.test(n)) &&
+    hooked.notes.some((n) => /let each shot melt into the next/.test(n)) &&
       !hooked.notes.some((n) => /streams open at once/.test(n)),
     JSON.stringify(hooked.notes),
   );
@@ -2876,8 +2876,8 @@ console.log("\nA join is a whole number of frames, and the clock says so");
   );
   check(
     "an overlap shorter than two frames is refused in the plan's own units, not blamed on the footage",
-    tiny.notes.some((n) => /under two frames at this recording's 24 fps/.test(n)) &&
-      !tiny.notes.some((n) => /too short to put a transition between/.test(n)),
+    tiny.notes.some((n) => /too short to see on this recording/.test(n)) &&
+      !tiny.notes.some((n) => /too short for one to blend into the next/.test(n)),
     JSON.stringify(tiny.notes),
   );
 }
@@ -2953,7 +2953,7 @@ console.log("\nA seam the person named beats the rule, and the note says whose d
   check(
     "and the note says it was asked for rather than calling it a tidied pause",
     held.notes.some((n) => /one more you asked to stay hard/.test(n)) &&
-      !held.notes.some((n) => /tidy up a pause and stay hard/.test(n)),
+      !held.notes.some((n) => /just closes up a pause, so the picture changes straight over there/.test(n)),
     JSON.stringify(held.notes),
   );
 
@@ -2994,9 +2994,9 @@ console.log("\nA seam the person named beats the rule, and the note says whose d
   */
   check(
     "the note names both styles rather than claiming the plan's for both",
-    mixed.notes.some((n) => /joined between the cuts/.test(n)) &&
-      mixed.notes.some((n) => /dissolved between the cuts at 1 of them/.test(n)) &&
-      mixed.notes.some((n) => /whipped between the cuts at 1 of them/.test(n)),
+    mixed.notes.some((n) => /smoothed the changes between shots/.test(n)) &&
+      mixed.notes.some((n) => /let each shot melt into the next at 1 of them/.test(n)) &&
+      mixed.notes.some((n) => /swung the camera from one shot to the next at 1 of them/.test(n)),
     JSON.stringify(mixed.notes),
   );
 
@@ -3027,7 +3027,7 @@ console.log("\nA seam the person named beats the rule, and the note says whose d
   check(
     "naming one seam under 'named' joins that seam and no other",
     Math.abs(onlyNamed.estimatedSeconds - both.estimatedSeconds - 0.4) < 1e-6 &&
-      onlyNamed.notes.some((n) => /at the one seam you named/.test(n)),
+      onlyNamed.notes.some((n) => /at the one place you named/.test(n)),
     `${onlyNamed.estimatedSeconds}: ${JSON.stringify(onlyNamed.notes)}`,
   );
 
@@ -3099,7 +3099,7 @@ console.log("\nA seam the person named beats the rule, and the note says whose d
   );
   check(
     "and a style named on a glitch is refused in words rather than ignored",
-    glitchStyled.notes.some((n) => /stayed a glitch/.test(n)),
+    glitchStyled.notes.some((n) => /broke up anyway/.test(n)),
     JSON.stringify(glitchStyled.notes),
   );
 }
@@ -3173,7 +3173,7 @@ console.log("\nThe montage joins: a whip is a blur, a zoom is a blur, a glitch i
   const steady = contrastAt(whip.output, 1.0);
   const whipMid = contrastAt(whip.output, midway);
   const slideMid = contrastAt(slide.output, midway);
-  check("the whip says what it did", whip.notes.some((n) => /whipped between the cuts/.test(n)), JSON.stringify(whip.notes));
+  check("the whip says what it did", whip.notes.some((n) => /swung the camera from one shot to the next/.test(n)), JSON.stringify(whip.notes));
   check(
     "it costs one overlap, like every other overlapped join",
     Math.abs(hardSeconds - Number(ffprobe(whip.output, "format=duration")[0]) - 0.4) < 0.12,
@@ -3191,7 +3191,7 @@ console.log("\nThe montage joins: a whip is a blur, a zoom is a blur, a glitch i
     { version: 1, operations: [...cutOps, { type: "transition", style: "zoomBlur", durationMs: 400 }] },
     { workDir: await scratch() },
   );
-  check("the zoom blur says what it did", zoomed.notes.some((n) => /zoomed through a blur/.test(n)), JSON.stringify(zoomed.notes));
+  check("the zoom blur says what it did", zoomed.notes.some((n) => /rushed in and out of focus/.test(n)), JSON.stringify(zoomed.notes));
   const zoomMid = contrastAt(zoomed.output, midway);
   check("halfway through the zoom the stripes are out of focus", zoomMid < 160, String(zoomMid));
 
@@ -3207,7 +3207,7 @@ console.log("\nThe montage joins: a whip is a blur, a zoom is a blur, a glitch i
     { version: 1, operations: [...cutOps, { type: "transition", style: "glitch", durationMs: 400 }] },
     { workDir: await scratch() },
   );
-  check("the glitch says what it did", glitched.notes.some((n) => /glitched at the seams/.test(n)), JSON.stringify(glitched.notes));
+  check("the glitch says what it did", glitched.notes.some((n) => /broke the picture up for a blink/.test(n)), JSON.stringify(glitched.notes));
   const glitchSeconds = Number(ffprobe(glitched.output, "format=duration")[0]);
   check(
     "and costs nothing: the file is as long as the hard cut",
@@ -3667,7 +3667,7 @@ console.log("\nMixed overlay inputs");
   );
   check(
     "a still and a b-roll clip in one plan both reach the frame",
-    both.notes.some((n) => /laid an image over the frame/.test(n)) && both.notes.some((n) => /cut to b-roll/.test(n)),
+    both.notes.some((n) => /put a picture over the video/.test(n)) && both.notes.some((n) => /cut to b-roll/.test(n)),
     JSON.stringify(both.notes),
   );
   const frames = Number(ffprobe(both.output, "stream=nb_read_frames", ["-select_streams", "v:0", "-count_frames"])[0]);
@@ -4036,7 +4036,7 @@ console.log("\nA machine with no tone-mapper still ships the file, and says the 
   } catch { /* checked below */ }
   check(
     "while the same pipeline with a whole ffmpeg tone-maps the same file",
-    mapped !== null && mapped.notes.some((n) => /brought into the ordinary range/.test(n)),
+    mapped !== null && mapped.notes.some((n) => /brought the colour back to the ordinary kind/.test(n)),
     mapped ? JSON.stringify(mapped.notes) : witness.stderr?.slice(-300) ?? "",
   );
 }
@@ -4112,7 +4112,7 @@ console.log("\nA LUT from the library grades the picture, and a fake one cannot 
   );
   check(
     "the note says the LUT went on, before the captions and the mark",
-    graded.notes.some((n) => /applied your LUT/.test(n)),
+    graded.notes.some((n) => /put your LUT on the whole picture/.test(n)),
     JSON.stringify(graded.notes),
   );
   const beforeV = channelMean(plain.output, "VAVG");
@@ -4148,7 +4148,7 @@ console.log("\nA LUT from the library grades the picture, and a fake one cannot 
   );
   check(
     "an implausibly large cube is refused by size, before lut3d reads it into memory",
-    existsSync(refusedBig.output) && refusedBig.notes.some((n) => /larger than any real colour cube/.test(n)),
+    existsSync(refusedBig.output) && refusedBig.notes.some((n) => /bigger than any real one/.test(n)),
     JSON.stringify(refusedBig.notes),
   );
 

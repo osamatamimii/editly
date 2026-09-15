@@ -305,7 +305,7 @@ if (!haveVision) {
   );
   await writeFile(path.join(workDir, "notes.json"), JSON.stringify(notes, null, 1));
   check("it renders", Boolean(output));
-  check("the render says it followed the speaker", notes.some((n) => /followed the speaker|held there/.test(n)), JSON.stringify(notes));
+  check("the render says it followed the speaker", notes.some((n) => /followed you|kept you in the middle/.test(n)), JSON.stringify(notes));
 
   // The proof: detect the face in the *output* and check it is near the middle
   // of the frame, at the start and again at the end. A static centre crop of

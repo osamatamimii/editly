@@ -434,7 +434,7 @@ let tight = NaN;
 
   check(
     "the worker says what it did, in both languages",
-    notes.some((n) => /wide and a tight/.test(n) || /واسعة وأخرى ضيّقة/.test(n)),
+    notes.some((n) => /wide shot and a close one/.test(n) || /لقطة واسعة ولقطة قريبة/.test(n)),
     JSON.stringify(notes),
   );
   check(
@@ -508,7 +508,7 @@ console.log("\nToo few cuts, and it says so instead of doing it anyway");
   );
   check(
     "and the reason is in the notes rather than silent",
-    notes.some((n) => /too few cuts/.test(n) || /قصّات أقلّ/.test(n)),
+    notes.some((n) => /too little is cut here/.test(n) || /اللي انقصّ هون أقل/.test(n)),
     JSON.stringify(notes),
   );
 }

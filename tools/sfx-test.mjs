@@ -974,7 +974,7 @@ section("The music gets out of the way of the riser");
     Math.abs(level(withRiser.output, 1.8, 3.5).mean - level(without.output, 1.8, 3.5).mean) < 0.6,
     `${level(withRiser.output, 1.8, 3.5).mean} against ${level(without.output, 1.8, 3.5).mean}`,
   );
-  check("and the render says it did it", withRiser.notes.some((n) => /pulled the music down/.test(n)), withRiser.notes.join(" | "));
+  check("and the render says it did it", withRiser.notes.some((n) => /turned the music down/.test(n)), withRiser.notes.join(" | "));
 
   await rm(dir, { recursive: true, force: true });
 }
@@ -995,7 +995,7 @@ section("An edit with nothing to accent says so rather than pretending");
   );
   check(
     "no cuts and no punches means no sounds, and the note says why",
-    notes.some((n) => /no cuts and no punch-ins|لا قصّات فيه/.test(n)),
+    notes.some((n) => /nothing is cut here and nothing zooms in|ما في إشي منقصّ هون/.test(n)),
     notes.join(" | "),
   );
   /*
@@ -1219,7 +1219,7 @@ section("And the note says which of the accents is on a scene change");
   );
   check(
     "the picture breaks at one seam of the two",
-    broken.notes.some((n) => /glitched at 1 of 2 seams/.test(n)),
+    broken.notes.some((n) => /broke the picture up for a blink at 1 of 2 places/.test(n)),
     JSON.stringify(broken.notes),
   );
   check(
