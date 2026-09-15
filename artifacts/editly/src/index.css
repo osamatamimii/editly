@@ -786,7 +786,21 @@ html[data-page-theme="light"] body {
    * band only has to read as "set back", and on paper that takes very little. */
   --band: rgba(21, 113, 199, 0.045);
 
-  --background: 209 60% 98.5%;
+  /*
+   * White, not a tinted near-white.
+   *
+   * This was `209 60% 98.5%` -- #F8FAFE, a blue the eye does not name as blue
+   * but reads as "not quite clean". «خلي الصفحة نفسها بيضاء يعني مش هاي
+   * الدرجة».
+   *
+   * The tint was doing one job, and it is worth saying what the job was
+   * because something has to take it over: it was what made a white card look
+   * raised. Page white and card white means the cards are carried by their
+   * hairline and their shadow alone -- which is how Linear, Vercel and the
+   * page Osama pointed at all do it, and it only works if the hairline is
+   * actually visible. `--card-border` is 209 40% 89%, which it is.
+   */
+  --background: 0 0% 100%;
   --foreground: 209 14% 10%;
   --border: 209 40% 88%;
 
