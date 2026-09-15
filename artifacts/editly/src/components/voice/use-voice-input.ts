@@ -71,20 +71,20 @@ export function voiceErrorMessage(error: VoiceError, arabic: boolean): string {
   switch (error) {
     case "not-allowed":
       return arabic
-        ? "المتصفّح لم يسمح بالوصول إلى الميكروفون. اسمح له من شريط العنوان وحاول ثانية."
+        ? "المتصفّح ما سمح بالوصول للميكروفون. اسمح له من شريط العنوان وجرّب كمان مرّة."
         : "Your browser is holding the microphone back. Allow it from the address bar and try again.";
     case "no-speech":
-      return arabic ? "لم أسمع شيئًا. جرّب مرّة أخرى." : "I didn't hear anything. Try again.";
+      return arabic ? "ما سمعت شي. جرّب مرّة تانية." : "I didn't hear anything. Try again.";
     case "audio-capture":
       return arabic
-        ? "لا أجد ميكروفونًا على هذا الجهاز."
+        ? "ما عم لاقي ميكروفون على هالجهاز."
         : "I can't find a microphone on this device.";
     case "network":
       return arabic
-        ? "التعرّف على الكلام يحتاج اتصالًا، والاتصال انقطع."
+        ? "التعرّف على الكلام بدّه اتصال، والاتصال انقطع."
         : "Speech recognition needs a connection, and it dropped.";
     default:
-      return arabic ? "تعذّر الاستماع هذه المرّة." : "That didn't work this time.";
+      return arabic ? "ما قدرت أسمع هالمرّة." : "That didn't work this time.";
   }
 }
 

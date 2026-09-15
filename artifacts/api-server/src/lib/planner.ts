@@ -1385,7 +1385,7 @@ case "removeSilence":
       case "motionTitle":
         return {
           en: `bring in the words "${op.text}" at ${Math.round(op.at)}s`,
-          ar: `أُدخل عبارة "${op.text}" عند الثانية ${Math.round(op.at)}`,
+          ar: `أدخّل عبارة "${op.text}" عند الثانية ${Math.round(op.at)}`,
         };
       // Named by where the sounds land, not by the word "SFX". The person is
       // being told what they will hear, and the honest version of that is

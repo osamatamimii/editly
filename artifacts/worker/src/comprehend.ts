@@ -418,23 +418,23 @@ export function locateQuote(
 const NOTES: Record<string, NotePair> = {
   fabricated: {
     en: "some of what the reading attributed to this video is not in it, and was dropped",
-    ar: "بعض ما نسبته القراءة إلى هذا الفيديو ليس فيه، فأُسقط",
+    ar: "بعض اللي نسبته القراءة لهالفيديو مش فيه، فشلته",
   },
   noHook: {
     en: "no line in this video was proposed as an opening that is actually in it",
-    ar: "لا سطر في هذا الفيديو اقتُرح افتتاحيةً وهو موجود فيه فعلًا",
+    ar: "ما في سطر بهالفيديو انقترح افتتاحية وهو موجود فيه فعلًا",
   },
   fromShape: {
     en: "the parts below come from the pauses in the speech, not from a reading of what was said",
-    ar: "الأجزاء أدناه مأخوذة من سكتات الكلام، لا من قراءة لما قيل",
+    ar: "الأجزاء اللي تحت مأخوذة من سكتات الكلام، مش من قراءة لللي انقال",
   },
   noClaims: {
     en: "nothing here says what was asserted: attributing a statement to somebody needs a reading, not a pause",
-    ar: "لا شيء هنا يقول ما ادُّعي: نسبة قول إلى إنسان تحتاج قراءةً لا سكتة",
+    ar: "ما في شي هون بيقول اللي انقال: لتنسب قول لإنسان بدّك قراءة مش سكتة",
   },
   readerFailed: {
     en: "the reading could not be made, so the parts below come from the shape of the speech",
-    ar: "تعذّرت القراءة، فالأجزاء أدناه من شكل الكلام",
+    ar: "ما قدرنا نقرا، فالأجزاء اللي تحت من شكل الكلام",
   },
 };
 
@@ -506,7 +506,7 @@ export async function comprehend(options: ComprehendOptions): Promise<Comprehens
             ? [
                 say(
                   `this video was too long to read in one pass, so what is below covers its first ${minutesOf(sent.coveredSeconds)} minutes`,
-                  `هذا الفيديو أطول من أن يُقرأ دفعةً واحدة، فما تحته يغطّي أوّل ${minutesOf(sent.coveredSeconds)} دقيقة منه`,
+                  `هالفيديو أطول من إنه ينقرا دفعة وحدة، فاللي تحت بيغطّي أوّل ${minutesOf(sent.coveredSeconds)} دقيقة منه`,
                 ),
               ]
             : []),
@@ -806,7 +806,7 @@ function shapePeaks(
   const best = scored[0]?.score ?? 0;
   if (best <= 0) return [];
 
-  const why = say("the densest speech in this stretch", "أكثف كلام في هذا المقطع");
+  const why = say("the densest speech in this stretch", "أكتف كلام بهالمقطع");
   const taken: ComprehendedPeak[] = [];
   for (const candidate of scored) {
     if (taken.length >= wanted) break;

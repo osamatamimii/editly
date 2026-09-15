@@ -729,9 +729,22 @@ section("Two models that heard different languages are not two opinions");
   const out = await t.transcribe("/tmp/whatever.mp4");
 
   check("the merge is refused", out.source === "deepgram/nova-3", out.source);
+  /*
+    It used to assert the note carried both language codes and the two model
+    names. Osama read that sentence in the product and said so: every proper
+    noun in it was our plumbing, and he cannot act on which reader won. The
+    codes and the names went to the log. What is asserted now is what he is
+    owed — that the reading was checked twice, that the two disagreed, and that
+    one was kept rather than the two mixed — and that no supplier is named.
+  */
   check(
-    "and the reason names both languages",
-    (out.notes ?? []).some((n) => /different languages/.test(n) && /en/.test(n) && /ar/.test(n)),
+    "and the reason says it read twice and the two disagreed",
+    (out.notes ?? []).some((n) => /read the speech twice/.test(n) && /disagreed about which language/.test(n)),
+    JSON.stringify(out.notes),
+  );
+  check(
+    "without naming a supplier to somebody who cannot act on one",
+    !(out.notes ?? []).some((n) => /deepgram|elevenlabs|nova|scribe|gemini/i.test(n)),
     JSON.stringify(out.notes),
   );
   check(
@@ -807,9 +820,14 @@ section("When one model cannot even name what the other heard, the other wins");
     flat(out).map((w) => w.text).join(" ") === words5.join(" "),
     flat(out).map((w) => w.text).join(" "),
   );
+  /*
+    Same rewrite as above: which model is blind to which language decides
+    `winner` and belongs in the log. The customer is told one reading was kept
+    over the other, and the assertion above already proved it was the right one.
+  */
   check(
-    "the note says why the primary was set aside",
-    (out.notes ?? []).some((n) => /cannot detect ar/i.test(n)),
+    "the note says one reading was kept rather than the two mixed",
+    (out.notes ?? []).some((n) => /I kept the one that matched the recording/.test(n)),
     JSON.stringify(out.notes),
   );
 
@@ -1012,7 +1030,7 @@ section("Which models are configured decides which pipeline runs");
       version: 1,
       operations: [{ type: "autoCaptions", style: "bold-white", animation: "none", language: null }],
     }, { providers: resolveProviders({ DEEPGRAM_API_KEY: "a" }), language: "ar" });
-    const failureAr = leakedAr.notes.find((n) => /لم نستطع سماع/.test(n)) ?? "";
+    const failureAr = leakedAr.notes.find((n) => /ما قدرنا نسمع/.test(n)) ?? "";
     check("the same admission in Arabic", failureAr !== "", JSON.stringify(leakedAr.notes));
     check(
       "and it is Arabic all the way through, not an Arabic sentence with an English hole in it",
@@ -1026,7 +1044,7 @@ section("Which models are configured decides which pipeline runs");
     }, { providers: resolveProviders({ DEEPGRAM_API_KEY: "a" }), language: "ar" });
     check(
       "and an Arabic render is told in Arabic",
-      arabic.notes.some((n) => /قراءة واحدة/.test(n)),
+      arabic.notes.some((n) => /قراءة وحدة|قراءة واحدة/.test(n)),
       JSON.stringify(arabic.notes),
     );
   }

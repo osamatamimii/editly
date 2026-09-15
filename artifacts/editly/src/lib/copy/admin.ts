@@ -27,11 +27,11 @@ import { phrase as p, template as f } from "@/lib/landing-copy";
 export const ADMIN = {
   title: p("التشغيل", "Operations"),
   lead: p(
-    "للقراءة فقط. كل رقم هنا يأتي من الوحدات نفسها التي يفوتر بها المنتج ويجدول.",
+    "للقراءة بس. كل رقم هون جاي من نفس الوحدات اللي بيفوتر فيها المنتج وبيجدول.",
     "Read-only. Every number here comes from the same modules the product bills and schedules with.",
   ),
-  didNotWork: p("لم ينجح ذلك.", "That did not work."),
-  loading: p("جارٍ التحميل…", "Loading…"),
+  didNotWork: p("ما نجح هيك.", "That did not work."),
+  loading: p("عم يحمّل…", "Loading…"),
   never: p("أبدًا", "never"),
   yes: p("نعم", "yes"),
   no: p("لا", "no"),
@@ -42,16 +42,16 @@ export const ADMIN = {
     "Reason (required before anything below can be done)",
   ),
   reasonPlaceholder: p(
-    "لماذا تفعل هذا؟ يُكتب في السجلّ باسمك.",
+    "ليش عم تعمل هيك؟ بينكتب بالسجلّ باسمك.",
     "Why are you doing this? It goes in the log with your name.",
   ),
-  typeReasonFirst: p("اكتب سببًا أوّلًا", "Type a reason first"),
+  typeReasonFirst: p("اكتب سبب أوّل", "Type a reason first"),
 
   usageTitle: p("التخزين، وكم يكلّف نقله", "Storage, and what moving it costs"),
-  thisMonth: p("هذا الشهر", "this month"),
+  thisMonth: p("هالشهر", "this month"),
   stored: p("المخزَّن", "Stored"),
   notKnown: p("غير معروف", "not known"),
-  storageSilent: p("لم يجب التخزين", "storage did not answer"),
+  storageSilent: p("التخزين ما ردّ", "storage did not answer"),
   objects: f<[number]>((count) => `${count} كائنًا`, (count) => `${count} objects`),
   pulledByRenders: p("سحبته التنفيذات", "Pulled by renders"),
   countedRenders: f<[number]>((count) => `${count} تنفيذًا`, (count) => `${count} renders`),
@@ -63,7 +63,7 @@ export const ADMIN = {
   egressOnR2: p("على R2 هي $0 مهما بلغ الحجم", "on R2 it is $0, at any volume"),
   nothingYet: p("لا شيء بعد", "nothing yet"),
   unmeasured: p(
-    "التنفيذات التي سبقت القياس ليست في المجموع، فالرقم الحقيقي أعلى.",
+    "التنفيذات اللي قبل القياس مش بالمجموع، فالرقم الحقيقي أعلى.",
     "Renders from before this was measured are not in the total, so the real figure is higher.",
   ),
 
@@ -75,37 +75,37 @@ export const ADMIN = {
   expects: p("يتوقّع", "expects"),
   actually: p("فعليًّا", "actually"),
 
-  renderingNow: p("يُنفَّذ الآن", "Rendering now"),
+  renderingNow: p("عم يتنفّذ", "Rendering now"),
   waitingInQueue: p("في الطابور", "Waiting in queue"),
-  behindLiveMachine: p("خلف جهاز يعمل", "behind a live machine"),
+  behindLiveMachine: p("ورا جهاز شغّال", "behind a live machine"),
   unattended: p("بلا جهاز", "Unattended"),
-  unattendedHint: p("في الطابور ولا أحد يسمع", "queued with nothing listening"),
+  unattendedHint: p("بالطابور وما في حدا يسمع", "queued with nothing listening"),
   failedDay: p("فشلت (24 ساعة)", "Failed (24h)"),
   worker: p("الجهاز", "Worker"),
   workerUnclear: p("غير واضح", "unclear"),
-  workerOnline: p("يعمل", "online"),
-  workerOffline: p("متوقّف", "offline"),
+  workerOnline: p("شغّال", "online"),
+  workerOffline: p("واقف", "offline"),
   workerContradiction: f<[string]>(
-    (ago) => `الخادم يقول إنه يعمل، وآخر نبضة قبل ${ago}. لا يصحّ الاثنان.`,
+    (ago) => `الخادم بيقول إنه شغّال، وآخر نبضة قبل ${ago}. ما بيصحّوا التنين.`,
     (ago) => `the server says online, but the last beat was ${ago} ago. Both cannot be true.`,
   ),
-  neverSeen: p("لم يُرَ قطّ", "never seen"),
+  neverSeen: p("ما انشاف أبدًا", "never seen"),
   lastBeat: f<[string]>((ago) => `آخر نبضة قبل ${ago}`, (ago) => `last beat ${ago} ago`),
   doneDay: p("اكتملت (24 ساعة)", "Done (24h)"),
   minutesThisMonth: p("الدقائق هذا الشهر", "Minutes this month"),
   accounts: p("الحسابات", "Accounts"),
   newThisWeek: f<[number]>(
-    (count) => `${count} جديدة هذا الأسبوع`,
+    (count) => `${count} جديدة هالأسبوع`,
     (count) => `${count} new this week`,
   ),
 
   postingTitle: p("النشر", "Posting"),
   overdue: p("فات وقتها", "Overdue"),
-  overdueHint: p("تجاوزت وقتها ولم يلتقطها أحد", "past their time, unclaimed"),
+  overdueHint: p("فات وقتها وما التقطها حدا", "past their time, unclaimed"),
   midSend: p("في منتصف الإرسال", "Mid-send"),
-  midSendHint: p("توقّف الناشر عن حملها", "a publisher stopped holding these"),
-  dueWithinHour: p("يحين خلال ساعة", "Due within the hour"),
-  postedDay: p("نُشرت (24 ساعة)", "Posted (24h)"),
+  midSendHint: p("الناشر بطّل يحملها", "a publisher stopped holding these"),
+  dueWithinHour: p("بيحين خلال ساعة", "Due within the hour"),
+  postedDay: p("اننشرت (24 ساعة)", "Posted (24h)"),
   tooLateToSend: f<[number]>(
     (count) => `${count} فات وقت إرسالها`,
     (count) => `${count} too late to send`,
@@ -119,18 +119,18 @@ export const ADMIN = {
   headEmail: p("البريد", "Email"),
   headPlan: p("الخطّة", "Plan"),
   headReceived: p("وصل", "Received"),
-  headApplied: p("طُبِّق", "Applied"),
+  headApplied: p("انطبّق", "Applied"),
   headOutcome: p("النتيجة", "Outcome"),
-  nothingFromFreemius: p("لا شيء من Freemius بعد.", "Nothing from Freemius yet."),
+  nothingFromFreemius: p("ما في شي من Freemius لسا.", "Nothing from Freemius yet."),
 
-  searchByEmail: p("ابحث بالبريد", "Search by email"),
+  searchByEmail: p("دوّر بالبريد", "Search by email"),
   headMinutes: p("الدقائق", "Minutes"),
   headProjects: p("المشاريع", "Projects"),
   headJoined: p("انضمّ", "Joined"),
   headLastSeen: p("آخر ظهور", "Last seen"),
   grantMinutes: p("‏+30 دقيقة", "+30 min"),
   suspend: p("علِّق", "Suspend"),
-  nobodyYet: p("لا أحد بعد.", "Nobody yet."),
+  nobodyYet: p("ما في حدا لسا.", "Nobody yet."),
   /*
     Setting a plan by hand, which the server has been able to do since the
     console was built and no screen ever asked it to.
@@ -140,26 +140,26 @@ export const ADMIN = {
     customer holding the wrong thing, and that can point in either direction.
   */
   setPlan: p("عيّن الخطّة", "Set plan"),
-  planGivenUntil: f<[string]>((until) => `ممنوحة حتى ${until}`, (until) => `given, until ${until}`),
+  planGivenUntil: f<[string]>((until) => `ممنوحة لحدّ ${until}`, (until) => `given, until ${until}`),
 
   codesTitle: p("أكواد الخطط", "Plan codes"),
   codesLead: p(
-    "الكود يفتح خطّة لمدّة، بلا دفع. لا يخصم من سعر ولا يمرّ على بطاقة: الخصم الجزئي يكون عند جهة الدفع لا هنا.",
+    "الكود بيفتح خطّة لمدّة، بلا دفع. ما بيخصم من سعر ولا بيمرّ على بطاقة: الخصم الجزئي بيصير عند جهة الدفع مش هون.",
     "A code opens a plan for a while, with no payment. It does not reduce a price and never touches a card: a partial discount belongs at the checkout, not here.",
   ),
-  mintCode: p("أنشئ كودًا", "Mint a code"),
+  mintCode: p("اعمل كود", "Mint a code"),
   codeWord: p("كلمة الكود (اختياري)", "The word (optional)"),
   codeMonths: p("شهور", "Months"),
   codeSeats: p("عدد الحسابات", "Accounts"),
-  codeMinted: f<[string]>((code) => `أُنشئ الكود ${code}`, (code) => `Minted ${code}`),
+  codeMinted: f<[string]>((code) => `انعمل الكود ${code}`, (code) => `Minted ${code}`),
   headCode: p("الكود", "Code"),
-  headGives: p("يعطي", "Gives"),
-  headUsed: p("استُعمل", "Used"),
+  headGives: p("بيعطي", "Gives"),
+  headUsed: p("انستعمل", "Used"),
   headNote: p("لمن", "For"),
   revokeCode: p("اسحب", "Withdraw"),
   codeRevoked: p("مسحوب", "Withdrawn"),
-  codeUsedUp: p("مستنفَد", "Used up"),
-  noCodes: p("لا أكواد بعد.", "No codes yet."),
+  codeUsedUp: p("خلصان", "Used up"),
+  noCodes: p("ما في أكواد لسا.", "No codes yet."),
   codeMonthsShort: f<[number]>((months) => `${months} شهرًا`, (months) => `${months} mo`),
   codeSeatsShort: f<[number, number]>(
     (used, of) => `${used} من ${of}`,
@@ -169,94 +169,94 @@ export const ADMIN = {
   waitlistTitle: p("قائمة الانتظار", "Waiting list"),
   waiting: f<[number]>((count) => `${count} في الانتظار`, (count) => `${count} waiting`),
   headFrom: p("من", "From"),
-  nobodyAsked: p("لم يطلب أحد بعد.", "Nobody has asked yet."),
+  nobodyAsked: p("ما طلب حدا لسا.", "Nobody has asked yet."),
 
   recentRenders: p("أحدث التنفيذات", "Recent renders"),
   headStatus: p("الحالة", "Status"),
   headProject: p("المشروع", "Project"),
   headBilled: p("المفوتَر", "Billed"),
-  headCreated: p("أُنشئ", "Created"),
+  headCreated: p("انعمل", "Created"),
   headFinished: p("انتهى", "Finished"),
-  headWhatTheyWereTold: p("ما قيل لهم، وما حدث", "What they were told, and what happened"),
-  headWhatItDid: p("ما فعله", "What it did"),
-  requeue: p("أعده للطابور", "Requeue"),
-  noRendersYet: p("لا تنفيذات بعد.", "No renders yet."),
+  headWhatTheyWereTold: p("شو انقال لهم، وشو صار", "What they were told, and what happened"),
+  headWhatItDid: p("شو عمل", "What it did"),
+  requeue: p("رجّعه للطابور", "Requeue"),
+  noRendersYet: p("ما في تنفيذات لسا.", "No renders yet."),
   unattendedSuffix: f<[string]>(
     (status) => `${status} · بلا جهاز`,
     (status) => `${status} · unattended`,
   ),
 
-  logTitle: p("ما فُعل هنا", "What has been done here"),
-  logLead: p("كل فعل أعلاه يكتب سطرًا. ولا شيء يزيل سطرًا.", "Every action above writes a row. Nothing removes one."),
+  logTitle: p("شو انعمل هون", "What has been done here"),
+  logLead: p("كل فعل فوق بيكتب سطر. وما في شي بيشيل سطر.", "Every action above writes a row. Nothing removes one."),
   headWhen: p("متى", "When"),
   headAction: p("الفعل", "Action"),
   headSubject: p("المعنيّ", "Subject"),
   headReason: p("السبب", "Reason"),
   headDetail: p("التفصيل", "Detail"),
-  nothingDoneYet: p("لم يُفعل شيء هنا بعد.", "Nothing has been done here yet."),
+  nothingDoneYet: p("ما انعمل شي هون لسا.", "Nothing has been done here yet."),
 
-  nothingNeedsYou: p("لا شيء يحتاجك.", "Nothing needs you."),
+  nothingNeedsYou: p("ما في شي بدّه ياك.", "Nothing needs you."),
   allClear: p(
-    "هناك جهاز يسمع، والطابور يتحرّك، وكل دفعة وصلت طُبِّقت.",
+    "في جهاز عم يسمع، والطابور عم يتحرّك، وكل دفعة وصلت انطبّقت.",
     "A machine is listening, the queue is moving, and every payment that arrived has been applied.",
   ),
   thingsNeedYou: f<[number]>(
-    (count) => (count === 1 ? "أمر واحد يحتاجك" : `${count} أمور تحتاجك`),
+    (count) => (count === 1 ? "شي واحد بدّه ياك" : `${count} أشياء بدّها ياك`),
     (count) => (count === 1 ? "One thing needs you" : `${count} things need you`),
   ),
   workerContradicts: p(
-    "الجهاز يقول إنه يعمل ونبضته قديمة. لا يصحّ الاثنان.",
+    "الجهاز بيقول إنه شغّال ونبضته قديمة. ما بيصحّوا التنين.",
     "The worker reports online with a stale heartbeat. Both cannot be true.",
   ),
   nobodyListening: p(
-    "لا جهاز يسمع. لن يُنفَّذ شيء حتى يعود واحد.",
+    "ما في جهاز عم يسمع. ما رح يتنفّذ شي لحتى يرجع واحد.",
     "No machine is listening. Nothing will render until one comes back.",
   ),
   unattendedProblem: f<[number]>(
     (count) =>
       count === 1
-        ? "تنفيذ واحد في الطابور ولا شيء يلتقطه."
-        : `${count} تنفيذات في الطابور ولا شيء يلتقطها.`,
+        ? "تنفيذ واحد بالطابور وما في شي بيلتقطه."
+        : `${count} تنفيذات بالطابور وما في شي بيلتقطها.`,
     (count) =>
       `${count} ${count === 1 ? "render is" : "renders are"} queued with nothing to pick ${count === 1 ? "it" : "them"} up.`,
   ),
   failedProblem: f<[number]>(
     (count) =>
       count === 1
-        ? "تنفيذ واحد فشل في اليوم الأخير. والسبب على سطره أدناه."
-        : `${count} تنفيذات فشلت في اليوم الأخير. والسبب على كل سطر أدناه.`,
+        ? "تنفيذ واحد فشل باليوم الأخير. والسبب على سطره تحت."
+        : `${count} تنفيذات فشلت باليوم الأخير. والسبب على كل سطر تحت.`,
     (count) =>
       `${count} ${count === 1 ? "render" : "renders"} failed in the last day. The reason is on each row below.`,
   ),
   overdueProblem: f<[number]>(
     (count) =>
       count === 1
-        ? "منشور مجدول واحد فات وقته ولم يلتقطه أحد. الناشر لا يكنس، ولن يُخبَر أحد."
-        : `${count} منشورات مجدولة فات وقتها ولم يلتقطها أحد. الناشر لا يكنس، ولن يُخبَر أحد.`,
+        ? "منشور مجدول واحد فات وقته وما التقطه حدا. الناشر ما بيكنس، وما رح ينخبّر حدا."
+        : `${count} منشورات مجدولة فات وقتها وما التقطها حدا. الناشر ما بيكنس، وما رح ينخبّر حدا.`,
     (count) =>
       `${count} scheduled ${count === 1 ? "post is" : "posts are"} past their time and unclaimed. The publisher is not sweeping, and nobody will be told.`,
   ),
   strandedProblem: f<[number]>(
     (count) =>
       count === 1
-        ? "منشور واحد كان في منتصف الإرسال حين توقّف ناشر. ولا يُعرف إن خرج."
-        : `${count} منشورات كانت في منتصف الإرسال حين توقّف ناشر. ولا يُعرف إن خرجت.`,
+        ? "منشور واحد كان بنصّ الإرسال لمّا وقف ناشر. وما منعرف إذا طلع."
+        : `${count} منشورات كانت بنصّ الإرسال لمّا وقف ناشر. وما منعرف إذا طلعت.`,
     (count) =>
       `${count} ${count === 1 ? "post was" : "posts were"} mid-send when a publisher stopped. It is not known whether ${count === 1 ? "it" : "they"} went out.`,
   ),
   reconnectProblem: f<[number]>(
     (count) =>
       count === 1
-        ? "حساب مربوط واحد يحمل مفتاحًا لم تعد المنصّة تقبله. وكل منشور مجدول إليه سيفشل عند موعده."
-        : `${count} حسابات مربوطة تحمل مفاتيح لم تعد المنصّة تقبلها. وكل منشور مجدول إليها سيفشل عند موعده.`,
+        ? "حساب مربوط واحد بيحمل مفتاح ما عادت المنصّة تقبله. وكل منشور مجدول عليه رح يفشل بموعده."
+        : `${count} حسابات مربوطة بتحمل مفاتيح ما عادت المنصّة تقبلها. وكل منشور مجدول عليها رح يفشل بموعده.`,
     (count) =>
       `${count} connected ${count === 1 ? "account has" : "accounts have"} a token the platform no longer accepts. Every post scheduled to ${count === 1 ? "it" : "them"} will fail as it comes due.`,
   ),
   billingProblem: f<[number]>(
     (count) =>
       count === 1
-        ? "حدث فوترة واحد وصل ولم يُطبَّق. أحدهم دفع مقابل شيء لا يملكه."
-        : `${count} أحداث فوترة وصلت ولم تُطبَّق. أحدهم دفع مقابل شيء لا يملكه.`,
+        ? "حدث فوترة واحد وصل وما انطبّق. في حدا دفع مقابل شي ما بيملكه."
+        : `${count} أحداث فوترة وصلت وما انطبّقت. في حدا دفع مقابل شي ما بيملكه.`,
     (count) =>
       `${count} billing ${count === 1 ? "event" : "events"} arrived and did not apply. Somebody has paid for something they do not have.`,
   ),
@@ -271,14 +271,14 @@ export const ADMIN = {
   navOverview: p("نظرة عامة", "Overview"),
   navPlatform: p("المنصّة", "The platform"),
   navInsights: p("الخلاصة", "Insights"),
-  navAttention: p("يحتاج إليك", "Needs you"),
+  navAttention: p("بدّه ياك", "Needs you"),
   navAccounts: p("الحسابات", "Accounts"),
   navRenders: p("التنفيذات", "Renders"),
   navPosting: p("النشر", "Posting"),
   navMoney: p("المال", "Money"),
   navSystem: p("النظام", "System"),
   navLog: p("السجلّ", "Log"),
-  navBack: p("عودة إلى المنتج", "Back to the product"),
+  navBack: p("رجوع للمنتج", "Back to the product"),
 
   /*
     The work queue.
@@ -288,21 +288,21 @@ export const ADMIN = {
     "what", so its words are the words of a list of jobs to do rather than of a
     report.
   */
-  queueTitle: p("ما يحتاج إلى شخص", "What needs somebody"),
+  queueTitle: p("شو بدّه حدا", "What needs somebody"),
   queueLead: p(
-    "كل سطر شيء بعينه لا عدد. الأسوأ أوّلًا، والأقدم قبل الأحدث داخل النوع الواحد.",
+    "كل سطر شي بعينه مش عدد. الأسوأ أوّل، والأقدم قبل الأحدث جوّا النوع الواحد.",
     "Every row is one thing, not a number. Worst first, and oldest before newest within a kind.",
   ),
-  queueClear: p("لا شيء في الطابور.", "Nothing in the queue."),
+  queueClear: p("ما في شي بالطابور.", "Nothing in the queue."),
   queueClearLead: p(
-    "لا عامل غائب، ولا تنفيذ متروك، ولا منشور فات وقته، ولا دفعة وصلت ولم تُطبَّق.",
+    "ما في عامل غايب، ولا تنفيذ متروك، ولا منشور فات وقته، ولا دفعة وصلت وما انطبّقت.",
     "No missing worker, no unclaimed render, no post past its time, no payment that arrived and did not apply.",
   ),
   queueShowing: f<[number, number]>(
-    (shown, total) => `يُعرض ${shown} من ${total}`,
+    (shown, total) => `عم نعرض ${shown} من ${total}`,
     (shown, total) => `showing ${shown} of ${total}`,
   ),
-  headWhat: p("ما هو", "What"),
+  headWhat: p("شو هو", "What"),
   headSince: p("منذ", "Since"),
   headWhose: p("لِمن", "Whose"),
   ago: f<[string]>((duration) => `منذ ${duration}`, (duration) => `${duration} ago`),
@@ -317,43 +317,43 @@ export const ADMIN = {
     the two that matter most to tell apart, so they are named for what is true
     of the row rather than for how bad it is.
   */
-  kindWorkerGone: p("لا عامل", "No worker"),
+  kindWorkerGone: p("ما في عامل", "No worker"),
   kindRenderUnattended: p("تنفيذ متروك", "Render unclaimed"),
   kindPostOverdue: p("منشور فات وقته", "Post overdue"),
   kindPostStranded: p("منشور في منتصف الإرسال", "Post mid-send"),
-  kindBillingUnapplied: p("دفعة لم تُطبَّق", "Payment not applied"),
+  kindBillingUnapplied: p("دفعة ما انطبّقت", "Payment not applied"),
   kindRenderFailed: p("تنفيذ فشل", "Render failed"),
   kindAccountDisconnected: p("حساب مقطوع", "Account disconnected"),
-  kindMinutesSpent: p("نفدت الدقائق", "Minutes spent"),
-  kindMinutesNearlySpent: p("الدقائق تُشارف", "Minutes nearly spent"),
+  kindMinutesSpent: p("خلصت الدقايق", "Minutes spent"),
+  kindMinutesNearlySpent: p("الدقايق عم تخلص", "Minutes nearly spent"),
 
   minutesOf: f<[number, number]>(
     (used, included) => `${used} من ${included} دقيقة`,
     (used, included) => `${used} of ${included} minutes`,
   ),
-  neverBeat: p("لم يُسمع منه قطّ", "never heard from"),
+  neverBeat: p("ما انسمع منه أبدًا", "never heard from"),
 
   /* The first screen: the platform in one page, money first. */
   platformToday: p("المنصّة اليوم", "The platform today"),
   paying: f<[number, number]>(
-    (paid, total) => `${paid} حسابًا يدفع من ${total}`,
+    (paid, total) => `${paid} حساب بيدفع من ${total}`,
     (paid, total) => `${paid} paying of ${total}`,
   ),
   capLine: f<[number, number]>(
     (over, near) =>
-      `${over === 1 ? "حساب واحد نفدت دقائقه" : `${over} حسابات نفدت دقائقها`} هذا الشهر، و${near === 1 ? "واحد يقترب من حدّه" : `${near} تقترب من حدّها`}`,
+      `${over === 1 ? "حساب واحد خلصت دقايقه" : `${over} حسابات خلصت دقايقها`} هالشهر، و${near === 1 ? "واحد قرّب على حدّه" : `${near} قرّبوا على حدّهم`}`,
     (over, near) =>
       `${over} ${over === 1 ? "account has" : "accounts have"} spent their minutes this month, and ${near} ${near === 1 ? "is" : "are"} close to the limit`,
   ),
-  capLineOpen: p("انظر من هم", "See who they are"),
+  capLineOpen: p("شوف مين هنّ", "See who they are"),
   seeTheQueue: p("افتح الطابور", "Open the queue"),
   systemTitle: p("النظام", "System"),
   deploymentSilent: p(
-    "لم تُجب هذه النشرة عن فحص النشر بعد.",
+    "هالنشرة ما ردّت على فحص النشر لسا.",
     "This deployment has not answered the audit yet.",
   ),
   deploymentAllWell: p(
-    "كل ما فُحص يطابق ما تفترضه الشيفرة.",
+    "كل اللي انفحص بيطابق اللي بتفترضه الشيفرة.",
     "Everything checked matches what the code assumes.",
   ),
   perPlan: p("لكل خطّة", "Per plan"),
@@ -369,50 +369,50 @@ export const ADMIN = {
     on it.
   */
   leadInsights: p(
-    "هل المنصّة بخير الآن، وإلى أين تتّجه خلال أسبوعين.",
+    "هل المنصّة كويسة، ولوين رايحة خلال أسبوعين.",
     "Whether the platform is well right now, and where it is heading over a fortnight.",
   ),
   leadAttention: p(
-    "كل شيء يحتاج إلى إنسان، سطرًا سطرًا، والأسوأ أوّلًا.",
+    "كل شي بدّه إنسان، سطر سطر، والأسوأ أوّل.",
     "Everything that needs a person, one row at a time, worst first.",
   ),
   leadAccounts: p(
-    "من عندنا، وماذا أنفق، ومن ينتظر على الباب.",
+    "مين عنّا، وشو صرف، ومين مستني على الباب.",
     "Who is here, what they have spent, and who is waiting at the door.",
   ),
   leadRenders: p(
-    "كل تنفيذ وما قاله المصيّر عن نفسه حين نجح وحين فشل.",
+    "كل تنفيذ وشو قاله عن حاله لمّا نجح ولمّا فشل.",
     "Every render, and what the renderer said about itself when it worked and when it did not.",
   ),
   leadPosting: p(
-    "الطابور الآخر: ما وُعد به جمهورٌ وهل خرج فعلًا.",
+    "الطابور التاني: شو انوعد فيه جمهور وهل طلع فعلًا.",
     "The other queue: what an audience was promised, and whether it actually went out.",
   ),
   leadMoney: p(
-    "ما يدخل كل شهر، ومن أين، وأي دفعة وصلت ولم تُطبَّق.",
+    "شو بيدخل كل شهر، ومن وين، وأي دفعة وصلت وما انطبّقت.",
     "What comes in each month, from where, and which payment arrived and did not apply.",
   ),
   leadSystem: p(
-    "العامل، وأين تخالف هذه النشرة الشيفرة التي تعمل عليها، وما نخزّنه.",
+    "العامل، ووين بتخالف هالنشرة الشيفرة اللي شغّالة عليها، وشو منخزّن.",
     "The worker, where this deployment disagrees with the code on it, and what we are storing.",
   ),
   leadLog: p(
-    "كل فعل نُفِّذ من هنا، ومن نفّذه ولماذا.",
+    "كل فعل انتنفّذ من هون، ومين نفّذه وليش.",
     "Every act performed from here, by whom, and why.",
   ),
 
   consoleTag: p("تشغيل", "console"),
-  readAt: f<[string]>((ago) => `قُرئت قبل ${ago}`, (ago) => `read ${ago} ago`),
-  readJustNow: p("قُرئت للتوّ", "read just now"),
+  readAt: f<[string]>((ago) => `انقرت قبل ${ago}`, (ago) => `read ${ago} ago`),
+  readJustNow: p("انقرت من شوي", "read just now"),
 
   /* The fortnight, as a chart rather than as four thumbnails. */
   fortnightTitle: p("أربعة عشر يومًا", "The last fourteen days"),
   fortnightLead: p(
-    "سلسلة واحدة في المرّة: الدقائق والإخفاقات لا يشتركان في مقياس، وجمعهما على محور واحد يجعل الإخفاقات خطًّا مسطّحًا عند القاع.",
+    "سلسلة وحدة بالمرّة: الدقايق والإخفاقات ما بيشتركوا بمقياس، وجمعهم على محور واحد بيخلّي الإخفاقات خطّ مسطّح عند القاع.",
     "One series at a time: minutes and failures share no scale, and putting them on one axis flattens the failures along the bottom.",
   ),
   fortnightEmpty: p(
-    "لم تصل بعدُ أربعة عشر يومًا من الأرقام من هذه النشرة.",
+    "ما وصل لسا أربعتعش يوم من الأرقام من هالنشرة.",
     "This deployment has not answered with a fortnight of numbers yet.",
   ),
   seriesRenders: p("تنفيذات", "Renders"),
@@ -421,14 +421,14 @@ export const ADMIN = {
   seriesSignups: p("تسجيلات", "Signups"),
 
   /* Empty states, which used to be one word each. */
-  nothingHereYet: p("لا شيء هنا بعد", "Nothing here yet"),
-  allApplied: p("كل ما وصل طُبِّق.", "Everything that arrived applied."),
+  nothingHereYet: p("ما في شي هون لسا", "Nothing here yet"),
+  allApplied: p("كل اللي وصل انطبّق.", "Everything that arrived applied."),
 
   thisWeekNoneLast: f<[number]>(
-    (count) => `${count} هذا الأسبوع، ولا شيء قبله`,
+    (count) => `${count} هالأسبوع، وما في شي قبله`,
     (count) => `${count} this week, none last`,
   ),
-  levelWithLastWeek: p("مثل الأسبوع الماضي", "level with last week"),
+  levelWithLastWeek: p("متل الأسبوع الماضي", "level with last week"),
   changeOnLastWeek: f<[string, number]>(
     (direction, percent) => `${direction} ${percent}% عن الأسبوع الماضي`,
     (direction, percent) => `${direction} ${percent}% on last week`,

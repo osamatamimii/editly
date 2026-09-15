@@ -185,15 +185,15 @@ export const LANDING = {
      * something": the fastest way to teach what a sentence to this product
      * looks like is to have one already written in the shape of the box.
      */
-    composerLabel: p("صف التعديل الذي تريده", "Describe the edit you want"),
+    composerLabel: p("احكي التعديل اللي بدّك ياه", "Describe the edit you want"),
     composerPlaceholder: p(
       "اقصّ السكتات، وحطّ كابشن عربي، وخلّيه عمودي…",
       "Cut the silences, caption it, make it vertical…",
     ),
     composerAttach: p("أرفق فيديو", "Attach a video"),
     composerSend: p("ابدأ", "Start"),
-    composerRemoveFile: p("أزل الملف", "Remove the file"),
-    composerNotVideo: p("لا يمكننا استخدام هذا الملف", "We cannot use that file"),
+    composerRemoveFile: p("شيل الملفّ", "Remove the file"),
+    composerNotVideo: p("ما منقدر نستعمل هالملفّ", "We cannot use that file"),
     caption: p(
       "تعديل حقيقي واحد: 12.3 ثانية دخلت و6.5 خرجت. كل رقم هنا خرج من الرندر نفسه.",
       "One real edit: 12.3 seconds in, 6.5 out. Every number here is one the renderer produced.",
@@ -222,11 +222,11 @@ export const LANDING = {
       "Cut the dead air and make it vertical for TikTok",
     ),
     assistant: p("نوح", "Noah"),
-    intro: p("هذا ما سأفعله، قبل أن أفعله:", "Here is what I will do, before I do it:"),
-    planCutSilence: p("قصّ كل صمت أطول من 0.4 ثانية", "Cut every silence longer than 0.4s"),
-    planReframe: p("إعادة التأطير إلى 9:16 مع إبقائك في الكادر", "Reframe to 9:16, keeping you in frame"),
-    planCaptions: p("حرق الكابشن من كلامك أنت", "Burn in captions from what you said"),
-    planLevel: p("معايرة الصوت إلى −14 LUFS", "Level the audio to −14 LUFS"),
+    intro: p("هاد اللي رح أعمله، قبل ما أعمله:", "Here is what I will do, before I do it:"),
+    planCutSilence: p("أقصّ كل صمت أطول من 0.4 ثانية", "Cut every silence longer than 0.4s"),
+    planReframe: p("أعيد الكادر لـ9:16 وأخلّيك بالصورة", "Reframe to 9:16, keeping you in frame"),
+    planCaptions: p("أكتب الكابشن من كلامك إنت", "Burn in captions from what you said"),
+    planLevel: p("أظبّط الصوت لـ−14 LUFS", "Level the audio to −14 LUFS"),
     resultTitle: p("تمّ. 12.3 ثانية صارت 6.5.", "Done. 12.3s became 6.5s."),
     resultDetail: p(
       "1080×1920 لتيك توك · 4 كابشنات محروقة · معايَر إلى −14 LUFS",
@@ -251,18 +251,18 @@ export const LANDING = {
     two: {
       title: p("قل ما تريد", "Say what you want"),
       desc: p(
-        "«اقصّ الفراغات وخلّيه عموديًا لتيك توك.» ويقول لك Editly ماذا سيفعل بالضبط قبل أن يفعله.",
+        "«اقصّ الفراغات وخلّيه عموديًا لتيك توك.» و Editly بيقول لك شو رح يعمل بالضبط قبل ما يعمله.",
         '"Cut the dead air and make it vertical for TikTok." Editly tells you exactly what it will do before it does it.',
       ),
       askLine1: p("اقصّ الفراغات وخلّيه", "Cut the dead air and make it"),
       askLine2: p("عموديًا لتيك توك.", "vertical for TikTok."),
-      planSilence: p("إزالة 41 ثانية من الصمت", "Remove 41s of silence"),
-      planReframe: p("إعادة التأطير إلى 9:16", "Reframe to 9:16"),
-      planCaptions: p("حرق الكابشن", "Burn in your captions"),
-      planLoudness: p("معايرة الصوت إلى −14 LUFS", "Level the audio to −14 LUFS"),
+      planSilence: p("أشيل 41 ثانية من الصمت", "Remove 41s of silence"),
+      planReframe: p("أعيد الكادر لـ9:16", "Reframe to 9:16"),
+      planCaptions: p("أكتب الكابشن", "Burn in your captions"),
+      planLoudness: p("أظبّط الصوت لـ−14 LUFS", "Level the audio to −14 LUFS"),
       // Inside the drawing: who is answering, and the line he opens with.
       noah: p("نوح", "Noah"),
-      before: p("هذا ما سأفعله، قبل أن أفعله:", "Here is what I will do, before I do it:"),
+      before: p("هاد اللي رح أعمله، قبل ما أعمله:", "Here is what I will do, before I do it:"),
     },
     three: {
       title: p("انشره", "Post it"),

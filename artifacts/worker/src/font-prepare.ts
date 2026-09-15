@@ -128,34 +128,34 @@ function repair(source: string, faceDir: string, previewDir: string, id: string)
 const REPAIR_REFUSALS: Record<string, { en: string; ar: string }> = {
   unreadable: {
     en: "This file is not a font, or it is damaged. Nothing could be read out of it.",
-    ar: "هذا الملف ليس خطًّا، أو أنه تالف. لم يُقرأ منه شيء.",
+    ar: "هالملفّ مش خطّ، أو إنه تالف. ما انقرا منه شي.",
   },
   noOutlines: {
     en: "The file has no letter shapes in it at all.",
-    ar: "الملف لا يحتوي أشكال حروف إطلاقًا.",
+    ar: "الملفّ ما فيه أشكال حروف أبدًا.",
   },
   noCmap: {
     en: "The font maps no characters, so nothing typed would reach a shape in it.",
-    ar: "الخط لا يربط أي حرف بشكل، فلا شيء تكتبه يصل إلى شكل فيه.",
+    ar: "الخطّ ما بيربط أي حرف بشكل، فما في شي بتكتبه بيوصل لشكل فيه.",
   },
   noLetters: {
     en: "This looks like an icon or symbol font rather than one with letters in it.",
-    ar: "يبدو أنه خط أيقونات أو رموز لا خط حروف.",
+    ar: "مبيّن إنه خطّ أيقونات أو رموز مش خطّ حروف.",
   },
   tooLarge: {
     en: "This font file is too big. Fonts this product can burn with are a few megabytes at most.",
-    ar: "ملف الخط كبير جدًّا. الخطوط التي يمكن الحرق بها بضعة ميغابايت على الأكثر.",
+    ar: "ملفّ الخطّ كبير كتير. الخطوط اللي فينا نكتب فيها كم ميغابايت على الأكتر.",
   },
-  empty: { en: "The file is empty.", ar: "الملف فارغ." },
+  empty: { en: "The file is empty.", ar: "الملفّ فاضي." },
   tookTooLong: {
     en: "Reading this font took too long, so it was stopped. A font that slow would slow down every render made with it.",
-    ar: "قراءة هذا الخط استغرقت وقتًا طويلًا فأُوقفت. خط بهذا البطء سيُبطئ كل فيديو يُصنع به.",
+    ar: "قراءة هالخطّ أخدت وقت طويل فوقّفناها. خطّ بهالبطء رح يبطّئ كل فيديو ينعمل فيه.",
   },
 };
 
 const FALLBACK_REFUSAL = {
   en: "This font could not be prepared. If it opens in other programs, tell us and we will look.",
-  ar: "تعذّر تجهيز هذا الخط. إن كان يعمل في برامج أخرى فأخبرنا وسنفحصه.",
+  ar: "ما قدرنا نجهّز هالخطّ. إذا كان بيشتغل ببرامج تانية خبّرنا ومنفحصه.",
 };
 
 async function refuse(say: Say, id: string, code: string, detail: string) {

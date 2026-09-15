@@ -31,7 +31,7 @@ import { phrase as p, template as f } from "@/lib/landing-copy";
 export const CLIPS = {
   title: p("استخراج المقاطع", "Clip extraction"),
   lead: p(
-    "أضف حلقة بودكاست هنا، وتعود بمقاطع قصيرة جاهزة للنشر. قسم واحد بعمل واحد: ليس تعديلًا للحلقة نفسها.",
+    "حطّ حلقة بودكاست هون، وبترجع بمقاطع قصيرة جاهزة للنشر. قسم واحد بشغلة وحدة: مش تعديل للحلقة نفسها.",
     "Add a podcast episode here and it hands back short posts. One section, one job: it is not where the episode itself gets edited.",
   ),
 
@@ -45,26 +45,26 @@ export const CLIPS = {
   */
   addTitle: p("أضف حلقة بودكاست", "Add a podcast episode"),
   addHint: p(
-    "أفلت الملفّ هنا. يُرفَع، ويُكتب لك طلب القصّ في المحرّر، وترسله أنت.",
+    "رمي الملفّ هون. بينرفع، وبينكتب لك طلب القصّ بالمحرّر، وبتبعته إنت.",
     "Drop the file here. It uploads, the request for clips is written into the editor, and you press send.",
   ),
-  addButton: p("اختر ملفًّا", "Choose a file"),
-  addDrop: p("أفلت الحلقة هنا", "Drop the episode here"),
+  addButton: p("اختار ملفّ", "Choose a file"),
+  addDrop: p("رمي الحلقة هون", "Drop the episode here"),
 
   /** And the recordings already here, which is the shorter road for a returning show. */
   startTitle: p("أو خذ مقاطع من تسجيل موجود", "Or take clips from one already here"),
   startHint: p(
-    "اختر تسجيلًا وتُكتَب لك الجملة في المحرّر. اقرأها قبل أن ترسلها.",
+    "اختار تسجيل وبتنكتب لك الجملة بالمحرّر. اقراها قبل ما تبعتها.",
     "Pick one and the sentence is written into the editor for you. Read it before you send it.",
   ),
-  badType: p("هذا ليس ملفّ فيديو", "That is not a video file"),
+  badType: p("هاد مش ملفّ فيديو", "That is not a video file"),
   badTypeDetail: p("MP4 أو MOV أو WebM.", "MP4, MOV or WebM."),
   tooLarge: p("الملفّ أكبر من حدّ خطّتك", "That file is over your plan's limit"),
   tooLargeDetail: f<[string, string]>(
-    (size, ceiling) => `هذا الملفّ ${size}، والحدّ ${ceiling}.`,
+    (size, ceiling) => `هالملفّ ${size}، والحدّ ${ceiling}.`,
     (size, ceiling) => `This one is ${size} and the limit is ${ceiling}.`,
   ),
-  createFailed: p("تعذّر إنشاء المشروع", "The project could not be created"),
+  createFailed: p("ما قدرنا نفتح المشروع", "The project could not be created"),
   tryLater: p("جرّب بعد قليل.", "Try again in a moment."),
 
   /** Each recording keeps its own shelf, because that is what came out of it. */
@@ -76,15 +76,15 @@ export const CLIPS = {
 
   untitled: p("مقطع بلا عنوان", "Untitled clip"),
   save: p("احفظ", "Save"),
-  emptyTitle: p("لم يُقصّ شيء بعد", "Nothing cut yet"),
-  emptyLeadStart: p("اختر تسجيلًا أعلاه، أو افتح واحدًا واطلب ", "Pick a recording above, or open one and ask for "),
+  emptyTitle: p("ما انقصّ شي لسا", "Nothing cut yet"),
+  emptyLeadStart: p("اختار تسجيل فوق، أو افتح واحد واطلب ", "Pick a recording above, or open one and ask for "),
   emptyLeadAction: p("ثلاثة مقاطع", "Three clips"),
   emptyLeadEnd: p(
-    " في صفّ اللمسات. كل لحظة تعود منشورًا قائمًا بذاته، بعنوان ممّا قيل فيها.",
+    " في صفّ اللمسات. كل لحظة بترجع منشور لحاله، بعنوان من اللي انقال فيها.",
     " in the looks row. Each moment comes back as its own post, titled by what is said in it.",
   ),
   capped: f<[number, number]>(
-    (shown, total) => `نعرض أحدث ${shown} من ${total}. والبقيّة في التسجيلات التي جاءت منها.`,
+    (shown, total) => `عم نعرض أحدث ${shown} من ${total}. والباقي بالتسجيلات اللي إجت منها.`,
     (shown, total) => `Showing the newest ${shown} of ${total}. The rest are in the recordings they came from.`,
   ),
 } as const;

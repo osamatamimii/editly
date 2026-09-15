@@ -159,7 +159,7 @@ export function criticise(input: CriticInput): CriticResult {
         notes.push(
           t(
             `${lost} punch${lost === 1 ? "" : "es"} fell in silence that was cut, so ${lost === 1 ? "it was" : "they were"} dropped`,
-            `${lost} تقريبة وقعت في صمت مقصوص، فأُسقطت`,
+            `${lost} تقريبة وقعت بصمت مقصوص، فشلتها`,
           ),
         );
       }
@@ -168,7 +168,7 @@ export function criticise(input: CriticInput): CriticResult {
         notes.push(
           t(
             `${trimmed} punch${trimmed === 1 ? "" : "es"} landed past the end of the edit and ${trimmed === 1 ? "was" : "were"} dropped`,
-            `${trimmed} تقريبة وقعت بعد نهاية التعديل فأُسقطت`,
+            `${trimmed} تقريبة وقعت بعد نهاية التعديل فشلتها`,
           ),
         );
       }
@@ -176,7 +176,7 @@ export function criticise(input: CriticInput): CriticResult {
         notes.push(
           t(
             `${hesitations} punch${hesitations === 1 ? "" : "es"} would have landed on "um" or "uh", so ${hesitations === 1 ? "it was" : "they were"} dropped`,
-            `${hesitations} تقريبة كانت ستقع على تردّد ("أمم" أو "اه")، فأُسقطت`,
+            `${hesitations} تقريبة كانت رح تقع على تردّد ("أمم" أو "اه")، فشلتها`,
           ),
         );
       }
@@ -184,7 +184,7 @@ export function criticise(input: CriticInput): CriticResult {
         notes.push(
           t(
             `${crowded} punch${crowded === 1 ? "" : "es"} bunched up once the pauses were cut, so the ${crowded === 1 ? "extra one was" : "extras were"} dropped`,
-            `${crowded} تقريبة تكدّست بعد قصّ الوقفات، فأُسقطت الزائدة`,
+            `${crowded} تقريبة تكدّست بعد قصّ الوقفات، فشلت الزيادة`,
           ),
         );
       }
@@ -209,11 +209,11 @@ export function criticise(input: CriticInput): CriticResult {
           original === 0
             ? t(
                 "there was no moment to punch on: emphasis is read from the words, and this render had none to read",
-                "لم يكن هناك ما يُقرَّب عليه: التقريبات تُقرأ من الكلمات، وهذا التعديل لم يكن فيه كلمات تُقرأ",
+                "ما كان في شي أقرّب عليه: التقريبات بتنقرا من الكلمات، وهالتعديل ما كان فيه كلمات تنقرا",
               )
             : t(
                 "no punch survived the cut, so the clip is left without them rather than with arbitrary ones",
-                "لم تنجُ أي تقريبة من القصّ، فتُرك المقطع بلا تقريبات بدل تقريبات اعتباطية",
+                "ما نجت ولا تقريبة من القصّ، فتركت المقطع بلا تقريبات بدل تقريبات بلا سبب",
               ),
         );
         continue;
@@ -252,14 +252,14 @@ export function criticise(input: CriticInput): CriticResult {
         notes.push(
           t(
             `${dropped} caption${dropped === 1 ? "" : "s"} covered speech that was cut, so ${dropped === 1 ? "it was" : "they were"} removed`,
-            `${countedAr(dropped, AR_NOUNS.caption)} ${dropped === 1 ? "كان يغطّي" : "كانت تغطّي"} كلامًا مقصوصًا، ${dropped === 1 ? "فأُزيل" : "فأُزيلت"}`,
+            `${countedAr(dropped, AR_NOUNS.caption)} ${dropped === 1 ? "كان يغطّي" : "كانت تغطّي"} كلام مقصوص، فشلتها`,
           ),
         );
       }
 
       if (cues.length === 0) {
         notes.push(
-          t("every caption belonged to speech that was cut, so none were burned", "كل الكابشنات تخصّ كلامًا مقصوصًا، فلم يُحرق أيّ منها"),
+          t("every caption belonged to speech that was cut, so none were burned", "كل الكابشنات تخصّ كلام مقصوص، فما كتبت ولا وحدة منها"),
         );
         continue;
       }
@@ -339,10 +339,10 @@ function capZoom(
       ? "the slow push would have magnified past the frame we kept, so it was eased back"
       : "the punches would have magnified past the frame we kept, so they were eased back";
   const noteAr = easedPush && easedPunch
-    ? "الحركة البطيئة والتقريبات معًا كانت ستكبّر الصورة أبعد من الكادر الذي أبقيناه، فخُفّفت الاثنتان"
+    ? "الحركة البطيئة والتقريبات مع بعض كانوا رح يكبّروا الصورة أبعد من الكادر اللي خلّيناه، فخفّفت التنتين"
     : easedPush
-      ? "الحركة البطيئة كانت ستكبّر الصورة أبعد من الكادر الذي أبقيناه، فخُفّفت"
-      : "التقريبات كانت ستكبّر الصورة أبعد من الكادر الذي أبقيناه، فخُفّفت";
+      ? "الحركة البطيئة كانت رح تكبّر الصورة أبعد من الكادر اللي خلّيناه، فخفّفتها"
+      : "التقريبات كانت رح تكبّر الصورة أبعد من الكادر اللي خلّيناه، فخفّفتها";
 
   return {
     kenBurnsTo: easedPush ? round(to as number) : null,

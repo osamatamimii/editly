@@ -63,7 +63,7 @@ export function applyReferenceStyle(
       notes.push(
         t(
           `your reference keeps pauses of about ${settings.maxSilenceMs}ms, so anything longer than that comes out`,
-          `مرجعك يُبقي وقفات بنحو ${settings.maxSilenceMs} مللي ثانية، فكل ما طال عن ذلك يخرج`,
+          `مرجعك بيخلّي وقفات بحدود ${settings.maxSilenceMs} مللي ثانية، فكل اللي أطول من هيك بيطلع`,
         ),
       );
       continue;
@@ -74,7 +74,7 @@ export function applyReferenceStyle(
       notes.push(
         t(
           `it cuts about ${round(context.reference.cutsPerMinute)} times a minute, which is ${context.reference.cutsPerMinute > 12 ? "restless" : "calm"}. The push is set to match`,
-          `يقصّ نحو ${round(context.reference.cutsPerMinute)} مرّة في الدقيقة، وهذا ${context.reference.cutsPerMinute > 12 ? "إيقاع لا يهدأ" : "إيقاع هادئ"}. فضُبطت الحركة لتطابقه`,
+          `بيقصّ حوالي ${round(context.reference.cutsPerMinute)} مرّة بالدقيقة، وهاد ${context.reference.cutsPerMinute > 12 ? "إيقاع ما بيهدا" : "إيقاع هادي"}. فظبّطت الحركة لتطابقه`,
         ),
       );
       continue;
@@ -93,11 +93,11 @@ export function applyReferenceStyle(
         operation.at.length > wanted
           ? t(
               `its punches land about ${settings.punchesPerMinute} times a minute, so ${operation.at.length - chosen.length} of the ${operation.at.length} we found were left out`,
-              `تقريباته تقع نحو ${settings.punchesPerMinute} مرّة في الدقيقة، فتُركت ${operation.at.length - chosen.length} من ${operation.at.length} وجدناها`,
+              `تقريباته بتوقع حوالي ${settings.punchesPerMinute} مرّة بالدقيقة، فتركت ${operation.at.length - chosen.length} من ${operation.at.length} لقيناها`,
             )
           : t(
               `punch strength set to ${settings.punchAmount} to match how much your reference moves`,
-              `ضُبطت قوّة التقريب على ${settings.punchAmount} لتطابق مقدار حركة مرجعك`,
+              `ظبّطت قوّة التقريب على ${settings.punchAmount} لتطابق قدّ حركة مرجعك`,
             ),
       );
       continue;
@@ -118,11 +118,11 @@ export function applyReferenceStyle(
           Math.abs(measured - applied) >= 0.5
             ? t(
                 `levelled to ${applied} LUFS. Your reference sits at ${measured}, past what the feeds leave alone, so it was brought to the edge of that range`,
-                `سُوّي المستوى إلى ${applied} LUFS. مرجعك عند ${measured}، خارج ما تتركه المنصّات كما هو، فجُلب إلى حافة ذلك المدى`,
+                `سوّيت المستوى على ${applied} LUFS. مرجعك عند ${measured}، برّا اللي بتتركه المنصّات متل ما هو، فجبته لحافّة هالمدى`,
               )
             : t(
                 `levelled to ${applied} LUFS, which is where your reference sits`,
-                `سُوّي المستوى إلى ${applied} LUFS، وهو حيث يجلس مرجعك`,
+                `سوّيت المستوى على ${applied} LUFS، وهون وين بيقعد مرجعك`,
               ),
         );
       }
@@ -139,7 +139,7 @@ export function applyReferenceStyle(
     notes.push(
       t(
         "kept the colour setting already in the plan rather than the reference's",
-        "أبقيت إعداد اللون الموجود في الخطّة بدل إعداد المرجع",
+        "خلّيت إعداد اللون اللي بالخطّة بدل إعداد المرجع",
       ),
     );
   } else if (Math.abs(boost - 1) >= GRADE_DEADBAND) {
@@ -150,11 +150,11 @@ export function applyReferenceStyle(
       boost > 1
         ? t(
             `your reference is more saturated than this footage, so the colour is pushed ${percent(boost)} toward it`,
-            `مرجعك أكثر تشبّعًا من هذه اللقطة، فدُفع اللون ${percent(boost)} نحوه`,
+            `مرجعك أكتر تشبّعًا من هاللقطة، فدفعت اللون ${percent(boost)} نحوه`,
           )
         : t(
             `your reference is flatter than this footage, so the colour is pulled back ${percent(boost)}`,
-            `مرجعك أقلّ تشبّعًا من هذه اللقطة، فسُحب اللون ${percent(boost)}`,
+            `مرجعك أقلّ تشبّعًا من هاللقطة، فسحبت اللون ${percent(boost)}`,
           ),
     );
   }

@@ -125,7 +125,7 @@ export function mergeTranscripts(primary: Transcript, secondary: Transcript, lan
       notes: [
         early(
           "the second speech model returned nothing usable, so the words were not cross-checked",
-          "لم يُرجِع النموذج الثاني للكلام شيئًا صالحًا، فلم تُقابَل الكلمات",
+          "النموذج التاني للكلام ما رجّع شي صالح، فما تقابلت الكلمات",
         ),
       ],
       stats,
@@ -157,7 +157,7 @@ export function mergeTranscripts(primary: Transcript, secondary: Transcript, lan
     notes.push(
       t(
         `${stats.contested} word${stats.contested === 1 ? "" : "s"} the two speech models disagreed on ${stats.contested === 1 ? "was" : "were"} resolved in favour of the more accurate one, and the shakiest of them are shown as "…" rather than guessed at`,
-        `${stats.contested} كلمة اختلف عليها نموذجا الكلام حُسمت لصالح الأدقّ منهما، وأشدّها اهتزازًا تُعرض "…" بدل تخمينها`,
+        `${stats.contested} كلمة اختلف عليها نموذجا الكلام حسمتها لصالح الأدقّ منهم، وأشدّها اهتزازًا بتنعرض "…" بدل ما أخمّنها`,
       ),
     );
   }
@@ -165,7 +165,7 @@ export function mergeTranscripts(primary: Transcript, secondary: Transcript, lan
     notes.push(
       t(
         `${stats.unchecked} words came in one unbroken stretch too long to cross-check, so they are as the first model heard them`,
-        `${stats.unchecked} كلمة جاءت في دفعة واحدة أطول من أن تُقابَل، فهي كما سمعها النموذج الأول`,
+        `${stats.unchecked} كلمة إجت بدفعة وحدة أطول من إنها تتقابل، فهي متل ما سمعها النموذج الأوّل`,
       ),
     );
   }

@@ -386,8 +386,8 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
         if (kept > 0) {
           intent.willDo.push(
             kept === 1
-              ? { en: "keep the moment you marked, whatever else gets cut", ar: "أُبقي اللحظة التي علّمتها، مهما قُصّ غيرها" }
-              : { en: `keep the ${kept} moments you marked, whatever else gets cut`, ar: `أُبقي ${kept} لحظات علّمتها، مهما قُصّ غيرها` },
+              ? { en: "keep the moment you marked, whatever else gets cut", ar: "أخلّي اللحظة اللي علّمتها، مهما انقصّ غيرها" }
+              : { en: `keep the ${kept} moments you marked, whatever else gets cut`, ar: `أخلّي ${kept} لحظات علّمتها، مهما انقصّ غيرها` },
           );
         }
         if (pushed > 0) {

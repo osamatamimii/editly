@@ -103,8 +103,8 @@ function ClipCard({ clip }: { clip: LibraryClip }) {
         // that file uses, so it can move there whenever the card grows a
         // second one.
         toast({
-          title: t(phrase("تعذّر جلب هذا المقطع", "Could not fetch that clip")),
-          description: t(phrase("المقطع ما زال هنا. جرّب بعد قليل.", "It is still here. Try again in a moment.")),
+          title: t(phrase("ما قدرنا نجيب هالمقطع", "Could not fetch that clip")),
+          description: t(phrase("المقطع لسا هون. جرّب بعد شوي.", "It is still here. Try again in a moment.")),
           variant: "destructive",
         });
         return;

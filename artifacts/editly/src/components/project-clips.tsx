@@ -40,16 +40,16 @@ import { phrase as p } from "@/lib/landing-copy";
   there on the next pass through that file.
 */
 const CLIP_TROUBLE = {
-  loading: p("نحمّل مقاطعك…", "Loading your clips"),
-  couldNotFetch: p("تعذّر جلب هذا المقطع", "Could not fetch that clip"),
-  stillHere: p("ما زال موجودًا. حاول بعد لحظة.", "It is still here. Please try again in a moment."),
-  couldNotOpen: p("تعذّر فتح هذا المقطع", "Could not open that clip"),
-  inAMoment: p("حاول بعد لحظة.", "Please try again in a moment."),
+  loading: p("عم نحمّل مقاطعك…", "Loading your clips"),
+  couldNotFetch: p("ما قدرنا نجيب هالمقطع", "Could not fetch that clip"),
+  stillHere: p("لسا موجود. جرّب بعد شوي.", "It is still here. Please try again in a moment."),
+  couldNotOpen: p("ما قدرنا نفتح هالمقطع", "Could not open that clip"),
+  inAMoment: p("جرّب بعد شوي.", "Please try again in a moment."),
   madeButUnnamed: p(
-    "أُنشئ المقطع ولم يصلنا أين وُضع. حاول مرّة أخرى.",
+    "انعمل المقطع وما وصلنا وين انحطّ. جرّب مرّة تانية.",
     "The clip was made and we were not told where. Please try again.",
   ),
-  checkConnection: p("تحقّق من اتّصالك وحاول مرّة أخرى.", "Check your connection and try again."),
+  checkConnection: p("تأكّد من اتّصالك وجرّب مرّة تانية.", "Check your connection and try again."),
 } as const;
 
 export { getListClipsQueryKey };

@@ -102,6 +102,38 @@ const SCOPE = [
   // outside this guard long enough to keep a word the owner said he does not
   // know («تصيير») after every other file had lost it.
   "lib/mail/src/index.ts",
+  // The screens. Converted file by file, and each one joins this list the
+  // moment it is: a file outside the list is a file that drifts back.
+  "artifacts/editly/src/lib/copy/common.ts",
+  "artifacts/editly/src/lib/copy/dashboard.ts",
+  "artifacts/editly/src/lib/copy/export.ts",
+  "artifacts/editly/src/lib/copy/chrome.ts",
+  "artifacts/editly/src/lib/copy/clips.ts",
+  "artifacts/editly/src/lib/copy/account.ts",
+  "artifacts/editly/src/lib/copy/transfer.ts",
+  "artifacts/editly/src/lib/copy/login.ts",
+  "artifacts/editly/src/lib/copy/scheduled.ts",
+  "artifacts/editly/src/pages/project-editor.tsx",
+  "artifacts/editly/src/pages/onboarding.tsx",
+  "artifacts/editly/src/pages/unsubscribe.tsx",
+  "artifacts/editly/src/pages/clips.tsx",
+  "artifacts/editly/src/components/project-clips.tsx",
+  "artifacts/editly/src/components/project-library.tsx",
+  "artifacts/editly/src/components/voice/use-voice-input.ts",
+  // The worker's other voices: the critic, the reader, the two-model merge,
+  // the font intake and the reference. Each writes notes a customer reads.
+  "artifacts/worker/src/critic.ts",
+  "artifacts/worker/src/comprehend.ts",
+  "artifacts/worker/src/transcript-merge.ts",
+  "artifacts/worker/src/font-prepare.ts",
+  "artifacts/worker/src/review.ts",
+  "artifacts/worker/src/reference-style.ts",
+  "artifacts/worker/src/providers/index.ts",
+  "artifacts/worker/src/providers/cross-check.ts",
+  // The privacy page. It names suppliers on purpose, which is the one place
+  // that is right; the register is the product's all the same.
+  "lib/api-zod/src/processors.ts",
+  "artifacts/editly/src/lib/copy/admin.ts",
 ];
 
 /**
@@ -153,7 +185,7 @@ const MARKERS = [
   [new RegExp(`${EDGE}قل لي${END}`, "u"), "«قل لي»", "«قلّي»"],
   // Widened from `[يت]` after three live notes read «لم أستطع» / «لم نستطع»
   // and walked past a guard that only watched the third person.
-  [new RegExp(`${EDGE}ل[من] [يتنأا]`, "u"), "«لم يـ…» / «لن أـ…»", "«ما …» / «مش رح …»"],
+  [new RegExp(`(^|[^\\u0600-\\u06FF]|[وف])ل[من] [يتنأا]`, "u"), "«لم يـ…» / «لن أـ…»", "«ما …» / «مش رح …»"],
   [/يمكنك|يمكنه|يمكنني|بإمكان/u, "«يمكنك»", "«فيك» / «بتقدر»"],
   /*
     The passive, which is the register of a form more than any single word.
@@ -169,7 +201,7 @@ const MARKERS = [
     which is not: «عربية بيضاء» is spoken Arabic that travels, and a customer
     in Cairo or Riyadh reading «منيح» is reading somebody else's town.
   */
-  [new RegExp(`${EDGE}هل[قأ]${END}`, "u"), "«هلق»", "drop it: a sentence rarely needs it"],
+  [new RegExp(`(^|[^\\u0600-\\u06FF])[لو]?هل[قأ]${END}`, "u"), "«هلق» / «هلأ»", "drop it: a sentence rarely needs it"],
   [new RegExp(`${EDGE}منيح`, "u"), "«منيح»", "«كويس»"],
   [new RegExp(`${EDGE}[إا]شي${END}`, "u"), "«إشي»", "«شي»"],
 ];
@@ -200,9 +232,26 @@ function arabicStrings(file) {
   const src = readFileSync(path.join(repoRoot, file), "utf8");
   const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const found = [];
+  /*
+    What the customer types is not what the customer reads, and only the second
+    has a register. `OPENERS` in `comprehend.ts` holds «ماذا» because somebody
+    asking a question in Arabic writes «ماذا» — flagging it would have had this
+    guard ask us to stop hearing a word people say. So a string declared under a
+    name that reads as matcher data is data, and is skipped. The names are
+    spelled out rather than guessed at: a broad pattern here is a hole.
+  */
+  const MATCHER_DECLARATIONS = /^(OPENERS|[A-Z_]*_WORDS|[A-Z_]*_PATTERNS|[A-Z_]*_TOKENS|FILLERS)$/;
+  const insideAMatcher = (node) => {
+    for (let at = node.parent; at; at = at.parent) {
+      if (ts.isVariableDeclaration(at) && ts.isIdentifier(at.name)) {
+        return MATCHER_DECLARATIONS.test(at.name.text);
+      }
+    }
+    return false;
+  };
   const visit = (node) => {
     const text = node.getText ? node.getText() : "";
-    if (TEXT.has(node.kind) && ARABIC.test(text)) {
+    if (TEXT.has(node.kind) && ARABIC.test(text) && !insideAMatcher(node)) {
       found.push({ text, line: sf.getLineAndCharacterOfPosition(node.getStart()).line + 1 });
     }
     ts.forEachChild(node, visit);

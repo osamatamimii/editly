@@ -26,22 +26,22 @@ import { useLanguage } from "@/lib/language";
 import { phrase } from "@/lib/landing-copy";
 
 const COPY = {
-  checking: phrase("نتحقّق من الرابط…", "Checking your link…"),
-  subscribedTitle: phrase("رسائل الأخبار تصلك حاليًّا", "You are getting our updates"),
+  checking: phrase("عم نتأكّد من الرابط…", "Checking your link…"),
+  subscribedTitle: phrase("رسائل الأخبار عم توصلك", "You are getting our updates"),
   subscribedBody: phrase(
-    "اضغط الزر ونوقفها. رسائل الحساب ستبقى تصلك: الفيديو الجاهز، والدفعة التي لم تنجح، والحدّ الذي بلغته.",
+    "اضغط الزرّ ومنوقّفها. رسائل الحساب رح تضلّ توصلك: الفيديو الجاهز، والدفعة اللي ما نجحت، والحدّ اللي وصلته.",
     "Press the button and they stop. Account messages still reach you: the video that is ready, the payment that did not go through, the limit you reached.",
   ),
   stop: phrase("أوقف رسائل الأخبار", "Stop the updates"),
-  stopping: phrase("نوقفها…", "Stopping…"),
+  stopping: phrase("عم نوقّفها…", "Stopping…"),
   goneTitle: phrase("توقّفت", "That's done"),
   goneBody: phrase(
-    "لن تصلك رسائل أخبار بعد الآن. رسائل الحساب ستبقى تصلك، لأنها عن أشياء طلبتها.",
+    "ما رح توصلك رسائل أخبار بعد هيك. رسائل الحساب رح تضلّ توصلك، لأنها عن أشياء إنت طلبتها.",
     "No more updates. Account messages still reach you, because they are about things you asked for.",
   ),
   undo: phrase("أعِدها", "Actually, keep them"),
-  undoing: phrase("نعيدها…", "Turning them back on…"),
-  unknownTitle: phrase("هذا الرابط لم يعد يعمل", "This link no longer works"),
+  undoing: phrase("عم نرجّعها…", "Turning them back on…"),
+  unknownTitle: phrase("هالرابط ما عاد يشتغل", "This link no longer works"),
   /*
     Ours, not the server's.
 
@@ -52,12 +52,12 @@ const COPY = {
     Arabic heading on the one screen somebody is using to leave.
   */
   unknownBody: phrase(
-    "قد يكون من رسالة قديمة، أو قُطع في برنامج البريد. الرابط في آخر رسالة وصلتك سيعمل.",
+    "يمكن يكون من رسالة قديمة، أو انقطع ببرنامج البريد. الرابط بآخر رسالة وصلتك رح يشتغل.",
     "It may be from an old message, or it may have been cut short by an email client. The link in your most recent email will work.",
   ),
-  failedTitle: phrase("تعذّر التحقّق", "We could not check that"),
+  failedTitle: phrase("ما قدرنا نتأكّد", "We could not check that"),
   failedBody: phrase(
-    "لم نستطع قراءة الرابط الآن، ولم يتغيّر شيء. جرّب بعد دقيقة.",
+    "ما قدرنا نقرا الرابط، وما تغيّر شي. جرّب بعد دقيقة.",
     "We could not read that link just now, and nothing was changed. Try again in a minute.",
   ),
 } as const;

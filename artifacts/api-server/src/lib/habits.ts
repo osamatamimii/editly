@@ -319,7 +319,7 @@ export function applyHabits(
       key: "captions",
       value: "yes",
       en: "caption it the way you usually have them",
-      ar: "أكتب الكابشنز بالشكل الذي تعتاده",
+      ar: "أكتب الكابشنز بالشكل اللي عوّدت عليه",
     });
   }
 

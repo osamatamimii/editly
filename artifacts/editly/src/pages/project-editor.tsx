@@ -86,37 +86,37 @@ import { phrase } from "@/lib/landing-copy";
  * English heading, minus anybody sighted noticing.
  */
 const MORE = {
-  cannotUseFile: phrase("لا يمكننا استخدام هذا الملف", "We cannot use that file"),
+  cannotUseFile: phrase("ما منقدر نستعمل هالملفّ", "We cannot use that file"),
 
-  uploadCancelled: phrase("أُلغي الرفع", "Upload cancelled"),
+  uploadCancelled: phrase("انلغى الرفع", "Upload cancelled"),
   uploadCancelledDetail: phrase(
-    "لم يُحفَظ شيء. اختر ملفًّا آخر متى شئت.",
+    "ما انحفظ شي. اختار ملفّ تاني وقت ما بدّك.",
     "Nothing was stored. Pick another file when you are ready.",
   ),
-  cancelUpload: phrase("ألغِ هذا الرفع", "Cancel this upload"),
+  cancelUpload: phrase("ألغي هالرفع", "Cancel this upload"),
   uploadProgress: phrase("تقدّم الرفع", "Upload progress"),
   /** Without the ceiling, for when the server has not said what it is. */
   uploadFormatsPlain: phrase("MP4 أو MOV أو WebM", "MP4, MOV or WebM"),
 
   renderProgress: phrase("تقدّم التنفيذ", "Render progress"),
-  stopThisRender: phrase("أوقف هذا التنفيذ", "Stop this render"),
-  stopping: phrase("يتوقّف…", "Stopping…"),
-  youStoppedThat: phrase("أنت أوقفت هذا التنفيذ.", "You stopped that render."),
+  stopThisRender: phrase("وقّف هالتنفيذ", "Stop this render"),
+  stopping: phrase("عم يوقف…", "Stopping…"),
+  youStoppedThat: phrase("إنت وقّفت هالتنفيذ.", "You stopped that render."),
   runItAgain: phrase("شغّله من جديد", "Run it again"),
   lostSightOfIt: phrase(
-    "غابت عنّا أخبار هذا التنفيذ للحظة. ما زال جاريًا، وتحديث الصفحة يعيد وصله.",
+    "غابت عنّا أخبار هالتنفيذ لحظة. لسا شغّال، وتحديث الصفحة بيرجّع وصله.",
     "We have lost sight of this render for a moment. It is still going; reloading the page will pick it back up.",
   ),
 
-  noEditOutOfThat: phrase("لم أخرج بتعديل من ذلك", "I did not get an edit out of that"),
+  noEditOutOfThat: phrase("ما طلعت بتعديل من هيك", "I did not get an edit out of that"),
   noEditOutOfThatDetail: phrase(
-    "قل لي ما الذي أغيّره وأبنيه لك. اكتبها أمرًا، مثل «احذف الصمت وأضف الكابشن».",
+    "قلّي شو بدّك أغيّر وأبنيه لك. اكتبها أمر، متل «احذف الصمت وضيف الكابشن».",
     "Tell me what to change and I will build it. Say it as an instruction, like \u201ccut the silences and caption it\u201d.",
   ),
-  send: phrase("أرسل", "Send"),
+  send: phrase("ابعت", "Send"),
 
   referenceIsPaid: phrase(
-    "مطابقة أسلوب فيديو آخر متاحة في الخطط المدفوعة. ارفع مقطعًا يعجبك، ويأخذ تنفيذك القادم إيقاعه، ومقدار الصمت الذي يبقيه، ومستوى صوته، وألوانه.",
+    "مطابقة ستايل فيديو تاني متاحة بالخطط المدفوعة. ارفع مقطع بيعجبك، وتنفيذك الجاي بياخد إيقاعه، وقدّ الصمت اللي بيخلّيه، ومستوى صوته، وألوانه.",
     "Matching another video's style is on the paid plans. Upload a clip you like and your next render copies its pace, how much silence it keeps, its level and its colour.",
   ),
 } as const;

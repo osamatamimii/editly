@@ -57,11 +57,11 @@ export const PROCESSORS: readonly Processor[] = [
     role: "infrastructure",
     sends: {
       en: "your email address, your sign-in, every video you upload, and everything the product makes from it",
-      ar: "بريدك، وتسجيل دخولك، وكل فيديو ترفعه، وكل ما يصنعه المنتج منه",
+      ar: "بريدك، وتسجيل دخولك، وكل فيديو بترفعه، وكل اللي بيعمله المنتج منه",
     },
     because: {
       en: "it is the database and the file storage this product is built on",
-      ar: "هي قاعدة البيانات والتخزين اللذان بُني عليهما هذا المنتج",
+      ar: "هي قاعدة البيانات والتخزين اللي انبنى عليهم هالمنتج",
     },
     always: true,
   },
@@ -71,9 +71,9 @@ export const PROCESSORS: readonly Processor[] = [
     role: "infrastructure",
     sends: {
       en: "the ordinary details of a web request: your address, your browser, and which page you asked for",
-      ar: "تفاصيل الطلب المعتادة: عنوانك، ومتصفّحك، وأي صفحة طلبت",
+      ar: "تفاصيل الطلب المعتادة: عنوانك، ومتصفّحك، وأي صفحة طلبتها",
     },
-    because: { en: "it serves the website and the API", ar: "تخدم الموقع والـAPI" },
+    because: { en: "it serves the website and the API", ar: "بتخدم الموقع والـAPI" },
     always: true,
   },
   {
@@ -82,11 +82,11 @@ export const PROCESSORS: readonly Processor[] = [
     role: "infrastructure",
     sends: {
       en: "the video being edited, while it is being edited",
-      ar: "الفيديو الجاري تحريره، أثناء تحريره",
+      ar: "الفيديو اللي عم يتعدّل، وقت ما عم يتعدّل",
     },
     because: {
       en: "the machine that actually cuts the video runs there",
-      ar: "الآلة التي تقصّ الفيديو فعلًا تعمل هناك",
+      ar: "الآلة اللي بتقصّ الفيديو فعلًا بتشتغل هناك",
     },
     always: true,
   },
@@ -97,7 +97,7 @@ export const PROCESSORS: readonly Processor[] = [
     sends: { en: "the audio of your video", ar: "صوت الفيديو" },
     because: {
       en: "to turn speech into words with a timestamp on each one, which is what a caption and a silence cut are made of",
-      ar: "لتحويل الكلام إلى كلمات بتوقيت لكل كلمة، وهو ما يُصنع منه الكابشن وقصّ الصمت",
+      ar: "لتحويل الكلام لكلمات بتوقيت لكل كلمة، وهاد اللي بينعمل منه الكابشن وقصّ الصمت",
     },
     always: false,
   },
@@ -108,7 +108,7 @@ export const PROCESSORS: readonly Processor[] = [
     sends: { en: "the audio of your video", ar: "صوت الفيديو" },
     because: {
       en: "a second transcription, read against the first, because a wrong word burned onto the screen is the plainest failure a caption has",
-      ar: "تفريغ ثانٍ يُقارن بالأوّل، لأن كلمة خاطئة محروقة على الشاشة أوضح فشل في الكابشن",
+      ar: "تفريغ تاني بينقارن بالأوّل، لأن كلمة غلط مكتوبة على الشاشة أوضح فشل بالكابشن",
     },
     always: false,
   },
@@ -119,7 +119,7 @@ export const PROCESSORS: readonly Processor[] = [
     sends: { en: "still frames from your video", ar: "إطارات ثابتة من الفيديو" },
     because: {
       en: "to see what is on screen (a face, a product, text) so the frame can follow it",
-      ar: "لرؤية ما على الشاشة: وجه، منتج، نصّ، كي يتبعه الكادر",
+      ar: "ليشوف شو على الشاشة: وجه، منتج، نصّ، حتى يتبعه الكادر",
     },
     always: false,
   },
@@ -139,10 +139,10 @@ export const PROCESSORS: readonly Processor[] = [
     name: "Google (Lyria)",
     hosts: ["generativelanguage.googleapis.com"],
     role: "library",
-    sends: { en: "a mood word, and nothing of yours", ar: "كلمة مزاج واحدة، ولا شيء من ملفّاتك" },
+    sends: { en: "a mood word, and nothing of yours", ar: "كلمة مزاج وحدة، ولا شي من ملفّاتك" },
     because: {
       en: "to make the music bed, when you ask for one and have not uploaded a track",
-      ar: "لصنع الفرشة الموسيقية حين تطلبها ولم ترفع مقطوعة",
+      ar: "ليعمل الفرشة الموسيقية لمّا تطلبها وما ترفع مقطوعة",
     },
     always: false,
   },
@@ -152,11 +152,11 @@ export const PROCESSORS: readonly Processor[] = [
     role: "understanding",
     sends: {
       en: "the sentence you type, and the list of file names in that project",
-      ar: "الجملة التي تكتبها، وأسماء ملفّات ذلك المشروع",
+      ar: "الجملة اللي بتكتبها، وأسماء ملفّات هداك المشروع",
     },
     because: {
       en: "to turn what you asked for into a list of edits. It is never sent your video",
-      ar: "لتحويل ما طلبته إلى قائمة تعديلات. لا يُرسَل إليه الفيديو أبدًا",
+      ar: "ليحوّل اللي طلبته لقائمة تعديلات. الفيديو ما بينبعت له أبدًا",
     },
     always: false,
   },
@@ -164,10 +164,10 @@ export const PROCESSORS: readonly Processor[] = [
     name: "Freemius",
     hosts: ["freemius.com", "checkout.freemius.com"],
     role: "payment",
-    sends: { en: "your email address and what you bought", ar: "بريدك وما اشتريته" },
+    sends: { en: "your email address and what you bought", ar: "بريدك واللي اشتريته" },
     because: {
       en: "it is the merchant of record: it takes the payment, and your card details never reach us at all",
-      ar: "هو التاجر المسجَّل: يأخذ الدفعة، وتفاصيل بطاقتك لا تصل إلينا إطلاقًا",
+      ar: "هو التاجر المسجّل: بياخد الدفعة، وتفاصيل بطاقتك ما بتوصلنا أبدًا",
     },
     always: false,
   },
@@ -175,10 +175,10 @@ export const PROCESSORS: readonly Processor[] = [
     name: "Pexels",
     hosts: ["api.pexels.com", "www.pexels.com"],
     role: "library",
-    sends: { en: "the words you search for", ar: "الكلمات التي تبحث بها" },
+    sends: { en: "the words you search for", ar: "الكلمات اللي بتدوّر فيها" },
     because: {
       en: "to find stock footage. Nothing of yours is sent",
-      ar: "للعثور على لقطات جاهزة. لا يُرسَل شيء من ملفّاتك",
+      ar: "ليلاقي لقطات جاهزة. ما بينبعت شي من ملفّاتك",
     },
     always: false,
   },
@@ -209,11 +209,11 @@ export const PROCESSORS: readonly Processor[] = [
     role: "publishing",
     sends: {
       en: "the finished video and the caption you wrote, to the account you connected",
-      ar: "الفيديو النهائي والكابشن الذي كتبته، إلى الحساب الذي ربطته",
+      ar: "الفيديو النهائي والكابشن اللي كتبته، للحساب اللي ربطته",
     },
     because: {
       en: "you asked for it to be posted there. Nothing goes to a platform you have not connected",
-      ar: "لأنك طلبت نشره هناك. لا شيء يذهب إلى منصّة لم تربطها",
+      ar: "لأنك طلبت تنشره هناك. ما في شي بيروح لمنصّة ما ربطتها",
     },
     always: false,
   },
@@ -223,11 +223,11 @@ export const PROCESSORS: readonly Processor[] = [
     role: "infrastructure",
     sends: {
       en: "your email address, and the message being sent to it",
-      ar: "بريدك، والرسالة المُرسَلة إليه",
+      ar: "بريدك، والرسالة اللي بتنبعت عليه",
     },
     because: {
       en: "it delivers the account emails this product sends: a payment that failed, a plan that changed, a limit you reached",
-      ar: "توصّل رسائل الحساب التي يرسلها هذا المنتج: دفعة فشلت، أو خطّة تغيّرت، أو حدّ بلغته",
+      ar: "بتوصّل رسائل الحساب اللي بيبعتها هالمنتج: دفعة فشلت، أو خطّة تغيّرت، أو حدّ وصلته",
     },
     always: true,
   },
@@ -252,11 +252,11 @@ export const PROCESSORS: readonly Processor[] = [
     role: "sign-in",
     sends: {
       en: "your email address and name, and the fact that you signed in to Editly, if you choose to sign in with Google",
-      ar: "بريدك واسمك، وأنّك سجّلت الدخول إلى Editly، إن اخترت الدخول عبر Google",
+      ar: "بريدك واسمك، وإنك سجّلت دخول على Editly، إذا اخترت تدخل عن طريق Google",
     },
     because: {
       en: "you chose Google to sign in with, and it is Google that confirms to us that the address is yours",
-      ar: "لأنك اخترت Google لتسجيل الدخول، وهي التي تؤكّد لنا أنّ البريد بريدك",
+      ar: "لأنك اخترت Google لتسجيل الدخول، وهي اللي بتأكّد لنا إنّ البريد بريدك",
     },
     always: false,
   },
@@ -266,11 +266,11 @@ export const PROCESSORS: readonly Processor[] = [
     role: "sign-in",
     sends: {
       en: "your email address, or the relay address Apple gives you instead of it, and the fact that you signed in to Editly, if you choose to sign in with Apple",
-      ar: "بريدك، أو العنوان الوسيط الذي تمنحك إيّاه Apple بدلًا منه، وأنّك سجّلت الدخول إلى Editly، إن اخترت الدخول عبر Apple",
+      ar: "بريدك، أو العنوان الوسيط اللي بتعطيك ياه Apple بدله، وإنك سجّلت دخول على Editly، إذا اخترت تدخل عن طريق Apple",
     },
     because: {
       en: "you chose Apple to sign in with. Apple lets you hide your real address, and if you do, we only ever have the relay",
-      ar: "لأنك اخترت Apple لتسجيل الدخول. وتتيح لك Apple إخفاء بريدك الحقيقي، وحينها لا نملك سوى العنوان الوسيط",
+      ar: "لأنك اخترت Apple لتسجيل الدخول. و Apple بتخلّيك تخفي بريدك الحقيقي، وساعتها ما بيكون معنا غير العنوان الوسيط",
     },
     always: false,
   },

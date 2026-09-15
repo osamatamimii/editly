@@ -135,13 +135,13 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
         ? null
         : {
             en: "no speech recognition is configured, so captions and word-accurate cuts are unavailable. Silence detection is doing the cutting",
-            ar: "لا يوجد تعرّف على الكلام مُهيّأ، فالكابشن والقصّ الدقيق على الكلمات غير متاحين. كشف الصمت هو الذي يقصّ",
+            ar: "ما في تعرّف على الكلام مجهّز، فالكابشن والقصّ الدقيق على الكلمات مش متاحين. كشف الصمت هو اللي عم يقصّ",
           },
       vision: sceneReader
         ? null
         : {
             en: "no scene understanding is configured, so shot selection is based on speech alone",
-            ar: "لا يوجد فهم للمشهد مُهيّأ، فاختيار اللقطات يعتمد على الكلام وحده",
+            ar: "ما في فهم للمشهد مجهّز، فاختيار اللقطات بيعتمد على الكلام لحاله",
           },
       crossCheck:
         deepgram && elevenLabs
@@ -149,7 +149,7 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
           : transcriber
             ? {
                 en: "only one speech model is configured, so captions rest on a single reading instead of two that agree",
-                ar: "نموذج كلام واحد فقط مُهيّأ، فالكابشن يستند إلى قراءة واحدة بدل قراءتين تتّفقان",
+                ar: "في نموذج كلام واحد بس مجهّز، فالكابشن مبني على قراءة وحدة بدل قراءتين بيتّفقوا",
               }
             : null,
       /*
@@ -169,13 +169,13 @@ export function resolveProviders(env: ProviderEnv = process.env as ProviderEnv):
         ? null
         : {
             en: "music beds are the ones this product generates itself, which are loops rather than written tracks. Upload your own audio file for anything more than a bed",
-            ar: "الفرشات الموسيقية هي التي يولّدها هذا المنتج بنفسه، وهي حلقات لا مقطوعات مؤلَّفة. ارفع ملفًّا صوتيًّا خاصًّا بك لما هو أكثر من فرشة",
+            ar: "الفرشات الموسيقية هي اللي بيولّدها هالمنتج بنفسه، وهي حلقات مش مقطوعات مؤلّفة. ارفع ملفّ صوتي خاصّ فيك لأي شي أكتر من فرشة",
           },
       structure: structureReader
         ? null
         : {
             en: "nothing is configured to read what was said for meaning, so the strongest moments are chosen by how densely somebody was talking rather than by what they said",
-            ar: "لا يوجد ما يقرأ الكلام قراءةً معنويّة، فاختيار أقوى اللحظات يجري بكثافة الكلام لا بما قيل فيه",
+            ar: "ما في شي بيقرا الكلام قراءة معنوية، فاختيار أقوى اللحظات بيصير بكثافة الكلام مش باللي انقال فيه",
           },
     },
   };

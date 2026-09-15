@@ -127,7 +127,7 @@ export default function Onboarding() {
   const accept = (picked: File) => {
     if (!isAcceptableVideo(picked)) {
       toast({
-        title: say("We cannot use that file", "لا يمكننا استعمال هذا الملفّ"),
+        title: say("We cannot use that file", "ما منقدر نستعمل هالملفّ"),
         /* Named from the one table that decides, not from memory. This
            sentence said "mp4, mov and webm" while the product also took mkv
            and m4v, so it was refusing files it would have stored and telling
@@ -139,7 +139,7 @@ export default function Onboarding() {
         description: say(
           whyNotAVideo(picked),
           isHeic(picked)
-            ? "هذه صورة HEIC من آيفون ولا نستطيع قراءتها بعد. من الهاتف: الإعدادات، الكاميرا، الصيغ، «الأكثر توافقًا» يحفظ بصيغة JPEG، ومشاركة صورة موجودة عبر البريد أو الملفات تحوّلها أيضًا."
+            ? "هاي صورة HEIC من آيفون وما منقدر نقراها لسا. من الهاتف: الإعدادات، الكاميرا، الصيغ، «الأكثر توافقًا» بيحفظ بصيغة JPEG، وكمان مشاركة صورة موجودة عبر البريد أو الملفّات بتحوّلها."
             : `الصيغ المقبولة: ${VIDEO_UPLOAD_EXTENSIONS.join("، ")}.`,
         ),
         variant: "destructive",
@@ -158,7 +158,7 @@ export default function Onboarding() {
     const ceiling = servedCeiling(subscription);
     if (ceiling !== null && picked.size > ceiling) {
       toast({
-        title: say("That file is too large", "هذا الملفّ أكبر من المسموح"),
+        title: say("That file is too large", "هالملفّ أكبر من المسموح"),
         description: say(
           `It is ${formatBytes(picked.size)} and the limit is ${formatBytes(ceiling)} per video.`,
           `حجمه ${formatBytes(picked.size)} والحدّ ${formatBytes(ceiling)} لكل فيديو.`,
@@ -187,8 +187,8 @@ export default function Onboarding() {
       accept(new File([bytes], "sample-podcast-take.mp4", { type: "video/mp4" }));
     } catch {
       toast({
-        title: say("Could not fetch the sample", "تعذّر جلب اللقطة التجريبية"),
-        description: say("Please try again in a moment.", "حاول مرّة أخرى بعد قليل."),
+        title: say("Could not fetch the sample", "ما قدرنا نجيب اللقطة التجريبية"),
+        description: say("Please try again in a moment.", "جرّب مرّة تانية بعد شوي."),
         variant: "destructive",
       });
     } finally {
@@ -225,14 +225,14 @@ export default function Onboarding() {
     } catch (error: unknown) {
       const status = (error as { response?: { status?: number } })?.response?.status;
       toast({
-        title: say("Could not start the project", "تعذّر بدء المشروع"),
+        title: say("Could not start the project", "ما قدرنا نبدا المشروع"),
         description:
           status === 429
             ? say(
                 "This account has used its exported minutes for the month.",
-                "استُهلكت دقائق التصدير لهذا الشهر على هذا الحساب.",
+                "خلصت دقايق التصدير لهالشهر على هالحساب.",
               )
-            : say("Please try again in a moment.", "حاول مرّة أخرى بعد قليل."),
+            : say("Please try again in a moment.", "جرّب مرّة تانية بعد شوي."),
         variant: "destructive",
       });
     }
@@ -271,12 +271,12 @@ export default function Onboarding() {
 
         <div className="flex flex-col gap-3">
           <h1 className="text-2xl sm:text-3xl font-bold">
-            {say("Let's make one video", "لنصنع فيديو واحدًا")}
+            {say("Let's make one video", "خلّينا نعمل فيديو واحد")}
           </h1>
           <p className="text-muted-foreground max-w-xl leading-relaxed">
             {say(
               "Editly edits from a sentence. Give it a raw take and say what you want, in your own words. Everything else on this screen is here once.",
-              "يعدّل Editly انطلاقًا من جملة. أعطه لقطة خام وقل ما تريد بكلماتك. وكل ما على هذه الشاشة يظهر مرّة واحدة.",
+              "Editly بيعدّل من جملة. عطيه لقطة خام وقول شو بدّك بكلماتك. وكل اللي على هالشاشة بيظهر مرّة وحدة.",
             )}
           </p>
         </div>
@@ -317,17 +317,17 @@ export default function Onboarding() {
                 <Check className="w-6 h-6 text-primary" />
                 <div className="text-sm font-medium" data-testid="first-run-file">{file.name}</div>
                 <div className="text-xs text-muted-foreground">
-                  {formatBytes(file.size)} · {say("tap to choose a different one", "اضغط لاختيار ملفّ آخر")}
+                  {formatBytes(file.size)} · {say("tap to choose a different one", "اضغط تختار ملفّ تاني")}
                 </div>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2">
                 <UploadCloud className="w-6 h-6 text-muted-foreground" />
                 <div className="text-sm font-medium">
-                  {say("Drop a video here", "أفلت فيديو هنا")}
+                  {say("Drop a video here", "رمي فيديو هون")}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {say("mp4, mov or webm. It uploads on the next screen.", "mp4 أو mov أو webm، ويُرفع في الشاشة التالية.")}
+                  {say("mp4, mov or webm. It uploads on the next screen.", "mp4 أو mov أو webm، وبينرفع بالشاشة الجاية.")}
                 </div>
               </div>
             )}
@@ -369,7 +369,7 @@ export default function Onboarding() {
             >
               {fetchingSample ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
               {fetchingSample
-                ? say("Fetching the sample take…", "جاري جلب اللقطة التجريبية…")
+                ? say("Fetching the sample take…", "عم نجيب اللقطة التجريبية…")
                 : say("No clip handy? Try a ready-made take", "ما عندك مقطع جاهز؟ جرّب لقطة جاهزة منّا")}
             </button>
           )}
@@ -378,7 +378,7 @@ export default function Onboarding() {
         {/* ── The sentence ───────────────────────────────────────────────── */}
         <section className="flex flex-col gap-3">
           <h2 className="text-sm font-semibold text-muted-foreground">
-            {say("2. What should happen to it", "٢. ما الذي يحدث له")}
+            {say("2. What should happen to it", "٢. شو بدّك يصير فيها")}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {SUGGESTIONS.map((suggestion) => {
@@ -408,7 +408,7 @@ export default function Onboarding() {
           </div>
           <div className="flex flex-col gap-2 pt-1">
             <label htmlFor="first-run-own" className="text-xs text-muted-foreground">
-              {say("Or say it your own way", "أو قلها بطريقتك")}
+              {say("Or say it your own way", "أو قولها بطريقتك")}
             </label>
             <Input
               id="first-run-own"
@@ -431,7 +431,7 @@ export default function Onboarding() {
             data-testid="first-run-start"
           >
             {createProject.isPending ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
-            {say("Start editing", "ابدأ التعديل")}
+            {say("Start editing", "ابدا التعديل")}
           </Button>
           <Button
             variant="ghost"
@@ -439,17 +439,17 @@ export default function Onboarding() {
             className="rounded-full text-muted-foreground"
             data-testid="first-run-skip"
           >
-            {say("Skip, I'll look around", "تخطَّ، سأتصفّح بنفسي")}
+            {say("Skip, I'll look around", "تخطّى، رح أتصفّح بحالي")}
           </Button>
           <p className="text-xs text-muted-foreground sm:ms-auto max-w-xs leading-relaxed">
             {file
               ? say(
                   "Your sentence goes into the box on the next screen. You send it.",
-                  "جملتك توضع في الحقل بالشاشة التالية، وأنت من يرسلها.",
+                  "جملتك بتنحطّ بالحقل بالشاشة الجاية، وإنت اللي بتبعتها.",
                 )
               : say(
                   "You can start without a file and add one on the next screen.",
-                  "يمكنك البدء بلا ملفّ وإضافته في الشاشة التالية.",
+                  "فيك تبدا بلا ملفّ وتضيفه بالشاشة الجاية.",
                 )}
           </p>
         </div>

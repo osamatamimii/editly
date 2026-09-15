@@ -4180,7 +4180,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           t(
             "the strongest moment is already where this starts, so nothing was moved",
-            "أقوى لحظة هي بداية المقطع أصلًا، فلم أنقل شيئًا",
+            "أقوى لحظة هي بداية المقطع أصلًا، فما نقلت شي",
           ),
         );
       }
@@ -6326,7 +6326,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           ctx.unreachableAssetIds?.has(op.assetId)
             ? t(
                 "skipped an overlay: that file is in your project and we could not fetch it this time",
-                "تخطّيت تراكبًا: الملفّ موجود في مشروعك ولم نتمكّن من جلبه هذه المرّة",
+                "تخطّيت تراكب: الملفّ موجود بمشروعك وما قدرنا نجيبه هالمرّة",
               )
             : t(
                 "skipped an overlay: that file is not in this project",
@@ -6711,7 +6711,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           : ctx.unreachableAssetIds?.has(music.assetId)
           ? t(
               "skipped the music: that track is in your project and we could not fetch it this time",
-              "تخطّيت الموسيقى: ذلك المقطع موجود في مشروعك ولم نتمكّن من جلبه هذه المرّة",
+              "تخطّيت الموسيقى: هداك المقطع موجود بمشروعك وما قدرنا نجيبه هالمرّة",
             )
           : t(
               "skipped the music: that track is not in this project",

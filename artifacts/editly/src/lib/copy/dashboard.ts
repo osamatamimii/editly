@@ -35,55 +35,55 @@ export const DASHBOARD = {
   statProjectsShort: p("المشاريع", "Projects"),
   statProjects: p("إجمالي المشاريع", "Total Projects"),
   statWorkingShort: p("قيد العمل", "Working"),
-  statWorking: p("قيد التنفيذ الآن", "Currently Processing"),
+  statWorking: p("عم يتنفّذ", "Currently Processing"),
   statDoneShort: p("منتهية", "Done"),
   statDone: p("التعديلات المنتهية", "Completed Edits"),
   /** Named for the tile it sits in, because "this" is what a tile is. */
-  thisNumber: p("هذا الرقم", "this"),
-  waitingTheirTurn: p("في انتظار دورها", "waiting their turn"),
-  waitingForMachine: p("تنتظر جهازًا", "waiting for a machine"),
+  thisNumber: p("هالرقم", "this"),
+  waitingTheirTurn: p("مستنية دورها", "waiting their turn"),
+  waitingForMachine: p("مستنية جهاز", "waiting for a machine"),
 
-  statusStalled: p("بانتظار جهاز", "Waiting for a machine"),
+  statusStalled: p("مستنية جهاز", "Waiting for a machine"),
   statusStalledTitle: p(
-    "التنفيذ في الطابور، ولم يلتقطه أي جهاز بعد.",
+    "التنفيذ بالطابور، وما التقطه أي جهاز لسا.",
     "The render is queued, but no machine has picked it up.",
   ),
-  statusUploading: p("يُرفع", "Uploading"),
+  statusUploading: p("عم يترفع", "Uploading"),
   statusReady: p("جاهز", "Ready"),
-  statusProcessing: p("يُنفَّذ", "Processing"),
+  statusProcessing: p("عم يتنفّذ", "Processing"),
   statusDone: p("تمّ", "Done"),
   statusFailed: p("فشل", "Failed"),
 
   deleteProject: f<[string]>((title) => `احذف ${title}`, (title) => `Delete ${title}`),
-  projectDeleted: p("حُذف المشروع", "Project deleted"),
-  projectDeletedDetail: p("أُزيل المشروع.", "The project has been removed."),
-  deleteFailed: p("تعذّر حذف المشروع", "Failed to delete project"),
-  tryLater: p("حاول لاحقًا.", "Please try again later."),
-  createFailed: p("تعذّر إنشاء المشروع", "Failed to create project"),
-  limitReached: p("انتهت دقائق خطّتك", "Video limit reached"),
+  projectDeleted: p("انحذف المشروع", "Project deleted"),
+  projectDeletedDetail: p("شلنا المشروع.", "The project has been removed."),
+  deleteFailed: p("ما قدرنا نحذف المشروع", "Failed to delete project"),
+  tryLater: p("جرّب بعدين.", "Please try again later."),
+  createFailed: p("ما قدرنا نفتح المشروع", "Failed to create project"),
+  limitReached: p("خلصت دقايق خطّتك", "Video limit reached"),
   limitReachedDetail: f<[string, string]>(
-    (minutes, plan) => `استهلكت كل دقائق التصدير (${minutes}) في خطّة ${plan} هذا الشهر.`,
+    (minutes, plan) => `خلّصت كل دقايق التصدير (${minutes}) بخطّة ${plan} هالشهر.`,
     (minutes, plan) => `You've used all ${minutes} exported minutes on your ${plan} plan this month.`,
   ),
   badFileType: p("نوع ملف غير مدعوم", "Invalid file type"),
-  badFileTypeDetail: p("ارفع ملف mp4 أو mov أو webm.", "Please upload an mp4, mov, or webm file."),
+  badFileTypeDetail: p("ارفع ملفّ mp4 أو mov أو webm.", "Please upload an mp4, mov, or webm file."),
   fileTooLarge: p("الملف كبير", "File too large"),
   fileTooLargeDetail: f<[string, string]>(
-    (size, ceiling) => `حجم الملف ${size}. والحدّ الحالي ${ceiling} للفيديو الواحد.`,
+    (size, ceiling) => `حجم الملفّ ${size}. والحدّ الحالي ${ceiling} للفيديو الواحد.`,
     (size, ceiling) => `That file is ${size}. The current limit is ${ceiling} per video.`,
   ),
 
   freeBandDetail: f<[number, number]>(
     (minutes, upload) =>
-      `${minutes} دقائق فيديو منتهٍ في الشهر، ورفع حتى ${upload} دقائق، وكل ميزات التعديل. بلا بطاقة وبلا انتهاء. تعمل وحسب.`,
+      `${minutes} دقايق فيديو جاهز بالشهر، ورفع لحدّ ${upload} دقايق، وكل ميزات التعديل. بلا بطاقة وبلا انتهاء. بتشتغل وبس.`,
     (minutes, upload) =>
       `${minutes} minutes of finished video a month, uploads up to ${upload} minutes, and every editing feature. No card, no expiry. It simply keeps working.`,
   ),
-  usageBand: p("دقيقة فيديو منتهٍ هذا الشهر", "minutes of finished video this month"),
+  usageBand: p("دقيقة فيديو جاهز هالشهر", "minutes of finished video this month"),
   planBadge: f<[string]>((plan) => `خطّة ${plan}`, (plan) => `${plan} plan`),
 
   podcastsTitle: p("البودكاست والتسجيلات الطويلة", "Podcasts and long recordings"),
-  podcastsHint: p("افتح واحدًا لتقصّ منه مقاطع", "open one to cut clips out of it"),
+  podcastsHint: p("افتح واحد وقصّ منه مقاطع", "open one to cut clips out of it"),
   /*
     Where the cutting happens, said on the section that holds the recordings.
 
@@ -98,19 +98,19 @@ export const DASHBOARD = {
 
   emptyTitle: p("لا شيء هنا بعد", "Nothing here yet"),
   emptyLead: p(
-    "ارفع تسجيلًا خامًا وقل لـEditly ما تريد أن يفعل به. توقّف عن المونتاج، وابدأ بالوصف.",
+    "ارفع تسجيل خام وقول لـEditly شو بدك يعمل فيه. بطّل تمنتج، وابدا تحكي.",
     "Upload a raw take and tell Editly what you want done with it. Stop editing, start describing.",
   ),
-  createProject: p("أنشئ مشروعًا", "Create Project"),
+  createProject: p("افتح مشروع", "Create Project"),
 
   createTitle: p("مشروع جديد", "Create New Project"),
-  createLead: p("ابدأ من الفيديو، أو سمِّ المشروع فقط.", "Start from your video, or just give the project a name."),
-  dropHere: p("أفلت الفيديو هنا", "Drop your video here"),
+  createLead: p("ابدا من الفيديو، أو بس سمّي المشروع.", "Start from your video, or just give the project a name."),
+  dropHere: p("رمي الفيديو هون", "Drop your video here"),
   dropHint: p(
-    "المشروع يسمّي نفسه ويبدأ الرفع فورًا",
+    "المشروع بيسمّي حاله والرفع بيبلّش على طول",
     "The project names itself and the upload starts right away",
   ),
-  orNameFirst: p("أو سمِّه أوّلًا", "or name it first"),
+  orNameFirst: p("أو سمّيه أوّل", "or name it first"),
   projectName: p("اسم المشروع", "Project Name"),
-  projectNameHint: p("مثلًا: مقطعي القصير", "e.g. My Viral Short"),
+  projectNameHint: p("متلًا: مقطعي القصير", "e.g. My Viral Short"),
 } as const;

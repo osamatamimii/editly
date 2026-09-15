@@ -781,7 +781,7 @@ function visionExcuse(error: unknown): { en: string; ar: string } {
     };
   }
 
-  return { en: " this time", ar: " هذه المرّة" };
+  return { en: " this time", ar: " هالمرّة" };
 }
 
 /**

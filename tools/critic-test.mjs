@@ -429,9 +429,38 @@ section("ffmpeg.ts still exports the timeline helpers the other suites import");
   check("keepSegmentsFrom", typeof ffmpeg.keepSegmentsFrom === "function");
   check("remapTime", typeof ffmpeg.remapTime === "function");
   check("MOTION_OVERSCAN", ffmpeg.MOTION_OVERSCAN === MOTION_OVERSCAN);
+  /*
+    This asked whether the two functions were the same reference or had the
+    same source text, and it has been failing for as long as `ffmpeg.ts` has
+    had a second binding named `duration`: the two are separate esbuild
+    bundles, and esbuild renames on collision, so the ffmpeg copy reads
+    `function keepSegmentsFrom(duration3, …)`. Identical code, different text,
+    a red check nobody could act on.
+
+    What the check is for is that the two have not *diverged* — that
+    `ffmpeg.ts` re-exports `timeline.ts` rather than carrying a copy somebody
+    edited once. Behaviour over a spread of inputs answers that, and answers it
+    better: two byte-identical copies would have passed the old check while
+    still being two copies, and any divergence at all fails this one. The cases
+    cover each branch the function has: no silence, silence at the head, in the
+    middle, at the tail, touching, and protected spans both inside and across.
+  */
+  const SAME = [
+    [30, [], 0, []],
+    [30, [{ start: 0, end: 3 }], 0, []],
+    [30, [{ start: 8, end: 12 }, { start: 20, end: 23 }], 0, []],
+    [30, [{ start: 27, end: 30 }], 0, []],
+    [30, [{ start: 8, end: 12 }, { start: 12, end: 15 }], 0.25, []],
+    [30, [{ start: 8, end: 12 }, { start: 20, end: 23 }], 0, [{ start: 19, end: 24 }]],
+    [30, [{ start: 8, end: 12 }], 0, [{ start: 0, end: 30 }]],
+  ];
+  const divergences = SAME.filter(
+    (args) => JSON.stringify(ffmpeg.keepSegmentsFrom(...args)) !== JSON.stringify(keepSegmentsFrom(...args)),
+  );
   check(
-    "and they are the same implementation, not a copy",
-    ffmpeg.keepSegmentsFrom === keepSegmentsFrom || String(ffmpeg.keepSegmentsFrom) === String(keepSegmentsFrom),
+    "and they have not diverged: same answer on every shape of input",
+    divergences.length === 0,
+    divergences.length > 0 ? JSON.stringify(divergences[0]) : "",
   );
   const kept = ffmpeg.keepSegmentsFrom(30, [{ start: 8, end: 12 }, { start: 20, end: 23 }], 0);
   check("and they still work", kept.length === 3 && near(kept[1].start, 12));

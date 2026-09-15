@@ -696,7 +696,7 @@ section("A connection that still needs a Page says so");
   */
   const copy = await readFile(path.join(repoRoot, "artifacts/editly/src/lib/copy/scheduled.ts"), "utf8");
   check("the screen asks the question", /Which one do posts go to/.test(copy), "");
-  check("in both languages, like everything else it says", /إلى أيّها تذهب المنشورات/.test(copy), "");
+  check("in both languages, like everything else it says", /لأي وحدة بدك تروح المنشورات/.test(copy), "");
   check("and the screen is the thing that asks it", /fmt\(CONNECTIONS\.whichPage/.test(screen), "");
   check("only when there is more than one answer", /pageChoices\?\.length \?\? 0\) > 1/.test(screen), "");
   check("and it shows where a settled connection posts", /fmt\(CONNECTIONS\.postsTo, account\.pageName\)/.test(screen), "");

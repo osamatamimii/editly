@@ -29,7 +29,7 @@ export const LOGIN = {
   signinLead: p("ادخل لتكمل من حيث توقّفت.", "Sign in to pick up where you left off."),
   signupLead: p("ابدأ بتحويل التسجيل الخام إلى منشور.", "Start turning raw footage into viral clips."),
   resetLead: p(
-    "اكتب البريد الذي سجّلت به، ونرسل لك رابطًا.",
+    "اكتب البريد اللي سجّلت فيه، ومنبعت لك رابط.",
     "Tell us the address you signed up with and we will send a link.",
   ),
   withGoogle: p("تابع بحساب Google", "Continue with Google"),
@@ -65,7 +65,7 @@ export const LOGIN = {
     (name) => `الدخول عبر ${name} غير مفعّل بعد. استعمل بريدك الآن.`,
     (name) => `${name} sign-in isn't switched on yet. Use your email for now.`,
   ),
-  couldNotStart: p("تعذّر بدء الدخول. حاول مرّة أخرى.", "Could not start sign-in. Please try again."),
+  couldNotStart: p("ما قدرنا نبدا الدخول. جرّب مرّة تانية.", "Could not start sign-in. Please try again."),
   somethingWrong: p("حدث خطأ. حاول مرّة أخرى.", "Something went wrong. Please try again."),
   /*
     The two documents, on the screen where the account is actually made. This
@@ -83,13 +83,13 @@ export const LOGIN = {
 
   /** Where a recovery link lands. */
 export const RESET = {
-  checking: p("نتحقّق من رابطك…", "Checking your link…"),
+  checking: p("عم نتأكّد من رابطك…", "Checking your link…"),
   expiredTitle: p("انتهت صلاحية هذا الرابط", "This link has expired"),
   expiredLead: p(
-    "روابط الاستعادة تدوم ساعة وتُستعمل مرّة واحدة. اطلب رابطًا جديدًا ويصلك خلال دقيقة.",
+    "روابط الاستعادة بتضلّ ساعة وبتنستعمل مرّة وحدة. اطلب رابط جديد وبيوصلك خلال دقيقة.",
     "Reset links last an hour and can only be used once. Ask for a new one and it will arrive in a minute.",
   ),
-  sendAnother: p("أرسل لي رابطًا آخر", "Send me another"),
+  sendAnother: p("ابعت لي رابط تاني", "Send me another"),
   doneTitle: p("تمّ", "That's set"),
   doneLead: p("ننقلك إلى مشاريعك…", "Taking you to your projects…"),
   chooseTitle: p("اختر كلمة مرور جديدة", "Choose a new password"),
@@ -102,6 +102,6 @@ export const RESET = {
   andAgain: p("ومرّة أخرى", "And again"),
   sameOne: p("الكلمة نفسها", "The same one"),
   notTheSame: p("الكلمتان غير متطابقتين.", "Those two passwords are not the same."),
-  couldNotSet: p("تعذّر ضبط كلمة المرور. حاول مرّة أخرى.", "Could not set that password. Please try again."),
+  couldNotSet: p("ما قدرنا نظبّط كلمة المرور. جرّب مرّة تانية.", "Could not set that password. Please try again."),
   setIt: p("اضبط كلمة مروري", "Set my password"),
 } as const;

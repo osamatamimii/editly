@@ -71,7 +71,7 @@ export function createCrossCheckedTranscriber(options: CrossCheckOptions): Trans
           return withNotes(first.status === "fulfilled" ? first.value : emptyOf(primary), [
             t(
               `a second reading was not available${why.en}, so the words come from a single pass and were not cross-checked`,
-              `تعذّرت القراءة الثانية${why.ar}، فالكلمات من قراءة واحدة بلا مقابلة`,
+              `ما قدرنا نعمل القراءة التانية${why.ar}، فالكلمات من قراءة وحدة بلا مقابلة`,
             ),
           ]);
         }
@@ -81,7 +81,7 @@ export function createCrossCheckedTranscriber(options: CrossCheckOptions): Trans
           return withNotes(second.value, [
             t(
               `the first reading was not available${why.en}, so both the words and the timings come from a single pass`,
-              `تعذّرت القراءة الأولى${why.ar}، فالكلمات والتوقيتات كلّها من قراءة واحدة`,
+              `ما قدرنا نعمل القراءة الأولى${why.ar}، فالكلمات والتوقيتات كلّها من قراءة وحدة`,
             ),
           ]);
         }
@@ -142,7 +142,7 @@ export function createCrossCheckedTranscriber(options: CrossCheckOptions): Trans
             */
             t(
               "I read the speech twice to check it, and the two readings disagreed about which language this is. I kept the one that matched the recording rather than mixing them",
-              "قرأت الكلام مرّتين للتأكد، واختلفت القراءتان على لغة التسجيل. أبقيت القراءة التي طابقت الصوت بدل أن أمزج بينهما",
+              "قريت الكلام مرّتين للتأكّد، واختلفت القراءتين على لغة التسجيل. خلّيت القراءة اللي طابقت الصوت بدل ما أمزج بيناتهم",
             ),
           ]);
         }

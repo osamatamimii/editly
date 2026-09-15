@@ -512,7 +512,7 @@ export function notesFromVision(read: VisionRead, language: Language | null | un
     notes.push(
       t(
         `${what.en} is covered by ${by.en} in places. Moving it, or turning it off, is a one-line change and worth it`,
-        `${what.ar} يغطّيه ${by.ar} في مواضع. تحريكه أو إيقافه تعديل بسطر واحد ويستحقّ`,
+        `${what.ar} بيغطّيه ${by.ar} بمواضع. تحريكه أو إيقافه تعديل بسطر واحد وبستاهل`,
       ),
     );
   }
@@ -521,7 +521,7 @@ export function notesFromVision(read: VisionRead, language: Language | null | un
     notes.push(
       t(
         `the first ${HOOK_SECONDS} seconds do not give anybody a reason to keep watching. Starting on the moment rather than on the introduction is usually the whole fix`,
-        `أوّل ${HOOK_SECONDS} ثوانٍ لا تعطي أحدًا سببًا ليكمل. البدء من اللحظة نفسها بدل المقدّمة هو الحلّ عادةً`,
+        `أوّل ${HOOK_SECONDS} ثواني ما بتعطي حدا سبب يكمّل. عادةً الحلّ إنك تبدا من اللحظة نفسها بدل المقدّمة`,
       ),
     );
   }
@@ -585,7 +585,7 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
     notes.push(
       t(
         "the sound did not survive this edit. That is a fault on our side, not in your footage",
-        "لم ينجُ الصوت من هذا التعديل. وهذا عطل عندنا، لا في لقطتك",
+        "الصوت ما نجا من هالتعديل. وهاد عطل عنّا، مش بلقطتك",
       ),
     );
   }
@@ -638,11 +638,11 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
             corrected.compressedDynamics
               ? t(
                   `the levelling missed on the first pass. The mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected. The range was compressed to bring it up without clipping, rather than by a clean level shift`,
-                  `أخطأت التسوية في التمريرة الأولى: خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقيس وصُحّح، وضُغط المدى الديناميكي لرفعه دون قصّ القمم، لا بإزاحة مستوى نظيفة`,
+                  `غلطت بالتسوية بالتمريرة الأولى: طلع المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقسته وصحّحته، وضغطت المدى لأرفعه بلا ما أقصّ القمم، مش بإزاحة مستوى نظيفة`,
                 )
               : t(
                   `the levelling missed on the first pass. The mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target}, so it was measured and corrected`,
-                  `أخطأت التسوية في التمريرة الأولى: خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقيس وصُحّح`,
+                  `غلطت بالتسوية بالتمريرة الأولى: طلع المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}، فقسته وصحّحته`,
                 ),
           );
         } else if (ctx.levelWasLinear !== undefined) {
@@ -659,7 +659,7 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
           notes.push(
             t(
               `the mix came out at ${measured.inputI.toFixed(1)} LUFS rather than ${target}. Lifting it the rest of the way would have clipped the loudest moments, and the platforms make up a difference this small themselves`,
-              `خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}. رفعه بقيّة الطريق كان سيقصّ أعلى اللحظات، والمنصّات تعوّض فرقًا بهذا الصغر بنفسها`,
+              `طلع المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target}. لو رفعته بقيّة الطريق كان رح يقصّ أعلى اللحظات، والمنصّات بتعوّض فرق بهالصغر لحالها`,
             ),
           );
         } else {
@@ -669,7 +669,7 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
           notes.push(
             t(
               `the mix came out at ${measured.inputI.toFixed(1)} LUFS instead of ${target} and a correction did not take, so it ships as it is`,
-              `خرج المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target} ولم ينجح التصحيح، فيُسلَّم كما هو`,
+              `طلع المزيج عند ${measured.inputI.toFixed(1)} LUFS بدل ${target} وما نجح التصحيح، فبيتسلّم متل ما هو`,
             ),
           );
         }
@@ -694,7 +694,7 @@ export async function reviewOutput(file: string, ctx: ReviewContext): Promise<Re
         notes.push(
           t(
             "the picture came out black. That is a bug on our side, not in your footage",
-            "خرجت الصورة سوداء. وهذا عطل عندنا، لا في لقطتك",
+            "طلعت الصورة سودا. وهاد عطل عنّا، مش بلقطتك",
           ),
         );
       }

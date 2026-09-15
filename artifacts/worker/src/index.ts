@@ -2891,7 +2891,7 @@ async function assembleReel(
     throw new PlanEmptiedError(
       say(
         "None of the photographs in that request are in this project, so there was nothing to build a video from.",
-        "لا شيء من الصور في ذلك الطلب موجود في هذا المشروع، فلم يكن هناك ما أبني منه فيديو.",
+        "ما في ولا صورة من هداك الطلب موجودة بهالمشروع، فما كان في شي أبني منه فيديو.",
       ),
     );
   }

@@ -46,21 +46,21 @@ export const LANGUAGE = {
    * shortcut around the seam, it is the one place the seam cannot reach.
    */
 export const CRASH = {
-  title: p("توقّفت هذه الشاشة", "This screen stopped working"),
+  title: p("هالشاشة وقفت", "This screen stopped working"),
   lead: p(
-    "لم يضع شيء ممّا صنعته. مشاريعك وفيديوهاتك في مكانها.",
+    "ما ضاع شي من اللي عملته. مشاريعك وفيديوهاتك بمكانها.",
     "Nothing you made has been lost. Your projects and your videos are where they were.",
   ),
-  stopped: p("توقّفت الصفحة على غير المتوقّع", "The page stopped unexpectedly"),
-  reload: p("أعد تحميل الصفحة", "Reload the page"),
-  quoteThis: p("إن تكرّر هذا، اذكر هذا الرمز: ", "If it keeps happening, quote this: "),
+  stopped: p("الصفحة وقفت فجأة", "The page stopped unexpectedly"),
+  reload: p("حمّل الصفحة من جديد", "Reload the page"),
+  quoteThis: p("إذا تكرّر، اذكر هالرمز: ", "If it keeps happening, quote this: "),
 } as const;
 
   /** The 404. */
 export const NOT_FOUND = {
-  title: p("هذه الصفحة غير موجودة", "This page does not exist"),
+  title: p("هالصفحة مش موجودة", "This page does not exist"),
   detail: p(
-    "قد يكون الرابط قديمًا، أو العنوان فيه حرف زائد.",
+    "يمكن الرابط قديم، أو بالعنوان حرف زايد.",
     "The link may be out of date, or the address slightly off.",
   ),
 } as const;

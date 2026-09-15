@@ -31,12 +31,12 @@ import { phrase as p } from "@/lib/landing-copy";
 const LIBRARY_STATES = {
   /** The list did not load. Distinct from "you have no files", deliberately. */
   unreadable: p(
-    "تعذّرت قراءة هذه القائمة الآن. ملفاتك ما زالت هنا، وهذه اللوحة وحدها هي الغائبة. أضف ملفًا وستُحاول من جديد.",
+    "ما قدرنا نقرا هالقائمة. ملفّاتك لسا هون، وهاللوحة لحالها هي الغايبة. ضيف ملفّ ومنجرّب من جديد.",
     "We could not read this list just now. Your files are still here; this panel is not. Adding one will try again.",
   ),
   /** A refused delete, said out loud instead of looking like a dead button. */
   couldNotRemove: p(
-    "تعذّر حذف هذا الملف. حاول مرّة أخرى.",
+    "ما قدرنا نحذف هالملفّ. جرّب مرّة تانية.",
     "That file could not be removed. Please try again.",
   ),
   /*
@@ -48,7 +48,7 @@ const LIBRARY_STATES = {
     the sentence simply stops.
   */
   emptyCeilingUnknown: p(
-    "لا شيء بعد. الملفات التي تضيفها هنا يمكن قصّها كلقطات إضافية، أو وضعها فوق الكادر، أو تشغيلها تحت التعديل كلّه إن كانت موسيقى تملك حقوقها.",
+    "ما في شي لسا. الملفّات اللي بتضيفها هون فيك تقصّها كلقطات إضافية، أو تحطّها فوق الكادر، أو تشغّلها تحت التعديل كلّه إذا كانت موسيقى بتملك حقوقها.",
     "Nothing yet. Files you add here can be cut in as b-roll, laid over the frame, or, if it is a track you have the rights to, played under the whole edit.",
   ),
 } as const;
