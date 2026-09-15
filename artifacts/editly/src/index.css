@@ -654,20 +654,16 @@
    * beside a carefully set English line — in a product where half of what is
    * rendered is Arabic.
    *
-   * Instrument Serif Italic is the third, and it is used in exactly one place:
-   * the second line of the landing headline. A heavy sans against a slanted
-   * serif is what makes an editorial headline read as *set* rather than typed,
-   * and one line is the whole of its job.
-   *
-   * It was removed once, correctly — it was being loaded on every visit and
-   * used by nothing. The scoping is what makes it right to have back, because
-   * Arabic has no italic: `.headline-serif` below drops to the sans under
-   * `[dir="rtl"]` and re-states the contrast as weight and colour, so the idea
-   * survives translation instead of collapsing at it.
+   * A serif is named third and nothing loads for it. Instrument Serif Italic
+   * used to be fetched here for one line — the second half of the landing
+   * headline — and that line is now one plain sentence in one weight. A face
+   * requested on every visit for a span that no longer exists is the same
+   * mistake it was the first time it was removed, so the request is gone and
+   * the stack falls to the serifs every machine already has.
    */
   --app-font-sans: 'Inter', 'IBM Plex Sans Arabic', system-ui, -apple-system, sans-serif;
   --app-font-display: 'Cabinet Grotesk', 'Inter', 'IBM Plex Sans Arabic', system-ui, sans-serif;
-  --app-font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --app-font-serif: Georgia, 'Times New Roman', serif;
   --app-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   /*
    * 16px, up from 12.
@@ -2506,112 +2502,6 @@ html[data-page-theme="light"] body {
 }
 
 /*
- * The stage: a hand-held phone writing a prompt, finished work sliding past
- * behind it. Composition and measurements taken from the recording Osama
- * sent — the card row's baseline sits just below the phone's middle, the
- * cards nearest the phone are dimmed so the phone reads as the lit thing, and
- * the phone itself is tilted about six degrees, the way a hand actually
- * holds one.
- */
-.work-row {
-  position: relative;
-  width: 100%;
-  /*
-    The height of the cards and nothing more.
-
-    This was `clamp(520px, 54vw, 780px)`, which is the height of a phone: the
-    row sat at `top: 50%` because the middle of the box was taken by a drawn
-    handset. With the drawing gone that number would be most of a screen of
-    empty air above a strip of video, so the box is the row now.
-  */
-  height: clamp(196px, 17.5vw, 262px);
-  /*
-    Still no clip on the container, for the reason the phone's halo taught us:
-    an `overflow: hidden` here drew a straight line of light across the page at
-    this box's edge, and Osama photographed exactly that line and asked for it
-    gone. The only thing that overflows is the track, and it clips itself.
-    `landing-test` walks the rendered page looking for full-width seams, so a
-    clip reintroduced here fails before it ships.
-  */
-}
-
-/* The row of work. A single track holding every card twice, translating its
-   own half-width and looping: transform only, so the compositor carries it,
-   and `data-live` on the stage pauses it — with the videos — the moment the
-   stage leaves the screen. An animation below the fold is a heater. */
-.clip-marquee {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  /*
-    The ends, faded by a mask rather than by something painted over them.
-
-    A gradient laid on top of the cards is a shape with an edge, and an edge
-    across the full width of the page is the seam this file keeps having to
-    apologise for. A mask takes the cards' own alpha to nothing, so there is
-    nothing drawn to have an edge.
-  */
-  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
-  /* The track is twice the row of cards and far wider than any screen. The
-     clip lives here, on the strip that owns the overflow, rather than on the
-     stage — an `overflow: hidden` up there was what sliced the phone's halo
-     into a straight seam, and it was also load-bearing for the page's
-     scroll width, which is why removing it moved the clip rather than
-     deleting it. */
-  overflow: hidden;
-}
-.clip-track {
-  display: flex;
-  gap: clamp(14px, 1.8vw, 26px);
-  width: max-content;
-  animation: clip-slide 48s linear infinite;
-}
-.work-row[data-live="0"] .clip-track {
-  animation-play-state: paused;
-}
-@keyframes clip-slide {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
-.clip-card {
-  flex: 0 0 auto;
-  width: clamp(230px, 20vw, 300px);
-  aspect-ratio: 480 / 420;
-  border-radius: 24px;
-  overflow: hidden;
-  /*
-    Unfiltered now.
-
-    These were held at `brightness(0.88)` so that the phone in front of them
-    read as the lit thing. There is no phone, and dimming the only real
-    material on the page to flatter a drawing that is gone would be the
-    strangest thing left in this file.
-  */
-}
-.clip-card video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/*
- * The handset, its screen, its chips, its prompt field, its send pill, the
- * pool of shadow it threw over the row and the mount for the hand that was to
- * hold it — about 170 lines — are gone with the drawing they dressed.
- *
- * They drew the prompt moment at phone scale because that moment was the one
- * thing the front page could not offer. It offers it now, a line under the
- * headline, in a box that works. Keeping a picture of it beside the real one
- * would be two prompt boxes on one screen and only one of them answering.
- *
- * `git log` has the geometry if the composition is ever wanted back.
- */
-@media (prefers-reduced-motion: reduce) {
-  .clip-track { animation: none; }
-}
-
-/*
  * The band the page ends on.
  *
  * Copied from the recording Osama sent: the whole foot of the page becomes one
@@ -2926,38 +2816,6 @@ html[data-page-theme="light"] body {
   .noah-working::before {
     animation: none;
   }
-}
-
-/*
- * The headline's second line.
- *
- * A heavy grotesque says the first half and an italic serif answers it. The
- * serif is set a shade larger because an italic serif at the same point size
- * reads smaller than a bold sans — matching the numbers would look like a
- * mistake — and the tracking goes back to normal, because negative tracking on
- * a serif italic closes the counters and turns it to mud.
- *
- * And then RTL, which is the reason this is a class and not two words in a
- * span. Arabic has no italic: `font-style: italic` on Arabic gets synthesised
- * by the browser as a mechanical slant, which is not a typographic style, it is
- * a defect. So under `[dir="rtl"]` the line goes back to the display sans and
- * says the same thing with weight and colour, which both languages have.
- */
-.headline-serif {
-  font-family: var(--app-font-serif);
-  font-style: italic;
-  font-weight: 400;
-  font-size: 1.08em;
-  letter-spacing: 0;
-  line-height: 1.05;
-}
-
-:where([dir="rtl"], [lang="ar"]) .headline-serif {
-  font-family: var(--app-font-display);
-  font-style: normal;
-  font-weight: 800;
-  font-size: 1em;
-  line-height: 1.3;
 }
 
 /* ── The aura button ────────────────────────────────────────────────────────
@@ -3388,4 +3246,77 @@ html[data-page-theme="light"] body {
   font-family: "editly-alexandria-extrabold";
   src: url("/caption-fonts/alexandria-extrabold.woff2") format("woff2");
   font-display: swap;
+}
+
+/*
+ * The step nobody is reading yet, in two themes that do not fade the same way.
+ *
+ * "How it works" dims the steps you are not on and brightens the one you are:
+ * `text-foreground/35` for the idle title, `text-muted-foreground/40` for its
+ * line. On a near-black page 35% white still has plenty of contrast against
+ * the ground, and the effect reads as "later, not gone".
+ *
+ * On a white page the same number is not the same effect. 35% ink on white is
+ * roughly a 2:1 contrast ratio -- below every legibility floor there is, and
+ * measured on the light landing page it read as a heading somebody had
+ * forgotten to finish rather than one waiting its turn. The index.css note on
+ * raised surfaces makes the same observation in the other direction: the two
+ * themes are not each other's inverse, and matching the numbers is what makes
+ * one of them look wrong.
+ *
+ * So the *effect* is held and the numbers move: still clearly dimmer than the
+ * active step, still legible on paper.
+ */
+.step-idle { color: hsl(var(--foreground) / 0.35); }
+.step-idle-lede { color: hsl(var(--muted-foreground) / 0.40); }
+.light .step-idle { color: hsl(var(--foreground) / 0.58); }
+.light .step-idle-lede { color: hsl(var(--muted-foreground) / 0.66); }
+
+/*
+ * No key light on the white page.
+ *
+ * The dome at the top of the document is the one thing carried over from the
+ * dark landing page that does not survive the change of ground. On near-black
+ * it is a light source and gives the top of the page its shape; on white it is
+ * a blue tint over the headline, and Osama read it as exactly that: «ازل
+ * الاضاءة الزرقاء بمقدمة المنصة».
+ *
+ * Turned off rather than dimmed. A gradient at two per cent is a thing nobody
+ * can see and everybody keeps maintaining, and the light theme already has
+ * what the dome was for: a white page needs no help separating a headline from
+ * its ground.
+ *
+ * The dark theme keeps it, because the note above it -- the whole measured
+ * curve taken off the reference -- is still true there.
+ */
+.light .key-light { background: none; }
+
+/*
+ * The "how it works" band stops being a rectangle on the light page.
+ *
+ * Every chapter boundary on this page is a curve — the horizons exist so that
+ * one section becomes another without a ruled line across the window. This
+ * band was the exception and nobody saw it, because a reel of moving clips sat
+ * directly on top of the joint and covered it. The reel came out and the joint
+ * was there underneath: a straight edge the full width of the page, six luma
+ * steps deep, right under the fold. `landing-test` names it at y=988.
+ *
+ * Painting it as a gradient rather than a fill is the smallest fix that keeps
+ * what the band is for. The middle still reads as set back, which is the whole
+ * job — the eye needs somewhere to rest between the hero and the dark chapter
+ * — and the tone arrives and leaves over 140 pixels, which is under a twentieth
+ * of a luma step per row and not an edge by any measure, least of all the eye's.
+ *
+ * Light only. In dark the band is 40% black between two lit horizons that
+ * already cut its edges into curves, so there is no straight seam there to fix.
+ */
+.light .bg-band {
+  background-color: transparent;
+  background-image: linear-gradient(
+    180deg,
+    transparent 0,
+    var(--band) 140px,
+    var(--band) calc(100% - 140px),
+    transparent 100%
+  );
 }

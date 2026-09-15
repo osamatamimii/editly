@@ -371,84 +371,7 @@ function WordmarkBand({ word }: { word: string }) {
   );
 }
 
-/**
- * Three finished clips, playing, with one of them in a phone.
- *
- * The section this replaces described the output in a paragraph. Three real
- * exports say it in a second, and they are real: 9:16, captioned in the same
- * face the renderer burns in, levelled, 106kB each at crf 33.
- *
- * Nothing downloads until somebody scrolls here. `preload="none"` and a poster
- * means the section costs three small JPEGs until it is on screen, and the
- * observer below starts the clips when it is and pauses them when it is not —
- * a video that plays behind the fold is a video nobody watches, decoding every
- * frame of it.
- */
-const WIDE_CARDS = ["wide-1", "wide-2", "wide-3", "wide-4"] as const;
 
-function useStageLive<T extends HTMLElement>(): RefObject<T | null> {
-  const ref = useRef<T>(null);
-  useEffect(() => {
-    const host = ref.current;
-    if (!host) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        const live = !!entry?.isIntersecting;
-        /* One attribute drives everything that moves in the stage: the videos
-           and the marquee both key off it, so nothing in here plays, decodes
-           or animates unless the stage is actually on screen. */
-        host.dataset.live = live ? "1" : "0";
-        for (const clip of host.querySelectorAll("video")) {
-          if (live) void clip.play().catch(() => {});
-          else clip.pause();
-        }
-      },
-      { threshold: 0.2 },
-    );
-    observer.observe(host);
-    return () => observer.disconnect();
-  }, []);
-  return ref;
-}
-
-/**
- * The row of finished work, which used to be the backdrop and is now the
- * subject.
- *
- * A hand-held phone writing a prompt stood in front of this, drawn in live
- * HTML because a screenshot of an English app is an English picture on an
- * Arabic page. That was the right answer while the prompt was the one thing
- * the front page could not actually offer. It can now — the box in the hero is
- * real — and a drawing of a prompt box beside a working one is two of them on
- * one screen, one of which does nothing when pressed.
- *
- * So the drawing goes and what it stood on stays. Four real exports, cropped
- * landscape, doubled into a track that translates its own width and loops:
- * transform only, compositor only, and paused — with the videos — whenever
- * the row is off screen, because an animation below the fold is a heater.
- *
- * The dark pool the phone cast over the middle of the row goes with it; what
- * keeps the ends from cutting hard at the viewport edge is a mask rather than
- * a gradient painted over the cards, so nothing draws a straight line of its
- * own across the page. `landing-test` walks the rendered page looking for
- * exactly that seam.
- */
-function WorkRow() {
-  const host = useStageLive<HTMLDivElement>();
-  return (
-    <div ref={host} className="work-row" data-live="0">
-      <div className="clip-marquee" aria-hidden="true">
-        <div className="clip-track">
-          {[...WIDE_CARDS, ...WIDE_CARDS].map((id, i) => (
-            <div className="clip-card" key={`${id}-${i}`} aria-hidden={i >= WIDE_CARDS.length}>
-              <video src={`/reel/${id}.mp4`} poster={`/reel/${id}.jpg`} preload="none" muted loop playsInline />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /**
  * A heading that arrives out of focus and sharpens across itself.
@@ -694,8 +617,14 @@ const RANK = { free: 0, creator: 1, pro: 2, studio: 3 } as const;
  *
  * That is gone too, and for a better reason than the first: the prompt it was
  * a picture of is now a real box one line under the headline. A drawing of the
- * thing is a placeholder for the thing. The row of work it stood on is real
- * and stays — see `WorkRow`.
+ * thing is a placeholder for the thing.
+ *
+ * The row of finished exports it stood on is gone as well, at Osama's
+ * instruction — «ازل الفيديوهات المتحركة من المنصة». Four clips looping
+ * behind the fold are four decoders running for decoration, and on a page
+ * being cut back to what it needs, a strip that moves on its own is the first
+ * thing the eye stops trusting. The exports were real; the motion was not
+ * carrying its weight.
  *
  * (`StageHand` went with it. It rendered `null` and held the mount for a
  * photograph of a hand on a phone that Osama was going to send; there is no
@@ -1503,14 +1432,14 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
                 <p className="font-mono text-xs tracking-[0.35em] text-muted-foreground mb-3">{step.num}</p>
                 <h3
                   className={`text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight mb-4 transition-colors duration-500 motion-reduce:transition-none ${
-                    active === i ? "text-foreground" : "text-foreground/35"
+                    active === i ? "text-foreground" : "step-idle"
                   }`}
                 >
                   {step.title}
                 </h3>
                 <p
                   className={`text-base sm:text-lg leading-relaxed max-w-md transition-colors duration-500 motion-reduce:transition-none ${
-                    active === i ? "text-muted-foreground" : "text-muted-foreground/40"
+                    active === i ? "text-muted-foreground" : "step-idle-lede"
                   }`}
                 >
                   {step.desc}
@@ -1677,7 +1606,7 @@ export default function Home() {
      note on the wrapper below. Scoped to the mount so /app keeps its theme. */
   useEffect(() => {
     const root = document.documentElement;
-    root.dataset.pageTheme = "dark";
+    root.dataset.pageTheme = "light";
     return () => {
       delete root.dataset.pageTheme;
     };
@@ -1797,8 +1726,8 @@ export default function Home() {
      * every section, which is all it ever wanted.
      */
     <div
-      className="isolate relative w-full flex flex-col items-center bg-background text-foreground"
-      style={{ colorScheme: "dark" }}
+      className="light isolate relative w-full flex flex-col items-center bg-background text-foreground"
+      style={{ colorScheme: "light" }}
       dir={directionOf(language)}
       lang={language}
       data-testid="landing"
@@ -1956,9 +1885,25 @@ export default function Home() {
           within half a cap-height of each other, which is as close as a square
           glyph gets to a squat one before it stops being legible.
         */}
-        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-          <Logo className="w-6 h-6 sm:w-7 sm:h-7 text-brand-mark flex-shrink-0" />
-          <span className="font-bold text-base sm:text-lg tracking-tight">Editly</span>
+        {/*
+          One size for both halves, set once and in `em`.
+
+          The mark was `w-6 h-6` and the word `text-base`: a 24px glyph beside
+          an 11px cap-height, which is an icon with a label after it rather
+          than a lockup. Osama asked for them to match -- «خلي حجم الكلمة زي
+          حجم اللوقو» -- and either half could have moved.
+
+          Neither is hardcoded now. The font size lives on the row and the mark
+          is `0.92em` tall, so the two can never drift apart again: change the
+          text size and the mark follows. 0.92 rather than 1 because the glyph
+          is a solid block and the letters are not -- a square set to the exact
+          font size reads as *larger* than the capitals beside it, and the
+          small overshoot is what makes them look equal rather than measure
+          equal.
+        */}
+        <div className="flex items-center gap-2 min-w-0 text-lg sm:text-xl">
+          <Logo className="h-[0.92em] w-auto text-brand-mark flex-shrink-0" />
+          <span className="font-bold tracking-tight leading-none">Editly</span>
         </div>
         {/*
           Everything else is behind three lines now, at every width.
@@ -2069,26 +2014,14 @@ export default function Home() {
           className="text-5xl md:text-7xl font-extrabold tracking-tight mb-5 max-w-4xl leading-[1.1] animate-fade-up"
           style={{ animationDelay: "200ms" }}
         >
-          {/* Two voices, not one word in a different colour.
-              The heavy grotesque states it and an italic serif answers — the
-              pairing that makes an editorial headline read as set rather than
-              typed. `.headline-serif` carries the size and tracking corrections
-              an italic serif needs beside a bold sans, and the RTL rule that
-              says the same thing with weight when there is no italic to use. */}
-          <span className="glow-text">{t(LANDING.hero.headlineLead)}</span>
-          <br />
-          <span
-            className="headline-serif animate-gradient-shift"
-            style={{
-              background: "linear-gradient(135deg, #50a1ed 0%, #79b7f1 40%, #87bef2 70%, #50a1ed 100%)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-              backgroundSize: "200% 200%",
-            }}
-          >
-            {t(LANDING.hero.headlineAnswer)}
-          </span>
+          {/* One voice.
+              Two spans used to share this line: a heavy grotesque statement
+              and an italic serif answer on a moving gradient. The setting was
+              the interesting part of it, which is the tell — a headline whose
+              craft is in how it is typeset is a headline that is not saying
+              enough on its own. This one is a plain sentence in one weight,
+              because the sentence is the thing. */}
+          {t(LANDING.hero.headline)}
         </h1>
 
         {/* Subtext */}
@@ -2161,25 +2094,6 @@ export default function Home() {
 
       </section>
 
-      {/* ── The row of work ── */}
-      {/*
-        The drawn phone that stood in front of this row is gone, and what was
-        behind it is now the whole thing.
-
-        It was a picture of somebody writing a prompt — which was the right
-        idea when the prompt was the one thing this page could not actually
-        offer. The box above offers it, so a drawing of it beside a working one
-        is two prompt boxes on one screen, one of which does nothing. Osama's
-        call, and it is the same rule this repository keeps: a drawing of a
-        thing is a placeholder for the thing.
-
-        What is left is real. Every card is a finished export this product
-        made, playing, and unobstructed for the first time — the answer to the
-        question the box above has just asked somebody to think about.
-      */}
-      <div className="w-full mt-16 animate-fade-up" style={{ animationDelay: "680ms" }}>
-        <WorkRow />
-      </div>
 
       {/* ── How It Works ── */}
       <HowItWorks t={t} rtl={rtl} />

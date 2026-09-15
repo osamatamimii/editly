@@ -296,23 +296,32 @@ section("The light and the sky survive all the way to the screen");
   // Two empty bands of the hero: one under the key light, one well below it.
   const lit = await mean({ x: 250, y: 96, width: 900, height: 54 });
   const unlit = await mean({ x: 250, y: 600, width: 900, height: 54 });
+  /*
+   * The same measurement, asserting the opposite, because the instruction
+   * changed: «ازل الاضاءة الزرقاء بمقدمة المنصة».
+   *
+   * This read `lit.mean > unlit.mean + 3` — the key light must reach the
+   * screen — and it was the right check while the page opened on a blue wash
+   * above the headline. The landing page is light-only now (`home.tsx` pins
+   * `data-page-theme="light"`), and `.light .key-light` paints nothing, so
+   * there is no light left to measure.
+   *
+   * Deleting the section would have been wrong twice over. The pixel reading
+   * is the only thing here that ever caught the real failure — a `fixed
+   * inset-0 -z-10` layer that is perfect in the DOM and invisible on screen,
+   * and a sky that shipped at a 0.85px gradient radius with Osama, not this
+   * suite, noticing. And an instruction to remove something needs a check
+   * that it stays removed far more than its presence ever needed one: a wash
+   * this faint comes back in a merge and nobody sees it for a week.
+   *
+   * So the bands and the tolerance are unchanged and only the direction is
+   * flipped. Within a luma step and a half is flat; the old light cleared six.
+   */
   check(
-    "the top of the hero is lit — the key light reaches the screen, not just the DOM",
-    lit.mean > unlit.mean + 3,
+    "the top of the hero is not lit — the blue wash is off the screen, not just out of the DOM",
+    Math.abs(lit.mean - unlit.mean) < 1.5,
     `top ${lit.mean.toFixed(1)} vs lower ${unlit.mean.toFixed(1)}`,
   );
-  /*
-   * The stars that stood in this band are gone at Osama's instruction, and the
-   * check that measured them against their own ground goes with them: an empty
-   * strip of navy has no peak to stand off anything.
-   *
-   * The check above it stays and is the one that mattered. It measures the key
-   * light *on the screen* rather than in the DOM — the sky shipped once at a
-   * 0.85px gradient radius, which is present in the computed style and renders
-   * as nothing at all, and it was Osama who noticed rather than any suite here.
-   * The light is now the only thing lighting the hero, so that reading is the
-   * whole of what this section has left to prove.
-   */
 }
 
 section("The hero is drawn, so there is nothing to download and nothing to hide");

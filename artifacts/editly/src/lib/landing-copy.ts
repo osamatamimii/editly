@@ -143,30 +143,36 @@ export const LANDING = {
   },
 
   hero: {
-    // Two lines, and the second one is set differently: an italic serif in
-    // English, and weight in Arabic, because Arabic has no italic. See
-    // `.headline-serif` in index.css.
-    headlineLead: p("توقّف عن المونتاج.", "Stop editing."),
-    headlineAnswer: p("ابدأ بالوصف.", "Start describing."),
     /*
-     * Three imperatives, and the shortest each one can be.
+     * One sentence.
      *
-     * What was here was a sequence of instructions — upload, describe, get —
-     * with a benefit tacked on the end, and it read as a summary of the page
-     * below rather than as a claim. It also spent its last clause on an
-     * arithmetic promise ("three hours of your evening") that the headline had
-     * already made better in two words.
+     * What was here was a two-part signature: "Stop editing." set in a heavy
+     * grotesque, then "Start describing." answering it in an italic serif on a
+     * gradient. It was a nice piece of setting and it was still a slogan —
+     * two half-lines, a typographic joke between them, and nothing in either
+     * one that says what you get.
      *
-     * A line under a headline has one job: to say what the deal is, hard
-     * enough that the next thing you do is press the button. So it is the deal
-     * — one sentence in, a finished video out, and the evening is yours — in
-     * three clauses that all land on the beat. The Arabic is the same three
-     * beats, not the English translated: «قُلها بجملة واحدة» is what somebody
-     * actually says, and it is shorter than the English is.
+     * The line below says the whole deal in five words: you talk, the video
+     * comes back finished. It is the claim, not a posture about the claim,
+     * which is why it does not need two voices to carry it.
+     */
+    headline: p("احكي، وخُد الفيديو جاهز.", "Say it. Get the video."),
+    /*
+     * The line under the headline says something the headline did not.
+     *
+     * It used to read "One sentence. A finished video." — which was the
+     * headline again, one synonym over. Two lines that make the same claim
+     * are one line and a wasted one, and the wasted one is directly under
+     * the largest type on the page.
+     *
+     * So this one is the concrete work: what the machine actually does to
+     * the footage, in the order it does it, ending on the state the person
+     * wants it in. The headline makes the promise; this says what the
+     * promise is made of.
      */
     subtext: p(
-      "قُلها بجملة واحدة. استلم الفيديو جاهزًا. واحتفظ بمسائك.",
-      "Say it in one sentence. Get the video back finished. Keep your evening.",
+      "بيقصّ السكتات، وبيكتب الكابشن، وبيرجع جاهز للنشر.",
+      "Cuts the silences, writes the captions, comes back ready to post.",
     ),
     ctaSignedOut: p("ابدأ التعديل مجانًا", "Start editing free"),
     ctaSignedIn: p("ارفع تسجيلًا خامًا", "Upload a raw take"),
@@ -195,8 +201,8 @@ export const LANDING = {
     composerRemoveFile: p("شيل الملفّ", "Remove the file"),
     composerNotVideo: p("ما منقدر نستعمل هالملفّ", "We cannot use that file"),
     caption: p(
-      "تعديل حقيقي واحد: 12.3 ثانية دخلت و6.5 خرجت. كل رقم هنا خرج من الرندر نفسه.",
-      "One real edit: 12.3 seconds in, 6.5 out. Every number here is one the renderer produced.",
+      "تعديل حقيقي: 12.3 ثانية صارت 6.5.",
+      "A real edit: 12.3s became 6.5s.",
     ),
   },
 
@@ -241,8 +247,8 @@ export const LANDING = {
     one: {
       title: p("ارفع التسجيل الخام", "Upload the raw take"),
       desc: p(
-        "غير المعدَّل، بكل التردّد والبدايات المكرّرة كما هي. هذا هو المقصود.",
-        "The unedited one, with all the ums and restarts still in it. That is the point.",
+        "الخام، بكل التردّد والإعادات.",
+        "The raw one, ums and restarts included.",
       ),
       // Inside the drawing. A file name and a duration read the same in both.
       file: p("raw-take.mov", "raw-take.mov"),
@@ -251,8 +257,8 @@ export const LANDING = {
     two: {
       title: p("قل ما تريد", "Say what you want"),
       desc: p(
-        "«اقصّ الفراغات وخلّيه عموديًا لتيك توك.» و Editly بيقول لك شو رح يعمل بالضبط قبل ما يعمله.",
-        '"Cut the dead air and make it vertical for TikTok." Editly tells you exactly what it will do before it does it.',
+        "«اقصّ الفراغات وخلّيه عمودي.» وبيقول لك شو رح يعمل قبل ما يعمله.",
+        '"Cut the dead air, make it vertical." It says what it will do before it does it.',
       ),
       askLine1: p("اقصّ الفراغات وخلّيه", "Cut the dead air and make it"),
       askLine2: p("عموديًا لتيك توك.", "vertical for TikTok."),
@@ -267,8 +273,8 @@ export const LANDING = {
     three: {
       title: p("انشره", "Post it"),
       desc: p(
-        "مؤطَّر لتيك توك أو ريلز أو شورتس، وينتظرك حين تعود.",
-        "Framed for TikTok, Reels or Shorts, and waiting for you when you come back.",
+        "مؤطَّر لتيك توك وريلز وشورتس.",
+        "Framed for TikTok, Reels and Shorts.",
       ),
       source: p("مصدر 16:9", "16:9 source"),
       output: p("9:16", "9:16"),
@@ -299,48 +305,48 @@ export const LANDING = {
     eyebrow: p("الميزات", "Features"),
     title: p("ما الذي يفعله اليوم", "What it does today"),
     lead: p(
-      "خمسة أشياء، كل واحد منها يعمل الآن. مرّر لترى الواحد تلو الآخر، أو اضغط اسمًا للذهاب إليه.",
-      "Five things, every one of them working today. Scroll to take them one at a time, or press a name to jump to it.",
+      "خمسة أشياء، كلها شغّالة اليوم.",
+      "Five things, all working today.",
     ),
     tryIt: p("جرّب:", "Try:"),
     list: [
       {
         title: p("تسجيل خام يصير منشورًا", "A raw take becomes a post"),
         detail: p(
-          "كل صمت وكل وقفة تُقصّ، والكادر يُعاد لتيك توك وريلز وشورتس (أو يوتيوب، أو مربّع)، والمستويات تُضبط. من جملة واحدة.",
-          "Every silence and pause cut, framed for TikTok, Reels and Shorts (or YouTube, or square), and the levels fixed. From one sentence.",
+          "كل صمت مقصوص، والكادر مظبوط، والصوت معايَر.",
+          "Silences cut, framing fixed, levels set.",
         ),
         prompt: p("اقصص الصمت وضيف ترجمة، عمودي لتيك توك", "Cut the silences and caption it, vertical for TikTok"),
       },
       {
         title: p("اللحظات التي تستحقّ، تُلتقَط لك", "The moments worth keeping, found for you"),
         detail: p(
-          "أقوى ثلاثين ثانية في تسجيل طويل، أو التسجيل كلّه مقصوصًا إلى قصاصات منفصلة، كل واحدة معنونة بما قاله المتحدّث فعلًا. افتح أيّها وواصل التعديل.",
-          "The strongest thirty seconds of a long take, or the whole thing cut into separate clips, each titled by what the speaker actually said. Open any of them and keep editing.",
+          "أقوى 30 ثانية، أو التسجيل كلّه مقصوص لقصاصات معنونة.",
+          "The strongest 30 seconds, or the whole take cut into titled clips.",
         ),
         prompt: p("قسّمه إلى 3 مقاطع لريلز", "Cut it into 3 clips for Reels"),
       },
       {
         title: p("كابشن بكلامك أنت", "Captions in your own words"),
         detail: p(
-          "محروق من كلامك لا من قالب. بالعربية أو الإنجليزية، ومصفوف في الاتجاه الذي تُقرأ به اللغة.",
-          "Burned in from what you said, not from a template. In English or Arabic, laid out in the direction that language reads.",
+          "من كلامك لا من قالب. عربي أو إنجليزي.",
+          "From what you said, not a template. Arabic or English.",
         ),
         prompt: p("ضيف ترجمة وظبط الصوت ليوتيوب", "Caption it and level the audio for YouTube"),
       },
       {
         title: p("يبدو معدَّلًا لا معالَجًا", "It looks edited, not processed"),
         detail: p(
-          "ذوبان بين القطعات، وموسيقاك تنخفض من طريق صوتك حين تتكلّم، ولوك لوني: دافئ، أو سينمائي، أو مطابق لمقطع أعجبك لونه.",
-          "Dissolves between the cuts, your own music ducking out of the way while you talk, and a grade: warm, cinematic, or matched to a clip whose colour you liked.",
+          "ذوبان بين القطعات، وموسيقى تخفت تحت صوتك، ولوك لوني.",
+          "Dissolves, music that ducks under your voice, and a grade.",
         ),
         prompt: p("خلّيه سينمائي مع تلاشي بالبداية والنهاية", "Make it cinematic, fade in and out"),
       },
       {
         title: p("ينهي العمل من دونك", "It finishes without you"),
         detail: p(
-          "أغلق التبويب ويكمل الرندر. ولقطاتك تبقى خاصّة بحسابك وحده.",
-          "Close the tab and the render carries on. Your footage stays private to your account.",
+          "سكّر التبويب والتنفيذ بيكمّل. ولقطاتك خاصّة فيك.",
+          "Close the tab; it keeps going. Your footage stays yours.",
         ),
         prompt: p("شدّه وابدأ بالأقوى", "Tighten it up and start with the best bit"),
       },
@@ -375,43 +381,43 @@ export const LANDING = {
       "One recording on Tuesday. A week of posts by Wednesday.",
     ),
     lead: p(
-      "في الساعتين ثلاث لحظات تستحقّ النشر. العثور عليها هو العمل كلّه، وهذا هو الجزء الذي يفعله.",
-      "Two hours holds three moments worth posting. Finding them is the work, and that is the part this does.",
+      "بالساعتين تلات لحظات تستحقّ النشر. هاد بيلاقيهم.",
+      "Two hours hold three moments worth posting. This finds them.",
     ),
     steps: [
       {
         step: p("التسجيل كلّه يدخل", "The whole take goes in"),
         detail: p(
-          "ساعتان، ملفّ واحد، بلا تشذيب أوّلًا. وأربع ساعات على Pro.",
-          "Two hours, one file, nothing trimmed first. Four on Pro.",
+          "ساعتان بملفّ واحد. وأربعة على Pro.",
+          "Two hours in one file. Four on Pro.",
         ),
       },
       {
         step: p("اللحظات تُلتقَط", "The moments are found"),
         detail: p(
-          "من الكلام، لا من الموجة الصوتية. ثلاث تستحقّ النشر، لا عشر محشوّة.",
-          "From what was said, not the waveform. Three worth posting, not ten padded.",
+          "من الكلام، مش من الموجة. تلاتة تستحقّ، مش عشرة.",
+          "From what was said, not the waveform. Three, not ten.",
         ),
       },
       {
         step: p("كل واحدة منشور جاهز", "Each one is a finished post"),
         detail: p(
-          "عمودية، مكتوبة الكابشن، معايَرة، ومسمّاة بالجملة التي تدور عليها.",
-          "Vertical, captioned, levelled, and named after the line it turns on.",
+          "عمودية، مكتوبة، معايَرة، ومسمّاة.",
+          "Vertical, captioned, levelled, named.",
         ),
       },
     ],
     // Labels for the drawing, which is the section's real argument. They are
     // read aloud rather than seen, so they say what the picture shows.
     diagramTake: p(
-      "تسجيل من ساعتين، مُعلَّم عليه ثلاث لحظات، وتحت كل لحظة القصاصة العمودية الخارجة منها",
-      "A two-hour take with three moments marked on it, and under each one the vertical clip it becomes",
+      "ساعتان، تلات لحظات، وتحت كل وحدة قصاصتها",
+      "Two hours, three moments, each with the clip it becomes",
     ),
     diagramClips: p("ثلاث قصاصات", "Three clips"),
     cta: p("اقصّ أوّل تسجيل لك", "Cut your first recording"),
     // Two template names, said in the middle of a sentence. Split so the names
     // stay set in bold without a translated string having to carry markup.
-    noteLead: p("قالبان من قوالب الضغطة الواحدة يفعلان هذا بالضبط:", "Two of the one-click looks do exactly this:"),
+    noteLead: p("قالبان بضغطة وحدة بيعملوا هاد:", "Two one-click looks do this:"),
     noteThreeClips: p("ثلاث قصاصات", "Three clips"),
     noteAnd: p("و", "and"),
     notePodcastClip: p("قصاصة بودكاست", "Podcast clip"),
@@ -420,12 +426,12 @@ export const LANDING = {
 
   pricing: {
     title: p(
-      "السعر على الدقائق التي تنشرها، لا الساعات التي تسجّلها",
-      "Priced by the minutes you publish, not the hours you record",
+      "ادفع على الدقائق اللي بتنشرها.",
+      "Pay for the minutes you publish.",
     ),
     lead: p(
-      "كل الخطط تعدّل بالطريقة نفسها. وارفع من اللقطات ما شئت.",
-      "Every plan does the same editing. Upload as much footage as you like.",
+      "كل الخطط بتعدّل نفس الشي. والرفع مفتوح.",
+      "Every plan edits the same. Upload what you like.",
     ),
     monthly: p("شهريًّا", "Monthly"),
     yearly: p("سنويًّا", "Yearly"),
@@ -463,9 +469,24 @@ export const LANDING = {
       The free plan genuinely needs no card, and that half is kept and put where
       it is true. The paid half now says the thing a person is about to meet.
     */
+    /*
+     * Shortened once too far, and `pricing-test` caught it.
+     *
+     * The copy pass that cut every long line on this page cut "card required"
+     * out of here. The sentence still read well and it now said that the paid
+     * plans open a seven-day trial without saying that the trial takes the
+     * card first — which is the one fact in it somebody could be surprised by,
+     * and the reason the suite pins this string at all. Brevity is not a
+     * licence to drop the disclosure; it is a reason to say it in two words.
+     *
+     * The seven is written 7 and not ٧ for the same reason the prices are:
+     * the suite reads the number out of the English and requires the Arabic
+     * to carry the same one, and a number nobody can compare is a number that
+     * drifts.
+     */
     footnote: p(
-      "المجاني بلا بطاقة · المدفوع: 7 أيام تجربة والبطاقة مطلوبة · ألغِ متى شئت",
-      "Free needs no card · Paid plans: 7-day trial, card required · Cancel anytime",
+      "المجاني بلا بطاقة · المدفوع: تجربة 7 أيام، البطاقة مطلوبة · بتلغي وقت ما بدك",
+      "Free needs no card · Paid: 7-day trial, card required · Cancel anytime",
     ),
   },
 

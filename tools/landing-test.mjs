@@ -357,8 +357,8 @@ section("The page opens in Arabic, and it opens the right way round");
   );
 
   const text = await page.locator("body").innerText();
-  check("the headline is the Arabic one", text.includes(say(copy.LANDING.hero.headlineLead, "ar")), text.slice(0, 80));
-  check("and the English headline is nowhere on it", !text.includes(say(copy.LANDING.hero.headlineLead, "en")));
+  check("the headline is the Arabic one", text.includes(say(copy.LANDING.hero.headline, "ar")), text.slice(0, 80));
+  check("and the English headline is nowhere on it", !text.includes(say(copy.LANDING.hero.headline, "en")));
 
   /*
     The whole page, not the headline.
@@ -536,7 +536,7 @@ section("A link can ask for English, and the page stays in it");
   check("and turns back round", (await landing.getAttribute("dir")) === "ltr");
 
   const text = await page.locator("body").innerText();
-  check("the headline is the English one", text.includes(say(copy.LANDING.hero.headlineLead, "en")));
+  check("the headline is the English one", text.includes(say(copy.LANDING.hero.headline, "en")));
 
   const leaked = [];
   for (const { path: at, pair } of pairs) {
@@ -635,7 +635,7 @@ section("The switch switches, and is remembered");
   await page.waitForTimeout(200);
   const landing = page.locator('[data-testid="landing"]');
   check("pressing it turns the page round", (await landing.getAttribute("dir")) === "ltr");
-  check("and into English", (await page.locator("body").innerText()).includes(say(copy.LANDING.hero.headlineLead, "en")));
+  check("and into English", (await page.locator("body").innerText()).includes(say(copy.LANDING.hero.headline, "en")));
 
   // The point of remembering: somebody who switched once should not have to
   // switch again on the next visit, or on the next page of the same visit.

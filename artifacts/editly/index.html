@@ -83,23 +83,15 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
     <!--
-      Three families, and the third one earns its request.
+      Two families, and Instrument Serif Italic is no longer one of them.
 
-      Instrument Serif Italic is the second half of the pairing a heavy sans
-      makes with a slanted serif — the thing that makes an editorial headline
-      read as set rather than typed. It was removed once, correctly, because it
-      was being *loaded and never used*: a round trip and a font face for
-      nothing.
-
-      It is back because it is used, and used in exactly one place: the second
-      line of the landing headline. That scoping is the whole design. Arabic has
-      no italic, so a page whose typographic idea rests on one has no second
-      half in the other language this product ships in — `.headline-serif` in
-      index.css carries an RTL rule that drops back to the sans and re-states
-      the contrast as weight and colour, which every font here already has and
-      which survives translation.
+      It was fetched for a single span: the second line of a two-part headline,
+      set in a slanted serif against a heavy sans. That headline is now one
+      sentence in one weight, so the face is used by nothing — which is the
+      exact state it was removed for once before. A round trip and a font file
+      on every first visit, for a rule no element matches.
     -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Instrument+Serif:ital@1&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@500,700,800,900&display=swap" rel="stylesheet">
     <!--
       Runs before the first paint, on purpose.
