@@ -33,7 +33,21 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Ninety, and the number moved because the job's shape did.
+    #
+    # Forty-five was sized for a run that stops at the first red suite. Every
+    # step now carries `if: ${{ !cancelled() }}`, which is the whole point of
+    # that change — one failure used to hide the eight behind it, and each one
+    # cost another twenty-six-minute round trip to find. The cost of seeing
+    # them all in one run is that a failing run no longer exits early: it
+    # executes all ninety-odd suites *and* the failures.
+    #
+    # A cap that fires is the worst of both. GitHub cancels the job, the suite
+    # that happened to be running goes red, and the log says a test failed
+    # when what actually happened is that the clock ran out — which is a full
+    # cycle spent chasing a test that was never broken. Doubling it costs
+    # nothing on a green run, because a green run ends when it ends.
+    timeout-minutes: 90
 
     services:
       postgres:
