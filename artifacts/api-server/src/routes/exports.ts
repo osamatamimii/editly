@@ -256,6 +256,24 @@ router.post("/projects/:id/export", rateLimit(LIMITS.render), async (req, res): 
 
   const operations = decision.operations;
 
+  /*
+    The worker's schema, asked here, for the reason start-render gives at
+    length: a plan this cannot parse is a defect of ours that would otherwise
+    be discovered by the customer, minutes after their minutes were spent.
+    This door builds its operations from a carry-forward rather than from a
+    sentence, so it can fail in ways the other one cannot, and it gets the
+    same gate.
+  */
+  const willParse = EditPlan.safeParse({ version: 1, operations });
+  if (!willParse.success) {
+    res.status(422).json({
+      error:
+        "Something in that edit came out wrong on our side, so nothing was started and no minutes were used. Try asking for it in different words, and tell us if it keeps happening.",
+      reason: "planNotRunnable",
+    });
+    return;
+  }
+
   const jobId = randomUUID();
 
   // Both rows or neither.

@@ -18,7 +18,7 @@
 import { randomUUID } from "crypto";
 import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { db, projectsTable, jobsTable, subscriptionsTable, renderFollowupsTable } from "@workspace/db";
-import type { EditOperation } from "@workspace/api-zod";
+import { EditPlan, type EditOperation } from "@workspace/api-zod";
 import { evenlySpacedPunches } from "./templates";
 import { levelAgainstTheBed } from "./plan-from-text";
 import { referenceForPlan, servedPlan } from "./plan-limits";
@@ -194,6 +194,39 @@ export async function startRenderForProject(
       }
 
       const plan = { version: 1 as const, operations: decision.operations };
+
+      /*
+        The worker's own schema, asked here, before a single minute is held.
+
+        `plan` is written as an object literal and read back by the worker
+        through `EditPlan.parse`. Nothing in between checks that those two
+        agree, so a plan carrying a value this schema does not have was
+        accepted, queued, charged against the month, and then died in the
+        worker with a `ZodError` -- minutes later, in a field no customer can
+        read. Ten renders went that way in a single week on one caption
+        animation the planner could produce and the schema had never heard of.
+
+        This is a bug in whoever built the operation, always, and never the
+        fault of the person who asked. So it fails here: nothing is queued,
+        nothing is held, and the sentence says what to do rather than showing
+        them a parser error. The detail goes to the log, where it is a defect
+        report with the plan attached.
+      */
+      const willParse = EditPlan.safeParse(plan);
+      if (!willParse.success) {
+        log?.info(
+          { project: project.id, plan, problem: willParse.error.issues },
+          "refused to queue a plan the worker could not have run",
+        );
+        return {
+          accepted: false,
+          status: 422,
+          body: {
+            error: "Something in that edit came out wrong on our side, so nothing was started and no minutes were used. Try asking for it in different words, and tell us if it keeps happening.",
+            reason: "planNotRunnable",
+          },
+        };
+      }
 
       // Decided here, next to the rest of the decision and inside the lock,
       // rather than at the insert: which reference a job carries is part of

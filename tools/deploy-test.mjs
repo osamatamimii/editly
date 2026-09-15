@@ -1735,6 +1735,47 @@ section("Nobody reads jobs.plan without saying which kind of job they meant");
   );
 }
 
+section("No door queues a plan the worker would refuse to parse");
+{
+  /*
+    The API writes the plan as an object literal. The worker reads it back
+    through `EditPlan.parse`. Nothing between those two lines checks that they
+    agree, and when they did not, the bill arrived before the news did: the
+    plan was accepted, the month's minutes were held against it, the row sat in
+    the queue, and a `ZodError` killed it in the worker some minutes later, in
+    a field no customer will ever see.
+
+    Ten renders died that way in one week, all on a caption animation the
+    planner could produce and this schema had never been taught. Every one of
+    them was a defect of ours presented to the customer as their render failing.
+
+    Both doors now ask `EditPlan` before the insert, and refuse with a sentence
+    instead. The rule is cheap and it is the kind that rots quietly, so it is
+    checked: anything that inserts into `jobsTable` with a `plan` carrying
+    operations has to have asked first.
+  */
+  const doors = ["artifacts/api-server/src/lib/start-render.ts", "artifacts/api-server/src/routes/exports.ts"];
+  for (const door of doors) {
+    const code = read(door).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const name = door.split("/").pop();
+    check(`${name} still queues a render`, /insert\(jobsTable\)/.test(code));
+    check(
+      `and asks EditPlan before it does`,
+      /EditPlan\.safeParse/.test(code),
+      "a plan the worker cannot parse must be refused here, not discovered there",
+    );
+    const verdict = order(code, "EditPlan.safeParse", "insert(jobsTable)");
+    check(`and asks before, not after`, verdict.ok, verdict.why);
+  }
+
+  /*
+    The refusal is one sentence in both doors, because two spellings of the
+    same defect is how a support reply ends up matching only half the cases.
+  */
+  const sentences = doors.map((d) => /planNotRunnable/.test(read(d)));
+  check("and both name the same reason", sentences.every(Boolean));
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);
