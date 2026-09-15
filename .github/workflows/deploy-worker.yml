@@ -265,9 +265,32 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           SOCIAL_TOKEN_KEYS: ${{ secrets.SOCIAL_TOKEN_KEYS }}
 
+      # The deploy, and what it said when it did not work.
+      #
+      # `flyctl` writes its reason to stdout and then exits 1. GitHub records
+      # the exit code as an annotation and leaves the reason in the step log,
+      # which needs a sign-in to read. So a deploy that failed announced
+      # itself, to anybody who could already see it, as "Process completed with
+      # exit code 1".
+      #
+      # That is the same failure as `jobs.error_detail`, one floor up: the
+      # answer existed, was correct and specific, and sat where nobody looking
+      # would find it. On 14 September this step failed in seven seconds and
+      # the only way to learn why was to be the person who owns the repository.
+      #
+      # `::error::` puts the tail of flyctl's own output into an annotation,
+      # which travels with the run and is readable by anyone who can see it.
+      # Eight hundred characters because Fly's failures say what they are in
+      # the last line or two, and a wall of build output in an annotation is
+      # the same problem in the other direction.
       - name: Deploy
         if: steps.changed.outputs.worker == 'true'
-        run: flyctl deploy --config artifacts/worker/fly.toml --dockerfile artifacts/worker/Dockerfile --remote-only
+        run: |
+          set -o pipefail
+          if ! flyctl deploy --config artifacts/worker/fly.toml --dockerfile artifacts/worker/Dockerfile --remote-only 2>&1 | tee /tmp/fly-deploy.log; then
+            echo "::error::fly deploy failed: $(tail -c 800 /tmp/fly-deploy.log | tr '\n' ' ')"
+            exit 1
+          fi
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 

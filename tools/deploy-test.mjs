@@ -705,6 +705,38 @@ section("Every suite in tools/ is one CI actually runs");
       if (!INSTALLED[tool].test(installText)) missing.push(`${file} needs ${tool}`);
     }
   }
+  /*
+    And a deploy that fails says why where it can be read.
+
+    `flyctl` writes its reason to stdout and exits 1; GitHub records the exit
+    code as an annotation and leaves the reason in the step log, behind a
+    sign-in. On 14 September that step failed in seven seconds and the only way
+    to learn why was to own the repository — which is `jobs.error_detail` one
+    floor up: an answer that existed, was specific, and sat where nobody
+    looking would find it.
+  */
+  const deployWorkflow = readFileSync(path.join(repoRoot, ".github/workflows/deploy-worker.yml"), "utf8");
+  /*
+    Read from the `run:` block, not from the file.
+
+    The first spelling looked for `::error::` anywhere in the workflow — and
+    the comment explaining *why* the annotation exists contains those
+    characters, so deleting the line that emits it left this green. A check
+    that its own documentation satisfies is a check about nothing.
+  */
+  const deployStep = deployWorkflow.slice(deployWorkflow.indexOf("- name: Deploy\n"));
+  const deployRun = deployStep.slice(deployStep.indexOf("run: |"), deployStep.indexOf("env:"));
+  check(
+    "a failed deploy puts flyctl's own words into an annotation",
+    /echo "::error::/.test(deployRun) && /tee[^\n]*fly-deploy\.log/.test(deployRun),
+    "exit code 1 is not a reason",
+  );
+  check(
+    "and it still fails the job rather than swallowing the error",
+    /exit 1/.test(deployRun) && /set -o pipefail/.test(deployRun),
+    "a deploy that reports and carries on is worse than one that stops",
+  );
+
   check(
     "and the runner installs everything the suites say they need",
     missing.length === 0,
