@@ -26,7 +26,7 @@
  */
 import { EditOperation, TransitionStyle, type Platform, MAX_PLAN_OPERATIONS } from "@workspace/api-zod";
 import { interstitialCard } from "./scenes";
-import { languageOf, momentsNotHonoured, planFromText, replyFor, shapeInWords, type ParsedIntent, type Phrase } from "./plan-from-text";
+import { languageOf, momentsNotHonoured, planFromText, platformInWords, replyFor, shapeInWords, type ParsedIntent, type Phrase } from "./plan-from-text";
 
 const ENDPOINT = "https://api.openai.com/v1/chat/completions";
 
@@ -1302,8 +1302,8 @@ case "removeSilence":
         // Words, not a ratio. See `shapeInWords` in plan-from-text.ts for why.
         const shape = shapeInWords(op.platform as never);
         return {
-          en: `make it ${shape.en} for ${op.platform}`,
-          ar: `أخلّيه ${shape.ar} لـ${op.platform}`,
+          en: `make it ${shape.en} for ${platformInWords(op.platform as string, "en")}`,
+          ar: `أخلّيه ${shape.ar} ل${platformInWords(op.platform as string, "ar")}`,
         };
       }
       case "autoCaptions":

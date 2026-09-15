@@ -142,6 +142,37 @@ function shapeLabel(platform: Platform): string {
  * what `shapeLabel` returns for the places that report it. This is only what
  * the sentence says.
  */
+/**
+ * A platform, spelled the way its own logo spells it.
+ *
+ * `op.platform` is a lowercase key -- `tiktok`, `youtube` -- and it was being
+ * interpolated straight into the sentence, so the most-read line in the
+ * product read «أخلّيه عمودي لـtiktok»: an English word in lowercase, glued to
+ * an Arabic preposition. Four words further on, the same reply says it will
+ * write captions "because most people watch with the sound off". One of those
+ * two sentences was written for a person and the other was not.
+ *
+ * Arabic gets the Arabic spelling, which is what the platforms use themselves
+ * in Arabic. `square` is not a platform at all, so it is named by what it is
+ * for rather than by a brand.
+ *
+ * And the preposition is plain «ل», not «لـ». The connector was there because
+ * what followed was Latin script and had to be held off from the letter; an
+ * Arabic word attaches to it the ordinary way, so «لتيك توك» is what anybody
+ * would write and «لـتيك توك» is a seam showing.
+ */
+const PLATFORM_NAMES: Record<string, { en: string; ar: string }> = {
+  tiktok: { en: "TikTok", ar: "تيك توك" },
+  reels: { en: "Reels", ar: "ريلز" },
+  shorts: { en: "Shorts", ar: "شورتس" },
+  youtube: { en: "YouTube", ar: "يوتيوب" },
+  square: { en: "a feed post", ar: "منشور بالفيد" },
+};
+
+export function platformInWords(platform: string, lang: Language): string {
+  return PLATFORM_NAMES[platform]?.[lang] ?? platform;
+}
+
 export function shapeInWords(platform: Platform): { en: string; ar: string } {
   if (platform === "youtube") return { en: "wide", ar: "عريض" };
   if (platform === "square") return { en: "square", ar: "مربّع" };
@@ -1941,7 +1972,12 @@ export function planFromText(
     const target = platform ?? options.defaultPlatform ?? "tiktok";
     operations.push({ type: "formatForPlatform", platform: target });
     const shaped = shapeInWords(target);
-    willDo.push(say(`make it ${shaped.en} for ${target}`, `أخلّيه ${shaped.ar} لـ${target}`));
+    willDo.push(
+      say(
+        `make it ${shaped.en} for ${platformInWords(target, "en")}`,
+        `أخلّيه ${shaped.ar} ل${platformInWords(target, "ar")}`,
+      ),
+    );
   }
 
   // The words are in the video, not in this sentence, so the plan asks for

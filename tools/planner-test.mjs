@@ -184,7 +184,10 @@ console.log("\nWhen the model answers well");
 
   const reply = replyFor(result, { hasVideo: true });
   check("the reply names the captions", /write what you say/.test(reply), reply);
-  check("and the reframe", /reels/.test(reply), reply);
+  // "Reels", capitalised, because the reply spells a platform the way its own
+  // logo spells it rather than echoing the lowercase key out of the plan.
+  check("and the reframe", /\bReels\b/.test(reply), reply);
+  check("and not as the lowercase key", !/\breels\b/.test(reply), reply);
   check("and promises nothing else", !/music|b-roll|emoji|colou?r/i.test(reply), reply);
 }
 

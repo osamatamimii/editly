@@ -1,7 +1,7 @@
 import type { EditOperation, Platform } from "@workspace/api-zod";
 import type { Habit } from "./habits";
 import type { PlannerAsset } from "./planner";
-import type { SpokenSubjects } from "./plan-from-text";
+import { platformInWords, type SpokenSubjects } from "./plan-from-text";
 import { joinFor } from "./join-style";
 
 /**
@@ -214,7 +214,10 @@ export function direct(input: DirectionInput): Direction {
   if (input.platform && !input.spoke.platform) {
     add(
       { type: "formatForPlatform", platform: input.platform },
-      say(`make it the right shape for ${input.platform}`, `أخلّيه بالمقاس المزبوط لـ${input.platform}`),
+      say(
+        `make it the right shape for ${platformInWords(input.platform as string, "en")}`,
+        `أخلّيه بالمقاس المزبوط ل${platformInWords(input.platform as string, "ar")}`,
+      ),
     );
   }
 

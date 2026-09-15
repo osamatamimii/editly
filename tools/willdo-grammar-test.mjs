@@ -323,6 +323,45 @@ section("وكل جملة عربية تُقرأ بعد «رح»");
   }
 }
 
+section("A platform is named the way its own logo names it");
+{
+  /*
+    `op.platform` is a lowercase key -- `tiktok`, `youtube` -- and it used to be
+    interpolated straight into the sentence, so the most-read line in the
+    product read «أخلّيه عمودي لـtiktok»: an English word in lowercase, glued to
+    an Arabic preposition by a connector that only exists because what followed
+    was Latin script.
+
+    Four lines further down, the same reply says it will write captions
+    "because most people watch with the sound off". One of those two sentences
+    was written for a person and the other was not, and they were in the same
+    list.
+  */
+  /*
+    The four brand keys, lowercase. Not `square`: that is also the shape word,
+    and "make it square for a feed post" is the sentence working correctly.
+    These four are names and a name is spelled the way its owner spells it.
+  */
+  const RAW_KEY = /\b(?:tiktok|youtube|reels|shorts)\b/;
+  for (const p of unique) {
+    if (!RAW_KEY.test(p.en) && !RAW_KEY.test(p.ar)) continue;
+    const label = `«${p.en.slice(0, 34)}…»`;
+    check(`${label} does not carry a lowercase key in the English`, !RAW_KEY.test(p.en), `${p.from}: ${p.en}`);
+    check(`${label} nor in the Arabic`, !RAW_KEY.test(p.ar), `${p.from}: ${p.ar}`);
+  }
+  /*
+    And the Arabic preposition attaches the ordinary way now, because what
+    follows it is an Arabic word. «لـتيك توك» is a seam showing.
+  */
+  for (const p of unique) {
+    check(
+      `«${p.ar.slice(0, 30)}…» has no Latin connector before an Arabic word`,
+      !/\u0644\u0640[\u0621-\u06ff]/.test(p.ar),
+      `${p.from}: ${p.ar}`,
+    );
+  }
+}
+
 section("Both halves exist, and they are not the same string");
 {
   for (const p of unique) {

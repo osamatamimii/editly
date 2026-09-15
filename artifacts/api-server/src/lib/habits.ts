@@ -1,4 +1,4 @@
-import type { SpokenSubjects } from "./plan-from-text";
+import { platformInWords, type SpokenSubjects } from "./plan-from-text";
 /**
  * What this person always asks for, learned from what they actually rendered.
  *
@@ -284,7 +284,7 @@ export function applyHabits(
       // the reply reads "I'll <this>, and <that>". A sentence in a different
       // voice from the ones beside it is how a list stops reading as one.
       en: `reframe it for ${platform.value}, where your edits usually go`,
-      ar: `أعيد تأطيره لـ${platform.value}، حيث تذهب تعديلاتك عادةً`,
+      ar: `أعيد تأطيره ل${platformInWords(String(platform.value), "ar")}، حيث تذهب تعديلاتك عادةً`,
     });
   }
 
