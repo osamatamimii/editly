@@ -437,7 +437,26 @@ export const LANDING = {
     yearly: p("سنويًّا", "Yearly"),
     save: p("وفّر 20%", "Save 20%"),
     perMonth: p("/شهر", "/month"),
-    perYear: p("/سنة", "/year"),
+    /*
+     * Both sides of the toggle are quoted per month, so there is no "/year".
+     *
+     * `yearlyPerMonth` in pricing.ts carries the reasoning. What is left here
+     * is the line under the price, and it exists because the other half of
+     * that decision is non-negotiable: a page that shows $9.59 while the card
+     * is charged $115 today has to say the $115, at the price, in the size
+     * of a number and not of a footnote.
+     *
+     * `{}` is where the annual total goes, substituted at render. A
+     * placeholder rather than two concatenated fragments because the two
+     * languages put the pieces in different orders, and a sentence assembled
+     * out of order is how a price ends up reading as something it is not.
+     *
+     * Braces and not a word: `landing-test` fails any Latin left inside an
+     * Arabic string, and it is right to — a placeholder spelled in English is
+     * one missed substitution away from shipping the word AMOUNT to an Arabic
+     * reader.
+     */
+    billedYearly: p("بتدفع سنوي · {} اليوم", "billed yearly · {} today"),
     minutesLabel: p("دقيقة فيديو منتهٍ", "minutes of finished video"),
     mostPopular: p("الأكثر اختيارًا", "Most Popular"),
     currentPlan: p("خطّتك الحالية", "Current Plan"),
@@ -539,17 +558,14 @@ export const PRICING_AR = {
     creator: {
       forWho: "المحتوى القصير: تيك توك، ريلز، شورتس",
       upload: "ارفع حتى 30 دقيقة",
-      yearlyPerMonth: "‏$9.6/شهر بفوترة سنوية",
     },
     pro: {
       forWho: "المحتوى الطويل: يوتيوب والبودكاست",
       upload: "ارفع حلقة من 4 ساعات ملفًّا واحدًا",
-      yearlyPerMonth: "‏$23.25/شهر بفوترة سنوية",
     },
     studio: {
       forWho: "الفرق والوكالات",
       upload: "رفع حتى 10 ساعات، تصدير 4K، وأولوية في الطابور. قريبًا: 3 مقاعد، هوية بصرية، وواجهة برمجية",
-      yearlyPerMonth: "‏$63.2/شهر بفوترة سنوية",
     },
   },
   shared: [

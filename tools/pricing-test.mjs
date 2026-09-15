@@ -56,7 +56,7 @@ function bundle(entry, name, resolveFrom) {
   return pathToFileURL(outfile).href;
 }
 
-const { PLANS, SHARED_FEATURES, FREE_TIER } = await import(
+const { PLANS, SHARED_FEATURES, FREE_TIER, yearlyPerMonth } = await import(
   bundle("artifacts/editly/src/lib/pricing.ts", "pricing.mjs", "artifacts/editly")
 );
 const { PLAN_LIMITS, referenceForPlan } = await import(
@@ -103,10 +103,24 @@ section("Every price on the page is the price the server charges");
       plan.yearlyPrice < plan.price * 12,
       `$${plan.yearlyPrice} vs $${plan.price * 12}`,
     );
+    /*
+      The per-month figure is now the headline number on the yearly side of
+      the toggle, which changes what this has to prove. Close to a twelfth is
+      no longer enough: twelve of what the card *says* must cover what the
+      card is *charged*, or the page quotes a year at a price that does not
+      exist. So the test is one-sided — never under, and never more than a
+      cent per month over, which is all rounding up can cost.
+    */
+    const perMonth = Number(yearlyPerMonth(plan.yearlyPrice));
     check(
-      `and the per-month figure beside it is that price divided by twelve`,
-      Math.abs(Number(plan.yearlyPerMonth.match(/\$([\d.]+)/)?.[1]) - plan.yearlyPrice / 12) < 0.05,
-      `${plan.yearlyPerMonth} for $${plan.yearlyPrice}/year`,
+      `and twelve of ${plan.name}'s advertised monthly figure covers the year`,
+      perMonth * 12 >= plan.yearlyPrice,
+      `12 × $${perMonth} = $${(perMonth * 12).toFixed(2)} vs $${plan.yearlyPrice}`,
+    );
+    check(
+      `without overshooting it by more than the rounding`,
+      perMonth * 12 - plan.yearlyPrice < 0.12,
+      `12 × $${perMonth} = $${(perMonth * 12).toFixed(2)} vs $${plan.yearlyPrice}`,
     );
   }
 }

@@ -20,7 +20,6 @@ export const PLANS = [
     name: "Creator",
     price: 12,
     yearlyPrice: 115,
-    yearlyPerMonth: "$9.6/month billed yearly",
     minutes: 30,
     forWho: "Short-form: TikTok, Reels, Shorts",
     upload: "Upload up to 30 minutes",
@@ -31,7 +30,6 @@ export const PLANS = [
     name: "Pro",
     price: 29,
     yearlyPrice: 279,
-    yearlyPerMonth: "$23.25/month billed yearly",
     minutes: 150,
     forWho: "Long-form: YouTube and podcasts",
     upload: "Upload a 4-hour episode as one file",
@@ -43,7 +41,6 @@ export const PLANS = [
     name: "Studio",
     price: 79,
     yearlyPrice: 758,
-    yearlyPerMonth: "$63.2/month billed yearly",
     minutes: 800,
     forWho: "Teams and agencies",
     /*
@@ -134,3 +131,30 @@ export const FREE_TIER = {
     "Exports carry a small Editly mark",
   ],
 } as const;
+
+/**
+ * The yearly price said per month, because that is the number people compare.
+ *
+ * Two things were wrong with showing the annual total as the headline figure.
+ * The smaller one is comparison: every competitor quotes a monthly number, so
+ * a card reading $115 next to one reading $15 loses before it is read. The
+ * larger one is what the toggle *did*. Pressing "Yearly" — a control whose
+ * whole purpose is to announce a discount — took $12 to $115 in the price
+ * slot. The unit changed at the same moment as the number, and for the half
+ * second before the eye reaches the word "year", the only thing that happened
+ * on screen is that the price went up nine times. With both sides quoted per
+ * month the toggle changes exactly one thing, downward, and needs no reading.
+ *
+ * Derived rather than written down. Three hand-maintained strings sat in this
+ * file and three more in the Arabic copy, and each one was a division somebody
+ * had done once by hand — the kind of second copy this file's own header says
+ * is the shape of every expensive mistake here.
+ *
+ * Rounded **up** to the cent. Twelve times this figure must never come to less
+ * than what the card is actually charged, or the page is quoting a price that
+ * does not exist. Up costs us four cents a year in how it reads; down is a
+ * false advertisement.
+ */
+export function yearlyPerMonth(yearlyPrice: number): string {
+  return (Math.ceil((yearlyPrice / 12) * 100) / 100).toFixed(2);
+}

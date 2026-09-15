@@ -7,7 +7,7 @@ import { fetchCheckoutConfig, openCheckout } from "@/lib/checkout";
 import { useAuth } from "@/lib/auth";
 import { Logo } from "@/components/logo";
 import { RollingNumber } from "@/components/rolling-number";
-import { PLANS, SHARED_FEATURES, FREE_TIER } from "@/lib/pricing";
+import { PLANS, SHARED_FEATURES, FREE_TIER, yearlyPerMonth } from "@/lib/pricing";
 import {
   LANDING,
   PRICING_AR,
@@ -2377,16 +2377,41 @@ export default function Home() {
                         <span className="flex items-baseline text-5xl font-semibold tracking-tight" dir="ltr">
                           $
                           <RollingNumber
-                            value={String(isYearly ? plan.yearlyPrice : plan.price)}
+                            value={isYearly ? yearlyPerMonth(plan.yearlyPrice) : String(plan.price)}
                             testId={`price-${plan.key}`}
                           />
                         </span>
+                        {/* One unit on both sides of the toggle. It used to
+                            say "/year" in yearly, which changed the unit in
+                            the same frame as the number — see the note on
+                            `yearlyPerMonth` in pricing.ts. */}
                         <span className="text-xl font-medium text-primary/75">
-                          {isYearly ? t(LANDING.pricing.perYear) : t(LANDING.pricing.perMonth)}
+                          {t(LANDING.pricing.perMonth)}
                         </span>
                       </div>
-                      <p className={`text-xs text-muted-foreground mt-1.5 transition-all duration-300 ${isYearly ? "opacity-100" : "opacity-0 h-0 mt-0 overflow-hidden"}`}>
-                        {t(phrase(PRICING_AR.plans[plan.key].yearlyPerMonth, plan.yearlyPerMonth))}
+                      {/* What the card is charged today, and it is not small
+                          print. `text-sm` with the amount at full foreground
+                          weight, because the number above it is now the
+                          smaller of the two figures on this card and the
+                          larger one has to be legible at a glance rather
+                          than discoverable on inspection. Hiding it is how a
+                          pricing page earns chargebacks. */}
+                      <p
+                        data-testid={`billed-yearly-${plan.key}`}
+                        className={`text-sm text-muted-foreground mt-2 transition-all duration-300 ${isYearly ? "opacity-100" : "opacity-0 h-0 mt-0 overflow-hidden"}`}
+                      >
+                        {t(LANDING.pricing.billedYearly)
+                          .split("{}")
+                          .flatMap((part, i) =>
+                            i === 0
+                              ? [part]
+                              : [
+                                  <span key={i} dir="ltr" className="text-foreground/85 font-semibold">
+                                    ${plan.yearlyPrice}
+                                  </span>,
+                                  part,
+                                ],
+                          )}
                       </p>
                     </div>
                     <p className="text-sm text-muted-foreground mt-3">
