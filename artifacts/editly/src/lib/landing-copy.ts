@@ -344,8 +344,8 @@ export const LANDING = {
       {
         title: p("اللحظات اللي بتستاهل، بنلاقيها إلك", "The moments worth keeping, found for you"),
         detail: p(
-          "أقوى 30 ثانية، أو التسجيل كلّه مقصوص لقصاصات معنونة.",
-          "The strongest 30 seconds, or the whole take cut into titled clips.",
+          "أقوى 30 ثانية، أو التسجيل كلّه مقصوص لقصاصات منفصلة، معنونة بما قاله المتحدّث.",
+          "The strongest 30 seconds, or the take cut into separate clips, titled by what the speaker actually said.",
         ),
         prompt: p("قسّمه إلى 3 مقاطع لريلز", "Cut it into 3 clips for Reels"),
       },
@@ -361,7 +361,7 @@ export const LANDING = {
         title: p("يبدو معدَّلًا لا معالَجًا", "It looks edited, not processed"),
         detail: p(
           "ذوبان بين القطعات، وموسيقى تخفت تحت صوتك، ولوك لوني.",
-          "Dissolves, music that ducks under your voice, and a grade.",
+          "Dissolves between the cuts, music that ducks under your voice, and a grade.",
         ),
         prompt: p("خلّيه سينمائي مع تلاشي بالبداية والنهاية", "Make it cinematic, fade in and out"),
       },
