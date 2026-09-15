@@ -1900,8 +1900,21 @@ export default function Home() {
           font size reads as *larger* than the capitals beside it, and the
           small overshoot is what makes them look equal rather than measure
           equal.
+
+          And the size itself is now the door's, not a step on the type scale:
+          «كبر اللوقو والكلمة بحيث يصيروا بحجم زر الداشبورد اللي عاليمين». The
+          button is `min-h-[44px]` -- a thumb's width, which is why it is that
+          and not a type size -- so 44px is what the row is set to, and the
+          lockup measures exactly 44 tall against the button's 44. The two ends
+          of the bar are the same object size, which is the thing he was
+          looking at: at `text-xl` the lockup was 20px beside a 44px pill, so
+          the only thing with any weight in the header was the button.
+
+          30px below `sm`. A 390px phone carries the mark, the word, a door and
+          a menu on one line, and at 44px the lockup alone is 180 of those 390.
+          `viewport-test` is what says so rather than my judgement.
         */}
-        <div className="flex items-center gap-2 min-w-0 text-lg sm:text-xl">
+        <div className="flex items-center gap-2.5 min-w-0 text-[30px] sm:text-[44px]">
           <Logo className="h-[0.92em] w-auto text-brand-mark flex-shrink-0" />
           <span className="font-bold tracking-tight leading-none">Editly</span>
         </div>
