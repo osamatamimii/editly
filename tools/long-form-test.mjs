@@ -58,6 +58,8 @@ const {
   shapeAnswer,
   shapeAnswerAsRequest,
   WHOLE_OR_CLIPS,
+  SHAPE_ASKED,
+  wholeOrClips,
   LONG_SOURCE_SECONDS,
 } = await load("artifacts/api-server/src/lib/plan-from-text.ts", "plan-from-text");
 
@@ -156,6 +158,78 @@ section("The question is asked instead of the answer, not beside it");
   // Without the ask, the reply is what it always was.
   const normal = replyFor(intent, { hasVideo: true, render: { started: true } });
   check("and with nothing to ask, nothing changed", /rendering now/i.test(normal), normal);
+}
+
+section("The question says how long the recording is, because that is what the answer turns on");
+{
+  /*
+    Osama read the first version of this question twice and said the options
+    were not understandable. The sentence was never vague about the operations
+    -- it was vague about what he would be holding afterwards, which is the
+    only thing the choice is between. So each option now says what lands in
+    his hands, and the opening says how long the thing actually is.
+
+    "this one is long" is an opinion. "this recording runs 42 minutes" is a
+    fact he can check against the file he just uploaded.
+  */
+  const en = wholeOrClips("en", 42 * 60);
+  const ar = wholeOrClips("ar", 42 * 60);
+  check("the English question names the length", /42 minutes/.test(en), en);
+  check("and the Arabic names it too", /42 دقيقة/.test(ar), ar);
+  check("one file, and about that long", /one file/i.test(en) && /about that long/i.test(en), en);
+  check("or several short ones, ready to post", /several short files/i.test(en) && /ready to post/i.test(en), en);
+  check("the Arabic says the same two", /ملف واحد/.test(ar) && /كم ملف قصير/.test(ar), ar);
+
+  /*
+    No clip count. How many clips a recording yields depends on what is said in
+    it, and we have not listened yet. A number invented to sound concrete is
+    the sentence this product does not write.
+  */
+  check("and it does not invent a number of clips", !/\b\d+\s+(clips|files)/i.test(en), en);
+
+  // Arabic agreement, the same rule as everywhere else in this product.
+  check("one minute drops its digit", /^(?!.*1 دقيقة).*دقيقة/.test(wholeOrClips("ar", 60)), wholeOrClips("ar", 60));
+  check("three minutes takes the plural", /3 دقائق/.test(wholeOrClips("ar", 3 * 60)), wholeOrClips("ar", 3 * 60));
+
+  /*
+    Past ninety minutes nobody says "137 minutes". The remainder is dropped
+    rather than read out, because "2 hours" is enough to answer this question
+    and "2 hours and 17 minutes" is enough to make it look like a form.
+  */
+  check("a long recording is named in hours", /2 hours/.test(wholeOrClips("en", 137 * 60)), wholeOrClips("en", 137 * 60));
+  check("and in Arabic, ساعتين", /ساعتين/.test(wholeOrClips("ar", 137 * 60)), wholeOrClips("ar", 137 * 60));
+
+  /*
+    A project whose duration was never measured still gets asked. It falls back
+    to the sentence that does not claim a number, rather than to "this
+    recording runs 0 minutes", which is both wrong and the kind of wrong that
+    makes somebody distrust every number after it.
+  */
+  check("an unmeasured recording keeps the wording that claims nothing", wholeOrClips("en", null) === WHOLE_OR_CLIPS.en);
+  check("and so does one whose duration is not a number", wholeOrClips("ar", NaN) === WHOLE_OR_CLIPS.ar);
+
+  // The house rule, on the sentences written today.
+  for (const text of [en, ar, wholeOrClips("en", null)]) {
+    check(`no em dash in «${text.slice(0, 24)}…»`, !text.includes("\u2014"));
+  }
+
+  /*
+    And the half that turns a reworded question into a product defect.
+
+    The question carries a length now, so no two projects hold the same string
+    and "have we asked this already" cannot be an equality test. `SHAPE_ASKED`
+    is what `messages.ts` matches on. If it ever stops being the end of the
+    question, that match answers no for every project, and a question asked
+    once per project becomes one asked on every message forever.
+  */
+  check("the marker is the end of the English question", en.endsWith(SHAPE_ASKED.en), en);
+  check("and the end of the Arabic one", ar.endsWith(SHAPE_ASKED.ar), ar);
+  check("and of the fallback wording too", WHOLE_OR_CLIPS.en.endsWith(SHAPE_ASKED.en) && WHOLE_OR_CLIPS.ar.endsWith(SHAPE_ASKED.ar));
+  check("the two markers are not the same string", SHAPE_ASKED.en !== SHAPE_ASKED.ar);
+  check(
+    "and each still names the two words to type back",
+    /whole thing/i.test(SHAPE_ASKED.en) && /clips/i.test(SHAPE_ASKED.en) && /كامل/.test(SHAPE_ASKED.ar) && /مقاطع/.test(SHAPE_ASKED.ar),
+  );
 }
 
 section("A question you cannot answer is worse than no question");
@@ -278,8 +352,18 @@ section("Nothing is started while the question stands");
   );
   check(
     "and it is recognised by the constant, not by a phrase copied out again",
-    /WHOLE_OR_CLIPS\.en/.test(route) && /WHOLE_OR_CLIPS\.ar/.test(route),
+    /SHAPE_ASKED\.en/.test(route) && /SHAPE_ASKED\.ar/.test(route),
     "rewording the question must not make it start asking everybody again",
+  );
+  check(
+    "recognised by the marker rather than by equality with the whole sentence",
+    !/content !== WHOLE_OR_CLIPS/.test(route) && /isShapeQuestion\(/.test(route),
+    "the question carries a length now, so no two projects hold the same string",
+  );
+  check(
+    "and the question is handed the length it is about to name",
+    /sourceSeconds\b/.test(route) && /replyFor\([\s\S]{0,120}sourceSeconds/.test(route),
+    "without it the question falls back to calling the recording 'long'",
   );
   check(
     "no plan is handed back for an editor to display as running",

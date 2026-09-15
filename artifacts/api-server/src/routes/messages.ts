@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
-import { eq, asc, desc, and, inArray } from "drizzle-orm";
+import { eq, asc, desc, and, inArray, or, like } from "drizzle-orm";
 import { db, messagesTable, projectsTable, renderFollowupsTable, comprehensionsTable, jobsTable } from "@workspace/db";
 import {
   SendMessageBody,
@@ -29,7 +29,7 @@ import {
   languageOf,
   KEEP_WHOLE_WORDS,
   LONG_SOURCE_SECONDS,
-  WHOLE_OR_CLIPS,
+  SHAPE_ASKED,
 } from "../lib/plan-from-text";
 import { applyNotes } from "../lib/notes";
 import { notesFor, wordsFor } from "../lib/notes-store";
@@ -472,7 +472,7 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     }
   }
 
-  const aiContent = replyFor(intent, { hasVideo: Boolean(project.videoPath), render, ask });
+  const aiContent = replyFor(intent, { hasVideo: Boolean(project.videoPath), render, ask, sourceSeconds });
 
   const [userMessage] = await db
     .insert(messagesTable)
@@ -520,10 +520,12 @@ export default router;
  * already records: the question *is* a message, and a question that has been
  * asked is one that is in the history.
  *
- * Compared against `WHOLE_OR_CLIPS` rather than against a phrase written out
- * again here, so rewording the question cannot quietly make the product start
- * asking everybody a second time. Both languages, because somebody can be
- * asked in one and answer in the other.
+ * Matched on `SHAPE_ASKED` -- the exported clause the question ends with --
+ * rather than on a phrase written out again here, so rewording the question
+ * cannot quietly make the product start asking everybody a second time. The
+ * rest of the question carries this recording's length and varies per project,
+ * which is why this is a suffix match and not an equality. Both languages,
+ * because somebody can be asked in one and answer in the other.
  *
  * On any read failure this answers `true` — asked. A database hiccup should
  * cost somebody an unasked question, not a second one about a project they
@@ -556,6 +558,19 @@ async function lastPlanFor(projectId: string, userId: string): Promise<EditPlan 
   }
 }
 
+/**
+ * Whether a message is the one question this product asks.
+ *
+ * By the clause that names the two words a person types back, which is the
+ * part of the question that does not vary. The rest of it carries the
+ * recording's own length, so equality against the exported sentence answered
+ * "no" for every project after the length went in -- and the failure that
+ * produces is the question being asked again on every message forever.
+ */
+function isShapeQuestion(content: string): boolean {
+  return content.endsWith(SHAPE_ASKED.en) || content.endsWith(SHAPE_ASKED.ar);
+}
+
 async function requestAwaitingShape(projectId: string, userId: string): Promise<string | null> {
   /*
     The request the question was asked about, when the question is the last
@@ -578,9 +593,11 @@ async function requestAwaitingShape(projectId: string, userId: string): Promise<
       .limit(6);
     const newestAssistant = recent.find((m) => m.role === "assistant");
     if (!newestAssistant) return null;
-    if (newestAssistant.content !== WHOLE_OR_CLIPS.en && newestAssistant.content !== WHOLE_OR_CLIPS.ar) {
-      return null;
-    }
+    // The marker rather than the whole sentence, because the sentence carries
+    // this recording's length and no two projects hold the same one. Both
+    // spellings, because the question is asked in whichever language they
+    // typed in and they may have switched since.
+    if (!isShapeQuestion(newestAssistant.content)) return null;
     const askedAt = recent.indexOf(newestAssistant);
     const priorUser = recent.slice(askedAt + 1).find((m) => m.role === "user");
     return priorUser?.content ?? null;
@@ -599,7 +616,21 @@ async function alreadyAskedShape(projectId: string, userId: string): Promise<boo
           eq(messagesTable.projectId, projectId),
           eq(messagesTable.userId, userId),
           eq(messagesTable.role, "assistant"),
-          inArray(messagesTable.content, [WHOLE_OR_CLIPS.en, WHOLE_OR_CLIPS.ar]),
+          /*
+            The question now carries the recording's own length, so no two
+            projects hold the same string and equality cannot answer "did we
+            ask this already". `SHAPE_ASKED` is the clause that never varies --
+            the two words a person can type back -- and it is asserted to be
+            the end of the question it marks, so this cannot drift away from
+            the sentence it is looking for.
+
+            Getting this wrong has one shape and it is the bad one: a question
+            asked once per project becomes a question asked forever.
+          */
+          or(
+            like(messagesTable.content, `%${SHAPE_ASKED.en}`),
+            like(messagesTable.content, `%${SHAPE_ASKED.ar}`),
+          ),
         ),
       )
       .limit(1);

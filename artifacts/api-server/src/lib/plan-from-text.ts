@@ -2529,6 +2529,69 @@ export const WHOLE_OR_CLIPS: Record<Language, string> = {
     "قلّي «كامل» أو «مقاطع» وبمشي.",
 };
 
+/**
+ * The last sentence of the question, which is also how we know it was asked.
+ *
+ * The question carries the recording's real length, so no two projects get the
+ * same string and "have we asked this before?" cannot be an equality test any
+ * more. This clause is the part that never varies: it names the two words a
+ * person can type back, it is the same in every project, and nobody types it
+ * at us. `messages.ts` matches on it.
+ *
+ * Kept beside the sentence it ends, and asserted to be a suffix of it, because
+ * a marker that drifts out of the text it marks turns the question into one
+ * this product asks forever.
+ */
+export const SHAPE_ASKED: Record<Language, string> = {
+  en: 'Say "the whole thing" or "clips" and I will go.',
+  ar: "قلّي «كامل» أو «مقاطع» وبمشي.",
+};
+
+/**
+ * How long the recording is, in the words somebody would use for it.
+ *
+ * Minutes, rounded, because a question that opens "this one runs 42 minutes"
+ * is answerable and one that opens "this one is long" is an opinion. Under
+ * ninety minutes it stays in minutes; past that hours are how anybody would
+ * say it, and the remainder is dropped rather than read out as "1 hour and 37
+ * minutes", which nobody needs in order to answer this question.
+ */
+function lengthInWords(seconds: number, lang: Language): string {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 90) {
+    return lang === "ar"
+      ? countedAr(minutes, "دقيقة", "دقيقتين", "دقائق")
+      : `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+  const hours = Math.round(minutes / 60);
+  return lang === "ar"
+    ? countedAr(hours, "ساعة", "ساعتين", "ساعات")
+    : `${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
+/**
+ * The question, with this recording's own numbers in it.
+ *
+ * Osama read the first version and said the options were not understandable.
+ * The sentence was not vague about the *operations* -- it was vague about what
+ * he would be holding afterwards, which is the only thing the answer turns on.
+ * So each option now says what lands in his hands: one file of about this
+ * length, or several short files ready to post.
+ *
+ * No clip count. The number of clips depends on what is said in the recording
+ * and we do not know it yet; a figure invented to sound concrete is the kind
+ * of sentence this product does not write.
+ */
+export function wholeOrClips(lang: Language, sourceSeconds: number | null): string {
+  if (sourceSeconds === null || !Number.isFinite(sourceSeconds)) return WHOLE_OR_CLIPS[lang];
+  const length = lengthInWords(sourceSeconds, lang);
+  return lang === "ar"
+    ? `قبل ما أبلّش: هاد التسجيل ${length}. بدك ترجعلك ملف واحد منظّف، بنفس الطول تقريبًا، ` +
+      `ولا كم ملف قصير كل واحد أقل من دقيقة وجاهز تنشره؟ ${SHAPE_ASKED.ar}`
+    : `Before I start: this recording runs ${length}. Do you want one file back, tidied up and about that ` +
+      `long, or several short files, each under a minute and ready to post? ${SHAPE_ASKED.en}`;
+}
+
 export function replyFor(
   intent: ParsedIntent,
   context: {
@@ -2552,6 +2615,14 @@ export function replyFor(
      * happening.
      */
     ask?: "wholeOrClips";
+    /**
+     * How long the recording is, for the question to say so.
+     *
+     * Only read when `ask` is set. Null when the project has no measured
+     * duration yet, and the question falls back to the sentence that says
+     * "this one is long" instead of naming a number it does not have.
+     */
+    sourceSeconds?: number | null;
   },
 ): string {
   const lang = intent.language;
@@ -2566,7 +2637,7 @@ export function replyFor(
     plan first is asking somebody to read a paragraph that may be about to be
     thrown away. One question, the two answers in it, nothing else.
   */
-  if (context.ask === "wholeOrClips") return WHOLE_OR_CLIPS[lang];
+  if (context.ask === "wholeOrClips") return wholeOrClips(lang, context.sourceSeconds ?? null);
 
   const parts: string[] = [];
   const listed = (phrases: Phrase[]): string =>
