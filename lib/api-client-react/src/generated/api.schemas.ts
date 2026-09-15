@@ -40,6 +40,17 @@ export interface HealthStatus {
     lastSeenAgoSeconds: number | null;
   };
   /**
+   * Whether the machine that is listening is taking anything. `worker` above
+   * is liveness; this is motion, and for two and a half hours on 15 September
+   * the two disagreed while only the first was reported.
+   */
+  queue?: {
+    waiting: number;
+    running: number;
+    /** Seconds a live machine has held nothing while work waits. Null when healthy. */
+    claimingNothingForSeconds: number | null;
+  };
+  /**
    * Which ways of signing in are switched on. Not a health signal — it exists
    * so "is Google on in production" has an answer without opening the site.
    */

@@ -521,6 +521,63 @@ console.log("\nToken enforcement");
     JSON.stringify(live?.worker),
   );
 
+  /*
+    And the state neither of the two above can see: a machine that is listening
+    and taking nothing.
+
+    On 15 September a listen job sat queued for two and a half hours while the
+    machine beat every thirty seconds and refused it once a minute. Every check
+    in this section passed throughout, correctly -- `worker.online` was true,
+    the API was fine, and the only thing wrong was that nothing moved.
+  */
+  const stalledJobId = "health-stalled-job";
+  // A project of its own, because this section runs before the ones that make
+  // Alice's, and because the schema holds a partial unique index over the live
+  // statuses: one render in flight per project and no more.
+  const stalledProjectId = "health-stalled-project";
+  psqlGlobal(
+    `insert into projects (id, user_id, title) values ('${stalledProjectId}', '${ALICE}', 'health') ` +
+      `on conflict (id) do nothing`,
+  );
+  psqlGlobal(
+    `insert into jobs (id, project_id, user_id, status, plan, input_path, created_at, updated_at) ` +
+      `values ('${stalledJobId}', '${stalledProjectId}', '${ALICE}', 'queued', ` +
+      `'{"version":1,"operations":[]}'::jsonb, '${ALICE}/${stalledProjectId}/source.mp4', ` +
+      `now() - interval '2 hours', now())`,
+  );
+  await new Promise((done) => setTimeout(done, PAST_THE_CACHE));
+  const stalled = await (await fetch(`${BASE}/api/healthz`)).json();
+  check(
+    "a live machine holding nothing while work waits is reported",
+    typeof stalled?.queue?.claimingNothingForSeconds === "number" &&
+      stalled.queue.claimingNothingForSeconds > 3600,
+    JSON.stringify(stalled?.queue),
+  );
+  check("with the counts that make it readable", stalled?.queue?.waiting >= 1 && stalled?.queue?.running === 0, JSON.stringify(stalled?.queue));
+  check(
+    "and the machine still reported as listening, because it is",
+    stalled?.worker?.online === true,
+    JSON.stringify(stalled?.worker),
+  );
+  check(
+    "and the API still ok, because a stalled queue is not a broken API and a 503 would fail the deploy that fixes it",
+    stalled?.status === "ok",
+    JSON.stringify(stalled?.status),
+  );
+
+  // And silent the moment something is being worked on, however long the queue
+  // behind it: one ninety-minute render puts every job past any age threshold,
+  // which is the false positive that makes an age-based alarm unusable.
+  psqlGlobal(`update jobs set status = 'running', locked_at = now() where id = '${stalledJobId}'`);
+  await new Promise((done) => setTimeout(done, PAST_THE_CACHE));
+  const moving = await (await fetch(`${BASE}/api/healthz`)).json();
+  check(
+    "silent while something is actually running",
+    moving?.queue?.claimingNothingForSeconds === null && moving?.queue?.running === 1,
+    JSON.stringify(moving?.queue),
+  );
+  psqlGlobal(`delete from jobs where id = '${stalledJobId}'`);
+  psqlGlobal(`delete from projects where id = '${stalledProjectId}'`);
   // Ten minutes of silence. The worker is declared gone after two, so this is
   // the outage, reproduced.
   psqlGlobal(`update worker_heartbeats set last_seen_at = now() - interval '10 minutes'`);
@@ -541,6 +598,7 @@ console.log("\nToken enforcement");
     silent?.status === "ok",
     JSON.stringify(silent?.status),
   );
+
   psqlGlobal(`delete from worker_heartbeats where worker_id like 'health-test-%'`);
 }
 

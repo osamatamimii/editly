@@ -90,7 +90,18 @@ jobs:
             online=$(printf '%s' "$body" | jq -r '.worker.online // false')
             age=$(printf '%s' "$body" | jq -r '.worker.lastSeenAgoSeconds // "never"')
 
+            # Alive is not moving. `worker.online` was true for two and a half
+            # hours on 15 September while a machine refused the same row once a
+            # minute, and it was true correctly. `claimingNothingForSeconds` is
+            # null on every healthy shape -- nothing waiting, something
+            # running, no machine at all -- and a number only when a listening
+            # machine is holding nothing while work waits.
+            stalled=$(printf '%s' "$body" | jq -r '.queue.claimingNothingForSeconds // "null"')
+            waiting=$(printf '%s' "$body" | jq -r '.queue.waiting // 0')
+            running=$(printf '%s' "$body" | jq -r '.queue.running // 0')
+
             echo "attempt $attempt: HTTP $code, status $status, worker online $online, last beat ${age}s ago"
+            echo "  queue: $waiting waiting, $running running, claiming nothing for ${stalled}s"
             storage=$(printf '%s' "$body" | jq -r '.capabilities.storageCheck // "unknown"')
             echo "  storage: $storage"
 
@@ -99,14 +110,18 @@ jobs:
             # and this check ignored the answer. Supabase Storage returning 403
             # gave `status: ok`, no alert, and every upload and every download
             # failing.
-            if [ "$code" = "200" ] && [ "$status" = "ok" ] && [ "$online" = "true" ] && [ "$storage" != "unauthorized" ] && [ "$storage" != "unreachable" ]; then
-              echo "The API is up and a render machine is listening."
+            if [ "$code" = "200" ] && [ "$status" = "ok" ] && [ "$online" = "true" ] && [ "$storage" != "unauthorized" ] && [ "$storage" != "unreachable" ] && [ "$stalled" = "null" ]; then
+              echo "The API is up, a render machine is listening, and the queue is moving."
               exit 0
             fi
             [ "$attempt" = "1" ] && sleep 30
           done
 
-          echo "::error::Editly is not healthy — HTTP $code, status $status, worker online $online, storage $storage, last beat ${age}s ago. $(printf '%s' "$body" | jq -c '{database, capabilities}' 2>/dev/null)"
+          if [ "$stalled" != "null" ] && [ "$code" = "200" ]; then
+            echo "::error::A render machine is listening and has claimed nothing for ${stalled}s while $waiting job(s) wait. It is refusing the queue rather than working through it."
+            exit 1
+          fi
+          echo "::error::Editly is not healthy — HTTP $code, status $status, worker online $online, storage $storage, last beat ${age}s ago. $(printf '%s' "$body" | jq -c '{database, capabilities, queue}' 2>/dev/null)"
           exit 1
 
   # ── Is production running the schema the code needs? ────────────────────────

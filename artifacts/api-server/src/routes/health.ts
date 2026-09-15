@@ -23,6 +23,7 @@ import { stockConfigured } from "../lib/stock";
 import { adminCount } from "../lib/admin";
 import { newestWorkerSeenAt } from "../lib/worker-presence";
 import { workerOnline } from "../lib/queue-health";
+import { queueMotion } from "../lib/worker-presence";
 import { authProviders } from "../lib/auth-providers";
 
 const router: IRouter = Router();
@@ -98,6 +99,23 @@ async function worker(): Promise<{ online: boolean; lastSeenAgoSeconds: number |
   };
 }
 
+/**
+ * Is anything actually moving?
+ *
+ * `worker()` above answers "is something listening", and its own comment says
+ * that is a liveness signal and not a progress one -- "a real limit worth
+ * naming here rather than in a postmortem". On 15 September the postmortem
+ * came: a listen job sat queued for two and a half hours while the machine
+ * beat every thirty seconds and refused it once a minute, and this endpoint
+ * was green throughout, correctly.
+ *
+ * Counts only, because this endpoint is public, and cached on the same terms
+ * as the heartbeat for the same reason.
+ */
+async function queue(): ReturnType<typeof queueMotion> {
+  return queueMotion();
+}
+
 router.get("/healthz", async (_req, res): Promise<void> => {
   const schema = await checkSchema();
 
@@ -149,6 +167,10 @@ router.get("/healthz", async (_req, res): Promise<void> => {
       // that from being a permanent invisible outage is the ceiling on every
       // child process — artifacts/worker/src/deadline.ts — not this line.
       worker: await worker(),
+      // And whether that machine is taking anything. The block above is
+      // liveness; this one is motion, and for two and a half hours on 15
+      // September the two disagreed while only the first was reported.
+      queue: await queue(),
       // Which ways in are switched on. Not a health signal — email sign-in is
       // a complete product — but the one question about turning Google on that
       // otherwise has no answer except "open the site and click the button".

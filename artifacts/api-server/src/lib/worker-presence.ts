@@ -12,10 +12,10 @@
  * evidence that nothing is listening; the caller falls back to the age of the
  * queue, which is where it was before this existed.
  */
-import { desc, sql } from "drizzle-orm";
-import { db, workerHeartbeatsTable } from "@workspace/db";
+import { desc, inArray, sql } from "drizzle-orm";
+import { db, jobsTable, workerHeartbeatsTable } from "@workspace/db";
 import { logger } from "./logger";
-import { liveWorkers, renderRate, type RenderSample } from "./queue-health";
+import { liveWorkers, renderRate, workerOnline, type RenderSample } from "./queue-health";
 
 const CACHE_MS = 10_000;
 
@@ -182,4 +182,65 @@ export async function workAheadOf(jobId: string): Promise<number | null> {
 export function resetCapacityCache(): void {
   capacityAt = 0;
   capacity = { workers: 0, rate: null };
+  motionAt = 0;
+  motion = null;
+}
+
+/**
+ * Is the queue moving, in the two numbers that settle it.
+ *
+ * `newestWorkerSeenAt` answers whether anything is listening. This answers
+ * whether what is listening is taking anything, which is a different question
+ * and on 15 September had a different answer for two and a half hours: a
+ * machine beating every thirty seconds, refusing the same row once a minute,
+ * and every screen in the product calling it "waiting behind a live machine".
+ *
+ * The test is not how long the row has waited -- that fires behind every
+ * ninety-minute render, which is why there was never an alarm. It is that
+ * `running` is zero: a machine working through a queue holds a lock on
+ * something.
+ *
+ * Cached on the same terms and for the same reason as the heartbeat: this is
+ * on a public endpoint that a monitor reads every fifteen seconds.
+ */
+const MOTION_CACHE_MS = 10_000;
+let motionAt = 0;
+let motion: { waiting: number; running: number; claimingNothingForSeconds: number | null } | null = null;
+
+export async function queueMotion(
+  now = Date.now(),
+): Promise<{ waiting: number; running: number; claimingNothingForSeconds: number | null } | undefined> {
+  if (now - motionAt < MOTION_CACHE_MS && motion) return motion;
+  try {
+    const [row] = await db
+      .select({
+        waiting: sql<number>`count(*) filter (where ${jobsTable.status} = 'queued' and ${jobsTable.lockedAt} is null)`,
+        running: sql<number>`count(*) filter (where ${jobsTable.status} = 'running')`,
+        oldestWaiting: sql<Date | null>`min(${jobsTable.createdAt}) filter (where ${jobsTable.status} = 'queued' and ${jobsTable.lockedAt} is null)`,
+      })
+      .from(jobsTable)
+      .where(inArray(jobsTable.status, ["queued", "running"]));
+    const waiting = Number(row?.waiting ?? 0);
+    const running = Number(row?.running ?? 0);
+    const oldest = row?.oldestWaiting ? new Date(row.oldestWaiting).getTime() : null;
+    /*
+      Null unless every part of the fault holds: something is waiting, nothing
+      is running, and a machine is listening. With no machine listening this
+      stays null on purpose -- that is `worker.online` false, a different
+      alert, and two alarms for one fault is one alarm too many.
+    */
+    const lastSeen = await newestWorkerSeenAt(now);
+    const stalled =
+      waiting > 0 && running === 0 && oldest !== null && workerOnline(lastSeen, now)
+        ? Math.max(0, Math.round((now - oldest) / 1000))
+        : null;
+    motion = { waiting, running, claimingNothingForSeconds: stalled };
+    motionAt = now;
+  } catch (error) {
+    logger.warn({ err: error }, "could not read whether the queue is moving");
+    // Absent rather than zeroed: "we could not look" and "nothing is waiting"
+    // are different answers and only one of them is good news.
+    return undefined;
+  }
+  return motion;
 }

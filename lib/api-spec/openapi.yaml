@@ -3069,6 +3069,30 @@ components:
               type: integer
               nullable: true
           required: [online, lastSeenAgoSeconds]
+        queue:
+          description: >
+            Whether the machine that is listening is taking anything. `worker`
+            above is liveness and says so in its own comment; on 15 September a
+            listen job sat queued for two and a half hours while the machine
+            beat every thirty seconds and refused it once a minute, and
+            `worker.online` was true throughout, correctly. The test is not how
+            long a row has waited — that fires behind every ninety-minute
+            render — it is that nothing is running, because a machine working
+            through a queue holds a lock on something. Counts only; this
+            endpoint is public.
+          type: object
+          properties:
+            waiting: { type: integer }
+            running: { type: integer }
+            claimingNothingForSeconds:
+              description: >
+                Seconds the oldest waiting job has waited while a live machine
+                holds nothing. Null on every healthy shape: nothing waiting,
+                something running, or no machine at all (which is
+                `worker.online` false and a different alert).
+              type: integer
+              nullable: true
+          required: [waiting, running, claimingNothingForSeconds]
         signIn:
           description: >
             Which ways of signing in are switched on for this project. Not a

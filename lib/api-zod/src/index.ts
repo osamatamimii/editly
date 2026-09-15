@@ -298,6 +298,41 @@ export const HealthCheckResponse = z.object({
     })
     .optional(),
   /**
+   * Is the machine that is listening actually taking anything?
+   *
+   * `worker.online` above answers "is something listening", and the comment on
+   * it says in as many words that it is a liveness signal and not a progress
+   * one, "a real limit worth naming here rather than in a postmortem". The
+   * postmortem arrived on 15 September: a listen job sat queued for two and a
+   * half hours while the machine beat every thirty seconds, refusing it once a
+   * minute for want of disk it had sized wrong. `worker.online` was true the
+   * whole time, and it was true *correctly*.
+   *
+   * `claimingNothingForSeconds` is the one number that separates a queue from
+   * an outage, and it is not age. It is set only when a machine is online,
+   * `running` is zero, and something has been waiting anyway -- because a
+   * machine working through a queue holds a lock on something. Null covers
+   * every healthy shape: nothing waiting, something running, no machine at all
+   * (which is `worker.online` false and a different alert).
+   *
+   * Reported rather than folded into `status`, for the same reason `worker` is:
+   * a stalled queue is not a broken API, and a 503 here would fail every
+   * uptime check and every deploy gate -- including the deploy that fixes it.
+   * `.github/workflows/watch.yml` is what reads it and goes red.
+   *
+   * Counts only. No ids, no addresses, no plans: this endpoint is public.
+   */
+  queue: z
+    .object({
+      /** Queued and unclaimed. */
+      waiting: z.number().int(),
+      /** Held by a worker right now. */
+      running: z.number().int(),
+      /** Seconds the oldest waiting job has waited while nothing is running. Null when that is not the case. */
+      claimingNothingForSeconds: z.number().int().nullable(),
+    })
+    .optional(),
+  /**
    * Which ways of signing in are switched on for this project.
    *
    * Not a health signal — email sign-in is a complete product and Google being
