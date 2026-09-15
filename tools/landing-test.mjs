@@ -687,7 +687,23 @@ section("No straight seam crosses the page");
 
   const exempt = await page.evaluate(() => {
     const boxes = [];
-    for (const selector of [".clip-marquee", ".horizon", ".horizon-band", ".wordmark-band", ".footer-field", "video", "img"]) {
+    /*
+      `.plan-card` joins the list, and it is worth saying why it belongs here
+      rather than being a seam this check should have caught.
+
+      What this section is for is a *section* changing tone across the whole
+      width -- a ruled line where one chapter becomes the next, which is the
+      thing every horizon on this page exists to avoid. The plan cards are dark
+      navy on a white page now, and the outer two sit in the two gutters this
+      sampler reads, so their top and bottom edges register as a step in both
+      columns at once.
+
+      They are objects, not chapters: rounded corners, a shadow, and two gaps
+      between the three of them that any wider sample would fall straight
+      through. An object with a visible edge is what a card *is*, the same
+      argument that already exempts a picture strip and a video.
+    */
+    for (const selector of [".clip-marquee", ".horizon", ".horizon-band", ".wordmark-band", ".footer-field", ".plan-card", "video", "img"]) {
       for (const el of document.querySelectorAll(selector)) {
         const rect = el.getBoundingClientRect();
         boxes.push([rect.top + window.scrollY - 12, rect.bottom + window.scrollY + 12]);

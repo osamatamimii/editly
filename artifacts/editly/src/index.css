@@ -924,9 +924,23 @@ html[data-page-theme="light"] body {
     rgba(78, 160, 236, 0.0057) 80%,
     rgba(78, 160, 236, 0.0021) 90%,
     rgba(78, 160, 236, 0) 100%;
-  --wash-mid: rgba(69, 155, 236, 0.11);
-  --wash-left: rgba(43, 141, 233, 0.085);
-  --wash-right: rgba(121, 183, 241, 0.10);
+  /*
+   * The three washes are off on the light page.
+   *
+   * They are wide, very faint ellipses of blue laid over the ground -- the
+   * low bounce at the bottom left is the one you can actually measure, three
+   * luma points under white across a two-hundred-pixel stretch of the hero.
+   * Not a colour anybody names, and exactly the thing Osama was pointing at:
+   * «ما بدي فروقات درجات خلال الصفحة ولا فواصل غبية». A wash that cannot be
+   * seen as light is only seen as the page not being one colour.
+   *
+   * Transparent rather than deleted, because the dark theme is where they
+   * were designed and where they still work: on near-black a faint blue lift
+   * reads as light in a room, and there is no white for it to dirty.
+   */
+  --wash-mid: transparent;
+  --wash-left: transparent;
+  --wash-right: transparent;
   /* Brighter than the light theme's, because a hairline on near-black has to
      clear the display's own noise floor to be seen at all. */
   /* On white the grid is dark ink, and the grain is nearly off — a light page
@@ -3247,34 +3261,25 @@ html[data-page-theme="light"] body {
 .light .key-light { background: none; }
 
 /*
- * The "how it works" band stops being a rectangle on the light page.
+ * The "how it works" band is not a band on the light page any more.
  *
- * Every chapter boundary on this page is a curve — the horizons exist so that
- * one section becomes another without a ruled line across the window. This
- * band was the exception and nobody saw it, because a reel of moving clips sat
- * directly on top of the joint and covered it. The reel came out and the joint
- * was there underneath: a straight edge the full width of the page, six luma
- * steps deep, right under the fold. `landing-test` names it at y=988.
+ * It was a rectangle of 4.5% blue, and when the moving reel that had been
+ * sitting on its top edge came out, the joint underneath turned out to be a
+ * straight line across the window -- so it became a gradient that arrived and
+ * left over 140 pixels, which removed the edge and kept the tone.
  *
- * Painting it as a gradient rather than a fill is the smallest fix that keeps
- * what the band is for. The middle still reads as set back, which is the whole
- * job — the eye needs somewhere to rest between the hero and the dark chapter
- * — and the tone arrives and leaves over 140 pixels, which is under a twentieth
- * of a luma step per row and not an edge by any measure, least of all the eye's.
+ * Both are gone now. «ما بدي فروقات درجات خلال الصفحة ولا فواصل غبية»: the
+ * band and the seam were the same object seen twice, and a page with one
+ * ground has neither. `bg-band` is off the section in `home.tsx` rather than
+ * blanked here, because the token is the recessed surface in the editor, the
+ * export panel and the scheduler, and those are panels inside a screen rather
+ * than stripes across a page.
  *
- * Light only. In dark the band is 40% black between two lit horizons that
- * already cut its edges into curves, so there is no straight seam there to fix.
+ * What the tone was doing -- giving the eye somewhere to rest between the hero
+ * and the dark chapter -- is now done by the dark chapter's own arrival, which
+ * is a larger change of ground than 4.5% ever was.
  */
-.light .bg-band {
-  background-color: transparent;
-  background-image: linear-gradient(
-    180deg,
-    transparent 0,
-    var(--band) 140px,
-    var(--band) calc(100% - 140px),
-    transparent 100%
-  );
-}
+
 
 /* ── The headline arrives in colour and settles into ink ─────────────────────
  *

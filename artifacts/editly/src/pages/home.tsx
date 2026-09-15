@@ -1346,7 +1346,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
    * positioned box and cannot spill, so there was nothing to clip anyway.
    */
   return (
-    <section id="how-it-works" className="w-full bg-band py-24 sm:py-32 relative">
+    <section id="how-it-works" className="w-full py-24 sm:py-32 relative">
       {/* Hidden where the pinned frame carries a ground of its own: the sticky
             wrapper paints `--band` over whatever is behind it, and over a wash
             that means a faint rectangle with a visible edge follows the frame
@@ -1425,7 +1425,7 @@ function HowItWorks({ t, rtl }: { t: (phrase: Phrase) => string; rtl: boolean })
               below moves. The `::after` fades the ground out under the card
               rather than ending it on a ruled edge — a hard line there reads as
               a slab laid over the page. */}
-          <div className="relative z-10 mb-8 self-start sticky top-0 -mt-[4.5rem] pt-[4.5rem] bg-band after:content-[''] after:absolute after:inset-x-0 after:top-full after:h-8 after:bg-gradient-to-b after:from-band after:to-transparent lg:z-auto lg:mb-0 lg:mt-0 lg:pt-0 lg:top-28 lg:bg-transparent lg:after:hidden">
+          <div className="relative z-10 mb-8 self-start sticky top-0 -mt-[4.5rem] pt-[4.5rem] bg-background after:content-[''] after:absolute after:inset-x-0 after:top-full after:h-8 after:bg-gradient-to-b after:from-background after:to-transparent lg:z-auto lg:mb-0 lg:mt-0 lg:pt-0 lg:top-28 lg:bg-transparent lg:after:hidden">
             <div className="relative w-full aspect-[16/11] lg:aspect-[4/3] overflow-hidden rounded-[28px] ring-1 ring-hairline-faint shadow-[0_40px_90px_-50px_rgba(8,4,24,0.75)]">
               {steps.map((step) => frame(step, step.num))}
             </div>
@@ -2377,7 +2377,7 @@ export default function Home() {
             return (
               <div
                 key={plan.key}
-                className="reveal plan-card relative flex flex-col rounded-[28px] transition-all duration-500 overflow-hidden"
+                className="reveal force-dark text-foreground plan-card relative flex flex-col rounded-[28px] transition-all duration-500 overflow-hidden"
                 style={{
                   transitionDelay: `${i * 80}ms`,
                   /* Where the light inside the card comes from. Under the
