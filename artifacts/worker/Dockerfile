@@ -77,10 +77,20 @@ RUN python3 -c "import cv2, os; \
 # every uploaded font sitting in `pending` for ever while the product says
 # nothing. brotli is not optional: it is what writes the woff2 the picker draws
 # its sample in, and fontTools reports its absence only when asked to save one.
+#
+# The version is read off `fontTools` and not off `fontTools.ttLib`. The line
+# said `ttLib.version` from the day it was written and fontTools does not
+# expose it there — so this step failed every time it was reached, and the only
+# reason it shipped is that it was reached exactly once, on a builder whose
+# layer cache already held the step from before. The next clean build found it:
+# `AttributeError: module 'fontTools.ttLib' has no attribute 'version'`.
+#
+# `deploy-test` now runs this same snippet against the same pinned version, so
+# a smoke test that cannot pass is caught in seconds rather than in a build.
 RUN python3 -c "from fontTools import ttLib; from fontTools.pens.cu2quPen import Cu2QuPen; \
-    import brotli; \
+    import brotli, fontTools; \
     from fontTools.ttLib.woff2 import compress; \
-    print('font repair ready:', ttLib.version)"
+    print('font repair ready:', fontTools.version, ttLib.TTFont)"
 
 # Proven at build time rather than discovered on the first render in a language
 # that is not English.

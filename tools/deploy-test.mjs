@@ -406,6 +406,46 @@ section("The app the workflow talks to is the app fly.toml describes");
   );
 }
 
+section("The image's own smoke tests are ones that can pass");
+{
+  /*
+    Why a build step is run here.
+
+    The Dockerfile proves its dependencies at build time rather than
+    discovering them on the first render — the right instinct, and the whole
+    reason those `RUN python3 -c` lines exist. But a smoke test is code, and
+    this one had a typo in it from the day it was written: it printed
+    `ttLib.version`, which fontTools does not expose. Every clean build of the
+    image failed on it. The only reason it ever shipped is that it was reached
+    once on a builder whose layer cache already held the step, and after that
+    nothing rebuilt the image for a fortnight.
+
+    So the snippets are lifted out and run here, against the same pinned
+    fontTools the image installs. Seconds, on a machine that already has it,
+    instead of a build that gets most of the way and stops.
+
+    Only the `python3 -c` steps: they are pure library checks with no image in
+    them, which is exactly why they can be run anywhere.
+  */
+  const dockerfile = read("artifacts/worker/Dockerfile");
+  const snippets = [...dockerfile.matchAll(/RUN python3 -c "([\s\S]*?)"\n/g)].map((m) =>
+    m[1].replace(/\\\n\s*/g, " ").replace(/\\"/g, '"'),
+  );
+  check("the image proves its dependencies at build time", snippets.length >= 2, `${snippets.length} found`);
+
+  for (const [index, code] of snippets.entries()) {
+    // opencv is not installed on every machine that runs this suite, and the
+    // image's own build proves it. Skipped by name rather than by position.
+    if (/import cv2/.test(code)) continue;
+    const run = spawnSync("python3", ["-c", code], { encoding: "utf8" });
+    check(
+      `smoke test ${index + 1} in the Dockerfile is code that runs`,
+      run.status === 0,
+      (run.stderr || run.stdout || "").trim().split("\n").slice(-2).join(" ").slice(0, 200),
+    );
+  }
+}
+
 section("The health check Fly runs is one flyctl will still accept");
 {
   /*
