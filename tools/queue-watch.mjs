@@ -47,6 +47,24 @@ export const WINDOW_HOURS = 24;
 export const ENOUGH_TO_JUDGE = 2;
 
 /**
+ * How long work may wait while a live machine claims nothing.
+ *
+ * `verdict` below asks about jobs that *settled*, and on 15 September the
+ * thing that went wrong never settled. A listen job for a three-gigabyte
+ * source sat at `queued` for two hours, `attempts = 0`, while the machine beat
+ * every thirty seconds: it was sizing a listen with the render's disk
+ * multiplier and handing the row back once a minute. Nothing settled, so this
+ * watcher said "quiet, nothing to judge" -- which is the same green it shows
+ * on a genuinely idle Sunday.
+ *
+ * Ten minutes rather than the console's ninety seconds. The console is read by
+ * somebody who chose to look and can dismiss a row; this sends mail, and an
+ * alert that fires on a queue that was about to clear itself is an alert that
+ * gets a filter rule written for it.
+ */
+export const STALLED_AFTER_MINUTES = 10;
+
+/**
  * Cancelled is not failed — and in this schema, cancelled *is spelled* failed.
  *
  * Somebody pressing stop is the product working. Counting it as a failure
@@ -103,6 +121,42 @@ export function verdict(rows, now = new Date()) {
     return { state: "one-off", settled: settled.length, done: 0, failed: failed.length, reasons: reasonsOf(failed) };
   }
   return { state: "dead", settled: settled.length, done: 0, failed: failed.length, reasons: reasonsOf(failed) };
+}
+
+/**
+ * The other way a queue is dead: nothing is failing because nothing is running.
+ *
+ * `verdict` cannot see this. It reads settled rows, and the whole shape of
+ * this fault is that no row settles -- so the window is empty and the answer
+ * is "quiet", the same word for an idle Sunday and for a machine refusing
+ * every job it is offered.
+ *
+ * The test is not age, which would fire behind every ninety-minute render. It
+ * is that a machine is alive, holds a lock on nothing, and a row has been
+ * waiting anyway. A machine working through a queue is holding something.
+ *
+ * `queue`: `{ waitingSince: Date | null, running: number, workerLastSeenAt:
+ * Date | null }`.
+ */
+export function stalled(queue, now = new Date()) {
+  if (!queue || queue.running > 0) return null;
+  if (!(queue.waitingSince instanceof Date)) return null;
+  if (!(queue.workerLastSeenAt instanceof Date)) return null;
+  // The same two-minute window `workerOnline` uses, written out because this
+  // file deliberately imports nothing from the server it watches.
+  const beatAgoMs = now.getTime() - queue.workerLastSeenAt.getTime();
+  if (beatAgoMs >= 2 * 60 * 1000 || beatAgoMs < -2 * 60 * 1000) return null;
+  const waitedMs = now.getTime() - queue.waitingSince.getTime();
+  if (waitedMs < STALLED_AFTER_MINUTES * 60 * 1000) return null;
+  return { minutes: Math.floor(waitedMs / 60000) };
+}
+
+/** One sentence for it, on the same terms as `sentenceFor`. */
+export function stalledSentence(s) {
+  return (
+    `A machine is listening and has claimed nothing for ${s.minutes} minutes ` +
+    `while work waits. It is refusing the queue rather than working through it.`
+  );
 }
 
 /**
@@ -189,6 +243,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 
   let rows;
+  let queue = null;
   try {
     // Read-only, one statement, bounded. This runs hourly against production.
     const result = await pool.query(
@@ -210,6 +265,25 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       cancelledAt: r.cancelled_at ?? null,
       errorDetail: r.error_detail,
     }));
+
+    /*
+      The queue as it stands right now, which is a different question from the
+      one above and needs its own three numbers: how long the oldest waiting
+      row has waited, whether anything is being worked on, and when a machine
+      last spoke. One statement, no join, bounded by its own aggregates.
+    */
+    const [now] = (
+      await pool.query(
+        `select (select min(created_at) from jobs where status = 'queued' and locked_at is null) as waiting_since,
+                (select count(*) from jobs where status = 'running') as running,
+                (select max(last_seen_at) from worker_heartbeats) as worker_last_seen_at`,
+      )
+    ).rows;
+    queue = {
+      waitingSince: now?.waiting_since ?? null,
+      running: Number(now?.running ?? 0),
+      workerLastSeenAt: now?.worker_last_seen_at ?? null,
+    };
   } finally {
     await pool.end().catch(() => undefined);
   }
@@ -217,6 +291,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const v = verdict(rows);
   console.log(`window: ${WINDOW_HOURS}h | settled: ${v.settled} | done: ${v.done} | failed: ${v.failed}`);
   console.log(sentenceFor(v));
+
+  /*
+    And the fault that leaves no settled row at all. Reported before the
+    verdict's own exit, because "quiet" and "stalled" are the same window and
+    only one of them is good news.
+  */
+  const stall = stalled(queue);
+  if (stall) {
+    console.log(`::error::${stalledSentence(stall)}`);
+    process.exit(1);
+  }
 
   if (v.state === "dead") {
     console.log(`::error::The render queue is not producing anything — ${sentenceFor(v)}`);

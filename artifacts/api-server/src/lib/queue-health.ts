@@ -47,6 +47,52 @@ export function isUnattended(
 }
 
 /**
+ * How long a live machine may claim nothing while work waits.
+ *
+ * `isUnattended` answers "is anything listening", and it answers it correctly:
+ * a heartbeat is proof, and behind proof a queue is a queue. But proof of a
+ * heartbeat is not proof of progress, and the two came apart in production on
+ * 15 September. A listen job for a three-gigabyte source sat queued for two
+ * hours with `attempts = 0` while the machine beat every thirty seconds: it was
+ * sizing a listen with the render's disk multiplier, deciding six times three
+ * gigabytes would not fit, and handing the job back -- silently, every sixty
+ * seconds, for two hours. Every screen in the product called that "waiting
+ * behind a live machine", which is the exact inversion this module's header
+ * says it exists to prevent, arrived at from the other side.
+ *
+ * The signal that settles it is not age. It is that *nothing is running*. A
+ * machine working through a queue holds a lock on something; a machine that is
+ * alive, holds nothing, and leaves a row queued is a machine refusing that row.
+ * There is no long-render false positive in that, which is what age alone
+ * could never avoid.
+ *
+ * Two poll intervals plus slack, because a claim between the two queries this
+ * reads would otherwise show as a stall for one refresh.
+ */
+export const CLAIMING_NOTHING_AFTER_MS = 90 * 1000;
+
+/**
+ * A machine is listening, nothing is being worked on, and this is waiting.
+ *
+ * `running` is every job any worker currently holds. Empty is the whole
+ * condition: with one job running this says nothing, because a queue behind
+ * work is a queue, however slow.
+ */
+export function isRefusedSilently(
+  job: { status: string; createdAt: Date | string; lockedAt?: Date | string | null },
+  context: { workerLastSeenAt: Date | string | null | undefined; running: number },
+  now = Date.now(),
+): boolean {
+  if (job.status !== "queued") return false;
+  if (job.lockedAt) return false;
+  if (!workerOnline(context.workerLastSeenAt, now)) return false;
+  if (context.running > 0) return false;
+  const created = new Date(job.createdAt).getTime();
+  if (!Number.isFinite(created)) return false;
+  return now - created >= CLAIMING_NOTHING_AFTER_MS;
+}
+
+/**
  * How long after its last word a worker is assumed gone.
  *
  * Generously more than the heartbeat interval, because a worker mid-render is

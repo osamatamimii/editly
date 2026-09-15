@@ -1957,11 +1957,22 @@ section("The console and the server agree on which faults are faults");
     label renders as an empty badge, which is a row that says a thing needs
     doing and does not say what.
   */
-  const union = client.slice(client.indexOf("type AttentionKind"));
-  const kinds = [...union.slice(0, union.indexOf(";")).matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
   const table = client.slice(client.indexOf("const KIND_LABEL"));
   const labelled = table.slice(0, table.indexOf("\n};"));
-  check("there are kinds to check", kinds.length === 9, JSON.stringify(kinds));
+  /*
+    Read out of the *server's* exported list rather than counted.
+
+    This held `kinds.length === 9`, which is a literal that is correct until
+    somebody adds a kind -- and then it is a failing check about nothing, whose
+    fix is to edit the number, which is the fix that teaches people to edit the
+    number. Worse, it only ever looked at the console's own copy of the list,
+    so a kind the server emits and the console has never heard of passed both
+    halves of this section.
+  */
+  const kinds = listOf(server, "const ATTENTION_KINDS");
+  check("there are kinds to check", kinds.length > 0, JSON.stringify(kinds));
+  const unknown = kinds.filter((kind) => !client.includes(`"${kind}"`));
+  check("the console knows every kind the server can emit", unknown.length === 0, unknown.join(", "));
   const missing = kinds.filter((kind) => !labelled.includes(`"${kind}"`));
   check("every kind the queue can show has a label", missing.length === 0, missing.join(", "));
 }

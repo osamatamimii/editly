@@ -10,7 +10,7 @@ import {
 } from "@workspace/db";
 import { isPlanKeyGuard } from "@workspace/api-zod";
 import { logger } from "./logger";
-import { isUnattended, workerOnline } from "./queue-health";
+import { isRefusedSilently, isUnattended, workerOnline } from "./queue-health";
 import { DEFAULT_PLAN, PLAN_LIMITS, minutesFrom, type PlanKey } from "./plan-limits";
 import { startOfMonthUtc } from "./usage";
 
@@ -49,16 +49,29 @@ import { startOfMonthUtc } from "./usage";
  * operations needs: which row, whose, when, and what the failure said. Same
  * line the rest of the console holds — see admin-console.md.
  */
-export type AttentionKind =
-  | "worker-gone"
-  | "render-unattended"
-  | "post-overdue"
-  | "post-stranded"
-  | "billing-unapplied"
-  | "render-failed"
-  | "account-disconnected"
-  | "minutes-spent"
-  | "minutes-nearly-spent";
+/**
+ * Every kind, as a value rather than only a type.
+ *
+ * So that a suite can assert `counts` carries all of them without a literal
+ * count of how many there are. `attention-test` held `=== 9`, which is a
+ * number that is correct until somebody adds a kind and then is a failing
+ * check about nothing -- and the fix for it is to edit the number, which is
+ * the fix that teaches people to edit the number.
+ */
+export const ATTENTION_KINDS = [
+  "worker-gone",
+  "render-unattended",
+  "render-refused",
+  "post-overdue",
+  "post-stranded",
+  "billing-unapplied",
+  "render-failed",
+  "account-disconnected",
+  "minutes-spent",
+  "minutes-nearly-spent",
+] as const;
+
+export type AttentionKind = (typeof ATTENTION_KINDS)[number];
 
 export interface AttentionItem {
   /**
@@ -110,18 +123,25 @@ export interface Attention {
 const RANK: Record<AttentionKind, number> = {
   "worker-gone": 0,
   "render-unattended": 1,
-  "post-overdue": 2,
-  "post-stranded": 3,
-  "billing-unapplied": 4,
-  "render-failed": 5,
-  "account-disconnected": 6,
-  "minutes-spent": 7,
-  "minutes-nearly-spent": 8,
+  /*
+    Directly under "nothing is listening", because to the person waiting it is
+    the same outage: their job is not going to run. It ranks below only because
+    a machine that is gone takes every job with it and this takes one.
+  */
+  "render-refused": 2,
+  "post-overdue": 3,
+  "post-stranded": 4,
+  "billing-unapplied": 5,
+  "render-failed": 6,
+  "account-disconnected": 7,
+  "minutes-spent": 8,
+  "minutes-nearly-spent": 9,
 };
 
 const CRITICAL: ReadonlySet<AttentionKind> = new Set<AttentionKind>([
   "worker-gone",
   "render-unattended",
+  "render-refused",
   "post-overdue",
   "post-stranded",
   "billing-unapplied",
@@ -202,6 +222,7 @@ export async function attention(now: Date = new Date()): Promise<Attention> {
   const counts: Record<AttentionKind, number> = {
     "worker-gone": 0,
     "render-unattended": 0,
+    "render-refused": 0,
     "post-overdue": 0,
     "post-stranded": 0,
     "billing-unapplied": 0,
@@ -254,6 +275,37 @@ export async function attention(now: Date = new Date()): Promise<Attention> {
     items.push({
       ...blank("render-unattended"),
       id: `render-unattended:${job.id}`,
+      at: job.createdAt ? new Date(job.createdAt).toISOString() : null,
+      userId: job.userId,
+      jobId: job.id,
+    });
+  }
+
+  /*
+    The case the heartbeat hides, and the reason this kind exists.
+
+    `render-unattended` is silent when a machine is beating, which is right:
+    behind a working machine a queue is a queue. But on 15 September a listen
+    job sat queued for two hours, `attempts = 0`, while the machine beat every
+    thirty seconds and refused it once a minute for want of disk it had sized
+    wrong. Nothing in the product said so. The dashboard said "waiting behind a
+    live machine", the console agreed, and the only record anywhere was a
+    sentence somebody wrote into `error_detail` by hand after noticing.
+
+    A machine working through a queue holds a lock on something. So `running`
+    being empty is the whole test, and it is why this cannot fire behind a long
+    render however long that render takes -- which is the false positive that
+    made age-based alarms unusable here.
+  */
+  const running = live.filter((job) => job.status === "running").length;
+  const refused = live.filter((job) =>
+    isRefusedSilently(job, { workerLastSeenAt: lastSeenAt, running }, now.getTime()),
+  );
+  counts["render-refused"] = refused.length;
+  for (const job of refused.slice(0, PER_KIND)) {
+    items.push({
+      ...blank("render-refused"),
+      id: `render-refused:${job.id}`,
       at: job.createdAt ? new Date(job.createdAt).toISOString() : null,
       userId: job.userId,
       jobId: job.id,

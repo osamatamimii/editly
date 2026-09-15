@@ -319,6 +319,13 @@ export const ADMIN = {
   */
   kindWorkerGone: p("ما في عامل", "No worker"),
   kindRenderUnattended: p("تنفيذ متروك", "Render unclaimed"),
+  /*
+    Named for what it is rather than for what it looks like. "Queued a long
+    time" is the symptom; "a machine is listening and refusing this one" is the
+    thing somebody can act on, and it is the difference between opening the
+    logs and waiting another hour.
+  */
+  kindRenderRefused: p("جهاز حيّ وما بياخده", "Machine alive, not taking it"),
   kindPostOverdue: p("منشور فات وقته", "Post overdue"),
   kindPostStranded: p("منشور في منتصف الإرسال", "Post mid-send"),
   kindBillingUnapplied: p("دفعة ما انطبّقت", "Payment not applied"),

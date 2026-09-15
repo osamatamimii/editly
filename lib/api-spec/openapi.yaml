@@ -2747,6 +2747,7 @@ paths:
                             [
                               worker-gone,
                               render-unattended,
+                              render-refused,
                               post-overdue,
                               post-stranded,
                               billing-unapplied,

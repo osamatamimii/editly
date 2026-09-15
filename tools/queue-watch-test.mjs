@@ -15,7 +15,7 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { verdict, sentenceFor, shapeOfError, WINDOW_HOURS, ENOUGH_TO_JUDGE } from "./queue-watch.mjs";
+import { verdict, sentenceFor, shapeOfError, stalled, stalledSentence, WINDOW_HOURS, ENOUGH_TO_JUDGE, STALLED_AFTER_MINUTES } from "./queue-watch.mjs";
 
 const repoRoot = process.cwd();
 
@@ -272,6 +272,66 @@ console.log("\nA settled job says when it settled");
     "and selects on the status rather than on the timestamp",
     /status in \('done', 'failed'\)/.test(probe),
     "filtering on finished_at is what hid every successful transcription",
+  );
+}
+
+console.log("\nThe other dead queue: nothing fails because nothing runs");
+{
+  /*
+    15 September, and the case `verdict` is blind to by construction. A listen
+    job sat queued for two hours while the machine beat every thirty seconds
+    and refused it once a minute for want of disk it had sized wrong. Nothing
+    settled, so the window was empty, so this watcher said "quiet, nothing to
+    judge" -- the same word it uses for an idle Sunday.
+  */
+  const NOW = new Date("2026-09-15T14:00:00Z");
+  const beating = new Date("2026-09-15T13:59:40Z");
+  const twoHoursAgo = new Date("2026-09-15T12:00:00Z");
+
+  const real = stalled({ waitingSince: twoHoursAgo, running: 0, workerLastSeenAt: beating }, NOW);
+  check("a live machine claiming nothing for two hours is a fault", real?.minutes === 120, JSON.stringify(real));
+  check(
+    "and the sentence says which of the two dead queues it is",
+    /listening and has claimed nothing/.test(stalledSentence(real)),
+    stalledSentence(real),
+  );
+  check(
+    "which `verdict` cannot say, because nothing settled",
+    verdict([], NOW).state === "quiet",
+    verdict([], NOW).state,
+  );
+
+  check(
+    "silent while something is running, however long the queue behind it",
+    stalled({ waitingSince: twoHoursAgo, running: 1, workerLastSeenAt: beating }, NOW) === null,
+    "a ninety-minute render is a queue, not an outage",
+  );
+  check(
+    "silent on a machine that has not had time to claim yet",
+    stalled({ waitingSince: new Date("2026-09-15T13:58:00Z"), running: 0, workerLastSeenAt: beating }, NOW) === null,
+    "two minutes is not a stall",
+  );
+  check(
+    "silent with no machine at all, which is the other alarm's job",
+    stalled({ waitingSince: twoHoursAgo, running: 0, workerLastSeenAt: new Date("2026-09-15T10:00:00Z") }, NOW) === null,
+    "worker-gone already says this, and two alarms for one fault is one alarm too many",
+  );
+  check(
+    "silent on an empty queue",
+    stalled({ waitingSince: null, running: 0, workerLastSeenAt: beating }, NOW) === null,
+    "nothing waiting is not a stall",
+  );
+  check(
+    "and it reads the three numbers it needs in one statement",
+    /min\(created_at\)[\s\S]*count\(\*\)[\s\S]*max\(last_seen_at\)/.test(
+      readFileSync(path.join(process.cwd(), "tools/queue-watch.mjs"), "utf8"),
+    ),
+    "this runs hourly against production",
+  );
+  check(
+    "ten minutes, because this one sends mail",
+    STALLED_AFTER_MINUTES >= 10,
+    String(STALLED_AFTER_MINUTES),
   );
 }
 

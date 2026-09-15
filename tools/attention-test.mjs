@@ -78,7 +78,7 @@ const built = spawnSync(
   { stdio: "inherit" },
 );
 if (built.status !== 0) process.exit(1);
-const { attention } = await import(pathToFileURL(outfile).href);
+const { attention, ATTENTION_KINDS } = await import(pathToFileURL(outfile).href);
 
 /*
   The free plan's allowance, read rather than typed.
@@ -547,6 +547,71 @@ section("Worst first, and the order is the order somebody would work in");
   );
 }
 
+section("A machine can be alive and still be refusing the work");
+{
+  /*
+    The two hours of 15 September, as a fixture.
+
+    A listen job for a three-gigabyte source sat queued with `attempts = 0`
+    while the machine beat every thirty seconds: it was sizing a listen with
+    the render's disk multiplier, deciding six times three gigabytes would not
+    fit, and handing the row back once a minute. `render-unattended` is silent
+    on that by design -- the machine *is* listening -- so every screen in the
+    product called it "waiting behind a live machine" and nothing anywhere said
+    otherwise.
+
+    What separates it from an ordinary queue is not age. It is that nothing was
+    running.
+  */
+  await reset();
+  await heartbeat(10);
+  await job("att_refused", ALICE, { status: "queued", created_at: new Date(Date.now() - 2 * 60 * 60 * 1000) });
+  const out = await attention();
+  const refused = out.items.filter((i) => i.kind === "render-refused");
+  check("a live machine claiming nothing while a job waits is a fault", refused.length === 1, JSON.stringify(out.items.map((i) => i.kind)));
+  check("counted as well as listed", out.counts["render-refused"] === 1, String(out.counts["render-refused"]));
+  check("and it is critical, because that job is not going to run", refused[0]?.severity === "critical", refused[0]?.severity);
+  check("named to the job, so the row can be opened", refused[0]?.jobId === "att_refused", JSON.stringify(refused[0]));
+  check(
+    "and not also reported as unattended, which would be the opposite claim",
+    out.counts["render-unattended"] === 0,
+    String(out.counts["render-unattended"]),
+  );
+
+  /*
+    And the false positive that makes an age-based alarm useless here: one
+    ninety-minute render puts every job behind it past any threshold, and every
+    one of those is an honest queue.
+  */
+  await job("att_behind_work", BASHIR, { status: "running", locked_at: new Date(), created_at: new Date(Date.now() - 3 * 60 * 60 * 1000) });
+  const busy = await attention();
+  check(
+    "silent the moment something is actually running, however long the wait",
+    busy.counts["render-refused"] === 0,
+    JSON.stringify(busy.items.map((i) => i.kind)),
+  );
+
+  await reset();
+  await heartbeat(10);
+  await job("att_fresh", ALICE, { status: "queued", created_at: new Date(Date.now() - 20 * 1000) });
+  const fresh = await attention();
+  check(
+    "and silent on a job the machine has not had time to claim yet",
+    fresh.counts["render-refused"] === 0,
+    JSON.stringify(fresh.items.map((i) => i.kind)),
+  );
+
+  await reset();
+  await heartbeat(3600);
+  await job("att_nomachine", ALICE, { status: "queued", created_at: new Date(Date.now() - 2 * 60 * 60 * 1000) });
+  const gone = await attention();
+  check(
+    "with no machine at all it stays the older fault, not this one",
+    gone.counts["render-refused"] === 0 && gone.counts["render-unattended"] === 1,
+    JSON.stringify(gone.counts),
+  );
+}
+
 section("Nothing wrong is a different answer from nothing known");
 {
   await reset();
@@ -555,8 +620,10 @@ section("Nothing wrong is a different answer from nothing known");
   check("an idle healthy platform has an empty queue", out.items.length === 0, JSON.stringify(out.items));
   check(
     "and every count present and zero, rather than absent",
-    Object.keys(out.counts).length === 9 &&
-      Object.values(out.counts).every((n) => n === 0),
+    // Against the module's own list rather than a literal, so adding a kind
+    // widens this check instead of breaking it.
+    ATTENTION_KINDS.every((kind) => out.counts[kind] === 0) &&
+      Object.keys(out.counts).length === ATTENTION_KINDS.length,
     JSON.stringify(out.counts),
   );
 }

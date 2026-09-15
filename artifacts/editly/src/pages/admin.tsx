@@ -176,6 +176,7 @@ const ACTS_ON: ReadonlySet<Section> = new Set<Section>(["attention", "accounts",
 type AttentionKind =
   | "worker-gone"
   | "render-unattended"
+  | "render-refused"
   | "post-overdue"
   | "post-stranded"
   | "billing-unapplied"
@@ -241,6 +242,7 @@ interface Attention {
 const KIND_LABEL: Record<AttentionKind, Phrase> = {
   "worker-gone": ADMIN.kindWorkerGone,
   "render-unattended": ADMIN.kindRenderUnattended,
+  "render-refused": ADMIN.kindRenderRefused,
   "post-overdue": ADMIN.kindPostOverdue,
   "post-stranded": ADMIN.kindPostStranded,
   "billing-unapplied": ADMIN.kindBillingUnapplied,
@@ -265,6 +267,7 @@ const KIND_LABEL: Record<AttentionKind, Phrase> = {
 const CRITICAL: ReadonlyArray<AttentionKind> = [
   "worker-gone",
   "render-unattended",
+  "render-refused",
   "post-overdue",
   "post-stranded",
   "billing-unapplied",

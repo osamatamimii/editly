@@ -188,7 +188,13 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Did anything that finished today actually finish?
+      # Two questions in one run, because they are the two ways this queue dies
+      # and only one of them leaves a row behind. The second was added after 15
+      # September, when a listen job sat queued for two hours while the machine
+      # beat every thirty seconds and refused it once a minute: nothing settled,
+      # so the first question's window was empty, so this job was green for the
+      # whole two hours with the word "quiet".
+      - name: Did anything that finished today actually finish, and is anything moving?
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: node tools/queue-watch.mjs
