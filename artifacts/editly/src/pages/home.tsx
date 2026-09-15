@@ -1928,20 +1928,29 @@ export default function Home() {
           small overshoot is what makes them look equal rather than measure
           equal.
 
-          And the size itself is now the door's, not a step on the type scale:
-          «كبر اللوقو والكلمة بحيث يصيروا بحجم زر الداشبورد اللي عاليمين». The
-          button is `min-h-[44px]` -- a thumb's width, which is why it is that
-          and not a type size -- so 44px is what the row is set to, and the
-          lockup measures exactly 44 tall against the button's 44. The two ends
-          of the bar are the same object size, which is the thing he was
-          looking at: at `text-xl` the lockup was 20px beside a 44px pill, so
-          the only thing with any weight in the header was the button.
+          And the size is the one that balances the door, which is not the
+          same number as the door.
 
-          30px below `sm`. A 390px phone carries the mark, the word, a door and
-          a menu on one line, and at 44px the lockup alone is 180 of those 390.
-          `viewport-test` is what says so rather than my judgement.
+          «كبر اللوقو والكلمة بحيث يصيروا بحجم زر الداشبورد اللي عاليمين», so
+          it was set to the button's own height: 44px, measured 44 against 44.
+          That was the literal answer and the wrong one -- «كبرت اللوقو و
+          الكلمة تو متش». The reason the arithmetic misleads is that the two
+          boxes are not made of the same thing. The button's 44 pixels are a
+          16px label in 14 pixels of padding top and bottom, so its *ink* is a
+          third of its height; a 44px wordmark is 44 pixels of ink. Matching
+          the boxes makes the word look nearly three times the button, which
+          is what he was looking at.
+
+          28px is where the two read as the same object. The mark comes with
+          it at `0.92em`, so the lockup stands 28 against the button's 44 and
+          the two weigh the same on the bar. It was 20 before, which read as a
+          caption beside a button.
+
+          24px below `sm`, because a 390px phone carries the mark, the word, a
+          door and a menu on one line. `viewport-test` is what says how much
+          fits, rather than my judgement.
         */}
-        <div className="flex items-center gap-2.5 min-w-0 text-[30px] sm:text-[44px]">
+        <div className="flex items-center gap-2 min-w-0 text-[24px] sm:text-[28px]">
           <Logo className="h-[0.92em] w-auto text-brand-mark flex-shrink-0" />
           <span className="font-bold tracking-tight leading-none">Editly</span>
         </div>
