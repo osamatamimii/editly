@@ -1966,7 +1966,7 @@ export function planFromText(
       cannotYet.push(
         say(
           "cut to the beat yet, because this project has no music to cut to. Upload the track and the punches will land on it",
-          "أقصّ على الإيقاع بعد، لأن المشروع لا يحوي موسيقى أقصّ عليها، ارفع المقطوعة وستقع التقريبات عليها",
+          "أقصّ على الإيقاع بعد، لأن المشروع ما فيه موسيقى أقصّ عليها، ارفع المقطوعة ورح تقع التقريبات عليها",
         ),
       );
     } else {
@@ -2175,7 +2175,7 @@ export function planFromText(
     cannotYet.push(
       say(
         "animate a title yet, because I do not know the words. Put them in quotes and I will",
-        "أحرّك عنوانًا بعد، لأنني لا أعرف كلماته، ضعها بين علامتَي اقتباس وسأفعل",
+        "أحرّك عنوان بعد، لأني ما بعرف كلماته، حطّها بين علامتين اقتباس وبعملها",
       ),
     );
   }

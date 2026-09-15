@@ -247,7 +247,7 @@ export async function enrichPlan(
             )
           : t(
               "there is a sound track on this clip but nothing recorded onto it, so there are no words to caption or to cut on",
-              "في هذا المقطع مسار صوت لكن لم يُسجَّل عليه شيء، فلا كلمات تُكتب ولا يُقصّ عليها",
+              "بهالمقطع مسار صوت بس ما انسجّل عليه إشي، فما في كلمات تنكتب ولا ينقصّ عليها",
             ),
       );
     }
@@ -339,7 +339,7 @@ export async function enrichPlan(
         notes.push(
           t(
             `heard the speech as ${heard}. Name the language if that is wrong and the captions will follow it`,
-            `سمعت الكلام على أنه ${heard}، سمِّ اللغة إن كان ذلك خطأً وستتبعها الترجمة`,
+            `سمعت الكلام على أنه ${heard}، سمّي اللغة إذا هاد غلط والترجمة بتمشي وراها`,
           ),
         );
       }
@@ -498,7 +498,7 @@ export async function enrichPlan(
       });
       if (cues.length === 0) {
         notes.push(
-          t("no speech was found in this clip, so there is nothing to caption", "لم يُعثر على كلام في هذا المقطع، فلا شيء يُكتب"),
+          t("no speech was found in this clip, so there is nothing to caption", "ما لقينا كلام بهالمقطع، فما في إشي ينكتب"),
         );
         continue;
       }
@@ -580,7 +580,7 @@ export async function enrichPlan(
   // have been made — including the punch moments the transcript just chose.
   let shaped = operations;
   if (options.referencePath) {
-    options.onProgress?.(t("Reading the video you want to match", "أقرأ الفيديو الذي تريد مطابقته"));
+    options.onProgress?.(t("Reading the video you want to match", "أقرا الفيديو اللي بدك تطابقه"));
     try {
       const [reference, own] = await Promise.all([
         measureStyle(options.referencePath),
@@ -630,7 +630,7 @@ export async function enrichPlan(
       notes.push(
         t(
           `we could not read the video you asked us to match${excuse.en}, so this is edited to the plan alone`,
-          `لم نستطع قراءة الفيديو الذي طلبت مطابقته${excuse.ar}، فهذا مُعدَّل على الخطّة وحدها`,
+          `ما قدرنا نقرا الفيديو اللي طلبت تطابقه${excuse.ar}، فهاد معدَّل على الخطّة لحالها`,
         ),
       );
     }
@@ -762,7 +762,7 @@ function visionExcuse(error: unknown): { en: string; ar: string } {
   if (/\b(?:no response within|timed? ?out|timeout|ETIMEDOUT|AbortError)\b/i.test(message)) {
     return {
       en: " this time (it did not answer in time, and later usually works)",
-      ar: " هذه المرّة (لم يُجب في الوقت المتاح، وغالبًا ينجح لاحقًا)",
+      ar: " هالمرة (ما ردّ بالوقت المتاح، وغالبًا بينجح بعدين)",
     };
   }
 
@@ -836,7 +836,7 @@ async function styleTitlesFromReference(
     notes.push(
       t(
         `drew your ${titles.length === 1 ? "title" : "titles"} the way the reference draws ${template.moments.length === 1 ? "its" : "them"}`,
-        `رسمت ${titles.length === 1 ? "عنوانك" : "عناوينك"} بالطريقة التي يرسم بها الفيديو المرجعي`,
+        `رسمت ${titles.length === 1 ? "عنوانك" : "عناوينك"} بنفس الطريقة اللي بيرسم فيها الفيديو المرجعي`,
       ),
     );
     return kept;

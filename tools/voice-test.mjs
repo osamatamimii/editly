@@ -69,6 +69,11 @@ const SCOPE = [
   "artifacts/editly/src/lib/copy/editor.ts",
   "artifacts/worker/src/say.ts",
   "artifacts/worker/src/disk.ts",
+  // The render notes and the progress bar, which is the text a person watches
+  // for the whole length of a render and reads again when it lands.
+  "artifacts/worker/src/index.ts",
+  "artifacts/worker/src/enrich.ts",
+  "artifacts/worker/src/ffmpeg.ts",
 ];
 
 /**
@@ -86,9 +91,29 @@ const SCOPE = [
  */
 const EDGE = `(^|[\\s"'\`،.:؛!؟()\\\\n])`;
 const END = `([\\s"'\`،.:؛!؟()]|\\\\n|$)`;
+/*
+  Nouns that begin with the letters of the future prefix.
+
+  «سينمائية» is not «سـ» plus a verb, and neither are «سياسة», «ستايل» or
+  «ستروك» — all four are in this product's own writing. The first cut of the
+  future marker flagged «درّجتها سينمائية», which is a correct sentence and
+  exactly the kind of false positive that gets a guard switched off in its
+  first week. A short list of stems is the honest fix: it is readable, it is
+  arguable, and a new one costs one line.
+*/
+const NOT_A_VERB = "ينما|يار|يدة|يد\u0651|تار|تاد|ياس|نوي|تايل|تروك|تيكر|ينث|يرة|ياق|يطر|يماء";
+/*
+  And `[وف]?`, because «و» and «ف» attach to the front of the word.
+
+  «وسأخبرك» and «وسنكمل» are the commonest shape this appears in and the edge
+  test could never see them: the boundary is in front of the «و», not in front
+  of the «س». Written as an optional letter after the boundary rather than as
+  part of the boundary class, so that the «س» inside «الروسيين» — where the
+  «و» is not at a boundary at all — still does not match.
+*/
 const MARKERS = [
-  [new RegExp(`${EDGE}سأ`, "u"), "«سأ…»", "«رح …»"],
-  [new RegExp(`${EDGE}سي[أتنيرسصضطظعغفقكلمهوىءبجحخدذز]`, "u"), "«سيـ…»", "«رح يـ…»"],
+  [new RegExp(`${EDGE}[وف]?سأ`, "u"), "«سأ…»", "«رح …»"],
+  [new RegExp(`${EDGE}[وف]?س(?!${NOT_A_VERB})[يتن][\\u0600-\\u06FF]{2,}`, "u"), "«سيـ…» / «ستـ…»", "«رح يـ…»"],
   [new RegExp(`${EDGE}سوف${END}`, "u"), "«سوف»", "«رح»"],
   [/أستطيع|تستطيع|نستطيع|يستطيع/u, "«أستطيع»", "«بقدر»"],
   [new RegExp(`${EDGE}ل[سي]س[تن]?${END}`, "u"), "«لست» / «ليس»", "«مش» / «ما»"],
@@ -153,6 +178,11 @@ console.log("\nThe table catches what it says it catches");
     "ماذا يحدث هنا؟",
     "قل لي الإحساس الذي تريده",
     "بدلًا من أن أدّعي",
+    // The shape the edge test could not see until `[وف]?` was added, and the
+    // commonest one in the writing this replaced.
+    "وسأضمّ هذا إليه",
+    "التصيير يعمل الآن؛ سيظهر هنا",
+    "إعادة التنفيذ ستستعمله",
   ];
   for (const sentence of was) {
     check(
@@ -189,7 +219,22 @@ console.log("\nThe table catches what it says it catches");
     «مالست» would read as «لست» — and a guard that fires on correct sentences
     is one somebody switches off within a week.
   */
-  const innocent = ["سيارة الزفاف", "سنة كاملة", "جلست على الكرسي", "التيار الكهربائي"];
+  const innocent = [
+    "سيارة الزفاف",
+    "سنة كاملة",
+    "جلست على الكرسي",
+    "التيار الكهربائي",
+    // The four that caught the first version of the future marker out, and the
+    // reason `NOT_A_VERB` exists. All four are in this product's own writing.
+    "درّجتها سينمائية: زرقة بالظلال",
+    "سياسة الخصوصية",
+    "لا تحط ستروك حول الكابشن",
+    "الروسيين",
+    "سيارة الزفاف",
+    "ستارة سوداء",
+    "سيدة المشهد",
+    "ملعب ستاد",
+  ];
   for (const sentence of innocent) {
     const hit = MARKERS.find(([re]) => re.test(sentence));
     check(`«${sentence}» is not a marker`, !hit, hit ? `flagged as ${hit[1]}` : "");

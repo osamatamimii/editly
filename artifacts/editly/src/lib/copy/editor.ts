@@ -74,7 +74,7 @@ export const EDITOR = {
   chooseReference: p("اختر مقطعًا مرجعيًّا", "Choose a reference clip"),
   uploadingShort: p("يُرفع…", "Uploading…"),
   referenceAttached: p("أُرفق المرجع", "Reference attached"),
-  referenceAttachedDetail: p("سيُعدَّل تنفيذك القادم ليطابقه.", "Your next render will be edited to match it."),
+  referenceAttachedDetail: p("تنفيذك الجاي رح يتظبّط ليطابقه.", "Your next render will be edited to match it."),
   couldNotAttach: p("تعذّر إرفاق هذا المرجع", "Could not attach that reference"),
   couldNotRemoveReference: p("تعذّرت إزالة المرجع", "Could not remove the reference"),
 
@@ -160,7 +160,7 @@ export const EDITOR = {
 
   renderQueued: p("التنفيذ في الطابور", "Render queued"),
   renderQueuedDetail: p(
-    "يمكنك مغادرة هذه الصفحة. سنكمل العمل.",
+    "فيك تطلع من هالصفحة. منكمّل الشغل.",
     "You can leave this page. We'll keep working.",
   ),
   couldNotStartRender: p("تعذّر بدء التنفيذ", "Could not start the render"),

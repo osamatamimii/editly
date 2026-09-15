@@ -3014,7 +3014,7 @@ const GRADE_LOOKS: Record<
   cinematic: {
     filter: "curves=b='0/0.12 0.5/0.48 1/0.88':r='0/0 0.55/0.60 1/1',eq=contrast=1.06",
     inWords: "graded it cinematic: blue in the shadows, warmth in the highlights",
-    inWordsAr: "درّجتها سينمائية: زرقة في الظلال ودفء في الإضاءات",
+    inWordsAr: "درّجتها سينمائية: زرقة بالظلال ودفا بالإضاءات",
   },
   mono: {
     filter: "eq=saturation=0:contrast=1.08",
@@ -3861,7 +3861,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             t(
               `and cut ${parts.join(" and ")}, ${tightened.droppedSeconds.toFixed(1)}s that was not silent`,
-              `وقصصت ${partsAr.join(" و")}، أي ${tightened.droppedSeconds.toFixed(1)} ثانية لم تكن صامتة`,
+              `وقصصت ${partsAr.join(" و")}، يعني ${tightened.droppedSeconds.toFixed(1)} ثانية ما كانت ساكتة`,
             ),
           );
         }
@@ -3884,14 +3884,14 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           `the stretch you asked for starts at ${range.startSeconds.toFixed(0)}s, but the clip is only ${source.duration.toFixed(1)}s long, so nothing was cut away`,
-          `المدى الذي طلبته يبدأ عند الثانية ${range.startSeconds.toFixed(0)}، والمقطع طوله ${source.duration.toFixed(1)} ثانية فقط، فلم يُقصّ شيء`,
+          `المدى اللي طلبته بيبلّش عند الثانية ${range.startSeconds.toFixed(0)}، والمقطع طوله ${source.duration.toFixed(1)} ثانية بس، فما انقصّ إشي`,
         ),
       );
     } else if (end - start < 0.2) {
       notes.push(
         t(
           "the stretch you asked for is shorter than a fifth of a second, so it was left uncut",
-          "المدى الذي طلبته أقصر من خُمس ثانية، فتُرك بلا قصّ",
+          "المدى اللي طلبته أقصر من خُمس ثانية، فانترك بلا قصّ",
         ),
       );
     } else {
@@ -3905,11 +3905,11 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         clamped
           ? t(
               `kept ${start.toFixed(1)}s to the end. The clip runs out at ${source.duration.toFixed(1)}s, before the ${range.endSeconds.toFixed(0)}s you named`,
-              `أبقيت من الثانية ${start.toFixed(1)} إلى النهاية: المقطع ينتهي عند ${source.duration.toFixed(1)} ثانية، قبل الثانية ${range.endSeconds.toFixed(0)} التي سمّيتها`,
+              `أبقيت من الثانية ${start.toFixed(1)} لآخره: المقطع بيخلص عند ${source.duration.toFixed(1)} ثانية، قبل الثانية ${range.endSeconds.toFixed(0)} اللي سمّيتها`,
             )
           : t(
               `kept ${start.toFixed(1)}s to ${end.toFixed(1)}s, the stretch you asked for`,
-              `أبقيت من الثانية ${start.toFixed(1)} إلى ${end.toFixed(1)}، المدى الذي طلبته`,
+              `أبقيت من الثانية ${start.toFixed(1)} لـ${end.toFixed(1)}، المدى اللي طلبته`,
             ),
       );
     }
@@ -3932,7 +3932,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     notes.push(
       t(
         "the plan asked for both a highlight and a named stretch. The stretch you named won",
-        "طلبت الخطّة هايلايت ومدًى مسمّى معًا، والمدى الذي سمّيته هو الذي فاز",
+        "طلبت الخطّة هايلايت ومدى مسمّى مع بعض، والمدى اللي سمّيته هو اللي فاز",
       ),
     );
   }
@@ -3964,7 +3964,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           `the clip is ${source.duration.toFixed(1)}s, no longer than the ${Math.round(highlight.targetSeconds)}s you asked to keep, so nothing was cut away`,
-          `المقطع طوله ${source.duration.toFixed(1)} ثانية، ليس أطول من ${Math.round(highlight.targetSeconds)} ثانية طلبت إبقاءها، فلم يُقصّ شيء`,
+          `المقطع طوله ${source.duration.toFixed(1)} ثانية، مش أطول من ${Math.round(highlight.targetSeconds)} ثانية طلبت تبقيها، فما انقصّ إشي`,
         ),
       );
     } else {
@@ -4387,7 +4387,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           t(
             `${unmatched} seam${unmatched === 1 ? "" : "s"} you named ${unmatched === 1 ? "is" : "are"} not near any cut in this edit, so ${unmatched === 1 ? "it was" : "they were"} left out rather than moved to the nearest one`,
-            `${unmatched} درزًا سمّيتَه ليس قرب أي قصّة في هذا التعديل، فتُرك بدل أن يُنقل إلى أقربها`,
+            `${unmatched} درز سمّيته مش قرب أي قصّة بهالتعديل، فانترك بدل ما ينتقل لأقربها`,
           ),
         );
       }
@@ -4525,7 +4525,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
             : onlyNamed
               ? t(
                   "this edit joins only the seams you name, and none of them landed on a cut with room for a join, so the cuts stay hard",
-                  "هذا التعديل يصل الدروز التي تسمّيها وحدها، ولم يقع أيّ منها على قصّة فيها متّسع لوصلة، فتبقى القصّات حادّة",
+                  "هالتعديل بيوصل الدروز اللي بتسمّيها لحالها، وما وقع ولا واحد منها على قصّة فيها متّسع لوصلة، فبتضلّ القصّات حادّة",
                 )
             : anyRoom
               ? t(
@@ -4534,7 +4534,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
                 )
               : t(
                   "the pieces this edit is cut into are too short to put a transition between, so the cuts stay hard",
-                  "القطع التي قُسّم إليها هذا التعديل أقصر من أن أضع بينها انتقالًا، فتبقى القصّات حادّة",
+                  "القطع اللي انقسم إلها هالتعديل أقصر من إني أحطّ بيناتها انتقال، فبتضلّ القصّات حادّة",
                 ),
         );
       } else if (made > 0) {
@@ -4572,7 +4572,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           onlyNamed
             ? t(
                 `${named} at the ${made === 1 ? "one seam" : `${made} seams`} you named, over ${longest.toFixed(2)}s; every other cut stays hard`,
-                `${namedAr} عند ${made === 1 ? "الدرز الوحيد الذي سمّيتَه" : `الدروز ${made} التي سمّيتَها`}، خلال ${longest.toFixed(2)} ثانية؛ وكل قصّة أخرى تبقى حادّة`,
+                `${namedAr} عند ${made === 1 ? "الدرز الوحيد اللي سمّيته" : `الدروز ${made} اللي سمّيتها`}، خلال ${longest.toFixed(2)} ثانية؛ وكل قصّة تانية بتضلّ حادّة`,
               )
             : skipped > 0
             ? t(
@@ -5203,7 +5203,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     notes.push(
       t(
         `this plan named ${zoomPunch.at.length} moment${zoomPunch.at.length === 1 ? "" : "s"} and also asked for the beat. The moments won: they are the more specific instruction`,
-        `سمّت هذه الخطّة ${zoomPunch.at.length} لحظة وطلبت الإيقاع أيضًا، فاللحظات هي التي فازت لأنّها التعليمة الأدقّ`,
+        `سمّت هالخطّة ${zoomPunch.at.length} لحظة وطلبت الإيقاع كمان، فاللحظات هي اللي فازت لأنها التعليمة الأدقّ`,
       ),
     );
   }
@@ -5445,7 +5445,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           `exported at ${target.h}p rather than ${asked.h}p. This footage has no more detail than that, and the larger file would only be a bigger copy of the same picture`,
-          `صُدّر بـ${target.h}p بدل ${asked.h}p، هذه اللقطة لا تحمل تفاصيل أكثر من ذلك، والملفّ الأكبر سيكون نسخة أكبر من الصورة نفسها فقط`,
+          `انصدّر بـ${target.h}p بدل ${asked.h}p، هالّقطة ما فيها تفاصيل أكتر من هيك، والملفّ الأكبر رح يكون نسخة أكبر من نفس الصورة بس`,
         ),
       );
     }
@@ -5722,7 +5722,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         reframe
           ? t(
               `cut between a wide and a tight version of the frame, changing size ${changes} time${changes === 1 ? "" : "s"} across ${takes.length} shots. ${tight} of them are the close one, and both sizes are native: the wide one is the margin the crop already had`,
-              `قطعت بين نسخة واسعة وأخرى ضيّقة من الكادر، وغيّرت الحجم ${changes} ${changes === 1 ? "مرّة" : "مرّات"} عبر ${takes.length} لقطات، منها ${tight} قريبة. والحجمان بدقّة أصلية، فالواسع هو الهامش الذي كان القصّ يأخذه أصلًا`,
+              `قطعت بين نسخة واسعة وتانية ضيّقة من الكادر، وغيّرت الحجم ${changes} ${changes === 1 ? "مرّة" : "مرّات"} عبر ${takes.length} لقطات، منها ${tight} قريبة. والحجمين بدقّة أصلية، فالواسع هو الهامش اللي كان القصّ ياخده أصلًا`,
             )
           : t(
               `cut between a wide and a tight version of the frame, changing size ${changes} time${changes === 1 ? "" : "s"} across ${takes.length} shots. ${tight} of them are the close one, which is a slight enlargement: this clip is not being reframed, so there is no margin outside the picture to pull back into`,
@@ -5761,11 +5761,11 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           ctx.unreachableAssetIds?.has(grade.lut)
             ? t(
                 "your LUT could not be fetched this time, so the grade ran without it. It is still in your library, and the next render will try again",
-                "تعذّر جلب ملف LUT هذه المرّة، فجرى التدريج بدونه. الملف ما زال في مكتبتك وسيحاول التنفيذ القادم مجددًا",
+                "ما قدرنا نجيب ملفّ LUT هالمرة، فصار التدريج بدونه. الملفّ لسا بمكتبتك والتنفيذ الجاي رح يحاول كمان مرة",
               )
             : t(
                 "the LUT this plan names is not in this project, so the grade ran without it",
-                "ملف LUT الذي تسمّيه هذه الخطة ليس في هذا المشروع، فجرى التدريج بدونه",
+                "ملفّ LUT اللي بتسمّيه هالخطة مش بهالمشروع، فصار التدريج بدونه",
               ),
         );
       } else {
@@ -5811,7 +5811,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           t(
             "the reference match was left off, because there is no colour left in a black-and-white picture to match with",
-            "تُركت مطابقة المرجع، لأن الصورة بالأبيض والأسود لم يبقَ فيها لون يُطابَق",
+            "انتركت مطابقة المرجع، لأن الصورة بالأبيض والأسود ما ضلّ فيها لون ينطابق",
           ),
         );
       } else {
@@ -6091,7 +6091,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       const end = kept ? remapTime(op.at + op.durationSeconds, kept, overlaps) : op.at + op.durationSeconds;
       if (end - start < 0.2) {
         notes.push(
-          t("dropped a title whose moment did not survive the cut", "أسقطت عنوانًا لم تنجُ لحظته من القصّ"),
+          t("dropped a title whose moment did not survive the cut", "أسقطت عنوان ما نجت لحظته من القصّ"),
         );
         continue;
       }
@@ -6133,7 +6133,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           : layer.at + layer.durationSeconds;
         if (end - start < 0.1) {
           notes.push(
-            t("dropped a layer whose moment did not survive the cut", "أسقطت طبقة لم تنجُ لحظتها من القصّ"),
+            t("dropped a layer whose moment did not survive the cut", "أسقطت طبقة ما نجت لحظتها من القصّ"),
           );
           continue;
         }
@@ -6144,7 +6144,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           if (!asset) {
             notes.push(
               t("skipped a layer's picture: that file is not in this project",
-                "تخطّيت صورة طبقة: ذلك الملفّ ليس في هذا المشروع"),
+                "تخطّيت صورة طبقة: هداك الملفّ مش بهالمشروع"),
             );
             continue;
           }
@@ -6279,7 +6279,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
               )
             : t(
                 "skipped an overlay: that file is not in this project",
-                "تخطّيت تراكبًا: ذلك الملفّ ليس في هذا المشروع",
+                "تخطّيت تراكب: هداك الملفّ مش بهالمشروع",
               ),
         );
         continue;
@@ -6288,7 +6288,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         // The kind is re-derived from the bytes upstream, so this is a plan
         // asking to draw a video as a still, not a mislabelled upload.
         notes.push(
-          t("skipped an image overlay: that asset is not an image", "تخطّيت تراكب صورة: ذلك الملفّ ليس صورة"),
+          t("skipped an image overlay: that asset is not an image", "تخطّيت تراكب صورة: هداك الملفّ مش صورة"),
         );
         continue;
       }
@@ -6300,7 +6300,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       if (end - start < 0.1) {
         // The whole stretch it was pinned to was cut away.
         notes.push(
-          t("dropped an overlay whose moment did not survive the cut", "أسقطت تراكبًا لم تنجُ لحظته من القصّ"),
+          t("dropped an overlay whose moment did not survive the cut", "أسقطت تراكب ما نجت لحظته من القصّ"),
         );
         continue;
       }
@@ -6354,7 +6354,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             t(
               "kept the speech under the b-roll: playing the b-roll's own sound instead is not something this can do yet",
-              "أبقيت الكلام تحت اللقطة المساندة: تشغيل صوت اللقطة نفسها بدلًا منه ليس ممّا أستطيعه بعد",
+              "أبقيت الكلام تحت اللقطة المساندة: تشغيل صوت اللقطة نفسها بدل منه مش من اللي بقدر عليه بعد",
             ),
           );
         }
@@ -6664,14 +6664,14 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
             )
           : t(
               "skipped the music: that track is not in this project",
-              "تخطّيت الموسيقى: ذلك المقطع ليس في هذا المشروع",
+              "تخطّيت الموسيقى: هداك المقطع مش بهالمشروع",
             ),
       );
     } else if (!musicUsable) {
       // The kind is re-derived from the bytes on upload, so this is a plan
       // asking to play a video file as a song, not a mislabelled file.
       notes.push(
-        t("skipped the music: that asset is not an audio file", "تخطّيت الموسيقى: ذلك الملفّ ليس ملفًّا صوتيًّا"),
+        t("skipped the music: that asset is not an audio file", "تخطّيت الموسيقى: هداك الملفّ مش ملفّ صوتي"),
       );
     } else {
       /*
@@ -6874,7 +6874,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           t(
             "pulled the music down under the riser so the moment it leads into is not competing with it",
-            "خفضت الموسيقى تحت اللفتة الصاعدة كي لا تزاحم اللحظة التي تقود إليها",
+            "خفّضت الموسيقى تحت اللفتة الصاعدة حتى ما تزاحم اللحظة اللي بتوصّل عليها",
           ),
         );
       }
@@ -7406,7 +7406,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           : wouldClip
             ? t(
                 "bringing this up to the target in one step would have clipped its loudest moments, so those were held back while the rest came up",
-                "رفع هذا إلى الهدف دفعة واحدة كان سيقصّ أعلى لحظاته، فأُمسكت تلك بينما ارتفع الباقي",
+                "رفع هاد للهدف دفعة وحدة كان رح يقصّ أعلى لحظاته، فانمسكت هديك وارتفع الباقي",
               )
             : t(
                 "your recording's range was wider than one shift could hold at this level, so it was closed up a little rather than clipped",

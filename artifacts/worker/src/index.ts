@@ -944,7 +944,7 @@ async function processJob(job: Job): Promise<void> {
     /** Said out loud when the reference could not be fetched. See below. */
     const referenceNotes: string[] = [];
     if (job.referencePath) {
-      await reportProgress(job.id, 7, say("Fetching the video you want to match", "أجيب الفيديو الذي تريد مطابقته"));
+      await reportProgress(job.id, 7, say("Fetching the video you want to match", "أجيب الفيديو اللي بدك تطابقه"));
       try {
         referenceFile = path.join(workDir, "reference.mp4");
         await downloadObject(job.referencePath, referenceFile);
@@ -967,7 +967,7 @@ async function processJob(job: Job): Promise<void> {
         referenceNotes.push(
           say(
             "could not fetch the video you asked to match, so this edit was made without it. The reference is still on the project, and rendering again will use it",
-            "تعذّر جلب الفيديو الذي طلبت مطابقته، فصُنع هذا التعديل دونه. المرجع ما زال على المشروع، وإعادة التنفيذ ستستعمله",
+            "ما قدرنا نجيب الفيديو اللي طلبت تطابقه، فانعمل هالتعديل بدونه. المرجع لسا على المشروع، وإعادة التنفيذ رح تستعمله",
           ),
         );
       }
@@ -1087,7 +1087,7 @@ async function processJob(job: Job): Promise<void> {
     /** Assets this project really has and this render could not fetch. */
     const unreachableAssetIds = new Set<string>();
     if (wantedAssetIds.length > 0) {
-      await reportProgress(job.id, 9, say("Fetching the files you added", "أجيب الملفّات التي أضفتها"));
+      await reportProgress(job.id, 9, say("Fetching the files you added", "أجيب الملفّات اللي ضفتها"));
       const rows = await db
         .select()
         .from(assetsTable)
@@ -2178,7 +2178,7 @@ async function renderClipSet(args: {
     notes.push(
       t(
         "nothing has read this recording for meaning yet, so the pieces were chosen by how densely somebody was talking",
-        "لم يقرأ أحد هذا التسجيل قراءةً معنويّة بعد، فاختيرت القطع بكثافة الكلام",
+        "ما حدا قرأ هالتسجيل قراية معنوية بعد، فانختارت القطع بكثافة الكلام",
       ),
     );
   }
@@ -2188,7 +2188,7 @@ async function renderClipSet(args: {
   notes.push(
     t(
       `counted as ${Math.round(sourceSeconds)}s against your minutes. Clips are metered by the source they read, not by the pieces`,
-      `حُسبت ${Math.round(sourceSeconds)} ثانية من دقائقك. القصاصات تُحاسب بالمصدر الذي قرأته، لا بالقطع`,
+      `انحسبت ${Math.round(sourceSeconds)} ثانية من دقايقك. القصاصات بتنحسب بالمصدر اللي انقرا، مش بالقطع`,
     ),
   );
 
@@ -2924,7 +2924,7 @@ async function assembleReel(
     notes.push(
       say(
         `${reel.padded} of them sit inside the frame on a blurred copy of themselves, because filling it would have cropped the product or enlarged it past sharpness`,
-        `${reel.padded} منها تجلس داخل الكادر فوق نسخة مموّهة من نفسها، لأن ملء الكادر كان سيقصّ المنتج أو يكبّره حتى تذهب حدّته`,
+        `${reel.padded} منها قاعدة جوّا الكادر فوق نسخة مموّهة من حالها، لأن ملء الكادر كان رح يقصّ المنتج أو يكبّره لحدّ ما تروح حدّته`,
       ),
     );
   }
@@ -2932,7 +2932,7 @@ async function assembleReel(
     notes.push(
       say(
         `${missing} of the photos in that request are not in this project, so they were left out`,
-        `${missing} من الصور في ذلك الطلب ليست في هذا المشروع، فتُركت`,
+        `${missing} من الصور بذاك الطلب مش بهالمشروع، فانتركت`,
       ),
     );
   }
