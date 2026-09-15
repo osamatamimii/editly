@@ -24,7 +24,7 @@ import { phrase as p, template as f } from "@/lib/landing-copy";
    * would actually say it rather than as a translation of the English joke.
    */
 export const EDITOR = {
-  notFound: p("لم يُعثر على المشروع", "Project not found"),
+  notFound: p("ما لقينا هالمشروع", "Project not found"),
   export: p("تصدير", "Export"),
   generateEdit: p("نفّذ التعديل", "Generate Edit"),
 
@@ -62,12 +62,12 @@ export const EDITOR = {
 
   matchTitle: p("طابِق فيديو آخر", "Match another video"),
   matchAttached: p(
-    "سيُعدَّل التنفيذ القادم ليطابق المقطع الذي أرفقته: إيقاعه، وكم يُبقي من الصمت، ومستواه، وألوانه.",
+    "التنفيذ الجاي رح يتظبّط ليطلع متل المقطع اللي أرفقته: إيقاعه، وقدّيش بيخلّي سكتات، ومستواه، وألوانه.",
     "Your next render is edited to match the clip you attached: its pace, how much silence it keeps, its level and its colour.",
   ),
   matchLead: f<[string]>(
     (ceiling) =>
-      `ارفع مقطعًا قصيرًا بالستايل الذي تريده ونقرأه: كم مرّة يقطع، وكم صمتًا يترك، وكم يعلو، وكيف يُدرَّج لونه. دون ${ceiling}، ولا ننظر إلا في أوّل دقيقتين.`,
+      `ارفع مقطع قصير بالستايل اللي بدك ياه ومنقرأه: كم مرة بيقطع، وقدّيش سكتات بيترك، وقدّيش بيعلى، وكيف ملوّن. أقل من ${ceiling}، ومنشوف أول دقيقتين بس.`,
     (ceiling) =>
       `Upload a short clip in the style you want and we read it: how often it cuts, how much silence it leaves, how loud and how graded it ends up. Under ${ceiling}, and we only look at the first two minutes.`,
   ),
@@ -131,7 +131,7 @@ export const EDITOR = {
     "This file has no audible speech, so there is no text to show for it.",
   ),
   transcriptTruncated: p(
-    "الحلقة أطول من حد العرض، وما بعد هذه النقطة موجود في التعديل وإن لم يُعرض هنا.",
+    "الحلقة أطول من حدّ العرض، واللي بعد هالنقطة موجود بالتعديل حتى لو ما بيبيّن هون.",
     "The episode runs past the display cap; everything after this point is still in the edit even though it is not shown here.",
   ),
   notePlaceholder: f<[string]>(
@@ -152,7 +152,7 @@ export const EDITOR = {
   noahTapConversation: p("اضغط لتقرأ المحادثة", "Tap to read the conversation"),
   noahSomethingNew: p("عند نوح شيء جديد", "Noah has something new to say"),
   noahWelcome: p(
-    "أهلًا، أنا نوح 👋\nمحرّر الفيديو عندك.\n\nارفع فيديوك وقل لي الإحساس الذي تريده، وأحوّله إلى مقطع يُشاهَد.",
+    "أهلًا، أنا نوح 👋\nمحرّر الفيديو تبعك.\n\nارفع فيديوك وقلّي شو الإحساس اللي بدك ياه، وبحوّله لمقطع بينتشاف.",
     "Hey, I'm Noah 👋\nYour AI video editor.\n\nUpload your video and tell me the vibe, and I'll turn it into a viral clip.",
   ),
   describeYourEdit: p("صف تعديلك…", "Describe your edit..."),
@@ -164,7 +164,7 @@ export const EDITOR = {
     "You can leave this page. We'll keep working.",
   ),
   couldNotStartRender: p("تعذّر بدء التنفيذ", "Could not start the render"),
-  renderDidNotFinish: p("لم يكتمل هذا التنفيذ.", "That render didn't finish."),
+  renderDidNotFinish: p("هالتنفيذ ما كمّل.", "That render didn't finish."),
   somethingOnOurSide: p("حدث خطأ عندنا.", "Something went wrong on our side."),
   starting: p("يبدأ…", "Starting…"),
   tryRenderAgain: p("أعد هذا التنفيذ", "Try that render again"),
@@ -199,7 +199,7 @@ export const MARKS = {
     (count) => (count === 1 ? "لحظة واحدة مسجّلة" : `${count} لحظات مسجّلة`),
     (count) => `${count} ${count === 1 ? "moment" : "moments"} noted`,
   ),
-  placeholder: p("ماذا يحدث هنا؟", "what should happen here?"),
+  placeholder: p("شو بدك يصير هون؟", "what should happen here?"),
   add: p("أضف", "Add"),
   removeAt: f<[string]>(
     (at) => `احذف الملاحظة عند ${at}`,
@@ -210,7 +210,7 @@ export const MARKS = {
   /** Caption faces: the picker, and the ones a person brings themselves. */
 export const FONTS = {
   lead: p(
-    "الخط الذي تُرسم به الكابشنات. التنفيذ القادم يستعمله، وما نُفّذ من قبل يبقى بخطّه.",
+    "الخط اللي بتنكتب فيه الكابشنات. التنفيذ الجاي بيستعمله، واللي انعمل قبل بيضلّ بخطّه.",
     "What captions are drawn in. The next render uses it; the ones already made keep the face they were made with.",
   ),
   latinHeading: p("الإنجليزية واللاتينية", "English and Latin"),
@@ -265,14 +265,14 @@ export const LIBRARY = {
   ),
   empty: f<[string]>(
     (ceiling) =>
-      `لا شيء بعد. الملفات التي تضيفها هنا يمكن قصّها كلقطات إضافية، أو وضعها فوق الكادر، أو تشغيلها تحت التعديل كلّه إن كانت موسيقى تملك حقوقها. حتى ${ceiling} للملف.`,
+      `ما في إشي لهلق. الملفات اللي بتضيفها هون بتقدر تنقصّ كلقطات إضافية، أو تنحطّ فوق الكادر، أو تشتغل تحت التعديل كلّه إذا كانت موسيقى بتملك حقوقها. لحد ${ceiling} للملف.`,
     (ceiling) =>
       `Nothing yet. Files you add here can be cut in as b-roll, laid over the frame, or, if it is a track you have the rights to, played under the whole edit. Up to ${ceiling} each.`,
   ),
   removeFile: f<[string]>((label) => `أزل ${label}`, (label) => `Remove ${label}`),
   thisFile: p("هذا الملف", "this file"),
   notMedia: f<[string]>(
-    (name) => `«${name}» ليس فيديو ولا صورة ولا صوتًا.`,
+    (name) => `«${name}» مش فيديو ولا صورة ولا صوت.`,
     (name) => `"${name}" is not a video, image or audio file.`,
   ),
   sessionExpired: p("انتهت جلستك. سجّل الدخول من جديد.", "Your session expired. Sign in again."),
@@ -295,11 +295,11 @@ export const STOCK = {
   add: p("أضفه إلى المشروع", "Add to this project"),
   adding: p("يُضاف…", "Adding…"),
   nothingBack: p(
-    "لم يعد شيء بهذه الكلمة. جرّب كلمة أبسط. مكتبات الصور تفهرس الأشياء والأماكن أفضل ممّا تفهرس المشاعر.",
+    "ما رجع إشي بهالكلمة. جرّب كلمة أبسط. مكتبات الصور بتفهرس الأشياء والأماكن أحسن ما بتفهرس المشاعر.",
     "Nothing came back for that. Try a plainer word. Stock libraries index objects and places better than they index moods.",
   ),
   notSwitchedOn: p("مكتبة الصور غير مفعّلة بعد.", "The stock library is not switched on yet."),
-  searchFailed: p("لم ينجح هذا البحث.", "That search did not work."),
+  searchFailed: p("هالبحث ما زبط.", "That search did not work."),
   couldNotFetch: p("تعذّر جلب هذا الملف.", "Could not fetch that file."),
   couldNotAdd: p("تعذّرت إضافته إلى المشروع.", "Could not add that to the project."),
 } as const;
@@ -332,7 +332,7 @@ export const PROJECT_CLIPS = {
  */
 export const LOOKS = {
   lead: p(
-    "شكل الكابشن للتنفيذ القادم. الجملة التي تسمّي شكلًا تسبق هذا الاختيار.",
+    "شكل الكابشن للتنفيذ الجاي. الجملة اللي بتسمّي شكل بتسبق هالاختيار.",
     "How captions look on the next render. A sentence that names a look wins over this choice.",
   ),
   styleNames: {

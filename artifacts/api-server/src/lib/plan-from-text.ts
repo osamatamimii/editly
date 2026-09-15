@@ -1022,7 +1022,7 @@ export function momentsNotHonoured(asked: string, operations: EditOperation[]): 
   return [
     say(
       `do something only at ${when.join(", ")} yet. Everything except a zoom punch applies to the whole video, so tell me what to do there and I will say if I can`,
-      `أفعل شيئًا عند ${when.join("، ")} وحدها بعد، فكلّ شيء عدا التقريب يسري على الفيديو كلّه، قل لي ماذا أفعل هناك وسأخبرك إن كنت أستطيع`,
+      `أعمل إشي عند ${when.join("، ")} لحالها بعد، كل إشي غير التقريب بينطبق على الفيديو كلّه، قلّي شو أعمل هناك وبقلّك إذا بقدر`,
     ),
   ];
 }
@@ -1553,7 +1553,7 @@ export function planFromText(
     willDo.push(
       say(
         `keep just ${clockOf(range.startSeconds)}\u2013${clockOf(range.endSeconds)}, the stretch you named`,
-        `أبقي ${clockOf(range.startSeconds)}\u2013${clockOf(range.endSeconds)} وحدها، المدى الذي سمّيته`,
+        `أبقي ${clockOf(range.startSeconds)}\u2013${clockOf(range.endSeconds)} لحالها، المدى اللي سمّيته`,
       ),
     );
   }
@@ -1656,7 +1656,7 @@ export function planFromText(
       KINETIC_CAPTION_WORDS.test(text) && !KARAOKE_WORDS.test(text)
         ? say(
             "caption it from what is actually said, with each word arriving as it is spoken and the word you lean on drawn larger",
-            "أكتب الترجمة من الكلام المنطوق نفسه، تصل كل كلمة حين تُقال، والكلمة التي تشدّد عليها تُرسم أكبر",
+            "أكتب الترجمة من الكلام المنطوق نفسه، كل كلمة بتوصل وقت ما تنقال، والكلمة اللي بتشدّد عليها بترسمها أكبر",
           )
         : say("caption it from what is actually said", "أكتب الترجمة من الكلام المنطوق نفسه"),
     );
@@ -1684,7 +1684,7 @@ export function planFromText(
             `punch in at ${moments.map(clockOf).join(", ")}`,
             `أقرّب الصورة عند ${moments.map(clockOf).join("، ")}`,
           )
-        : say("punch in where you lean on a word", "أقرّب الصورة عند الكلمات التي تشدّد عليها"),
+        : say("punch in where you lean on a word", "أقرّب الصورة عند الكلمات اللي بتشدّد عليها"),
     );
   }
 
@@ -2106,7 +2106,7 @@ export function planFromText(
       cannotYet.push(
         say(
           'put a section card in yet, because you did not say what it should say. Put the words in quotes, like "Setup"',
-          'أضع بطاقة قسم بعد، لأنك لم تقل ما المكتوب عليها. ضع الكلمات بين علامتَي اقتباس، مثل "الإعداد"',
+          'أحطّ بطاقة قسم بعد، لأنك ما قلت شو مكتوب عليها. حطّ الكلمات بين علامتين اقتباس، متل "الإعداد"',
         ),
       );
     } else {
@@ -2205,7 +2205,7 @@ export function planFromText(
       cannotYet.push(
         say(
           "pick emojis for you. Type the ones you want in your message and I will put them on",
-          "أختار لك الإيموجي، اكتب التي تريدها في رسالتك وسأضعها",
+          "أختارلك الإيموجي، اكتب اللي بدك ياه برسالتك وبحطّه",
         ),
       );
     }
@@ -2340,15 +2340,15 @@ export function becauseIn(lang: Language, body: Record<string, unknown>): string
 
   switch (body["reason"]) {
     case "suspended":
-      return "هذا الحساب موقوف، فلا يبدأ تصيير جديد. لم يُحذف شيء؛ مشاريعك وفيديوهاتك كلّها في مكانها.";
+      return "هالحساب موقوف، فما بيبلّش تصيير جديد. ما انحذف إشي؛ مشاريعك وفيديوهاتك كلّها بمكانها.";
     case "alreadyRendering":
-      return "في تصيير يعمل الآن على هذا المشروع، وسأضمّ هذا إليه حالما ينتهي.";
+      return "في تصيير شغّال هلق على هالمشروع، وبضمّ هاد عليه أول ما يخلص.";
     case "noVideo":
       return "ارفع فيديو قبل التصيير.";
     case "tooManyInFlight":
       return `عندك ${countedAr(n("jobsInFlight"), "تصيير واحد", "تصييران", "عمليات تصيير")} تعمل الآن. تعمل واحدة تلو الأخرى، فابدأ هذه حين تنتهي إحداها.`;
     case "minutesInFlight":
-      return `دقائق هذا الشهر محجوزة بتصيير يعمل الآن: ${n("minutesInFlight")} من ${n("minutesIncluded")}. حين ينتهي يعود ما لم يُستهلك منها.`;
+      return `دقايق هالشهر محجوزة بتصيير شغّال هلق: ${n("minutesInFlight")} من ${n("minutesIncluded")}. أول ما يخلص بترجعلك اللي ما انصرف منها.`;
     case "minutesExhausted":
       return `استُهلكت دقائق هذا الشهر: ${n("minutesUsed")} من ${n("minutesIncluded")}. تتجدّد مع بداية الشهر القادم، أو ارفع الباقة الآن.`;
     case "sourceExhausted":
@@ -2531,7 +2531,7 @@ export function replyFor(
     if (context.render?.started) {
       parts.push(
         lang === "ar"
-          ? `تمام، س${doing}. التصيير يعمل الآن؛ سيظهر هنا لحظة انتهائه.`
+          ? `تمام، رح ${doing}. التصيير شغّال هلق، وبيبيّن هون أول ما يخلص.`
           : `On it. I'll ${doing}. It's rendering now; you'll see it here the moment it's done.`,
       );
     } else if (context.render && !context.render.started) {
@@ -2540,13 +2540,13 @@ export function replyFor(
       // English. It used to be English interpolated into the Arabic frame.
       parts.push(
         lang === "ar"
-          ? `كنت س${doing}، لكن لا أستطيع البدء الآن: ${context.render.because}`
+          ? `كنت رح ${doing}، بس ما بقدر أبلّش هلق: ${context.render.because}`
           : `I'd ${doing}. But I can't start it right now: ${context.render.because}`,
       );
     } else {
       parts.push(
         lang === "ar"
-          ? `تمام، س${doing}. اضغط Generate Edit وأبدأ.`
+          ? `تمام، رح ${doing}. دوس Generate Edit وبمشي.`
           : `Right. I'll ${doing}. Hit Generate Edit and I'll start.`,
       );
     }
@@ -2563,7 +2563,7 @@ export function replyFor(
     const plural = intent.cannotYet.length > 1;
     parts.push(
       lang === "ar"
-        ? `لا أستطيع أن ${missing}، فأترك ${plural ? "تلك الأمور" : "ذلك"} خارج التعديل بدل أن أدّعي.`
+        ? `ما بقدر ${missing}، فبتركها برّا التعديل بدل ما أدّعي إني عملتها.`
         : `I can't ${missing}, so I'll leave ${plural ? "those" : "that"} out rather than pretend.`,
     );
   }
@@ -2586,20 +2586,36 @@ const EMPTY_PROJECT: Record<Language, string> = {
   en:
     "Upload a video first and I'll get to work. I can pull out the strongest 30 seconds, keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it from what you actually say, reframe it for TikTok, Reels or Shorts (or 16:9 for YouTube, or square for a feed), add motion, lay your own music under it, grade it warm or cool or cinematic or black and white, fade it in and out, and level the audio.",
   ar:
-    "ارفع فيديو أوّلًا وأبدأ العمل، أستطيع أن أستخرج أقوى 30 ثانية، وأبقي مدًى تسمّيه بالضبط (من 1:20 إلى 2:10)، وأقسّمه إلى مقاطع منفصلة، وأقصّ الصمت، وأكتب الترجمة من كلامك نفسه، وأعيد التأطير لتيك توك أو ريلز أو شورتس، أو 16:9 ليوتيوب، أو مربّعًا للفيد، وأضيف حركة، وأضع موسيقاك تحته، وأدرّجه warm أو cool أو cinematic أو أبيض وأسود، وأفتحه من السواد وأُغلقه إليه، وأضبط مستوى الصوت.",
+    "ارفع فيديو وببلّش. بقدر أنظّفه وأخلّيه بنفس الطول، أو أطلّعلك أقوى 30 ثانية، أو أبقّي مدى بتسمّيه بالضبط (من 1:20 إلى 2:10)، أو أقسّمه مقاطع منفصلة. وبقصّ السكتات، وبكتب الترجمة من كلامك نفسه، وبعيد التأطير لتيك توك أو ريلز أو شورتس، أو 16:9 ليوتيوب، أو مربّع للفيد، وبضيف حركة، وبحطّ موسيقاك تحته، وبدرّجه warm أو cool أو cinematic أو أبيض وأسود، وبفتحه من السواد وبغلقه عليه، وبظبّط مستوى الصوت.",
 };
 
+/**
+ * And the one that answers a sentence we could not read.
+ *
+ * It used to recite the catalogue: sixty words naming every operation the
+ * product has, ending in one example. That is the single moment in this
+ * product where somebody most feels they are talking to a machine — they said
+ * something in their own words, and a menu came back.
+ *
+ * Two examples instead of a list, and they are deliberately the two *shapes*
+ * rather than two features: one that keeps the recording whole and one that
+ * cuts a post out of it. Somebody who reads them learns the thing the
+ * catalogue never taught, which is that both are possible. The full list still
+ * exists, one message earlier, on an empty project where a list is the right
+ * answer because they have nothing yet.
+ *
+ * Not "I am not sure": it did not understand, and saying so plainly is shorter
+ * and less apologetic than hedging about it.
+ */
 const NOTHING_UNDERSTOOD: Record<Language, string> = {
   en:
-    "I'm not sure what to change from that. Right now I can pull out the best 30 seconds of a clip, " +
-    "keep exactly a stretch you name (from 1:20 to 2:10), cut it into separate clips, cut the silences, caption it, reframe it to 9:16 or 16:9 or square, " +
-    "add punch-in zooms or a slow push, lay a track you've uploaded under the whole thing, fade it in and out, and level the audio. Try something like " +
-    '"give me the strongest 30 seconds, captioned, vertical for TikTok".',
+    "I did not catch what you want changed. Tell me in your own words and I will say if I can, " +
+    'or try something like "clean it up and caption it, keep the full length", ' +
+    'or "give me the strongest 30 seconds, captioned, vertical for TikTok".',
   ar:
-    "لست متأكّدًا ما الذي أغيّره من ذلك. أستطيع الآن أن أستخرج أفضل 30 ثانية من المقطع، " +
-    "وأبقي مدًى تسمّيه بالضبط (من 1:20 إلى 2:10)، وأقسّمه إلى مقاطع منفصلة، وأقصّ الصمت، وأكتب الترجمة، وأعيد التأطير إلى 9:16 أو 16:9 أو مربّع، " +
-    "وأقرّب الصورة عند التشديد أو أضيف حركة بطيئة، وأضع مقطوعة رفعتَها تحت التعديل كلّه، وأفتحه من السواد وأُغلقه إليه، وأضبط مستوى الصوت، جرّب مثلًا " +
-    "«أعطني أقوى 30 ثانية، مع ترجمة، عمودية للتيك توك».",
+    "ما التقطت شو بدك أغيّر. قلّي بكلماتك وبقلّك إذا بقدر، " +
+    "أو جرّب إشي متل «نظّفه وضيف ترجمة وخلّيه بنفس الطول»، " +
+    "أو «أعطني أقوى 30 ثانية مع ترجمة، عمودية لتيك توك».",
 };
 
 /**

@@ -225,6 +225,12 @@ jobs:
       # product asking rather than assuming. A long recording is a podcast or a
       # pile of posts and the file does not say which.
       - run: node tools/long-form-test.mjs
+      # Noah's register, held the way the em dash is held: a short table of
+      # words that only appear in writing, and a scope that is a list of the
+      # files already converted rather than a list of exceptions. Osama chose
+      # spoken Levantine on 15 September; claude/briefs/07-progress.md argues
+      # it, this keeps it.
+      - run: node tools/voice-test.mjs
       - run: node tools/posting-test.mjs
       # Beside posting, because it is the step posting never had: a way to put
       # a real account into the queue.

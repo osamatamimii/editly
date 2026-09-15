@@ -414,7 +414,7 @@ for (const sentence of SPOKEN) {
   const reply = replyFor(planFromText(sentence), { hasVideo: true });
   check(
     `«${sentence}» is answered with a refusal, not a shrug`,
-    /I can't |لا أستطيع أن /.test(reply),
+    /I can't |ما بقدر /.test(reply),
     reply.slice(0, 120),
   );
   check(
@@ -537,8 +537,17 @@ console.log("\nthe reply answers in the language it was asked in");
 // They carried em dashes until the punctuation was taken out of the product's
 // writing; what they are testing is which language answered, so the frames
 // follow the prose rather than pinning a dash.
-const ENGLISH_FRAMES = [/\bOn it\. I'll /, /\bRight\. I'll /, /\bI can't /, /\bI'd .* But I can't/, /I'm not sure what to change/, /Upload a video first/];
-const ARABIC_FRAMES = [/تمام، س/, /لا أستطيع أن /, /كنت س/, /لست متأكّدًا/, /ارفع فيديو أوّلًا/];
+const ENGLISH_FRAMES = [/\bOn it\. I'll /, /\bRight\. I'll /, /\bI can't /, /\bI'd .* But I can't/, /I did not catch what you want changed/, /Upload a video first/];
+/*
+  The Arabic frames, rewritten on 15 September when Noah started speaking the
+  way the people using this product do.
+
+  They pinned the Modern Standard openings — «تمام، س…», «لا أستطيع أن»,
+  «لست متأكّدًا» — which is the register Osama described as «بحسسك انه الة و ما
+  بفهمك». `tools/voice-test.mjs` is what holds the register; these hold which
+  *language* answered, which is a different question and still worth asking.
+*/
+const ARABIC_FRAMES = [/تمام، رح /, /ما بقدر /, /كنت رح /, /ما التقطت/, /ارفع فيديو وببلّش/];
 const hasAny = (patterns, text) => patterns.some((p) => p.test(text));
 
 const REPLY_CASES = [
