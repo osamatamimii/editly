@@ -202,7 +202,14 @@ section("Adding an episode is the first thing on the screen");
   const page = read("artifacts/editly/src/pages/clips.tsx");
   const copy = read("artifacts/editly/src/lib/copy/clips.ts");
 
-  check("the lead says what you add and what comes back", /أضف حلقة بودكاست هنا/.test(copy) && /Add a podcast episode here/.test(copy));
+    // Pinned to the claim rather than to the wording. The Arabic half was
+  // rewritten into the register the rest of the product speaks («حطّ» for
+  // «أضف»), and a check on copy that is deliberately being rewritten is a
+  // check that goes red on an improvement.
+  check(
+    "the lead says what you add and what comes back",
+    /(أضف|حطّ) حلقة بودكاست ه(نا|ون)/.test(copy) && /Add a podcast episode here/.test(copy),
+  );
   check(
     "the door is named for what the person came to do, not for what the browser does",
     /addTitle: p\("أضف حلقة بودكاست", "Add a podcast episode"\)/.test(copy),
@@ -320,7 +327,7 @@ section("The screen says which job it does");
   );
   check(
     "and the lead says what it is not, because that is what was being misread",
-    /ليس تعديلًا للحلقة/.test(copy) && /not where the episode itself gets edited/.test(copy),
+    /(ليس تعديلًا|مش تعديل) للحلقة/.test(copy) && /not where the episode itself gets edited/.test(copy),
   );
   for (const [name, key] of [
     ["the door", "addTitle"],

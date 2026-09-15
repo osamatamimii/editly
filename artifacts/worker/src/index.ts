@@ -20,6 +20,7 @@ import { EditPlan, MUSIC_MOOD_NAMES, type EditOperation } from "@workspace/api-z
 import { CANCELLED_MID_RENDER_MESSAGE } from "@workspace/api-zod/limits";
 import { downloadObject, uploadObject, bytesPulled, objectBytes, objectStamp, reportTransferRetries, StorageTransferError } from "./storage";
 import {
+  freeAllBut,
   roomFor,
   noRoomMessage,
   sweepStaleWork,
@@ -1305,6 +1306,31 @@ async function processJob(job: Job): Promise<void> {
       log.warn({ err: error }, "output review failed; delivering the file unreviewed");
     }
 
+    /*
+      Everything except the finished file is dead from here.
+
+      The work directory is removed in `finally`, so until now every
+      intermediate a render wrote was held through the upload, the preview
+      encode and the probe -- none of which read any of them. On the heaviest
+      plan that is 2.3 source-multiples of disk (`WORK_TO_SOURCE` carries the
+      measurement) held across the slowest remaining minutes of the job, and
+      peak usage is exactly what decides whether the next job is refused for
+      room.
+
+      `input.mp4` goes with them: `reviewOutput` above is the last thing that
+      reads the source, and it has returned.
+
+      Best effort, and reported rather than silent. A render that failed because
+      its own cleanup threw would be a worse bug than the disk it saves.
+    */
+    const freed = await freeAllBut(workDir, [output]);
+    if (freed.removed.length > 0) {
+      log.info(
+        { freedMB: Math.round(freed.freedBytes / 1024 / 1024), removed: freed.removed.length },
+        "freed the render's intermediates before the upload",
+      );
+    }
+
     await reportProgress(job.id, 92, say("Saving the result", "أحفظ النتيجة"));
     const outputPath = `${job.userId}/${job.projectId}/edited-${job.id}.mp4`;
     await uploadObject(outputPath, output);
@@ -2377,6 +2403,28 @@ async function renderClipSet(args: {
         `القصاصة ${i + 1}: خلّيت ${clock(window.start)}–${clock(window.end)} (${measured.seconds.toFixed(1)} ثانية${cutSilence ? "، مع قصّ الصمت" : ""})`,
       ),
     );
+
+    /*
+      And this clip's own directory, now that its master, its preview and its
+      poster are all in storage.
+
+      This loop is the reason the cleanup matters most here. A podcast is the
+      longest source this product takes and it produces the most pieces, and
+      every `clip-N` directory was held until the whole job ended -- so a run of
+      eight clips held eight sets of intermediates at once on a machine with
+      seven gigabytes for everything. Nothing below reads any of it: the row is
+      already written and the paths on it are storage keys.
+
+      The source is deliberately not touched. Every remaining clip renders from
+      it, and it lives one level up in `workDir` rather than in here.
+    */
+    const freed = await freeAllBut(subDir, []);
+    if (freed.freedBytes > 0) {
+      log.info(
+        { clip: i + 1, freedMB: Math.round(freed.freedBytes / 1024 / 1024) },
+        "freed this clip's intermediates before rendering the next",
+      );
+    }
   }
 
   notes.push(...insideEachClip(perClipNotes, args.language));

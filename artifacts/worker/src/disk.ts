@@ -286,3 +286,59 @@ async function sizeOf(dir: string): Promise<number> {
   }
   return total;
 }
+
+/**
+ * Let a stage's files go the moment the stage is over, rather than at the end
+ * of the job.
+ *
+ * The work directory is removed in `processJob`'s `finally`, so every
+ * intermediate a render writes is held until the whole job is done — including
+ * through the upload, the preview encode and the probe, none of which read any
+ * of them. `WORK_TO_SOURCE`'s own measurement says what that costs: source 1.0,
+ * reframed intermediate 0.9, title PNGs 1.4, output 0.8. Once the renderer has
+ * returned, 2.3 of those 4.1 are dead weight, and they are held across the
+ * slowest remaining minutes of the job.
+ *
+ * That is not an abstract tidiness. On 15 September a three-gigabyte upload
+ * could not be listened to because the arithmetic said the disk was too small,
+ * and the disk on this machine is seven gigabytes for everything. Peak usage is
+ * what decides whether the next job is refused, and peak usage is set by what
+ * is held at once.
+ *
+ * `keep` is the whole interface, and it is a list of what is still *needed*
+ * rather than a list of what to delete: a stage that starts writing a new
+ * intermediate should not also have to remember to add it to a removal list
+ * somewhere else. Paths may be absolute or relative to `dir`.
+ *
+ * Never throws, and never touches anything outside `dir`. A cleanup that can
+ * fail a render would be worse than the disk it is saving — this is an
+ * optimisation, and the `finally` that removes the whole directory is still
+ * what guarantees nothing is left behind.
+ */
+export async function freeAllBut(
+  dir: string,
+  keep: ReadonlyArray<string>,
+): Promise<{ freedBytes: number; removed: string[] }> {
+  const spared = new Set(keep.map((p) => path.basename(p)));
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return { freedBytes: 0, removed: [] };
+  }
+  let freedBytes = 0;
+  const removed: string[] = [];
+  for (const entry of entries) {
+    if (spared.has(entry.name)) continue;
+    const full = path.join(dir, entry.name);
+    try {
+      freedBytes += entry.isDirectory() ? await sizeOf(full) : (await stat(full)).size;
+      await rm(full, { recursive: true, force: true });
+      removed.push(entry.name);
+    } catch {
+      // Gone already, or held open by something. Either way the job is not the
+      // place to find out, and `finally` will try again.
+    }
+  }
+  return { freedBytes, removed };
+}

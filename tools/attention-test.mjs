@@ -144,7 +144,22 @@ const PROJECT = "att_project";
 async function reset() {
   await pool.query("DELETE FROM scheduled_posts WHERE id LIKE 'att_%'");
   await pool.query("DELETE FROM social_accounts WHERE id LIKE 'att_%'");
-  await pool.query("DELETE FROM jobs WHERE id LIKE 'att_%'");
+  /*
+    Every job, not only this suite's.
+
+    `attention()` reads the whole table by design -- "is anything running" is a
+    question about the platform, not about a prefix -- so any row this suite
+    does not control is a row that can change its answers. The prefixed delete
+    that was here could not express that, and the section below went red once
+    in a full-sweep run and passed every time alone.
+
+    The cause of that particular run was two sweeps sharing one Postgres, which
+    is mine and not the suite's. The delete is still the right shape: a suite
+    that reads globally has to start from a table it owns, and "it only fails
+    when something else is running" is not a property worth keeping. The
+    prefixed deletes above stay, because those tables are read by prefix.
+  */
+  await pool.query("DELETE FROM jobs");
   await pool.query("DELETE FROM billing_events WHERE event_id LIKE 'att_%'");
   await pool.query("DELETE FROM projects WHERE id LIKE 'att_%'");
   for (const who of [ALICE, BASHIR]) {
@@ -566,6 +581,19 @@ section("A machine can be alive and still be refusing the work");
   await reset();
   await heartbeat(10);
   await job("att_refused", ALICE, { status: "queued", created_at: new Date(Date.now() - 2 * 60 * 60 * 1000) });
+  /*
+    The fixture, asserted before the behaviour it is the input to.
+
+    Without this the section's first failure reads "a live machine claiming
+    nothing is a fault — []", which sends whoever is reading it to the
+    predicate. The predicate was fine; the row was not there.
+  */
+  const planted = await pool.query("SELECT status, locked_at FROM jobs WHERE id = 'att_refused'");
+  check(
+    "the waiting job is actually in the table",
+    planted.rows.length === 1 && planted.rows[0].status === "queued" && planted.rows[0].locked_at === null,
+    JSON.stringify(planted.rows),
+  );
   const out = await attention();
   const refused = out.items.filter((i) => i.kind === "render-refused");
   check("a live machine claiming nothing while a job waits is a fault", refused.length === 1, JSON.stringify(out.items.map((i) => i.kind)));

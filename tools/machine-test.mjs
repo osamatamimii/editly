@@ -7,12 +7,19 @@
  * error anybody can read.
  *
  * **Disk.** A render writes the source it downloaded, its intermediates and
- * its output into `/tmp`, and removes none of it until the job ends. Run out
- * and ffmpeg's write fails partway, it exits non-zero with `No space left on
- * device` inside a stderr tail we cap at 16 KB, and the job is retried onto
- * the same machine with the same full disk — twice more, spending a customer's
- * attempts on a condition that has nothing to do with their video. The
- * leftovers of each failed attempt make the next one fail sooner.
+ * its output into `/tmp`. Run out and ffmpeg's write fails partway, it exits
+ * non-zero with `No space left on device` inside a stderr tail we cap at 16 KB,
+ * and the job is retried onto the same machine with the same full disk — twice
+ * more, spending a customer's attempts on a condition that has nothing to do
+ * with their video. The leftovers of each failed attempt make the next one fail
+ * sooner.
+ *
+ * This used to say "and removes none of it until the job ends", which was true
+ * and was half the problem: peak usage is what decides whether the next job is
+ * refused for room, and peak was being set by files nothing had read for
+ * minutes. `freeAllBut` is what changed it, and the section at the bottom of
+ * this file is what holds it to the one rule that matters — it never removes
+ * what the next stage still needs.
  *
  * **Cores.** ffmpeg with no `-threads` counts the CPUs it can see, and on Fly
  * that is the host's, not the machine's: dozens of frame threads on a box with
@@ -551,6 +558,60 @@ section("A store having a bad minute costs an upload, not a render");
   check("a bucket that says the file is too large is asked once", tooBig.requests <= 2, String(tooBig.requests));
 
   await rm(dir, { recursive: true, force: true });
+}
+
+section("A stage's leftovers go when the stage is over, not when the job is");
+{
+  /*
+    What `freeAllBut` is for, in one sentence: peak disk is what decides whether
+    the *next* job is refused for room, and until this existed peak was being
+    set by intermediates nothing had read for minutes. On the heaviest plan
+    2.3 of the 4.1 source-multiples `WORK_TO_SOURCE` measures are dead the
+    moment the renderer returns, and they were held through the upload, the
+    preview encode and the probe.
+
+    The one rule it must never break is the one tested first.
+  */
+  const dir = path.join(buildDir, "stage");
+  await mkdir(path.join(dir, "motion"), { recursive: true });
+  await writeFile(path.join(dir, "input.mp4"), Buffer.alloc(4096));
+  await writeFile(path.join(dir, "output.mp4"), Buffer.alloc(2048));
+  await writeFile(path.join(dir, "reframed.mp4"), Buffer.alloc(8192));
+  await writeFile(path.join(dir, "motion", "title-0001.png"), Buffer.alloc(1024));
+
+  const freed = await disk.freeAllBut(dir, [path.join(dir, "output.mp4")]);
+  const left = (await readdir(dir)).sort();
+  check("what the next stage needs is still there", left.join(",") === "output.mp4", left.join(","));
+  check("and everything else is gone, directories included", freed.removed.sort().join(",") === "input.mp4,motion,reframed.mp4", freed.removed.join(","));
+  check(
+    "and it says how much it freed, because the number is the whole point",
+    freed.freedBytes === 4096 + 8192 + 1024,
+    String(freed.freedBytes),
+  );
+
+  /*
+    Absolute or relative, because the caller holds whichever it happens to have
+    — `output` inside the renderer is an absolute path and `subDir` entries are
+    names — and a cleanup that silently deleted the file it was told to keep
+    because the spelling differed would be the worst bug in this file.
+  */
+  await writeFile(path.join(dir, "keep-me.mp4"), Buffer.alloc(16));
+  await writeFile(path.join(dir, "drop-me.mp4"), Buffer.alloc(16));
+  await disk.freeAllBut(dir, ["keep-me.mp4"]);
+  const byName = (await readdir(dir)).sort();
+  check("a bare name keeps the same file an absolute path would", byName.includes("keep-me.mp4") && !byName.includes("drop-me.mp4"), byName.join(","));
+
+  // An empty keep-list is the clips loop: this directory is finished with.
+  await disk.freeAllBut(dir, []);
+  check("an empty list empties the directory", (await readdir(dir)).length === 0);
+
+  /*
+    And it never throws. This runs inside a render, after the output exists and
+    before it is uploaded; a cleanup that could fail the job would cost more
+    than every byte it ever saved.
+  */
+  const gone = await disk.freeAllBut(path.join(buildDir, "no-such-directory-at-all"), []);
+  check("a directory that is not there is not an error", gone.freedBytes === 0 && gone.removed.length === 0);
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
