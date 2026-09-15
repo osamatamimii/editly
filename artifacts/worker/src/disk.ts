@@ -222,7 +222,7 @@ export function noRoomForNowNote(): NotePair {
       "There was not room for this while it was waiting, and nothing was " +
       "charged for it. Start it again and it should go through.",
     ar:
-      "ما كان في مساحة طول ما هالطلب مستني، وما انحسب عليك إشي. " +
+      "ما كان في مساحة طول ما هالطلب مستني، وما انحسب عليك شي. " +
       "شغّله مرة تانية ولازم يمشي.",
   };
 }

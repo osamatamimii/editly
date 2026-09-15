@@ -3614,7 +3614,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           `the plan asked for ${matches.length} ${type} operations and the render can only apply one, so the first was used`,
-          `طلبت الخطّة ${matches.length} عمليات ${type} والمُصيِّر لا يطبّق إلا واحدة، فاستُعملت الأولى`,
+          `الخطّة طلبت ${matches.length} عمليات ${type} والتنفيذ ما بيطبّق إلا وحدة، فاستعملت الأولى`,
         ),
       );
     }
@@ -3739,7 +3739,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
 
   if (silence || wordCuts.length > 0) {
     if (silence && !source.hasAudio) {
-      notes.push(t("no audio track, nothing to trim", "لا مسار صوت، فلا شيء يُقصّ"));
+      notes.push(t("no audio track, nothing to trim", "ما في مسار صوت، فما في شي ينقصّ"));
     } else {
       let silences: RemovableSpan[] = [];
       if (silence && source.hasAudio) {
@@ -3797,7 +3797,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             t(
               `${Math.max(moved, before.length - candidate.length)} cut${Math.max(moved, before.length - candidate.length) === 1 ? "" : "s"} moved off the middle of a word`,
-              `أُزيحت ${Math.max(moved, before.length - candidate.length)} قصّة عن منتصف كلمة`,
+              `زحزحت ${Math.max(moved, before.length - candidate.length)} قصّة عن نصّ كلمة`,
             ),
           );
         }
@@ -3808,7 +3808,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             t(
               `${spared} quiet ${spared === 1 ? "stretch was" : "stretches were"} left in because something was happening on screen there`,
-              `أُبقيت ${spared} فترة هادئة لأن شيئًا كان يحدث على الشاشة فيها`,
+              `خلّيت ${spared} فترة هادية لأنه كان في شي عم يصير على الشاشة فيها`,
             ),
           );
         }
@@ -3819,7 +3819,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       }
       const keptDuration = candidate.reduce((sum, s) => sum + (s.end - s.start), 0);
       if (keptDuration >= source.duration - 0.01) {
-        notes.push(t("no silence found to remove", "لم أجد صمتًا أزيله"));
+        notes.push(t("no silence found to remove", "ما لقيت صمت أشيله"));
       } else {
         kept = candidate;
         if (silence && silences.length > 0) {
@@ -3893,7 +3893,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           `the part you asked for starts at ${range.startSeconds.toFixed(0)}s, but the video is only ${source.duration.toFixed(1)}s long, so nothing was cut away`,
-          `الجزء اللي طلبته بيبلّش عند الثانية ${range.startSeconds.toFixed(0)}، والفيديو طوله ${source.duration.toFixed(1)} ثانية بس، فما انقصّ إشي`,
+          `الجزء اللي طلبته بيبلّش عند الثانية ${range.startSeconds.toFixed(0)}، والفيديو طوله ${source.duration.toFixed(1)} ثانية بس، فما انقصّ شي`,
         ),
       );
     } else if (end - start < 0.2) {
@@ -3990,7 +3990,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           `the clip is ${source.duration.toFixed(1)}s, no longer than the ${Math.round(highlight.targetSeconds)}s you asked to keep, so nothing was cut away`,
-          `المقطع طوله ${source.duration.toFixed(1)} ثانية، مش أطول من ${Math.round(highlight.targetSeconds)} ثانية طلبت تبقيها، فما انقصّ إشي`,
+          `المقطع طوله ${source.duration.toFixed(1)} ثانية، مش أطول من ${Math.round(highlight.targetSeconds)} ثانية طلبت تبقيها، فما انقصّ شي`,
         ),
       );
     } else {
@@ -4055,7 +4055,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
             : t(
                 `we could not hear the words in this clip, so the highlight is its middle ${Math.round(windowSeconds)}s` +
                   (shortfall ? `, which comes to ${delivered.toFixed(1)}s once the quiet inside it is cut` : ""),
-                `لم نستطع سماع الكلام في هذا المقطع، فالهايلايت هو ${Math.round(windowSeconds)} ثانية من وسطه` +
+                `ما قدرنا نسمع الكلام بهالمقطع، فالهايلايت هو ${Math.round(windowSeconds)} ثانية من وسطه` +
                   (shortfall ? `، وتصير ${delivered.toFixed(1)} ثانية بعد قصّ الهدوء داخلها` : ""),
               ),
       );
@@ -4081,7 +4081,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           "this clip is too short to open on part of itself, so it plays in order",
-          "هذا المقطع أقصر من أن يُفتح على جزء من نفسه، فيُعرض بترتيبه",
+          "هالمقطع أقصر من إني أفتحه على جزء منه، فبيمشي بترتيبه",
         ),
       );
     } else {
@@ -4144,7 +4144,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           t(
             "could not find a moment strong enough to open on, so it plays in order",
-            "لم أجد لحظة قويّة بما يكفي لأفتح عليها، فيُعرض بترتيبه",
+            "ما لقيت لحظة قويّة كفاية أفتح عليها، فبيمشي بترتيبه",
           ),
         );
       } else if (body.length > 0 && body[0]!.start < hook[0]!.start - 0.05) {
@@ -4223,7 +4223,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           "this was filmed in HDR and this machine has no tone-mapping filter, so the colour is left as it came. It may look flat or washed out where it is watched",
-          "صُوّر هذا بمدى ديناميكي عالٍ ولا يملك هذا الجهاز مرشّح تحويل النطاق، فتُرك اللون كما جاء. وقد يبدو باهتًا أو مسطّحًا حيث يُشاهَد",
+          "هاد متصوّر بألوان أوسع من اللي بتعرضه أغلب الشاشات، وهالجهاز ما عنده الأداة اللي بتضبّطها، فتركت اللون متل ما إجا. ممكن يبيّن باهت أو مسطّح وقت تتفرّج عليه",
         ),
       );
     }
@@ -4372,7 +4372,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           "there are no cuts in this edit to put a transition between, so nothing was joined",
-          "لا توجد قصّات في هذا التعديل أضع بينها انتقالًا، فلم يُوصَل شيء",
+          "ما في قصّات بهالتعديل أحطّ بيناتها انتقال، فما وصّلت شي",
         ),
       );
     } else {
@@ -4676,7 +4676,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           "there are no cuts in this edit to put a transition between, so nothing was joined",
-          "لا توجد قصّات في هذا التعديل أضع بينها انتقالًا، فلم يُوصَل شيء",
+          "ما في قصّات بهالتعديل أحطّ بيناتها انتقال، فما وصّلت شي",
         ),
       );
     } else {
@@ -5609,7 +5609,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
                 )
               : t(
                   "kept the middle of the picture: nothing in it was worth moving off centre for",
-                  "خلّيت نص الصورة متل ما هو: ما كان في إشي يستاهل إني أطلع عن النص",
+                  "خلّيت نص الصورة متل ما هو: ما كان في شي يستاهل إني أطلع عن النص",
                 ),
           );
         } catch {
@@ -6179,7 +6179,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             t(
               "dropped something that was going on top: the moment it belonged to was cut out",
-              "شيّلت إشي كان رح يتحطّ فوق: اللحظة اللي كان مربوط فيها انقصّت",
+              "شيّلت شي كان رح يتحطّ فوق: اللحظة اللي كان مربوط فيها انقصّت",
             ),
           );
           continue;
@@ -6271,7 +6271,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             t(
               `drew a scene with ${scene.length} ${scene.length === 1 ? "thing" : "things"} on top of the video`,
-              `رسمت مشهد فيه ${scene.length} ${scene.length === 1 ? "إشي" : "أشياء"} فوق الفيديو`,
+              `رسمت مشهد فيه ${scene.length} ${scene.length === 1 ? "شي" : "أشياء"} فوق الفيديو`,
             ),
           );
         }
@@ -6292,7 +6292,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
               : t("the titles", "العناوين");
         notes.push(
           t(`could not draw ${lost} here, so ${scene.length > 0 && titles.length === 0 ? "it was" : "they were"} left out`,
-            `تعذّر رسم ${lost} هنا، فتُرك خارج التعديل`),
+            `ما قدرت أرسم ${lost} هون، فتركته برّا التعديل`),
         );
       }
     }
@@ -6405,7 +6405,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             t(
               "kept your voice going under the other clip: playing that clip's own sound instead is not something I can do yet",
-              "خلّيت صوتك ماشي تحت المقطع التاني: تشغيل صوت هداك المقطع بدل صوتك مش من اللي بقدر عليه بعد",
+              "خلّيت صوتك مشي تحت المقطع التاني: تشغيل صوت هداك المقطع بدل صوتك مش من اللي بقدر عليه بعد",
             ),
           );
         }
@@ -6671,7 +6671,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           `the room sits ${Math.round(room.headroomDb)}dB under your voice, which is close enough to hear, so I took ${pull.nr}dB of it out`,
-          `ضجيج الغرفة يبعد ${Math.round(room.headroomDb)} ديسيبل عن صوتك، وهو قريب بما يُسمَع، فأزلت منه ${pull.nr} ديسيبل`,
+          `ضجيج الغرفة بيبعد ${Math.round(room.headroomDb)} ديسيبل عن صوتك، يعني قريب لدرجة بتنسمع، فشِلت منه ${pull.nr} ديسيبل`,
         ),
       );
     } else if (room) {
@@ -6687,7 +6687,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       notes.push(
         t(
           "I could not measure the room in this recording, so I left the noise alone rather than guess at it",
-          "لم أستطع قياس ضجيج الغرفة في هذا التسجيل، فتركت الضجيج بدل أن أخمّنه",
+          "ما قدرت أقيس ضجيج الغرفة بهالتسجيل، فتركت الضجيج بدل ما أخمّنه",
         ),
       );
     }
@@ -6957,7 +6957,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           t(
             `the music fades run ${fadeSeconds.toFixed(1)}s rather than the ${askedFade.toFixed(1)}s asked, so they stay a third of this short edit at most`,
-            `تلاشي الموسيقى ${fadeSeconds.toFixed(1)} ثانية بدل ${askedFade.toFixed(1)} المطلوبة، كي يبقى ثلث هذا التعديل القصير على الأكثر`,
+            `تلشي الموسيقى ${fadeSeconds.toFixed(1)} ثانية بدل ${askedFade.toFixed(1)} المطلوبة، كي يبقى ثلث هذا التعديل القصير على الأكثر`,
           ),
         );
       }
@@ -6998,7 +6998,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
             )
           : t(
               "left the sound effects out: nothing is cut here and nothing zooms in, so there is nowhere for one to land",
-              "تركت مؤثّرات الصوت: ما في إشي منقصّ هون ولا تقريب ع الصورة، فما في مطرح يوقعوا فيه",
+              "تركت مؤثّرات الصوت: ما في شي منقصّ هون ولا تقريب ع الصورة، فما في مطرح يوقعوا فيه",
             ),
       );
     } else {
@@ -7113,7 +7113,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
         notes.push(
           t(
             "could not find the sound effect files in this build, so the edit was left without them",
-            "لم أجد ملفّات المؤثّرات الصوتية في هذه النسخة، فتُرك التعديل بلا مؤثّرات",
+            "ما لقيت ملفّات المؤثّرات الصوتية بهالنسخة، فضلّ التعديل بلا مؤثّرات",
           ),
         );
       } else {
@@ -7156,7 +7156,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             t(
               "did not level the audio: the only sound here is the effects, kept at their own accent level rather than raised to a speaking one",
-              "لم أُسوِّ المستوى: الصوت الوحيد هنا هو المؤثّرات، تُركت على مستوى لكنتها لا رُفعت إلى مستوى الكلام",
+              "ما سوّيت المستوى: الصوت الوحيد هون هو المؤثّرات، خلّيتها على مستواها وما رفعتها لمستوى الكلام",
             ),
           );
         }
@@ -7212,7 +7212,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             t(
               `${missing} of them had no file in this build and were left out`,
-              `${missing} منها بلا ملفّ في هذه النسخة فتُركت`,
+              `${missing} منها ما إلها ملفّ بهالنسخة فتركتها`,
             ),
           );
         }
@@ -7222,7 +7222,7 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
           notes.push(
             t(
               `${sfxPlan.thinned} more moment${sfxPlan.thinned === 1 ? "" : "s"} could have taken one and did not: a sound everywhere stops being something you notice`,
-              `${sfxPlan.thinned} لحظة تانية كانت بتحتمل صوت وما أخدته: صوت بكل مطرح بيبطّل إشي بتنتبهله`,
+              `${sfxPlan.thinned} لحظة تانية كانت بتحتمل صوت وما أخدته: صوت بكل مطرح بيبطّل شي بتنتبهله`,
             ),
           );
         }
@@ -7349,11 +7349,11 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
       d < asked - 0.001
         ? t(
             `faded in and out over ${d.toFixed(1)}s, shorter than asked, so the fades stay a third of this short clip at most`,
-            `تلاشٍ في الطرفين خلال ${d.toFixed(1)} ثانية، أقصر ممّا طُلب، كي يبقى ثلث هذا المقطع القصير على الأكثر`,
+            `تلاشٍ بالطرفين خلال ${d.toFixed(1)} ثانية، أقصر ممّا طلبت، حتى يضلّ ثلث هالمقطع القصير على الأكثر`,
           )
         : t(
             `faded in from black and out to black over ${d.toFixed(1)}s`,
-            `فُتح من السواد وأُغلق إليه خلال ${d.toFixed(1)} ثانية`,
+            `فتحت من السواد وسكّرت عليه خلال ${d.toFixed(1)} ثانية`,
           ),
     );
   }
@@ -7461,14 +7461,14 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
               )
             : t(
                 "your recording's range was wider than one shift could hold at this level, so it was closed up a little rather than clipped",
-                "مدى تسجيلك أوسع من أن تحمله إزاحة واحدة عند هذا المستوى، فضُيّق قليلًا بدل أن تُقصّ قممه",
+                "مدى تسجيلك أوسع من إنه يتحمّله رفع واحد عند هالمستوى، فضيّقته شوي بدل ما تنقصّ قممه",
               ),
       );
     }
   }
 
-  if (notes.length === 0) notes.push(t("re-encoded with no changes requested", "أُعيد الترميز بلا أي تغيير مطلوب"));
-  ctx.onProgress?.(1, t("finishing", "أُنهي"));
+  if (notes.length === 0) notes.push(t("re-encoded with no changes requested", "رمّزته من جديد بلا أي تغيير مطلوب"));
+  ctx.onProgress?.(1, t("finishing", "بخلّص"));
   return {
     output,
     notes,

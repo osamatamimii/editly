@@ -1242,7 +1242,7 @@ export function describeAll(operations: EditOperation[]): Phrase[] {
       */
       case "drawLayers":
         return op.layers.length === 1
-          ? { en: "put something on top of the video", ar: "أحطّ إشي فوق الفيديو" }
+          ? { en: "put something on top of the video", ar: "أحطّ شي فوق الفيديو" }
           : {
               en: `build a full screen out of ${op.layers.length} pieces`,
               ar: `أبني شاشة كاملة من ${op.layers.length} عناصر`,

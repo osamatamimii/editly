@@ -45,7 +45,7 @@ function annotateStaleQueue(
     ...job,
     stage:
       job["language"] === "ar"
-        ? "ما زال ينتظر آلة تصيير، ولم يلتقطه أحد بعد."
+        ? "ما زال ينتظر آلة تنفيذ، ولم يلتقطه أحد بعد."
         : "Still waiting for a render machine, nothing has picked this up yet.",
   };
 }

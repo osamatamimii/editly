@@ -254,7 +254,7 @@ function withUnsubscribe(body: string, token: string | null, language: MailLangu
   // sees it, so the URL a letter carries must not be one that acts.
   const link = unsubscribeLink(token);
   return language === "ar"
-    ? `${body}\n\n--\nلإيقاف رسائل الأخبار: ${link}\nرسائل الحساب ستبقى تصلك.`
+    ? `${body}\n\n--\nلوقف رسائل الأخبار: ${link}\nرسائل الحساب رح تضلّ توصلك.`
     : `${body}\n\n--\nTo stop these updates: ${link}\nAccount messages will still reach you.`;
 }
 
@@ -482,9 +482,9 @@ export function planChanged(plan: string): Letter {
     ar: {
       subject: `خطّتك في Editly صارت ${plan}`,
       body:
-        `تغيّرت خطّتك إلى ${plan}.\n\n` +
-        `دقائقك وحدود الرفع تتبع الخطّة، وكل ما صنعته سابقًا كما هو.\n\n` +
-        `تجد ما تشمله الخطّة في صفحة حسابك.`,
+        `خطّتك صارت ${plan}.\n\n` +
+        `دقايقك وحدود الرفع بتتبع الخطّة، وكل اللي عملته قبل متل ما هو.\n\n` +
+        `بتلاقي شو بتشمل الخطّة بصفحة حسابك.`,
     },
   };
 }
@@ -500,11 +500,11 @@ export function paymentFailed(): Letter {
         `If you meant to cancel, you can ignore this.`,
     },
     ar: {
-      subject: "لم تتمّ آخر دفعة في Editly",
+      subject: "ما نجحت آخر دفعة في Editly",
       body:
-        `رُفضت البطاقة المرتبطة باشتراكك، فلم تتمّ الدفعة.\n\n` +
-        `لم يُحذف شيء ولم يُلغَ شيء بعد. تحديث البطاقة من صفحة حسابك يكفي.\n\n` +
-        `وإن كنت تقصد الإلغاء، فتجاهل هذه الرسالة.`,
+        `البطاقة المربوطة باشتراكك انرفضت، فما تمّت الدفعة.\n\n` +
+        `ما انحذف شي وما انلغى شي للآن. بس حدّث البطاقة من صفحة حسابك وبيكفي.\n\n` +
+        `وإذا قصدك تلغي، ما في داعي ترد على هالرسالة.`,
     },
   };
 }
@@ -519,11 +519,11 @@ export function minutesRunOut(plan: string): Letter {
         `A larger plan starts the next render immediately.`,
     },
     ar: {
-      subject: "استهلكت دقائق هذا الشهر في Editly",
+      subject: "خلصت دقايق هالشهر في Editly",
       body:
-        `انتهت دقائق خطّة ${plan} لهذا الشهر، فلن يبدأ تصيير جديد حتى تتجدّد.\n\n` +
-        `كل ما صنعته باقٍ، وكل ما في الطابور كذلك.\n\n` +
-        `وخطّة أكبر تبدأ التصيير التالي فورًا.`,
+        `خلصت دقايق خطّة ${plan} لهالشهر، فما رح يبدأ تعديل جديد لحتى تتجدّد.\n\n` +
+        `كل اللي عملته باقي، وكل اللي بالطابور كمان.\n\n` +
+        `وخطّة أكبر بتبدّي التعديل التالي على طول.`,
     },
   };
 }
@@ -572,11 +572,11 @@ export function renderFinished(project: string, projectId: string, seconds: numb
     ar: {
       subject: `تعديلك جاهز: ${project}`,
       body:
-        `انتهى التعديل الذي طلبته على «${project}»` +
+        `خلص التعديل اللي طلبته على «${project}»` +
         (length ? `، وطوله ${length} ثانية` : "") +
         `.\n\n` +
-        `افتحه من هنا: ${link}\n\n` +
-        `وملاحظات ما جرى عليه في المحادثة، على تلك الصفحة.`,
+        `افتحه من هون: ${link}\n\n` +
+        `وملاحظات شو صار عليه بالمحادثة، بنفس الصفحة.`,
     },
   };
 }
@@ -608,12 +608,12 @@ export function renderFailed(project: string, projectId: string, reason: string)
         `You can ask for it again here: ${link}`,
     },
     ar: {
-      subject: `لم يكتمل التعديل: ${project}`,
+      subject: `ما كمّل التعديل: ${project}`,
       body:
-        `توقّف التعديل على «${project}» قبل أن ينتهي.\n\n` +
-        (said ? `ما الذي حدث: ${said}\n\n` : "") +
-        `ولم يُحتسب عليك شيء، وفيديوك كما هو.\n\n` +
-        `تستطيع طلبه مرّة أخرى من هنا: ${link}`,
+        `وقف التعديل على «${project}» قبل ما يخلص.\n\n` +
+        (said ? `شو صار: ${said}\n\n` : "") +
+        `وما انحسب عليك شي، وفيديوك متل ما هو.\n\n` +
+        `فيك تطلبه مرّة تانية من هون: ${link}`,
     },
   };
 }
@@ -662,16 +662,16 @@ export function postFailed(
         `You can reschedule it here: ${link}`,
     },
     ar: {
-      subject: `لم يُنشر المنشور: ${platform}`,
+      subject: `ما اننشر المنشور: ${platform}`,
       body:
-        `المنشور المجدول إلى ${where} لم يخرج.
+        `المنشور المجدول لـ${where} ما طلع.
 
 ` +
-        (said ? `ما الذي حدث: ${said}
+        (said ? `شو صار: ${said}
 
 ` : "") +
-        `فيديوك كما هو وما يزال في صادراتك، ` +
-        `وتستطيع إعادة جدولته من هنا: ${link}`,
+        `فيديوك متل ما هو ولسا بصادراتك، ` +
+        `وفيك تعيد جدولته من هون: ${link}`,
     },
   };
 }

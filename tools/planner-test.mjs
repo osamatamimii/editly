@@ -1418,7 +1418,7 @@ console.log("\nTitles: their words or none");
   check("«كلمة كلمة» asks for the same thing", arabicTitle?.style === "word", JSON.stringify(arabicTitle));
   check(
     "and is answered in Arabic",
-    arabic.willDo.some((w) => /واحدةً واحدة/.test(w.ar ?? "")),
+    arabic.willDo.some((w) => /و(?:ا)?حدة و(?:ا)?حدة/.test(w.ar ?? "")),
     JSON.stringify(arabic.willDo),
   );
 

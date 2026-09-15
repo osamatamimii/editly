@@ -1655,7 +1655,7 @@ async function processJob(job: Job): Promise<void> {
           // in English at its source. Only the sentence around it is ours to
           // say, so only that is translated: inventing an Arabic reason we did
           // not write would be a different claim about what went wrong.
-          content: say(`I couldn't finish that edit: ${message}`, `لم أستطع إنهاء ذلك التعديل: ${message}`),
+          content: say(`I couldn't finish that edit: ${message}`, `ما قدرت أخلّص هالتعديل: ${message}`),
         });
       } catch (insertError) {
         log.warn({ err: insertError }, "could not write the failure into the conversation");
@@ -2181,7 +2181,7 @@ async function renderClipSet(args: {
           )
         : t(
             `we could not hear words in this clip, so it was divided evenly into ${chosen.windows.length}`,
-            `لم نستطع سماع كلام في هذا المقطع، فقُسّم بالتساوي إلى ${chosen.windows.length}`,
+            `ما قدرنا نسمع كلام بهالمقطع، فقسّمته بالتساوي لـ${chosen.windows.length}`,
           ),
   );
   /*
@@ -2352,7 +2352,7 @@ async function renderClipSet(args: {
     notes.push(
       t(
         `clip ${i + 1}: kept ${clock(window.start)}–${clock(window.end)} (${measured.seconds.toFixed(1)}s${cutSilence ? ", silences cut" : ""})`,
-        `القصاصة ${i + 1}: أُبقي ${clock(window.start)}–${clock(window.end)} (${measured.seconds.toFixed(1)} ثانية${cutSilence ? "، مع قصّ الصمت" : ""})`,
+        `القصاصة ${i + 1}: خلّيت ${clock(window.start)}–${clock(window.end)} (${measured.seconds.toFixed(1)} ثانية${cutSilence ? "، مع قصّ الصمت" : ""})`,
       ),
     );
   }

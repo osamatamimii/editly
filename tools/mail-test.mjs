@@ -576,8 +576,8 @@ section("A render finishes, and the person who asked for it is somewhere else");
   const failed = mail.renderFailed("Thursday show", "p-1", "ffmpeg ran out of memory");
   // The first question anybody has, answered before they ask it — this is the
   // sentence that stops a support conversation being opened.
-  check("a failure says outright that nothing was charged", /not been charged/i.test(failed.en.body) && /لم يُحتسب/.test(failed.ar.body));
-  check("and that their video is untouched", /untouched/i.test(failed.en.body) && /كما هو/.test(failed.ar.body));
+  check("a failure says outright that nothing was charged", /not been charged/i.test(failed.en.body) && /ما انحسب/.test(failed.ar.body));
+  check("and that their video is untouched", /untouched/i.test(failed.en.body) && /متل ما هو/.test(failed.ar.body));
   // Quoted rather than paraphrased: it comes from ffmpeg or from
   // infrastructure, in English, and inventing an Arabic reason we did not write
   // would be a different claim about what went wrong.

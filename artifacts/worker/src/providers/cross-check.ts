@@ -115,20 +115,35 @@ export function createCrossCheckedTranscriber(options: CrossCheckOptions): Trans
           const secondaryCanNamePrimary = secondary.canDetectLanguage?.(heard) ?? true;
           const trustSecondary = !primaryCanNameSecondary && secondaryCanNamePrimary;
           const winner = trustSecondary ? second.value : first.value;
-          const winnerName = trustSecondary ? secondary.name : primary.name;
-          const blindName = trustSecondary ? primary.name : secondary.name;
-          const blindTo = trustSecondary ? alsoHeard : heard;
-          const oneIsBlind = trustSecondary || (!secondaryCanNamePrimary && primaryCanNameSecondary);
+          /*
+            Which model won, which is blind to what, and the two language codes
+            all still decide `winner` above. None of them is in the note any
+            more, so none of them is named here either: a binding that exists
+            only to be interpolated into a sentence outlives the sentence and
+            is the reason the next one gets written with it.
+          */
           return withNotes(winner, [
-            oneIsBlind
-              ? t(
-                  `the two speech models heard different languages (${heard} and ${alsoHeard}); ${blindName} cannot detect ${blindTo}, so the words are as ${winnerName} heard them`,
-                  `سمع النموذجان لغتين مختلفتين (${heard} و${alsoHeard})، و${blindName} لا يستطيع التعرّف على ${blindTo}، فالكلمات كما سمعها ${winnerName}`,
-                )
-              : t(
-                  `the two speech models heard different languages (${heard} and ${alsoHeard}), so the words are as ${winnerName} heard them rather than a mixture of the two`,
-                  `سمع النموذجان لغتين مختلفتين (${heard} و${alsoHeard})، فالكلمات كما سمعها ${winnerName} لا مزيجًا بينهما`,
-                ),
+            /*
+              What the customer needs from this, and nothing else.
+
+              It read: "the two speech models heard different languages (en and
+              eng); deepgram/nova-3 cannot detect eng, so the words are as
+              elevenlabs/scribe_v1 heard them". Osama read that in the product
+              and said so. He is right: every proper noun in it is our
+              plumbing. The person did not choose these services, cannot act on
+              which one won, and is being asked to hold two of their names in
+              their head to finish the sentence.
+
+              What is theirs is the fact: the reading was checked twice, the
+              two disagreed about which language this is, and one was picked
+              rather than the two mixed together. The names, the codes and
+              which model is blind to what go to the log, where the person who
+              can act on them is already looking.
+            */
+            t(
+              "I read the speech twice to check it, and the two readings disagreed about which language this is. I kept the one that matched the recording rather than mixing them",
+              "قرأت الكلام مرّتين للتأكد، واختلفت القراءتان على لغة التسجيل. أبقيت القراءة التي طابقت الصوت بدل أن أمزج بينهما",
+            ),
           ]);
         }
 

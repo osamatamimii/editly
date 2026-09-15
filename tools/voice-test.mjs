@@ -12,6 +12,26 @@
  * everyone — and **زميل بيفهم عليك** as the voice. `claude/briefs/07-progress.md`
  * carries the decision.
  *
+ * ## The two corrections of 15 September
+ *
+ * He read the product again and said «حاول خليه يحكي عربية بيضاء مش بلهجة
+ * معينة ولا تكون عربية فصحى بزيادة», and separately «ما في كلمة هلق عنا
+ * بلهجتنا». That was read here as an instruction to write MSA, and two hundred
+ * sentences were converted to it before he saw one and said plainly:
+ *
+ *   «لا تخليه فصحى, خليه عامي»
+ *
+ * So both corrections stand together and neither is the other: **عامية**, and
+ * **بيضاء**. Colloquial is the register; white is the *vocabulary* inside it.
+ * «رح أشيل», «ما بقدر», «اللي», «بدك», «شو», «مش» are the common spoken core
+ * and every Arabic speaker reads them. «هلق», «منيح», «إشي» are narrower —
+ * they place the speaker in one town rather than one region — and each has a
+ * spoken word that travels: the first is simply dropped, because a sentence
+ * rarely needs it.
+ *
+ * The table below is therefore unchanged in its first half and has a short
+ * second half. It is not a push toward MSA and must not become one.
+ *
  * ## Why a guard and not a review
  *
  * Because register is not something you fix once. Every new sentence is
@@ -78,6 +98,10 @@ const SCOPE = [
   // unasked. It was outside both guards until a live reply showed its
   // sentences sitting in the same list as the converted ones.
   "artifacts/api-server/src/lib/direct.ts",
+  // Mail is the same voice reaching somebody who is not at the page. It sat
+  // outside this guard long enough to keep a word the owner said he does not
+  // know («تصيير») after every other file had lost it.
+  "lib/mail/src/index.ts",
 ];
 
 /**
@@ -127,7 +151,27 @@ const MARKERS = [
   [/يُرجى|الرجاء/u, "«يُرجى»", "a verb: «جرّب»، «ابعت»"],
   [new RegExp(`${EDGE}ماذا${END}`, "u"), "«ماذا»", "«شو»"],
   [new RegExp(`${EDGE}قل لي${END}`, "u"), "«قل لي»", "«قلّي»"],
-  [new RegExp(`${EDGE}لم [يت]`, "u"), "«لم يـ…»", "«ما …»"],
+  // Widened from `[يت]` after three live notes read «لم أستطع» / «لم نستطع»
+  // and walked past a guard that only watched the third person.
+  [new RegExp(`${EDGE}ل[من] [يتنأا]`, "u"), "«لم يـ…» / «لن أـ…»", "«ما …» / «مش رح …»"],
+  [/يمكنك|يمكنه|يمكنني|بإمكان/u, "«يمكنك»", "«فيك» / «بتقدر»"],
+  /*
+    The passive, which is the register of a form more than any single word.
+    «فُتح», «أُبقيت», «تُرك», «صُوّر»: nobody speaks this way. Detected by the
+    damma written on the prefix letter, which is how these are spelled here —
+    without it the word reads as the active and the sentence changes meaning.
+  */
+  [/[أإاتينو]\u064F[\u0621-\u064A]/u, "the passive («فُتح» / «أُبقيت»)", "say who did it: «فتحت» / «خلّيت»"],
+  [/تعذّر|يتعذّر/u, "«تعذّر»", "«ما قدرت»"],
+
+  /*
+    And the narrow words. These are colloquial, which is right, and local,
+    which is not: «عربية بيضاء» is spoken Arabic that travels, and a customer
+    in Cairo or Riyadh reading «منيح» is reading somebody else's town.
+  */
+  [new RegExp(`${EDGE}هل[قأ]${END}`, "u"), "«هلق»", "drop it: a sentence rarely needs it"],
+  [new RegExp(`${EDGE}منيح`, "u"), "«منيح»", "«كويس»"],
+  [new RegExp(`${EDGE}[إا]شي${END}`, "u"), "«إشي»", "«شي»"],
 ];
 
 const TEXT = new Set([
@@ -199,7 +243,7 @@ console.log("\nThe table catches what it says it catches");
   // And the other direction, which is the half that decides whether anybody
   // keeps this check switched on.
   const now = [
-    "تمام، رح أقصّ السكتات. التصيير شغّال هلق",
+    "تمام، رح أقصّ السكتات. التنفيذ شغّال",
     "ما بقدر أعمل هاد لسا",
     "قلّي بكلماتك وبقلّك إذا بقدر",
     "هالفيديو أكبر من اللي بنقدر نشتغل عليه",

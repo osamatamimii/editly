@@ -632,9 +632,25 @@ console.log("\nA provider's own words do not become the customer's explanation")
   const out = await enrich.enrichPlan("unused.mp4", plan, { providers: failing });
   const note = out.notes.join(" ");
 
-  check("the note still says who failed", /deepgram/.test(note), note);
-  check("and with what", /401/.test(note), note);
+  /*
+    The supplier's name and status used to be *required* here, on the reasoning
+    that they are what let support tell a bad key from a service being down.
+    That reasoning is right about the fact and wrong about the audience.
+
+    Osama read «أجاب gemini بالرمز 429» in the product and said so. The person
+    did not choose gemini, cannot act on 429, and is being handed the name of a
+    company they have no relationship with in the middle of a sentence about
+    their own video. Support still needs both and still has both: they are in
+    the log line beside this and in `jobs.error_detail`, which is where
+    somebody diagnosing an account is already looking.
+
+    So the requirement inverts. The note must say what it cost the render and
+    what the person can do, and must not name our plumbing at all.
+  */
+  check("the note does not name the supplier", !/deepgram/i.test(note), note);
+  check("nor their status code", !/\b401\b/.test(note), note);
   check("and what it cost the render", /no captions/.test(note), note);
+  check("and why, in words a person can act on", /could not answer|was busy|did not answer in time/.test(note), note);
   check("but not their error code", !/INVALID_AUTH/.test(note), note);
   check("nor their prose", !/does not have access/.test(note), note);
   check("nor a request id that identifies our account to whoever reads it", !/abc-123/.test(note), note);
@@ -667,7 +683,7 @@ console.log("\nA provider's own words do not become the customer's explanation")
   const timedOutAr = await enrich.enrichPlan("unused.mp4", plan, { providers: plain, language: "ar" });
   check(
     "and in Arabic when the render was asked for in Arabic",
-    /لم يُجب في الوقت المتاح/.test(timedOutAr.notes.join(" ")),
+    /ما ردّت بالوقت المتاح/.test(timedOutAr.notes.join(" ")),
     JSON.stringify(timedOutAr.notes),
   );
 }

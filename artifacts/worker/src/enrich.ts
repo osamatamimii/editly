@@ -243,11 +243,11 @@ export async function enrichPlan(
         peak === null
           ? t(
               "this clip has no sound track at all, so there are no words to caption or to cut on",
-              "هذا المقطع بلا مسار صوت أصلًا، فلا كلمات تُكتب ولا يُقصّ عليها",
+              "هالمقطع ما فيه مسار صوت أصلًا، فما في كلمات تنكتب ولا ينقصّ عليها",
             )
           : t(
               "there is a sound track on this clip but nothing recorded onto it, so there are no words to caption or to cut on",
-              "بهالمقطع مسار صوت بس ما انسجّل عليه إشي، فما في كلمات تنكتب ولا ينقصّ عليها",
+              "بهالمقطع مسار صوت بس ما انسجّل عليه شي، فما في كلمات تنكتب ولا ينقصّ عليها",
             ),
       );
     }
@@ -349,7 +349,7 @@ export async function enrichPlan(
       notes.push(
         t(
           `we could not hear the words in this clip${excuse.en}, so this render has no captions`,
-          `لم نستطع سماع الكلام في هذا المقطع${excuse.ar}، فهذا التصيير بلا كابشن`,
+          `ما قدرنا نسمع الكلام بهالمقطع${excuse.ar}، فهذا التنفيذ بلا كابشن`,
         ),
       );
     }
@@ -375,7 +375,7 @@ export async function enrichPlan(
         notes.push(
           t(
             `${protect.length} ${protect.length === 1 ? "stretch is" : "stretches are"} quiet because something is happening on screen, not because nothing is, so ${protect.length === 1 ? "it was" : "they were"} left in`,
-            `${protect.length} فترة هادئة لأن شيئًا يحدث على الشاشة، لا لأن لا شيء يحدث، فأُبقيت`,
+            `${protect.length} فترة هادية لأن في شي عم يصير على الشاشة، مش لأنه ما في شي، فخلّيتها`,
           ),
         );
       }
@@ -392,7 +392,7 @@ export async function enrichPlan(
       notes.push(
         t(
           `we could not watch this clip for things worth keeping${excuse.en}, so the cut is from the audio alone`,
-          `لم نستطع مشاهدة هذا المقطع بحثًا عمّا يستحقّ الإبقاء${excuse.ar}، فالقصّ من الصوت وحده`,
+          `ما قدرنا نتفرّج على هالمقطع لندوّر على اللي بستاهل يضلّ${excuse.ar}، فالقصّ من الصوت لحاله`,
         ),
       );
     }
@@ -498,7 +498,7 @@ export async function enrichPlan(
       });
       if (cues.length === 0) {
         notes.push(
-          t("no speech was found in this clip, so there is nothing to caption", "ما لقينا كلام بهالمقطع، فما في إشي ينكتب"),
+          t("no speech was found in this clip, so there is nothing to caption", "ما لقينا كلام بهالمقطع، فما في شي ينكتب"),
         );
         continue;
       }
@@ -566,7 +566,7 @@ export async function enrichPlan(
       notes.push(
         t(
           "the delivery was even, so punches were left out rather than placed arbitrarily",
-          "كان الإلقاء متساويًا، فتُركت التقريبات بدل وضعها اعتباطًا",
+          "الإلقاء كان على وتيرة وحدة، فما حطّيت تقريبات بدل ما أحطّها بلا سبب",
         ),
       );
       continue;
@@ -724,7 +724,7 @@ function platformOf(plan: EditPlan): Platform | null {
  * used it. `say.ts` makes both halves required arguments precisely so that a
  * note cannot be written English-only, and a template hole filled from one
  * language walks around that guarantee at the seam: an Arabic customer read
- * «لم نستطع سماع الكلام في هذا المقطع this time (…)». Returning a pair puts
+ * «ما قدرنا نسمع الكلام بهالمقطع this time (…)». Returning a pair puts
  * the two halves back under the same rule as every other sentence here.
  *
  * And its fallback pasted 120 characters of the raw error into a note. The
@@ -741,16 +741,31 @@ function visionExcuse(error: unknown): { en: string; ar: string } {
   const message = (error instanceof Error ? error.message : String(error)).split("\n")[0];
   const shaped = message.match(/^([a-z][a-z0-9_-]*)(?:\s+[a-z0-9 _-]*?)?\s+(\d{3})\b/i);
   if (shaped) {
-    const [, provider, status] = shaped;
+    /*
+      The reason, not the supplier.
+
+      The comment above argues for keeping the service's name and its status
+      code so support can tell a bad key from a service being down. That is
+      right about the *fact* and wrong about the *audience*. Osama read «أجاب
+      gemini بالرمز 429» in the product and said so: the person did not choose
+      gemini, cannot act on 429, and is being handed the name of a company they
+      have no relationship with in the middle of a sentence about their video.
+
+      Support still needs both and still has both -- they are in the log line
+      beside this and in `jobs.error_detail`, which is where somebody
+      diagnosing an account is already looking. The customer gets the half that
+      is theirs: it was busy, later usually works.
+    */
+    const [, , status] = shaped;
     if (status === "429") {
       return {
-        en: ` this time (${provider} answered ${status}: it was overloaded, and later usually works)`,
-        ar: ` هذه المرّة (أجاب ${provider} بالرمز ${status}: كان محمّلًا فوق طاقته، وغالبًا ينجح لاحقًا)`,
+        en: " this time, because the service was busy. Later usually works",
+        ar: " هالمرة، لأن الخدمة كانت مشغولة. عادةً بتنجح بعدين",
       };
     }
     return {
-      en: ` this time (${provider} answered ${status})`,
-      ar: ` هذه المرّة (أجاب ${provider} بالرمز ${status})`,
+      en: " this time, because the service could not answer",
+      ar: " هالمرة، لأن الخدمة ما قدرت تردّ",
     };
   }
   // A deadline is the one unshaped failure that means something to a person:
@@ -761,8 +776,8 @@ function visionExcuse(error: unknown): { en: string; ar: string } {
   // sentence for the sake of four words.
   if (/\b(?:no response within|timed? ?out|timeout|ETIMEDOUT|AbortError)\b/i.test(message)) {
     return {
-      en: " this time (it did not answer in time, and later usually works)",
-      ar: " هالمرة (ما ردّ بالوقت المتاح، وغالبًا بينجح بعدين)",
+      en: " this time, because it did not answer in time. Later usually works",
+      ar: " هالمرة، لأنها ما ردّت بالوقت المتاح. عادةً بتنجح بعدين",
     };
   }
 
@@ -818,7 +833,7 @@ async function styleTitlesFromReference(
         notes.push(
           t(
             "we could not read what the reference draws, so your titles are set our way",
-            "لم نستطع قراءة ما يرسمه الفيديو المرجعي، فعناوينك مضبوطة بطريقتنا",
+            "ما قدرنا نقرا شو بيرسمه الفيديو المرجعي، فعناوينك مضبوطة بطريقتنا",
           ),
         );
       }
@@ -847,7 +862,7 @@ async function styleTitlesFromReference(
     notes.push(
       t(
         "we could not read what the reference draws, so your titles are set our way",
-        "لم نستطع قراءة ما يرسمه الفيديو المرجعي، فعناوينك مضبوطة بطريقتنا",
+        "ما قدرنا نقرا شو بيرسمه الفيديو المرجعي، فعناوينك مضبوطة بطريقتنا",
       ),
     );
     return operations;

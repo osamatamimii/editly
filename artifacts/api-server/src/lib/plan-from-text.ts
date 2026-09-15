@@ -1283,7 +1283,7 @@ export function momentsNotHonoured(asked: string, operations: EditOperation[]): 
   return [
     say(
       `do something only at ${when.join(", ")} yet. Everything except a zoom punch applies to the whole video, so tell me what to do there and I will say if I can`,
-      `أعمل إشي عند ${when.join("، ")} لحالها بعد، كل إشي غير التقريب بينطبق على الفيديو كلّه، قلّي شو أعمل هناك وبقلّك إذا بقدر`,
+      `أعمل شي عند ${when.join("، ")} لحالها بعد، كل شي غير التقريب بينطبق على الفيديو كلّه، قلّي شو أعمل هناك وبقلّك إذا بقدر`,
     ),
   ];
 }
@@ -2613,8 +2613,8 @@ export function planFromText(
       });
       willDo.push(
         kinetic
-          ? say(`land the words "${words}" one at a time near the start`, `أُنزل كلمات "${words}" واحدةً واحدة قرب البداية`)
-          : say(`bring in the words "${words}" near the start`, `أُدخل عبارة "${words}" قرب البداية`),
+          ? say(`land the words "${words}" one at a time near the start`, `أنزّل كلمات "${words}" وحدة وحدة قرب البداية`)
+          : say(`bring in the words "${words}" near the start`, `أحطّ عبارة "${words}" قرب البداية`),
       );
     }
     /*
@@ -2856,11 +2856,11 @@ export function becauseIn(lang: Language, body: Record<string, unknown>): string
 
   switch (body["reason"]) {
     case "suspended":
-      return "هالحساب موقوف، فما بيبلّش تصيير جديد. ما انحذف إشي؛ مشاريعك وفيديوهاتك كلّها بمكانها.";
+      return "هالحساب موقوف، فما بيبلّش تنفيذ جديد. ما انحذف شي؛ مشاريعك وفيديوهاتك كلّها بمكانها.";
     case "alreadyRendering":
-      return "في تصيير شغّال هلق على هالمشروع، وبضمّ هاد عليه أول ما يخلص.";
+      return "في تنفيذ شغّال على هالمشروع، وبضمّ هاد عليه أول ما يخلص.";
     case "noVideo":
-      return "ارفع فيديو قبل التصيير.";
+      return "ارفع فيديو قبل التنفيذ.";
     /*
       Our defect, not theirs, and the Arabic says so the same way the English
       does: nothing started, nothing charged, and one thing to try. It does not
@@ -2868,19 +2868,19 @@ export function becauseIn(lang: Language, body: Record<string, unknown>): string
       different sentence would have avoided.
     */
     case "planNotRunnable":
-      return "في إشي بالتعديل طلع غلط من عنّا، فما بلّش إشي وما انصرفت ولا دقيقة. جرّب تطلبه بكلمات تانية، واحكيلنا إذا ضلّ يصير.";
+      return "في شي بالتعديل طلع غلط من عنّا، فما بلّش شي وما انصرفت ولا دقيقة. جرّب تطلبه بكلمات تانية، واحكيلنا إذا ضلّ يصير.";
     case "tooManyInFlight":
-      return `عندك ${countedAr(n("jobsInFlight"), "تصيير واحد", "تصييران", "عمليات تصيير")} تعمل الآن. تعمل واحدة تلو الأخرى، فابدأ هذه حين تنتهي إحداها.`;
+      return `عندك ${countedAr(n("jobsInFlight"), "تنفيذ واحد", "تنفيذان", "عمليات تنفيذ")} تعمل الآن. تعمل واحدة تلو الأخرى، فابدأ هذه حين تنتهي إحداها.`;
     case "minutesInFlight":
-      return `دقايق هالشهر محجوزة بتصيير شغّال هلق: ${n("minutesInFlight")} من ${n("minutesIncluded")}. أول ما يخلص بترجعلك اللي ما انصرف منها.`;
+      return `دقايق هالشهر محجوزة بتنفيذ شغّال: ${n("minutesInFlight")} من ${n("minutesIncluded")}. أول ما يخلص بترجعلك اللي ما انصرف منها.`;
     case "minutesExhausted":
-      return `استُهلكت دقائق هذا الشهر: ${n("minutesUsed")} من ${n("minutesIncluded")}. تتجدّد مع بداية الشهر القادم، أو ارفع الباقة الآن.`;
+      return `خلصت دقايق هالشهر: ${n("minutesUsed")} من ${n("minutesIncluded")}. بتتجدّد أول الشهر الجاي، أو ارفع الباقة.`;
     case "sourceExhausted":
       return (
-        `ما رُفع هذا الشهر سبق ما نُشر منه بكثير: نحو ` +
-        `${countedAr(Math.round(n("sourceMinutesUsed") / 60), "ساعة", "ساعتين", "ساعات")} من اللقطات قُرئت مقابل ` +
-        `${countedAr(n("minutesUsed"), "دقيقة", "دقيقتين", "دقائق")} صُدّرت. انشر أكثر ممّا هو هنا، أو ارفع الباقة. ` +
-        `وعلى الحالين يتصفّر هذا مع بداية الشهر القادم.`
+        `اللي رفعته هالشهر سبق اللي نشرته منه بكتير: حوالي ` +
+        `${countedAr(Math.round(n("sourceMinutesUsed") / 60), "ساعة", "ساعتين", "ساعات")} من اللقطات قريناها مقابل ` +
+        `${countedAr(n("minutesUsed"), "دقيقة", "دقيقتين", "دقائق")} صدّرتها. انشر أكتر من اللي هون، أو ارفع الباقة. ` +
+        `وع الحالتين بيرجع هاد لصفر أول الشهر الجاي.`
       );
     case "uploadTooLong": {
       const suggested = body["suggestedPlan"];
@@ -3165,7 +3165,7 @@ export function replyFor(
         opening +
           after +
           (lang === "ar"
-            ? "التصيير شغّال هلق، وبيبيّن هون أول ما يخلص."
+            ? "التنفيذ شغّال، وبيبيّن هون أول ما يخلص."
             : "It's rendering now; you'll see it here the moment it's done."),
       );
     } else if (context.render && !context.render.started) {
@@ -3183,7 +3183,7 @@ export function replyFor(
         wanted +
           after +
           (lang === "ar"
-            ? `بس ما بقدر أبلّش هلق: ${context.render.because}`
+            ? `بس ما بقدر أبلّش: ${context.render.because}`
             : `But I can't start it right now: ${context.render.because}`),
       );
     } else {
@@ -3267,7 +3267,7 @@ export function replyFor(
   if (context.simpleReading) {
     parts.push(
       lang === "ar"
-        ? "وبس تعرف: قريت جملتك بالطريقة البسيطة، كلمة كلمة. شوف القائمة إذا فيها اللي قصدته، وإذا في إشي ناقص قلهولي بكلمات أقصر وبمسكه."
+        ? "وبس تعرف: قريت جملتك بالطريقة البسيطة، كلمة كلمة. شوف القائمة إذا فيها اللي قصدته، وإذا في شي ناقص قلهولي بكلمات أقصر وبمسكه."
         : "One thing: I read that the simple way, word by word. Check the list says what you meant, and if something is missing, tell me in shorter words and I will get it.",
     );
   }
@@ -3334,7 +3334,7 @@ const NOTHING_UNDERSTOOD: Record<Language, string> = {
     'or "give me the strongest 30 seconds, captioned, vertical for TikTok".',
   ar:
     "ما التقطت شو بدك أغيّر. قلّي بكلماتك وبقلّك إذا بقدر، " +
-    "أو جرّب إشي متل «نظّفه وضيف ترجمة وخلّيه بنفس الطول»، " +
+    "أو جرّب شي متل «نظّفه وضيف ترجمة وخلّيه بنفس الطول»، " +
     "أو «أعطني أقوى 30 ثانية مع ترجمة، عمودية لتيك توك».",
 };
 

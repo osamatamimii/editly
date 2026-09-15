@@ -483,7 +483,7 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
       */
       const because = busy
         ? intent.language === "ar"
-          ? "في تصيير يعمل الآن على هذا المشروع، وسأضمّ هذا إليه حالما ينتهي."
+          ? "في تنفيذ يعمل الآن على هذا المشروع، وسأضمّ هذا إليه حالما ينتهي."
           : "there's a render already going for this project. I'll fold this in once it finishes."
         : becauseIn(intent.language, outcome.body);
       render = { started: false, because };

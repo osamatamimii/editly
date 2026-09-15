@@ -35,8 +35,8 @@ export const EDITOR = {
     (ceiling) => `MP4, MOV or WebM • up to ${ceiling}`,
   ),
   selectVideo: p("اختر فيديو", "Select Video"),
-  uploading: p("يُرفع الفيديو…", "Uploading Video..."),
-  finishing: p("نُنهي…", "Finishing up..."),
+  uploading: p("عم نرفع الفيديو…", "Uploading Video..."),
+  finishing: p("عم نخلّص…", "Finishing up..."),
   finishingDetail: p(
     "فيديوك محفوظ. نقرأ طوله ونأخذ لقطة غلاف.",
     "Your video is stored. Reading its length and taking a poster frame.",
@@ -72,11 +72,11 @@ export const EDITOR = {
       `Upload a short clip in the style you want and we read it: how often it cuts, how much silence it leaves, how loud and how graded it ends up. Under ${ceiling}, and we only look at the first two minutes.`,
   ),
   chooseReference: p("اختر مقطعًا مرجعيًّا", "Choose a reference clip"),
-  uploadingShort: p("يُرفع…", "Uploading…"),
-  referenceAttached: p("أُرفق المرجع", "Reference attached"),
+  uploadingShort: p("عم نرفع…", "Uploading…"),
+  referenceAttached: p("انرفق المرجع", "Reference attached"),
   referenceAttachedDetail: p("تنفيذك الجاي رح يتظبّط ليطابقه.", "Your next render will be edited to match it."),
-  couldNotAttach: p("تعذّر إرفاق هذا المرجع", "Could not attach that reference"),
-  couldNotRemoveReference: p("تعذّرت إزالة المرجع", "Could not remove the reference"),
+  couldNotAttach: p("ما قدرنا نرفق هالمرجع", "Could not attach that reference"),
+  couldNotRemoveReference: p("ما قدرنا نشيل المرجع", "Could not remove the reference"),
 
   looksLong: p("لمسات بضغطة", "One-click looks"),
   looksShort: p("اللمسات", "Looks"),
@@ -127,7 +127,7 @@ export const EDITOR = {
     "The free plan has three videos read a day. It resets tomorrow, and any subscription removes the limit.",
   ),
   transcriptSilent: p(
-    "هذا الملف بلا كلام مسموع، فلا نص يُعرض له.",
+    "هالملفّ ما فيه كلام مسموع، فما في نص نعرضه.",
     "This file has no audible speech, so there is no text to show for it.",
   ),
   transcriptTruncated: p(
@@ -156,26 +156,26 @@ export const EDITOR = {
     "Hey, I'm Noah 👋\nYour AI video editor.\n\nUpload your video and tell me the vibe, and I'll turn it into a viral clip.",
   ),
   describeYourEdit: p("صف تعديلك…", "Describe your edit..."),
-  sendFailed: p("تعذّر إرسال الرسالة", "Failed to send message"),
+  sendFailed: p("ما قدرنا نبعت الرسالة", "Failed to send message"),
 
   renderQueued: p("التنفيذ في الطابور", "Render queued"),
   renderQueuedDetail: p(
     "فيك تطلع من هالصفحة. منكمّل الشغل.",
     "You can leave this page. We'll keep working.",
   ),
-  couldNotStartRender: p("تعذّر بدء التنفيذ", "Could not start the render"),
+  couldNotStartRender: p("ما قدرنا نبلّش التنفيذ", "Could not start the render"),
   renderDidNotFinish: p("هالتنفيذ ما كمّل.", "That render didn't finish."),
   somethingOnOurSide: p("حدث خطأ عندنا.", "Something went wrong on our side."),
   starting: p("يبدأ…", "Starting…"),
   tryRenderAgain: p("أعد هذا التنفيذ", "Try that render again"),
-  wontPreview: p("هذا الملف لا يُعرض هنا", "This file will not preview here"),
+  wontPreview: p("هالملفّ ما بينعرض هون", "This file will not preview here"),
   wontPreviewDetail: p(
-    "محفوظ بأمان، ويُعدَّل ويُصدَّر كالمعتاد.",
+    "محفوظ بأمان، وبتقدر تعدّله وتصدّره متل العادة.",
     "It is stored safely, and it still edits and exports normally.",
   ),
   workingOnIt: p("نعمل عليه…", "Working on it…"),
   keepsGoing: f<[number]>(
-    (percent) => `${percent}% · يمكنك إغلاق الصفحة، والعمل يستمرّ`,
+    (percent) => `${percent}% · فيك تسكّر الصفحة، والشغل بيكمّل`,
     (percent) => `${percent}% · you can close this page, it keeps going`,
   ),
 } as const;
@@ -217,16 +217,16 @@ export const FONTS = {
   arabicHeading: p("العربية", "العربية"),
   addYourOwn: p("أضف خطًّا من عندك", "Add your own font"),
   rights: p(
-    "استعمل خطوطًا تملك حق استعمالها. الكابشنات تُحرَق داخل فيديوهات تنشرها أنت وعملاؤك، وأغلب تراخيص الخطوط تعامل هذا معاملةً غير استعمال الخط على جهازك.",
+    "استعمل خطوط إلك حق تستعملها. الكتابة بتنحرق جوّا فيديوهات بتنشرها انت وعملاؤك، وأغلب تراخيص الخطوط بتعامل هاد غير عن استعمال الخط ع جهازك.",
     "Use fonts you have the right to. Captions are burned into videos you and your clients publish, which most font licences treat differently from using a font on your own machine.",
   ),
   signInAgain: p("سجّل الدخول من جديد لإضافة خط.", "Sign in again to add a font."),
-  couldNotAdd: p("تعذّرت إضافة هذا الخط.", "That font could not be added."),
-  couldNotUpload: p("تعذّر رفع هذا الخط.", "That font could not be uploaded."),
-  couldNotRemove: p("تعذّرت إزالة هذا الخط.", "Could not remove that font."),
+  couldNotAdd: p("ما قدرنا نضيف هالخط.", "That font could not be added."),
+  couldNotUpload: p("ما قدرنا نرفع هالخط.", "That font could not be uploaded."),
+  couldNotRemove: p("ما قدرنا نشيل هالخط.", "Could not remove that font."),
   removeFace: f<[string]>((label) => `أزل ${label}`, (label) => `Remove ${label}`),
   statusPending: p("بانتظار القياس", "Waiting to be measured"),
-  statusPreparing: p("يُقاس، ثوانٍ قليلة", "Measuring it, a few seconds"),
+  statusPreparing: p("عم نقيسه، كم ثانية", "Measuring it, a few seconds"),
   statusReady: p("جاهز", "Ready"),
   statusRefused: p("لا يصلح للاستعمال", "Cannot be used"),
 } as const;
@@ -255,17 +255,17 @@ export const VOICE = {
 export const LIBRARY = {
   title: p("ملفات هذا المشروع", "Files in this project"),
   lead: p(
-    "لقطات إضافية، صور، شعار. وموسيقى تُوضع تحت التعديل لا فوقه.",
+    "لقطات زيادة، صور، شعار. وموسيقى بتنحطّ تحت التعديل مش فوقه.",
     "B-roll, screenshots, a logo. And music, which goes under the edit rather than on it.",
   ),
   addFiles: p("أضف ملفات", "Add files"),
   adding: f<[number, number]>(
-    (done, total) => `يُضاف ${done}/${total}…`,
+    (done, total) => `عم نضيف ${done}/${total}…`,
     (done, total) => `Adding ${done}/${total}…`,
   ),
   empty: f<[string]>(
     (ceiling) =>
-      `ما في إشي لهلق. الملفات اللي بتضيفها هون بتقدر تنقصّ كلقطات إضافية، أو تنحطّ فوق الكادر، أو تشتغل تحت التعديل كلّه إذا كانت موسيقى بتملك حقوقها. لحد ${ceiling} للملف.`,
+      `ما في شي لحد الآن. الملفات اللي بتضيفها هون بتقدر تنقصّ كلقطات إضافية، أو تنحطّ فوق الكادر، أو تشتغل تحت التعديل كلّه إذا كانت موسيقى بتملك حقوقها. لحد ${ceiling} للملف.`,
     (ceiling) =>
       `Nothing yet. Files you add here can be cut in as b-roll, laid over the frame, or, if it is a track you have the rights to, played under the whole edit. Up to ${ceiling} each.`,
   ),
@@ -277,7 +277,7 @@ export const LIBRARY = {
   ),
   sessionExpired: p("انتهت جلستك. سجّل الدخول من جديد.", "Your session expired. Sign in again."),
   couldNotAdd: f<[string]>(
-    (name) => `تعذّرت إضافة «${name}».`,
+    (name) => `ما قدرنا نضيف «${name}».`,
     (name) => `Could not add "${name}".`,
   ),
 } as const;
@@ -286,22 +286,22 @@ export const LIBRARY = {
 export const STOCK = {
   title: p("أو ابحث عن شيء", "Or find something"),
   lead: p(
-    "مقاطع وصور مجانية، تُضاف إلى هذا المشروع كأي ملف آخر.",
+    "مقاطع وصور مجانية، بتنضاف لهالمشروع متل أي ملفّ تاني.",
     "Free stock clips and photos, added to this project like any other file.",
   ),
   placeholder: p("مدينة ليلًا، قهوة، مكتب…", "city at night, coffee, desk…"),
   search: p("ابحث", "Search"),
   closePreview: p("أغلق المعاينة", "Close the preview"),
   add: p("أضفه إلى المشروع", "Add to this project"),
-  adding: p("يُضاف…", "Adding…"),
+  adding: p("عم نضيف…", "Adding…"),
   nothingBack: p(
-    "ما رجع إشي بهالكلمة. جرّب كلمة أبسط. مكتبات الصور بتفهرس الأشياء والأماكن أحسن ما بتفهرس المشاعر.",
+    "ما رجع شي بهالكلمة. جرّب كلمة أبسط. مكتبات الصور بتفهرس الأشياء والأماكن أحسن ما بتفهرس المشاعر.",
     "Nothing came back for that. Try a plainer word. Stock libraries index objects and places better than they index moods.",
   ),
   notSwitchedOn: p("مكتبة الصور غير مفعّلة بعد.", "The stock library is not switched on yet."),
   searchFailed: p("هالبحث ما زبط.", "That search did not work."),
-  couldNotFetch: p("تعذّر جلب هذا الملف.", "Could not fetch that file."),
-  couldNotAdd: p("تعذّرت إضافته إلى المشروع.", "Could not add that to the project."),
+  couldNotFetch: p("ما قدرنا نجيب هالملفّ.", "Could not fetch that file."),
+  couldNotAdd: p("ما قدرنا نضيفه للمشروع.", "Could not add that to the project."),
 } as const;
 
   /** The clips a render cut out of one recording, inside the project. */
