@@ -65,6 +65,15 @@ export interface ParsedIntent {
    * A subject is spoken if the words are about it, whichever way they went.
    */
   spoke: SpokenSubjects;
+  /**
+   * The subjects this sentence said no to.
+   *
+   * A subset of `spoke`, and a different question from it: `spoke` is true
+   * whichever way the sentence went, and this is true only for the no. Read by
+   * the reply, so that a sentence which is nothing but a refusal is answered
+   * with the refusal rather than with "I did not catch that".
+   */
+  declined: Array<keyof SpokenSubjects>;
 }
 
 /**
@@ -520,6 +529,42 @@ const NOT_YET: Array<{ patterns: RegExp; label: Phrase }> = [
       "أنشرها على حساباتك بعد، والناقص اعتماد لا كود. الجدولة مبنيّة والإرسال كذلك: ليوتيوب وتيك توك وريلز إنستغرام وصفحات فيسبوك و‏X رافعٌ يعمل هنا. وكل واحدة من هذه المنصّات تراجع التطبيق قبل أن تسمح له بالنشر نيابةً عن أحد، ولم تنتهِ أيّ مراجعة منها بعد",
     ),
   },
+  {
+    /*
+      Playing it faster, which is a real edit and one this product does not do.
+
+      It was answered with silence -- "I did not catch what you want changed"
+      -- which is the worst of the three answers, because the person asked for
+      something perfectly ordinary in perfectly ordinary words and was told
+      they had not made sense. A refusal at least says we heard them.
+
+      The near thing we *do* do is named, because it is what most people asking
+      this actually want: a talk that drags is fixed by cutting the pauses far
+      better than by playing the whole thing at 1.2x.
+
+      Narrow on purpose. "fast" is in `SILENCE_WORDS` already and means
+      "tighten it"; only an explicit speed-up belongs here. «سرّع» is in that
+      list for the same reason and is deliberately not repeated here.
+    */
+    /*
+      Only an explicit playback rate. "Speed it up" is not here, in either
+      language, and that is a decision rather than an omission: «سرّع» has
+      meant "tighten it" in `SILENCE_WORDS` since the beginning, a talk that
+      drags is fixed far better by cutting the pauses than by playing it at
+      1.2x, and the reply says which of the two it did. What is left here is
+      the ask no tighten can stand in for -- a rate, a time lapse, slow motion.
+
+      The two halves had drifted apart before this comment existed: English
+      "speed it up" was refused while Arabic «سرّعه» was tightened, so the same
+      request got opposite answers depending on which language it was typed in.
+    */
+    patterns:
+      /\b(?:play|run) it (?:faster|slower|at \d)|\b\d(?:\.\d)?x speed\b|\btime ?lapse\b|\bslow ?(?:mo|motion)\b|\bslow it down\b|\bhalf speed\b|\bdouble speed\b|بسرعة مضاعفة|ضعف السرعة|سرعة \d|تصوير مسرّع|سلو ?موشن|تصوير بطيء|بطّئه|بطئه/i,
+    label: say(
+      "play it faster or slower yet. What I can do is take out the pauses and the ums, which is usually what makes a recording feel slow",
+      "أشغّله أسرع أو أبطأ بعد. اللي بقدر عليه إني أشيل السكتات و«آآ» و«يعني»، وهي عادةً اللي بتخلّي التسجيل حاسس بطيء",
+    ),
+  },
 ];
 
 /**
@@ -546,7 +591,7 @@ export interface LibraryFile {
 const BROLL_WORDS =
   /\bb-?roll|cut ?away|cutaway|footage|insert (a |the )?(clip|shot)\b|بي ?رول|لقطات مساندة|لقطة مساندة|مقاطع مساندة|لقطات إضافية/i;
 const OVERLAY_WORDS =
-  /\blogo|overlay|screenshot|graphic|show (the |my )?(image|picture|photo)\b|الشعار|شعاري|لوجو|صورة فوق|لقطة شاشة|سكرين ?شوت/i;
+  /\blogo|overlay|screenshot|graphic|show (the |my )?(image|picture|photo)\b|الشعار|شعاري|لوجو|اللوغو|لوغو|اللوقو|صورة فوق|لقطة شاشة|سكرين ?شوت/i;
 
 /**
  * A card between sections, which is the reference's signature move.
@@ -626,7 +671,12 @@ const KINETIC_WORDS =
  * has bitten this file once before.
  */
 const SILENCE_WORDS =
-  /\bsilence|silent|quiet|pause|dead air|tighten|trim|short|fast|snapp|pace|boring|drag|صمت|سكتات|سكوت|وقفات|فراغات|اختصر|قصّر|قصر الفيديو|سرّع/i;
+  // The English half has had "short" and "boring" since the beginning; the
+  // Arabic half had neither, so «بدي اياه اقصر» and «شيل الملل» -- the two
+  // commonest ways to ask for this -- reached nothing at all.
+  // "speed it up" is here rather than on the refusal list, and only in that
+  // shape: a bare "speed" is in "2x speed", which is a rate and is refused.
+  /\bsilence|silent|quiet|pause|dead air|tighten|trim|short|fast|snapp|pace|boring|drag|\bspeed (?:it|this|the video) ?up\b|صمت|سكتات|سكوت|وقفات|فراغات|اختصر|قصّر|قصر الفيديو|أقصر|اقصر|قصّره|قصره|الملل|الممل|المملة|ممل|سرّع|سرعه|سرعها|سرععه/i;
 
 /**
  * The hesitations and the false starts, which are not silence.
@@ -692,7 +742,7 @@ const NO_TIGHTEN_WORDS =
  * «ومضة» invisible to the transition matcher.
  */
 const EDIT_THIS_WORDS =
-  /\b(?:edit|tidy|polish|fix|work on|do your thing)\b|\bclean (?:it |this )?up\b|\bsort (?:it |this )?out\b|\bmake (?:it|this) (?:good|better|nice|punchy|watchable)\b|\bgo ahead\b|\bwhatever you think\b|\byou decide\b|عدّله|عدله|عدّلي|رتّبه|رتبه|نظّفه|نظفه|سوّه|سوه|اعمل اللازم|اعملها|شوف الأفضل|زي ما تشوف|خلّيه حلو|خليه حلو|اشتغل عليه/i;
+  /\b(?:edit|tidy|polish|fix|work on|do your thing)\b|\bclean (?:it |this )?up\b|\bsort (?:it |this )?out\b|\bmake (?:it|this) (?:look |seem |feel )?(?:good|better|nice|punchy|watchable|professional|polished|pro|sharp|clean|proper)\b|\bmake (?:it|this) look like\b|\blike a (?:real|proper|professional)\b|\bgo ahead\b|\bwhatever you think\b|\byou decide\b|عدّله|عدله|عدّلي|رتّبه|رتبه|نظّفه|نظفه|سوّه|سوه|اعمل اللازم|اعملها|اعمله|شوف الأفضل|زي ما تشوف|خلّيه? ?(?:يطلع )?(?:حلو|احترافي|منيح|مرتّب|مرتب)|خليه? ?(?:يطلع )?(?:حلو|احترافي|منيح|مرتّب|مرتب)|زي فيديوهات|زي الفيديوهات|مثل فيديوهات|اشتغل عليه/i;
 
 /**
  * Whether this sentence is asking for an edit at all.
@@ -935,6 +985,22 @@ const CAPTION_CALM_WORDS =
  */
 const HIGHLIGHT_WORDS =
   /\b(best|strongest|good|top|most interesting) ?\d* ?(part|parts|bit|bits|moment|moments|section|seconds?|secs?|s\b)|highlight reel|the highlight\b|أفضل جزء|أقوى جزء|أهم جزء|أحسن جزء|أفضل لقطة|أقوى لقطة|أفضل لحظة|أقوى لحظة|أهم لحظة|مقتطف|الزبدة|زبدة الفيديو/i;
+/**
+ * A target length, which is the same request said the other way round.
+ *
+ * "Give me the strongest 30 seconds" was heard and "make it 60 seconds" was
+ * not, and they are one request: a length, with the choice of which seconds
+ * left to us. Somebody cutting for a feed thinks in the limit they are cutting
+ * to, so this is the more natural of the two and it was the one that reached
+ * nothing.
+ *
+ * A unit is required. A bare number is a moment, a count of clips, a year --
+ * this file has four patterns that read one -- and "make it 60" is not a
+ * sentence anybody finishes.
+ */
+const TARGET_LENGTH =
+  /\b(?:make|keep|cut|get|bring) (?:it|this|the video) (?:(?:down|in) )?(?:to )?(?:about |around |roughly |under )?(\d{1,4})\s*(?:seconds?|secs?|s\b|minutes?|mins?)\b|\b(?:in|under|within) (?:about |around )?(\d{1,4})\s*(?:seconds?|secs?|minutes?|mins?)\b|(?:خلّيه|خليه|خلّيها|خليها|اعمله|بدي(?:ه|ه ياه| اياه)?)\s*(?:حوالي\s*|تقريبا\s*)?(\d{1,4})?\s*(دقيقة|دقيقتين|دقائق|ثانية|ثواني)/i;
+
 /** "best 45 seconds", "the top 20s" — the number they said, not our default. */
 const HIGHLIGHT_SECONDS = /\b(\d{1,3}) ?(?:seconds?|secs?|s\b|ثانية|ثواني)/i;
 
@@ -1617,6 +1683,27 @@ export function planFromText(
   };
 
   /*
+    The subjects this sentence said no to, as opposed to said something about.
+
+    `spoke` cannot answer this: it is true for "add captions" and for "no
+    captions" alike, which is exactly what it is for. But a sentence that is
+    *only* a refusal produced no operation, no phrase, and therefore the reply
+    that says we did not catch it -- so "no captions please" and «بلا ترجمة»,
+    which are about as clear as a sentence gets, were answered as gibberish.
+
+    A refusal is honoured either way; what was missing was saying so. On a
+    project with a render already made it is honoured by absence, which is
+    fine because the list names everything else. On the first message of a
+    project there is nothing to list, and silence reads as not having heard.
+  */
+  const declined: Array<keyof SpokenSubjects> = [];
+  if (refusesCaptions) declined.push("captions");
+  if (refusesSilenceCut) declined.push("silence");
+  if (NO_MUSIC_WORDS.test(text)) declined.push("music");
+  if (NO_COVERAGE_WORDS.test(text)) declined.push("coverage");
+  if (NO_SFX_WORDS.test(text)) declined.push("sfx");
+
+  /*
     Three sentences, three answers.
 
     "Cut the ums" names the hesitations, and gets exactly those. "Tighten it
@@ -1657,6 +1744,43 @@ export function planFromText(
       say(
         `cut it into ${clipsAsk.count} separate clips of about ${clipsAsk.targetSeconds} seconds each`,
         `أقسّمه إلى ${clipsAsk.count} مقاطع منفصلة، كلٌّ منها نحو ${clipsAsk.targetSeconds} ثانية`,
+      ),
+    );
+  }
+
+  /*
+    A named target length, read as the highlight it is.
+
+    "Make it 60 seconds" and "give me the strongest 60 seconds" ask for the
+    same file. Only the second was heard, and the first is how anybody cutting
+    to a platform's limit actually says it.
+
+    Taken before the highlight branch so that a sentence carrying both a target
+    and the word "best" does not produce two, and guarded on there being no
+    explicit range: "keep it to 1:20 to 2:10" already named its seconds.
+  */
+  const targetLength = clipsAsk ? null : TARGET_LENGTH.exec(text);
+  const targetSeconds = (() => {
+    if (!targetLength) return null;
+    const n = Number(targetLength[1] ?? targetLength[2] ?? targetLength[3] ?? "");
+    const arabicUnit = targetLength[4];
+    // «خليه دقيقة» has no digit and means one of whatever it named.
+    const count = Number.isFinite(n) && n > 0 ? n : arabicUnit ? 1 : NaN;
+    if (!Number.isFinite(count)) return null;
+    const inMinutes = arabicUnit
+      ? /دقيق/.test(arabicUnit)
+      : /\b(?:minutes?|mins?)\b/i.test(targetLength[0]);
+    const seconds = inMinutes ? count * 60 : count;
+    // Under five seconds is not a video and over three hours is not a target.
+    return seconds >= 5 && seconds <= 3 * 3600 ? Math.round(seconds) : null;
+  })();
+
+  if (targetSeconds !== null && !HIGHLIGHT_WORDS.test(text) && !parseRange(text)) {
+    operations.push({ type: "extractHighlight", targetSeconds });
+    willDo.push(
+      say(
+        `pick the strongest ${targetSeconds} seconds, since that is the length you asked for`,
+        `أختار أقوى ${targetSeconds} ثانية، لأن هاد الطول اللي طلبته`,
       ),
     );
   }
@@ -2439,7 +2563,7 @@ export function planFromText(
   */
   levelAgainstTheBed(operations);
 
-  return { operations, willDo, cannotYet, language: languageOf(asked), spoke };
+  return { operations, willDo, cannotYet, language: languageOf(asked), spoke, declined };
 }
 
 /**
@@ -2885,6 +3009,38 @@ export function replyFor(
     );
   }
 
+  /*
+    A sentence that is nothing but a no is answered with the no.
+
+    "No captions please" and «بلا ترجمة» produce no operation, which is right,
+    and therefore produced no phrase, and therefore got the reply that says we
+    did not catch it. Two of the clearest sentences anybody types were answered
+    as gibberish, and the refusal was being honoured the whole time -- so this
+    is a reply that was wrong about a product that was right, which is the kind
+    that loses somebody's trust in both.
+
+    Placed above the fallback rather than inside it, so a sentence that also
+    asked for something keeps its list and this never appends to one: "captions
+    but no music" is a plan, and a plan says what it will do.
+  */
+  if (parts.length === 0 && intent.declined.length > 0) {
+    /*
+      The "no" goes on each one, not once at the front. "No captions and music"
+      says the opposite of the sentence it is answering about half of it, which
+      on a reply whose whole job is to repeat a refusal back is the one mistake
+      it cannot make.
+    */
+    const named = joinNaturally(
+      intent.declined.map((subject) =>
+        lang === "ar" ? `بلا ${DECLINED_SUBJECTS[subject].ar}` : `no ${DECLINED_SUBJECTS[subject].en}`,
+      ),
+      lang,
+    );
+    return lang === "ar"
+      ? `تمام، ${named}. قلّي شو بدك أعمل وببلّش.`
+      : `Right, ${named}. Tell me what you do want and I will start.`;
+  }
+
   if (parts.length === 0) return NOTHING_UNDERSTOOD[lang];
 
   /*
@@ -2951,6 +3107,24 @@ const EMPTY_PROJECT: Record<Language, string> = {
  * Not "I am not sure": it did not understand, and saying so plainly is shorter
  * and less apologetic than hedging about it.
  */
+/**
+ * The subjects a person can say no to, in the words the no is said in.
+ *
+ * Nouns rather than phrases, because they are read after "no" / «بلا» and a
+ * list of them has to join: "no captions or music" has to work as well as "no
+ * captions". Deliberately the customer's word for each -- the framing one is
+ * "cutting between shots", not `alternateFraming`, and nobody outside this
+ * building has ever said "sfx".
+ */
+const DECLINED_SUBJECTS: Record<keyof SpokenSubjects, Record<Language, string>> = {
+  captions: { en: "captions", ar: "ترجمة" },
+  silence: { en: "cutting the silences", ar: "قصّ للسكتات" },
+  music: { en: "music", ar: "موسيقى" },
+  coverage: { en: "cutting between shots", ar: "تبديل بين اللقطات" },
+  sfx: { en: "sound effects", ar: "مؤثّرات صوت" },
+  platform: { en: "reframing", ar: "إعادة تأطير" },
+};
+
 const NOTHING_UNDERSTOOD: Record<Language, string> = {
   en:
     "I did not catch what you want changed. Tell me in your own words and I will say if I can, " +

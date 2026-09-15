@@ -57,7 +57,7 @@ const kwOut = path.join(buildDir, "plan-from-text.mjs");
   );
   if (b.status !== 0) { console.error("could not bundle plan-from-text"); process.exit(1); }
 }
-const { planFromText, saysOnlyThis } = await import(pathToFileURL(kwOut).href);
+const { planFromText, saysOnlyThis, asksForAnEdit } = await import(pathToFileURL(kwOut).href);
 
 /**
  * Every note the planner produces now carries both languages (`{ en, ar }`),
@@ -1599,6 +1599,16 @@ console.log("\nThe matcher cannot say anything the model has no word for");
   // nothing, which is the failure a guard is most likely to have.
   const ASSIGNMENT = /\b(?:type|style|animation|platform|look|position|on)\s*:\s*([^,}\n]*)/g;
   for (const [, assigned] of matcher.matchAll(ASSIGNMENT)) {
+    /*
+      A value that opens a bilingual pair is prose, not vocabulary.
+
+      `platform: { en: "reframing", ar: "إعادة تأطير" }` is a row in a table of
+      words for the *customer*, and the field it sits under happens to be named
+      after the subject it describes. Read as an operation value it is a word
+      the model has never heard of, which is exactly what this section reports
+      -- and it would be reporting a sentence.
+    */
+    if (/^\s*\{\s*en\s*:/.test(assigned)) continue;
     for (const [, value] of assigned.matchAll(/"([a-z][a-zA-Z-]*)"/g)) chosen.add(value);
   }
 
@@ -2103,6 +2113,133 @@ console.log("\nThe words people use for the things we named ourselves");
   check("«ظبطلي الصوت بس» is the whole plan", saysOnlyThis("ظبطلي الصوت بس") === true);
   check("and so is 'just fix the audio please'", saysOnlyThis("just fix the audio please") === true);
   check("«بس» at the start is still 'but'", saysOnlyThis("بس انا بدي اشوف") === false);
+}
+
+console.log("\nA sentence the product does something about is never answered with 'I did not catch that'");
+{
+  /*
+    Twenty-eight sentences of the kind somebody actually types, run through the
+    real matcher and the real director. Eighteen came back unheard, and the
+    split had a direction: six of sixteen English, twelve of twelve Arabic --
+    in the language most of the people using this write in.
+
+    Every one below is either something the product does, or something it can
+    say a true sentence about. The bar this section holds is not that each is
+    planned perfectly; it is that none of them is answered with "I did not
+    catch what you want changed", which is what the product said to all of
+    them.
+  */
+  const opsFor = (asked) => planFromText(asked, { assets: [] }).operations;
+  const heard = (asked) => {
+    const intent = planFromText(asked, { assets: [] });
+    return (
+      intent.operations.length > 0 ||
+      intent.cannotYet.length > 0 ||
+      intent.declined.length > 0 ||
+      asksForAnEdit(asked)
+    );
+  };
+
+  const TYPED = [
+    "make it look professional",
+    "make it look like mrbeast",
+    "clean it up",
+    "just fix the audio please",
+    "make the text bigger",
+    "the music is too loud",
+    "make it 60 seconds",
+    "speed it up",
+    "no captions please",
+    "cut the first 10 seconds",
+    "خليه يطلع حلو",
+    "اعمله زي فيديوهات اليوتيوب",
+    "بدي اياه اقصر",
+    "ظبطلي الصوت بس",
+    "شيل الملل",
+    "كبر الخط",
+    "شيل الضجة",
+    "حط اللوغو",
+    "خليه دقيقة",
+    "سرعه شوي",
+    "بلا ترجمة",
+    "خليه عرضي",
+  ];
+  for (const asked of TYPED) {
+    check(`'${asked}' is heard`, heard(asked), "answered with the sentence that says we did not catch it");
+  }
+
+  /*
+    A target length is the highlight request said the other way round, and it
+    was the way that reached nothing. Somebody cutting to a platform's limit
+    thinks in the limit.
+  */
+  const lengthOf = (asked) => opsFor(asked).find((o) => o.type === "extractHighlight")?.targetSeconds;
+  check("'make it 60 seconds' asks for sixty", lengthOf("make it 60 seconds") === 60);
+  check("'keep it under 30 seconds' asks for thirty", lengthOf("keep it under 30 seconds") === 30);
+  check("«خليه 45 ثانية» تطلب 45", lengthOf("خليه 45 ثانية") === 45);
+  check("«خليه دقيقة» تطلب دقيقة", lengthOf("خليه دقيقة") === 60);
+  check("'make it 2 minutes' asks for two", lengthOf("make it 2 minutes") === 120);
+  /*
+    And the neighbours that must not become one. A named stretch already said
+    which seconds it wanted, and a bare number is a moment, a count of clips or
+    a year -- this file reads one four different ways.
+  */
+  check("a named range is still a range", lengthOf("keep from 1:20 to 2:10") === undefined);
+  check("'make it 3' is not a length", lengthOf("make it 3") === undefined);
+  check("'give me 3 clips' is not a length", lengthOf("give me 3 clips") === undefined);
+
+  /*
+    Playing it faster is a real edit this product does not do. Silence was the
+    worst of the three answers: the person asked for something ordinary in
+    ordinary words and was told they had not made sense.
+  */
+  const refusalFor = (asked) => JSON.stringify(planFromText(asked, { assets: [] }).cannotYet ?? []);
+  check("'2x speed' is refused, not ignored", /faster or slower/.test(refusalFor("2x speed")));
+  check("'slow motion' too", /faster or slower/.test(refusalFor("slow motion")));
+  check("«بطئه شوي» كمان", /أسرع أو أبطأ/.test(refusalFor("بطئه شوي")));
+  check(
+    "and the refusal names the thing we do instead",
+    /take out the pauses/.test(refusalFor("2x speed")),
+    "a refusal that names no alternative is a dead end",
+  );
+  /*
+    "Speed it up" is a tighten in both languages, and that is the decision
+    rather than an omission. «سرّع» has meant tighten since the beginning; a
+    talk that drags is fixed by cutting the pauses, not by 1.2x; and the reply
+    names which of the two it did. The two halves had drifted apart before
+    this: English was refused while Arabic was tightened, so one request got
+    opposite answers depending on which language it was typed in.
+  */
+  check("'speed it up' tightens", opsFor("speed it up").some((o) => o.type === "removeSilence"));
+  check("«سرعه شوي» تختصر كمان", opsFor("سرعه شوي").some((o) => o.type === "removeSilence"));
+  check("and the two languages agree", heard("speed it up") === heard("سرعه شوي"));
+  /*
+    The near neighbour, and it is close: «حركة بطيئة على الصورة» is a slow push
+    on the picture, which this product does. An earlier spelling of the pattern
+    above swallowed it, and bilingual-test caught that -- which is what these
+    two lines are here to keep true.
+  */
+  check("«حركة بطيئة على الصورة» is still a push", opsFor("حركة بطيئة على الصورة").some((o) => o.type === "kenBurns"));
+  check("'make it faster' is still a tighten, not a refusal", opsFor("make it faster").some((o) => o.type === "removeSilence"));
+
+  /*
+    A sentence that is nothing but a no is answered with the no. It was
+    answered with "I did not catch that", while the refusal was being honoured
+    the whole time -- a reply wrong about a product that was right.
+  */
+  const replyTo = (asked) => replyFor(planFromText(asked, { assets: [] }), { hasVideo: true });
+  check("'no captions please' is answered with the no", /Right, no captions/.test(replyTo("no captions please")), replyTo("no captions please"));
+  check("«بلا ترجمة» كمان", /تمام، بلا ترجمة/.test(replyTo("بلا ترجمة")), replyTo("بلا ترجمة"));
+  check(
+    "the no goes on each one, not once at the front",
+    /no captions and no music/.test(replyTo("no music and no captions")),
+    replyTo("no music and no captions"),
+  );
+  check(
+    "and a sentence that also asked for something keeps its plan",
+    !/Right, no/.test(replyTo("captions but no music")),
+    replyTo("captions but no music"),
+  );
 }
 
 await rm(buildDir, { recursive: true, force: true });

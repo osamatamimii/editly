@@ -739,6 +739,13 @@ export function createPlanner(options: PlannerOptions = {}) {
             than worked out twice in two files that would drift.
           */
           spoke: planFromText(text, context).spoke,
+          /*
+            And the subjects it said no to, read from the same place and for
+            the same reason. A model that returns a plan for a sentence whose
+            only content was a refusal must not turn that refusal into "I did
+            not catch that" further down.
+          */
+          declined: planFromText(text, context).declined,
           source: "model",
         };
       } catch (error) {
