@@ -496,16 +496,9 @@ section("The health check Fly runs is one flyctl will still accept");
   check("there is a health check at all", checkBlock !== null,
     "a machine Fly cannot check is a deploy that cannot be rolled back");
 
+  // That it knocks on the port the worker listens on is `worker-test`'s, and
+  // has been since before this block existed. One assertion, one home.
   const body = checkBlock?.[2] ?? "";
-  const checkPort = Number(body.match(/^\s*port\s*=\s*(\d+)/m)?.[1]);
-  const codePort = Number(
-    read("artifacts/worker/src/health.ts").match(/HEALTH_PORT = Number\(process\.env\["HEALTH_PORT"\] \?\? (\d+)\)/)?.[1],
-  );
-  check(
-    "and it knocks on the port the worker listens on",
-    Number.isFinite(checkPort) && checkPort === codePort,
-    `fly.toml ${checkPort} against health.ts ${codePort}`,
-  );
   check(
     "at the path the worker answers",
     /path\s*=\s*"\/healthz"/.test(body),

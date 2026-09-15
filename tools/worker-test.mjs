@@ -1407,11 +1407,22 @@ section("A deploy can tell a working copy from a started one");
     not a crash: the worker runs, the check times out, and every deploy is
     rolled back for a reason that looks like the worker being broken.
   */
-  const fly = readFileSync(path.join(repoRoot, "artifacts/worker/fly.toml"), "utf8");
-  const declared = Number(fly.match(/internal_port\s*=\s*(\d+)/)?.[1]);
+  /*
+    Read out of `[checks]`, which is where the port lives now.
+
+    It used to be `internal_port` on a `[[services]]` block with no ports —
+    the old way to give Fly's checks somewhere to knock without publishing
+    anything. flyctl refuses that shape now, and the deploy that met a new
+    enough CLI failed in seven seconds before building. Comments are stripped
+    first because the note explaining all of that quotes `internal_port` by
+    name, and a check its own documentation satisfies is a check about nothing.
+  */
+  const fly = readFileSync(path.join(repoRoot, "artifacts/worker/fly.toml"), "utf8")
+    .replace(/^\s*#.*$/gm, "");
+  const declared = Number(fly.match(/\[checks\.\w+\][\s\S]*?\n\s*port\s*=\s*(\d+)/)?.[1]);
   const source = readFileSync(path.join(repoRoot, "artifacts/worker/src/health.ts"), "utf8");
   const fallback = Number(source.match(/HEALTH_PORT"\]\s*\?\?\s*(\d+)/)?.[1]);
-  check("fly.toml names an internal port", Number.isFinite(declared), String(declared));
+  check("fly.toml names the port its health check knocks on", Number.isFinite(declared), String(declared));
   check(
     "and the worker listens on it",
     declared === fallback,
