@@ -283,7 +283,7 @@ export function applyHabits(
       // Phrased as the rest of `willDo` is, because that is where it goes:
       // the reply reads "I'll <this>, and <that>". A sentence in a different
       // voice from the ones beside it is how a list stops reading as one.
-      en: `reframe it for ${platform.value}, where your edits usually go`,
+      en: `reframe it for ${platformInWords(String(platform.value), "en")}, where your edits usually go`,
       ar: `أعيد تأطيره ل${platformInWords(String(platform.value), "ar")}، حيث تذهب تعديلاتك عادةً`,
     });
   }

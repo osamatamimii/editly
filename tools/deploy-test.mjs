@@ -2036,6 +2036,66 @@ section("A question about the render is asked of a render");
   );
 }
 
+section("A platform has one name, and both halves of the product read it");
+{
+  /*
+    The planner writes its promise before the render and the worker writes its
+    note after it, and the panel shows them one under the other. Both used to
+    interpolate the lowercase key: «أخلّيه عمودي لـtiktok» above «أُعيد التأطير
+    إلى 1080x1920 لـtiktok».
+
+    So the table is in the contract, which both sides already import, for the
+    reason written over `MUSIC_MOOD_NAMES` beside it: two copies is one of them
+    being corrected and the other quietly shipping the old spelling. This
+    section is the line that stops a third copy appearing in a third file.
+  */
+  const contract = read("lib/api-zod/src/index.ts");
+  check("the contract holds the table", /export const PLATFORM_NAMES/.test(contract));
+  check("and the function that reads it", /export function platformInWords/.test(contract));
+  for (const [key, name] of [["tiktok", "TikTok"], ["youtube", "YouTube"], ["reels", "Reels"], ["shorts", "Shorts"]]) {
+    check(`${key} is spelled ${name}`, new RegExp(`${key}: \\{ en: "${name}"`).test(contract));
+  }
+  check(
+    "and an unnamed platform falls back to its own key rather than to nothing",
+    /PLATFORM_NAMES\[platform\]\?\.\[lang\] \?\? platform/.test(contract),
+  );
+
+  /*
+    Nobody builds a sentence out of the raw key. Scoped to the files that write
+    to a customer, and reading only what is left after the comments: a comment
+    explaining this rule must not be what satisfies it.
+  */
+  const speakers = [
+    "artifacts/api-server/src/lib/plan-from-text.ts",
+    "artifacts/api-server/src/lib/planner.ts",
+    "artifacts/api-server/src/lib/direct.ts",
+    "artifacts/api-server/src/lib/habits.ts",
+    "artifacts/worker/src/ffmpeg.ts",
+  ];
+  const raw = [];
+  for (const file of speakers) {
+    const code = read(file).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    // `for ${...platform}` or `لـ${...platform}` — the key going straight into
+    // a sentence, in either language.
+    for (const m of code.matchAll(/(?:for|لـ?)\s*\$\{[^}]*\bplatform\b[^}]*\}/g)) {
+      if (!/platformInWords/.test(m[0])) raw.push(`${file}: ${m[0]}`);
+    }
+  }
+  check("no sentence carries the raw key", raw.length === 0, raw.join(" | "));
+
+  /*
+    And the Arabic preposition is plain «ل», not the «لـ» connector. That
+    connector is there to hold a Latin word off an Arabic letter; an Arabic
+    word attaches the ordinary way, and «لـتيك توك» is a seam showing.
+  */
+  const seams = [];
+  for (const file of speakers) {
+    const code = read(file).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    for (const m of code.matchAll(/لـ\$\{[^}]*platformInWords[^}]*\}/g)) seams.push(`${file}: ${m[0]}`);
+  }
+  check("and the Arabic preposition attaches the ordinary way", seams.length === 0, seams.join(" | "));
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log(`${failures} FAILED`);

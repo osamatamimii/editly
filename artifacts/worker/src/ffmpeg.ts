@@ -21,7 +21,7 @@ import { criticise, settlePunches } from "./critic";
 import { renderMotionLayer, MOTION_SUBSAMPLES, type MotionTitle, type SceneElement, type Layer } from "./motion";
 import { beatsOf, everyNth } from "./beats";
 import { DEFAULT_CAPTION_LOOK } from "@workspace/api-zod/caption-default";
-import { TO_THE_END_SECONDS, type CaptionStyleName, type EditOperation, type EditPlan, type GradeLook, type TransitionStyle } from "@workspace/api-zod";
+import { TO_THE_END_SECONDS, platformInWords, type CaptionStyleName, type EditOperation, type EditPlan, type GradeLook, type TransitionStyle } from "@workspace/api-zod";
 import {
   captionLayout,
   nominalSizeFor,
@@ -5640,7 +5640,13 @@ export async function renderPlan(input: string, plan: EditPlan, ctx: RenderConte
     if (joinedGroups.length > 0) groupCrop = (group) => chain(group.startsAt);
     else videoParts.push(chain(0));
     notes.push(
-      t(`reframed to ${target.w}x${target.h} for ${reframe.platform}`, `أُعيد التأطير إلى ${target.w}x${target.h} لـ${reframe.platform}`),
+      // The platform by name, from the contract's table, because this note and
+      // the planner's promise are read one under the other in the same panel
+      // and one of them saying «لـtiktok» is the seam showing.
+      t(
+        `reframed to ${target.w}x${target.h} for ${platformInWords(reframe.platform, "en")}`,
+        `أُعيد التأطير إلى ${target.w}x${target.h} ل${platformInWords(reframe.platform, "ar")}`,
+      ),
     );
     /*
       And when nothing was framed, say that too.
@@ -7510,7 +7516,7 @@ export function describe(op: EditOperation): string {
     case "coldOpen": return "Opening on the strongest moment";
     case "fade": return "Fading in and out";
     case "transition": return "Joining the cuts";
-    case "formatForPlatform": return `Reframing for ${op.platform}`;
+    case "formatForPlatform": return `Reframing for ${platformInWords(op.platform, "en")}`;
     case "burnCaptions": return "Burning in captions";
     // Replaced by burnCaptions before the renderer ever sees a plan — see
     // enrich.ts. Named here so the switch stays exhaustive and a future path

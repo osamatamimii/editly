@@ -1776,7 +1776,9 @@ console.log("\nThe frame is shaped by the platform, and measured");
   check("a square ask really comes out square", sw === sh && sw > 0, `${sw}x${sh}`);
   check(
     "and the note names the frame it made",
-    square.notes.some((n) => new RegExp(`reframed to ${sw}x${sh} for square`).test(n)),
+    // "a feed post", not "square": square is a shape, not a platform, so the
+    // note names what the frame is for. See PLATFORM_NAMES in the contract.
+    square.notes.some((n) => new RegExp(`reframed to ${sw}x${sh} for a feed post`).test(n)),
     JSON.stringify(square.notes),
   );
 

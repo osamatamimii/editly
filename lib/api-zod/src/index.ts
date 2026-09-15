@@ -1201,6 +1201,34 @@ export type MusicMood = z.infer<typeof MusicMood>;
  * (calm)» to somebody reading Arabic — which is exactly what the first draft
  * of this did.
  */
+/**
+ * A platform, spelled the way its own logo spells it.
+ *
+ * `op.platform` is a lowercase key, and both sides of this product used to
+ * interpolate it straight into a sentence. The planner said «أخلّيه عمودي
+ * لـtiktok» before the render and the worker said «أُعيد التأطير إلى 1080x1920
+ * لـtiktok» after it: an English word in lowercase, glued to an Arabic
+ * preposition by a connector that only exists because what follows is Latin.
+ *
+ * Here rather than in either of them, and for the reason written over
+ * `MUSIC_MOOD_NAMES` a few lines down: two copies of a table like this is one
+ * of them being corrected and the other quietly shipping the old spelling.
+ *
+ * `square` is not a platform, so it is named by what it is for.
+ */
+export const PLATFORM_NAMES: Record<string, { en: string; ar: string }> = {
+  tiktok: { en: "TikTok", ar: "تيك توك" },
+  reels: { en: "Reels", ar: "ريلز" },
+  shorts: { en: "Shorts", ar: "شورتس" },
+  youtube: { en: "YouTube", ar: "يوتيوب" },
+  square: { en: "a feed post", ar: "منشور بالفيد" },
+};
+
+/** The name, or the key itself for a platform nobody has named yet. */
+export function platformInWords(platform: string, lang: "en" | "ar"): string {
+  return PLATFORM_NAMES[platform]?.[lang] ?? platform;
+}
+
 export const MUSIC_MOOD_NAMES: Record<MusicMood, { en: string; ar: string }> = {
   calm: { en: "calm", ar: "هادئة" },
   upbeat: { en: "upbeat", ar: "حماسية" },
