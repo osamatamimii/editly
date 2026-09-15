@@ -733,8 +733,26 @@ const VERTICAL_WORDS = /\bvertical|9:16|portrait|full ?screen\b|عمودي|عا�
   that stops covering it.
 */
 const HORIZONTAL_WORDS = /\bhorizontal|16:9|landscape|widescreen\b|أفقي|افقي|عريض/i;
+/*
+  Saying it and taking it back, which are the same instruction.
+
+  This covered "no captions" and «بدون ترجمة» — the ways somebody says it
+  *before* there are any. It did not cover the ways somebody says it after:
+  "remove the captions", "drop the captions", «شيل الترجمة». Those name the
+  thing, so the caption pattern below matched them, and the plan came back with
+  captions in it. The product's answer to «شيل الترجمة» was to add captions.
+
+  Nobody reported it because of where it happens. The first message on a
+  project asks *for* things; a removal is almost always a correction, the third
+  or fourth sentence in a conversation, and by then the person is looking at a
+  video rather than re-reading a reply.
+
+  Both shapes now, and the verb has to be next to the noun: "remove the music
+  and caption it" is one of each, and a removal that reached across the whole
+  sentence would eat the half that was a request.
+*/
 const NO_CAPTION_WORDS =
-  /\bno (?:captions?|subtitles?)|without (?:captions?|subtitles?)|\bdon'?t caption|بدون (?:ترجمة|ترجمه|كابشن|كتابة)|بلا (?:ترجمة|كابشن)|من غير (?:ترجمة|كابشن)|لا ترجمة|ما بدي (?:ترجمة|كابشن)/i;
+  /\bno (?:captions?|subtitles?)|without (?:captions?|subtitles?)|\bdon'?t caption|\b(?:remove|drop|delete|take out|get rid of)\s+(?:the\s+)?(?:captions?|subtitles?)\b|بدون (?:ترجمة|ترجمه|كابشن|كتابة)|بلا (?:ترجمة|كابشن)|من غير (?:ترجمة|كابشن)|لا ترجمة|ما بدي (?:ترجمة|كابشن)|(?:شيل|احذف|الغي|ألغي|امسح|شيلي)\s*(?:ال)?(?:ترجمة|ترجمه|كابشن|كتابة)/i;
 const NO_SILENCE_WORDS =
   /\bkeep the (?:silence|pauses)|don'?t cut (?:the )?(?:silence|pauses)|\bno (?:silence )?cut(?:ting)?\b|خلّي الصمت|خلي الصمت|لا تقص الصمت|بدون قص/i;
 

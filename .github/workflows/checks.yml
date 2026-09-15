@@ -236,6 +236,10 @@ jobs:
       # asked for the confirmation to be in those words; 48 of the 85 phrases
       # the two planners can say were in trade terms when he did.
       - run: node tools/plain-words-test.mjs
+      # And the third step of the same loop: after the render, the person asks
+      # for changes. Every message is planned on its own, so a correction used
+      # to re-decide everything the last one settled.
+      - run: node tools/carry-forward-test.mjs
       - run: node tools/posting-test.mjs
       # Beside posting, because it is the step posting never had: a way to put
       # a real account into the queue.

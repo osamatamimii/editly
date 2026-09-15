@@ -1,18 +1,20 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 import { eq, asc, desc, and, inArray } from "drizzle-orm";
-import { db, messagesTable, projectsTable, renderFollowupsTable, comprehensionsTable } from "@workspace/db";
+import { db, messagesTable, projectsTable, renderFollowupsTable, comprehensionsTable, jobsTable } from "@workspace/db";
 import {
   SendMessageBody,
   SendMessageParams,
   ListMessagesParams,
   ListMessagesResponse,
+  EditPlan,
 } from "@workspace/api-zod";
 import { PROJECT_MESSAGES_LIMIT } from "@workspace/api-zod/limits";
 import { serializeMessage, serializeJob } from "../lib/transformers";
 import { currentUserId } from "../middlewares/auth";
 import { replyFor, becauseIn } from "../lib/plan-from-text";
-import { createPlanner } from "../lib/planner";
+import { createPlanner, describeAll } from "../lib/planner";
+import { carryForward } from "../lib/carry-forward";
 import { withCaptionFonts, myFaceIds } from "../lib/caption-fonts";
 import { withCaptionLook } from "../lib/caption-look";
 import { applyHabits, habitsFor } from "../lib/habits";
@@ -25,6 +27,7 @@ import {
   shapeAnswer,
   shapeAnswerAsRequest,
   languageOf,
+  KEEP_WHOLE_WORDS,
   LONG_SOURCE_SECONDS,
   WHOLE_OR_CLIPS,
 } from "../lib/plan-from-text";
@@ -226,6 +229,46 @@ router.post("/projects/:id/messages", rateLimit(LIMITS.chat), async (req, res): 
     is the rest of the edit around it — or when it asked for an edit without
     naming one, which is the sentence the old planner could not hear at all.
   */
+  /*
+    The edit this project already has, under the sentence that was just typed.
+
+    Every message is planned on its own — the model is sent the sentence and
+    nothing else — so a correction used to arrive as a complete new wish, and
+    everything the previous message settled was re-decided from defaults. Ask
+    for a wide YouTube cut, then ask for bigger captions, and the second render
+    came back vertical: the sentence said nothing about shape, so `direct`
+    filled it from the project's default, which is set at creation and never
+    follows anybody's words.
+
+    So the plan starts from the last render's plan. The sentence wins wherever
+    it has an opinion, and `carry-forward.ts` holds the one careful rule: a
+    subject they *spoke* about and produced nothing for is a removal, not
+    silence, and must not be undone.
+
+    Before `direct`, so the direction fills what is still missing rather than
+    competing with what they already have.
+  */
+  const carried = carryForward(
+    await lastPlanFor(params.data.id, userId),
+    intent.operations,
+    intent.spoke,
+    KEEP_WHOLE_WORDS.test(toPlan),
+  );
+  if (carried.kept.length > 0) {
+    intent.operations = carried.operations;
+    /*
+      Said out loud, like every other layer here.
+
+      The reply is what the render will contain, and a carried operation is
+      part of the render. Listing them makes the confirmation longer on every
+      follow-up, and that is the correct trade: the alternative is a sentence
+      promising one change while the queue builds nine things.
+    */
+    for (const said of describeAll(intent.operations.filter((op) => carried.kept.includes(op.type)))) {
+      intent.willDo.push(said);
+    }
+  }
+
   const wantsAnEdit = intent.operations.length > 0 || asksForAnEdit(toPlan);
   const reading = wantsAnEdit ? await readingFor(params.data.id, userId) : null;
   const decided = wantsAnEdit
@@ -486,6 +529,33 @@ export default router;
  * cost somebody an unasked question, not a second one about a project they
  * already answered for.
  */
+/**
+ * The plan of the last render this project asked for.
+ *
+ * The last *job*, whatever became of it: a render that failed is still the
+ * edit this person currently wants, and a correction after a failure is the
+ * commonest kind there is. Ordered by when it was queued rather than when it
+ * finished, because "the newest thing they asked for" is the question.
+ *
+ * Null on any failure, which puts the behaviour back to what it was before
+ * this existed: the sentence alone. That is a worse product and not a broken
+ * one, which is the right way for this to fail.
+ */
+async function lastPlanFor(projectId: string, userId: string): Promise<EditPlan | null> {
+  try {
+    const [row] = await db
+      .select({ plan: jobsTable.plan })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.projectId, projectId), eq(jobsTable.userId, userId), eq(jobsTable.kind, "render")))
+      .orderBy(desc(jobsTable.createdAt))
+      .limit(1);
+    const parsed = EditPlan.safeParse(row?.plan);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
 async function requestAwaitingShape(projectId: string, userId: string): Promise<string | null> {
   /*
     The request the question was asked about, when the question is the last
