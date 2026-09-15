@@ -162,7 +162,7 @@ export function shapeInWords(platform: Platform): { en: string; ar: string } {
 const LOOK_WORDS: Array<{ look: GradeLook; patterns: RegExp }> = [
   { look: "mono", patterns: /\bblack ?(and|&) ?white\b|\bb\s?&\s?w\b|\bmonochrome|\bgrayscale|\bgreyscale|ابيض واسود|ابيض واسود|بالابيض والاسود/i },
   { look: "cinematic", patterns: /\bcinematic|\bfilm ?look|\bmovie ?look|\bteal ?(and|&) ?orange|سينمائ/i },
-  { look: "warm", patterns: /\bwarm(er)?\b|\bgolden\b|\bsunny\b|دافئ|دافي|حار/i },
+  { look: "warm", patterns: /\bwarm(er)?\b|\bwarm it up\b|\bgolden\b|\bsunny\b|دافئ|دافي|دفي|الوان دافيه|حار/i },
   { look: "cool", patterns: /\bcool(er)?\b|\bcold(er)?\b|\bblue ?tone|بارد/i },
   /*
    * `punch` the colour look, and not `punch in` the zoom.
@@ -177,7 +177,7 @@ const LOOK_WORDS: Array<{ look: GradeLook; patterns: RegExp }> = [
   {
     look: "punch",
     patterns:
-      /\bpunch(y|ier)\b|\bpunch\b(?!\s*(in|into|it|here|at|on|up)\b)|\bmake it pop\b|\bmore contrast\b|\bvivid\b|\bvibrant\b|اوضح|اقوي الوان|الوان اقوي/i,
+      /\bpunch(y|ier)\b|\bpunch\b(?!\s*(in|into|it|here|at|on|up)\b)|\bmake (?:it|the colou?rs?) pop\b|\bcolou?rs? pop\b|\bmore contrast\b|\bvivid\b|\bvibrant\b|\bsaturated?\b|اوضح|اقوي الوان|الوان اقوي|لون اقوي/i,
   },
 ];
 
@@ -426,7 +426,7 @@ export function emojiIn(text: string): string {
  * types the shadda and the product cannot be a spelling test.
  */
 const SFX_WORDS =
-  /\bsound ?effects?\b|\bsfx\b|\bwhoosh(?:es)?\b|\bswoosh(?:es)?\b|\brisers?\b|\bimpact sounds?\b|\btransition sounds?\b|مؤثرات صوتيه|مؤثرات صوتيه|مؤثرات الصوت|مؤثرات الصوت|اصوات انتقال|اصوات انتقال|صوت علي القص/i;
+  /\bsound ?effects?\b|\bsfx\b|\bwhoosh(?:es)?\b|\bswoosh(?:es)?\b|\brisers?\b|\bimpact sounds?\b|\btransition sounds?\b|مؤثرات|موثرات|اصوات انتقال|صوت علي القص/i;
 
 const NO_SFX_WORDS =
   /\bno sound ?effects?\b|\bno sfx\b|\bwithout (?:any )?sound ?effects?\b|\bno whoosh(?:es)?\b|\bdon'?t add (?:any )?sound ?effects?\b|بدون مؤثرات|بدون مؤثرات|بلا مؤثرات|بلا مؤثرات|من غير مؤثرات|لا مؤثرات|لا مؤثرات/i;
@@ -439,7 +439,7 @@ const NO_SFX_WORDS =
  * a sentence that already asked for effects and then said "subtle" is asking
  * about the effects.
  */
-const SFX_QUIET_WORDS = /\bsubtle\b|\bminimal\b|\bgentle\b|\blight touch\b|خفيفه|خفيف|بسيطه|هادئه/i;
+const SFX_QUIET_WORDS = /\bsubtle\b|\bminimal\b|\bgentle\b|\bquiet(?:er)?\b|\blight touch\b|خفيفه|خفيف|بسيطه|هادئه|اهدي|اخف/i;
 const SFX_PUNCHY_WORDS = /\bpunchy\b|\baggressive\b|\bhard[- ]hitting\b|\bheavy\b|قويه|عنيفه|ثقيله/i;
 /**
  * Asking for the video to be *made* rather than edited.
@@ -460,7 +460,7 @@ const REEL_WORDS =
 const NO_REEL_WORDS =
   /\bwithout (?:my |the )?(?:photos?|images?|pictures?)\b|\bno slideshow\b|\bdon'?t use (?:my |the )?(?:photos?|images?|pictures?)\b|بدون الصور|بدون صور|بلا صور|لا تستخدم الصور/i;
 
-const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?) )?to (the )?(beat|music|rhythm|drop)\b|علي الايقاع|مع الايقاع/i;
+const BEAT_SYNC_WORDS = /\b(cut|sync|edit|time)\w* (it |them |the (cuts?|clips?) )?(?:to|on|with) (the )?(beat|music|rhythm|drop)\b|علي الايقاع|مع الايقاع|علي ايقاع/i;
 
 /**
  * Asked-for things that are real product ideas but have no operation yet.
@@ -589,7 +589,7 @@ export interface LibraryFile {
 }
 
 const BROLL_WORDS =
-  /\bb-?roll|cut ?away|cutaway|footage|insert (a |the )?(clip|shot)\b|بي ?رول|لقطات مسانده|لقطه مسانده|مقاطع مسانده|لقطات اضافيه/i;
+  /\bb[ -]?roll|cut ?away|cutaway|footage|insert (a |the )?(clip|shot)\b|\b(?:add|use|put|show) (?:some |my |the )?clips?\b|بي ?رول|لقطات مسانده|لقطه مسانده|مقاطع مسانده|لقطات اضافيه|مقاطع من ملفاتي|من مقاطعي/i;
 const OVERLAY_WORDS =
   /\blogo|overlay|screenshot|graphic|show (the |my )?(image|picture|photo)\b|الشعار|شعاري|لوجو|اللوغو|لوغو|اللوقو|صوره فوق|لقطه شاشه|سكرين ?شوت/i;
 
@@ -622,6 +622,23 @@ const CUTAWAY_DURATION = 3;
 
 /** A phrase in quotes is the one case where the words are unambiguously theirs. */
 const QUOTED = /["“”']([^"“”']{1,120})["“”']/;
+
+/**
+ * The opening or the ending, named as a thing rather than as a length.
+ *
+ * "Cut the intro", "trim the end", «احذف المقدمة». Perfectly clear and
+ * unanswerable: an intro is however long the person decided it was, and
+ * nothing on this side has heard the recording.
+ */
+const ENDS_ASK =
+  /\b(?:cut|remove|drop|trim|skip|lose|get rid of)\b[^.!?]{0,16}\b(?:the )?(?:intro|introduction|outro|ending|the end|beginning|opening)\b|(?:احذف|اقطع|شيل|الغي|قص)\s*(?:ال)?(?:مقدمه|نهايه|بدايه|خاتمه)/i;
+
+/** Keeping somebody centred by following them, which is not built. */
+const FOLLOW_SUBJECT_ASK =
+  /\b(?:follow|track|centre|center|keep)\b[^.!?]{0,16}\b(?:my|the|his|her)?\s*(?:face|head|subject|me)\b|\bcent(?:re|er) me\b|\bkeep me in frame\b|(?:تابع|لاحق|تتبع)\s*(?:وجهي|الوجه)|خليني بالنص/i;
+
+/** A progress bar, which is not built either. */
+const PROGRESS_BAR_ASK = /\bprogress bar\b|\bprogress ?bar\b|\bcountdown bar\b|شريط تقدم|شريط الوقت/i;
 
 /**
  * Asking for the words to arrive one at a time.
@@ -742,7 +759,7 @@ const NO_TIGHTEN_WORDS =
  * «ومضة» invisible to the transition matcher.
  */
 const EDIT_THIS_WORDS =
-  /\b(?:edit|tidy|polish|fix|work on|do your thing)\b|\bclean (?:it |this )?up\b|\bsort (?:it |this )?out\b|\bmake (?:it|this) (?:look |seem |feel )?(?:good|better|nice|punchy|watchable|professional|polished|pro|sharp|clean|proper)\b|\bmake (?:it|this) look like\b|\blike a (?:real|proper|professional)\b|\bgo ahead\b|\bwhatever you think\b|\byou decide\b|عدله|عدله|عدلي|رتبه|رتبه|نظفه|نظفه|سوه|سوه|اعمل اللازم|اعملها|اعمله|شوف الافضل|زي ما تشوف|خليه? ?(?:يطلع )?(?:حلو|احترافي|منيح|مرتب|مرتب)|خليه? ?(?:يطلع )?(?:حلو|احترافي|منيح|مرتب|مرتب)|زي فيديوهات|زي الفيديوهات|مثل فيديوهات|اشتغل عليه/i;
+  /\b(?:edit|tidy|polish|fix|work on|do your thing)\b|\bclean (?:it |this )?up\b|\bsort (?:it |this )?out\b|\bmake (?:it|this) (?:look |seem |feel )?(?:good|better|nice|punchy|watchable|professional|polished|pro|sharp|clean|proper)\b|\bmake (?:it|this) look like\b|\blike a (?:real|proper|professional)\b|\bgo ahead\b|\bwhatever you think\b|\byou decide\b|عدله|عدله|عدلي|رتبه|رتبه|نظفه|نظفه|سوه|سوه|اعمل اللازم|اعملها|اعمله|شوف الافضل|زي ما تشوف|خليه? ?(?:يطلع )?(?:حلو|احترافي|منيح|مرتب|مرتب)|خليه? ?(?:يطلع )?(?:حلو|احترافي|منيح|مرتب|مرتب)|زي فيديوهات|زي الفيديوهات|مثل فيديوهات|بدي(?: اياه| ياه)? (?:احلي|اجمل|افضل|احسن)|خليه اجمل|اشتغل عليه/i;
 
 /**
  * Whether this sentence is asking for an edit at all.
@@ -1522,13 +1539,13 @@ const NOISE_WORDS =
   /\b(?:noise|noisy|hiss|hissing|hum|humming|buzz|buzzing|denoise)\b|\b(?:room|background|ambient) tone\b|\bclean (?:up )?(?:the |my )?(?:audio|sound)\b|ضجيج|ضوضاء|شوشره|صوت المروحه|صوت الغرفه|ضجه|ضجه|نظف الصوت|نظف الصوت/i;
 
 const LOUDNESS_WORDS =
-  /\bloud|volume|quiet|audio level|sound level|normali[sz]|\blevel(l?ing)? (the |my )?(audio|sound|volume)\b|\bfix (?:the |my )?(?:audio|sound)\b|\bsort (?:out )?(?:the |my )?(?:audio|sound)\b|مستوي الصوت|اضبط الصوت|وحد الصوت|عدل الصوت|عدل الصوت|ظبط(?:لي|له|هولي)? ?(?:ال)?صوت|ظبط(?:لي|له|هولي)? ?(?:ال)?صوت|صلح الصوت|صلح الصوت|ارفع الصوت|الصوت واطي|الصوت منخفض|الصوت عالي/i;
+  /\bloud|volume|quiet|audio level|sound level|normali[sz]|\blevel(l?ing)? (the |my )?(audio|sound|volume)\b|\bfix (?:the |my )?(?:audio|sound)\b|\bsort (?:out )?(?:the |my )?(?:audio|sound)\b|مستوي الصوت|اضبط الصوت|وحد الصوت|عدل الصوت|عدل الصوت|ظبط(?:لي|له|هولي)? ?(?:ال)?صوت|ظبط(?:لي|له|هولي)? ?(?:ال)?صوت|صلح الصوت|صلح الصوت|ارفع الصوت|الصوت واطي|الصوت منخفض|الصوت عالي|صوتي اعلي|صوتي واطي|صوتي منخفض|علي صوتي/i;
 // "fade" alone is enough — every reading of it in an edit request means the
 // ends ("fade it in", "fade to black", "soft ending"). Arabic: تلاشي/تلاشى.
 // A hook is the one edit everyone names the same way. "Cold open" is the film
 // term; "start with the best bit" is what people actually type.
 const HOOK_WORDS =
-  /\bhook\b|\bcold open\b|start (?:it )?with the (?:best|strongest)|open (?:it )?(?:on|with) the (?:best|strongest)|\bهوك\b|ابدا بالاقوي|ابدا باقوي|ابدا بافضل|ابدا باهم|افتح باقوي/i;
+  /\bhook\b|\bcold open\b|start (?:it )?with the (?:best|strongest)|\bbest (?:bit|part) first\b|\bput the best (?:bit|part) first\b|open (?:it )?(?:on|with) the (?:best|strongest)|هوك|ابدا بالاقوي|ابدا باقوي|ابدا بافضل|ابدا باهم|افتح باقوي|حط الاحلي بالاول|حط الاقوي بالاول|الاحلي بالاول|الاقوي بالاول/i;
 
 /**
  * The shaped joins, and the words people use for them.
@@ -2587,7 +2604,27 @@ export function planFromText(
           : say(`bring in the words "${words}" near the start`, `أُدخل عبارة "${words}" قرب البداية`),
       );
     }
-  } else if (/\btitle|\btext on screen\b/i.test(text) && !CAPTION_WORDS.test(text)) {
+    /*
+      The same request, in the words people use for it.
+
+      "Add my name at the bottom" and «حط اسمي تحت» are asking for a title and
+      were reaching nothing, because this only looked for the word "title".
+      Deliberately still not a bare "caption": those are the *spoken* words,
+      which the product reads off the recording and does not need to be told.
+    */
+  } else if (
+    /\btitle|\btext on screen\b|\b(?:add|put|show|write)\b[^.!?]{0,20}\b(?:my name|a name|a lower.?third|a label)\b|(?:حط|ضيف|اكتب)\s*(?:اسمي|عنوان|العنوان|لقب)/i.test(text) &&
+    !CAPTION_WORDS.test(text) &&
+    /*
+      And not when the section card above has already said it.
+
+      "Put a title card at the start" reaches both, and both say the same
+      thing: we will put any words on screen, in quotes, and cannot invent
+      them. Somebody reading their own refusal twice in one reply concludes
+      the product is confused rather than careful.
+    */
+    !cannotYet.some((p) => /what it should say|شو مكتوب عليها/.test(p.en + p.ar))
+  ) {
     cannotYet.push(
       say(
         "animate a title yet, because I do not know the words. Put them in quotes and I will",
@@ -2630,6 +2667,56 @@ export function planFromText(
 
   for (const { patterns, label } of NOT_YET) {
     if (patterns.test(text)) cannotYet.push(label);
+  }
+
+  /*
+    Three asks that need one more thing from the person, not a refusal.
+
+    Each was answered with "I did not catch what you want changed", which is
+    the reply for a sentence nobody could read. These were read perfectly: they
+    are requests for something this product does, missing one fact it cannot
+    invent. Saying which fact turns a dead end into a next message.
+  */
+
+  /*
+    The opening or the ending, with nobody having said how long it is.
+
+    "Cut the intro" is a clear request and an unanswerable one: an intro is
+    however long the person decided it was, and nothing here has heard the
+    recording. `extractRange` takes seconds, so seconds are what this needs,
+    and saying so is more use than a refusal.
+
+    Not fired when the sentence already named a length, because then it is the
+    request `parseRange` just answered.
+  */
+  const wantsEndsTrimmed = ENDS_ASK.test(text) && !parseRange(text) && !operations.some((op) => op.type === "extractRange");
+  if (wantsEndsTrimmed) {
+    cannotYet.push(
+      say(
+        "tell where your intro ends by myself. Say how long it runs, like: cut the first 15 seconds, and I will take exactly that",
+        "أعرف لحالي وين بتخلص المقدمة. قلّي قدّيش طولها، متلًا: اقطع أول 15 ثانية، وبشيلها بالظبط",
+      ),
+    );
+  }
+
+  /*
+    And the two that are simply not built, said plainly rather than swallowed.
+  */
+  if (FOLLOW_SUBJECT_ASK.test(text)) {
+    cannotYet.push(
+      say(
+        "keep you centred by following your face yet. What I can do is cut between a wide shot and a close one, which is how a second camera would cover it",
+        "أضلّ ملاحق وجهك ليضلّ بالنص بعد. اللي بقدر عليه إني أبدّل بين لقطة واسعة ولقطة قريبة، متل ما كانت كاميرا تانية تصوّر",
+      ),
+    );
+  }
+  if (PROGRESS_BAR_ASK.test(text)) {
+    cannotYet.push(
+      say(
+        "draw a bar showing how much is left yet",
+        "أرسم شريط بيورّي قدّيش ضلّ من الفيديو بعد",
+      ),
+    );
   }
 
   /*

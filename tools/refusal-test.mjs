@@ -403,6 +403,58 @@ const LIMITS = [
     */
     witness: () => [],
   },
+  {
+    id: "ends-by-name",
+    asked: "cut the intro",
+    says: "tell where your intro ends by myself",
+    /*
+      Not a missing feature: `extractRange` takes seconds and does exactly this
+      the moment somebody says how many. What is missing is a fact only they
+      have, so the refusal's job is to ask for it -- and it stops being honest
+      the day anything on this side can hear the recording and find the seam
+      itself.
+    */
+    witness: (sentence) => {
+      const said = [];
+      if (!builtOperations.includes("extractRange")) {
+        said.push("there is no extractRange any more, so this points at something that cannot be done either");
+      }
+      if (!/how long/i.test(sentence)) said.push("does not ask for the one thing it needs");
+      if (!/first 15 seconds|\d+ seconds/i.test(sentence)) said.push("does not show what to type");
+      return said;
+    },
+  },
+  {
+    id: "follow-subject",
+    asked: "follow my face",
+    says: "keep you centred by following your face yet",
+    /*
+      A real gap, and the nearest built thing is named in it so the sentence is
+      a suggestion rather than a door closing. If tracking is ever built this
+      turns red here.
+    */
+    witness: (sentence) => {
+      const said = [];
+      if (builtOperations.some((op) => /track|autoFrame|follow/i.test(op))) {
+        said.push("the contract has a tracking operation now, so this refusal is a lie");
+      }
+      if (!builtOperations.includes("alternateFraming")) {
+        said.push("points at alternateFraming, which the contract no longer has");
+      }
+      if (!/wide shot and a close one/i.test(sentence)) said.push("does not name what we can do instead");
+      return said;
+    },
+  },
+  {
+    id: "progress-bar",
+    asked: "add a progress bar",
+    says: "draw a bar showing how much is left yet",
+    /* A plain gap with no near neighbour to point at. */
+    witness: () =>
+      builtOperations.some((op) => /progress/i.test(op))
+        ? ["the contract has a progress operation now, so this refusal is a lie"]
+        : [],
+  },
 ];
 
 {

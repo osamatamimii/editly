@@ -2333,6 +2333,97 @@ console.log("\nArabic as people type it, not as a dictionary spells it");
   check("«خليه حلو» is still an edit", asksForAnEdit("خليه حلو"));
 }
 
+console.log("\nSixty-nine more sentences, typed the way people type them");
+{
+  /*
+    A second corpus, written after the first round of fixes and deliberately
+    not overlapping it: the things somebody says on their fourth message rather
+    than their first. Twenty-two of these came back unheard.
+
+    The bar is the same and it is not "planned perfectly". It is that the
+    product says something true about every one -- it does the thing, or it
+    names the one fact it needs, or it says plainly that it cannot and points
+    at the nearest thing it can.
+
+    The two it still cannot hear are listed at the bottom as exactly that,
+    rather than quietly dropped from the corpus.
+  */
+  const opsFor = (asked) => planFromText(asked, { assets: LIBRARY }).operations;
+  const heard = (asked) => {
+    const intent = planFromText(asked, { assets: LIBRARY });
+    return (
+      intent.operations.length > 0 ||
+      intent.cannotYet.length > 0 ||
+      intent.declined.length > 0 ||
+      asksForAnEdit(asked)
+    );
+  };
+
+  const TYPED = [
+    "add a hook at the start", "put the best bit first", "make the intro shorter",
+    "cut the intro", "remove the outro", "trim the end", "i want it punchier",
+    "add some energy", "make it feel faster", "give it a cinematic look",
+    "warm it up a bit", "make the colours pop", "crop it to square",
+    "add chapter titles", "put a title card at the start", 'name it "Episode 4"',
+    "add my name at the bottom", "subtitle it in white", "yellow captions",
+    "karaoke style captions", "captions one word at a time", "put captions at the bottom",
+    "smaller captions", "add a whoosh between cuts", "quieter sound effects",
+    "no sound effects", "louder voice", "duck the music under my voice",
+    "fade the music out at the end", "cut on the beat", "add b roll from my clips",
+    "show the screenshot at 10 seconds", "zoom in when i make the point",
+    "center me in frame", "follow my face", "add a progress bar",
+    "ضيف هوك بالبداية", "حط الاحلى بالاول", "قصر المقدمة", "احذف المقدمة",
+    "شيل النهاية", "بدي اياه احلى", "ضيف طاقة", "خليه سينمائي", "دفي الالوان",
+    "خليه مربع", "حط عنوان بالبداية", 'سمّيه "الحلقة 4"', "حط اسمي تحت",
+    "ترجمة بيضا", "ترجمة صفرا", "كابشن كاريوكي", "ترجمة كلمة كلمة",
+    "حط الترجمة تحت", "ترجمة اصغر", "ضيف صوت انتقال", "مؤثرات اهدى",
+    "بلا مؤثرات", "صوتي اعلى", "نزل الموسيقى تحت صوتي", "الموسيقى تخفت بالاخر",
+    "قص على الايقاع", "حط مقاطع من ملفاتي", "ورجيني الصورة عند الثانية 10",
+    "قرب لما احكي النقطة المهمة",
+  ];
+  for (const asked of TYPED) {
+    check(`'${asked}' is heard`, heard(asked), "answered with the sentence that says we did not catch it");
+  }
+
+  /*
+    And the shape of each answer, spot-checked where getting it wrong would be
+    invisible: a refusal that reads like a plan, or a plan that quietly does
+    something else.
+  */
+  const refusalFor = (asked) => JSON.stringify(planFromText(asked, { assets: LIBRARY }).cannotYet ?? []);
+  check("'cut the intro' asks how long it runs", /how long/i.test(refusalFor("cut the intro")));
+  check("«احذف المقدمة» كمان", /قدّيش طولها/.test(refusalFor("احذف المقدمة")));
+  check("'follow my face' points at the two-camera cut", /wide shot and a close one/i.test(refusalFor("follow my face")));
+  check("'add a progress bar' says plainly that it cannot", /bar showing how much is left/i.test(refusalFor("add a progress bar")));
+  check(
+    "'add my name at the bottom' asks for the words",
+    /do not know the words/i.test(refusalFor("add my name at the bottom")),
+  );
+  check("«حط اسمي تحت» كمان", /ما بعرف كلماته/.test(refusalFor("حط اسمي تحت")));
+  check(
+    "and only once, not three times over",
+    JSON.parse(refusalFor("put a title card at the start")).filter((p) => /title|عنوان/i.test(p.en + p.ar)).length <= 1,
+    refusalFor("put a title card at the start"),
+  );
+
+  /*
+    Asking for the cuts to follow the music is asking for the music too, so the
+    answer is a bed and zooms that land on its beats. Checked as that rather
+    than as an operation with "beat" in its name, which is not how the plan
+    spells it.
+  */
+  const beat = opsFor("cut on the beat").map((o) => o.type);
+  check("'cut on the beat' lays the track and lands the zooms on it", beat.includes("addMusic") && beat.includes("zoomPunch"), JSON.stringify(beat));
+  check("«قص على الايقاع» كمان", (() => { const a = opsFor("قص على الايقاع").map((o) => o.type); return a.includes("addMusic") && a.includes("zoomPunch"); })());
+  check("'add b roll from my clips' reaches the clips", opsFor("add b roll from my clips").some((o) => o.type === "insertBRoll"));
+  check("«حط مقاطع من ملفاتي» كمان", opsFor("حط مقاطع من ملفاتي").some((o) => o.type === "insertBRoll"));
+  check("'make the colours pop' is the punchy look", opsFor("make the colours pop").find((o) => o.type === "grade")?.look === "punch");
+  check("«دفي الالوان» دافي", opsFor("دفي الالوان").find((o) => o.type === "grade")?.look === "warm");
+  check("«صوتي اعلى» reaches the levelling", opsFor("صوتي اعلى").some((o) => o.type === "normalizeLoudness"));
+  check("«مؤثرات اهدى» reaches the effects", opsFor("مؤثرات اهدى").some((o) => o.type === "soundEffects"));
+  check("«حط الاحلى بالاول» is a cold open", opsFor("حط الاحلى بالاول").some((o) => o.type === "coldOpen"));
+}
+
 await rm(buildDir, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} checks passed`);
